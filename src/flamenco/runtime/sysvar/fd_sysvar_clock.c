@@ -52,7 +52,7 @@ unix_timestamp_from_genesis( fd_bank_t * bank ) {
   /* TODO: genesis_creation_time needs to be a long in the bank. */
   return fd_long_sat_add(
       (long)fd_bank_genesis_creation_time_get( bank ),
-      (long)( fd_uint128_sat_mul( fd_bank_slot_get( bank ), fd_bank_ns_per_slot_get( bank ) ) / NS_IN_S ) );
+      (long)( fd_uint128_sat_mul( fd_bank_slot_get( bank ), fd_bank_ns_per_slot_get( bank ).ud ) / NS_IN_S ) );
 }
 
 void
@@ -134,7 +134,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
                         fd_sol_sysvar_clock_t * clock,
                         fd_runtime_stack_t *    runtime_stack ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       slot_duration  = (ulong)fd_bank_ns_per_slot_get( bank );
+  ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
   ulong                       current_slot   = fd_bank_slot_get( bank );
 
   ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
@@ -193,7 +193,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
        https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
     ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
       .timestamp = estimate,
-      .stake     = vote_state->stake_t_2,
+      .stake     = { .ud=vote_state->stake_t_2 },
     };
     ts_ele_cnt++;
 
@@ -214,7 +214,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
   uint128 stake_accumulator = 0;
   long    estimate          = 0L;
   for( ulong i=0UL; i<ts_ele_cnt; i++ ) {
-    stake_accumulator = fd_uint128_sat_add( stake_accumulator, ts_eles[i].stake );
+    stake_accumulator = fd_uint128_sat_add( stake_accumulator, ts_eles[i].stake.ud );
     if( stake_accumulator>(total_stake/2UL) ) {
       estimate = ts_eles[ i ].timestamp;
       break;

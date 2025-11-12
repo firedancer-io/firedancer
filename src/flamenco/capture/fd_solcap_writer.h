@@ -141,7 +141,7 @@ fd_solcap_writer_stake_rewards_begin(
     ulong                payout_epoch,
     ulong                reward_epoch,
     ulong                inflation_lamports,
-    uint128              total_points
+    fd_w_u128_t          total_points
 );
 
 int

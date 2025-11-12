@@ -134,7 +134,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
   fd_bank_tick_height_set( bank, manifest->tick_height );
   fd_bank_max_tick_height_set( bank, manifest->max_tick_height );
-  fd_bank_ns_per_slot_set( bank, manifest->ns_per_slot );
+  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } } );
   fd_bank_ticks_per_slot_set( bank, manifest->ticks_per_slot );
   fd_bank_genesis_creation_time_set( bank, manifest->creation_time_millis );
   fd_bank_slots_per_year_set( bank, manifest->slots_per_year );

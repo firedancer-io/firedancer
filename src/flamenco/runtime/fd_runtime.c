@@ -1456,7 +1456,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
 
   fd_bank_hashes_per_tick_set( bank, !!poh->hashes_per_tick ? poh->hashes_per_tick : 0UL );
 
-  fd_bank_ns_per_slot_set( bank, target_tick_duration * genesis_block->ticks_per_slot );
+  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ud=target_tick_duration * genesis_block->ticks_per_slot } );
 
   fd_bank_ticks_per_slot_set( bank, genesis_block->ticks_per_slot );
 

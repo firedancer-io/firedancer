@@ -161,7 +161,7 @@ class PrimitiveMember(TypeNode):
         "double" :    lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_double_o( rng );', file=body),
         "long" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_long( rng );', file=body),
         "uint" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uint( rng );', file=body),
-        "uint128" :   lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uint128( rng );', file=body),
+        "uint128" :   lambda n, varint, indent: print(f'{indent}  self->{n} = (fd_w_u128_t) {{ .ul={{ fd_rng_ulong( rng ), fd_rng_ulong( rng ) }} }};', file=body),
         "bool" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
         "uchar[32]" : lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),

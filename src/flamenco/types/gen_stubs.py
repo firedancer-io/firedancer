@@ -243,7 +243,7 @@ class PrimitiveMember(TypeNode):
         "double" :    lambda n: print(f'  double {n};',    file=header),
         "long" :      lambda n: print(f'  long {n};',      file=header),
         "uint" :      lambda n: print(f'  uint {n};',      file=header),
-        "uint128" :   lambda n: print(f'  uint128 {n};',   file=header),
+        "uint128" :   lambda n: print(f'  fd_w_u128_t {n};',   file=header),
         "bool" :      lambda n: print(f'  uchar {n};',     file=header),  # bool stored as uchar
         "uchar" :     lambda n: print(f'  uchar {n};',     file=header),
         "uchar[32]" : lambda n: print(f'  uchar {n}[32];', file=header),

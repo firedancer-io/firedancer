@@ -19,10 +19,8 @@
 #define FD_FLAMENCO_TYPE_SINT      (0x07)
 #define FD_FLAMENCO_TYPE_ULONG     (0x08)
 #define FD_FLAMENCO_TYPE_SLONG     (0x09)
-#if FD_HAS_INT128
 #define FD_FLAMENCO_TYPE_UINT128   (0x0a)
 #define FD_FLAMENCO_TYPE_SINT128   (0x0b)
-#endif /* FD_HAS_INT128 */
 #define FD_FLAMENCO_TYPE_FLOAT     (0x0c)
 #define FD_FLAMENCO_TYPE_DOUBLE    (0x0d)
 #define FD_FLAMENCO_TYPE_HASH256   (0x0e)  /* pubkey, account */
