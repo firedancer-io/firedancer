@@ -284,6 +284,30 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_capture_ctx_t *        capture_ctx,
                                    int                       silent );
 
+/* fd_runtime_new_fee_rate_governor_derived updates the bank's
+   FeeRateGovernor to a new derived value based on the parent bank's
+   FeeRateGovernor and the latest_signatures_per_slot.
+   https://github.com/anza-xyz/solana-sdk/blob/badc2c40071e6e7f7a8e8452b792b66613c5164c/fee-calculator/src/lib.rs#L97-L157
+
+   latest_signatures_per_slot is typically obtained from the parent
+   slot's signature count for the bank being processed.
+
+   The fee rate governor is deprecated in favor of FeeStructure in
+   transaction fee calculations but we still need to maintain the old
+   logic for recent blockhashes sysvar (and nonce logic that relies on
+   it). Thus, a separate bank field, `rbh_lamports_per_sig`, tracks the
+   updates to the fee rate governor derived lamports-per-second value.
+
+   Relevant links:
+   - Deprecation issue tracker:
+     https://github.com/anza-xyz/agave/issues/3303
+   - PR that deals with disambiguation between FeeStructure and
+     FeeRateGovernor in SVM: https://github.com/anza-xyz/agave/pull/3216
+  */
+void
+fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
+                                          ulong       latest_signatures_per_slot );
+
 /* Transaction Level Execution Management *************************************/
 
 int

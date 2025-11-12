@@ -84,6 +84,8 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   fee_rate_governor->min_lamports_per_signature    = manifest->fee_rate_governor.min_lamports_per_signature;
   fee_rate_governor->max_lamports_per_signature    = manifest->fee_rate_governor.max_lamports_per_signature;
   fee_rate_governor->burn_percent                  = manifest->fee_rate_governor.burn_percent;
+  /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/serde_snapshot.rs#L464-L466 */
+  fd_bank_rbh_lamports_per_sig_set( bank, manifest->lamports_per_signature );
 
   fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
   inflation->initial         = manifest->inflation_params.initial;
@@ -128,8 +130,6 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( bank, *last_hash );
 
   fd_bank_capitalization_set( bank, manifest->capitalization );
-  fd_bank_lamports_per_signature_set( bank, manifest->lamports_per_signature );
-  fd_bank_prev_lamports_per_signature_set( bank, manifest->lamports_per_signature );
   fd_bank_transaction_count_set( bank, manifest->transaction_count );
   fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
   fd_bank_tick_height_set( bank, manifest->tick_height );

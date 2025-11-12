@@ -104,6 +104,12 @@ static const fd_pubkey_t TESTNET_TIP_ACCOUNTS[ 8 ] = {
   {{ 0xd1, 0xab, 0x4b, 0x38, 0x6a, 0x2e, 0x14, 0x66, 0x41, 0x55, 0xed, 0xc4, 0xb8, 0xa1, 0x10, 0xde, 0xfb, 0x01, 0x17, 0x53, 0x34, 0x51, 0xae, 0x60, 0xb5, 0xda, 0x02, 0xc2, 0x7e, 0xe8, 0xa7, 0x50 }}
 };
 
+/* FeeStructure constants. Bank is always initialized with
+   `FeeStructure::default()`
+   https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/runtime/src/bank.rs#L1859
+   https://github.com/anza-xyz/solana-sdk/blob/badc2c40071e6e7f7a8e8452b792b66613c5164c/fee-structure/src/lib.rs#L100 */
+#define FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE (5000UL)
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_const_h */

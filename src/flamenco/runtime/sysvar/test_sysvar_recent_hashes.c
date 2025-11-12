@@ -82,7 +82,7 @@ test_sysvar_recent_hashes_update( fd_wksp_t * wksp ) {
   FD_TEST( fd_sysvar_cache_recent_hashes_is_valid( env->sysvar_cache )==0 );
   fd_hash_t poh = { .ul={ 0x110b8a330ecf93c2UL, 0xb709306fbd53c744, 0xda66f7127781dd72, 0UL } };
   fd_bank_poh_set( env->bank, poh );
-  fd_bank_lamports_per_signature_set( env->bank, 1000UL );
+  fd_bank_rbh_lamports_per_sig_set( env->bank, 1000UL );
   fd_sysvar_recent_hashes_update( env->bank, env->accdb, &env->xid, NULL );
   fd_sysvar_cache_restore( env->bank, env->accdb->funk, &env->xid );
   FD_TEST( fd_sysvar_cache_recent_hashes_is_valid( env->sysvar_cache )==1 );
@@ -100,7 +100,7 @@ test_sysvar_recent_hashes_update( fd_wksp_t * wksp ) {
   for( ulong i=0UL; i<149UL; i++ ) {
     poh.ul[3] = i+1UL;
     fd_bank_poh_set( env->bank, poh );
-    fd_bank_lamports_per_signature_set( env->bank, 1001UL+i );
+    fd_bank_rbh_lamports_per_sig_set( env->bank, 1001UL+i );
     fd_sysvar_recent_hashes_update( env->bank, env->accdb, &env->xid, NULL );
     fd_sysvar_cache_restore( env->bank, env->accdb->funk, &env->xid );
 
