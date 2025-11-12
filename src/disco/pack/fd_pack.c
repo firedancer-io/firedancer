@@ -2657,6 +2657,8 @@ fd_pack_end_block( fd_pack_t * pack ) {
   fd_histf_sample( pack->rebated_cus_per_block,   pack->cumulative_rebated_cus                               );
   fd_histf_sample( pack->scheduled_cus_per_block, pack->cumulative_rebated_cus + pack->cumulative_block_cost );
 
+  FD_LOG_INFO(("pack end block SLOT %u COST %lu", pack->compressed_slot_number, pack->cumulative_block_cost));
+
   pack->microblock_cnt              = 0UL;
   pack->data_bytes_consumed         = 0UL;
   pack->cumulative_block_cost       = 0UL;
