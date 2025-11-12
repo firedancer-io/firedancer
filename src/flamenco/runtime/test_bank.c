@@ -1,4 +1,63 @@
 #include "fd_bank.h"
+#include "fd_exec_stack.h"
+
+/* Regression guard for bundle execution: verifies that a transaction
+   context marked as being part of a bundle exposes writable accounts
+   updated by preceding bundle contexts to the executor. This prevents
+   the executor from falling back to AccountsDB reads and miss
+   in-flight mutations.*/
+static void
+test_bundle_prev_ctx_is_visible_to_executor( void ) {
+  fd_exec_txn_ctx_t prev_ctx[1] = {0};
+  fd_exec_txn_ctx_t curr_ctx[1] = {0};
+  fd_exec_accounts_t exec_accounts[1] = {0};
+  fd_txn_p_t prev_txn_p[1] = {0};
+  fd_txn_p_t curr_txn_p[1] = {0};
+  fd_txn_t * prev_txn = TXN( prev_txn_p );
+  fd_txn_t * curr_txn = TXN( curr_txn_p );
+  prev_txn->transaction_version = FD_TXN_VLEGACY;
+  curr_txn->transaction_version = FD_TXN_VLEGACY;
+  prev_txn->signature_cnt        = 1U;
+  curr_txn->signature_cnt        = 1U;
+  prev_txn->acct_addr_cnt        = 1U;
+  curr_txn->acct_addr_cnt        = 1U;
+
+  prev_ctx->txn = *prev_txn_p;
+  curr_ctx->txn = *curr_txn_p;
+
+  fd_pubkey_t fee_payer_key = {0};
+  fee_payer_key.uc[ 0 ] = 42;
+  prev_ctx->account_keys[ FD_FEE_PAYER_TXN_IDX ] = fee_payer_key;
+  curr_ctx->account_keys[ FD_FEE_PAYER_TXN_IDX ] = fee_payer_key;
+  prev_ctx->accounts_cnt = 1UL;
+  curr_ctx->accounts_cnt = 1UL;
+  prev_ctx->nonce_account_idx_in_txn = ULONG_MAX;
+  curr_ctx->nonce_account_idx_in_txn = ULONG_MAX;
+
+   struct {
+      fd_account_meta_t meta;
+      uchar             data[ 1 ];
+   } prev_account_storage = {0};
+   prev_account_storage.meta.lamports = 500UL;
+
+   FD_TEST( fd_txn_account_join( fd_txn_account_new( &prev_ctx->accounts[ FD_FEE_PAYER_TXN_IDX ],
+                                                     &fee_payer_key,
+                                                     &prev_account_storage.meta,
+                                                     1 ) ) );
+
+  curr_ctx->exec_accounts = exec_accounts;
+  curr_ctx->bundle.is_bundle          = 1;
+  curr_ctx->bundle.prev_txn_ctxs_cnt  = 1UL;
+  curr_ctx->bundle.prev_txn_ctxs[ 0 ] = prev_ctx;
+
+  /* Edge case: fee payer lamports were mutated by the previous bundle
+     transaction and have not been committed to AccountsDB yet. */
+  fd_txn_account_t * acct = fd_executor_setup_txn_account( curr_ctx, FD_FEE_PAYER_TXN_IDX );
+  FD_TEST( acct );
+  /* If the executor fails to consult prev_txn_ctxs, meta points to a
+     zeroed staging buffer (or NULL) and this assertion trips. */
+  FD_TEST( acct->meta->lamports==prev_account_storage.meta.lamports );
+}
 
 static void
 test_bank_advancing( void * mem ) {
@@ -254,6 +313,7 @@ test_bank_advancing( void * mem ) {
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+  test_bundle_prev_ctx_is_visible_to_executor();
 
   fd_pubkey_t key_0 = { .ul[0] = 1 };
   fd_pubkey_t key_1 = { .ul[0] = 2 };

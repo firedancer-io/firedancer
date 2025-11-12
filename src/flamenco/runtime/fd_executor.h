@@ -82,6 +82,10 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 void
 fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx );
 
+fd_txn_account_t *
+fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
+                               ushort              idx );
+
 int
 fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx );
 
