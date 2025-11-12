@@ -666,11 +666,6 @@ struct fd_gui {
     fd_gui_scheduler_counts_t scheduler_counts_snap[ FD_GUI_SCHEDULER_COUNT_SNAP_CNT ][ 1 ];
   } summary;
 
-  struct {
-    fd_gui_ipinfo_node_t * nodes;
-    char country_code[ 512 ][ 3 ]; /* ISO 3166-1 alpha-2 country codes */
-  } ipinfo;
-
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
 
   fd_gui_leader_slot_t leader_slots[ FD_GUI_LEADER_CNT ][ 1 ];
