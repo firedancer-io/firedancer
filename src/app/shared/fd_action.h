@@ -118,6 +118,7 @@ union fdctl_args {
 
   struct {
     uint fsck : 1;
+    uint fsck_lthash : 1;
     uint lthash : 1;
     uint accounts_hist : 1;
     uint offline : 1;
