@@ -58,7 +58,6 @@ for t,t2 in [("bool",1),
              ("hash",32),
              ("uchar[32]",32),
              ("signature",64),
-             ("uchar[128]",128),
              ("uchar[2048]",2048),]:
     fixedsizetypes[t] = t2
 
@@ -75,7 +74,6 @@ fuzzytypes = {
     "hash",
     "uchar[32]",
     "signature",
-    "uchar[128]",
     "uchar[2048]",
 }
 
@@ -117,7 +115,6 @@ class PrimitiveMember(TypeNode):
         "bool" :      lambda n: print(f'  uchar {n};',     file=header),
         "uchar" :     lambda n: print(f'  uchar {n};',     file=header),
         "uchar[32]" : lambda n: print(f'  uchar {n}[32];', file=header),
-        "uchar[128]" :lambda n: print(f'  uchar {n}[128];', file=header),
         "uchar[2048]":lambda n: print(f'  uchar {n}[2048];', file=header),
         "ulong" :     lambda n: print(f'  ulong {n};',     file=header),
         "ushort" :    lambda n: print(f'  ushort {n};',    file=header)
@@ -165,7 +162,6 @@ class PrimitiveMember(TypeNode):
         "bool" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
         "uchar[32]" : lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
-        "uchar[128]" :lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
         "uchar[2048]":lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
         "ulong" :     lambda n, varint, indent: PrimitiveMember.ulong_generate(n, varint, indent),
         "ushort" :    lambda n, varint, indent: PrimitiveMember.ushort_generate(n, varint, indent),
