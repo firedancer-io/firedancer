@@ -1,4 +1,6 @@
+ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_repair_tile,fd_discof)
+endif
 $(call add-objs,fd_policy,fd_discof)
 $(call add-hdrs,fd_policy.h)
 $(call add-objs,fd_inflight,fd_discof)

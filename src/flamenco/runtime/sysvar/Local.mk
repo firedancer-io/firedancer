@@ -25,7 +25,10 @@ $(call add-hdrs,fd_sysvar_recent_hashes.h)
 $(call add-objs,fd_sysvar_recent_hashes,fd_flamenco)
 
 $(call add-hdrs,fd_sysvar_rent.h)
-$(call add-objs,fd_sysvar_rent fd_sysvar_rent1,fd_flamenco)
+$(call add-objs,fd_sysvar_rent,fd_flamenco)
+ifdef FD_HAS_DOUBLE
+$(call add-objs,fd_sysvar_rent1,fd_flamenco)
+endif
 
 $(call add-hdrs,fd_sysvar_slot_hashes.h)
 $(call add-objs,fd_sysvar_slot_hashes,fd_flamenco)

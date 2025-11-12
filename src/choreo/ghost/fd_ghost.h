@@ -490,7 +490,8 @@ static int FD_FN_UNUSED
 is_duplicate_confirmed( fd_ghost_t * ghost, fd_hash_t const * hash, ulong total_stake ) {
   fd_ghost_ele_t const * ele = fd_ghost_query( ghost, hash );
   if( FD_UNLIKELY( !ele ) ) {
-    FD_LOG_WARNING(( "[%s] slot %s was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(hash) ));
+    FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_b58 );
+    FD_LOG_WARNING(( "[%s] slot %s was not in ghost", __func__, hash_b58 ));
     return 0;
   }
   double pct = (double)( ele->weight + ele->gossip_stake ) / (double)total_stake; /* TODO make gossip weight a field as well */

@@ -1246,13 +1246,14 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   char encoded_signature[FD_BASE58_ENCODED_64_SZ];
   fd_base58_encode_64( signature, NULL, encoded_signature );
 
+  FD_BASE58_ENCODE_32_BYTES( program_acc->pubkey->uc, program_acc_b58 );
   char filename[ PATH_MAX ];
   snprintf( filename,
           PATH_MAX,
           "%s/elf-%s-%s-%lu.elfctx",
           txn_ctx->capture_ctx->dump_proto_output_dir,
           encoded_signature,
-          FD_BASE58_ENC_32_ALLOCA( program_acc->pubkey ),
+          program_acc_b58,
           txn_ctx->slot );
 
   /* The generated filename should be unique for every call. Silently return otherwise. */
