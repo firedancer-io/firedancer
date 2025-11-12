@@ -570,14 +570,14 @@ struct fd_banks {
 };
 typedef struct fd_banks fd_banks_t;
 
-/* Bank accesssors. Different accessors are emitted for different types
+/* Bank accessors. Different accessors are emitted for different types
    depending on if the field has a lock or not. */
 
 #define HAS_LOCK_1(type, name)                                     \
-  type const * fd_bank_##name##_locking_query( fd_bank_t * bank ); \
-  void fd_bank_##name##_end_locking_query( fd_bank_t * bank );     \
-  type * fd_bank_##name##_locking_modify( fd_bank_t * bank );      \
-  void fd_bank_##name##_end_locking_modify( fd_bank_t * bank );
+  type const * fd_bank_##name##_locking_query( fd_bank_t * bank ) FD_ACQUIRE_SHARED( &bank->name##_lock ); \
+  void fd_bank_##name##_end_locking_query( fd_bank_t * bank )     FD_RELEASE_SHARED( &bank->name##_lock ); \
+  type * fd_bank_##name##_locking_modify( fd_bank_t * bank )      FD_ACQUIRE( &bank->name##_lock ); \
+  void fd_bank_##name##_end_locking_modify( fd_bank_t * bank )    FD_RELEASE( &bank->name##_lock );
 
 #define HAS_LOCK_0(type, name)                                   \
   type const * fd_bank_##name##_query( fd_bank_t const * bank ); \
@@ -594,7 +594,7 @@ FD_BANKS_ITER(X)
    fields. */
 
 static inline fd_cost_tracker_t *
-fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
+fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) FD_ACQUIRE( &bank->cost_tracker_lock ) {
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
   FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
   uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
@@ -604,12 +604,12 @@ fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
 }
 
 static inline void
-fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) {
+fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) FD_RELEASE( &bank->cost_tracker_lock ) {
   fd_rwlock_unwrite( &bank->cost_tracker_lock );
 }
 
 static inline fd_cost_tracker_t const *
-fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
+fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) FD_ACQUIRE_SHARED( &bank->cost_tracker_lock ) {
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
   FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
   uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
@@ -619,7 +619,7 @@ fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
 }
 
 static inline void
-fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
+fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) FD_RELEASE_SHARED( &bank->cost_tracker_lock ) {
   fd_rwlock_unread( &bank->cost_tracker_lock );
 }
 
@@ -643,7 +643,7 @@ fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
 */
 
 static inline fd_stake_delegations_t *
-fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
+fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) FD_ACQUIRE( bank->stake_delegations_delta_lock ) {
   fd_rwlock_write( &bank->stake_delegations_delta_lock );
   if( !bank->stake_delegations_delta_dirty ) {
     bank->stake_delegations_delta_dirty = 1;
@@ -653,18 +653,18 @@ fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
 }
 
 static inline void
-fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) {
+fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) FD_RELEASE( bank->stake_delegations_delta_lock ) {
   fd_rwlock_unwrite( &bank->stake_delegations_delta_lock );
 }
 
 static inline fd_stake_delegations_t *
-fd_bank_stake_delegations_delta_locking_query( fd_bank_t * bank ) {
+fd_bank_stake_delegations_delta_locking_query( fd_bank_t * bank ) FD_ACQUIRE_SHARED( bank->stake_delegations_delta_lock) {
   fd_rwlock_read( &bank->stake_delegations_delta_lock );
   return bank->stake_delegations_delta_dirty ? fd_stake_delegations_join( bank->stake_delegations_delta ) : NULL;
 }
 
 static inline void
-fd_bank_stake_delegations_delta_end_locking_query( fd_bank_t * bank ) {
+fd_bank_stake_delegations_delta_end_locking_query( fd_bank_t * bank ) FD_RELEASE_SHARED( bank->stake_delegations_delta_lock ) {
   fd_rwlock_unread( &bank->stake_delegations_delta_lock );
 }
 
