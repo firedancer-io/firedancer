@@ -1,4 +1,3 @@
-ifdef FD_HAS_INT128
 $(call add-hdrs,fd_acc_mgr.h)
 $(call add-objs,fd_acc_mgr,fd_flamenco)
 
@@ -11,7 +10,9 @@ $(call add-objs,fd_blockhashes,fd_flamenco)
 $(call add-objs,fd_core_bpf_migration,fd_flamenco)
 
 $(call add-hdrs,fd_executor.h)
+ifdef FD_HAS_INT128
 $(call add-objs,fd_executor,fd_flamenco)
+endif
 
 $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
@@ -54,9 +55,9 @@ $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)
 
 ifdef FD_HAS_ATOMIC
 $(call add-hdrs,fd_runtime.h fd_runtime_init.h fd_runtime_err.h fd_runtime_const.h fd_runtime_stack.h fd_exec_stack.h)
+ifdef FD_HAS_INT128
 $(call add-objs,fd_runtime fd_runtime_init,fd_flamenco)
 endif
-
 endif
 
 $(call add-hdrs,fd_system_ids.h)

@@ -1,5 +1,3 @@
-ifdef FD_HAS_INT128
-
 # Public APIs
 
 $(call add-hdrs,fd_prog_load.h)
@@ -18,5 +16,4 @@ $(call run-unit-test,test_progcache)
 # Internals
 $(call add-objs,fd_progcache_rec,fd_flamenco)
 
-endif
 endif

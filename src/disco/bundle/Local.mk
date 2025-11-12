@@ -1,4 +1,3 @@
-ifdef FD_HAS_INT128
 $(call add-hdrs,fd_bundle_crank.h)
 $(call add-objs,fd_bundle_crank,fd_disco,fd_flamenco)
 $(call make-unit-test,test_bundle_crank,test_bundle_crank,fd_disco fd_flamenco fd_ballet fd_util)
@@ -15,5 +14,4 @@ endif
 
 ifdef FD_HAS_DOUBLE
 $(call add-objs,fd_bundle_tile,fd_disco)
-endif
 endif

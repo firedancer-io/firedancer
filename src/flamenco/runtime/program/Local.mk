@@ -1,5 +1,3 @@
-ifdef FD_HAS_INT128
-
 ### Reusable
 
 $(call add-hdrs,fd_builtin_programs.h)
@@ -46,5 +44,3 @@ $(call add-objs,fd_zk_elgamal_proof_program,fd_flamenco)
 
 $(call add-hdrs,fd_native_cpi.h)
 $(call add-objs,fd_native_cpi,fd_flamenco)
-
-endif
