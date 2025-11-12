@@ -5,13 +5,10 @@ $(call add-objs,fd_snapld_tile,fd_discof)
 ifdef FD_HAS_ZSTD
 $(call add-objs,fd_snapdc_tile,fd_discof)
 endif
-ifdef FD_HAS_INT128
 $(call add-objs,fd_snapin_tile fd_snapin_tile_funk fd_snapin_tile_vinyl,fd_discof)
 endif
 $(call add-objs,fd_snapwh_tile,fd_discof)
 $(call add-objs,fd_snapwr_tile,fd_discof)
-endif
-ifdef FD_HAS_INT128
 $(call add-objs,utils/fd_ssparse,fd_discof)
 $(call add-objs,utils/fd_ssmanifest_parser,fd_discof)
 $(call add-objs,utils/fd_ssload,fd_discof)
@@ -31,7 +28,6 @@ $(call make-fuzz-test,fuzz_ssarchive_parser,utils/fuzz_ssarchive_parser,fd_disco
 $(call make-fuzz-test,fuzz_slot_delta_parser,utils/fuzz_slot_delta_parser,fd_discof fd_flamenco fd_ballet fd_util)
 endif
 
-endif
 $(call add-objs,utils/fd_ssresolve,fd_discof)
 ifdef FD_HAS_HOSTED
 $(call add-objs,utils/fd_sshttp,fd_discof)
