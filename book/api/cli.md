@@ -70,6 +70,8 @@ following stages to each configure command:
     device.
  - `ethtool-offloads` Modify offload feature flags on the network device.
  - `ethtool-loopback` Disables UDP segmentation on the loopback device.
+ - `irq-affinity` Removes CPU cores used by Firedancer from IRQ handler
+    CPU affinities where possible.
 
 | Arguments         | Description |
 |-------------------|-------------|
@@ -103,6 +105,7 @@ and configure the number of combined channels on the network device.
 | `root`          | disable network device offloads with `ethtool --offload IFACE FEATURE off`. Only applies for the `ethtool-offloads` stage |
 | `root`          | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
+| `root`          | write `/proc/irq/N/smp_affinity` files and check irqbalance ban list. Only applies for the `irq-affinity` stage |
 
 :::
 
