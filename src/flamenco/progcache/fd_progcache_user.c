@@ -357,8 +357,10 @@ static int
 fd_progcache_push( fd_progcache_t * cache,
                    fd_funk_txn_t *  txn,
                    fd_funk_rec_t *  rec,
-                   void const *     prog_addr ) {
+                   void const *     prog_addr,
+                   fd_funk_rec_t ** dup_rec ) {
   fd_funk_t * funk = cache->funk;
+  *dup_rec = NULL;
 
   /* Phase 1: Determine record's xid-key pair */
 
@@ -385,13 +387,24 @@ fd_progcache_push( fd_progcache_t * cache,
     FD_LOG_CRIT(( "Failed to insert progcache record: canont lock funk rec map chain: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
   }
 
-  /* Phase 3: Atomically add record to funk txn's record list */
+  /* Phase 3: Check if record exists */
 
-  int insert_err = fd_funk_rec_map_txn_insert( funk->rec_map, rec );
-  if( FD_UNLIKELY( insert_err==FD_MAP_ERR_KEY ) ) {
+  fd_funk_rec_map_query_t query[1];
+  int query_err = fd_funk_rec_map_txn_query( funk->rec_map, &rec->pair, NULL, query, 0 );
+  if( FD_UNLIKELY( query_err==FD_MAP_SUCCESS ) ) {
     fd_funk_rec_map_txn_test( map_txn );
     fd_funk_rec_map_txn_fini( map_txn );
+    *dup_rec = query->ele;
     return 0; /* another thread was faster */
+  } else if( FD_UNLIKELY( query_err!=FD_MAP_ERR_KEY ) ) {
+    FD_LOG_CRIT(( "fd_funk_rec_map_txn_query failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
+  }
+
+  /* Phase 4: Insert new record */
+
+  int insert_err = fd_funk_rec_map_txn_insert( funk->rec_map, rec );
+  if( FD_UNLIKELY( insert_err!=FD_MAP_SUCCESS ) ) {
+    FD_LOG_CRIT(( "fd_funk_rec_map_txn_insert failed: %i-%s", insert_err, fd_map_strerror( insert_err ) ));
   }
 
   /* At this point, another thread could aggressively evict this entry.
@@ -399,7 +412,7 @@ fd_progcache_push( fd_progcache_t * cache,
      a lock on the rec_map chain -- the rec_map_remove executed by the
      eviction will be sequenced after completion of phase 5. */
 
-  /* Phase 4: Insert rec into rec_map */
+  /* Phase 5: Insert rec into rec_map */
 
   if( txn ) {
     fd_funk_rec_push_tail( funk->rec_pool->ele,
@@ -408,7 +421,7 @@ fd_progcache_push( fd_progcache_t * cache,
                            &txn->rec_tail_idx );
   }
 
-  /* Phase 5: Finish rec_map transaction */
+  /* Phase 6: Finish rec_map transaction */
 
   int test_err = fd_funk_rec_map_txn_test( map_txn );
   if( FD_UNLIKELY( test_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_txn_test failed: %i-%s", test_err, fd_map_strerror( test_err ) ));
@@ -577,7 +590,8 @@ fd_progcache_insert( fd_progcache_t *           cache,
 
   /* Publish cache entry to funk index */
 
-  int push_ok = fd_progcache_push( cache, txn, funk_rec, prog_addr );
+  fd_funk_rec_t * dup_rec = NULL;
+  int push_ok = fd_progcache_push( cache, txn, funk_rec, prog_addr, &dup_rec );
 
   /* Done modifying transaction */
 
@@ -588,12 +602,11 @@ fd_progcache_insert( fd_progcache_t *           cache,
      EVICTED AFTER PEEK? */
 
   if( !push_ok ) {
-    fd_progcache_rec_t const * other = fd_progcache_peek( cache, load_xid, prog_addr, env->epoch_slot0 );
-    if( FD_UNLIKELY( !other ) ) {
-      FD_LOG_CRIT(( "fd_progcache_push/fd_progcache_peek data race detected" ));
-    }
+    FD_TEST( dup_rec );
+    fd_funk_val_flush( funk_rec, funk->alloc, funk->wksp );
+    fd_funk_rec_pool_release( funk->rec_pool, funk_rec, 1 );
     cache->metrics->dup_insert_cnt++;
-    return other;
+    return fd_funk_val_const( dup_rec, funk->wksp );
   }
 
   cache->metrics->fill_cnt++;
@@ -681,7 +694,8 @@ fd_progcache_invalidate( fd_progcache_t *          cache,
 
   /* Publish cache entry to funk index */
 
-  int push_ok = fd_progcache_push( cache, txn, funk_rec, prog_addr );
+  fd_funk_rec_t * dup_rec = NULL;
+  int push_ok = fd_progcache_push( cache, txn, funk_rec, prog_addr, &dup_rec );
 
   /* Done modifying transaction */
 
@@ -692,12 +706,11 @@ fd_progcache_invalidate( fd_progcache_t *          cache,
      EVICTED AFTER PEEK? */
 
   if( !push_ok ) {
-    fd_progcache_rec_t const * other = fd_progcache_peek_exact( cache, xid, prog_addr );
-    if( FD_UNLIKELY( !other ) ) {
-      FD_LOG_CRIT(( "fd_progcache_push/fd_progcache_peek data race detected" ));
-    }
+    FD_TEST( dup_rec );
+    fd_funk_val_flush( funk_rec, funk->alloc, funk->wksp );
+    fd_funk_rec_pool_release( funk->rec_pool, funk_rec, 1 );
     cache->metrics->dup_insert_cnt++;
-    return other;
+    return fd_funk_val_const( dup_rec, funk->wksp );
   }
 
   cache->metrics->invalidate_cnt++;

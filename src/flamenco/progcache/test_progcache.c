@@ -518,6 +518,7 @@ test_invalidate_dup( fd_wksp_t * wksp ) {
   FD_TEST( !rec2->executable );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  FD_TEST( fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] )==rec2 );
 
   /* Create cache invalidation entry */
   fd_funk_txn_xid_t fork_c = { .ul = { 3UL, 2UL } };
