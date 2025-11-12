@@ -1,4 +1,3 @@
-ifdef FD_HAS_INT128
 $(call add-hdrs,fd_bincode.h fd_types.h fd_types_custom.h fd_types_meta.h fd_types_yaml.h fd_cast.h)
 $(call add-objs,fd_types fd_types_yaml,fd_flamenco)
 $(call make-unit-test,test_types_meta,test_types_meta,fd_flamenco fd_ballet fd_util)
@@ -19,7 +18,6 @@ $(call add-objs,fd_types_reflect fd_types_reflect_generated,fd_flamenco_test)
 ifdef FD_HAS_HOSTED
 $(call make-bin,fd_bincode2yaml,fd_bincode2yaml,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_types_decode,fuzz_types_decode,fd_flamenco_test fd_flamenco fd_ballet fd_util)
-endif
 endif
 
 # "ConfirmedBlock" Protobuf definitions

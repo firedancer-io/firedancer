@@ -136,7 +136,7 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L142 */
   if( FD_UNLIKELY( credits_in_vote < credits_in_stake ) ) {
-    result->points = 0;
+    result->points.ud = 0;
     result->new_credits_observed = credits_in_vote;
     result->force_credits_update_with_skipped_reward = 1;
     return;
@@ -147,7 +147,7 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L148 */
   if( FD_UNLIKELY( credits_in_vote == credits_in_stake ) ) {
-    result->points = 0;
+    result->points.ud = 0;
     result->new_credits_observed = credits_in_vote;
     result->force_credits_update_with_skipped_reward = 0;
     return;
@@ -187,7 +187,7 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
 
   }
 
-  result->points = points;
+  result->points.ud = points;
   result->new_credits_observed = new_credits_observed;
   result->force_credits_update_with_skipped_reward = 0;
 }
@@ -229,7 +229,7 @@ calculate_stake_points_and_credits( fd_funk_t *                    funk,
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L142 */
   if( FD_UNLIKELY( credits_in_vote < credits_in_stake ) ) {
-    result->points = 0;
+    result->points.ud = 0;
     result->new_credits_observed = credits_in_vote;
     result->force_credits_update_with_skipped_reward = 1;
     return;
@@ -240,7 +240,7 @@ calculate_stake_points_and_credits( fd_funk_t *                    funk,
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L148 */
   if( FD_UNLIKELY( credits_in_vote == credits_in_stake ) ) {
-    result->points = 0;
+    result->points.ud = 0;
     result->new_credits_observed = credits_in_vote;
     result->force_credits_update_with_skipped_reward = 0;
     return;
@@ -284,7 +284,7 @@ calculate_stake_points_and_credits( fd_funk_t *                    funk,
 
   }
 
-  result->points = points;
+  result->points.ud = points;
   result->new_credits_observed = new_credits_observed;
   result->force_credits_update_with_skipped_reward = 0;
 }
@@ -339,12 +339,12 @@ redeem_rewards( fd_funk_t *                     funk,
     result->new_credits_observed = stake_points_result.new_credits_observed;
     return 0;
   }
-  if( stake_points_result.points==0 || total_points==0 ) {
+  if( stake_points_result.points.ud==0 || total_points==0 ) {
     return 1;
   }
 
   /* FIXME: need to error out if the conversion from uint128 to u64 fails, also use 128 checked mul and div */
-  ulong rewards = (ulong)(stake_points_result.points * (uint128)(total_rewards) / (uint128) total_points);
+  ulong rewards = (ulong)(stake_points_result.points.ud * (uint128)(total_rewards) / (uint128) total_points);
   if( rewards == 0 ) {
     return 1;
   }
@@ -460,7 +460,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                         vote_state_ele,
                                         new_warmup_cooldown_rate_epoch,
                                         &stake_point_result );
-    total_points += stake_point_result.points;
+    total_points += stake_point_result.points.ud;
   }
 
   fd_bank_vote_states_end_locking_query( bank );
@@ -617,7 +617,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
         epoch,
         epoch-1UL, /* FIXME: this is not strictly correct */
         *rewards_out,
-        points );
+        (fd_w_u128_t){ .ud=points } );
   }
 
   /* Calculate the stake and vote rewards for each account. We want to
@@ -691,7 +691,7 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   /* The agave client does not partition the stake rewards until the
      first distribution block.  We calculate the partitions during the
      boundary. */
-  result->validator_points             = points;
+  result->validator_points.ud          = points;
   result->validator_rewards            = total_rewards;
   result->validator_rate               = rewards.validator_rate;
   result->foundation_rate              = rewards.foundation_rate;
@@ -1028,7 +1028,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       distribution_starting_block_height,
       epoch_rewards->num_partitions,
       epoch_rewards->total_rewards,
-      epoch_rewards->total_points,
+      epoch_rewards->total_points.ud,
       parent_blockhash );
   fd_bank_epoch_rewards_end_locking_modify( bank );
 }
@@ -1106,7 +1106,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       stake_history,
       rewarded_epoch,
       epoch_rewards_sysvar->total_rewards,
-      epoch_rewards_sysvar->total_points,
+      epoch_rewards_sysvar->total_points.ud,
       runtime_stack );
 
   fd_epoch_rewards_t * epoch_rewards = fd_epoch_rewards_join( fd_bank_epoch_rewards_locking_modify( bank ) );

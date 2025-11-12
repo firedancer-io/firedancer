@@ -81,15 +81,27 @@ typedef struct fd_bincode_decode_ctx fd_bincode_decode_ctx_t;
     return FD_BINCODE_SUCCESS; \
   }
 
-FD_BINCODE_PRIMITIVE_STUBS( uint8,   uchar   )
-FD_BINCODE_PRIMITIVE_STUBS( uint16,  ushort  )
-FD_BINCODE_PRIMITIVE_STUBS( uint32,  uint    )
-FD_BINCODE_PRIMITIVE_STUBS( uint64,  ulong   )
-FD_BINCODE_PRIMITIVE_STUBS( int64,   long   )
-#if FD_HAS_INT128
-FD_BINCODE_PRIMITIVE_STUBS( uint128, uint128 )
-#endif
-FD_BINCODE_PRIMITIVE_STUBS( double,  double  )
+/* fd_w_u128 is a wrapped "uint128" type providing basic 128-bit
+   unsigned int functionality to fd_types, even if the compile target
+   does not natively support uint128. */
+
+union __attribute__((aligned(16))) fd_w_u128 {
+  uchar   uc[16];
+  ulong   ul[2];
+# if FD_HAS_INT128
+  uint128 ud;
+# endif
+};
+
+typedef union fd_w_u128 fd_w_u128_t;
+
+FD_BINCODE_PRIMITIVE_STUBS( uint8,   uchar       )
+FD_BINCODE_PRIMITIVE_STUBS( uint16,  ushort      )
+FD_BINCODE_PRIMITIVE_STUBS( uint32,  uint        )
+FD_BINCODE_PRIMITIVE_STUBS( uint64,  ulong       )
+FD_BINCODE_PRIMITIVE_STUBS( int64,   long        )
+FD_BINCODE_PRIMITIVE_STUBS( uint128, fd_w_u128_t )
+FD_BINCODE_PRIMITIVE_STUBS( double,  double      )
 
 static inline int
 fd_bincode_bool_decode( uchar *                   self,

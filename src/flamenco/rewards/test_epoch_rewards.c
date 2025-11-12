@@ -61,7 +61,7 @@ int main( int argc, char * * argv ) {
   FD_TEST( epoch_rewards->num_partitions == 0UL );
   FD_TEST( epoch_rewards->starting_block_height == 0UL );
   FD_TEST( epoch_rewards->distributed_rewards == 0UL );
-  FD_TEST( epoch_rewards->total_points == 0 );
+  FD_TEST( epoch_rewards->total_points.ud == 0 );
   FD_TEST( epoch_rewards->total_rewards == 0UL );
   FD_TEST( epoch_rewards->stake_account_max == STAKE_ACC_MAX );
 

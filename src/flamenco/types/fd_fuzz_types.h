@@ -868,7 +868,7 @@ void *fd_sysvar_epoch_rewards_generate( void *mem, void **alloc_mem, fd_rng_t * 
   self->distribution_starting_block_height = fd_rng_ulong( rng );
   self->num_partitions = fd_rng_ulong( rng );
   fd_hash_generate( &self->parent_blockhash, alloc_mem, rng );
-  self->total_points = fd_rng_uint128( rng );
+  self->total_points = (fd_w_u128_t) { .ul={ fd_rng_ulong( rng ), fd_rng_ulong( rng ) } };
   self->total_rewards = fd_rng_ulong( rng );
   self->distributed_rewards = fd_rng_ulong( rng );
   self->active = fd_rng_uchar( rng );
@@ -957,7 +957,7 @@ void *fd_partitioned_rewards_calculation_generate( void *mem, void **alloc_mem, 
   fd_partitioned_rewards_calculation_t *self = (fd_partitioned_rewards_calculation_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_partitioned_rewards_calculation_t);
   fd_partitioned_rewards_calculation_new(mem);
-  self->validator_points = fd_rng_uint128( rng );
+  self->validator_points = (fd_w_u128_t) { .ul={ fd_rng_ulong( rng ), fd_rng_ulong( rng ) } };
   self->old_vote_balance_and_staked = fd_rng_ulong( rng );
   self->validator_rewards = fd_rng_ulong( rng );
   self->validator_rate = fd_rng_double_o( rng );
@@ -2233,7 +2233,7 @@ void *fd_calculated_stake_points_generate( void *mem, void **alloc_mem, fd_rng_t
   fd_calculated_stake_points_t *self = (fd_calculated_stake_points_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_calculated_stake_points_t);
   fd_calculated_stake_points_new(mem);
-  self->points = fd_rng_uint128( rng );
+  self->points = (fd_w_u128_t) { .ul={ fd_rng_ulong( rng ), fd_rng_ulong( rng ) } };
   self->new_credits_observed = fd_rng_ulong( rng );
   self->force_credits_update_with_skipped_reward = fd_rng_uchar( rng );
   return mem;

@@ -262,7 +262,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_bank_ticks_per_slot_set( bank, test_ctx->epoch_ctx.ticks_per_slot );
 
-  fd_bank_ns_per_slot_set( bank, 400000000 ); // TODO: restore from input
+  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ul={ 400000000,0 } } ); // TODO: restore from input
 
   fd_bank_genesis_creation_time_set( bank, test_ctx->epoch_ctx.genesis_creation_time );
 

@@ -903,7 +903,7 @@ struct fd_sysvar_epoch_rewards {
   ulong distribution_starting_block_height;
   ulong num_partitions;
   fd_hash_t parent_blockhash;
-  uint128 total_points;
+  fd_w_u128_t total_points;
   ulong total_rewards;
   ulong distributed_rewards;
   uchar active;
@@ -971,7 +971,7 @@ typedef struct fd_stake_reward fd_stake_reward_t;
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L118 */
 /* Encoded Size: Fixed (64 bytes) */
 struct fd_partitioned_rewards_calculation {
-  uint128 validator_points;
+  fd_w_u128_t validator_points;
   ulong old_vote_balance_and_staked;
   ulong validator_rewards;
   double validator_rate;
@@ -1816,7 +1816,7 @@ typedef struct fd_txn_result fd_txn_result_t;
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
 /* Encoded Size: Fixed (25 bytes) */
 struct fd_calculated_stake_points {
-  uint128 points;
+  fd_w_u128_t points;
   ulong new_credits_observed;
   uchar force_credits_update_with_skipped_reward;
 };

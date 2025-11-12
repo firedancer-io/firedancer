@@ -112,7 +112,7 @@ fd_sysvar_epoch_rewards_init( fd_bank_t *               bank,
   fd_sysvar_epoch_rewards_t epoch_rewards = {
     .distribution_starting_block_height = distribution_starting_block_height,
     .num_partitions                     = num_partitions,
-    .total_points                       = total_points,
+    .total_points                       = { .ud=total_points },
     .total_rewards                      = total_rewards,
     .distributed_rewards                = distributed_rewards,
     .active                             = 1,
