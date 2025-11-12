@@ -905,6 +905,8 @@ metric introduced.
     <counter name="CrdsExpiredCount" label="The number of entries expired from the data store due to age" />
     <counter name="CrdsEvictedCount" label="The number of entries evicted from the data store to make space for new entries" />
 
+    <counter name="PruneFinderOriginRelayerEvictedCount" label="The number of times an origin's relayer was evicted to make space for a new relayer" />
+
     <gauge name="CrdsPeerCapacity" label="The capacity for storing peers in the data store" />
     <gauge name="CrdsPeerStakedCount" label="The number of staked peers in the data store" />
     <gauge name="CrdsPeerUnstakedCount" label="The number of unstaked peers in the data store" />

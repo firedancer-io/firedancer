@@ -1014,7 +1014,7 @@ gossip_cmd_fn( args_t *   args,
             gossvf_total_ticks > 0UL ? (double)gossvf_backpressure_ticks/(double)gossvf_total_ticks*100.0 : 0.0,
             gossvf_tiles.tile_count );
 
-    // display_gossvf_detailed( &gossvf_tiles );
+    printf( " Prune Messages Sent: %s\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PRUNE ) ] ) );
 
     ulong total_crds = 0UL;
     for( ulong i=0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) total_crds += gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT )+i ];
