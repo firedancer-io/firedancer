@@ -8,9 +8,9 @@
    in-flight mutations.*/
 static void
 test_bundle_prev_ctx_is_visible_to_executor( void ) {
-  fd_exec_txn_ctx_t prev_ctx[1] = {0};
-  fd_exec_txn_ctx_t curr_ctx[1] = {0};
-  fd_exec_accounts_t exec_accounts[1] = {0};
+  static fd_exec_txn_ctx_t  prev_ctx [1] = {0}; // use static to avoid stack overflow, each is ~347KiB
+  static fd_exec_txn_ctx_t  curr_ctx [1] = {0};
+  static fd_exec_accounts_t exec_accounts[1] = {0};
   fd_txn_p_t prev_txn_p[1] = {0};
   fd_txn_p_t curr_txn_p[1] = {0};
   fd_txn_t * prev_txn = TXN( prev_txn_p );
