@@ -169,11 +169,3 @@ fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
     return FD_BINCODE_ERR_ENCODING;
   return FD_BINCODE_SUCCESS;
 }
-
-#define REDBLK_T fd_stake_weight_t_mapnode_t
-#define REDBLK_NAME fd_stake_weight_t_map
-#define REDBLK_IMPL_STYLE 2
-#include "../../util/tmpl/fd_redblack.c"
-long fd_stake_weight_t_map_compare( fd_stake_weight_t_mapnode_t * left, fd_stake_weight_t_mapnode_t * right ) {
-  return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
-}
