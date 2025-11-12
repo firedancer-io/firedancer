@@ -95,24 +95,26 @@ fd_capture_ctx_delete( void * mem ) {
 }
 
 #include "../../fd_rwlock.h"
-static fd_rwlock_t txn_status_lock[ 1 ] = {0};
+/* Use a concrete fd_rwlock_t, not a single-element array, to keep
+   thread-safety annotations consistent with other wrappers. */
+static fd_rwlock_t txn_status_lock = {0};
 
 void
-fd_capture_ctx_txn_status_start_read( void ) {
-  fd_rwlock_read( txn_status_lock );
+fd_capture_ctx_txn_status_start_read( void ) FD_ACQUIRE_SHARED( &txn_status_lock ) {
+  fd_rwlock_read( &txn_status_lock );
 }
 
 void
-fd_capture_ctx_txn_status_end_read( void ) {
-  fd_rwlock_unread( txn_status_lock );
+fd_capture_ctx_txn_status_end_read( void ) FD_RELEASE_SHARED( &txn_status_lock ) {
+  fd_rwlock_unread( &txn_status_lock );
 }
 
 void
-fd_capture_ctx_txn_status_start_write( void ) {
-  fd_rwlock_write( txn_status_lock );
+fd_capture_ctx_txn_status_start_write( void ) FD_ACQUIRE( &txn_status_lock ) {
+  fd_rwlock_write( &txn_status_lock );
 }
 
 void
-fd_capture_ctx_txn_status_end_write( void ) {
-  fd_rwlock_unwrite( txn_status_lock );
+fd_capture_ctx_txn_status_end_write( void ) FD_RELEASE( &txn_status_lock ) {
+  fd_rwlock_unwrite( &txn_status_lock );
 }

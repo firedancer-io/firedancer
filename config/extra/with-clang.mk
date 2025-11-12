@@ -44,3 +44,8 @@ FD_USING_CLANG:=1
 # Using clang++ doesn't always bring in this library
 
 LDFLAGS+=-lstdc++
+
+# Detect clang major version if not already set by the machine config
+ifndef FD_COMPILER_MAJOR_VERSION
+FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -E -dM - | grep __clang_major__ | awk '{print $$3}')
+endif

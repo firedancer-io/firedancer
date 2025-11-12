@@ -543,7 +543,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                               ulong                          rewarded_epoch,
                               ulong                          total_rewards,
                               uint128                        total_points,
-                              fd_runtime_stack_t *           runtime_stack ) {
+                              fd_runtime_stack_t *           runtime_stack ) FD_NO_THREAD_SAFETY_ANALYSIS {
 
   int _err[1];
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
