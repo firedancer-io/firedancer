@@ -2392,10 +2392,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
         /* Implement replay plugin API here */
 
         switch( msg->kind ) {
-          case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC:
-            break;
-          case FD_TOWER_SLOT_CONFIRMED_ROOTED:
-            break;
+        case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: break;
+        case FD_TOWER_SLOT_CONFIRMED_ROOTED:     break;
         }
       };
       break;

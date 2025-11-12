@@ -482,7 +482,7 @@ struct fd_config {
     } shredcap;
 
     struct {
-      ulong max_unrooted_slots;
+      ulong max_lookahead_conf;
     } tower;
 
   } tiles;

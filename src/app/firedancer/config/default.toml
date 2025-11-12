@@ -1367,24 +1367,19 @@ user = ""
 
     # The tower tile runs the fork choice and tower rules to determine
     # both what block to vote on and what block to build our own leader
-    # blocks on top of.
+    # blocks on top of, as well as confirming blocks based on vote txns.
     [tiles.tower]
-        # Firedancer can process at most this many slots without rooting
-        # in the consensus rules before it must begin evicting.
+        # Solana reaches consensus via replay, but can "cluster confirm"
+        # slots ahead of the replay tip by listening to vote txns from
+        # gossip or TPU.  The larger max_lookahead_conf, the further
+        # ahead slots can be cluster confirmed before they are replayed.
         #
-        # This is an estimate and should be set as generously as
-        # possible to allow for temporary outages such as network
-        # partitions.  For example, the validator might get disconnected
-        # from part of the cluster due to data center issues.  Roughly,
-        # the default of 4096 allows for 30 minutes without rooting.
+        # Specifically, tower will ignore gossip or TPU votes that are
+        # more than max_lookahead_conf slots ahead of the root.
         #
-        # Specifically, tower will ignore gossip votes that exceed max
-        # unrooted slots ahead of the current root.  Additionally, both
-        # fork choice and tower structures will OOM and cause Firedancer
-        # to exit if it needs to maintain more than max unrooted slots
-        # tower forks (TODO in the future Firedancer will instead
-        # gracefully degrade by evicting forks).
-        max_unrooted_slots = 4096
+        # Note max_lookahead_conf must be >= max_live_slots and
+        # Firedancer will ignore a value where this is not the case.
+        max_lookahead_conf = 4096
 
     [tiles.send]
         # The port the send tile uses for QUIC, to send votes and other
