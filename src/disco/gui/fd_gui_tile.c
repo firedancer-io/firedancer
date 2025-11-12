@@ -405,6 +405,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         slot_completed.parent_slot       = fd_bank_parent_slot_get( bank );
         slot_completed.max_compute_units = fd_uint_if( replay->cost_tracker.block_cost_limit==0UL, UINT_MAX, (uint)replay->cost_tracker.block_cost_limit );
         slot_completed.transaction_fee   = fd_bank_execution_fees_get( bank );
+        slot_completed.transaction_fee   = slot_completed.transaction_fee - (slot_completed.transaction_fee>>1); /* burn */
         slot_completed.priority_fee      = fd_bank_priority_fees_get( bank );
         slot_completed.tips              = fd_bank_tips_get( bank );
         slot_completed.compute_units     = fd_uint_if( replay->cost_tracker.block_cost==0UL, UINT_MAX, (uint)replay->cost_tracker.block_cost );
