@@ -199,6 +199,7 @@ check_debian_pkgs () {
     pkgconf            # build system
     zstd               # build system
     gzip               # build system
+    libbz2-dev         # blocksort
 
     cmake              # Agave (protobuf-src)
     libclang-dev       # Agave (bindgen)
