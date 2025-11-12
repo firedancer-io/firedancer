@@ -1573,7 +1573,6 @@ update_commission( fd_borrowed_account_t *     vote_account,
     rc = get_state( vote_account->acct, ctx->txn_ctx->exec_stack->vote_program.update_commission.vote_state_mem );
     if( FD_UNLIKELY( rc ) ) return rc;
     vote_state_versioned = (fd_vote_state_versioned_t *)ctx->txn_ctx->exec_stack->vote_program.update_commission.vote_state_mem;
-    FD_LOG_WARNING(("ASDF"));
     convert_to_current( vote_state_versioned,
                         ctx->txn_ctx->exec_stack->vote_program.update_commission.authorized_voters_mem,
                         ctx->txn_ctx->exec_stack->vote_program.update_commission.landed_votes_mem );
@@ -1917,11 +1916,6 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
       vote_state_update->lockouts, &vote_state_update->has_root, &vote_state_update->root, &vote_state_update->hash,
       slot_hashes, ctx );
   if( FD_UNLIKELY( rc ) ) return rc;
-
-  ulong cnt = deq_fd_vote_lockout_t_cnt( vote_state_update->lockouts );
-  if( cnt>31 ) {
-    FD_LOG_WARNING(("ASDF"));
-  }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1177
   fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( ctx->txn_ctx->exec_stack->vote_program.process_vote.vs_update_landed_votes_mem, deq_fd_vote_lockout_t_cnt( vote_state_update->lockouts ) ) );
