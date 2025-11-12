@@ -8,6 +8,20 @@
    in-flight mutations.*/
 static void
 test_bundle_prev_ctx_is_visible_to_executor( void ) {
+  /* Set up workspace and funk (AccountsDB) */
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 4UL, fd_shmem_cpu_idx( 0 ), "wksp", 0UL );
+  FD_TEST( wksp );
+
+  ulong funk_align    = fd_funk_align();
+  ulong funk_footprint = fd_funk_footprint( 2UL, 100UL );
+  void * funk_mem = fd_wksp_alloc_laddr( wksp, funk_align, funk_footprint, 1UL );
+  FD_TEST( funk_mem );
+  void * shfunk = fd_funk_new( funk_mem, 1UL, 1234UL, 2UL, 100UL );
+  FD_TEST( shfunk );
+  fd_funk_t * funk = fd_funk_join( shfunk );
+  FD_TEST( funk );
+
+  /* Set up transaction contexts */
   static fd_exec_txn_ctx_t  prev_ctx [1] = {0}; // use static to avoid stack overflow, each is ~347KiB
   static fd_exec_txn_ctx_t  curr_ctx [1] = {0};
   static fd_exec_accounts_t exec_accounts[1] = {0};
@@ -24,6 +38,7 @@ test_bundle_prev_ctx_is_visible_to_executor( void ) {
 
   prev_ctx->txn = *prev_txn_p;
   curr_ctx->txn = *curr_txn_p;
+  curr_ctx->funk = funk;  /* Set up funk so executor can fall back to it */
 
   fd_pubkey_t fee_payer_key = {0};
   fee_payer_key.uc[ 0 ] = 42;
@@ -56,9 +71,9 @@ test_bundle_prev_ctx_is_visible_to_executor( void ) {
   curr_ctx->bundle.prev_txn_ctxs_cnt = 0UL;  /* Bug: bank tile didn't set this */
   fd_txn_account_t * acct_bug = fd_executor_setup_txn_account( curr_ctx, FD_FEE_PAYER_TXN_IDX );
   /* Without prev_txn_ctxs_cnt set, executor won't look in prev_txn_ctxs
-     and will fall back to AccountsDB (which is not set up in this test),
-     so it should either return NULL or a zeroed account. */
-  FD_TEST( !acct_bug || acct_bug->meta->lamports != prev_account_storage.meta.lamports );
+     and will fall back to AccountsDB. Since the account doesn't exist in funk,
+     this should return NULL. */
+  FD_TEST( !acct_bug );
 
   /* Test fix scenario: when prev_txn_ctxs_cnt IS properly set,
      the executor should successfully find the account from the previous
@@ -69,6 +84,10 @@ test_bundle_prev_ctx_is_visible_to_executor( void ) {
   /* If the executor fails to consult prev_txn_ctxs, meta points to a
      zeroed staging buffer (or NULL) and this assertion trips. */
   FD_TEST( acct->meta->lamports==prev_account_storage.meta.lamports );
+
+  /* Cleanup */
+  fd_wksp_free_laddr( funk_mem );
+  fd_wksp_delete_anonymous( wksp );
 }
 
 static void
