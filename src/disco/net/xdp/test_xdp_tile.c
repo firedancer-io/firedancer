@@ -247,8 +247,8 @@ main( int     argc,
   ulong const fib4_max      = 16UL;
   void * fib4_local_mem     = fd_wksp_alloc_laddr( wksp, fd_fib4_align(), fd_fib4_footprint( fib4_max,fib4_max  ), WKSP_TAG );
   void * fib4_main_mem      = fd_wksp_alloc_laddr( wksp, fd_fib4_align(), fd_fib4_footprint( fib4_max, fib4_max ), WKSP_TAG );
-  FD_TEST( fd_fib4_new( fib4_local_mem, fib4_max, fib4_max, 12345UL ) );
-  FD_TEST( fd_fib4_new( fib4_main_mem,  fib4_max, fib4_max, 12345UL ) );
+  FD_TEST( fd_fib4_new( fib4_local_mem, fib4_max, fib4_max ) );
+  FD_TEST( fd_fib4_new( fib4_main_mem,  fib4_max, fib4_max ) );
   fd_topo_obj_t * topo_fib4_local  = fd_topob_obj( topo, "fib4", "wksp" );
   fd_topo_obj_t * topo_fib4_main   = fd_topob_obj( topo, "fib4", "wksp" );
   topo_fib4_local->offset          = (ulong)fib4_local_mem - (ulong)wksp;

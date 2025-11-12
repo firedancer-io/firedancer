@@ -107,9 +107,14 @@ test_fib4_hmap_capacity( fd_fib4_t * fib ) {
   uint overflow_ip = ip_base + (uint)hmap_max;
   FD_TEST( fd_fib4_insert( fib, overflow_ip, 32, 0, &hop )==0 );
 
+  /* Verify we don't find the route we just failed to insert */
+  fd_fib4_hop_t lookup_hop;
+  lookup_hop = fd_fib4_lookup( fib, overflow_ip, 0 );
+  FD_TEST( lookup_hop.rtype  == FD_FIB4_RTYPE_THROW );
+
   /* Insert to route table */
   for( ulong i = 0; i < table_max-1 ; i++ ) {
-    uint ip = (ip_base + (uint)hmap_max + (uint)i) & 31;
+    uint ip = (ip_base + (uint)hmap_max + (uint)i);
     FD_TEST( fd_fib4_insert( fib, ip, 31, 0, &hop ) );
 
     fd_fib4_hop_t lookup_hop;
@@ -123,7 +128,6 @@ test_fib4_hmap_capacity( fd_fib4_t * fib ) {
   FD_TEST( fd_fib4_insert( fib, overflow_ip, 31, 0, &hop )==0 );
 
   /* Verify all inserted routes are still accessible */
-  fd_fib4_hop_t lookup_hop;
   for( ulong i = 0; i < hmap_max - 1; i++ ) {
     uint ip = ip_base + (uint)i;
     lookup_hop = fd_fib4_lookup( fib, ip, 0 );
@@ -133,9 +137,7 @@ test_fib4_hmap_capacity( fd_fib4_t * fib ) {
   }
 
   /* Verify that the not inserted routes can't be found */
-  lookup_hop = fd_fib4_lookup( fib, ip_base + (uint)hmap_max, 0 );
-  FD_TEST( lookup_hop.rtype  == FD_FIB4_RTYPE_THROW );
-  lookup_hop = fd_fib4_lookup( fib, (ip_base + (uint)hmap_max + (uint)table_max) & 31, 0 );
+  lookup_hop = fd_fib4_lookup( fib, overflow_ip, 0 );
   FD_TEST( lookup_hop.rtype  == FD_FIB4_RTYPE_THROW );
 }
 
@@ -420,12 +422,10 @@ main( int     argc,
   FD_TEST( !fd_fib4_footprint( 0UL, 1UL ) );
   FD_TEST( !fd_fib4_footprint( 1UL, 0UL ) );
   FD_TEST( !fd_fib4_footprint( 1UL, 0UL ) );
-  FD_TEST( 1UL==fd_fib4_hmap_get_lock_cnt( 16UL ) );
-  FD_TEST( 3UL==fd_fib4_hmap_get_lock_cnt( 48UL ) );
 
   FD_TEST( fd_fib4_footprint( 16UL, 16UL )<=sizeof(fib1_mem) );
-  fd_fib4_t * fib_local = fd_fib4_join( fd_fib4_new( fib1_mem, 16UL, 16UL, 123456UL ) );
-  fd_fib4_t * fib_main  = fd_fib4_join( fd_fib4_new( fib2_mem, 16UL, 16UL, 123456UL ) );
+  fd_fib4_t * fib_local = fd_fib4_join( fd_fib4_new( fib1_mem, 16UL, 16UL ) );
+  fd_fib4_t * fib_main  = fd_fib4_join( fd_fib4_new( fib2_mem, 16UL, 16UL ) );
   fd_fib4_hop_t candidate[2];
 
   /* Ensure empty FIB returns THROW */
@@ -458,12 +458,12 @@ main( int     argc,
   fd_fib4_hop_t hop7 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_BROADCAST, .if_idx=1, .scope=253, .ip4_src=FD_IP4_ADDR( 127,0,0,1   ) };
 
   FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,160   ), 32, 0, &hop1 ) );  // fib4 hashmap
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,165   ), 32, 0, &hop2 ) );
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,0     ), 32, 0, &hop2 ) );
   FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,191   ), 32, 0, &hop3 ) );
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,0     ), 30, 0, &hop4 ) );
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,0     ), 32, 0, &hop4 ) );
   FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,0     ),  8, 0, &hop5 ) );
   FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,1     ), 32, 0, &hop6 ) );   // fib4 hashmap
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,255,255 ), 30, 0, &hop7 ) );
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,255,255 ), 32, 0, &hop7 ) );
 
   FD_TEST( fd_fib4_cnt( fib_local )==8 );
 
@@ -473,9 +473,14 @@ main( int     argc,
     "broadcast 127.0.255.252/30 dev 1 scope link src 127.0.0.1\n"
     "local 127.0.0.0/8 dev 1 scope host src 127.0.0.1\n"
     "local 192.0.2.165/32 dev 6 scope host src 192.0.2.165\n"
+    "local 127.0.0.0/8 dev 1 scope host src 127.0.0.1\n"
+    "local 192.0.2.0/32 dev 6 scope host src 192.0.2.165\n"
     "broadcast 192.0.2.191/32 dev 6 scope link src 192.0.2.165\n"
     "local 127.0.0.1/32 dev 1 scope host src 127.0.0.1\n"
-    "broadcast 192.0.2.160/32 dev 6 scope link src 192.0.2.165\n" );
+    "broadcast 192.0.2.160/32 dev 6 scope link src 192.0.2.165\n"
+    "broadcast 127.0.0.0/32 dev 1 scope link src 127.0.0.1\n"
+    "broadcast 127.0.255.255/32 dev 1 scope link src 127.0.0.1\n"
+  );
 
   fd_fib4_clear( fib_main );
   FD_TEST( fd_fib4_cnt( fib_main )==1 );
@@ -483,12 +488,17 @@ main( int     argc,
   fd_fib4_hop_t hop9 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_UNICAST,                                     .if_idx=6, .scope=253, .ip4_src=FD_IP4_ADDR( 192,0,2,165 ) };
 
   FD_TEST( fd_fib4_insert( fib_main, FD_IP4_ADDR( 0,0,0,0     ),  0, 300, &hop8 ) );
-  FD_TEST( fd_fib4_insert( fib_main, FD_IP4_ADDR( 192,0,2,161 ), 27, 300, &hop9 ) );
+  FD_TEST( fd_fib4_insert( fib_main, FD_IP4_ADDR( 192,0,2,160 ), 27, 300, &hop9 ) );
+  FD_TEST( fd_fib4_cnt( fib_main )==3 );
 
   test_fib_print( fib_main,
     "throw default metric 4294967295\n"
     "192.0.2.160/27 dev 6 scope link src 192.0.2.165 metric 300\n"
     "default via 192.0.2.161 dev 6 src 192.0.2.165 metric 300\n"
+<<<<<<< HEAD
+=======
+    "192.0.2.160/27 dev 6 scope link src 192.0.2.165 metric 300\n"
+>>>>>>> 9f981aab2 (net: use fd_map_dynamic.c for fib4 hmap)
   );
 
 # define QUERY(ip) candidate[0] = fd_fib4_lookup( fib_local, FD_IP4_ADDR ip, 0 ); candidate[1] = fd_fib4_lookup( fib_main, FD_IP4_ADDR ip, 0 ); next = fd_fib4_hop_or( candidate+0, candidate+1 );

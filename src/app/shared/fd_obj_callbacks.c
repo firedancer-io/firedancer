@@ -216,7 +216,7 @@ fib4_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 fib4_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_fib4_new( fd_topo_obj_laddr( topo, obj->id ), VAL("route_max"), VAL("route_peer_max"), VAL("route_peer_seed") ) );
+  FD_TEST( fd_fib4_new( fd_topo_obj_laddr( topo, obj->id ), VAL("route_max"), VAL("route_peer_max") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_fib4 = {
