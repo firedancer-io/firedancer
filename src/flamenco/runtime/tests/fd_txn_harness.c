@@ -5,6 +5,7 @@
 #include "../fd_executor.h"
 #include "../fd_runtime_stack.h"
 #include "../fd_txn_account.h"
+#include "../fd_system_ids.h"
 #include "../program/fd_builtin_programs.h"
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
@@ -167,6 +168,13 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_recent_block_hashes_t rbh[1];
   if( rbh_sysvar ) {
     rbh->hashes = rbh_sysvar->hashes;
+
+    /* Ensure the recent hashes sysvar account exists in the current transaction with the correct state before updating. */
+    fd_txn_account_t check_acc[1];
+    fd_funk_rec_prepare_t check_prepare = {0};
+    fd_txn_account_init_from_funk_mutable( check_acc, &fd_sysvar_recent_block_hashes_id, accdb, &xid, 0, 0UL, &check_prepare );
+    fd_txn_account_mutable_fini( check_acc, accdb, &check_prepare );
+    fd_sysvar_recent_hashes_init( runner->bank, runner->accdb, &xid, NULL );
   }
 
   if( rbh_sysvar && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
