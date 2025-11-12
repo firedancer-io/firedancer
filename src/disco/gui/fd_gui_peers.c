@@ -1075,7 +1075,7 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       peer->gossvf_rx_sum.ref      = peer->gossvf_rx_sum.cur;
       peer->gossvf_rx_sum.update_timestamp_ns = now;
 
-      peer->gossip_tx_sum.rate_ema = fd_gui_peers_adaptive_ema( peer->gossip_tx_sum.update_timestamp_ns, now, (long)(((double)((long)peer->gossip_tx_sum.cur - (long)peer->gossip_tx_sum.ref) * 1e9 / window)), peer->gossvf_rx_sum.rate_ema );
+      peer->gossip_tx_sum.rate_ema = fd_gui_peers_adaptive_ema( peer->gossip_tx_sum.update_timestamp_ns, now, (long)(((double)((long)peer->gossip_tx_sum.cur - (long)peer->gossip_tx_sum.ref) * 1e9 / window)), peer->gossip_tx_sum.rate_ema );
       peer->gossip_tx_sum.ref      = peer->gossip_tx_sum.cur;
       peer->gossip_tx_sum.update_timestamp_ns = now;
       fd_gui_peers_bandwidth_tracking_ele_insert( peers->bw_tracking, peer, peers->contact_info_table );
