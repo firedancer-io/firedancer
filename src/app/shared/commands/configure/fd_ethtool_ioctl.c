@@ -8,6 +8,7 @@
 
 #include "fd_ethtool_ioctl.h"
 #include "../../../../util/fd_util.h"
+#include "../../../../util/net/fd_ip4.h"
 
 #define MAX_RXFH_KEY_SIZE   (1024)
 #define MAX_FEATURES        (2048)
@@ -449,35 +450,46 @@ int
 fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
                                        uint                 rule_idx,
                                        ushort               dport,
+                                       uint                 rule_group_idx,
+                                       uint                 rule_group_cnt,
                                        uint                 queue_idx ) {
-  /* Note: Some drivers do not support RX_CLS_LOC_ANY (e.g. mlx5), and
-     some drivers only support it (e.g. bnxt). So first we try with
-     the explicit rule index and then again with the any location if
-     the former failed. */
-  FD_LOG_NOTICE(( "RUN: `ethtool --config-ntuple %s flow-type udp4 dst-port %hu queue %u`",
-                  ioc->ifr.ifr_name, dport, queue_idx ));
+  /* Note: Most drivers do not support RX_CLS_LOC_ANY, instead requiring
+     an explicit location index.  However, some drivers require it
+     (e.g. bnxt).  We can tell based on the RX_CLS_LOC_SPECIAL flag. */
+  struct ethtool_rxnfc get = { .cmd = ETHTOOL_GRXCLSRLCNT };
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRLCNT", &get );
+  int const any_location = !!(get.data & RX_CLS_LOC_SPECIAL);
+
+  FD_TEST( rule_group_idx<rule_group_cnt && fd_uint_is_pow2( rule_group_cnt ) && rule_group_cnt>0U );
+  uint const src_addr      = fd_uint_bswap( rule_group_idx );
+  uint const src_addr_mask = fd_uint_bswap( rule_group_cnt-1U );
+  FD_LOG_NOTICE(( "RUN: `ethtool --config-ntuple %s flow-type udp4 dst-port %hu src-ip "
+                  FD_IP4_ADDR_FMT " m " FD_IP4_ADDR_FMT " queue %u`",
+                  ioc->ifr.ifr_name, dport, FD_IP4_ADDR_FMT_ARGS( src_addr ),
+                  FD_IP4_ADDR_FMT_ARGS( ~src_addr_mask ), queue_idx ));
   struct ethtool_rxnfc efc = {
     .cmd = ETHTOOL_SRXCLSRLINS,
     .fs = {
       .flow_type = UDP_V4_FLOW,
-      .h_u = { .udp_ip4_spec = { .pdst = fd_ushort_bswap( dport ) } },
-      .m_u = { .udp_ip4_spec = { .pdst = 0xFFFF } },
+      .h_u = { .udp_ip4_spec = {
+        .pdst   = fd_ushort_bswap( dport ),
+        .ip4src = src_addr } },
+      .m_u = { .udp_ip4_spec = {
+        .pdst = 0xFFFF,
+        .ip4src = src_addr_mask } },
       .ring_cookie = queue_idx,
-      .location = rule_idx
+      .location = any_location ? RX_CLS_LOC_ANY : rule_idx,
     }
   };
-  if( FD_LIKELY( 0==run_ioctl( ioc, "ETHTOOL_SRXCLSRLINS", &efc, 0, 0 ) ) )
-    return 0;
-  efc.fs.location = RX_CLS_LOC_ANY;
   TRY_RUN_IOCTL( ioc, "ETHTOOL_SRXCLSRLINS", &efc );
   return 0;
 }
 
 int
 fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
-                                            ushort *             dports,
-                                            uint                 num_dports,
-                                            uint                 queue_idx,
+                                            ushort const *       dports,
+                                            uint                 dports_cnt,
+                                            uint                 queue_cnt,
                                             int *                valid ) {
   union {
     struct ethtool_rxnfc m;
@@ -489,21 +501,30 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
   int ret = run_ioctl( ioc, "ETHTOOL_GRXCLSRLCNT", &efc, 1, 0 );
   if( FD_UNLIKELY( ret!=0 ) ) {
     if( FD_LIKELY( ret==EOPNOTSUPP ) ) {
-      *valid = (num_dports == 0);
+      *valid = (dports_cnt==0U);
       return 0;
     }
     return ret;
   }
   uint const rule_cnt = efc.m.rule_cnt;
-  if( FD_UNLIKELY( rule_cnt > MAX_NTUPLE_RULES ) )
+  if( FD_UNLIKELY( rule_cnt>MAX_NTUPLE_RULES ) )
     return EINVAL;
-  if( rule_cnt!=num_dports ) {
+  if( dports_cnt==0U ) {
+    *valid = (rule_cnt==0U);
+    return 0;
+  }
+  FD_TEST( queue_cnt>0U );
+  uint const rule_group_cnt = fd_uint_pow2_up( queue_cnt );
+  if( rule_cnt!=(dports_cnt*rule_group_cnt) ) {
     *valid = 0;
     return 0;
   }
-  if( rule_cnt==0U ) {
-    *valid = 1;
-    return 0;
+
+  ushort expected[ MAX_NTUPLE_RULES ] = { 0 };
+  for( uint r=0U; r<rule_group_cnt; r++ ) {
+    for( uint p=0U; p<dports_cnt; p++ ) {
+      expected[ (r*dports_cnt)+p ] = dports[ p ];
+    }
   }
 
   /* Get location indices of all rules */
@@ -512,27 +533,34 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
   TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRLALL", &efc );
 
   /* Loop over all rules, returning early if any are invalid */
-  static const union ethtool_flow_union EXPECTED_MASK = { .udp_ip4_spec = { .pdst = 0xFFFF } };
-  static const struct ethtool_flow_ext EXPECTED_EXT_MASK = { 0 };
+  static const struct ethtool_flow_ext  EXPECTED_EXT_MASK = { 0 };
+         const union ethtool_flow_union expected_mask     = { .udp_ip4_spec = {
+    .pdst   = 0xFFFF,
+    .ip4src = fd_uint_bswap( rule_group_cnt-1U ),
+  } };
   for( uint i=0u; i<efc.m.rule_cnt; i++) {
     struct ethtool_rxnfc get = {
       .cmd = ETHTOOL_GRXCLSRULE,
       .fs = { .location = efc.m.rule_locs[ i ] }
     };
     TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRULE", &get );
-    uint flow_type = get.fs.flow_type & ~(uint)FLOW_RSS & ~(uint)FLOW_EXT & ~(uint)FLOW_MAC_EXT;
-    if( FD_UNLIKELY( ((flow_type != UDP_V4_FLOW) | (get.fs.ring_cookie != queue_idx)) ||
-                     0!=memcmp( &get.fs.m_u, &EXPECTED_MASK, sizeof(EXPECTED_MASK) ) ||
+    uint   flow_type      = get.fs.flow_type & ~(uint)FLOW_RSS & ~(uint)FLOW_EXT & ~(uint)FLOW_MAC_EXT;
+    uint   rule_group_idx = fd_uint_bswap( get.fs.h_u.udp_ip4_spec.ip4src );
+    ushort dport          = fd_ushort_bswap( get.fs.h_u.udp_ip4_spec.pdst );
+    if( FD_UNLIKELY( ((flow_type!=UDP_V4_FLOW) | (rule_group_idx>=rule_group_cnt) | (get.fs.ring_cookie!=(rule_group_idx%queue_cnt)) ) ||
+                     0!=memcmp( &get.fs.m_u,   &expected_mask,     sizeof(expected_mask)    ) ||
                      0!=memcmp( &get.fs.m_ext, &EXPECTED_EXT_MASK, sizeof(EXPECTED_EXT_MASK)) ) ) {
       *valid = 0;
       return 0;
     }
-    /* This is a valid udp rule, find the expected port(s) it matches or return error */
+    /* This is a valid udp rule, find the expected port it matches in
+       the given rule group, or return an error */
     int found = 0;
-    for( uint j=0u; j<num_dports; j++) {
-      if( dports[ j ] == fd_ushort_bswap( get.fs.h_u.udp_ip4_spec.pdst ) ) {
-        dports[ j ] = 0u;
+    for( uint j=0u; j<dports_cnt; j++) {
+      if( expected[ (rule_group_idx*dports_cnt)+j ] == dport ) {
+        expected[ (rule_group_idx*dports_cnt)+j ] = 0U;
         found = 1;
+        break;
       }
     }
     if( !found ) {
@@ -541,11 +569,7 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
     }
   }
 
-  /* All rules are valid and matched expected ports. Lastly, check that
-     no expected ports were missing */
+  /* All rules are valid and matched expected ports */
   *valid = 1;
-  for( uint i=0u; i<num_dports; i++)
-    if( dports[ i ] != 0 )
-      *valid = 0;
   return 0;
 }
