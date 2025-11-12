@@ -394,9 +394,26 @@ convert_to_current( fd_vote_state_versioned_t * self,
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L19
   case fd_vote_state_versioned_enum_v0_23_5: {
     fd_vote_state_0_23_5_t * state = &self->inner.v0_23_5;
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L21
-    fd_vote_authorized_voters_t * authorized_voters = authorized_voters_new(
-        state->authorized_voter_epoch, &state->authorized_voter, authorized_voters_mem );
+    // Check if uninitialized (authorized_voter is all zeros)
+    int is_uninitialized = 1;
+    for( ulong i = 0; i < sizeof(fd_pubkey_t); i++ ) {
+      if( state->authorized_voter.uc[i] != 0 ) {
+        is_uninitialized = 0;
+        break;
+      }
+    }
+
+    fd_vote_authorized_voters_t * authorized_voters;
+    if( is_uninitialized ) {
+      // Create empty AuthorizedVoters (default)
+      authorized_voters = (fd_vote_authorized_voters_t *)authorized_voters_mem;
+      fd_memset( authorized_voters, 0, sizeof(fd_vote_authorized_voters_t) );
+      authorized_voters->pool = NULL;
+      authorized_voters->treap = NULL;
+    } else {
+      authorized_voters = authorized_voters_new(
+          state->authorized_voter_epoch, &state->authorized_voter, authorized_voters_mem );
+    }
 
     /* Temporary to hold current */
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L23
