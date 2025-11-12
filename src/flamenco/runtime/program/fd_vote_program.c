@@ -2150,48 +2150,6 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
   return 1;
 }
 
-/// returns commission split as (voter_portion, staker_portion, was_split) tuple
-///
-/// if commission calculation is 100% one way or other, indicate with false for was_split
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L543
-void
-fd_vote_commission_split( uchar                   commission,
-                          ulong                   on,
-                          fd_commission_split_t * result ) {
-  uint commission_split = fd_uint_min( (uint)commission, 100 );
-  result->is_split      = (commission_split != 0 && commission_split != 100);
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L545
-  if( commission_split==0U ) {
-    result->voter_portion  = 0;
-    result->staker_portion = on;
-    return;
-  }
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L546
-  if( commission_split==100U ) {
-    result->voter_portion  = on;
-    result->staker_portion = 0;
-    return;
-  }
-  /* Note: order of operations may matter for int division. That's why I didn't make the
-   * optimization of getting out the common calculations */
-
-  // ... This is copied from the solana comments...
-  //
-  // Calculate mine and theirs independently and symmetrically instead
-  // of using the remainder of the other to treat them strictly
-  // equally. This is also to cancel the rewarding if either of the
-  // parties should receive only fractional lamports, resulting in not
-  // being rewarded at all. Thus, note that we intentionally discard
-  // any residual fractional lamports.
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L548
-  result->voter_portion =
-      (ulong)((uint128)on * (uint128)commission_split / (uint128)100);
-  result->staker_portion =
-      (ulong)((uint128)on * (uint128)( 100 - commission_split ) / (uint128)100);
-}
-
 /**********************************************************************/
 /* mod vote_processor                                                 */
 /**********************************************************************/

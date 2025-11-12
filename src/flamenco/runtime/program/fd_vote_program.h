@@ -129,18 +129,6 @@ fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
                             uchar *                     authorized_voters_mem,
                             uchar *                     landed_votes_mem );
 
-struct fd_commission_split {
-  ulong voter_portion;
-  ulong staker_portion;
-  uint  is_split;
-};
-typedef struct fd_commission_split fd_commission_split_t;
-
-void
-fd_vote_commission_split( uchar                   commission,
-                          ulong                   on,
-                          fd_commission_split_t * result );
-
 void
 fd_vote_store_account( fd_txn_account_t *   vote_account,
                        fd_bank_t *          bank );
