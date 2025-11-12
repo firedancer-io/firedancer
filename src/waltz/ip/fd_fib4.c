@@ -17,26 +17,21 @@ fd_fib4_footprint( ulong route_max,
                    ulong route_peer_max ) {
   if( route_max==0 || route_max>UINT_MAX ||
       route_peer_max==0 || route_peer_max>UINT_MAX ) return 0UL;
-  ulong elem_max       = fd_fib4_hmap_get_ele_max( route_peer_max   );
-  ulong probe_max      = fd_fib4_hmap_get_probe_max( elem_max );
-  ulong lock_cnt       = fd_fib4_hmap_get_lock_cnt( elem_max );
-  ulong hmap_footprint = fd_fib4_hmap_footprint( elem_max, lock_cnt, probe_max );
+  ulong hmap_footprint = fd_fib4_hmap_footprint( );
   if( !hmap_footprint ) return 0UL;
 
-  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
+  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
       alignof(fd_fib4_t),            sizeof(fd_fib4_t)                     ),
       alignof(fd_fib4_key_t),        route_max*sizeof(fd_fib4_key_t)       ),
       alignof(fd_fib4_hop_t),        route_max*sizeof(fd_fib4_hop_t)       ),
       fd_fib4_hmap_align(),          hmap_footprint                        ),
-      alignof(fd_fib4_hmap_entry_t), elem_max*sizeof(fd_fib4_hmap_entry_t) ),
       alignof(fd_fib4_t) );
 }
 
 void *
 fd_fib4_new( void * mem,
              ulong  route_max,
-             ulong  route_peer_max,
-             ulong  route_peer_seed ) {
+             ulong  route_peer_max ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -56,32 +51,24 @@ fd_fib4_new( void * mem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_fib4_t *     fib4     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_t),     sizeof(fd_fib4_t)               );
-  fd_fib4_key_t * keys     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_key_t), route_max*sizeof(fd_fib4_key_t) );
-  fd_fib4_hop_t * vals     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_hop_t), route_max*sizeof(fd_fib4_hop_t) );
-  ulong hmap_elem_max      = fd_fib4_hmap_get_ele_max(    route_peer_max );
-  ulong hmap_probe_max     = fd_fib4_hmap_get_probe_max( hmap_elem_max  );
-  ulong hmap_lock_cnt      = fd_fib4_hmap_get_lock_cnt(  hmap_elem_max  );
-  ulong hmap_footprint     = fd_fib4_hmap_footprint( hmap_elem_max, hmap_lock_cnt, hmap_probe_max );
-  FD_TEST( hmap_footprint );
-  void * fib4_hmap_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_fib4_hmap_align(), hmap_footprint );
-  void * fib4_hmap_ele_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_hmap_entry_t), hmap_elem_max*sizeof(fd_fib4_hmap_entry_t) );
-  FD_TEST( fib4_hmap_mem );
-  FD_TEST( fib4_hmap_ele_mem );
+  ulong  hmap_footprint     = fd_fib4_hmap_footprint(); FD_TEST( hmap_footprint );
+
+  fd_fib4_t     * fib4          = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_t),     sizeof(fd_fib4_t)               );
+  fd_fib4_key_t * keys          = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_key_t), route_max*sizeof(fd_fib4_key_t) );
+  fd_fib4_hop_t * vals          = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fib4_hop_t), route_max*sizeof(fd_fib4_hop_t) );
+  void          * fib4_hmap_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_fib4_hmap_align(),   hmap_footprint                  );
   FD_SCRATCH_ALLOC_FINI( l, alignof(fd_fib4_t) );
 
   fd_memset( fib4, 0, sizeof(fd_fib4_t)               );
   fd_memset( keys, 0, route_max*sizeof(fd_fib4_key_t) );
   fd_memset( vals, 0, route_max*sizeof(fd_fib4_hop_t) );
-  fd_memset( fib4_hmap_ele_mem, 0, hmap_elem_max*sizeof(fd_fib4_hmap_entry_t) );
 
-  FD_TEST( fd_fib4_hmap_new( fib4_hmap_mem, hmap_elem_max, hmap_lock_cnt, hmap_probe_max, route_peer_seed ) );
+  FD_TEST( fd_fib4_hmap_new( fib4_hmap_mem ) );
 
   fib4->cnt              = 1UL;   // first route entry is 0.0.0.0/0
   fib4->max              = route_max;
   fib4->hop_off          = (ulong)vals - (ulong)fib4;
   fib4->hmap_offset      = (ulong)fib4_hmap_mem - (ulong)fib4;
-  fib4->hmap_elem_offset = (ulong)fib4_hmap_ele_mem - (ulong)fib4;
   fib4->hmap_max         = route_peer_max;
   fib4->hmap_cnt         = 0;
   keys[0].prio           = UINT_MAX;
@@ -108,21 +95,11 @@ fd_fib4_delete( void * mem ) {
 void
 fd_fib4_clear( fd_fib4_t * fib4 ) {
   fib4->cnt = 1UL;
-
   if( fib4->hmap_cnt==0 ) return;
 
-  fd_fib4_hmap_t hmap[1];
-  FD_TEST( fd_fib4_hmap_join( hmap, fd_fib4_hmap_mem( fib4 ), fd_fib4_hmap_ele_mem( fib4 ) ) );
-
+  /* MAYBE switch to map_dynamic so we don't have to oversize the map */
+  fd_fib4_hmap_clear( fd_fib4_hmap( fib4 ) );
   fib4->hmap_cnt = 0;
-  ulong elem_max  = fd_fib4_hmap_get_ele_max( fib4->hmap_max );
-  ulong probe_max = fd_fib4_hmap_get_probe_max( elem_max );
-  ulong lock_cnt  = fd_fib4_hmap_get_lock_cnt( elem_max );
-  ulong seed      = fd_fib4_hmap_seed( hmap );
-  ulong ignored[ fd_fib4_hmap_lock_max( ) ];
-  FD_TEST( fd_fib4_hmap_lock_range( hmap, 0, lock_cnt, FD_MAP_FLAG_BLOCKING, ignored )==FD_MAP_SUCCESS );
-  FD_TEST( fd_fib4_hmap_new( fd_fib4_hmap_mem( fib4 ), elem_max, lock_cnt, probe_max, seed ) );
-  fd_memset( fd_fib4_hmap_ele_mem( fib4 ), 0, elem_max*sizeof(fd_fib4_hmap_entry_t) );
 }
 
 FD_FN_PURE ulong
@@ -142,36 +119,26 @@ fd_fib4_cnt( fd_fib4_t const * fib ) {
 
 /* fd_fib4_hmap_insert adds a new entry (key=ip4_dst, value=hop) to the fib4
    hmap. Assume the netmask for the ip4_dst entry is 32, and ip4_dst is not 0.
-   The insertion to fib->hmap is blocking. Return FD_MAP_SUCCESS on success,
-   FD_MAP_ERR_FULL if the hmap is full.
+   Fails if the map capacity has hit configured hmap_max. Returns 0 on success,
+   or 1 on failure.
 */
 
 static int
-fd_fib4_hmap_insert( fd_fib4_t *     fib,
+_fd_fib4_hmap_insert( fd_fib4_t *     fib,
                      uint            ip4_dst,
                      fd_fib4_hop_t * hop ) {
 
-  if( FD_UNLIKELY( fib->hmap_cnt>=fib->hmap_max ) ) return FD_MAP_ERR_FULL;
-
-  fd_fib4_hmap_t hmap[1];
-  FD_TEST( fd_fib4_hmap_join( hmap, fd_fib4_hmap_mem( fib ), fd_fib4_hmap_ele_mem( fib ) ) );
-
-  uint key = ip4_dst;
-  fd_fib4_hmap_query_t query[1];
-  fd_fib4_hmap_entry_t sentinel[1];
-  int err = fd_fib4_hmap_prepare( hmap, &key, sentinel, query, FD_MAP_FLAG_BLOCKING );
-  if( FD_UNLIKELY( err==FD_MAP_ERR_FULL ) ) return FD_MAP_ERR_FULL;
-  else if ( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_fib4_hmap_insert failed. err: %d", err ));
-
-  fd_fib4_hmap_entry_t * ele = fd_fib4_hmap_query_ele( query );
-  ele->dst_addr              = ip4_dst;
+  if( FD_UNLIKELY( fib->hmap_cnt>=fib->hmap_max ) ) return 1;
   FD_TEST( hop );
-  ele->next_hop = *hop;
+
+  fd_fib4_hmap_entry_t * map = fd_fib4_hmap( fib );
+  fd_fib4_hmap_entry_t * entry = fd_fib4_hmap_insert( map, ip4_dst );
+  FD_TEST( entry );
+
+  /* TODO - atomically write hop */
+  entry->next_hop = *hop;
   fib->hmap_cnt++;
-
-  fd_fib4_hmap_publish( query );
-
-  return FD_MAP_SUCCESS;
+  return 0;
 }
 
 int
@@ -182,7 +149,7 @@ fd_fib4_insert( fd_fib4_t *     fib,
                 fd_fib4_hop_t * hop ) {
 
   if( ip4_dst!=0 && prefix==32 ) {
-    if( fd_fib4_hmap_insert( fib, ip4_dst, hop )==FD_MAP_SUCCESS ) return 1;
+    if( _fd_fib4_hmap_insert( fib, ip4_dst, hop ) ) return 1;
     FD_LOG_WARNING(( "Failed to insert /32 route " FD_IP4_ADDR_FMT " into fib4 hashmap", FD_IP4_ADDR_FMT_ARGS(ip4_dst) ));
     return 0;
   }
@@ -231,25 +198,13 @@ fd_fib4_lookup( fd_fib4_t const * fib,
   FD_TEST( out );
 
   if( fib->hmap_cnt>0 ) {
-    fd_fib4_hmap_t hmap[1];
-    FD_TEST( fd_fib4_hmap_join( hmap, fd_fib4_hmap_mem( (void *)fib ), fd_fib4_hmap_ele_mem( (void *)fib ) ) );
-    uint key = ip4_dst;
-    fd_fib4_hmap_query_t query[1];
-    fd_fib4_hmap_entry_t sentinel[1];
-    int find_err  = fd_fib4_hmap_query_try( hmap, &key, sentinel, query, 0 );
-    if( find_err==FD_MAP_SUCCESS ) {
-      fd_fib4_hmap_entry_t const * ele = fd_fib4_hmap_query_ele_const( query );
-      fd_fib4_hop_t next_hop           = ele->next_hop;                    // speculatively save the next hop
-      find_err                         = fd_fib4_hmap_query_test( query ); // test again
-      if( FD_UNLIKELY( find_err ) ) {
-        return &fd_fib4_hop_blackhole;
-      }
-      *out = next_hop;
+    fd_fib4_hmap_entry_t const * map   = fd_fib4_hmap_const( fib );
+
+    fd_fib4_hop_t entry = fd_fib4_hmap_query_atomic( map, ip4_dst );
+    if( entry.rtype!=FD_FIB4_RTYPE_UNSPEC ) {
+      *out = entry;
       return out;
-    } else if( FD_UNLIKELY( find_err!=FD_MAP_ERR_KEY ) ) {
-      return &fd_fib4_hop_blackhole;
     }
-    // Can't find a match in the fib4 hashmap. Look up in the routing table.
   }
 
   ip4_dst = fd_uint_bswap( ip4_dst );
@@ -396,26 +351,27 @@ fd_fib4_fprintf( fd_fib4_t const * fib,
   }
 
   /* Attempt to print the hashmap. */
-  fd_fib4_hmap_t hmap[1];
-  fd_fib4_hmap_entry_t * elems = fd_fib4_hmap_ele_mem( (fd_fib4_t *)fib );
-  FD_TEST( fd_fib4_hmap_join( hmap, fd_fib4_hmap_mem( (fd_fib4_t *)fib ), elems ) );
-  ulong elem_max = fd_fib4_hmap_get_ele_max( fib->hmap_max );
-  for( ulong i=0; i<elem_max; i++ ) {
-    ulong * lock = hmap->lock+fd_fib4_hmap_ele_lock( hmap, i );
-    fd_fib4_hmap_entry_t e;
-    for(;;) {
-      ulong ver = fd_fib4_hmap_private_try( lock );
-      e = FD_VOLATILE_CONST( elems[ i ] );
-      if( FD_LIKELY( fd_fib4_hmap_private_test( lock, 1UL, &ver, 0UL, 1UL )==FD_MAP_SUCCESS ) ) break;
-    }
-    if( e.dst_addr!=0 ) {
-      fd_fib4_key_t key;
-      key.addr = fd_uint_bswap( e.dst_addr );
-      key.mask = 31;
-      key.prio = 0;
-      fd_fib4_fprintf_route( &key, &e.next_hop, file );
-    }
-  }
+  /* TODO: fix this */
+  // fd_fib4_hmap_t hmap[1];
+  // fd_fib4_hmap_entry_t * elems = fd_fib4_hmap_ele_mem( (fd_fib4_t *)fib );
+  // FD_TEST( fd_fib4_hmap_join( hmap, fd_fib4_hmap_mem( (fd_fib4_t *)fib ), elems ) );
+  // ulong elem_max = fd_fib4_hmap_get_ele_max( fib->hmap_max );
+  // for( ulong i=0; i<elem_max; i++ ) {
+  //   ulong * lock = hmap->lock+fd_fib4_hmap_ele_lock( hmap, i );
+  //   fd_fib4_hmap_entry_t e;
+  //   for(;;) {
+  //     ulong ver = fd_fib4_hmap_private_try( lock );
+  //     e = FD_VOLATILE_CONST( elems[ i ] );
+  //     if( FD_LIKELY( fd_fib4_hmap_private_test( lock, 1UL, &ver, 0UL, 1UL )==FD_MAP_SUCCESS ) ) break;
+  //   }
+  //   if( e.dst_addr!=0 ) {
+  //     fd_fib4_key_t key;
+  //     key.addr = fd_uint_bswap( e.dst_addr );
+  //     key.mask = 31;
+  //     key.prio = 0;
+  //     fd_fib4_fprintf_route( &key, &e.next_hop, file );
+  //   }
+  // }
 
   return 0;
 }

@@ -46,9 +46,9 @@ struct __attribute__((aligned(16))) fd_fib4_hop {
   uint  ip4_gw;   /* gateway address (big endian) */
   uint  if_idx;   /* output interface index */
   uint  ip4_src;  /* override source address (big endian). 0 implies unset */
-  uchar rtype;    /* route type (e.g. FD_FIB4_RTYPE_UNICAST) */
   uchar scope;    /* used to select source address */
   uchar flags;    /* app-specific flags */
+  uchar rtype;    /* route type (e.g. FD_FIB4_RTYPE_UNICAST) */
 };
 
 #define FD_FIB4_FLAG_RTA_UNSUPPORTED   ((uchar)0x01U) /* unsupported route attribute */
@@ -71,8 +71,7 @@ fd_fib4_footprint( ulong route_max,
 void *
 fd_fib4_new( void * mem,
              ulong  route_max,
-             ulong  route_peer_max,
-             ulong  route_peer_seed );
+             ulong  route_peer_max );
 
 fd_fib4_t *
 fd_fib4_join( void * mem );
