@@ -224,6 +224,7 @@ fd_gui_new( void *                shmem,
   gui->summary.slot_rooted                   = ULONG_MAX;
   gui->summary.slot_optimistically_confirmed = ULONG_MAX;
   gui->summary.slot_completed                = ULONG_MAX;
+  gui->summary.startup_slot          = ULONG_MAX;
   gui->summary.slot_estimated                = ULONG_MAX;
   gui->summary.slot_caught_up                = ULONG_MAX;
   gui->summary.slot_repair                   = ULONG_MAX;
@@ -1319,17 +1320,17 @@ fd_gui_try_insert_ranking( fd_gui_t               * gui,
     ulong dur = fd_gui_slot_duration( gui, slot );
     if( FD_LIKELY( dur!=ULONG_MAX ) ) TRY_INSERT_SLOT( duration, slot->slot, dur                         );
     TRY_INSERT_SLOT( tips,           slot->slot, slot->tips                                              );
-    TRY_INSERT_SLOT( fees,           slot->slot, slot->priority_fee                                      );
-    TRY_INSERT_SLOT( rewards,        slot->slot, slot->tips + slot->priority_fee                         );
-    TRY_INSERT_SLOT( rewards_per_cu, slot->slot, slot->compute_units==0UL ? 0UL : (slot->tips + slot->priority_fee) / slot->compute_units );
+    TRY_INSERT_SLOT( fees,           slot->slot, slot->priority_fee + slot->transaction_fee              );
+    TRY_INSERT_SLOT( rewards,        slot->slot, slot->tips + slot->priority_fee + slot->transaction_fee );
+    TRY_INSERT_SLOT( rewards_per_cu, slot->slot, slot->compute_units==0UL ? 0UL : (slot->tips + slot->priority_fee + slot->transaction_fee) / slot->compute_units );
     TRY_INSERT_SLOT( compute_units,  slot->slot, slot->compute_units                                     );
 #undef TRY_INSERT_SLOT
 }
 
 static void
 fd_gui_update_slot_rankings( fd_gui_t * gui ) {
-  if( FD_UNLIKELY( gui->summary.startup_progress.startup_ledger_max_slot==ULONG_MAX ) ) return;
-  if( FD_UNLIKELY( gui->summary.slot_rooted==ULONG_MAX                              ) ) return;
+  if( FD_UNLIKELY( gui->summary.startup_slot==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( gui->summary.slot_rooted ==ULONG_MAX ) ) return;
 
   ulong epoch_start_slot = ULONG_MAX;
   ulong epoch            = ULONG_MAX;
@@ -1347,8 +1348,8 @@ fd_gui_update_slot_rankings( fd_gui_t * gui ) {
   /* No new slots since the last update */
   if( FD_UNLIKELY( gui->epoch.epochs[ epoch_idx ].rankings_slot>gui->summary.slot_rooted ) ) return;
 
-  /* Slots before startup_ledger_max_slot are unavailable. */
-  gui->epoch.epochs[ epoch_idx ].rankings_slot = fd_ulong_max( gui->epoch.epochs[ epoch_idx ].rankings_slot, gui->summary.startup_progress.startup_ledger_max_slot+1UL );
+  /* Slots before gui->summary.startup_slot are unavailable. */
+  gui->epoch.epochs[ epoch_idx ].rankings_slot = fd_ulong_max( gui->epoch.epochs[ epoch_idx ].rankings_slot, gui->summary.startup_slot );
 
   /* Update the rankings. Only look through slots we haven't already. */
   for( ulong s = gui->summary.slot_rooted; s>=gui->epoch.epochs[ epoch_idx ].rankings_slot; s--) {
@@ -1497,6 +1498,8 @@ static fd_gui_slot_t *
 fd_gui_clear_slot( fd_gui_t *      gui,
                    ulong           _slot,
                    ulong           _parent_slot ) {
+  gui->summary.startup_slot = fd_ulong_if( gui->summary.startup_slot==ULONG_MAX, _slot, gui->summary.startup_slot );
+
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
   int mine = 0;
