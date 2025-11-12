@@ -449,6 +449,8 @@ struct fd_topo_tile {
 
       ulong   repair_sign_depth;
       ulong   repair_sign_cnt;
+
+      ulong   end_slot; /* repair profiler mode only */
     } repair;
 
     struct {

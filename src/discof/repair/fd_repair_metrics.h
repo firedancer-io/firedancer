@@ -25,6 +25,7 @@ struct fd_repair_metrics_t {
   uint              st;
   uint              en;
   ulong             turbine_slot0;
+  uint              turbine_slot0_idx; /* UINT_MAX if not set */
 };
 typedef struct fd_repair_metrics_t fd_repair_metrics_t;
 

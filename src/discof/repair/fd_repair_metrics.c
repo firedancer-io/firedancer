@@ -10,6 +10,7 @@ fd_repair_metrics_new( void * mem ) {
   repair_metrics->st = UINT_MAX;
   repair_metrics->en = UINT_MAX;
   repair_metrics->turbine_slot0 = 0;
+  repair_metrics->turbine_slot0_idx = UINT_MAX;
 
   return repair_metrics;
 }
@@ -42,11 +43,12 @@ fd_repair_metrics_add_slot( fd_repair_metrics_t * repair_metrics,
   repair_metrics->slots[ next_en ].turbine_cnt      = turbine_cnt;
   repair_metrics->en = next_en;
 
-# if DEBUG_LOGGING
   if( FD_UNLIKELY( slot == repair_metrics->turbine_slot0 ) ) {
+    repair_metrics->turbine_slot0_idx = next_en;
+# if DEBUG_LOGGING
     fd_repair_metrics_print( repair_metrics );
-  }
 # endif
+  }
 }
 
 #define MAX_WIDTH 120

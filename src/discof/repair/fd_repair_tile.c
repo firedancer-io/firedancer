@@ -314,6 +314,7 @@ struct ctx {
   /* Slot-level metrics */
   fd_repair_metrics_t * slot_metrics;
   ulong turbine_slot0;  // catchup considered complete after this slot
+  int   profiler_mode;
 };
 typedef struct ctx ctx_t;
 
@@ -674,7 +675,7 @@ after_shred( ctx_t      * ctx,
   if( FD_LIKELY( !is_code ) ) {
     long rtt = 0;
     fd_pubkey_t peer;
-    if( FD_UNLIKELY( ( rtt = fd_inflights_request_remove( ctx->inflight, nonce, &peer ) ) > 0 ) ) {
+    if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_remove( ctx->inflight, nonce, &peer ) ) > 0 ) ) {
       fd_policy_peer_response_update( ctx->policy, &peer, rtt );
       fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
     }
@@ -815,6 +816,8 @@ after_frag( ctx_t * ctx,
       FD_LOG_INFO(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
       return;
     };
+
+    if( FD_UNLIKELY( ctx->profiler_mode && ctx->turbine_slot0 != ULONG_MAX && shred->slot > ctx->turbine_slot0 ) ) return;
 #   if LOGGING
     if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
       FD_LOG_INFO(( "\n\n[Turbine]\n"
@@ -826,6 +829,7 @@ after_frag( ctx_t * ctx,
 #   endif
     ctx->metrics->current_slot  = fd_ulong_max( shred->slot, ctx->metrics->current_slot );
     if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX ) ) {
+      FD_LOG_NOTICE(( "turbine_slot0 set to %lu", shred->slot ));
       ctx->turbine_slot0 = shred->slot;
       fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
       fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
@@ -1121,6 +1125,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->tsdebug = fd_log_wallclock();
   ctx->pending_key_next = 0;
+  ctx->profiler_mode = tile->repair.end_slot != 0UL;
 }
 
 static ulong
