@@ -12,9 +12,6 @@
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
 
-FD_IMPORT_BINARY( ipinfo, "src/disco/gui/ipinfo.bin" );
-#define IPINFO_MAX_NODES (1UL<<22UL) /* 4M nodes */
-
 #include <stdio.h>
 
 FD_FN_CONST ulong
@@ -25,75 +22,8 @@ fd_gui_align( void ) {
 FD_FN_CONST ulong
 fd_gui_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_gui_align(),                sizeof( fd_gui_t ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_ipinfo_node_t), sizeof(fd_gui_ipinfo_node_t)*IPINFO_MAX_NODES );
+  l = FD_LAYOUT_APPEND( l, fd_gui_align(), sizeof( fd_gui_t ) );
   return FD_LAYOUT_FINI( l, fd_gui_align() );
-}
-
-static void
-build_ipinfo_trie( fd_gui_t *             gui,
-                   fd_gui_ipinfo_node_t * nodes ) {
-  gui->ipinfo.nodes = nodes;
-  ulong country_code_cnt = FD_LOAD( ulong, ipinfo );
-  FD_TEST( country_code_cnt && country_code_cnt<256UL ); /* 256 reserved for unknown */
-  FD_TEST( ipinfo_sz>=8UL+country_code_cnt*2UL );
-
-  for( ulong i=0UL; i<country_code_cnt; i++ ) {
-    fd_memcpy( gui->ipinfo.country_code[ i ], ipinfo+8UL+i*2UL, 2UL );
-    gui->ipinfo.country_code[ i ][ 2 ] = '\0';
-  }
-
-  ulong processed = 8UL+country_code_cnt*2UL;
-  FD_TEST( !((ipinfo_sz-processed)%6UL) );
-  FD_TEST( (ipinfo_sz-processed)/6UL<=IPINFO_MAX_NODES-1UL );
-
-  fd_gui_ipinfo_node_t * root = &nodes[ 0 ];
-  root->left = NULL;
-  root->right = NULL;
-  root->has_prefix = 0;
-
-  ulong node_cnt = 1UL;
-  while( processed<ipinfo_sz ) {
-    uint ip_addr = fd_uint_bswap( FD_LOAD( uint, ipinfo+processed ) );
-    uchar prefix_len = *( ipinfo+processed+4UL );
-    FD_TEST( prefix_len<=32UL );
-    uchar country_idx = *( ipinfo+processed+5UL );
-    FD_TEST( country_idx<country_code_cnt );
-
-    fd_gui_ipinfo_node_t * node = root;
-    for( uchar bit_pos=0; bit_pos<prefix_len; bit_pos++ ) {
-      uchar bit = (ip_addr >> (31 - bit_pos)) & 1;
-
-      fd_gui_ipinfo_node_t * child;
-      if( FD_LIKELY( !bit ) ) {
-        child = node->left;
-        if( FD_LIKELY( !child ) ) {
-          FD_TEST( node_cnt<IPINFO_MAX_NODES );
-          child = &nodes[ node_cnt++ ];
-          child->left = NULL;
-          child->right = NULL;
-          child->has_prefix = 0;
-          node->left = child;
-        }
-      } else {
-        child = node->right;
-        if( FD_LIKELY( !child ) ) {
-          FD_TEST( node_cnt<IPINFO_MAX_NODES );
-          child = &nodes[ node_cnt++ ];
-          child->left = NULL;
-          child->right = NULL;
-          child->has_prefix = 0;
-          node->right = child;
-        }
-      }
-      node = child;
-    }
-
-    node->has_prefix = 1;
-    node->country_code_idx = country_idx;
-
-    processed += 6UL;
-  }
 }
 
 void *
@@ -128,7 +58,6 @@ fd_gui_new( void *                shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_gui_t * gui                = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),                sizeof(fd_gui_t) );
-  fd_gui_ipinfo_node_t * _nodes = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_ipinfo_node_t), sizeof(fd_gui_ipinfo_node_t)*IPINFO_MAX_NODES );
 
   gui->http = http;
   gui->topo = topo;
@@ -249,8 +178,6 @@ fd_gui_new( void *                shmem,
   gui->shreds.history_slot          = ULONG_MAX;
   gui->summary.catch_up_repair_sz  = 0UL;
   gui->summary.catch_up_turbine_sz = 0UL;
-
-  build_ipinfo_trie( gui, _nodes );
 
   return gui;
 }

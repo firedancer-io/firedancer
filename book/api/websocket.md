@@ -1487,6 +1487,8 @@ default, until an update is made.
 
 - ("Stake", desc)
 - ("Pubkey", desc)
+- ("Name", desc)
+- ("Country", desc)
 - ("IP Addr", desc)
 - ("Ingress Push", desc)
 - ("Ingress Pull", desc)
@@ -1514,8 +1516,8 @@ direction of `0`. Not that the relative ordering of columns with
     "key": "query_sort",
     "id": 32,
     "params": {
-        "col": ["IP Addr", "Pubkey", "Stake", "Egress Pull", "Egress Push", "Ingress Pull", "Ingress Push"],
-        "dir": [1, 0, 0, 0, 0, 0, 0],
+        "col": ["IP Addr", "Pubkey", "Name", "Country", "Stake", "Egress Pull", "Egress Push", "Ingress Pull", "Ingress Push"],
+        "dir": [1, 0, 0, 0, 0, 0, 0, 0, 0],
     }
 }
 ```
