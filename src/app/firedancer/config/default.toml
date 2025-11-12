@@ -686,11 +686,7 @@ user = ""
     #
     # See the comments for the [tiles.net] section below for more
     # information.
-    #
-    # TODO: This should defaulted to 2 for Firedancer, but cannot be for
-    # now because changing it to 2 switches the networking rx_queue_mode
-    # to "simple" which decreases snapshot performance materially.
-    net_tile_count = 1
+    net_tile_count = 2
 
     # How many QUIC tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
@@ -1004,9 +1000,10 @@ user = ""
         #   traffic.
         #
         # "dedicated"
-        #   Reserves a dedicated hardware queue for each net tile.  For
-        #   now, only supports net_tile_count = 1.  Uses ethtool 'ntuple'
-        #   to route interesting packets based on UDP dst port.  This mode
+        #   Reserves a dedicated hardware queue for each net tile.  Uses
+        #   ethtool 'ntuple' rules to route incoming packets based on
+        #   UDP dst port.  Packets are load balanced across the dedicated
+        #   queues based on lowest bits of source address.  This mode
         #   may not work with some network device setups.
         #
         # "auto" (default)

@@ -9,6 +9,8 @@
 
 #define NAME "ethtool-channels"
 
+static int fini_device( char const * device );
+
 static int
 enabled( fd_config_t const * config ) {
 
@@ -75,6 +77,37 @@ device_read_slaves( char const * device,
   FD_TEST( devices[ 0 ]!=NULL );
 }
 
+/* FIXME: Centrally define listen port list to avoid this configure
+   stage from going out of sync with port mappings. */
+static uint
+get_ports( fd_config_t const * config,
+           ushort *            ports ) {
+  uint port_cnt = 0U;
+
+#define ADD_PORT( p ) do { \
+  ushort __port = ( p ); \
+  if( FD_UNLIKELY( __port==0U ) ) break; \
+  int __dupe = 0; \
+  for( uint __p=0U; !__dupe && __p<port_cnt; ++__p ) __dupe = (ports[ __p ]==__port); \
+  if( FD_UNLIKELY( __dupe ) ) break; \
+  ports[ port_cnt ] = __port; \
+  port_cnt++; \
+} while(0)
+
+  ADD_PORT( config->tiles.shred.shred_listen_port              );
+  ADD_PORT( config->tiles.quic.quic_transaction_listen_port    );
+  ADD_PORT( config->tiles.quic.regular_transaction_listen_port );
+  if( config->is_firedancer ) {
+    ADD_PORT( config->gossip.port                              );
+    ADD_PORT( config->tiles.repair.repair_intake_listen_port   );
+    ADD_PORT( config->tiles.repair.repair_serve_listen_port    );
+    ADD_PORT( config->tiles.send.send_src_port                 );
+  }
+#undef ADD_PORT
+
+  return port_cnt;
+}
+
 /* Attempts to initialize the device in simple or dedicated mode.  If
    strict is true, FD_LOG_ERR's on failure.  Otherwise, returns 1 on
    failure. Returns 0 on success. */
@@ -85,6 +118,8 @@ init_device( char const *        device,
              int                 strict ) {
   FD_TEST( dedicated_mode || strict );
 
+  uint const net_tile_cnt = config->layout.net_tile_count;
+
   fd_ethtool_ioctl_t ioc __attribute__((cleanup(fd_ethtool_ioctl_fini)));
   if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
     FD_LOG_ERR(( "error configuring network device (%s), unable to init ethtool ioctl", device ));
@@ -92,7 +127,7 @@ init_device( char const *        device,
   /* This should happen first, otherwise changing the number of channels may fail */
   FD_TEST( 0==fd_ethtool_ioctl_rxfh_set_default( &ioc ) );
 
-  uint const num_channels = !dedicated_mode ? config->layout.net_tile_count : 0 /* maximum allowed */;
+  uint const num_channels = !dedicated_mode ? net_tile_cnt : 0 /* maximum allowed */;
   int ret = fd_ethtool_ioctl_channels_set_num( &ioc, num_channels );
   if( FD_UNLIKELY( 0!=ret ) ) {
     if( strict ) {
@@ -108,36 +143,52 @@ init_device( char const *        device,
     return 1;
   }
 
+  /* Some drivers (e.g. igb) put the RXFH table into an incorrect state
+     after changing the channel count.  So in simple mode we reset it
+     to the default again. */
+  if( !dedicated_mode ) {
+    FD_TEST( 0==fd_ethtool_ioctl_rxfh_set_default( &ioc ) );
+  }
+
   FD_TEST( 0==fd_ethtool_ioctl_ntuple_clear( &ioc ) );
 
   if( dedicated_mode ) {
-    /* Remove queue 0 from the rxfh table.  This queue is dedicated for xdp. */
-    if( FD_UNLIKELY( 0!=fd_ethtool_ioctl_rxfh_set_suffix( &ioc, 1 ) ) ) {
-      if( strict ) FD_LOG_ERR(( "error configuring network device (%s), failed to isolate queue zero. Try `net.xdp.rss_queue_mode=\"simple\"`", device ));
-      else         return 1;
-    }
-
+    /* Some drivers (e.g. ixgbe) reset the RXFH table upon activation
+       of the ntuple feature, so we do this first. */
     if( FD_UNLIKELY( 0!=fd_ethtool_ioctl_feature_set( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, 1 ) ) ) {
       if( strict ) FD_LOG_ERR(( "error configuring network device (%s), failed to enable ntuple feature. Try `net.xdp.rss_queue_mode=\"simple\"`", device ));
       else         return 1;
     }
 
-    /* FIXME Centrally define listen port list to avoid this configure
-       stage from going out of sync with port mappings. */
-    uint rule_idx = 0;
-    int error =
-         ( 0!=fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.shred.shred_listen_port, 0 ) )
-      || ( 0!=fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.quic.quic_transaction_listen_port, 0 ) )
-      || ( 0!=fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.quic.regular_transaction_listen_port, 0 ) );
-    if( !error && config->is_firedancer ) {
-      error =
-           ( 0!=fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->gossip.port, 0 ) )
-        || ( 0!=fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.repair.repair_intake_listen_port, 0 ) )
-        || ( 0!=fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.repair.repair_serve_listen_port, 0 ) )
-        || ( 0!=fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.send.send_src_port, 0 ) );
+    /* Remove a queue from the rxfh table for each net tile. */
+    uint rxfh_queue_cnt;
+    FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_queue_cnt( &ioc, &rxfh_queue_cnt ) );
+    if( FD_UNLIKELY( net_tile_cnt>=rxfh_queue_cnt ) ) {
+      if( strict ) FD_LOG_ERR(( "error configuring network device (%s), too many net tiles %u for queue count %u.  "
+                                "Try `net.xdp.rss_queue_mode=\"simple\"` or reduce net tile count",
+                                device, net_tile_cnt, rxfh_queue_cnt ));
+      else         return 1;
     }
-    if( FD_UNLIKELY( error ) ) {
-      if( strict ) FD_LOG_ERR(( "error configuring network device (%s), failed to install ntuple rules. Try `net.xdp.rss_queue_mode=\"simple\"`", device ));
+    if( FD_UNLIKELY( 0!=fd_ethtool_ioctl_rxfh_set_suffix( &ioc, net_tile_cnt ) ) ) {
+      if( strict ) FD_LOG_ERR(( "error configuring network device (%s), failed to isolate queues. Try `net.xdp.rss_queue_mode=\"simple\"`", device ));
+      else         return 1;
+    }
+
+    /* Add a ntuple rule for each listening destination port.  If there
+       are multiple net tiles, create a group of rules for each tile. */
+    int ntuple_error = 0;
+    ushort ports[ 32 ];
+    uint port_cnt = get_ports( config, ports );
+    uint rule_idx = 0;
+    uint const rule_group_cnt = fd_uint_pow2_up( net_tile_cnt );
+    for( uint r=0U; !ntuple_error && r<rule_group_cnt; r++ ) {
+      for( uint p=0U; !ntuple_error && p<port_cnt; p++ ) {
+        ntuple_error = 0!=fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, ports[ p ], r, rule_group_cnt, r%net_tile_cnt );
+      }
+    }
+    if( FD_UNLIKELY( ntuple_error ) ) {
+      if( strict ) FD_LOG_ERR(( "error configuring network device (%s), failed to install ntuple rules.  "
+                                "Try `net.xdp.rss_queue_mode=\"simple\"` or `layout.net_tile_count=1`", device ));
       else         return 1;
     }
   }
@@ -150,9 +201,7 @@ init( fd_config_t const * config ) {
   int only_dedicated =
     (0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ));
   int try_dedicated = only_dedicated ||
-    (0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) && 1UL==config->layout.net_tile_count );
-  if( FD_UNLIKELY( only_dedicated && 1UL!=config->layout.net_tile_count ) )
-    FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
+    (0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
 
   /* if using a bonded device, we need to set channels on the
      underlying devices. */
@@ -177,6 +226,9 @@ init( fd_config_t const * config ) {
     FD_TEST( !only_dedicated );
     FD_LOG_WARNING(( "error configuring network device (%s), rss_queue_mode \"auto\" attempted"
                      " \"dedicated\" configuration but falling back to \"simple\".", config->net.interface ));
+    /* Wipe partial dedicated configuration before simple init */
+    if( is_bonded ) { for( ulong i=0UL; bond_devices[ i ]!=NULL; i++ ) fini_device( bond_devices[ i ] ); }
+    else            { fini_device( config->net.interface ); }
   }
 
   /* Require success for simple mode, either configured or as fallback */
@@ -222,13 +274,15 @@ static int
 check_device_is_configured( char const *        device,
                             fd_config_t const * config,
                             int                 dedicated_mode ) {
+  uint const net_tile_cnt = config->layout.net_tile_count;
+
   fd_ethtool_ioctl_t ioc __attribute__((cleanup(fd_ethtool_ioctl_fini)));
   if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
     FD_LOG_ERR(( "error configuring network device (%s), unable to init ethtool ioctl", device ));
 
   fd_ethtool_ioctl_channels_t channels;
   FD_TEST( 0==fd_ethtool_ioctl_channels_get_num( &ioc, &channels ) );
-  if( channels.current!=(dedicated_mode ? channels.max : config->layout.net_tile_count) ) return 0;
+  if( channels.current!=(dedicated_mode ? channels.max : net_tile_cnt) ) return 0;
 
   uint rxfh_queue_cnt;
   FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_queue_cnt( &ioc, &rxfh_queue_cnt ) );
@@ -238,9 +292,10 @@ check_device_is_configured( char const *        device,
   uint rxfh_table_ele_cnt;
   FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table, &rxfh_table_ele_cnt ) );
   int rxfh_error = (dedicated_mode && 0U==rxfh_table_ele_cnt);
-  for( uint j=0U, q=!!dedicated_mode; !rxfh_error && j<rxfh_table_ele_cnt; j++) {
+  uint const start_queue = dedicated_mode ? net_tile_cnt : 0U;
+  for( uint j=0U, q=start_queue; !rxfh_error && j<rxfh_table_ele_cnt; j++) {
     rxfh_error = (rxfh_table[ j ]!=q++);
-    if( FD_UNLIKELY( q>=rxfh_queue_cnt ) ) q = !!dedicated_mode;
+    if( FD_UNLIKELY( q>=rxfh_queue_cnt ) ) q = start_queue;
   }
   if( rxfh_error ) return 0;
 
@@ -255,21 +310,10 @@ check_device_is_configured( char const *        device,
     FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, NULL, 0, 0, &ntuple_rules_empty ) );
     if( !ntuple_rules_empty ) return 0;
   } else {
-    /* FIXME Centrally define listen port list to avoid this configure
-       stage from going out of sync with port mappings. */
-    uint num_ports = 0;
-    ushort ports[ 32 ];
-    ports[ num_ports++ ] = config->tiles.shred.shred_listen_port;
-    ports[ num_ports++ ] = config->tiles.quic.quic_transaction_listen_port;
-    ports[ num_ports++ ] = config->tiles.quic.regular_transaction_listen_port;
-    if( config->is_firedancer ) {
-      ports[ num_ports++ ] = config->gossip.port;
-      ports[ num_ports++ ] = config->tiles.repair.repair_intake_listen_port;
-      ports[ num_ports++ ] = config->tiles.repair.repair_serve_listen_port;
-      ports[ num_ports++ ] = config->tiles.send.send_src_port;
-    }
     int ports_valid;
-    FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, ports, num_ports, 0, &ports_valid ));
+    ushort ports[ 32 ];
+    uint port_cnt = get_ports( config, ports );
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, ports, port_cnt, net_tile_cnt, &ports_valid ));
     if( !ports_valid ) return 0;
   }
 
@@ -282,7 +326,7 @@ check( fd_config_t const * config,
   int only_dedicated =
     (0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ));
   int check_dedicated = only_dedicated ||
-    (0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) && 1UL==config->layout.net_tile_count );
+    (0==strcmp( config->net.xdp.rss_queue_mode, "auto" ));
 
   int is_bonded = device_is_bonded( config->net.interface );
   char line[ 4096 ];
@@ -351,6 +395,9 @@ fini_device( char const * device ) {
   if( FD_UNLIKELY( error ) )
     FD_LOG_ERR(( "error configuring network device (%s), unable to determine initial state", device ));
 
+  /* We leave the ntuple feature flag as-is in fini */
+  error |= (0!=fd_ethtool_ioctl_ntuple_clear( &ioc ));
+
   /* This should happen first, otherwise changing the number of channels may fail */
   error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
 
@@ -359,9 +406,6 @@ fini_device( char const * device ) {
   /* Some drivers (i40e) do not always evenly redistribute the RXFH table
      when increasing the channel count, so we run this again just in case. */
   error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
-
-  /* Note: We leave the ntuple feature flag as-is in fini */
-  error |= (0!=fd_ethtool_ioctl_ntuple_clear( &ioc ));
 
   if( FD_UNLIKELY( error ) )
     FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state", device ));
