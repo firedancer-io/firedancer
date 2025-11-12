@@ -60,9 +60,9 @@ typedef struct fd_gui_ipinfo_node fd_gui_ipinfo_node_t;
 
 #define FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT                 (256UL) /* maximum number of maintained active sort keys */
 #define FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ                    (200UL) /* the maximum number of rows a client can request for a table viewport */
-#define FD_GUI_PEERS_WS_VIEWPORT_UPDATE_INTERVAL_MILLIS    ( 100L)
-#define FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS    ( 100L)
-#define FD_GUI_PEERS_GOSSIP_STATS_UPDATE_INTERVAL_MILLIS   ( 100L)
+#define FD_GUI_PEERS_WS_VIEWPORT_UPDATE_INTERVAL_MILLIS    ( 150L)
+#define FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS    ( 150L)
+#define FD_GUI_PEERS_GOSSIP_STATS_UPDATE_INTERVAL_MILLIS   ( 300L)
 
 #define FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT (64UL)
 
