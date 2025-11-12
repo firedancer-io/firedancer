@@ -52,9 +52,7 @@
 
 #define IN_KIND_DEDUP   (0)
 #define IN_KIND_EXEC    (1)
-#define IN_KIND_GENESIS (2)
-#define IN_KIND_REPLAY  (3)
-#define IN_KIND_SNAP    (4)
+#define IN_KIND_REPLAY  (2)
 
 #define VOTE_TXN_SIG_MAX (2UL) /* validator identity and vote authority */
 
@@ -417,7 +415,6 @@ get_vote_account_from_accdb( ctx_t *                   ctx,
       FD_LOG_CRIT(( "vote account %s has too large data. dlen %lu > %lu", acc_cstr, data_sz, sizeof(vote_tower_out->data) ));
     }
     fd_memcpy( vote_tower_out->data, fd_accdb_ref_data_const( peek->acc ), data_sz );
-    //vote_tower_out->acc_sz = data_sz;
 
     if( FD_LIKELY( fd_accdb_peek_test( peek ) ) ) break;
     FD_SPIN_PAUSE();
@@ -441,19 +438,24 @@ replay_slot_completed( ctx_t *                      ctx,
     fd_notar_advance_epoch( ctx->notar, ctx->tower_accts, slot_info->epoch );
   }
 
+  FD_TEST( !fd_tower_forks_query( ctx->tower_forks, slot_info->slot, NULL ) );
+  fd_tower_forks_t * fork = fd_tower_forks_insert( ctx->tower_forks, slot_info->slot );
+
+  if( FD_UNLIKELY( ctx->init_slot == ULONG_MAX ) ) {
+    ctx->init_slot = slot_info->slot;
+    fork->confirmed = 1;
+    fork->confirmed_block_id = manifest_block_id;
+
+    ctx->root_slot = slot_info->slot;
+    ctx->conf_slot = slot_info->slot;
+  }
+
   /* Insert the just replayed block into ghost. */
 
   fd_hash_t const * parent_block_id = &slot_info->parent_block_id;
   if( FD_UNLIKELY( slot_info->parent_slot==ctx->init_slot ) ) parent_block_id = &manifest_block_id;
-  fd_ghost_blk_t * ghost_blk = NULL;
-  if( FD_UNLIKELY( slot_info->slot==ctx->init_slot ) ) ghost_blk = fd_ghost_query ( ctx->ghost, &slot_info->block_id );
-  else                                                 ghost_blk = fd_ghost_insert( ctx->ghost, &slot_info->block_id, parent_block_id, slot_info->slot );
-
-  /* Insert the just replayed block into tower forks. */
-  fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, slot_info->slot, NULL );
-  if( FD_LIKELY( !fork ) ) {
-    fork = fd_tower_forks_insert( ctx->tower_forks, slot_info->slot );
-  }
+  if( FD_UNLIKELY( slot_info->slot       ==ctx->init_slot ) ) parent_block_id = NULL;
+  fd_ghost_blk_t * ghost_blk = fd_ghost_insert( ctx->ghost, &slot_info->block_id, parent_block_id, slot_info->slot );
 
   /* Record metadata about the replayed block. */
 
@@ -623,37 +625,6 @@ replay_slot_completed( ctx_t *                      ctx,
 # endif
 }
 
-static void
-init_genesis( ctx_t * ctx ) {
-  FD_TEST( ctx->init_slot==ULONG_MAX );
-  FD_TEST( ctx->root_slot==ULONG_MAX );
-  FD_TEST( ctx->conf_slot==ULONG_MAX );
-  ctx->init_slot = 0;
-  ctx->root_slot = 0;
-  ctx->conf_slot = 0;
-
-  fd_ghost_insert( ctx->ghost, &manifest_block_id, NULL, 0 );
-  fd_tower_forks_t * fork  = fd_tower_forks_insert( ctx->tower_forks, 0 );
-  fork->confirmed          = 1;
-  fork->confirmed_block_id = manifest_block_id;
-}
-
-static void
-snapshot_done( ctx_t *                        ctx,
-               fd_snapshot_manifest_t const * manifest ) {
-  FD_TEST( ctx->init_slot==ULONG_MAX );
-  FD_TEST( ctx->root_slot==ULONG_MAX );
-  FD_TEST( ctx->conf_slot==ULONG_MAX );
-  ctx->init_slot = manifest->slot;
-  ctx->root_slot = manifest->slot;
-  ctx->conf_slot = manifest->slot;
-
-  fd_ghost_insert( ctx->ghost, &manifest_block_id, NULL, manifest->slot );
-  fd_tower_forks_t * fork = fd_tower_forks_insert( ctx->tower_forks, manifest->slot );
-  fork->confirmed          = 1;
-  fork->confirmed_block_id = manifest_block_id;
-}
-
 static inline void
 after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem,
@@ -699,27 +670,12 @@ returnable_frag( ctx_t *             ctx,
     }
     return 0;
   }
-  case IN_KIND_GENESIS: {
-    if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) init_genesis( ctx );
-    return 0;
-  }
   case IN_KIND_REPLAY: {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
       FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    if( FD_UNLIKELY( ctx->root_slot==ULONG_MAX ) ) return 1;
     if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
       fd_memcpy( &ctx->replay_slot_completed, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_completed_t) );
       replay_slot_completed( ctx, &ctx->replay_slot_completed, tsorig, stem );
-    }
-    return 0;
-  }
-  case IN_KIND_SNAP: {
-    if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) snapshot_done( ctx, &ctx->manifest );
-    else {
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-        FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-      fd_memcpy( &ctx->manifest, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_snapshot_manifest_t) );
     }
     return 0;
   }
@@ -819,9 +775,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if     ( FD_LIKELY( !strcmp( link->name, "dedup_resolv" ) ) ) ctx->in_kind[ i ] = IN_KIND_DEDUP;
     else if( FD_LIKELY( !strcmp( link->name, "replay_exec"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXEC;
-    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_LIKELY( !strcmp( link->name, "snapin_manif" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else     FD_LOG_ERR(( "tower tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem    = link_wksp->wksp;
