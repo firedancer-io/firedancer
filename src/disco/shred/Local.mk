@@ -2,7 +2,9 @@ $(call add-objs,fd_shred_dest,fd_disco)
 $(call add-objs,fd_shredder,fd_disco)
 $(call add-objs,fd_fec_resolver,fd_disco)
 $(call add-objs,fd_stake_ci,fd_disco)
+ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_shred_tile,fd_disco)
+endif
 $(call make-unit-test,test_shred_dest,test_shred_dest,fd_disco fd_flamenco fd_ballet fd_util)
 ifdef FD_ARCH_SUPPORTS_SANDBOX
 $(call make-unit-test,test_shred_tile,test_shred_tile,fdctl_shared fdctl_platform fd_disco fd_flamenco fd_ballet fd_tango fd_waltz fd_reedsol fd_funk fd_util)

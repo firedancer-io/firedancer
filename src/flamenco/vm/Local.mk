@@ -22,5 +22,7 @@ $(call run-unit-test,test_vm_interp)
 endif
 endif
 
+ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_pointer_chase,test_pointer_chase,fd_util)
 $(call run-unit-test,test_pointer_chase)
+endif

@@ -40,7 +40,7 @@ tmp_account_read( fd_tmp_account_t *        acc,
       NULL );
   if( FD_UNLIKELY( opt_err!=FD_ACC_MGR_SUCCESS ) ) {
     if( FD_LIKELY( opt_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) return NULL;
-    FD_LOG_CRIT(( "fd_funk_get_acc_meta_readonly failed (%d) %s", opt_err, FD_BASE58_ENC_32_ALLOCA( addr ) ));
+    FD_LOG_CRIT(( "fd_funk_get_acc_meta_readonly failed (%d)", opt_err ));
   }
   tmp_account_new( acc, meta->dlen );
   acc->meta = *meta;

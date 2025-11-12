@@ -201,14 +201,16 @@ fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
   if( prepare->rec ) {
     /* Check that the prepared record is not the Funk null value */
     if( !prepare->rec->val_gaddr ) {
+      FD_BASE58_ENCODE_32_BYTES( acct->pubkey->uc, acct_pubkey_b58 );
       FD_LOG_CRIT(( "invalid prepared record for %s: unexpected NULL funk record value. the record might have been modified by another thread",
-                   FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
+                    acct_pubkey_b58 ));
     }
 
     /* Ensure that the prepared record key still matches our key. */
     if( FD_UNLIKELY( memcmp( prepare->rec->pair.key, &key, sizeof(fd_funk_rec_key_t) )!=0 ) ) {
+      FD_BASE58_ENCODE_32_BYTES( acct->pubkey->uc, acct_pubkey_b58 );
       FD_LOG_CRIT(( "invalid prepared record for %s: the record might have been modified by another thread",
-                  FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
+                    acct_pubkey_b58 ));
     }
 
     /* Crashes the app if this key already exists in funk (conflicting

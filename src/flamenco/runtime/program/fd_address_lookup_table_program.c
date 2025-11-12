@@ -297,8 +297,9 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L120-L127 */
   if( FD_UNLIKELY( 0!=memcmp( lut_key->key, derived_tbl_key->key, sizeof(fd_pubkey_t) ) ) ) {
     /* Max msg_sz: 44 - 2 + 45 = 87 < 127 => we can use printf */
+    FD_BASE58_ENCODE_32_BYTES( derived_tbl_key->uc, derived_tbl_key_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Table address must match derived address: %s", FD_BASE58_ENC_32_ALLOCA( derived_tbl_key ) );
+      "Table address must match derived address: %s", derived_tbl_key_b58 );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
