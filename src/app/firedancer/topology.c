@@ -783,6 +783,11 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "fcap" );
 
     fd_topob_tile( topo, "fcap", "fcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    /* Connect to net_shred links to snoop on incoming shreds */
+    for( ulong j=0UL; j<net_tile_cnt; j++ ) {
+      fd_topob_tile_in( topo, "fcap", 0UL, "metric_in", "net_shred", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+    /* Connect to shred_out to receive FEC completion messages */
     fd_topob_tile_in( topo, "fcap", 0UL, "metric_in", "shred_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
@@ -1363,6 +1368,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "fcap" ) ) ) {
 
     strncpy( tile->feccap.file_path, config->tiles.feccap.file_path, sizeof(tile->feccap.file_path) );
+    tile->feccap.blockstore_fd = -1; /* Initialize to invalid fd, will be set in privileged_init */
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "sim" ) ) ) {
 

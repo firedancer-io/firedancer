@@ -23,3 +23,9 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (or (eq (arg 0) logfile_fd)
            (eq (arg 0) feccap_fd))
+
+# feccap: Close file descriptor on cleanup or error paths
+#
+# arg 0 is the file descriptor to close.
+close: (or (eq (arg 0) logfile_fd)
+           (eq (arg 0) feccap_fd))

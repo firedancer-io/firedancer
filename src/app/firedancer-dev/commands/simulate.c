@@ -107,9 +107,9 @@ simulate_topo( config_t * config ) {
   fd_topo_tile_t * tower_tile = fd_topob_tile( topo, "tower",  "tower",  "metric_in",  cpu_idx++, 0, 0 );
 
     /* Configure tower tile with necessary paths */
-  strncpy( tower_tile->tower.identity_key, config->paths.identity_key, sizeof(tower_tile->tower.identity_key) );
-  strncpy( tower_tile->tower.vote_account, config->paths.vote_account, sizeof(tower_tile->tower.vote_account) );
-  strncpy( tower_tile->tower.base_path, config->paths.base, sizeof(tower_tile->tower.base_path) );
+  strncpy( tower_tile->tower.identity_key_path, config->paths.identity_key, sizeof(tower_tile->tower.identity_key_path) );
+  strncpy( tower_tile->tower.vote_acc_path, config->paths.vote_account, sizeof(tower_tile->tower.vote_acc_path) );
+  strncpy( tower_tile->tower.ledger_path, config->paths.base, sizeof(tower_tile->tower.ledger_path) );
 
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
