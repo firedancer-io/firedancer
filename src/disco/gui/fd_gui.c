@@ -938,12 +938,12 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
     }
 
     if( FD_UNLIKELY( !found ) ) {
-      gui->gossip.peer_cnt--;
       fd_memcpy( removed[ removed_cnt++ ].uc, gui->gossip.peers[ i ].pubkey->uc, 32UL );
       if( FD_LIKELY( i+1UL!=gui->gossip.peer_cnt ) ) {
         gui->gossip.peers[ i ] = gui->gossip.peers[ gui->gossip.peer_cnt-1UL ];
         i--;
       }
+      gui->gossip.peer_cnt--;
     }
   }
 
@@ -1066,12 +1066,12 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
     }
 
     if( FD_UNLIKELY( !found ) ) {
-      gui->vote_account.vote_account_cnt--;
       fd_memcpy( removed[ removed_cnt++ ].uc, gui->vote_account.vote_accounts[ i ].vote_account->uc, 32UL );
       if( FD_LIKELY( i+1UL!=gui->vote_account.vote_account_cnt ) ) {
         gui->vote_account.vote_accounts[ i ] = gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt-1UL ];
         i--;
       }
+      gui->vote_account.vote_account_cnt--;
     }
   }
 
