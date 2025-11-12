@@ -74,6 +74,7 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define MAP_PERFECT_6  ( LOADER_V4_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
 #define MAP_PERFECT_7  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
 #define MAP_PERFECT_8  ( ED25519_SV_PROG_ID      ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_9  ( SECP256R1_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
