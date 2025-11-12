@@ -429,7 +429,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
       /* Select client to poll this run loop iteration */
 
-      client_idx = fd_ulong_if( client_idx<client_cnt, client_idx+1UL, 0UL );
+      client_idx = fd_ulong_if( client_idx+1UL<client_cnt, client_idx+1UL, 0UL );
 
       fd_vinyl_client_t * client = _client + client_idx;
 
