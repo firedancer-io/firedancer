@@ -18,8 +18,6 @@ test_bundle_prev_ctx_is_visible_to_executor( void ) {
   FD_TEST( funk_mem );
   void * shfunk = fd_funk_new( funk_mem, 1UL, 1234UL, 2UL, 100UL );
   FD_TEST( shfunk );
-  fd_funk_t * funk = fd_funk_join( shfunk );
-  FD_TEST( funk );
 
   /* Set up transaction contexts */
   static fd_exec_txn_ctx_t  prev_ctx [1] = {0}; // use static to avoid stack overflow, each is ~347KiB
@@ -38,7 +36,8 @@ test_bundle_prev_ctx_is_visible_to_executor( void ) {
 
   prev_ctx->txn = *prev_txn_p;
   curr_ctx->txn = *curr_txn_p;
-  curr_ctx->funk = funk;  /* Set up funk so executor can fall back to it */
+  /* Set up funk so executor can fall back to it */
+  FD_TEST( fd_funk_join( curr_ctx->funk, shfunk ) );
 
   fd_pubkey_t fee_payer_key = {0};
   fee_payer_key.uc[ 0 ] = 42;
