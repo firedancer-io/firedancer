@@ -1922,6 +1922,14 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
             jsonp_close_object( peers->http );
           }
 
+          if( FD_UNLIKELY( strncmp( cur->name, ref->name, sizeof(ref->name) ) ) ) {
+            jsonp_open_object( peers->http, NULL );
+              jsonp_ulong ( peers->http, "row_index", j );
+              jsonp_string( peers->http, "column_name", "Name" );
+              jsonp_string( peers->http, "new_value", cur->name );
+            jsonp_close_object( peers->http );
+          }
+
           if( FD_UNLIKELY( memcmp( cur->contact_info.pubkey.uc, ref->contact_info.pubkey.uc, 32UL ) ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
@@ -2019,6 +2027,8 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
           char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
           fd_base58_encode_32( cur->contact_info.pubkey.uc, NULL, pubkey_base58 );
           jsonp_string( peers->http, "Pubkey", pubkey_base58 );
+
+          jsonp_string( peers->http, "Name", cur->name );
 
           char peer_addr[ 16 ]; /* 255.255.255.255 + '\0' */
           FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(cur->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr) ) );

@@ -585,6 +585,11 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           memset( &peer->gossip_tx_sum, 0, sizeof(peer->gossip_tx_sum) );
           peer->has_vote_info = 0;
           peer->stake = ULONG_MAX;
+
+          fd_gui_config_parse_info_t * info =  fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &update->contact_info.contact_info->pubkey, NULL, peers->node_info_pool );
+          if( FD_LIKELY( info ) ) fd_memcpy( peer->name, info->name, sizeof(info->name) );
+          else                    peer->name[ 0 ] = '\0';
+
           peer->valid = 1;
           peer->update_time_nanos = now;
           fd_memcpy( &peer->contact_info, update->contact_info.contact_info, sizeof(peer->contact_info) );
