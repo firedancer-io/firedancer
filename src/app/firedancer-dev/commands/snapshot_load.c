@@ -135,7 +135,7 @@ snapshot_load_topo( config_t * config,
   if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
     fd_topob_link( topo, "snapin_ct", "snapin_ct",     128UL,   0UL,                            1UL );
   }
-  fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,     sizeof(fd_snapshot_manifest_t), 1UL )->permit_no_consumers = 1;
+  fd_topob_link( topo, "snapin_manif", "snapin_manif", 4UL,     sizeof(fd_snapshot_manifest_t), 1UL )->permit_no_consumers = 1;
   fd_topob_link( topo, "snapct_repr", "snapct_repr",   128UL,   0UL,                            1UL )->permit_no_consumers = 1;
   if( vinyl_enabled ) {
     fd_topo_link_t * snapin_wh = fd_topob_link( topo, "snapin_wh", "snapin_wr", 4UL, 16UL<<20, 1UL );
@@ -293,6 +293,7 @@ snapshot_load_args( int *    pargc,
   float        db_sz         = fd_env_strip_cmdline_float   ( pargc, pargv, "--db-sz",        NULL, 0.0f   );
   float        db_rec_max    = fd_env_strip_cmdline_float   ( pargc, pargv, "--db-rec-max",   NULL, 0.0f   );
   _Bool        fsck          = fd_env_strip_cmdline_contains( pargc, pargv, "--fsck"                       )!=0;
+  _Bool        fsck_lthash   = fd_env_strip_cmdline_contains( pargc, pargv, "--fsck-lthash"                )!=0;
   _Bool        lthash        = fd_env_strip_cmdline_contains( pargc, pargv, "--lthash"                     )!=0;
   _Bool        accounts_hist = fd_env_strip_cmdline_contains( pargc, pargv, "--accounts-hist"              )!=0;
   _Bool        vinyl_server  = fd_env_strip_cmdline_contains( pargc, pargv, "--vinyl-server"               )!=0;
@@ -303,6 +304,7 @@ snapshot_load_args( int *    pargc,
 
   fd_cstr_ncpy( args->snapshot_load.snapshot_dir, snapshot_dir, sizeof(args->snapshot_load.snapshot_dir) );
   args->snapshot_load.fsck           = fsck;
+  args->snapshot_load.fsck_lthash    = fsck_lthash;
   args->snapshot_load.lthash         = lthash;
   args->snapshot_load.accounts_hist  = accounts_hist;
   args->snapshot_load.offline        = offline;
@@ -593,6 +595,8 @@ fixup_config( config_t *     config,
     config->firedancer.snapshots.incremental_snapshots = 0;
   }
 
+  config->development.snapshots.disable_lthash_verification = !args->snapshot_load.lthash;
+
   /* FIXME Unfortunately, the fdctl boot procedure constructs the
            topology before parsing command-line arguments.  So, here,
            we construct the topology again (a third time ... sigh). */
@@ -801,8 +805,8 @@ snapshot_load_cmd_fn( args_t *   args,
   if( args->snapshot_load.fsck ) {
     FD_LOG_NOTICE(( "FSCK: starting" ));
     uint fsck_err;
-    if( snapwr_tile ) fsck_err = fsck_vinyl( config, args->snapshot_load.lthash );
-    else              fsck_err = fsck_funk ( config, args->snapshot_load.lthash );
+    if( snapwr_tile ) fsck_err = fsck_vinyl( config, args->snapshot_load.fsck_lthash );
+    else              fsck_err = fsck_funk ( config, args->snapshot_load.fsck_lthash );
     if( !fsck_err ) {
       FD_LOG_NOTICE(( "FSCK: passed" ));
     } else {
