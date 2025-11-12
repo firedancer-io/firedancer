@@ -1368,17 +1368,26 @@ fd_gui_try_insert_ranking( fd_gui_t               * gui,
     ulong dur = fd_gui_slot_duration( gui, slot );
     if( FD_LIKELY( dur!=ULONG_MAX ) ) TRY_INSERT_SLOT( duration, slot->slot, dur                         );
     TRY_INSERT_SLOT( tips,           slot->slot, slot->tips                                              );
-    TRY_INSERT_SLOT( fees,           slot->slot, slot->priority_fee                                      );
-    TRY_INSERT_SLOT( rewards,        slot->slot, slot->tips + slot->priority_fee                         );
-    TRY_INSERT_SLOT( rewards_per_cu, slot->slot, slot->compute_units==0UL ? 0UL : (slot->tips + slot->priority_fee) / slot->compute_units );
+    TRY_INSERT_SLOT( fees,           slot->slot, slot->priority_fee + slot->transaction_fee              );
+    TRY_INSERT_SLOT( rewards,        slot->slot, slot->tips + slot->priority_fee + slot->transaction_fee );
+    TRY_INSERT_SLOT( rewards_per_cu, slot->slot, slot->compute_units==0UL ? 0UL : (slot->tips + slot->priority_fee + slot->transaction_fee) / slot->compute_units );
     TRY_INSERT_SLOT( compute_units,  slot->slot, slot->compute_units                                     );
 #undef TRY_INSERT_SLOT
 }
 
 static void
 fd_gui_update_slot_rankings( fd_gui_t * gui ) {
-  if( FD_UNLIKELY( gui->summary.startup_progress.startup_ledger_max_slot==ULONG_MAX ) ) return;
-  if( FD_UNLIKELY( gui->summary.slot_rooted==ULONG_MAX                              ) ) return;
+  ulong first_replay_slot = ULONG_MAX;
+  if( FD_LIKELY( gui->summary.is_full_client ) ) {
+    ulong slot_caught_up   = gui->summary.slot_caught_up;
+    ulong slot_incremental = gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].slot;
+    ulong slot_full        = gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].slot;
+    first_replay_slot = fd_ulong_if( slot_caught_up!=ULONG_MAX, fd_ulong_if( slot_incremental!=ULONG_MAX, slot_incremental+1UL, fd_ulong_if( slot_full!=ULONG_MAX, slot_full+1UL, ULONG_MAX ) ), ULONG_MAX );
+  } else {
+    first_replay_slot = gui->summary.startup_progress.startup_ledger_max_slot;
+  }
+  if( FD_UNLIKELY( first_replay_slot==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( gui->summary.slot_rooted ==ULONG_MAX ) ) return;
 
   ulong epoch_start_slot = ULONG_MAX;
   ulong epoch            = ULONG_MAX;
@@ -1396,8 +1405,8 @@ fd_gui_update_slot_rankings( fd_gui_t * gui ) {
   /* No new slots since the last update */
   if( FD_UNLIKELY( gui->epoch.epochs[ epoch_idx ].rankings_slot>gui->summary.slot_rooted ) ) return;
 
-  /* Slots before startup_ledger_max_slot are unavailable. */
-  gui->epoch.epochs[ epoch_idx ].rankings_slot = fd_ulong_max( gui->epoch.epochs[ epoch_idx ].rankings_slot, gui->summary.startup_progress.startup_ledger_max_slot+1UL );
+  /* Slots before first_replay_slot are unavailable. */
+  gui->epoch.epochs[ epoch_idx ].rankings_slot = fd_ulong_max( gui->epoch.epochs[ epoch_idx ].rankings_slot, first_replay_slot );
 
   /* Update the rankings. Only look through slots we haven't already. */
   for( ulong s = gui->summary.slot_rooted; s>=gui->epoch.epochs[ epoch_idx ].rankings_slot; s--) {
