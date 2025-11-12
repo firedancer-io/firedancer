@@ -998,12 +998,12 @@ fd_ulong_svw_dec_tail( uchar const * b,
 #define FD_SCRATCH_ALLOC_APPEND( layout, align, sz ) (__extension__({                               \
     ulong _align = (align);                                                                         \
     ulong _sz    = (sz);                                                                            \
-    ulong _scratch_alloc = fd_ulong_align_up( _##layout, (align) );                                 \
-    if( FD_UNLIKELY( _scratch_alloc+_sz<_scratch_alloc ) )                                          \
-      FD_LOG_ERR(( "FD_SCRATCH_ALLOC_APPEND( %s, %lu, %lu ) overflowed", #layout, _align, _sz ));   \
-    _##layout = _scratch_alloc + _sz;                                                               \
+    ulong _scratch_alloc = fd_ulong_align_up( _##layout, (_align) );                                \
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( _scratch_alloc, _sz, &_##layout ) ) )                \
+      FD_LOG_CRIT(( "FD_SCRATCH_ALLOC_APPEND( "#layout", %lu, %lu ) overflowed ("#layout"=0x%lx)",  \
+        _align, _sz, _scratch_alloc ));                                                             \
     (void *)_scratch_alloc;                                                                         \
-    }))
+  }))
 #define FD_SCRATCH_ALLOC_FINI( layout, align ) (_##layout = FD_ULONG_ALIGN_UP( _##layout, (align) ) )
 
 #define FD_SCRATCH_ALLOC_PUBLISH( layout ) (__extension__({            \
