@@ -25,6 +25,7 @@
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
+#include "../../flamenco/accdb/fd_accdb_fsck.h"
 #include "../../disco/metrics/fd_metrics.h"
 
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -733,6 +734,12 @@ replay_block_start( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
 
   FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->accdb, &xid, &ctx->runtime_stack, ctx->capture_ctx ) );
+
+  // /* Verify the programcache Funk if the slot is 376378011 */
+  // if( slot == 376378011 ) {
+  //   fd_progcache_verify( ctx->progcache_admin );
+  // }
+
   return bank;
 }
 
@@ -1146,6 +1153,8 @@ init_funk( fd_replay_tile_t * ctx,
 
 static void
 init_after_snapshot( fd_replay_tile_t * ctx ) {
+  // fd_accdb_fsck_funk( ctx->accdb->funk );
+
   /* Now that the snapshot has been loaded in, we have to refresh the
      stake delegations since the manifest does not contain the full set
      of data required for the stake delegations. See

@@ -16,4 +16,12 @@ $(call run-unit-test,test_progcache)
 # Internals
 $(call add-objs,fd_progcache_rec,fd_flamenco)
 
+# Verification
+$(call add-hdrs,fd_progcache_verify.h)
+$(call add-objs,fd_progcache_verify,fd_flamenco)
+
+# Test for verification
+$(call make-unit-test,test_progcache_verify,test_progcache_verify,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_progcache_verify)
+
 endif
