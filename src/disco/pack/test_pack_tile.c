@@ -141,7 +141,7 @@ static const float max_priority = 13.5;
 #define TICKS_PER_SLOT (64)
 #define TICK_DURATION_NS (6400)
 #define SLOT_DURATION_NS (TICKS_PER_SLOT * TICK_DURATION_NS)
-#define MAX_MICROBLOCKS_PER_SLOT (131072UL)      /* defined in fd_poh_tile.c */
+#define MAX_MICROBLOCKS_PER_SLOT (32768UL)      /* defined in fd_poh_tile.c */
 
 static ulong epoch       = 0;
 static ulong leader_slot = 1;
