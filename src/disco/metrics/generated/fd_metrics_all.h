@@ -33,6 +33,8 @@
 #include "fd_metrics_snapin.h"
 #include "fd_metrics_snapwr.h"
 #include "fd_metrics_snapwh.h"
+#include "fd_metrics_snapla.h"
+#include "fd_metrics_snapls.h"
 #include "fd_metrics_metric.h"
 #include "fd_metrics_ipecho.h"
 #include "fd_metrics_backt.h"
@@ -174,7 +176,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_T
 
 #define FD_METRICS_TOTAL_SZ (8UL*254UL)
 
-#define FD_METRICS_TILE_KIND_CNT 33
+#define FD_METRICS_TILE_KIND_CNT 35
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

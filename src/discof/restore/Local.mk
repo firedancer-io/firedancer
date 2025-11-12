@@ -10,6 +10,8 @@ $(call add-objs,fd_snapin_tile fd_snapin_tile_funk fd_snapin_tile_vinyl,fd_disco
 endif # FD_HAS_SSE
 $(call add-objs,fd_snapwh_tile,fd_discof)
 $(call add-objs,fd_snapwr_tile,fd_discof)
+$(call add-objs,fd_snapla_tile,fd_discof)
+$(call add-objs,fd_snapls_tile,fd_discof)
 endif # FD_HAS_ALLOCA
 $(call add-objs,utils/fd_ssparse,fd_discof)
 $(call add-objs,utils/fd_ssmanifest_parser,fd_discof)

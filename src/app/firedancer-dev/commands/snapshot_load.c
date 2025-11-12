@@ -14,6 +14,7 @@
 #include "../../../funk/fd_funk.h"
 #include "../../../vinyl/fd_vinyl.h"
 #include "../../../tango/cnc/fd_cnc.h"
+#include "../../../ballet/lthash/fd_lthash.h"
 
 #include <errno.h>
 #include <fcntl.h> /* open */
@@ -46,6 +47,9 @@ snapshot_load_topo( config_t * config ) {
       config->firedancer.funk.max_account_records,
       config->firedancer.funk.max_database_transactions,
       config->firedancer.funk.heap_size_gib );
+
+  int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
+  ulong lta_tile_cnt           = config->firedancer.layout.snapla_tile_count;
 
   if( config->firedancer.vinyl.enabled ) {
     setup_topo_vinyl_meta( topo, &config->firedancer );
@@ -92,17 +96,36 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "snapct_ld"    );
   fd_topob_wksp( topo, "snapld_dc"    );
   fd_topob_wksp( topo, "snapdc_in"    );
-  fd_topob_wksp( topo, "snapin_ct"    );
+  if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
+    fd_topob_wksp( topo, "snapin_ct" );
+  }
   fd_topob_wksp( topo, "snapin_manif" );
   fd_topob_wksp( topo, "snapct_repr"  );
   if( vinyl_enabled ) {
     fd_topob_wksp( topo, "snapin_wr" );
   }
 
+  if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
+    fd_topob_wksp( topo, "snapla"    );
+    fd_topob_wksp( topo, "snapls"    );
+    fd_topob_wksp( topo, "snapla_ls" );
+    fd_topob_wksp( topo, "snapin_ls" );
+    fd_topob_wksp( topo, "snapls_ct" );
+  }
+
+#define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
+
+  if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
+    FOR(lta_tile_cnt)  fd_topob_tile( topo, "snapla", "snapla", "metric_in", ULONG_MAX, 0, 0 )->allow_shutdown = 1;
+    /**/               fd_topob_tile( topo, "snapls", "snapls", "metric_in", ULONG_MAX, 0, 0 )->allow_shutdown = 1;
+  }
+
   fd_topob_link( topo, "snapct_ld",   "snapct_ld",     128UL,   sizeof(fd_ssctrl_init_t),       1UL );
   fd_topob_link( topo, "snapld_dc",   "snapld_dc",     16384UL, USHORT_MAX,                     1UL );
   fd_topob_link( topo, "snapdc_in",   "snapdc_in",     16384UL, USHORT_MAX,                     1UL );
-  fd_topob_link( topo, "snapin_ct",   "snapin_ct",     128UL,   0UL,                            1UL );
+  if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
+    fd_topob_link( topo, "snapin_ct", "snapin_ct",     128UL,   0UL,                            1UL );
+  }
   fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,     sizeof(fd_snapshot_manifest_t), 1UL )->permit_no_consumers = 1;
   fd_topob_link( topo, "snapct_repr", "snapct_repr",   128UL,   0UL,                            1UL )->permit_no_consumers = 1;
   if( vinyl_enabled ) {
@@ -111,7 +134,17 @@ snapshot_load_topo( config_t * config ) {
     fd_pod_insertf_ulong( topo->props, 8UL, "obj.%lu.app_sz",  snapin_wh->dcache_obj_id );
   }
 
-  fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapin_ct",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
+    FOR(lta_tile_cnt) fd_topob_link( topo, "snapla_ls",  "snapla_ls",   128UL,  sizeof(fd_lthash_value_t),          1UL );
+    /**/              fd_topob_link( topo, "snapin_ls",  "snapin_ls",   256UL,  sizeof(fd_snapshot_full_account_t), 1UL );
+    /**/              fd_topob_link( topo, "snapls_ct",  "snapls_ct",   128UL,  0UL,                                1UL );
+  }
+
+  if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
+    fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapin_ct",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  } else {
+    fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapls_ct", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  }
   fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapct",  0UL,              "snapct_ld",    0UL                                       );
   fd_topob_tile_out( topo, "snapct",  0UL,              "snapct_repr",  0UL                                       );
@@ -120,7 +153,11 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_tile_in ( topo, "snapdc",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapdc",  0UL,              "snapdc_in",    0UL                                       );
   fd_topob_tile_in ( topo, "snapin",  0UL, "metric_in", "snapdc_in",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_ct",    0UL                                       );
+  if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
+    fd_topob_tile_out( topo, "snapin", 0UL,             "snapin_ct",    0UL                                       );
+  } else {
+    fd_topob_tile_out( topo, "snapin", 0UL,             "snapin_ls",   0UL                                       );
+  }
   fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_manif", 0UL                                       );
   if( vinyl_enabled ) {
     fd_topob_tile_out( topo, "snapin", 0UL,              "snapin_wh", 0UL );
@@ -128,6 +165,13 @@ snapshot_load_topo( config_t * config ) {
     fd_topob_tile_out( topo, "snapwh", 0UL,              "snapwh_wr", 0UL );
     fd_topob_tile_in ( topo, "snapwr", 0UL, "metric_in", "snapwh_wr", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_uses( topo, snapwr_tile, &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapin_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
+  if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
+    FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapla", i,   "metric_in", "snapdc_in",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(lta_tile_cnt) fd_topob_tile_out( topo, "snapla", i,                "snapla_ls",  i                                         );
+    /**/              fd_topob_tile_in ( topo, "snapls", 0UL, "metric_in", "snapin_ls",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapls", 0UL, "metric_in", "snapla_ls",  i,   FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/              fd_topob_tile_out( topo, "snapls", 0UL,              "snapls_ct",  0UL                                       );
   }
 
   /* snapin funk / txncache access */
@@ -574,6 +618,8 @@ snapshot_load_cmd_fn( args_t *   args,
   ulong            snapwr_idx  =               fd_topo_find_tile( topo, "snapwr", 0UL );
   fd_topo_tile_t * snapwh_tile = snapwh_idx!=ULONG_MAX ? &topo->tiles[ snapwh_idx ] : NULL;
   fd_topo_tile_t * snapwr_tile = snapwr_idx!=ULONG_MAX ? &topo->tiles[ snapwr_idx ] : NULL;
+  ulong            snapls_idx  =               fd_topo_find_tile( topo, "snapls", 0UL );
+  fd_topo_tile_t * snapls_tile = snapls_idx!=ULONG_MAX ? &topo->tiles[ snapls_idx ] : NULL;
 
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   double ns_per_tick = 1.0/tick_per_ns;
@@ -587,6 +633,7 @@ snapshot_load_cmd_fn( args_t *   args,
   ulong volatile * const snapin_metrics = fd_metrics_tile( snapin_tile->metrics );
   ulong volatile * const snapwh_metrics = snapwh_tile ? fd_metrics_tile( snapwh_tile->metrics ) : NULL;
   ulong volatile * const snapwr_metrics = snapwr_tile ? fd_metrics_tile( snapwr_tile->metrics ) : NULL;
+  ulong volatile * const snapls_metrics = snapls_tile ? fd_metrics_tile( snapls_tile->metrics ) : NULL;
 
   ulong total_off_old    = 0UL;
   ulong decomp_off_old   = 0UL;
@@ -601,6 +648,8 @@ snapshot_load_cmd_fn( args_t *   args,
   ulong snapin_wait_old  = 0UL;
   ulong snapwh_wait_old  = 0UL;
   ulong snapwr_wait_old  = 0UL;
+  ulong snapls_backp_old = 0UL;
+  ulong snapls_wait_old  = 0UL;
   ulong acc_cnt_old      = 0UL;
 
   sleep( 1 );
@@ -615,7 +664,8 @@ snapshot_load_cmd_fn( args_t *   args,
     puts( "" );
     fputs( "--------------------------------------------", stdout );
     if( snapwr_tile ) fputs( "--------------", stdout );
-    fputs( "[ct],[ld],[dc],[in]--------[ct],[ld],[dc],[in]", stdout );
+    if( snapls_tile ) fputs( "[ct],[ld],[dc],[in],[lts]--------[ct],[ld],[dc],[in],[lts]", stdout );
+    else              fputs( "[ct],[ld],[dc],[in]--------[ct],[ld],[dc],[in]", stdout );
     if( snapwr_tile ) fputs( ",[wh],[wr]" , stdout );
     puts( "--------------" );
   }
@@ -626,8 +676,9 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong snapld_status = FD_VOLATILE_CONST( snapld_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapdc_status = FD_VOLATILE_CONST( snapdc_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapin_status = FD_VOLATILE_CONST( snapin_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
+    ulong snapls_status = snapls_metrics ? FD_VOLATILE_CONST( snapls_metrics[ MIDX( GAUGE, TILE, STATUS ) ] ) : 2UL;
 
-    if( FD_UNLIKELY( snapct_status==2UL && snapld_status==2UL && snapdc_status==2UL && snapin_status == 2UL ) ) break;
+    if( FD_UNLIKELY( snapct_status==2UL && snapld_status==2UL && snapdc_status==2UL && snapin_status==2UL && snapls_status==2UL ) ) break;
 
     long cur = fd_log_wallclock();
     if( FD_UNLIKELY( cur<next ) ) {
@@ -651,6 +702,8 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong snapin_wait  = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapin_backp;
     ulong snapwh_wait  = 0UL;
     ulong snapwr_wait  = 0UL;
+    ulong snapls_backp = snapls_metrics ? snapls_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ] : 0UL;
+    ulong snapls_wait  = snapls_metrics ? snapls_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapls_backp : 0UL;
     if( snapwr_tile ) {
       snapwh_wait      = snapwh_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] +
                          snapwh_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
@@ -670,16 +723,35 @@ snapshot_load_cmd_fn( args_t *   args,
       if( snapwr_tile ) {
         printf( " vinyl=%4.0fMB/s", (double)( vinyl_off - vinyl_off_old )/1e6 );
       }
-      printf( " backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%",
-              ( (double)( snapct_backp-snapct_backp_old )*ns_per_tick )/1e7,
-              ( (double)( snapld_backp-snapld_backp_old )*ns_per_tick )/1e7,
-              ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
-              ( (double)( snapin_backp-snapin_backp_old )*ns_per_tick )/1e7 );
-      printf( ") busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%",
-              100-( ( (double)( snapct_wait-snapct_wait_old  )*ns_per_tick )/1e7 ),
-              100-( ( (double)( snapld_wait-snapld_wait_old  )*ns_per_tick )/1e7 ),
-              100-( ( (double)( snapdc_wait-snapdc_wait_old  )*ns_per_tick )/1e7 ),
-              100-( ( (double)( snapin_wait-snapin_wait_old  )*ns_per_tick )/1e7 ) );
+      if( !snapls_tile )  {
+        printf( " backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%",
+          ( (double)( snapct_backp-snapct_backp_old )*ns_per_tick )/1e7,
+          ( (double)( snapld_backp-snapld_backp_old )*ns_per_tick )/1e7,
+          ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
+          ( (double)( snapin_backp-snapin_backp_old )*ns_per_tick )/1e7 );
+      }
+      else {
+        printf( " backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%",
+          ( (double)( snapct_backp-snapct_backp_old )*ns_per_tick )/1e7,
+          ( (double)( snapld_backp-snapld_backp_old )*ns_per_tick )/1e7,
+          ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
+          ( (double)( snapin_backp-snapin_backp_old )*ns_per_tick )/1e7,
+          ( (double)( snapls_backp-snapls_backp_old )*ns_per_tick )/1e7 );
+      }
+      if( !snapls_tile ) {
+        printf( ") busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%",
+          100-( ( (double)( snapct_wait-snapct_wait_old  )*ns_per_tick )/1e7 ),
+          100-( ( (double)( snapld_wait-snapld_wait_old  )*ns_per_tick )/1e7 ),
+          100-( ( (double)( snapdc_wait-snapdc_wait_old  )*ns_per_tick )/1e7 ),
+          100-( ( (double)( snapin_wait-snapin_wait_old  )*ns_per_tick )/1e7 ) );
+      } else {
+        printf( ") busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%",
+          100-( ( (double)( snapct_wait-snapct_wait_old  )*ns_per_tick )/1e7 ),
+          100-( ( (double)( snapld_wait-snapld_wait_old  )*ns_per_tick )/1e7 ),
+          100-( ( (double)( snapdc_wait-snapdc_wait_old  )*ns_per_tick )/1e7 ),
+          100-( ( (double)( snapin_wait-snapin_wait_old  )*ns_per_tick )/1e7 ),
+          100-( ( (double)( snapls_wait-snapls_wait_old  )*ns_per_tick )/1e7 ) );
+      }
       if( snapwr_tile ) {
         printf( ",%3.0f%%,%3.0f%%",
               100-( ( (double)( snapwh_wait-snapwh_wait_old  )*ns_per_tick )/1e7 ),
@@ -702,6 +774,8 @@ snapshot_load_cmd_fn( args_t *   args,
     snapin_wait_old  = snapin_wait;
     snapwh_wait_old  = snapwh_wait;
     snapwr_wait_old  = snapwr_wait;
+    snapls_backp_old = snapls_backp;
+    snapls_wait_old  = snapls_wait;
     acc_cnt_old      = acc_cnt;
 
     next+=1000L*1000L*1000L;
