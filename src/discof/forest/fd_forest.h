@@ -300,6 +300,7 @@ fd_forest_footprint( ulong ele_max ) {
       fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) ),
       fd_forest_subtrees_align(), fd_forest_subtrees_footprint( ele_max ) ),
       fd_forest_orphaned_align(), fd_forest_orphaned_footprint( ele_max ) ),
+
       fd_forest_requests_align(), fd_forest_requests_footprint( ele_max ) ),
       fd_forest_reqslist_align(), fd_forest_reqslist_footprint(         ) ),
       fd_forest_reqspool_align(), fd_forest_reqspool_footprint( ele_max ) ),
