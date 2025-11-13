@@ -284,6 +284,11 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
   }
 
+
+  fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ fd_bank_slot_get( runner->bank ), runner->bank->idx } }};
+  fd_accdb_attach_child        ( runner->accdb_admin,     xid, exec_xid );
+  fd_progcache_txn_attach_child( runner->progcache_admin, xid, exec_xid );
+
   /* Load instruction accounts */
 
   if( FD_UNLIKELY( test_ctx->instr_accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
