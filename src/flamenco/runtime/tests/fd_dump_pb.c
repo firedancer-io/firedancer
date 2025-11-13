@@ -751,6 +751,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
 static void
 create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_msg,
+                                      fd_runtime_t *               runtime,
                                       fd_exec_txn_ctx_t *          txn_ctx,
                                       fd_spad_t *                  spad ) {
   fd_txn_t const * txn_descriptor = TXN( &txn_ctx->txn );
@@ -773,7 +774,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
   for( ulong i = 0; i < txn_ctx->accounts.accounts_cnt; ++i ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_ctx->accounts.account_keys[i], txn_ctx->funk, &xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_ctx->accounts.account_keys[i], runtime->funk, &xid );
     if( FD_UNLIKELY( ret ) ) {
       continue;
     }
@@ -790,7 +791,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_txn_account_t txn_account[1];
     fd_txn_acct_addr_lut_t const * addr_lut  = &address_lookup_tables[i];
     fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + addr_lut->addr_off);
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, alut_key, txn_ctx->funk, &xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, alut_key, runtime->funk, &xid );
     if( FD_UNLIKELY( ret ) ) continue;
 
     dump_account_state( txn_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
@@ -808,7 +809,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       if( is_builtin_account( referenced_addr ) ) continue;
 
       fd_txn_account_t referenced_account[1];
-      ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, txn_ctx->funk, &xid );
+      ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, runtime->funk, &xid );
       if( FD_UNLIKELY( ret ) ) continue;
       dump_account_state( referenced_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
     }
@@ -822,7 +823,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       if( is_builtin_account( referenced_addr ) ) continue;
 
       fd_txn_account_t referenced_account[1];
-      ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, txn_ctx->funk, &xid );
+      ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, runtime->funk, &xid );
       if( FD_UNLIKELY( ret ) ) continue;
       dump_account_state( referenced_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
     }
@@ -832,13 +833,13 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   uint accounts_dumped_so_far = txn_context_msg->account_shared_data_count;
   for( uint i=0U; i<accounts_dumped_so_far; i++ ) {
     fd_exec_test_acct_state_t const * maybe_program_account = &txn_context_msg->account_shared_data[i];
-    dump_executable_account_if_exists( txn_ctx->funk, &xid, maybe_program_account, spad, txn_context_msg->account_shared_data, &txn_context_msg->account_shared_data_count );
+    dump_executable_account_if_exists( runtime->funk, &xid, maybe_program_account, spad, txn_context_msg->account_shared_data, &txn_context_msg->account_shared_data_count );
   }
 
   /* Dump sysvars */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], txn_ctx->funk, &xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], runtime->funk, &xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -860,7 +861,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   /* Transaction Context -> tx */
   txn_context_msg->has_tx = true;
   fd_exec_test_sanitized_transaction_t * sanitized_transaction = &txn_context_msg->tx;
-  dump_sanitized_transaction( txn_ctx->funk, &xid, txn_descriptor, txn_payload, spad, sanitized_transaction );
+  dump_sanitized_transaction( runtime->funk, &xid, txn_descriptor, txn_payload, spad, sanitized_transaction );
 
   /* Transaction Context -> blockhash_queue
      NOTE: Agave's implementation of register_hash incorrectly allows the blockhash queue to hold max_age + 1 (max 301)
@@ -886,6 +887,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
 static void
 create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
+                                                 fd_runtime_t *                 runtime,
                                                  fd_exec_txn_ctx_t const *      txn_ctx,
                                                  fd_instr_info_t const *        instr,
                                                  fd_spad_t *                    spad ) {
@@ -907,7 +909,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Add sysvar cache variables */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], txn_ctx->funk, &xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], runtime->funk, &xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -930,7 +932,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Add executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts.executable_cnt; i++ ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, txn_ctx->accounts.executable_accounts[i].pubkey, txn_ctx->funk, &xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, txn_ctx->accounts.executable_accounts[i].pubkey, runtime->funk, &xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -980,7 +982,8 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 /***** PUBLIC APIs *****/
 
 void
-fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
+fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
+                           fd_exec_txn_ctx_t * txn_ctx,
                            fd_instr_info_t *   instr,
                            ushort              instruction_idx ) {
   fd_spad_t * spad = fd_spad_join( fd_spad_new( txn_ctx->log.dumping_mem, 1UL<<28UL ) );
@@ -1003,7 +1006,7 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
     }
 
     fd_exec_test_instr_context_t instr_context = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
-    create_instr_context_protobuf_from_instructions( &instr_context, txn_ctx, instr, spad );
+    create_instr_context_protobuf_from_instructions( &instr_context, runtime, txn_ctx, instr, spad );
 
     /* Output to file */
     ulong        out_buf_size = 100 * 1024 * 1024;
@@ -1022,7 +1025,8 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
 }
 
 void
-fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
+                         fd_exec_txn_ctx_t * txn_ctx ) {
   fd_spad_t * spad = fd_spad_join( fd_spad_new( txn_ctx->log.dumping_mem, 1UL<<28UL ) );
 
   FD_SPAD_FRAME_BEGIN( spad ) {
@@ -1041,7 +1045,7 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     fd_exec_test_txn_context_t txn_context_msg = FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT;
-    create_txn_context_protobuf_from_txn( &txn_context_msg, txn_ctx, spad );
+    create_txn_context_protobuf_from_txn( &txn_context_msg, runtime, txn_ctx, spad );
 
     /* Output to file */
     ulong        out_buf_size = 100UL<<20UL; // 100 MB
@@ -1189,6 +1193,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   /* SyscallContext -> instr_ctx */
   sys_ctx.has_instr_ctx = 1;
   create_instr_context_protobuf_from_instructions( &sys_ctx.instr_ctx,
+                                                   vm->instr_ctx->runtime,
                                                    vm->instr_ctx->txn_ctx,
                                                    vm->instr_ctx->instr,
                                                    spad );
@@ -1228,7 +1233,8 @@ FD_SPAD_FRAME_BEGIN( spad ) {
 }
 
 void
-fd_dump_elf_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
+fd_dump_elf_to_protobuf( fd_runtime_t *      runtime,
+                         fd_exec_txn_ctx_t * txn_ctx,
                          fd_txn_account_t *  program_acc ) {
 fd_spad_t * spad = fd_spad_join( fd_spad_new( txn_ctx->log.dumping_mem, 1UL<<28UL ) );
 
@@ -1239,7 +1245,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   /* Get the programdata for the account */
   ulong         program_data_len = 0UL;
   uchar const * program_data     =
-      fd_prog_load_elf( txn_ctx->funk, &xid, program_acc, &program_data_len, NULL );
+      fd_prog_load_elf( runtime->funk, &xid, program_acc, &program_data_len, NULL );
   if( program_data==NULL ) {
     return;
   }

@@ -49,7 +49,7 @@ int
 fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx );
 
 int
-fd_executor_check_transactions( fd_txncache_t *     status_cache,
+fd_executor_check_transactions( fd_runtime_t *      runtime,
                                 fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
@@ -77,16 +77,19 @@ fd_execute_txn( fd_runtime_t *      runtime,
                 fd_exec_txn_ctx_t * txn_ctx );
 
 int
-fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
+                                            fd_exec_txn_ctx_t * txn_ctx );
 
 void
-fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
+                                    fd_exec_txn_ctx_t * txn_ctx );
 
 void
 fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx );
 
 int
-fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
+                                         fd_exec_txn_ctx_t * txn_ctx );
 
 /*
   Validate the txn after execution for violations of various lamport balance and size rules
@@ -108,7 +111,8 @@ FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
 int
-fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
+                                       fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );

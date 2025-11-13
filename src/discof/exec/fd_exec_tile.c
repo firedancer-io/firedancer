@@ -300,7 +300,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( ctx->txn_ctx ) ) );
 
-  ctx->txn_ctx->funk             = ctx->funk;
   ctx->txn_ctx->bank_hash_cmp    = ctx->bank_hash_cmp;
   ctx->txn_ctx->bundle.is_bundle = 0;
 

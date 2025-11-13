@@ -2574,7 +2574,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->txn_ctx->bank ), ctx->txn_ctx->bank->idx } };
   fd_progcache_rec_t const * cache_entry =
       fd_progcache_pull( ctx->runtime->progcache,
-                         ctx->txn_ctx->funk,
+                         ctx->runtime->funk,
                          &xid,
                          program_id,
                          load_env );
@@ -2608,6 +2608,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
 int
 fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
+                                     fd_funk_t *         funk,
                                      void *              accdb_shfunk,
                                      fd_pubkey_t const * program_key,
                                      uchar const *       elf,
@@ -2618,7 +2619,7 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
      FIXME: Memory for a txn context needs to be allocated */
   fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( NULL ) );
 
-  if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, accdb_shfunk ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_join( funk, accdb_shfunk ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
   }
   txn_ctx->bank_hash_cmp             = NULL;

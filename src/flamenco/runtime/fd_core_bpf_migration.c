@@ -370,6 +370,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   assert( new_target_program_data->data_sz>=PROGRAMDATA_METADATA_SIZE );
   if( FD_UNLIKELY( !fd_directly_invoke_loader_v3_deploy(
       bank,
+      accdb->funk,
       accdb->funk->shmem,
       &target->program_account->addr,
       new_target_program_data->data   +PROGRAMDATA_METADATA_SIZE,

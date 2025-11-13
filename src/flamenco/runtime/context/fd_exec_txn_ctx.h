@@ -75,7 +75,6 @@ typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
 struct fd_exec_txn_ctx {
   /* Input fields: memory, bank, acc db, funk, prog cache, and txn */
   fd_bank_t *          bank;
-  fd_funk_t *          funk;
   fd_txn_p_t           txn;
   fd_exec_stack_t *    exec_stack;
   fd_exec_accounts_t * exec_accounts;

@@ -86,7 +86,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   if( FD_UNLIKELY( !fd_funk_join( runner->funk, runner->accdb->funk->shmem ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
   }
-  txn_ctx->funk = runner->funk;
+  runtime->funk = runner->funk;
+
 
   if( runner->progcache->funk->shmem ) {
     if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
@@ -242,7 +243,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
       if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->accounts.executable_accounts[txn_ctx->accounts.executable_cnt],
                                                                programdata_acc,
-                                                               txn_ctx->funk,
+                                                               runtime->funk,
                                                                xid ) ) ) {
         continue;
       }
@@ -344,7 +345,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   ctx->instr = info;
 
-  if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, runner->accdb->funk->shmem ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_join( runtime->funk, runner->accdb->funk->shmem ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
   }
 

@@ -875,7 +875,8 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    condition is met then the transaction is invalid.
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
-fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_check_transaction_age( fd_runtime_t *      runtime,
+                          fd_exec_txn_ctx_t * txn_ctx ) {
   fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( txn_ctx->bank );
   fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last( block_hash_queue );
   if( FD_UNLIKELY( !last_blockhash ) ) {
@@ -948,7 +949,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
                                                     &txn_ctx->accounts.account_keys[ nonce_idx ],
-                                                    txn_ctx->funk,
+                                                    runtime->funk,
                                                     &xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
@@ -1003,7 +1004,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
            advance to.
          */
         fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-            txn_ctx->funk,
+            runtime->funk,
             &xid,
             &txn_ctx->accounts.account_keys[ instr_accts[ 0UL ] ],
             NULL,

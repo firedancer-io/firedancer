@@ -636,7 +636,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
                        fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot &&
                        txn_ctx->log.capture_ctx->dump_txn_to_pb );
   if( FD_UNLIKELY( dump_txn ) ) {
-    fd_dump_txn_to_protobuf( txn_ctx );
+    fd_dump_txn_to_protobuf( runtime, txn_ctx );
   }
 
   /* Verify the transaction. For now, this step only involves processing
@@ -648,14 +648,14 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   }
 
   /* Resolve and verify ALUT-referenced account keys, if applicable */
-  err = fd_executor_setup_txn_alut_account_keys( txn_ctx );
+  err = fd_executor_setup_txn_alut_account_keys( runtime, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_ctx->err.is_committable = 0;
     return err;
   }
 
   /* Set up the transaction accounts and other txn ctx metadata */
-  fd_executor_setup_accounts_for_txn( txn_ctx );
+  fd_executor_setup_accounts_for_txn( runtime, txn_ctx );
 
   /* Post-sanitization checks. Called from prepare_sanitized_batch()
      which, for now, only is used to lock the accounts and perform a
@@ -669,7 +669,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* load_and_execute_transactions() -> check_transactions()
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
-  err = fd_executor_check_transactions( runtime->status_cache, txn_ctx );
+  err = fd_executor_check_transactions( runtime, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_ctx->err.is_committable = 0;
     return err;
@@ -678,14 +678,14 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   /* load_and_execute_sanitized_transactions() -> validate_fees() ->
      validate_transaction_fee_payer()
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
-  err = fd_executor_validate_transaction_fee_payer( txn_ctx );
+  err = fd_executor_validate_transaction_fee_payer( runtime, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_ctx->err.is_committable = 0;
     return err;
   }
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
-  err = fd_executor_load_transaction_accounts( txn_ctx );
+  err = fd_executor_load_transaction_accounts( runtime, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.

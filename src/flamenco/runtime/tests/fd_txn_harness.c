@@ -342,7 +342,6 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
   if( FD_UNLIKELY( !fd_funk_join( runner->funk, runner->accdb->funk->shmem ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
-  txn_ctx->funk = runner->funk;
 
   uchar * pc_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
