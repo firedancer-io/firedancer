@@ -24,6 +24,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
+#include "../../vinyl/io/fd_vinyl_io.h" /* FD_VINYL_IO_TYPE_* */
 
 #include <sys/random.h>
 #include <sys/types.h>
@@ -1401,6 +1402,17 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "vinyl" ) ) ) {
+
+    tile->vinyl.vinyl_meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "vinyl.meta_map",  ULONG_MAX );
+    tile->vinyl.vinyl_meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "vinyl.meta_pool", ULONG_MAX );
+    tile->vinyl.vinyl_line_max         = config->firedancer.vinyl.max_cache_entries;
+    tile->vinyl.vinyl_cnc_obj_id       = fd_pod_query_ulong( config->topo.props, "vinyl.cnc",       ULONG_MAX );
+    tile->vinyl.vinyl_data_obj_id      = fd_pod_query_ulong( config->topo.props, "vinyl.data",      ULONG_MAX );
+    fd_cstr_ncpy( tile->vinyl.vinyl_bstream_path, config->paths.accounts, sizeof(tile->vinyl.vinyl_bstream_path) );
+
+    tile->vinyl.io_type = config->firedancer.vinyl.io_uring.enabled ?
+        FD_VINYL_IO_TYPE_UR : FD_VINYL_IO_TYPE_BD;
+    tile->vinyl.uring_depth = config->firedancer.vinyl.io_uring.queue_depth;
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

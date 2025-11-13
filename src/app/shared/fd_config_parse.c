@@ -94,6 +94,8 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  vinyl.file_size_gib                                 );
   CFG_POP      ( ulong,  vinyl.max_cache_entries                             );
   CFG_POP      ( ulong,  vinyl.cache_size_gib                                );
+  CFG_POP      ( bool,   vinyl.io_uring.enabled                              );
+  CFG_POP      ( uint,   vinyl.io_uring.queue_depth                          );
 
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
   CFG_POP      ( ulong,  runtime.max_vote_accounts                           );
