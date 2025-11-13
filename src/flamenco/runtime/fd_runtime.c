@@ -46,36 +46,6 @@
 #include <sys/types.h>
 #include <fcntl.h>
 
-void
-fd_runtime_prepare_and_execute( fd_runtime_t *     runtime,
-                                fd_bank_t *        bank,
-                                fd_txn_in_t *      txn_in,
-                                fd_txn_out_t *     txn_out ) {
-  (void)runtime;
-  (void)bank;
-  (void)txn_in;
-  (void)txn_out;
-  fd_exec_txn_ctx_t txn_ctx;
-
-  fd_runtime_prepare_and_execute_txn( bank,
-                                      runtime,
-                                      &txn_ctx,
-                                      txn_in->txn,
-                                      runtime->debugging.capture_ctx,
-                                      NULL,
-                                      runtime->debugging.dumping_mem,
-                                      runtime->debugging.tracing_mem );
-}
-
-void
-fd_runtime_commit( fd_runtime_t * runtime,
-                   fd_bank_t *    bank,
-                   fd_txn_out_t * txn_out ) {
-  (void)runtime;
-  (void)bank;
-  (void)txn_out;
-}
-
 /******************************************************************************/
 /* Public Runtime Helpers                                                     */
 /******************************************************************************/
@@ -1052,15 +1022,16 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
 }
 
 int
-fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
-                                    fd_runtime_t *       runtime,
+fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
+                                    fd_bank_t *          bank,
                                     fd_exec_txn_ctx_t *  txn_ctx,
                                     fd_txn_p_t *         txn,
+                                    fd_txn_out_t *       txn_out,
                                     fd_capture_ctx_t *   capture_ctx,
                                     fd_exec_accounts_t * exec_accounts,
                                     uchar *              dumping_mem,
                                     uchar *              tracing_mem ) {
-  (void)runtime;
+  (void)txn_out;
 
   txn_ctx->bank                  = bank;
   txn_ctx->txn                   = *txn;

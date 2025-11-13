@@ -3,6 +3,7 @@
 
 #include "fd_solfuzz.h"
 #include "../../../disco/pack/fd_microblock.h"
+#include "../fd_runtime.h"
 #include "generated/txn.pb.h"
 
 FD_PROTOTYPES_BEGIN
@@ -22,7 +23,8 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
 fd_exec_txn_ctx_t *
 fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
                          fd_txn_p_t *          txn,
-                         int *                 exec_res );
+                         int *                 exec_res,
+                         fd_txn_out_t *        txn_out );
 
 FD_PROTOTYPES_END
 

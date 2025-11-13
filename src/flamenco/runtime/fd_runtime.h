@@ -269,17 +269,6 @@ struct fd_txn_out {
 };
 typedef struct fd_txn_out fd_txn_out_t;
 
-/* fd_runtime_prepare_and_execute_txn executes a transaction (fd_txn_p_t)
-   against a bank (fd_bank_t) given a runtime (fd_runtime_t) and we
-   return an output/result of our execution (fd_txn_out_t). */
-
-void
-fd_runtime_prepare_and_execute( fd_runtime_t * runtime,
-                                fd_bank_t *    bank,
-                                fd_txn_in_t *  txn_in,
-                                fd_txn_out_t * txn_out );
-
-
 /* Runtime Helpers ************************************************************/
 
 /*
@@ -368,10 +357,11 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
    transaction. */
 
 int
-fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
-                                    fd_runtime_t *       runtime,
+fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
+                                    fd_bank_t *          bank,
                                     fd_exec_txn_ctx_t *  txn_ctx,
                                     fd_txn_p_t *         txn,
+                                    fd_txn_out_t *       txn_out,
                                     fd_capture_ctx_t *   capture_ctx,
                                     fd_exec_accounts_t * exec_accounts,
                                     uchar *              dumping_mem,

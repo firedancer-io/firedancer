@@ -55,6 +55,7 @@ typedef struct {
      for non-bundle execution. */
   fd_exec_txn_ctx_t  txn_ctx[ FD_PACK_MAX_TXN_PER_BUNDLE ];
   fd_exec_accounts_t exec_accounts[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  fd_txn_out_t       txn_out[ FD_PACK_MAX_TXN_PER_BUNDLE ];
   fd_exec_stack_t    exec_stack;
 
   fd_runtime_t runtime;
@@ -186,10 +187,11 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
-    txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( bank,
-                                                                &ctx->runtime,
+    txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime,
+                                                                bank,
                                                                 txn_ctx,
                                                                 txn,
+                                                                &ctx->txn_out[0],
                                                                 NULL,
                                                                 &ctx->exec_accounts[0],
                                                                 NULL,
@@ -376,7 +378,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
     txn_ctx->bundle.is_bundle = 1;
-    txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( bank, &ctx->runtime, txn_ctx, txn, NULL, &ctx->exec_accounts[ i ], NULL, NULL );
+    txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime, bank, txn_ctx, txn, &ctx->txn_out[ i ], NULL, &ctx->exec_accounts[ i ], NULL, NULL );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->err.exec_err)<<24);
     if( FD_UNLIKELY( !txn_ctx->err.is_committable || txn_ctx->err.exec_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       execution_success = 0;

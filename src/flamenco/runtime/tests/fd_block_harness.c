@@ -487,7 +487,8 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
-      fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, txn, &res );
+      fd_txn_out_t txn_out;
+      fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, txn, &res, &txn_out );
       txn_ctx->err.exec_err = res;
 
       if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {

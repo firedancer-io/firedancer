@@ -333,7 +333,8 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
 fd_exec_txn_ctx_t *
 fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
                          fd_txn_p_t *              txn,
-                         int *                     exec_res ) {
+                         int *                     exec_res,
+                         fd_txn_out_t *            txn_out ) {
 
   /* Setup the spad for account allocation */
   uchar *             txn_ctx_mem = fd_spad_alloc_check( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
@@ -363,10 +364,11 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
   };
 
   *exec_res = fd_runtime_prepare_and_execute_txn(
-      runner->bank,
       &runtime,
+      runner->bank,
       txn_ctx,
       txn,
+      txn_out,
       NULL,
       runner->exec_accounts,
       NULL,
@@ -391,7 +393,8 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
 
     /* Execute the transaction against the runtime */
     int exec_res = 0;
-    fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, txn, &exec_res );
+    fd_txn_out_t txn_out;
+    fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, txn, &exec_res, &txn_out );
 
     /* Start saving txn exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );

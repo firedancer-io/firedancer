@@ -74,6 +74,8 @@ typedef struct fd_exec_tile_ctx {
   fd_exec_stack_t       exec_stack;
   fd_exec_accounts_t    exec_accounts;
 
+  fd_txn_out_t         txn_out;
+
   /* tracing_mem is staging memory to dump instructions/transactions
      into protobuf files.  tracing_mem is staging memory to output vm
      execution traces.
@@ -135,10 +137,11 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( bank );
-        ctx->txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( bank,
-                                                                         &ctx->runtime,
+        ctx->txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime,
+                                                                         bank,
                                                                          ctx->txn_ctx,
                                                                          &msg->txn,
+                                                                         &ctx->txn_out,
                                                                          ctx->capture_ctx,
                                                                          &ctx->exec_accounts,
                                                                          ctx->dumping_mem,
