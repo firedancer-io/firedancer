@@ -59,19 +59,19 @@ require_acct_recent_blockhashes( fd_exec_instr_ctx_t * ctx,
 
 static int
 most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
-                        fd_hash_t *           out ) {
+                        fd_blockhash_info_t * out ) {
   /* The environment config blockhash comes from `bank.last_blockhash_and_lamports_per_signature()`,
      which takes the top element from the blockhash queue.
      https://github.com/anza-xyz/agave/blob/v2.1.6/programs/system/src/system_instruction.rs#L47 */
-  fd_blockhashes_t const * blockhashes = fd_bank_block_hash_queue_query( ctx->txn_ctx->bank );
-  fd_hash_t const *        last_hash   = fd_blockhashes_peek_last( blockhashes );
-  if( FD_UNLIKELY( last_hash==NULL ) ) {
+  fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( ctx->txn_ctx->bank );
+  fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
+  if( FD_UNLIKELY( last_bhash_info==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  *out = *last_hash;
+  *out = *last_bhash_info;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -181,14 +181,14 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L45 */
 
-    fd_hash_t blockhash;
+    fd_blockhash_info_t blockhash[1];
     do {
-      int err = most_recent_block_hash( ctx, &blockhash );
+      int err = most_recent_block_hash( ctx, blockhash );
       if( FD_UNLIKELY( err ) ) return err;
     } while(0);
 
     fd_hash_t next_durable_nonce;
-    fd_durable_nonce_from_blockhash( &next_durable_nonce, &blockhash );
+    fd_durable_nonce_from_blockhash( &next_durable_nonce, &blockhash->hash );
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L46-L52 */
 
@@ -208,7 +208,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
           .authority      = data->authority,
           .durable_nonce  = next_durable_nonce,
           .fee_calculator = {
-            .lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( ctx->txn_ctx->bank )
+            .lamports_per_signature = blockhash->fee_calculator.lamports_per_signature
           }
         } }
       } }
@@ -364,14 +364,14 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
       /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L109 */
 
-      fd_hash_t blockhash;
+      fd_blockhash_info_t blockhash[1];
       do {
-        int err = most_recent_block_hash( ctx, &blockhash );
+        int err = most_recent_block_hash( ctx, blockhash );
         if( FD_UNLIKELY( err ) ) return err;
       } while(0);
 
       fd_hash_t next_durable_nonce;
-      fd_durable_nonce_from_blockhash( &next_durable_nonce, &blockhash );
+      fd_durable_nonce_from_blockhash( &next_durable_nonce, &blockhash->hash );
 
       /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L110-L116 */
 
@@ -554,14 +554,14 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L180 */
 
-    fd_hash_t blockhash;
+    fd_blockhash_info_t blockhash[1];
     do {
-      int err = most_recent_block_hash( ctx, &blockhash );
+      int err = most_recent_block_hash( ctx, blockhash );
       if( FD_UNLIKELY( err ) ) return err;
     } while(0);
 
     fd_hash_t durable_nonce;
-    fd_durable_nonce_from_blockhash( &durable_nonce, &blockhash );
+    fd_durable_nonce_from_blockhash( &durable_nonce, &blockhash->hash );
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.3/programs/system/src/system_instruction.rs#L185-L191 */
 
@@ -573,7 +573,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
           .authority      = *authorized,
           .durable_nonce  = durable_nonce,
           .fee_calculator = {
-            .lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( ctx->txn_ctx->bank )
+            .lamports_per_signature = blockhash->fee_calculator.lamports_per_signature
           }
         } }
       } }
@@ -877,7 +877,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( txn_ctx->bank );
-  fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last( block_hash_queue );
+  fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last_hash( block_hash_queue );
   if( FD_UNLIKELY( !last_blockhash ) ) {
     FD_LOG_CRIT(( "blockhash queue is empty" ));
   }

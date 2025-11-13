@@ -1332,7 +1332,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   /* Distribute rewards.  This involves calculating the rewards for
      every vote and stake account. */
 
-  fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+  fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
   fd_begin_partitioned_rewards( bank,
                                 accdb,
                                 xid,

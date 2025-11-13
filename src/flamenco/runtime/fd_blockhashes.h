@@ -106,9 +106,16 @@ fd_blockhashes_check_age( fd_blockhashes_t const * blockhashes,
                           ulong                    max_age );
 
 FD_FN_PURE static inline fd_hash_t const *
-fd_blockhashes_peek_last( fd_blockhashes_t const * blockhashes ) {
+fd_blockhashes_peek_last_hash( fd_blockhashes_t const * blockhashes ) {
   if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return 0;
   return &fd_blockhash_deq_peek_tail_const( blockhashes->d.deque )->hash;
+}
+
+
+FD_FN_PURE static inline fd_blockhash_info_t const *
+fd_blockhashes_peek_last( fd_blockhashes_t const * blockhashes ) {
+  if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return 0;
+  return fd_blockhash_deq_peek_tail_const( blockhashes->d.deque );
 }
 
 FD_PROTOTYPES_END
