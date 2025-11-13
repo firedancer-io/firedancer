@@ -136,15 +136,25 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   void * callback_ctx;
   fd_http_server_callbacks_t callbacks;
 
-  ulong magic;      /* ==FD_HTTP_SERVER_MAGIC */
-
-
   struct fd_http_server_connection *    conns;
   struct fd_http_server_ws_connection * ws_conns;
   struct pollfd *                       pollfds;
 
   void * conn_treap;
   void * ws_conn_treap;
+
+  struct {
+    ulong connection_cnt;
+    ulong ws_connection_cnt;
+
+    ulong bytes_written;
+    ulong bytes_read;
+
+    ulong frames_written;
+    ulong frames_read;
+  } metrics;
+
+  ulong magic;      /* ==FD_HTTP_SERVER_MAGIC */
 
   /* The memory for conns and pollfds is placed at the end of the struct
      here...

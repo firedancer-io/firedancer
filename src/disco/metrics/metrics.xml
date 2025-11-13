@@ -1130,4 +1130,15 @@ metric introduced.
     <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
 </tile>
 
+<tile name="gui">
+    <gauge name="ConnectionCount" summary="The number of active connections to the GUI service" />
+    <gauge name="WebsocketConnectionCount" summary="The number of active websocket connections to the GUI service" />
+
+    <counter name="WebsocketFramesSent" summary="The total number of websocket frames sent to all connections to the GUI service" />
+    <counter name="WebsocketFramesReceived" summary="The total number of websocket frames received from all connections to the GUI service" />
+
+    <counter name="BytesWritten" summary="The total number of bytes written to all connections to the GUI service" />
+    <counter name="BytesRead" summary="The total number of bytes read from all connections to the GUI service" />
+</tile>
+
 </metrics>

@@ -3,6 +3,7 @@
 
 #include "../../../../discof/restore/fd_snapct_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../util/tile/fd_tile.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -472,6 +473,38 @@ write_replay( config_t const * config,
   return 1U;
 }
 
+static uint
+write_gui( config_t const * config,
+           ulong const *    cur_tile,
+           ulong const *    prev_tile ) {
+  (void)cur_tile;
+
+  ulong gui_tile_idx = fd_topo_find_tile( &config->topo, "gui", 0UL );
+  if( gui_tile_idx==ULONG_MAX ) return 0U;
+
+  ulong connection_count = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, CONNECTION_COUNT ) ]+
+                           cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, WEBSOCKET_CONNECTION_COUNT ) ];
+
+  ulong gui_total_ticks = total_regime( &cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ ] );
+  gui_total_ticks = fd_ulong_max( gui_total_ticks, 1UL );
+  double gui_backp_pct = 100.0*(double)diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)gui_total_ticks;
+  double gui_idle_pct = 100.0*(double)diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)gui_total_ticks;
+  double gui_busy_pct = 100.0 - gui_backp_pct - gui_idle_pct;
+
+  long sent_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAMES_SENT ) );
+  char * sent_frame_count_s = COUNT( (ulong)sent_frame_count );
+  long received_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAMES_RECEIVED ) );
+
+  PRINT( "👁  \033[1m\033[36mGUI.........\033[0m\033[22m \033[1mCONNS\033[22m %lu \033[1mFRAMES\033[22m %s in %s out \033[1mBW\033[22m %s in %s out \033[1mBUSY\033[22m %3.0f%% \033[K\n",
+    connection_count,
+    COUNT( (ulong)received_frame_count ),
+    sent_frame_count_s,
+    DIFF_BYTES( "gui", COUNTER, GUI, BYTES_READ ),
+    DIFF_BYTES( "gui", COUNTER, GUI, BYTES_WRITTEN ),
+    gui_busy_pct );
+  return 1U;
+}
+
 static void
 write_summary( config_t const * config,
                ulong const *    cur_tile,
@@ -514,6 +547,7 @@ write_summary( config_t const * config,
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
+  lines_printed += write_gui( config, cur_tile, prev_tile );
 
   PRINT( "\033[?7h" ); /* enable autowrap mode */
 }
@@ -550,7 +584,7 @@ snap_links( fd_topo_t const * topo,
   }
 }
 
-static ulong tiles[ 2UL*128UL*FD_METRICS_TOTAL_SZ ];
+static ulong tiles[ 2UL*FD_TILE_MAX*FD_METRICS_TOTAL_SZ ];
 static ulong links[ 2UL*4096UL*8UL*FD_METRICS_ALL_LINK_IN_TOTAL ];
 
 static void
@@ -568,7 +602,7 @@ run( config_t const * config,
     }
   }
 
-  FD_TEST( tile_cnt<=128UL );
+  FD_TEST( tile_cnt<=FD_TILE_MAX );
   FD_TEST( cons_cnt<=4096UL );
 
   snap_tiles( &config->topo, tiles );
