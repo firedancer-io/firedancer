@@ -392,6 +392,12 @@ fd_vinyl_bstream_block_test( ulong                      seed,
   return FD_VINYL_SUCCESS;
 }
 
+/* fd_vinyl_bstream_pair_zero clears the footer region and any zero
+   padding region. */
+
+void
+fd_vinyl_bstream_pair_zero( fd_vinyl_bstream_block_t * phdr );
+
 /* fd_vinyl_bstream_pair_hash clears the footer region and any zero
    padding region of pair and then populates the hash fields
    appropriately.  seed is the bstream data integrity seed.  Assumes
@@ -463,6 +469,20 @@ fd_vinyl_bstream_ctl_style_cstr( int style );
 
 int
 fd_cstr_to_vinyl_bstream_ctl_style( char const * cstr );
+
+#if FD_HAS_AVX512 && defined(__AVX512DQ__)
+
+/* fd_vinyl_bstream_hash_batch8 does 8 fd_vinyl_bstream_hash()
+   computations in parallel.  out, buf, sz point to arrays of 8 elements
+   respectively. */
+
+FD_FN_PURE void
+fd_vinyl_bstream_hash_batch8( ulong const *              FD_RESTRICT seed,
+                              ulong *                    FD_RESTRICT out,
+                              void const * FD_RESTRICT * FD_RESTRICT buf,
+                              ulong const *              FD_RESTRICT sz );
+
+#endif
 
 FD_PROTOTYPES_END
 

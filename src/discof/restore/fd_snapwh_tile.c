@@ -174,6 +174,11 @@ handle_data_frag( fd_snapwh_t * ctx,
   FD_CRIT( fd_ulong_is_aligned( (ulong)rem, FD_VINYL_BSTREAM_BLOCK_SZ ), "misaligned write request" );
   FD_CRIT( fd_ulong_is_aligned( rem_sz, FD_VINYL_BSTREAM_BLOCK_SZ ),     "misaligned write request" );
 
+#define PAIR_HASH_N (8)
+
+  uchar * pair[PAIR_HASH_N];
+  ulong   pair_sz[PAIR_HASH_N];
+  ulong   pair_cnt = 0UL;
   while( rem_sz ) {
     FD_CRIT( rem_sz>=FD_VINYL_BSTREAM_BLOCK_SZ, "corrupted bstream block" );
     fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)rem;
@@ -182,10 +187,11 @@ handle_data_frag( fd_snapwh_t * ctx,
     switch( ctl_type ) {
 
     case FD_VINYL_BSTREAM_CTL_TYPE_PAIR: {
-      ulong val_esz  = fd_vinyl_bstream_ctl_sz( ctl );
-      ulong block_sz = fd_vinyl_bstream_pair_sz( val_esz );
-      FD_CRIT( rem_sz>=block_sz, "corrupted bstream pair" );
-      fd_vinyl_bstream_pair_hash( io_seed, (fd_vinyl_bstream_block_t *)rem );
+      pair[ pair_cnt ]    = rem;
+      ulong val_esz       = fd_vinyl_bstream_ctl_sz( ctl );
+      ulong block_sz      = fd_vinyl_bstream_pair_sz( val_esz );
+      pair_sz[ pair_cnt ] = block_sz;
+      pair_cnt += 1UL;
       rem    += block_sz;
       rem_sz -= block_sz;
       break;
@@ -199,9 +205,43 @@ handle_data_frag( fd_snapwh_t * ctx,
 
     default:
       FD_LOG_CRIT(( "unexpected vinyl bstream block ctl=%016lx", ctl ));
+    }
 
+    if( FD_UNLIKELY( ( pair_cnt==PAIR_HASH_N ) || ( !rem_sz ) ) ) {
+#     if FD_HAS_AVX512 && defined(__AVX512DQ__)
+      ulong        h_seed[PAIR_HASH_N];
+      ulong        h_trail[PAIR_HASH_N];
+      ulong        h_block[PAIR_HASH_N];
+      void const * h_tin  [PAIR_HASH_N];
+      ulong        h_tinsz[PAIR_HASH_N] = {0};
+      void const * h_bin  [PAIR_HASH_N];
+      ulong        h_binsz[PAIR_HASH_N] = {0};
+      for( ulong i=0UL; i<pair_cnt; i++ ) {
+        h_seed[ i ] = io_seed;
+        fd_vinyl_bstream_pair_zero( (fd_vinyl_bstream_block_t *)pair[ i ] );
+        h_tin  [ i ] = pair   [ i ] + FD_VINYL_BSTREAM_BLOCK_SZ;
+        h_tinsz[ i ] = pair_sz[ i ] - FD_VINYL_BSTREAM_BLOCK_SZ;
+        h_bin  [ i ] = pair   [ i ];
+        h_binsz[ i ] = FD_VINYL_BSTREAM_BLOCK_SZ;
+      }
+      fd_vinyl_bstream_hash_batch8( h_seed,  h_trail, h_tin, h_tinsz );
+      fd_vinyl_bstream_hash_batch8( h_trail, h_block, h_bin, h_binsz );
+      for( ulong i=0UL; i<pair_cnt; i++ ) {
+        fd_vinyl_bstream_block_t * ftr = (fd_vinyl_bstream_block_t *)( pair[ i ]+pair_sz[ i ]-FD_VINYL_BSTREAM_BLOCK_SZ );
+        ftr->ftr.hash_trail  = h_trail[ i ];
+        ftr->ftr.hash_blocks = h_block[ i ];
+      }
+#     else
+      (void)pair_sz;
+      for( ulong hash_i=0UL; hash_i<pair_cnt; hash_i++ ) {
+        fd_vinyl_bstream_pair_hash( io_seed, (fd_vinyl_bstream_block_t *)pair[ hash_i ] );
+      }
+#     endif
+      pair_cnt = 0UL;
     }
   }
+
+#undef PAIR_HASH_N
 }
 
 static int
