@@ -590,7 +590,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_vote_state_credits_t * realc_credit = !!runtime_stack->stakes.prev_vote_credits_used ?
                                              &runtime_stack->stakes.vote_credits[ vote_state_ele->idx ] : NULL;
 
-    /* redeem_rewards is actually just responisble for calculating the
+    /* redeem_rewards is actually just responsible for calculating the
        vote and stake rewards for each stake account.  It does not do
        rewards redemption: it is a misnomer. */
     fd_calculated_stake_rewards_t calculated_stake_rewards[1] = {0};

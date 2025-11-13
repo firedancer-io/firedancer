@@ -139,13 +139,13 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   fd_vm_syscall_register_slot( syscalls,
-                               instr_ctx->txn_ctx->slot,
-                               &instr_ctx->txn_ctx->features,
+                               fd_bank_slot_get( instr_ctx->txn_ctx->bank ),
+                               fd_bank_features_query( instr_ctx->txn_ctx->bank ),
                                1 );
 
   /* Load executable */
   fd_sbpf_elf_info_t elf_info[ 1UL ];
-  fd_prog_versions_t versions = fd_prog_versions( &instr_ctx->txn_ctx->features, instr_ctx->txn_ctx->slot );
+  fd_prog_versions_t versions = fd_prog_versions( fd_bank_features_query( instr_ctx->txn_ctx->bank ), fd_bank_slot_get( instr_ctx->txn_ctx->bank ) );
 
   fd_sbpf_loader_config_t config = { 0 };
   config.elf_deploy_checks = deploy_mode;
@@ -184,8 +184,8 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   vm = fd_vm_init(
     /* vm                                   */ vm,
     /* instr_ctx                            */ instr_ctx,
-    /* heap_max                             */ instr_ctx->txn_ctx->compute_budget_details.heap_size,
-    /* entry_cu                             */ instr_ctx->txn_ctx->compute_budget_details.compute_meter,
+    /* heap_max                             */ instr_ctx->txn_ctx->details.compute_budget.heap_size,
+    /* entry_cu                             */ instr_ctx->txn_ctx->details.compute_budget.compute_meter,
     /* rodata                               */ prog->rodata,
     /* rodata_sz                            */ prog->rodata_sz,
     /* text                                 */ prog->text,
@@ -216,7 +216,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* Queue the program for reverification */
-  instr_ctx->txn_ctx->programs_to_reverify[instr_ctx->txn_ctx->programs_to_reverify_cnt++] = *program_key;
+  instr_ctx->txn_ctx->details.programs_to_reverify[instr_ctx->txn_ctx->details.programs_to_reverify_cnt++] = *program_key;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -386,8 +386,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* TODO do we really need to re-do this on every instruction? */
   fd_vm_syscall_register_slot( syscalls,
-                               instr_ctx->txn_ctx->slot,
-                               &instr_ctx->txn_ctx->features,
+                               fd_bank_slot_get( instr_ctx->txn_ctx->bank ),
+                               fd_bank_features_query( instr_ctx->txn_ctx->bank ),
                                0 );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
@@ -417,8 +417,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   fd_vm_t _vm[1];
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
-  ulong pre_insn_cus = instr_ctx->txn_ctx->compute_budget_details.compute_meter;
-  ulong heap_size    = instr_ctx->txn_ctx->compute_budget_details.heap_size;
+  ulong pre_insn_cus = instr_ctx->txn_ctx->details.compute_budget.compute_meter;
+  ulong heap_size    = instr_ctx->txn_ctx->details.compute_budget.heap_size;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L275-L278 */
   ulong heap_cost = calculate_heap_cost( heap_size, FD_VM_HEAP_COST );
@@ -428,16 +428,16 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   /* For dumping syscalls for seed corpora */
-  int dump_syscall_to_pb = instr_ctx->txn_ctx->capture_ctx &&
-                           instr_ctx->txn_ctx->slot >= instr_ctx->txn_ctx->capture_ctx->dump_proto_start_slot &&
-                           instr_ctx->txn_ctx->capture_ctx->dump_syscall_to_pb;
+  int dump_syscall_to_pb = instr_ctx->txn_ctx->log.capture_ctx &&
+                           fd_bank_slot_get( instr_ctx->txn_ctx->bank ) >= instr_ctx->txn_ctx->log.capture_ctx->dump_proto_start_slot &&
+                           instr_ctx->txn_ctx->log.capture_ctx->dump_syscall_to_pb;
 
   /* TODO: (topointon): correctly set check_size in vm setup */
   vm = fd_vm_init(
     /* vm                                   */ vm,
     /* instr_ctx                            */ instr_ctx,
     /* heap_max                             */ heap_size,
-    /* entry_cu                             */ instr_ctx->txn_ctx->compute_budget_details.compute_meter,
+    /* entry_cu                             */ instr_ctx->txn_ctx->details.compute_budget.compute_meter,
     /* rodata                               */ fd_progcache_rec_rodata( cache_entry ),
     /* rodata_sz                            */ cache_entry->rodata_sz,
     /* text (note: text_off is byte offset) */ (ulong *)((ulong)fd_progcache_rec_rodata( cache_entry ) + (ulong)cache_entry->text_off),
@@ -466,13 +466,13 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
-  if( FD_UNLIKELY( instr_ctx->txn_ctx->enable_vm_tracing && instr_ctx->txn_ctx->tracing_mem ) ) {
-    vm->trace = fd_vm_trace_join( fd_vm_trace_new( instr_ctx->txn_ctx->tracing_mem + ((instr_ctx->txn_ctx->instr_stack_sz-1UL) * FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT), FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ));
+  if( FD_UNLIKELY( instr_ctx->txn_ctx->log.enable_vm_tracing && instr_ctx->txn_ctx->log.tracing_mem ) ) {
+    vm->trace = fd_vm_trace_join( fd_vm_trace_new( instr_ctx->txn_ctx->log.tracing_mem + ((instr_ctx->txn_ctx->instr.stack_sz-1UL) * FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT), FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ));
     if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
   }
 
   int exec_err = fd_vm_exec( vm );
-  instr_ctx->txn_ctx->compute_budget_details.compute_meter = vm->cu;
+  instr_ctx->txn_ctx->details.compute_budget.compute_meter = vm->cu;
 
   if( FD_UNLIKELY( vm->trace ) ) {
     err = fd_vm_trace_printf( vm->trace, vm->syscalls );
@@ -484,7 +484,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   /* Log consumed compute units and return data.
      https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/lib.rs#L1418-L1429 */
   fd_log_collector_program_consumed( instr_ctx, pre_insn_cus-vm->cu, pre_insn_cus );
-  if( FD_UNLIKELY( instr_ctx->txn_ctx->return_data.len ) ) {
+  if( FD_UNLIKELY( instr_ctx->txn_ctx->details.return_data.len ) ) {
     fd_log_collector_program_return( instr_ctx );
   }
 
@@ -497,7 +497,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   if( FD_LIKELY( !exec_err ) ) {
     ulong status = vm->reg[0];
     if( FD_UNLIKELY( status ) ) {
-      err = program_error_to_instr_error( status, &instr_ctx->txn_ctx->custom_err );
+      err = program_error_to_instr_error( status, &instr_ctx->txn_ctx->err.custom_err );
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
       return err;
@@ -507,7 +507,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
     if( FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, deplete_cu_meter_on_vm_failure ) &&
         exec_err!=FD_VM_ERR_EBPF_SYSCALL_ERROR ) {
-      instr_ctx->txn_ctx->compute_budget_details.compute_meter = 0UL;
+      instr_ctx->txn_ctx->details.compute_budget.compute_meter = 0UL;
     }
 
     /* Direct mapping access violation case
@@ -516,7 +516,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
        as to what caused the error.
        https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1556-L1618 */
     if( FD_UNLIKELY( stricter_abi_and_runtime_constraints &&
-                     ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_ctx->exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
+                     ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_ctx->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
                      vm->segv_vaddr!=ULONG_MAX ) ) {
 
       /* vaddrs start at 0xFFFFFFFF + 1, so anything below it would not correspond to any account metadata. */
@@ -584,8 +584,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
        and our design decisions for making our error codes match. */
 
     /* Instr error case. Set the error kind and return the instruction error */
-    if( instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR ) {
-      err = instr_ctx->txn_ctx->exec_err;
+    if( instr_ctx->txn_ctx->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR ) {
+      err = instr_ctx->txn_ctx->err.exec_err;
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
       return err;
@@ -593,8 +593,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
     /* Syscall error case. The VM would have also set the syscall error
        code in the txn_ctx exec_err. */
-    if( instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL ) {
-      err = instr_ctx->txn_ctx->exec_err;
+    if( instr_ctx->txn_ctx->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL ) {
+      err = instr_ctx->txn_ctx->err.exec_err;
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
       return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
@@ -602,8 +602,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
     /* An access violation that takes place inside a syscall will
        cause `exec_res` to be set to EbpfError::SyscallError,
-       but the `txn_ctx->exec_err_kind` will be set to EBPF and
-       `txn_ctx->exec_err` will be set to the EBPF error. In this
+      'but the `txn_ctx->err.exec_err_kind` will be set to EBPF and
+       `txn_ctx->err.exec_err` will be set to the EBPF error. In this
        specific case, there is nothing to do since the error and error
        kind area already set correctly. Otherwise, we need to log the
        EBPF error. */
@@ -1172,7 +1172,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       ulong seed_sz   = sizeof(fd_pubkey_t);
       uchar bump_seed = 0;
       err = fd_pubkey_find_program_address( program_id, 1UL, seeds, &seed_sz, derived_address,
-                                            &bump_seed, &instr_ctx->txn_ctx->custom_err );
+                                            &bump_seed, &instr_ctx->txn_ctx->err.custom_err );
       if( FD_UNLIKELY( err ) ) {
         /* TODO: We should handle these errors more gracefully instead of just killing the client (e.g. excluding the transaction
            from the block). */
@@ -1244,7 +1244,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* caller_program_id == program_id */
       fd_pubkey_t signers[ 1UL ];
-      err = fd_pubkey_derive_pda( program_id, 1UL, seeds, &seed_sz, &bump_seed, signers, &instr_ctx->txn_ctx->custom_err );
+      err = fd_pubkey_derive_pda( program_id, 1UL, seeds, &seed_sz, &bump_seed, signers, &instr_ctx->txn_ctx->err.custom_err );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -2559,7 +2559,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     ulong program_data_slot = program_data_account_state->inner.program_data.slot;
-    if( FD_UNLIKELY( program_data_slot>=ctx->txn_ctx->slot ) ) {
+    if( FD_UNLIKELY( program_data_slot>=fd_bank_slot_get( ctx->txn_ctx->bank ) ) ) {
       /* The account was likely just deployed or upgraded. Corresponds to
          'LoadedProgramType::DelayVisibility' */
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
@@ -2612,26 +2612,45 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *               bank,
                                      fd_pubkey_t const *       program_key,
                                      uchar const *             elf,
                                      ulong                     elf_sz ) {
-  /* FIXME: Breaking this until exec spad is replaced. */
   FD_LOG_ERR(( "fd_directly_invoke_loader_v3_deploy is not implemented" ));
-  return 0;
 
-  /* Set up a dummy instr and txn context */
+  /* Set up a dummy instr and txn context.
+     FIXME: Memory for a txn context needs to be allocated */
   fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( NULL ) );
 
-  fd_exec_txn_ctx_setup( bank,
-                         accdb_shfunk,
-                         NULL,
-                         xid,
-                         NULL,
-                         txn_ctx,
-                         NULL,
-                         NULL,
-                         0UL );
+  if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, accdb_shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  }
+  txn_ctx->xid[0]                    = *xid;
+  txn_ctx->progcache                 = NULL;
+  txn_ctx->status_cache              = NULL;
+  txn_ctx->bank_hash_cmp             = NULL;
+  txn_ctx->log.enable_exec_recording = !!(bank->flags & FD_BANK_FLAGS_EXEC_RECORDING);
+  txn_ctx->bank                      = bank;
 
-  fd_exec_txn_ctx_setup_basic( txn_ctx );
-  txn_ctx->instr_stack_sz = 1;
-  fd_exec_instr_ctx_t * instr_ctx = &txn_ctx->instr_stack[0];
+  fd_compute_budget_details_new( &txn_ctx->details.compute_budget );
+  txn_ctx->accounts.accounts_cnt     = 0UL;
+  txn_ctx->accounts.executable_cnt   = 0UL;
+
+  txn_ctx->details.programs_to_reverify_cnt       = 0UL;
+  txn_ctx->details.loaded_accounts_data_size      = 0UL;
+  txn_ctx->details.loaded_accounts_data_size_cost = 0UL;
+  txn_ctx->details.accounts_resize_delta          = 0UL;
+
+  memset( txn_ctx->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+  txn_ctx->details.return_data.len = 0;
+
+  txn_ctx->log.capture_ctx   = NULL;
+
+  txn_ctx->instr.info_cnt     = 0UL;
+  txn_ctx->instr.trace_length = 0UL;
+
+  txn_ctx->err.exec_err          = 0;
+  txn_ctx->err.exec_err_kind     = FD_EXECUTOR_ERR_KIND_NONE;
+  txn_ctx->instr.current_idx = 0;
+
+  txn_ctx->instr.stack_sz = 1;
+  fd_exec_instr_ctx_t * instr_ctx = &txn_ctx->instr.stack[0];
   *instr_ctx = (fd_exec_instr_ctx_t) {
     .instr     = NULL,
     .txn_ctx   = txn_ctx,

@@ -11,7 +11,8 @@ FD_PROTOTYPES_BEGIN
 
 void
 test_vm_minimal_exec_instr_ctx( fd_exec_instr_ctx_t * instr_ctx,
-                                fd_exec_txn_ctx_t *   txn_ctx );
+                                fd_exec_txn_ctx_t *   txn_ctx,
+                                fd_bank_t *           bank );
 
 void
 test_vm_clear_txn_ctx_err( fd_exec_txn_ctx_t * txn_ctx );

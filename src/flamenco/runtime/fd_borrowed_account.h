@@ -295,7 +295,7 @@ fd_borrowed_account_is_executable( fd_borrowed_account_t const * borrowed_acct )
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_executable_internal( fd_borrowed_account_t const * borrowed_acct ) {
-  return !FD_FEATURE_ACTIVE( borrowed_acct->instr_ctx->txn_ctx->slot, &borrowed_acct->instr_ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) &&
+  return !FD_FEATURE_ACTIVE_BANK( borrowed_acct->instr_ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) &&
           fd_borrowed_account_is_executable( borrowed_acct );
 }
 
@@ -423,7 +423,7 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
   /* The resize can not exceed the per-transaction maximum
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1104-L1108 */
   ulong length_delta              = fd_ulong_sat_sub( new_length, fd_txn_account_get_data_len( acct ) );
-  ulong new_accounts_resize_delta = fd_ulong_sat_add( borrowed_acct->instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
+  ulong new_accounts_resize_delta = fd_ulong_sat_add( borrowed_acct->instr_ctx->txn_ctx->details.accounts_resize_delta, length_delta );
   if( FD_UNLIKELY( new_accounts_resize_delta > MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;

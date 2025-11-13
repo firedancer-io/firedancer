@@ -289,7 +289,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   seeds[0] = (uchar const *)authority_key;
   seeds[1] = (uchar const *)&derivation_slot;
   err = fd_pubkey_derive_pda( &fd_solana_address_lookup_table_program_id, 2UL, seeds,
-                                  seed_szs, (uchar*)&create->bump_seed, derived_tbl_key, &ctx->txn_ctx->custom_err );
+                                  seed_szs, (uchar*)&create->bump_seed, derived_tbl_key, &ctx->txn_ctx->err.custom_err );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }

@@ -5,6 +5,7 @@
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "test_vm_util.h"
+#include "../runtime/fd_bank.h"
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -446,7 +447,8 @@ run_input( test_input_t const * input,
 
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_exec_txn_ctx_t   txn_ctx[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
+  fd_bank_t           bank[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank );
 
   int vm_ok = !!fd_vm_init(
       /* vm                                   */ vm,
@@ -469,8 +471,8 @@ run_input( test_input_t const * input,
       /* mem_regions_cnt                      */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   assert( vm_ok );

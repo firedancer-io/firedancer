@@ -3,6 +3,7 @@
 #include "../fd_executor.h"
 #include "../../vm/fd_vm.h"
 #include "../fd_system_ids.h"
+#include "../fd_bank.h"
 
 void *
 fd_exec_txn_ctx_new( void * mem ) {
@@ -19,10 +20,6 @@ fd_exec_txn_ctx_new( void * mem ) {
   fd_exec_txn_ctx_t * self = (fd_exec_txn_ctx_t *) mem;
   fd_memset( self, 0, sizeof(fd_exec_txn_ctx_t) );
 
-  FD_COMPILER_MFENCE();
-  self->magic = FD_EXEC_TXN_CTX_MAGIC;
-  FD_COMPILER_MFENCE();
-
   return mem;
 }
 
@@ -35,11 +32,6 @@ fd_exec_txn_ctx_join( void * mem ) {
 
   fd_exec_txn_ctx_t * ctx = (fd_exec_txn_ctx_t *) mem;
 
-  if( FD_UNLIKELY( ctx->magic!=FD_EXEC_TXN_CTX_MAGIC ) ) {
-    FD_LOG_WARNING(( "bad magic" ));
-    return NULL;
-  }
-
   return ctx;
 }
 
@@ -47,11 +39,6 @@ void *
 fd_exec_txn_ctx_leave( fd_exec_txn_ctx_t * ctx) {
   if( FD_UNLIKELY( !ctx ) ) {
     FD_LOG_WARNING(( "NULL block" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( ctx->magic!=FD_EXEC_TXN_CTX_MAGIC ) ) {
-    FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
@@ -70,16 +57,6 @@ fd_exec_txn_ctx_delete( void * mem ) {
     return NULL;
   }
 
-  fd_exec_txn_ctx_t * hdr = (fd_exec_txn_ctx_t *)mem;
-  if( FD_UNLIKELY( hdr->magic!=FD_EXEC_TXN_CTX_MAGIC ) ) {
-    FD_LOG_WARNING(( "bad magic" ));
-    return NULL;
-  }
-
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( hdr->magic ) = 0UL;
-  FD_COMPILER_MFENCE();
-
   return mem;
 }
 
@@ -88,11 +65,11 @@ fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *             ctx,
                                       ushort                          idx,
                                       fd_txn_account_t * *            account,
                                       fd_txn_account_condition_fn_t * condition ) {
-  if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
+  if( FD_UNLIKELY( idx>=ctx->accounts.accounts_cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  fd_txn_account_t * txn_account = &ctx->accounts[idx];
+  fd_txn_account_t * txn_account = &ctx->accounts.accounts[idx];
   *account = txn_account;
 
   if( FD_LIKELY( condition != NULL ) ) {
@@ -135,9 +112,9 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
     return FD_ACC_MGR_SUCCESS;
   }
 
-  for( ushort i=0; i<ctx->executable_cnt; i++ ) {
-    if( memcmp( pubkey->uc, ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
-      fd_txn_account_t * txn_account = &ctx->executable_accounts[i];
+  for( ushort i=0; i<ctx->accounts.executable_cnt; i++ ) {
+    if( memcmp( pubkey->uc, ctx->accounts.executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
+      fd_txn_account_t * txn_account = &ctx->accounts.executable_accounts[i];
       *account = txn_account;
 
       if( FD_LIKELY( condition != NULL ) ) {
@@ -159,54 +136,12 @@ fd_exec_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t *  ctx,
                                              fd_pubkey_t const * * key ) {
   /* Return a NotEnoughAccountKeys error if idx is out of bounds.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L218 */
-  if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
+  if( FD_UNLIKELY( idx>=ctx->accounts.accounts_cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  *key = &ctx->account_keys[ idx ];
+  *key = &ctx->accounts.account_keys[ idx ];
   return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
-void
-fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx ) {
-  fd_compute_budget_details_new( &ctx->compute_budget_details );
-
-  ctx->custom_err                = 0U;
-  ctx->instr_stack_sz            = 0;
-  ctx->accounts_cnt              = 0UL;
-  ctx->executable_cnt            = 0UL;
-  ctx->programs_to_reverify_cnt  = 0UL;
-
-  ctx->paid_fees                      = 0UL;
-  ctx->loaded_accounts_data_size      = 0UL;
-  ctx->loaded_accounts_data_size_cost = 0UL;
-  ctx->accounts_resize_delta          = 0UL;
-
-  ctx->num_instructions = 0;
-  memset( ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  ctx->return_data.len = 0;
-
-  ctx->failed_instr  = NULL;
-  ctx->instr_err_idx = INT_MAX;
-  ctx->capture_ctx   = NULL;
-
-  ctx->instr_info_cnt     = 0UL;
-  ctx->cpi_instr_info_cnt = 0UL;
-  ctx->instr_trace_length = 0UL;
-
-  ctx->exec_err          = 0;
-  ctx->exec_err_kind     = FD_EXECUTOR_ERR_KIND_NONE;
-  ctx->current_instr_idx = 0;
-}
-
-void
-fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * ctx ) {
-  (void)ctx;
-}
-
-void
-fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx ) {
-  txn_ctx->return_data.len = 0;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L162 */
@@ -243,12 +178,12 @@ fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
    https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
 int
 fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, ushort idx ) {
-  uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_ctx->account_keys, txn_ctx->accounts_cnt );
-  return fd_exec_txn_account_is_writable_idx_flat( txn_ctx->slot,
+  uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_ctx->accounts.account_keys, txn_ctx->accounts.accounts_cnt );
+  return fd_exec_txn_account_is_writable_idx_flat( fd_bank_slot_get( txn_ctx->bank ),
                                                    idx,
-                                                   &txn_ctx->account_keys[idx],
+                                                   &txn_ctx->accounts.account_keys[idx],
                                                    TXN( &txn_ctx->txn ),
-                                                   &txn_ctx->features,
+                                                   fd_bank_features_query( txn_ctx->bank ),
                                                    bpf_upgradeable );
 }
 

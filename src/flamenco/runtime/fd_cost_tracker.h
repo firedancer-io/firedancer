@@ -128,7 +128,7 @@ fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
 FD_FN_PURE static inline ulong
 fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
-  ulong cost = fd_ulong_sat_sub( fd_ulong_sat_add( txn_ctx->loaded_accounts_data_size,
+  ulong cost = fd_ulong_sat_sub( fd_ulong_sat_add( txn_ctx->details.loaded_accounts_data_size,
                                                    FD_ACCOUNT_DATA_COST_PAGE_SIZE ),
                                  1UL );
   cost /= FD_ACCOUNT_DATA_COST_PAGE_SIZE;

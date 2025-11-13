@@ -681,8 +681,16 @@ metric introduced.
     <int value="25" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
 </enum>
 
+<enum name="TransactionLanded">
+    <int value="0" name="LandedSuccess" label="Transaction landed" />
+    <int value="1" name="LandedFeesOnly" label="Transaction landed, but was fees only and did not execute" />
+    <int value="2" name="LandedFailed" label="Transaction landed, but failed to execute" />
+    <int value="3" name="Unlanded" label="Transaction did not land" />
+</enum>
+
 <tile name="bankf">
     <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction." />
+    <counter name="TransactionLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not." />
 </tile>
 
 <tile name="bank">
