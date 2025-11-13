@@ -53,12 +53,25 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
      https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L153-L154 */
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK(ctx, ACC_IDX_PROOF, &proof_acc );
 
+  /* Check that the proof context account is owned by the zk-elgamal-proof program
+     https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/programs/zk-elgamal-proof/src/lib.rs#167-L171 */
+  if( FD_UNLIKELY( !fd_memeq( fd_borrowed_account_get_owner( &proof_acc ), &fd_solana_zk_elgamal_proof_program_id, sizeof(fd_pubkey_t) ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+  }
+
   /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L161-L162
       Note: data also contains context data, but we only need the initial 33 bytes. */
   if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &proof_acc ) < sizeof(fd_zksdk_proof_ctx_state_meta_t) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   fd_zksdk_proof_ctx_state_meta_t const * proof_ctx_state_meta = fd_type_pun_const( fd_borrowed_account_get_data( &proof_acc ) );
+
+  /* Check that the proof context account is initialized (proof_type != 0)
+     ProofType::Uninitialized = 0
+     https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/programs/zk-elgamal-proof/src/lib.rs#L161-L165 */
+  if( FD_UNLIKELY( proof_ctx_state_meta->proof_type == 0 ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L155 */
   fd_pubkey_t const * expected_owner_addr = &proof_ctx_state_meta->ctx_state_authority;
