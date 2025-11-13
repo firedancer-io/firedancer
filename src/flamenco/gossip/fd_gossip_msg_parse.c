@@ -170,7 +170,7 @@ fd_gossip_msg_crds_vote_parse( fd_gossip_view_crds_value_t * crds_val,
   CHECK( crds_val->vote->index<FD_GOSSIP_VOTE_IDX_MAX );
   CHECK_LEFT( 32U ); crds_val->pubkey_off  = CUR_OFFSET                                         ; INC( 32U );
   ulong transaction_sz;
-  CHECK( fd_txn_parse_core( CURSOR, BYTES_REMAINING, NULL, NULL, &transaction_sz )!=0UL );
+  CHECK( fd_txn_parse_core( CURSOR, BYTES_REMAINING, NULL, NULL, &transaction_sz, FD_TXN_INSTR_MAX )!=0UL );
   crds_val->vote->txn_off = CUR_OFFSET;
   crds_val->vote->txn_sz  = transaction_sz;
   INC( transaction_sz );

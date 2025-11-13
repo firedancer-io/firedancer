@@ -8,7 +8,8 @@ fd_txn_parse_core( uchar const             * payload,
                    ulong                     payload_sz,
                    void                    * out_buf,
                    fd_txn_parse_counters_t * counters_opt,
-                   ulong *                   payload_sz_opt ) {
+                   ulong *                   payload_sz_opt,
+                   ulong                     instr_max ) {
   ulong i = 0UL;
   /* This code does non-trivial parsing of untrusted user input, which
      is a potentially dangerous thing.  The main invariants we need to
@@ -121,16 +122,9 @@ fd_txn_parse_core( uchar const             * payload,
   ushort instr_cnt = (ushort)0;
   READ_CHECKED_COMPACT_U16( bytes_consumed,                instr_cnt,                i );     i+=bytes_consumed;
 
-#ifdef FD_OFFLINE_REPLAY
-  /* For offline replay, we allow up to 128 instructions per
-     transaction. Note that this is simply a bump in the limit that is
-     completely local to this check. We are not concomitantly bumping
-     the size of fd_txn_t. So we risk potential buffer overflow in
-     fd_txn_t, but again only in offline replay. */
-  CHECK( (ulong)instr_cnt<=128UL                );
-#else
-  CHECK( (ulong)instr_cnt<=FD_TXN_INSTR_MAX     );
-#endif
+  /* FIXME: compile-time max after static_instruction_limit. */
+  CHECK( (ulong)instr_cnt<=instr_max            );
+
   CHECK_LEFT( MIN_INSTR_SZ*instr_cnt            );
   /* If it has >0 instructions, it must have at least one other account
      address (the program id) that can't be the fee payer */
@@ -244,7 +238,15 @@ fd_txn_parse_core( uchar const             * payload,
 
   if( FD_LIKELY( counters_opt   ) ) counters_opt->success_cnt++;
   if( FD_LIKELY( payload_sz_opt ) ) *payload_sz_opt = i;
-  return fd_txn_footprint( instr_cnt, addr_table_cnt );
+
+  ulong footprint = fd_txn_footprint( instr_cnt, addr_table_cnt );
+  /* FIXME remove this check when static_instruction_limit is activated on all networks. */
+  if( FD_UNLIKELY( instr_cnt>FD_TXN_INSTR_MAX && footprint>FD_TXN_MAX_SZ ) ) {
+    uchar const * sig = payload+parsed->signature_off;
+    FD_LOG_HEXDUMP_WARNING(( "txnsig", sig, FD_TXN_SIGNATURE_SZ ));
+    FD_LOG_CRIT(( "instr_cnt %u footprint %lu", instr_cnt, footprint ));
+  }
+  return footprint;
 
   #undef CHECK
   #undef CHECK_LEFT
