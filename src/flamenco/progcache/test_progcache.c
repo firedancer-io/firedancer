@@ -8,6 +8,7 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/fd_txn_account.h"
 #include "../features/fd_features.h"
+#include "fd_progcache_verify.h"
 
 /* Load in programdata for tests */
 FD_IMPORT_BINARY( valid_program_data,        "src/ballet/sbpf/fixtures/hello_solana_program.so" );
@@ -62,7 +63,7 @@ test_env_create( fd_wksp_t * wksp ) {
 
 static void
 test_env_destroy( test_env_t * env ) {
-  fd_progcache_verify( env->progcache_admin );
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
 
   void * accdb_mem = NULL;
   FD_TEST( fd_progcache_admin_leave( env->progcache_admin, &accdb_mem ) );
@@ -192,6 +193,7 @@ test_empty( fd_wksp_t * wksp ) {
   fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb->funk, xid, &key, &load_env );
   FD_TEST( !rec );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_destroy( env );
 }
 
@@ -206,6 +208,7 @@ test_account_does_not_exist( fd_wksp_t * wksp ) {
 
   (void)test_env_txn_publish;
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
 }
@@ -233,6 +236,7 @@ test_invalid_owner( fd_wksp_t * wksp ) {
   };
   FD_TEST( !fd_progcache_pull( env->progcache, env->accdb->funk, &fork_a, &key, &load_env ) );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
 }
@@ -268,6 +272,7 @@ test_invalid_program( fd_wksp_t * wksp ) {
   FD_TEST( !rec->executable );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, load_env.epoch_slot0 )==rec );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
 }
@@ -316,6 +321,7 @@ test_valid_program( fd_wksp_t * wksp ) {
   FD_TEST( rec==rec2 );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_a ); /* should also cancel fork_b */
   test_env_destroy( env );
 }
@@ -363,6 +369,7 @@ test_epoch_boundary( fd_wksp_t * wksp ) {
   FD_TEST( rec2->executable );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, load_env.epoch_slot0 )==rec2 );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_b );
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
@@ -403,6 +410,7 @@ test_invalidate( fd_wksp_t * wksp ) {
   FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
 }
@@ -423,6 +431,7 @@ test_invalidate_nonexistent( fd_wksp_t * wksp ) {
   FD_TEST( rec );
   FD_TEST( !rec->executable );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
 }
@@ -476,6 +485,7 @@ test_invalidate_pull( fd_wksp_t * wksp ) {
   FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec  );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
 }
@@ -528,6 +538,7 @@ test_invalidate_dup( fd_wksp_t * wksp ) {
   FD_TEST( !rec3->executable );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec3 );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
 }
@@ -575,6 +586,7 @@ test_invalidate_epoch_boundary( fd_wksp_t * wksp ) {
   FD_TEST( rec2 && rec!=rec2 );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, load_env.epoch_slot0 )==rec2 );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_b );
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
@@ -655,6 +667,7 @@ test_publish_gc( fd_wksp_t * wksp ) {
   }
   FD_TEST( chain_cnt==1UL );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_destroy( env );
 }
 
@@ -739,6 +752,7 @@ test_publish_gc2( fd_wksp_t * wksp ) {
   }
   FD_TEST( chain_cnt==1UL );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_destroy( env );
 }
 
@@ -807,6 +821,7 @@ test_root_nonroot_prio( fd_wksp_t * wksp ) {
   FD_TEST( rec4 );
   FD_TEST( rec4->slot==4UL );
 
+  FD_TEST( fd_progcache_verify( env->progcache ) == FD_PROGCACHE_VERIFY_SUCCESS );
   test_env_txn_cancel( env, &fork_4 );
   test_env_txn_cancel( env, &fork_3 );
   test_env_destroy( env );
