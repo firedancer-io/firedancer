@@ -264,7 +264,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
                                        fd_vm_acc_region_meta_t * acc_region_metas,
                                        int                       stricter_abi_and_runtime_constraints,
                                        int                       direct_mapping ) {
-  fd_pubkey_t * txn_accs = ctx->txn_ctx->account_keys;
+  fd_pubkey_t * txn_accs = ctx->txn_ctx->accounts.account_keys;
 
   uchar  acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
   ushort dup_acc_idx[ FD_INSTR_ACCT_MAX ]  = {0};
@@ -272,7 +272,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60
    */
-  uchar * serialized_params            = ctx->txn_ctx->exec_stack->bpf_loader_serialization.serialization_mem[ ctx->txn_ctx->instr_stack_sz-1UL ];
+  uchar * serialized_params            = ctx->txn_ctx->exec_stack->bpf_loader_serialization.serialization_mem[ ctx->txn_ctx->instr.stack_sz-1UL ];
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
@@ -540,7 +540,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
                                          int                       stricter_abi_and_runtime_constraints,
                                          int                       direct_mapping ) {
-  fd_pubkey_t const * txn_accs = ctx->txn_ctx->account_keys;
+  fd_pubkey_t const * txn_accs = ctx->txn_ctx->accounts.account_keys;
 
   uchar  acc_idx_seen[FD_INSTR_ACCT_MAX] = {0};
   ushort dup_acc_idx[FD_INSTR_ACCT_MAX]  = {0};
@@ -548,7 +548,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v2.2.13/programs/bpf_loader/src/serialization.rs#L32
    */
-  uchar * serialized_params            = ctx->txn_ctx->exec_stack->bpf_loader_serialization.serialization_mem[ ctx->txn_ctx->instr_stack_sz-1UL ];
+  uchar * serialized_params            = ctx->txn_ctx->exec_stack->bpf_loader_serialization.serialization_mem[ ctx->txn_ctx->instr.stack_sz-1UL ];
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 

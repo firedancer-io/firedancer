@@ -146,7 +146,7 @@ static inline void
 fd_log_collector_msg( fd_exec_instr_ctx_t * ctx,
                       char const *          msg,
                       ulong                 msg_sz ) {
-  fd_log_collector_t * log = &ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = &ctx->txn_ctx->log.log_collector;
   if( FD_LIKELY( log->disabled ) ) {
     return;
   }
@@ -171,7 +171,7 @@ fd_log_collector_msg( fd_exec_instr_ctx_t * ctx,
    or with the UL literal. va_args behaves weirdly otherwise */
 static inline void
 fd_log_collector_msg_many( fd_exec_instr_ctx_t * ctx, int num_buffers, ... ) {
-  fd_log_collector_t * log = &ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = &ctx->txn_ctx->log.log_collector;
   if( FD_LIKELY( log->disabled ) ) {
     return;
   }
@@ -241,7 +241,7 @@ __attribute__ ((format (printf, 2, 3)))
 static inline void
 fd_log_collector_printf_dangerous_max_127( fd_exec_instr_ctx_t * ctx,
                                            char const * fmt, ... ) {
-  fd_log_collector_t * log = &ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = &ctx->txn_ctx->log.log_collector;
   if( FD_LIKELY( log->disabled ) ) {
     return;
   }
@@ -299,7 +299,7 @@ __attribute__ ((format (printf, 2, 3)))
 static inline void
 fd_log_collector_printf_dangerous_128_to_2k( fd_exec_instr_ctx_t * ctx,
                                              char const * fmt, ... ) {
-  fd_log_collector_t * log = &ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = &ctx->txn_ctx->log.log_collector;
   if( FD_LIKELY( log->disabled ) ) {
     return;
   }
@@ -383,15 +383,15 @@ fd_log_collector_printf_inefficient_max_512( fd_exec_instr_ctx_t * ctx,
    so this function precomputes it and stores it inside the instr_ctx. */
 static inline void
 fd_log_collector_program_invoke( fd_exec_instr_ctx_t * ctx ) {
-  if( FD_LIKELY( ctx->txn_ctx->log_collector.disabled ) ) {
+  if( FD_LIKELY( ctx->txn_ctx->log.log_collector.disabled ) ) {
     return;
   }
 
-  fd_pubkey_t const * program_id_pubkey = &ctx->txn_ctx->account_keys[ ctx->instr->program_id ];
+  fd_pubkey_t const * program_id_pubkey = &ctx->txn_ctx->accounts.account_keys[ ctx->instr->program_id ];
   /* Cache ctx->program_id_base58 */
   fd_base58_encode_32( program_id_pubkey->uc, NULL, ctx->program_id_base58 );
   /* Max msg_sz: 22 - 4 + 44 + 10 = 72 < 127 => we can use printf */
-  fd_log_collector_printf_dangerous_max_127( ctx, "Program %s invoke [%u]", ctx->program_id_base58, ctx->txn_ctx->instr_stack_sz );
+  fd_log_collector_printf_dangerous_max_127( ctx, "Program %s invoke [%u]", ctx->program_id_base58, ctx->txn_ctx->instr.stack_sz );
 }
 
 /* fd_log_collector_program_log logs:
@@ -415,14 +415,14 @@ fd_log_collector_program_log( fd_exec_instr_ctx_t * ctx, char const * msg, ulong
    TODO: implement based on fd_log_collector_msg_many(). */
 static inline void
 fd_log_collector_program_return( fd_exec_instr_ctx_t * ctx ) {
-  if( FD_LIKELY( ctx->txn_ctx->log_collector.disabled ) ) {
+  if( FD_LIKELY( ctx->txn_ctx->log.log_collector.disabled ) ) {
     return;
   }
 
   /* ctx->txn_ctx->return_data is 1024 bytes max, so its base64 repr
      is at most (1024+2)/3*4 bytes, plus we use 1 byte for \0. */
-  char return_base64[ (sizeof(ctx->txn_ctx->return_data.data)+2)/3*4+1 ];
-  ulong sz = fd_base64_encode( return_base64, ctx->txn_ctx->return_data.data, ctx->txn_ctx->return_data.len );
+  char return_base64[ (sizeof(ctx->txn_ctx->details.return_data.data)+2)/3*4+1 ];
+  ulong sz = fd_base64_encode( return_base64, ctx->txn_ctx->details.return_data.data, ctx->txn_ctx->details.return_data.len );
   return_base64[ sz ] = 0;
   /* Max msg_sz: 21 - 4 + 44 + 1368 = 1429 < 1500 => we can use printf, but have to handle sz */
   ulong msg_sz = 17 + strlen(ctx->program_id_base58) + sz;
@@ -454,7 +454,7 @@ fd_log_collector_program_success( fd_exec_instr_ctx_t * ctx ) {
    the result, and therefore can be skipped at this stage. */
 static inline void
 fd_log_collector_program_failure( fd_exec_instr_ctx_t * ctx ) {
-  if( FD_LIKELY( ctx->txn_ctx->log_collector.disabled ) ) {
+  if( FD_LIKELY( ctx->txn_ctx->log.log_collector.disabled ) ) {
     return;
   }
 
@@ -465,20 +465,20 @@ fd_log_collector_program_failure( fd_exec_instr_ctx_t * ctx ) {
   char custom_err[33] = { 0 };
   const char * err = custom_err;
   const fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
-  if( FD_UNLIKELY( txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR &&
-                   txn_ctx->exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) ) {
+  if( FD_UNLIKELY( txn_ctx->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR &&
+                   txn_ctx->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) ) {
     /* Max msg_sz = 32 <= 66 */
-    snprintf( custom_err, sizeof(custom_err), "custom program error: 0x%x", txn_ctx->custom_err );
-  } else if( txn_ctx->exec_err ) {
-    switch( txn_ctx->exec_err_kind ) {
+    snprintf( custom_err, sizeof(custom_err), "custom program error: 0x%x", txn_ctx->err.custom_err );
+  } else if( txn_ctx->err.exec_err ) {
+    switch( txn_ctx->err.exec_err_kind ) {
       case FD_EXECUTOR_ERR_KIND_SYSCALL:
-        err = fd_vm_syscall_strerror( txn_ctx->exec_err );
+        err = fd_vm_syscall_strerror( txn_ctx->err.exec_err );
         break;
       case FD_EXECUTOR_ERR_KIND_INSTR:
-        err = fd_executor_instr_strerror( txn_ctx->exec_err );
+        err = fd_executor_instr_strerror( txn_ctx->err.exec_err );
         break;
       default:
-        err = fd_vm_ebpf_strerror( txn_ctx->exec_err );
+        err = fd_vm_ebpf_strerror( txn_ctx->err.exec_err );
     }
   }
 

@@ -67,7 +67,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   fd_hash_t const *        last_hash   = fd_blockhashes_peek_last( blockhashes );
   if( FD_UNLIKELY( last_hash==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
+    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -194,7 +194,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     if( FD_UNLIKELY( 0==memcmp( data->durable_nonce.hash, next_durable_nonce.hash, sizeof(fd_hash_t) ) ) ) {
       fd_log_collector_msg_literal( ctx, "Advance nonce account: nonce can only advance once per slot" );
-      ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
+      ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -273,7 +273,7 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   } while(0);
   if( FD_UNLIKELY( bhq_empty ) ) {
     fd_log_collector_msg_literal( ctx, "Advance nonce account: recent blockhash list is empty" );
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
+    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -377,7 +377,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
       if( FD_UNLIKELY( 0==memcmp( data->durable_nonce.hash, next_durable_nonce.hash, sizeof(fd_hash_t) ) ) ) {
         fd_log_collector_msg_literal( ctx, "Withdraw nonce account: nonce can only advance once per slot" );
-        ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
+        ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
 
@@ -642,7 +642,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
   } while(0);
   if( FD_UNLIKELY( bhq_empty ) ) {
     fd_log_collector_msg_literal( ctx, "Initialize nonce account: recent blockhash list is empty" );
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
+    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -946,7 +946,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
 
   fd_txn_account_t durable_nonce_rec[1];
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
-                                                    &txn_ctx->account_keys[ nonce_idx ],
+                                                    &txn_ctx->accounts.account_keys[ nonce_idx ],
                                                     txn_ctx->funk,
                                                     txn_ctx->xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
@@ -990,13 +990,13 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
      the nonce instruction are signers. This is a successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( TXN( &txn_ctx->txn ), (int)instr_accts[i] ) ) {
-      if( !memcmp( &txn_ctx->account_keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof( fd_pubkey_t ) ) ) {
+      if( !memcmp( &txn_ctx->accounts.account_keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof(fd_pubkey_t) ) ) {
         /*
            Mark nonce account to make sure that we modify and hash the
            account even if the transaction failed to execute
            successfully.
          */
-        txn_ctx->nonce_account_idx_in_txn = instr_accts[ 0 ];
+        txn_ctx->accounts.nonce_idx_in_txn = instr_accts[ 0 ];
         /*
            Now figure out the state that the nonce account should
            advance to.
@@ -1004,7 +1004,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
         fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
             txn_ctx->funk,
             txn_ctx->xid,
-            &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
+            &txn_ctx->accounts.account_keys[ instr_accts[ 0UL ] ],
             NULL,
             &err,
             NULL );
@@ -1042,20 +1042,20 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
         fd_memcpy( borrowed_account_data, meta, sizeof(fd_account_meta_t)+acc_data_len );
 
         if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
-              txn_ctx->rollback_nonce_account,
-              &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
+              txn_ctx->accounts.rollback_nonce,
+              &txn_ctx->accounts.account_keys[ instr_accts[ 0UL ] ],
               (fd_account_meta_t *)borrowed_account_data,
               1 ) ) ) ) {
           FD_LOG_CRIT(( "Failed to join txn account" ));
         }
 
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>fd_txn_account_get_data_len( txn_ctx->rollback_nonce_account ) ) ) {
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>fd_txn_account_get_data_len( txn_ctx->accounts.rollback_nonce ) ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
         do {
           fd_bincode_encode_ctx_t encode_ctx =
-            { .data    = fd_txn_account_get_data_mut( txn_ctx->rollback_nonce_account ),
-              .dataend = fd_txn_account_get_data_mut( txn_ctx->rollback_nonce_account ) + fd_txn_account_get_data_len( txn_ctx->rollback_nonce_account ) };
+            { .data    = fd_txn_account_get_data_mut( txn_ctx->accounts.rollback_nonce ),
+              .dataend = fd_txn_account_get_data_mut( txn_ctx->accounts.rollback_nonce ) + fd_txn_account_get_data_len( txn_ctx->accounts.rollback_nonce ) };
           int err = fd_nonce_state_versions_encode( &new_state, &encode_ctx );
           if( FD_UNLIKELY( err ) ) {
             return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;

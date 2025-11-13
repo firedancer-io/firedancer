@@ -60,6 +60,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
                                           uchar const *                     cpi_instr_data,
                                           fd_instr_info_t *                 out_instr,
                                           fd_pubkey_t                       out_instr_acct_keys[ FD_INSTR_ACCT_MAX ] ) {
+
   out_instr->program_id = UCHAR_MAX;
   out_instr->data_sz    = (ushort)VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instr );
   out_instr->data       = (uchar *)cpi_instr_data;
@@ -736,7 +737,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Derive PDA signers ************************************************/
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
-  fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->account_keys[ vm->instr_ctx->instr->program_id ];
+  fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->accounts.account_keys[ vm->instr_ctx->instr->program_id ];
   /* This is the equivalent of translate_slice in translate_signers:
      https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L595 */
   if( FD_LIKELY( signers_seeds_cnt > 0UL ) ) {
@@ -779,7 +780,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs. */
   fd_pubkey_t cpi_instr_acct_keys[ FD_INSTR_ACCT_MAX ];
-  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->txn_ctx->cpi_instr_infos[ vm->instr_ctx->txn_ctx->cpi_instr_info_cnt++ ];
+  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->txn_ctx->instr.infos[ vm->instr_ctx->txn_ctx->instr.info_cnt++ ];
 
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute, cpi_instr_acct_keys );
   if( FD_UNLIKELY( err ) ) {
@@ -865,7 +866,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
-  vm->instr_ctx->txn_ctx->compute_budget_details.compute_meter = vm->cu;
+  vm->instr_ctx->txn_ctx->details.compute_budget.compute_meter = vm->cu;
 
   /* Execute the CPI instruction in the runtime */
   int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, instruction_to_execute );
@@ -873,7 +874,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Set the CU meter to the instruction context's transaction context's compute meter,
      so that the caller can't use compute units that the callee has already used. */
-  vm->cu = vm->instr_ctx->txn_ctx->compute_budget_details.compute_meter;
+  vm->cu = vm->instr_ctx->txn_ctx->details.compute_budget.compute_meter;
 
   *_ret = instr_exec_res;
 
@@ -887,7 +888,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
        caller accounts can't be changed during a CPI execution. */
     if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, callee_account_keys[i] ) ) {
       ushort              idx_in_txn = vm->instr_ctx->instr->accounts[ callee_account_keys[i] ].index_in_transaction;
-      fd_pubkey_t const * callee     = &vm->instr_ctx->txn_ctx->account_keys[ idx_in_txn ];
+      fd_pubkey_t const * callee     = &vm->instr_ctx->txn_ctx->accounts.account_keys[ idx_in_txn ];
       err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[ caller_accounts_to_update[i] ], caller_accounts + i, (uchar)callee_account_keys[i], callee);
       if( FD_UNLIKELY( err ) ) {
         return err;
@@ -904,7 +905,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
       /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1033-L1034 */
       fd_guarded_borrowed_account_t borrowed_callee_acc = {0};
       ushort idx_in_txn          = vm->instr_ctx->instr->accounts[ callee_account_keys[i] ].index_in_transaction;
-      fd_pubkey_t const * callee = &vm->instr_ctx->txn_ctx->account_keys[ idx_in_txn ];
+      fd_pubkey_t const * callee = &vm->instr_ctx->txn_ctx->accounts.account_keys[ idx_in_txn ];
       err = fd_exec_instr_ctx_try_borrow_instr_account_with_key( vm->instr_ctx, callee, &borrowed_callee_acc );
       if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
         return 1;

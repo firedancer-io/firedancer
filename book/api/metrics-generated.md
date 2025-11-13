@@ -1045,6 +1045,10 @@
 | <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;rent</span>"} | counter | Result of loading and executing a transaction. (The transaction would leave an account with a lower balance than the rent-exempt minimum) |
 | <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">unbalanced_&#8203;transaction</span>"} | counter | Result of loading and executing a transaction. (The total referenced account lamports before and after the transaction was unbalanced) |
 | <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">bundle_&#8203;peer</span>"} | counter | Result of loading and executing a transaction. (The transaction was part of a bundle and an earlier transaction in the bundle failed) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;success</span>"} | counter | Whether a transaction landed in the block or not. (Transaction landed) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;fees_&#8203;only</span>"} | counter | Whether a transaction landed in the block or not. (Transaction landed, but was fees only and did not execute) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;failed</span>"} | counter | Whether a transaction landed in the block or not. (Transaction landed, but failed to execute) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">unlanded</span>"} | counter | Whether a transaction landed in the block or not. (Transaction did not land) |
 
 </div>
 

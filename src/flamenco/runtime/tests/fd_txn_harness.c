@@ -339,7 +339,7 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
   /* Setup the spad for account allocation */
   uchar *             txn_ctx_mem = fd_spad_alloc_check( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ) );
-  txn_ctx->flags                  = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+  txn_ctx->err.is_committable     = 1;
   if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, runner->accdb->funk->shmem ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
@@ -351,15 +351,14 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
   txn_ctx->bank_hash_cmp = NULL;
   txn_ctx->xid[0]        = *xid;
 
-  txn_ctx->enable_vm_tracing = runner->enable_vm_tracing;
+  txn_ctx->log.enable_vm_tracing = runner->enable_vm_tracing;
   uchar * tracing_mem = NULL;
   if( runner->enable_vm_tracing ) {
     tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
   }
 
   *exec_res = fd_runtime_prepare_and_execute_txn(
-      runner->banks,
-      0UL,
+      runner->bank,
       txn_ctx,
       txn,
       NULL,
@@ -415,8 +414,8 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     /* Capture basic results fields */
-    txn_result->executed                          = txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-    txn_result->sanitization_error                = !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS);
+    txn_result->executed                          = txn_ctx->err.is_committable;
+    txn_result->sanitization_error                = !txn_ctx->err.is_committable;
     txn_result->has_resulting_state               = false;
     txn_result->resulting_state.acct_states_count = 0;
     txn_result->is_ok                             = !exec_res;
@@ -425,21 +424,21 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     txn_result->instruction_error_index           = 0;
     txn_result->custom_error                      = 0;
     txn_result->has_fee_details                   = false;
-    txn_result->loaded_accounts_data_size         = txn_ctx->loaded_accounts_data_size;
+    txn_result->loaded_accounts_data_size         = txn_ctx->details.loaded_accounts_data_size;
 
     if( txn_result->sanitization_error ) {
       /* Collect fees for transactions that failed to load */
-      if( txn_ctx->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
+      if( txn_ctx->err.is_fees_only ) {
         txn_result->has_fee_details                = true;
-        txn_result->fee_details.prioritization_fee = txn_ctx->priority_fee;
-        txn_result->fee_details.transaction_fee    = txn_ctx->execution_fee;
+        txn_result->fee_details.prioritization_fee = txn_ctx->details.priority_fee;
+        txn_result->fee_details.transaction_fee    = txn_ctx->details.execution_fee;
       }
 
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
-        txn_result->instruction_error       = (uint32_t) -txn_ctx->exec_err;
-        txn_result->instruction_error_index = (uint32_t) txn_ctx->instr_err_idx;
-        if( txn_ctx->exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
-          txn_result->custom_error = txn_ctx->custom_err;
+        txn_result->instruction_error       = (uint32_t) -txn_ctx->err.exec_err;
+        txn_result->instruction_error_index = (uint32_t) txn_ctx->err.exec_err_idx;
+        if( txn_ctx->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+          txn_result->custom_error = txn_ctx->err.custom_err;
         }
       }
 
@@ -452,42 +451,42 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     } else {
       /* Capture the instruction error code */
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
-        int instr_err_idx                   = txn_ctx->instr_err_idx;
-        int program_id_idx                  = txn_ctx->instr_infos[instr_err_idx].program_id;
+        int instr_err_idx                   = txn_ctx->err.exec_err_idx;
+        int program_id_idx                  = txn_ctx->instr.infos[instr_err_idx].program_id;
 
-        txn_result->instruction_error       = (uint32_t) -txn_ctx->exec_err;
+        txn_result->instruction_error       = (uint32_t) -txn_ctx->err.exec_err;
         txn_result->instruction_error_index = (uint32_t) instr_err_idx;
 
         /* If the exec err was a custom instr error and came from a precompile instruction, don't capture the custom error code. */
-        if( txn_ctx->exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-            fd_executor_lookup_native_precompile_program( &txn_ctx->accounts[ program_id_idx ] )==NULL ) {
-          txn_result->custom_error = txn_ctx->custom_err;
+        if( txn_ctx->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
+            fd_executor_lookup_native_precompile_program( &txn_ctx->accounts.accounts[ program_id_idx ] )==NULL ) {
+          txn_result->custom_error = txn_ctx->err.custom_err;
         }
       }
     }
 
     txn_result->has_fee_details                = true;
-    txn_result->fee_details.transaction_fee    = txn_ctx->execution_fee;
-    txn_result->fee_details.prioritization_fee = txn_ctx->priority_fee;
-    txn_result->executed_units                 = txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter;
+    txn_result->fee_details.transaction_fee    = txn_ctx->details.execution_fee;
+    txn_result->fee_details.prioritization_fee = txn_ctx->details.priority_fee;
+    txn_result->executed_units                 = txn_ctx->details.compute_budget.compute_unit_limit - txn_ctx->details.compute_budget.compute_meter;
 
 
     /* Rent is no longer collected */
     txn_result->rent                           = 0UL;
 
-    if( txn_ctx->return_data.len > 0 ) {
+    if( txn_ctx->details.return_data.len > 0 ) {
       txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                      PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->return_data.len ) );
+                                      PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->details.return_data.len ) );
       if( FD_UNLIKELY( _l > output_end ) ) {
         abort();
       }
 
-      txn_result->return_data->size = (pb_size_t)txn_ctx->return_data.len;
-      fd_memcpy( txn_result->return_data->bytes, txn_ctx->return_data.data, txn_ctx->return_data.len );
+      txn_result->return_data->size = (pb_size_t)txn_ctx->details.return_data.len;
+      fd_memcpy( txn_result->return_data->bytes, txn_ctx->details.return_data.data, txn_ctx->details.return_data.len );
     }
 
     /* Allocate space for captured accounts */
-    ulong modified_acct_cnt = txn_ctx->accounts_cnt;
+    ulong modified_acct_cnt = txn_ctx->accounts.accounts_cnt;
 
     txn_result->has_resulting_state         = true;
     txn_result->resulting_state.acct_states =
@@ -498,18 +497,18 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     /* If the transaction is a fees-only transaction, we have to create rollback accounts to iterate over and save. */
-    fd_txn_account_t * accounts_to_save = txn_ctx->accounts;
-    ulong              accounts_cnt     = txn_ctx->accounts_cnt;
-    if( txn_ctx->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
+    fd_txn_account_t * accounts_to_save = txn_ctx->accounts.accounts;
+    ulong              accounts_cnt     = txn_ctx->accounts.accounts_cnt;
+    if( txn_ctx->err.is_fees_only ) {
       accounts_to_save = fd_spad_alloc( runner->spad, alignof(fd_txn_account_t), sizeof(fd_txn_account_t) * 2 );
       accounts_cnt     = 0UL;
 
-      if( FD_LIKELY( txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-        accounts_to_save[accounts_cnt++] = *txn_ctx->rollback_fee_payer_account;
+      if( FD_LIKELY( txn_ctx->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
+        accounts_to_save[accounts_cnt++] = *txn_ctx->accounts.rollback_fee_payer;
       }
 
-      if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
-        accounts_to_save[accounts_cnt++] = *txn_ctx->rollback_nonce_account;
+      if( txn_ctx->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+        accounts_to_save[accounts_cnt++] = *txn_ctx->accounts.rollback_nonce;
       }
     }
 

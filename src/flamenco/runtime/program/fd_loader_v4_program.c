@@ -902,7 +902,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     /* Handle `DelayedVisibility` case */
-    if( FD_UNLIKELY( state->slot>=instr_ctx->txn_ctx->slot ) ) {
+    if( FD_UNLIKELY( state->slot>=fd_bank_slot_get( instr_ctx->txn_ctx->bank ) ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }

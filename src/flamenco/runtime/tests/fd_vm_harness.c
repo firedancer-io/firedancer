@@ -7,6 +7,7 @@
 #include "../../vm/fd_vm.h"
 #include "../../vm/test_vm_util.h"
 #include "generated/vm.pb.h"
+#include "../fd_bank.h"
 
 static int
 fd_solfuzz_vm_syscall_noop( void * _vm,
@@ -150,13 +151,13 @@ do{
   fd_vm_input_region_t     input_mem_regions[1000]                 = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t  acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
   uint                     input_mem_regions_cnt                   = 0UL;
-  int                      direct_mapping                          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping );
-  int                      stricter_abi_and_runtime_constraints    = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints );
+  int                      direct_mapping                          = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping );
+  int                      stricter_abi_and_runtime_constraints    = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints );
 
   uchar *                  input_ptr      = NULL;
   uchar                    program_id_idx = instr_ctx->instr->program_id;
-  fd_txn_account_t const * program_acc    = &instr_ctx->txn_ctx->accounts[program_id_idx];
-  uchar                    is_deprecated  = ( program_id_idx < instr_ctx->txn_ctx->accounts_cnt ) &&
+  fd_txn_account_t const * program_acc    = &instr_ctx->txn_ctx->accounts.accounts[program_id_idx];
+  uchar                    is_deprecated  = ( program_id_idx < instr_ctx->txn_ctx->accounts.accounts_cnt ) &&
                                             ( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
@@ -210,8 +211,8 @@ do{
   /* Setup syscalls. Have them all be no-ops */
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc_check( spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   fd_vm_syscall_register_slot( syscalls,
-                               instr_ctx->txn_ctx->slot,
-                               &instr_ctx->txn_ctx->features,
+                               fd_bank_slot_get( instr_ctx->txn_ctx->bank ),
+                               fd_bank_features_query( instr_ctx->txn_ctx->bank ),
                                0 );
 
   for( ulong i=0; i< fd_sbpf_syscalls_slot_cnt(); i++ ){
@@ -400,8 +401,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   if( !fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks ) )
     goto error;
 
-  ctx->txn_ctx->instr_trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
-  ctx->txn_ctx->instr_trace[0].stack_height = 1;
+  ctx->txn_ctx->instr.trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
+  ctx->txn_ctx->instr.trace[0].stack_height = 1;
 
   /* Capture outputs */
   ulong output_end = (ulong)output_buf + output_bufsz;
@@ -414,12 +415,12 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   }
 
   if( input->vm_ctx.return_data.program_id && input->vm_ctx.return_data.program_id->size == sizeof(fd_pubkey_t) ) {
-    fd_memcpy( ctx->txn_ctx->return_data.program_id.uc, input->vm_ctx.return_data.program_id->bytes, sizeof(fd_pubkey_t) );
+    fd_memcpy( ctx->txn_ctx->details.return_data.program_id.uc, input->vm_ctx.return_data.program_id->bytes, sizeof(fd_pubkey_t) );
   }
 
   if( input->vm_ctx.return_data.data && input->vm_ctx.return_data.data->size>0U ) {
-    ctx->txn_ctx->return_data.len = input->vm_ctx.return_data.data->size;
-    fd_memcpy( ctx->txn_ctx->return_data.data, input->vm_ctx.return_data.data->bytes, ctx->txn_ctx->return_data.len );
+    ctx->txn_ctx->details.return_data.len = input->vm_ctx.return_data.data->size;
+    fd_memcpy( ctx->txn_ctx->details.return_data.data, input->vm_ctx.return_data.data->bytes, ctx->txn_ctx->details.return_data.len );
   }
 
   *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
@@ -459,13 +460,13 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   fd_vm_input_region_t    input_mem_regions[1000]                = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t acc_region_metas[256]                  = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                  = 0U;
-  int                     direct_mapping                         = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, account_data_direct_mapping );
-  int                     stricter_abi_and_runtime_constraints   = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, stricter_abi_and_runtime_constraints );
+  int                     direct_mapping                         = FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, account_data_direct_mapping );
+  int                     stricter_abi_and_runtime_constraints   = FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints );
 
   uchar *            input_ptr      = NULL;
   uchar              program_id_idx = ctx->instr->program_id;
-  fd_txn_account_t * program_acc    = &ctx->txn_ctx->accounts[program_id_idx];
-  uchar              is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
+  fd_txn_account_t * program_acc    = &ctx->txn_ctx->accounts.accounts[program_id_idx];
+  uchar              is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts.accounts_cnt ) &&
                                       ( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
@@ -494,7 +495,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   fd_vm_init( vm,
               ctx,
               input->vm_ctx.heap_max,
-              ctx->txn_ctx->compute_budget_details.compute_meter,
+              ctx->txn_ctx->details.compute_budget.compute_meter,
               rodata,
               rodata_sz,
               NULL, // TODO
@@ -550,7 +551,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   }
 
   /* There's an instr ctx struct embedded in the txn ctx instr stack. */
-  fd_exec_instr_ctx_t * instr_ctx = &ctx->txn_ctx->instr_stack[ ctx->txn_ctx->instr_stack_sz - 1 ];
+  fd_exec_instr_ctx_t * instr_ctx = &ctx->txn_ctx->instr.stack[ ctx->txn_ctx->instr.stack_sz - 1 ];
   *instr_ctx = (fd_exec_instr_ctx_t) {
     .instr     = ctx->instr,
     .txn_ctx   = ctx->txn_ctx,
@@ -568,7 +569,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   }
 
   /* Capture the effects */
-  int exec_err = vm->instr_ctx->txn_ctx->exec_err;
+  int exec_err = vm->instr_ctx->txn_ctx->err.exec_err;
   effects->error = 0;
   if( syscall_err ) {
     if( exec_err==0 ) {
@@ -578,8 +579,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
       effects->error = (exec_err <= 0) ? -exec_err : -1;
 
       /* Map error kind, equivalent to:
-          effects->error_kind = (fd_exec_test_err_kind_t)(vm->instr_ctx->txn_ctx->exec_err_kind); */
-      switch (vm->instr_ctx->txn_ctx->exec_err_kind) {
+          effects->error_kind = (fd_exec_test_err_kind_t)(vm->instr_ctx->txn_ctx->err.exec_err_kind); */
+      switch (vm->instr_ctx->txn_ctx->err.exec_err_kind) {
         case FD_EXECUTOR_ERR_KIND_EBPF:
           effects->error_kind = FD_EXEC_TEST_ERR_KIND_EBPF;
           break;
@@ -632,7 +633,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   effects->frame_count = vm->frame_cnt;
 
-  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log.log_collector;
   /* Only collect log on valid errors (i.e., != -1). Follows
      https://github.com/firedancer-io/solfuzz-agave/blob/99758d3c4f3a342d56e2906936458d82326ae9a8/src/utils/err_map.rs#L148 */
   if( effects->error != -1 && log->buf_sz ) {
