@@ -227,12 +227,23 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* Create context state if accounts are provided with the instruction
-     https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L92 */
-  if( instr_acc_cnt > accessed_accounts ) {
-    fd_pubkey_t context_state_authority[1];
+     https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/programs/zk-elgamal-proof/src/lib.rs#L102-L106
+     Agave v3.1 checks if instruction_context.get_number_of_instruction_accounts() >= accessed_accounts + 2
+     This requires BOTH proof_context and context_state_authority accounts. */
+  for( ulong i=0; i<instr_acc_cnt; i++ ) {
+    fd_guarded_borrowed_account_t _dbg = {0};
+    if( 0==fd_exec_instr_ctx_try_borrow_instr_account( ctx, (ushort)i, &_dbg ) ) {
+      fd_borrowed_account_drop( &_dbg );
+    }
+  }
 
+  /* Create context state if we have both proof_context and authority accounts.
+     https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/programs/zk-elgamal-proof/src/lib.rs#L102-L106 */
+  if( instr_acc_cnt >= accessed_accounts + 2 ) {
     /* Obtain the context_state_authority by borrowing the account temporarily in a local scope.
-       https://github.com/anza-xyz/agave/blob/v2.1.14/programs/zk-elgamal-proof/src/lib.rs#L94-L99 */
+       https://github.com/anza-xyz/agave/blob/v2.1.14/programs/zk-elgamal-proof/src/lib.rs#L94-L99
+       https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/programs/zk-elgamal-proof/src/lib.rs#L107-L110 */
+    fd_pubkey_t context_state_authority[1];
     do {
       fd_guarded_borrowed_account_t _acc = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, (ushort)(accessed_accounts+1), &_acc );
@@ -261,6 +272,13 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
     ulong context_data_sx = CTX_HEAD_SZ + context_sz;
     if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &proof_context_acc ) != context_data_sx ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    /* Check writability for any account that passes validation.
+       Even with just 1 account, if it passes owner and data checks, it must be writable.
+       https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/programs/zk-elgamal-proof/src/lib.rs#L112-L113 */
+    if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, accessed_accounts ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L121 */
