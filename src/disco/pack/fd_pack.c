@@ -454,6 +454,10 @@ struct fd_pack_private {
                                 generated in this block? */
   ulong      data_bytes_consumed; /* How much data is in this block so
                                      far ? */
+
+  /* counters / gauge for schedule outcome enums */
+  ulong      sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_CNT ];
+
   fd_rng_t * rng;
 
   ulong      cumulative_block_cost;
@@ -748,6 +752,7 @@ fd_pack_new( void                   * mem,
   pack->pending_txn_cnt             = 0UL;
   pack->microblock_cnt              = 0UL;
   pack->data_bytes_consumed         = 0UL;
+  memset( pack->sched_results, 0, sizeof(pack->sched_results) );
   pack->rng                         = rng;
   pack->cumulative_block_cost       = 0UL;
   pack->cumulative_vote_cost        = 0UL;
@@ -1705,6 +1710,13 @@ fd_pack_metrics_write( fd_pack_t const * pack ) {
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_CONFLICTING, conflicting                 );
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_BUNDLES,     pending_bundle              );
   FD_MGAUGE_SET( PACK, SMALLEST_PENDING_TRANSACTION,       pack->pending_smallest->cus );
+
+  FD_MCNT_ENUM_COPY( PACK, TRANSACTION_SCHEDULE, pack->sched_results );
+}
+
+void
+fd_pack_get_sched_metrics( fd_pack_t const * pack, ulong * metrics ) {
+  fd_memcpy( metrics, pack->sched_results, sizeof(pack->sched_results) );
 }
 
 typedef struct {
@@ -2031,13 +2043,13 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) break;
   }
 
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_TAKEN,      txns_scheduled );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_CU_LIMIT,   cu_limit_c     );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_FAST_PATH,  fast_path      );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_BYTE_LIMIT, byte_limit_c   );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_WRITE_COST, write_limit_c  );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_SLOW_PATH,  slow_path      );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_DEFER_SKIP, skip_c         );
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX      ] += txns_scheduled;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX   ] += cu_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX  ] += fast_path;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX ] += byte_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX ] += write_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX  ] += slow_path;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX ] += skip_c;
 
   /* If we scanned the whole treap and didn't break early, we now have a
      better estimate of the smallest. */
@@ -2193,7 +2205,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   /* Skip any that we've marked as won't fit in this block */
   while( FD_UNLIKELY( !treap_rev_iter_done( _cur ) && treap_rev_iter_ele( _cur, pool )->skip==pack->compressed_slot_number ) ) {
     _cur = treap_rev_iter_next( _cur, pool );
-    FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_DEFER_SKIP,  1UL );
+    pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX ]++;
   }
 
   if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
@@ -2242,7 +2254,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     if( FD_UNLIKELY( cur->compute_est>cu_limit ) ) {
       doesnt_fit = 1;
-      FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_CU_LIMIT,   1UL );
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX ]++;
       break;
     }
     cu_limit -= cur->compute_est;
@@ -2257,14 +2269,14 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     if( FD_UNLIKELY( cur->txn->payload_sz+MICROBLOCK_DATA_OVERHEAD>byte_limit ) ) {
       doesnt_fit = 1;
-      FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_BYTE_LIMIT, 1UL );
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX ]++;
       break;
     }
     byte_limit -= cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
 
     if( FD_UNLIKELY( !FD_PACK_BITSET_INTERSECT4_EMPTY( pack->bitset_rw_in_use, pack->bitset_w_in_use, cur->w_bitset, cur->rw_bitset ) ) ) {
       has_conflict = 1;
-      FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_FAST_PATH,  1UL );
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX ]++;
       break;
     }
 
@@ -2290,7 +2302,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
       ulong carried_cost                  = (ulong)in_bundle_temp->carried_cost;
       if( FD_UNLIKELY( current_cost + carried_cost + cur->compute_est > pack->lim->max_write_cost_per_acct ) ) {
         doesnt_fit = 1;
-        FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_WRITE_COST, 1UL );
+        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX ]++;
         break;
       }
 
@@ -2307,7 +2319,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
       if( FD_UNLIKELY( acct_uses_query( pack->acct_in_use, acct, null_use )->in_use_by ) ) {
         has_conflict = 1;
-        FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_SLOW_PATH,  1UL );
+        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX ]++;
         break;
       }
     }
@@ -2334,7 +2346,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
       if( FD_UNLIKELY( acct_uses_query( pack->acct_in_use,  *acct, null_use )->in_use_by & FD_PACK_IN_USE_WRITABLE ) ) {
         has_conflict = 1;
-        FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_SLOW_PATH,  1UL );
+        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX ]++;
         break;
       }
     }
