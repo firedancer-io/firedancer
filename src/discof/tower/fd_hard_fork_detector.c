@@ -86,7 +86,7 @@ typedef struct voted_on voted_on_t;
 
 struct block_result_key {
   fd_pubkey_t block_id;
-  fd_pubkey_t block_hash;
+  fd_pubkey_t bank_hash;
 };
 
 typedef struct block_result_key block_result_key_t;
@@ -126,8 +126,8 @@ typedef struct block_result block_result_t;
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      ( fd_pubkey_eq( &((k0)->block_id),   &((k1)->block_id)   ) &\
-                                fd_pubkey_eq( &((k0)->block_hash), &((k1)->block_hash) ) )
-#define MAP_KEY_HASH(key,seed) ( seed ^ fd_ulong_load_8( (key)->block_id.uc ) ^ fd_ulong_load_8( (key)->block_hash.uc ) )
+                                fd_pubkey_eq( &((k0)->bank_hash), &((k1)->bank_hash) ) )
+#define MAP_KEY_HASH(key,seed) ( seed ^ fd_ulong_load_8( (key)->block_id.uc ) ^ fd_ulong_load_8( (key)->bank_hash.uc ) )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -139,7 +139,7 @@ typedef struct block_result block_result_t;
 
 struct my_result {
   fd_pubkey_t block_id;
-  fd_pubkey_t block_hash;
+  fd_pubkey_t bank_hash;
 
   ulong slot;
 
@@ -332,7 +332,7 @@ fd_hard_fork_detector_new( void *        shmem,
   FD_TEST( hf->my_vote_map );
 
   hf->my_vote_lru = my_vote_lru_join( my_vote_lru_new( _my_vote_lru ) );
-  FD_TEST( hf->my_vote_lru ); 
+  FD_TEST( hf->my_vote_lru );
 
   hf->block_id_pool = block_id_pool_join( block_id_pool_new( _block_id_pool, max_live_slots*max_vote_accounts ) );
   FD_TEST( hf->block_id_pool );
@@ -412,16 +412,16 @@ check( fd_hard_fork_detector_t const * detector,
     if( detector->fatal ) FD_LOG_ERR(( "%s", msg ));
     else                  FD_LOG_WARNING(( "%s", msg ));
   } else {
-    if( FD_UNLIKELY( memcmp( my_result->block_hash.uc, block_result->key.block_hash.uc, 32UL ) ) ) {
+    if( FD_UNLIKELY( memcmp( my_result->bank_hash.uc, block_result->key.bank_hash.uc, 32UL ) ) ) {
       char msg[ 4096UL ];
       FD_TEST( fd_cstr_printf_check( msg, sizeof( msg ), NULL,
                                     "HARD FORK DETECTED: our validator has produced block hash `%s` for slot %lu with block ID `%s`, but %lu validators with %.1f of stake have voted on a different block hash `%s` for the same slot",
-                                    FD_BASE58_ENC_32_ALLOCA( my_result->block_hash.uc ),
+                                    FD_BASE58_ENC_32_ALLOCA( my_result->bank_hash.uc ),
                                     my_result->slot,
                                     FD_BASE58_ENC_32_ALLOCA( my_result->block_id.uc ),
                                     block_result->voter_count,
                                     100.0*(double)block_result->stake/(double)detector->total_stake,
-                                    FD_BASE58_ENC_32_ALLOCA( block_result->key.block_hash.uc ) ) );
+                                    FD_BASE58_ENC_32_ALLOCA( block_result->key.bank_hash.uc ) ) );
 
       if( detector->fatal ) FD_LOG_ERR(( "%s", msg ));
       else                  FD_LOG_WARNING(( "%s", msg ));
@@ -433,7 +433,7 @@ void
 fd_hard_fork_detector_vote( fd_hard_fork_detector_t * detector,
                             uchar const *             vote_account,
                             uchar const *             block_id,
-                            uchar const *             block_hash ) {
+                            uchar const *             bank_hash ) {
   stake_t const * _stake = stake_map_ele_query_const( detector->stake_map, fd_type_pun_const( vote_account ), NULL, detector->stake_pool );
   if( FD_UNLIKELY( !_stake ) ) return; /* Don't care about votes from unstaked */
 
@@ -482,9 +482,9 @@ fd_hard_fork_detector_vote( fd_hard_fork_detector_t * detector,
 
   block_result_key_t br_key;
   fd_memcpy( br_key.block_id.uc,   block_id,   32UL );
-  fd_memcpy( br_key.block_hash.uc, block_hash, 32UL );
+  fd_memcpy( br_key.bank_hash.uc, bank_hash, 32UL );
 
-  block_result_t * block_result = block_result_map_ele_query( detector->block_result_map, fd_type_pun_const( block_hash ), NULL, detector->block_result_pool );
+  block_result_t * block_result = block_result_map_ele_query( detector->block_result_map, fd_type_pun_const( bank_hash ), NULL, detector->block_result_pool );
   if( FD_UNLIKELY( !block_result ) ) {
     /* Guaranteed to be space, because the block result pool is larger
        than the voted on pool, and there can be at most one unique
@@ -493,7 +493,7 @@ fd_hard_fork_detector_vote( fd_hard_fork_detector_t * detector,
 
     block_result = block_result_pool_ele_acquire( detector->block_result_pool );
     fd_memcpy( block_result->key.block_id.uc,   block_id,   32UL );
-    fd_memcpy( block_result->key.block_hash.uc, block_hash, 32UL );
+    fd_memcpy( block_result->key.bank_hash.uc, bank_hash, 32UL );
     block_result->stake = 0UL;
     block_result_map_ele_insert( detector->block_result_map, block_result, detector->block_result_pool );
   }
@@ -523,7 +523,7 @@ void
 fd_hard_fork_detector_block( fd_hard_fork_detector_t * detector,
                              ulong                     slot,
                              uchar const *             block_id,
-                             uchar const *             block_hash ) {
+                             uchar const *             bank_hash ) {
   if( FD_LIKELY( !my_vote_pool_free( detector->my_vote_pool ) ) ) {
     /* Might also be good eventually to evict a little bit smarter here ... */
     my_result_t * lru_result = my_vote_lru_ele_pop_tail( detector->my_vote_lru, detector->my_vote_pool );
@@ -534,10 +534,10 @@ fd_hard_fork_detector_block( fd_hard_fork_detector_t * detector,
   my_result_t * my_result = my_vote_pool_ele_acquire( detector->my_vote_pool );
   my_result->slot = slot;
   fd_memcpy( my_result->block_id.uc,   block_id,   32UL );
-  fd_memcpy( my_result->block_hash.uc, block_hash, 32UL );
+  fd_memcpy( my_result->bank_hash.uc, bank_hash, 32UL );
 
   uchar zero32[32] = {0};
-  if( FD_UNLIKELY( !memcmp( block_hash, zero32, 32UL ) ) ) my_result->invalid = 1;
+  if( FD_UNLIKELY( !memcmp( bank_hash, zero32, 32UL ) ) ) my_result->invalid = 1;
 
   my_vote_map_ele_insert( detector->my_vote_map, my_result, detector->my_vote_pool );
   my_vote_lru_ele_push_head( detector->my_vote_lru, my_result, detector->my_vote_pool );

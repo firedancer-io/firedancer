@@ -27,10 +27,10 @@
    We detect hard forked blocks by monitoring votes from validators, the
    specific criteria is:
 
-    - 52% of stake has voted on a block_id and agreed on a blockhash
-      which is different than the blockhash we have for that block_id.
+    - 52% of stake has voted on a block_id and agreed on a bank_hash
+      which is different than the bank_hash we have for that block_id.
 
-    - 52% of stake has voted on a block_id and agreed on a blockhash
+    - 52% of stake has voted on a block_id and agreed on a bank_hash
       when we marked the block dead because it failed to execute.
 
    Interestingly we do not need to handle the case where we thought a
@@ -42,7 +42,7 @@
 
    We are essentially receiving a
 
-     Stream<Either<(VoteAccountPubkey, BlockId, BlockHash), EpochStakes>>
+     Stream<Either<(VoteAccountPubkey, BlockId, BankHash), EpochStakes>>
 
    The first variant is a vote from some validator for a certain
    block_id and block_hash.  This could come from either any replayed
@@ -51,7 +51,7 @@
    marked dead because it did not validate), all the matters is that the
    vote is validly signed by the vote account.
 
-   Internally, we maintain a Map<BlockId, Map<BlockHash, StakeWeight>>.
+   Internally, we maintain a Map<BlockId, Map<BankHash, StakeWeight>>.
    Any time we receive a vote, if it causes an entry in this map to
    exceed 52% of the total stake weight, or it is from our own
    validator identity, we check if our vote is different, and
