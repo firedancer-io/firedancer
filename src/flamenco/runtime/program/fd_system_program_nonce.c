@@ -945,10 +945,11 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   fd_txn_account_t durable_nonce_rec[1];
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
                                                     &txn_ctx->accounts.account_keys[ nonce_idx ],
                                                     txn_ctx->funk,
-                                                    txn_ctx->xid );
+                                                    &xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
@@ -1003,7 +1004,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
          */
         fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
             txn_ctx->funk,
-            txn_ctx->xid,
+            &xid,
             &txn_ctx->accounts.account_keys[ instr_accts[ 0UL ] ],
             NULL,
             &err,

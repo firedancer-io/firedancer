@@ -20,10 +20,9 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
    Returns the spad-allocated transaction context. Writes the execution
    result to the exec_res pointer (assumed to be pre-allocated). */
 fd_exec_txn_ctx_t *
-fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_txn_p_t *              txn,
-                         int *                     exec_res );
+fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
+                         fd_txn_p_t *          txn,
+                         int *                 exec_res );
 
 FD_PROTOTYPES_END
 

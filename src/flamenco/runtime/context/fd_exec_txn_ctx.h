@@ -44,7 +44,6 @@ struct fd_exec_txn_ctx {
   fd_bank_t *          bank;
   fd_txncache_t *      status_cache;
   fd_funk_t            funk[1];
-  fd_funk_txn_xid_t    xid[1];
   fd_progcache_t *     progcache;
   fd_progcache_t       _progcache[1];
   fd_txn_p_t           txn;

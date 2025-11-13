@@ -1030,7 +1030,6 @@ fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
                                     uchar *              tracing_mem ) {
 
   txn_ctx->bank                  = bank;
-  txn_ctx->xid[0]                = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), bank->idx } };
   txn_ctx->txn                   = *txn;
   txn_ctx->exec_stack            = exec_stack;
   txn_ctx->exec_accounts         = exec_accounts;

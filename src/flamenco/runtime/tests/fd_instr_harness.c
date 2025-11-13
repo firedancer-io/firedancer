@@ -92,7 +92,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
   }
 
-  txn_ctx->xid[0]                    = *xid;
   txn_ctx->status_cache              = NULL;
   txn_ctx->bank_hash_cmp             = NULL;
   txn_ctx->log.enable_exec_recording = !!( runner->bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
@@ -243,7 +242,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->accounts.executable_accounts[txn_ctx->accounts.executable_cnt],
                                                                programdata_acc,
                                                                txn_ctx->funk,
-                                                               txn_ctx->xid ) ) ) {
+                                                               xid ) ) ) {
         continue;
       }
       txn_ctx->accounts.executable_cnt++;
@@ -350,7 +349,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
   }
 
-  txn_ctx->xid[0]                    = *xid;
   txn_ctx->status_cache              = NULL;
   txn_ctx->bank_hash_cmp             = NULL;
   txn_ctx->log.enable_exec_recording = !!( runner->bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );

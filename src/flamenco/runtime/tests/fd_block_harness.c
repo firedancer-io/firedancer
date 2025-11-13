@@ -448,10 +448,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
    fd_runtime_fuzz_block_ctx_create and executes it against the runtime.
    Returns the execution result. */
 static int
-fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
-                           fd_funk_txn_xid_t const * xid,
-                           fd_txn_p_t *              txn_ptrs,
-                           ulong                     txn_cnt ) {
+fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
+                           fd_txn_p_t *          txn_ptrs,
+                           ulong                 txn_cnt ) {
   int res = 0;
 
   // Prepare. Execute. Finalize.
@@ -468,14 +467,16 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
       fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( runner->bank ) );
     }
 
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb->funk, xid, runner->runtime_stack, capture_ctx );
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->idx } };
+
+    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb->funk, &xid, runner->runtime_stack, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->accdb, xid, capture_ctx, runner->runtime_stack, &is_epoch_boundary );
+    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->accdb, &xid, capture_ctx, runner->runtime_stack, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_prepare( runner->bank, runner->accdb, xid, runner->runtime_stack, capture_ctx );
+    res = fd_runtime_block_execute_prepare( runner->bank, runner->accdb, &xid, runner->runtime_stack, capture_ctx );
     if( FD_UNLIKELY( res ) ) {
       return res;
     }
@@ -486,7 +487,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
-      fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, xid, txn, &res );
+      fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, txn, &res );
       txn_ctx->err.exec_err = res;
 
       if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
@@ -498,7 +499,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
           runner->accdb->funk,
           runner->progcache,
           NULL,
-          xid,
+          &xid,
           txn_ctx,
           runner->bank,
           capture_ctx,
@@ -512,7 +513,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
     }
 
     /* Finalize the block */
-    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, xid, capture_ctx, 1 );
+    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, &xid, capture_ctx, 1 );
   } FD_SPAD_FRAME_END;
 
   return res;
@@ -712,10 +713,10 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
       return 0;
     }
 
-    fd_funk_txn_xid_t xid  = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->idx } };
 
     /* Execute the constructed block against the runtime. */
-    int res = fd_solfuzz_block_ctx_exec( runner, &xid, txn_ptrs, txn_cnt );
+    int res = fd_solfuzz_block_ctx_exec( runner, txn_ptrs, txn_cnt );
 
     /* Start saving block exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );

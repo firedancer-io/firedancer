@@ -332,7 +332,6 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
 
 fd_exec_txn_ctx_t *
 fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
-                         fd_funk_txn_xid_t const * xid,
                          fd_txn_p_t *              txn,
                          int *                     exec_res ) {
 
@@ -349,7 +348,6 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
     FD_LOG_CRIT(( "fd_progcache_join failed" ));
   }
   txn_ctx->bank_hash_cmp = NULL;
-  txn_ctx->xid[0]        = *xid;
 
   txn_ctx->log.enable_vm_tracing = runner->enable_vm_tracing;
   uchar * tracing_mem = NULL;
@@ -384,15 +382,9 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     /* Setup the transaction context */
     fd_txn_p_t * txn = fd_solfuzz_pb_txn_ctx_create( runner, input );
 
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
-    if( FD_UNLIKELY( txn==NULL ) ) {
-      fd_solfuzz_txn_ctx_destroy( runner );
-      return 0;
-    }
-
     /* Execute the transaction against the runtime */
     int exec_res = 0;
-    fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, &xid, txn, &exec_res );
+    fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, txn, &exec_res );
 
     /* Start saving txn exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );

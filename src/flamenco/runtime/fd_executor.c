@@ -519,9 +519,10 @@ fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* TODO: Consider using a hash set (if its more performant) */
-  ushort      instr_cnt             = TXN( &txn_ctx->txn )->instr_cnt;
-  fd_pubkey_t validated_loaders[instr_cnt];
-  ushort      validated_loaders_cnt = 0;
+  ushort            instr_cnt             = TXN( &txn_ctx->txn )->instr_cnt;
+  fd_pubkey_t       validated_loaders[instr_cnt];
+  ushort            validated_loaders_cnt = 0;
+  fd_funk_txn_xid_t xid                   = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
 
   /* The logic below handles special casing with loading instruction accounts.
      https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L445-L525 */
@@ -576,7 +577,7 @@ fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
     err = fd_txn_account_init_from_funk_readonly( owner_account,
                                                   fd_txn_account_get_owner( program_account ),
                                                   txn_ctx->funk,
-                                                  txn_ctx->xid );
+                                                  &xid );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L520 */
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
@@ -682,11 +683,12 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
   }
 
   /* Load the programdata account from Funk to read the programdata length */
-  fd_txn_account_t programdata_account[1];
+  fd_txn_account_t  programdata_account[1];
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
   err = fd_txn_account_init_from_funk_readonly( programdata_account,
                                                 &loader_state->inner.program.programdata_address,
                                                 txn_ctx->funk,
-                                                txn_ctx->xid );
+                                                &xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
@@ -936,9 +938,10 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
 
     int err = FD_ACC_MGR_SUCCESS;
     if( !meta ) {
+      fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
       meta = fd_funk_get_acc_meta_readonly(
           txn_ctx->funk,
-          txn_ctx->xid,
+          &xid,
           fee_payer_key,
           NULL,
           &err,
@@ -1033,12 +1036,12 @@ fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
     if( FD_UNLIKELY( !slot_hashes ) ) {
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
-
-    fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->accounts.account_keys[txn_ctx->accounts.accounts_cnt] );
+    fd_funk_txn_xid_t xid       = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
+    fd_acct_addr_t *  accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->accounts.account_keys[txn_ctx->accounts.accounts_cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( &txn_ctx->txn ),
                                                          txn_ctx->txn.payload,
                                                          txn_ctx->funk,
-                                                         txn_ctx->xid,
+                                                         &xid,
                                                          fd_bank_slot_get( txn_ctx->bank ),
                                                          slot_hashes,
                                                          accts_alt );
@@ -1386,9 +1389,10 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
 
   int err = FD_ACC_MGR_SUCCESS;
   if( FD_LIKELY( !meta ) ) {
-     meta = fd_funk_get_acc_meta_readonly(
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
+    meta = fd_funk_get_acc_meta_readonly(
         txn_ctx->funk,
-        txn_ctx->xid,
+        &xid,
         acc,
         NULL,
         &err,
@@ -1467,11 +1471,12 @@ fd_executor_setup_executable_account( fd_exec_txn_ctx_t *      txn_ctx,
       data accounts from getting loaded into the executable accounts list. If such a program is
       invoked, the call will fail at the instruction execution level since the programdata
       account will not exist within the executable accounts list. */
-  fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
+  fd_pubkey_t *     programdata_acc = &program_loader_state->inner.program.programdata_address;
+  fd_funk_txn_xid_t xid             = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
   if( FD_LIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->accounts.executable_accounts[ *executable_idx ],
-                                                            programdata_acc,
-                                                            txn_ctx->funk,
-                                                            txn_ctx->xid )==0 ) ) {
+                                                         programdata_acc,
+                                                         txn_ctx->funk,
+                                                         &xid )==0 ) ) {
     (*executable_idx)++;
   }
 }

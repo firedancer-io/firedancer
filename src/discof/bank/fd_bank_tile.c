@@ -226,7 +226,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL, &tips );
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+    fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, &xid, txn_ctx, bank, NULL, &tips );
 
     if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
       /* If the transaction failed to fit into the block, we need to
@@ -396,7 +397,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
 
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-      fd_runtime_finalize_txn( txn_ctx->funk, txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL, &tips[ i ] );
+      fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+      fd_runtime_finalize_txn( txn_ctx->funk, txn_ctx->progcache, txn_ctx->status_cache, &xid, txn_ctx, bank, NULL, &tips[ i ] );
       if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->err.exec_err)<<24);
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );

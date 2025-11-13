@@ -770,9 +770,10 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   txn_context_msg->account_shared_data = fd_spad_alloc( spad,
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
   for( ulong i = 0; i < txn_ctx->accounts.accounts_cnt; ++i ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_ctx->accounts.account_keys[i], txn_ctx->funk, txn_ctx->xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_ctx->accounts.account_keys[i], txn_ctx->funk, &xid );
     if( FD_UNLIKELY( ret ) ) {
       continue;
     }
@@ -789,7 +790,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_txn_account_t txn_account[1];
     fd_txn_acct_addr_lut_t const * addr_lut  = &address_lookup_tables[i];
     fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + addr_lut->addr_off);
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, alut_key, txn_ctx->funk, txn_ctx->xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, alut_key, txn_ctx->funk, &xid );
     if( FD_UNLIKELY( ret ) ) continue;
 
     dump_account_state( txn_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
@@ -807,7 +808,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       if( is_builtin_account( referenced_addr ) ) continue;
 
       fd_txn_account_t referenced_account[1];
-      ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, txn_ctx->funk, txn_ctx->xid );
+      ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, txn_ctx->funk, &xid );
       if( FD_UNLIKELY( ret ) ) continue;
       dump_account_state( referenced_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
     }
@@ -821,7 +822,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       if( is_builtin_account( referenced_addr ) ) continue;
 
       fd_txn_account_t referenced_account[1];
-      ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, txn_ctx->funk, txn_ctx->xid );
+      ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, txn_ctx->funk, &xid );
       if( FD_UNLIKELY( ret ) ) continue;
       dump_account_state( referenced_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
     }
@@ -831,13 +832,13 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   uint accounts_dumped_so_far = txn_context_msg->account_shared_data_count;
   for( uint i=0U; i<accounts_dumped_so_far; i++ ) {
     fd_exec_test_acct_state_t const * maybe_program_account = &txn_context_msg->account_shared_data[i];
-    dump_executable_account_if_exists( txn_ctx->funk, txn_ctx->xid, maybe_program_account, spad, txn_context_msg->account_shared_data, &txn_context_msg->account_shared_data_count );
+    dump_executable_account_if_exists( txn_ctx->funk, &xid, maybe_program_account, spad, txn_context_msg->account_shared_data, &txn_context_msg->account_shared_data_count );
   }
 
   /* Dump sysvars */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], txn_ctx->funk, txn_ctx->xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], txn_ctx->funk, &xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -859,7 +860,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   /* Transaction Context -> tx */
   txn_context_msg->has_tx = true;
   fd_exec_test_sanitized_transaction_t * sanitized_transaction = &txn_context_msg->tx;
-  dump_sanitized_transaction( txn_ctx->funk, txn_ctx->xid, txn_descriptor, txn_payload, spad, sanitized_transaction );
+  dump_sanitized_transaction( txn_ctx->funk, &xid, txn_descriptor, txn_payload, spad, sanitized_transaction );
 
   /* Transaction Context -> blockhash_queue
      NOTE: Agave's implementation of register_hash incorrectly allows the blockhash queue to hold max_age + 1 (max 301)
@@ -891,6 +892,8 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Program ID */
   fd_memcpy( instr_context->program_id, txn_ctx->accounts.account_keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
 
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
+
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_ctx->accounts.accounts_cnt;
   instr_context->accounts = fd_spad_alloc( spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + txn_ctx->accounts.executable_cnt) * sizeof(fd_exec_test_acct_state_t));
@@ -904,7 +907,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Add sysvar cache variables */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], txn_ctx->funk, txn_ctx->xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], txn_ctx->funk, &xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -927,7 +930,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Add executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts.executable_cnt; i++ ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, txn_ctx->accounts.executable_accounts[i].pubkey, txn_ctx->funk, txn_ctx->xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, txn_ctx->accounts.executable_accounts[i].pubkey, txn_ctx->funk, &xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -1231,10 +1234,12 @@ fd_spad_t * spad = fd_spad_join( fd_spad_new( txn_ctx->log.dumping_mem, 1UL<<28U
 
 FD_SPAD_FRAME_BEGIN( spad ) {
 
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
+
   /* Get the programdata for the account */
   ulong         program_data_len = 0UL;
   uchar const * program_data     =
-      fd_prog_load_elf( txn_ctx->funk, txn_ctx->xid, program_acc, &program_data_len, NULL );
+      fd_prog_load_elf( txn_ctx->funk, &xid, program_acc, &program_data_len, NULL );
   if( program_data==NULL ) {
     return;
   }

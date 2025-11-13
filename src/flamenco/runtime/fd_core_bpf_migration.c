@@ -371,7 +371,6 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   if( FD_UNLIKELY( !fd_directly_invoke_loader_v3_deploy(
       bank,
       accdb->funk->shmem,
-      xid,
       &target->program_account->addr,
       new_target_program_data->data   +PROGRAMDATA_METADATA_SIZE,
       new_target_program_data->data_sz-PROGRAMDATA_METADATA_SIZE ) ) ) {
