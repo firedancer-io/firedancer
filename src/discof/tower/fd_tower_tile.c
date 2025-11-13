@@ -648,6 +648,7 @@ replay_slot_completed( ctx_t *                      ctx,
   /* Publish a slot_done frag to tower_out. */
 
   fd_tower_slot_done_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  msg->replay_slot           = slot_info->slot;
   msg->vote_slot             = out.vote_slot;
   msg->reset_slot            = out.reset_slot;
   msg->reset_block_id        = out.reset_block_id;

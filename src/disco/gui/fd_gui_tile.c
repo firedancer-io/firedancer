@@ -422,10 +422,10 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_stem_publish( stem, ctx->replay_out->idx, replay->bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
 
         /* update vote info */
-        fd_gui_peers_handle_vote_update( ctx->peers, ctx->peers->votes, vote_count, fd_clock_now( ctx->clock ), ctx->gui->ipinfo.country_code );
+        fd_gui_peers_handle_vote_update( ctx->peers, ctx->peers->votes, vote_count, fd_clock_now( ctx->clock ), ctx->gui->summary.identity_key, ctx->gui->ipinfo.country_code );
 
         /* update slot data */
-        fd_gui_handle_replay_update( ctx->gui, &slot_completed, &replay->block_hash, fd_clock_now( ctx->clock ) );
+        fd_gui_handle_replay_update( ctx->gui, &slot_completed, &replay->block_hash, ctx->peers->slot_voted, fd_clock_now( ctx->clock ) );
 
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
         fd_became_leader_t * became_leader = (fd_became_leader_t *)src;
