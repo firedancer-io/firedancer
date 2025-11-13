@@ -6,3 +6,7 @@ $(call make-unit-test,test_vinyl_io_mm,test_vinyl_io_mm,fd_vinyl fd_tango fd_uti
 $(call run-unit-test,test_vinyl_io_bd)
 $(call run-unit-test,test_vinyl_io_mm)
 endif
+
+$(call add-hdrs,fd_vinyl_io_ur.h)
+$(call add-objs,fd_vinyl_io_ur,fd_vinyl)
+
