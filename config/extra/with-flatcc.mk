@@ -1,5 +1,5 @@
-ifneq (,$(wildcard $(OPT)/lib/libflatcc.a))
-FLATCC_LIBS:=$(OPT)/lib/libflatcc.a $(OPT)/lib/libflatccrt.a
+ifneq (,$(wildcard $(OPT)/lib/libflatccrt.a))
+FLATCC_LIBS:=$(OPT)/lib/libflatccrt.a
 else
 $(info "flatcc not installed, skipping")
 endif
