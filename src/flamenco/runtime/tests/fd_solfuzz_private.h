@@ -10,13 +10,15 @@
 #include "../../../ballet/nanopb/pb_decode.h"
 #include "generated/context.pb.h"
 
+#ifdef FD_HAS_FLATCC
 #include "flatcc/flatcc_builder.h"
 #include "flatbuffers/generated/context_reader.h"
 
-FD_PROTOTYPES_BEGIN
-
 #undef ns
 #define SOL_COMPAT_NS(x) FLATBUFFERS_WRAP_NAMESPACE(fd_org_solana_sealevel_v2, x)
+#endif
+
+FD_PROTOTYPES_BEGIN
 
 #define SOL_COMPAT_V2_SUCCESS (0)
 #define SOL_COMPAT_V2_FAILURE (-1)
@@ -36,13 +38,6 @@ fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
 int
 fd_solfuzz_pb_restore_features( fd_features_t *                    features,
                                 fd_exec_test_feature_set_t const * feature_set );
-
-/* Flatbuffers variant of the above. This function call should never
-   fail (all passed in features should be supported). Throws FD_LOG_ERR
-   if any unsupported features are inputted. */
-void
-fd_solfuzz_fb_restore_features( fd_features_t *                   features,
-                                SOL_COMPAT_NS(FeatureSet_table_t) feature_set );
 
 typedef ulong( exec_test_run_pb_fn_t )( fd_solfuzz_runner_t *,
                                         void const *,
@@ -65,7 +60,16 @@ fd_solfuzz_pb_execute_wrapper( fd_solfuzz_runner_t *   runner,
   }
 }
 
+#ifdef FD_HAS_FLATCC
+
 typedef int( exec_test_run_fb_fn_t )( fd_solfuzz_runner_t *, void const * );
+
+/* Flatbuffers variant of the above. This function call should never
+   fail (all passed in features should be supported). Throws FD_LOG_ERR
+   if any unsupported features are inputted. */
+void
+fd_solfuzz_fb_restore_features( fd_features_t *                   features,
+                                SOL_COMPAT_NS(FeatureSet_table_t) feature_set );
 
 /* Returns SOL_COMPAT_V2_SUCCESS on success and SOL_COMPAT_V2_FAILURE on
    failure */
@@ -78,6 +82,8 @@ FD_SPAD_FRAME_BEGIN( runner->spad ) {
   return exec_test_run_fn( runner, input );
 } FD_SPAD_FRAME_END;
 }
+
+#endif
 
 /* Utils */
 

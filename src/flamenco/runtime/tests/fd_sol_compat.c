@@ -15,8 +15,10 @@
 #include "generated/txn.pb.h"
 #include "generated/type.pb.h"
 
+#ifdef FD_HAS_FLATCC
 #include "flatbuffers/generated/elf_reader.h"
 #include "flatbuffers/generated/flatbuffers_common_reader.h"
+#endif
 
 #include <assert.h>
 #include <errno.h>
@@ -291,6 +293,7 @@ sol_compat_shred_parse_v1( uchar *       out,
     return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
 }
 
+#ifdef FD_HAS_FLATCC
 /*
  * execute_v2
    Unlike sol_compat_execute_v1 APIs, v2 APIs use flatbuffers for
@@ -327,3 +330,5 @@ sol_compat_elf_loader_v2( uchar *            out,
 
   return SOL_COMPAT_V2_SUCCESS;
 }
+#endif
+
