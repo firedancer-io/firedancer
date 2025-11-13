@@ -2624,7 +2624,6 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *               bank,
   txn_ctx->xid[0]                    = *xid;
   txn_ctx->progcache                 = NULL;
   txn_ctx->status_cache              = NULL;
-  txn_ctx->bank_hash_cmp             = NULL;
   txn_ctx->log.enable_exec_recording = !!(bank->flags & FD_BANK_FLAGS_EXEC_RECORDING);
   txn_ctx->bank                      = bank;
 

@@ -121,8 +121,6 @@ struct fd_notar_blk {
 };
 typedef struct fd_notar_blk fd_notar_blk_t;
 
-static const fd_hash_t hash_null = {{ 0 }};
-
 #define MAP_NAME              fd_notar_blk
 #define MAP_T                 fd_notar_blk_t
 #define MAP_KEY               block_id
@@ -143,7 +141,7 @@ static const fd_hash_t hash_null = {{ 0 }};
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_notar_vtr {
-  fd_pubkey_t addr;         /* map key, vote account address */
+  fd_pubkey_t vote_acc;     /* map key, vote account address */
   uint        hash;         /* reserved for fd_map_dynamic */
   ulong       prev_stake;   /* amount of stake this voter has in epoch - 1 */
   ulong       stake;        /* amount of stake this voter has in epoch */
@@ -154,7 +152,7 @@ typedef struct fd_notar_vtr fd_notar_vtr_t;
 
 #define MAP_NAME              fd_notar_vtr
 #define MAP_T                 fd_notar_vtr_t
-#define MAP_KEY               addr
+#define MAP_KEY               vote_acc
 #define MAP_KEY_T             fd_pubkey_t
 #define MAP_KEY_NULL          pubkey_null
 #define MAP_KEY_EQUAL_IS_SLOW 1
@@ -207,7 +205,7 @@ fd_notar_footprint( ulong slot_max ) {
    the required footprint and alignment. */
 
 void *
-fd_notar_new( void * mem,
+fd_notar_new( void * shmem,
               ulong  slot_max );
 
 /* fd_notar_join joins the caller to the notar.  notar points to the

@@ -159,7 +159,7 @@ fd_notar_advance_epoch( fd_notar_t       * notar,
   notar->epoch = epoch;
   for( ulong i = 0; i < fd_notar_vtr_key_max( notar->vtr_map ); i++ ) {
     fd_notar_vtr_t * vtr = &notar->vtr_map[i];
-    if( fd_notar_vtr_key_inval( vtr->addr ) ) continue;
+    if( fd_notar_vtr_key_inval( vtr->vote_acc ) ) continue;
     vtr->prev_stake = vtr->stake;
     vtr->stake      = 0;
     vtr->prev_bit   = vtr->bit;

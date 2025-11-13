@@ -94,7 +94,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   txn_ctx->xid[0]                    = *xid;
   txn_ctx->status_cache              = NULL;
-  txn_ctx->bank_hash_cmp             = NULL;
   txn_ctx->log.enable_exec_recording = !!( runner->bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
   txn_ctx->bank                      = runner->bank;
 
@@ -352,7 +351,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   txn_ctx->xid[0]                    = *xid;
   txn_ctx->status_cache              = NULL;
-  txn_ctx->bank_hash_cmp             = NULL;
   txn_ctx->log.enable_exec_recording = !!( runner->bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
   txn_ctx->bank                      = runner->bank;
 

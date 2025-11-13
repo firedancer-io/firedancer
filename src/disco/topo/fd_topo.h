@@ -489,9 +489,9 @@ struct fd_topo_tile {
     } archiver;
 
     struct {
-      int   fork_fatal;
+      int   hard_fork_fatal;
       ulong max_live_slots;
-      ulong max_lookahead_conf;
+      ulong max_vote_lookahead;
       char  identity_key[ PATH_MAX ];
       char  vote_account[ PATH_MAX ];
       char  base_path[PATH_MAX];

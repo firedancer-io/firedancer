@@ -166,7 +166,6 @@ fd_forks_align( void ) {
 FD_FN_CONST static inline ulong
 fd_forks_footprint( ulong slot_max, ulong voter_max ) {
   ulong interval_max = fd_ulong_pow2_up( FD_LOCKOUT_ENTRY_MAX*slot_max*voter_max );
-  FD_LOG_NOTICE(( "interval_max: %lu", interval_max ));
   int   lg_slot_max  = fd_ulong_find_msb( fd_ulong_pow2_up( slot_max ) ) + 1;
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(

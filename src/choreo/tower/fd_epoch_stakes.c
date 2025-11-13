@@ -1,7 +1,8 @@
 #include "fd_epoch_stakes.h"
 
 void *
-fd_epoch_stakes_new( void * shmem, ulong slot_max ) {
+fd_epoch_stakes_new( void * shmem,
+                     ulong  slot_max ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -49,7 +50,7 @@ fd_epoch_stakes_slot_stakes_add( fd_epoch_stakes_t * epoch_stakes, ulong slot, f
   fd_voter_stake_t * pool = epoch_stakes->voter_stake_pool;
   if( FD_UNLIKELY( !fd_voter_stake_pool_free( pool ) ) ) FD_LOG_CRIT(( "no free voter stakes in pool" ));
   fd_voter_stake_t * new_voter_stake = fd_voter_stake_pool_ele_acquire( pool );
-  new_voter_stake->key = (fd_voter_stake_key_t){ .vote_account = *vote_account, .slot = slot };
+  new_voter_stake->key   = (fd_voter_stake_key_t){ .vote_account = *vote_account, .slot = slot };
   new_voter_stake->stake = stake;
   new_voter_stake->prev  = prev_voter_idx;
   fd_voter_stake_map_ele_insert( epoch_stakes->voter_stake_map, new_voter_stake, pool );
@@ -76,5 +77,3 @@ fd_epoch_stakes_slot_stakes_remove( fd_epoch_stakes_t * epoch_stakes, fd_epoch_s
   }
   fd_epoch_stakes_slot_map_remove( epoch_stakes->slot_stakes_map, slot );
 }
-
-

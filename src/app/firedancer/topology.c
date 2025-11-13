@@ -345,7 +345,6 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "funk"         );
   fd_topob_wksp( topo, "progcache"    );
-  fd_topob_wksp( topo, "bh_cmp"       );
   fd_topob_wksp( topo, "fec_sets"     );
   fd_topob_wksp( topo, "txncache"     );
   fd_topob_wksp( topo, "banks"        );
@@ -1199,9 +1198,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
 
-    tile->tower.fork_fatal         = config->firedancer.development.hard_fork_fatal;
+    tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
-    tile->tower.max_lookahead_conf = config->tiles.tower.max_lookahead_conf;
+    tile->tower.max_vote_lookahead = config->tiles.tower.max_vote_lookahead;
     strncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     strncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
     strncpy( tile->tower.base_path, config->paths.base, sizeof(tile->tower.base_path) );

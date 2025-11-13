@@ -36,5 +36,6 @@ typedef uchar fd_block_id_t[ 32UL ];
 typedef fd_slot_hash_t fd_slot_pubkey_t;
 
 static const fd_pubkey_t pubkey_null = {{ 0 }};
+static const fd_hash_t hash_null = {{ 0 }};
 
 #endif /* HEADER_fd_src_choreo_fd_choreo_base_h */

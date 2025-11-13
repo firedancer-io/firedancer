@@ -117,7 +117,8 @@ fd_epoch_stakes_footprint( ulong slot_max ) {
 }
 
 void *
-fd_epoch_stakes_new( void * shmem, ulong slot_max );
+fd_epoch_stakes_new( void * shmem,
+                     ulong  slot_max );
 
 fd_epoch_stakes_t *
 fd_epoch_stakes_join( void * shepoch_stakes );

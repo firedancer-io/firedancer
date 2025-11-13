@@ -587,7 +587,6 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->txn_ctx[ i ].bundle.prev_txn_ctxs[ j ] = &ctx->txn_ctx[ j ];
     }
 
-    ctx->txn_ctx[ i ].bank_hash_cmp    = NULL; /* TODO - do we need this? */
     ctx->txn_ctx[ i ].progcache        = ctx->txn_ctx[ i ]._progcache;
     ctx->txn_ctx[ i ].status_cache     = txncache;
     *(ctx->txn_ctx[ i ].funk)          = *funk;
