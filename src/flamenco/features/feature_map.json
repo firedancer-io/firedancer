@@ -216,7 +216,7 @@
   {"name":"enable_get_epoch_stake_syscall","pubkey":"FKe75t4LXxGaQnVHdUKM6DSFifVVraGZ8LyNo7oPwy1Z","old":"7mScTYkJXsbdrcwTQRs7oeCSXoJm4WjzBsRyf8bCU3Np"},
   {"name":"disable_account_loader_special_case","pubkey":"EQUMpNFr7Nacb1sva56xn1aLfBxppEoSBH8RRVdkcD1x","cleaned_up":[2,2,0],"hardcode_for_fuzzing":1},
   {"name":"remove_accounts_executable_flag_checks","pubkey":"FXs1zh47QbNnhXcnB6YiAQoJ4sGB91tKF3UFHLcKT7PM","old":"FfgtauHUWKeXTzjXkua9Px4tNGBFHKZ9WaigM5VbbzFx","hardcode_for_fuzzing":1},
-  {"name":"fix_alt_bn128_multiplication_input_length","pubkey":"bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN"},
+  {"name":"fix_alt_bn128_multiplication_input_length","pubkey":"bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN","cleaned_up":[3,1,0],"hardcode_for_fuzzing":1},
   {"name":"lift_cpi_caller_restriction","pubkey":"HcW8ZjBezYYgvcbxNJwqv1t484Y2556qJsfNDWvJGZRH","reverted":1},
   {"name":"accounts_lt_hash","pubkey":"LTHasHQX6661DaDD4S6A2TFi6QBuiwXKv66fB1obfHq","old":"LtHaSHHsUge7EWTPVrmpuexKz6uVHZXZL6cgJa7W7Zn","cleaned_up":[3,0,0],"hardcode_for_fuzzing":1},
   {"name":"remove_accounts_delta_hash","pubkey":"LTdLt9Ycbyoipz5fLysCi1NnDnASsZfmJLJXts5ZxZz","cleaned_up":[3,0,0],"hardcode_for_fuzzing":1},
@@ -242,6 +242,6 @@
   {"name":"enable_vote_address_leader_schedule","pubkey":"5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y"},
   {"name":"enshrine_slashing_program","pubkey":"sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ"},
   {"name":"raise_account_cu_limit","pubkey":"htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8"},
-  {"name":"stricter_abi_and_runtime_constraints","pubkey":"CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM"},
-  {"name":"account_data_direct_mapping","pubkey":"9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ"}
+  {"name":"stricter_abi_and_runtime_constraints","pubkey":"sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r"},
+  {"name":"account_data_direct_mapping","pubkey":"DFN8MyKpQqFW31qczcahgnnxcAHQc6P94wtTEX5EP1RA"}
 ]
