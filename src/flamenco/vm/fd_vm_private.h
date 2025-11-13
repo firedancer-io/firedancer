@@ -10,12 +10,6 @@
 #include "../runtime/fd_runtime_const.h"
 #include "../features/fd_features.h"
 #include "fd_vm_base.h"
-#include "../log_collector/fd_log_collector.h"
-#include <stdio.h>
-#include <string.h>
-
-void
-fd_vm_syscall_set_override( int err, char const * msg );
 
 /* FD_VM_ALIGN_RUST_{} define the alignments for relevant rust types.
    Alignments are derived with std::mem::align_of::<T>() and are enforced
@@ -162,42 +156,6 @@ FD_PROTOTYPES_BEGIN
     FD_VM_TEST_ERR_OVERWRITE( vm );                                       \
     vm->instr_ctx->txn_ctx->exec_err = err;                               \
     vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL; \
-  }))
-
-/* Log syscall error message without setting exec_err (for errors that should not be logged as syscall errors) */
-#define FD_VM_LOG_SYSCALL_ERR_ONLY( vm, err ) (__extension__({            \
-    int _err = (err);                                                     \
-    if( FD_LIKELY( vm->instr_ctx &&                                       \
-                   vm->instr_ctx->txn_ctx &&                              \
-                   !vm->instr_ctx->txn_ctx->log_collector.disabled ) ) {  \
-      extern char const * fd_vm_syscall_strerror( int error_code );       \
-      char const * err_msg = fd_vm_syscall_strerror( _err );              \
-      if( FD_LIKELY( err_msg && err_msg[0] ) ) {                          \
-        /* Ensure program_id_base58 is initialized if not already */      \
-        if( FD_UNLIKELY( !vm->instr_ctx->program_id_base58[0] &&          \
-                          vm->instr_ctx->instr &&                         \
-                          vm->instr_ctx->instr->program_id < vm->instr_ctx->txn_ctx->accounts_cnt ) ) { \
-          fd_pubkey_t const * program_id = &vm->instr_ctx->txn_ctx->account_keys[ vm->instr_ctx->instr->program_id ]; \
-          fd_base58_encode_32( program_id->uc, NULL, vm->instr_ctx->program_id_base58 ); \
-        }                                                                     \
-        char err_prefix[ 17+FD_BASE58_ENCODED_32_SZ+15 ];                     \
-        int needs_prefix = ( _err==FD_VM_SYSCALL_ERR_UNALIGNED_POINTER ||     \
-                              _err==FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY || \
-                              _err==FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS ||      \
-                              _err==FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED ); \
-        const char * prefix = needs_prefix ? "Syscall error: " : "";   \
-        int err_prefix_len;                                            \
-        err_prefix_len = sprintf( err_prefix, "Program %s failed: %s", \
-                                  vm->instr_ctx->program_id_base58[0] ? vm->instr_ctx->program_id_base58 : "<unknown>", \
-                                  prefix );                             \
-        if( err_prefix_len > 0 ) {                                     \
-          ulong err_msg_len = (ulong)strlen(err_msg);                  \
-          /* fd_log_collector_msg_many is static inline, must be in scope */ \
-          fd_log_collector_msg_many( vm->instr_ctx, 2, err_prefix, (ulong)err_prefix_len, \
-                                      err_msg, err_msg_len ); \
-        }                                                                    \
-      }                                                                      \
-    }                                                                        \
   }))
 
 #define FD_VM_ERR_FOR_LOG_INSTR( vm, err ) (__extension__({               \

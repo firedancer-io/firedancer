@@ -93,9 +93,8 @@ typedef struct fd_vm_haddr_query fd_vm_haddr_query_t;
     ulong     _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL ); \
     int       _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) ));    \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                    \
-      /* Log error message but don't set exec_err to match Agave behavior */                                 \
-      FD_VM_LOG_SYSCALL_ERR_ONLY( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY );                            \
-      return FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY;                                                        \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                    \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                     \
     }                                                                                                        \
     if( FD_UNLIKELY( (!_haddr) ) ) {                                                                         \
       _vm->segv_vaddr       = _vaddr;                                                                        \
@@ -104,9 +103,9 @@ typedef struct fd_vm_haddr_query fd_vm_haddr_query_t;
       FD_VM_ERR_FOR_LOG_EBPF( _vm, fd_vm_generate_access_violation( _vaddr, _vm->sbpf_version ) );           \
       return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                     \
     }                                                                                                        \
-    if( FD_UNLIKELY( _sigbus ) ) {                                                                           \
-      FD_VM_LOG_SYSCALL_ERR_ONLY( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                \
-      return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;                                                            \
+    if ( FD_UNLIKELY( _sigbus ) ) {                                                                          \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                 \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                     \
     }                                                                                                        \
     (void const *)_haddr;                                                                                    \
   }))
@@ -130,9 +129,8 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
   ulong     _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL );
   int       _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) ));
   if ( FD_UNLIKELY( sz > LONG_MAX ) ) {
-    /* Log error message but don't set exec_err to match Agave behavior */
-    FD_VM_LOG_SYSCALL_ERR_ONLY( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY );
-    *err = FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY;
+    FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
+    *err = FD_VM_SYSCALL_ERR_SEGFAULT;
     return 0;
   }
   if( FD_UNLIKELY( (!_haddr) ) ) {
@@ -144,8 +142,8 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
     return 0;
   }
   if ( FD_UNLIKELY( _sigbus ) ) {
-    FD_VM_LOG_SYSCALL_ERR_ONLY( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
-    *err = FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+    FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    *err = FD_VM_SYSCALL_ERR_SEGFAULT;
     return 0;
   }
   return (void *)_haddr;
@@ -172,8 +170,8 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
     ulong     _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 0, 0UL ); \
     int       _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) ));    \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                    \
-      FD_VM_LOG_SYSCALL_ERR_ONLY( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY );                           \
-      return FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY;                                                        \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                    \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                     \
     }                                                                                                        \
     if( FD_UNLIKELY( !_haddr ) ) {                                                                           \
       _vm->segv_vaddr       = _vaddr;                                                                        \
@@ -183,8 +181,8 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
       return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                     \
     }                                                                                                        \
     if ( FD_UNLIKELY( _sigbus ) ) {                                                                          \
-      FD_VM_LOG_SYSCALL_ERR_ONLY( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                \
-      return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;                                                            \
+      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                 \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                     \
     }                                                                                                        \
     (void *)_haddr;                                                                                          \
   }))
@@ -232,9 +230,8 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
    LONG_MAX. */
 #define FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                       \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
-      /* Log error message but don't set exec_err to match Agave behavior */                                    \
-      FD_VM_LOG_SYSCALL_ERR_ONLY( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY );                                \
-      return FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY;                                                           \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                        \
+      return FD_VM_SYSCALL_ERR_INVALID_LENGTH;                                                                  \
     }                                                                                                           \
     void const * haddr = 0UL;                                                                                   \
     if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
@@ -248,9 +245,8 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
    loads with no size bounding support. */
 #define FD_VM_MEM_SLICE_HADDR_LD_SZ_UNCHECKED( vm, vaddr, align ) (__extension__({                              \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
-      /* Log error message but don't set exec_err to match Agave behavior */                                    \
-      FD_VM_LOG_SYSCALL_ERR_ONLY( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY );                                \
-      return FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY;                                                           \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                        \
+      return FD_VM_SYSCALL_ERR_INVALID_LENGTH;                                                                  \
     }                                                                                                           \
     void const * haddr = 0UL;                                                                                   \
     if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
@@ -261,9 +257,8 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
 
 #define FD_VM_MEM_SLICE_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                       \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
-      /* Log error message but don't set exec_err to match Agave behavior */                                    \
-      FD_VM_LOG_SYSCALL_ERR_ONLY( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY );                                \
-      return FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY;                                                           \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                        \
+      return FD_VM_SYSCALL_ERR_INVALID_LENGTH;                                                                  \
     }                                                                                                           \
     void * haddr = 0UL;                                                                                         \
     if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \

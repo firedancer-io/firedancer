@@ -212,7 +212,8 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
         return -1;
       }
     } else if( FD_UNLIKELY( caller_account->serialized_data_len!=fd_borrowed_account_get_data_len( &callee_acc ) ||
-      memcmp( fd_borrowed_account_get_data( &callee_acc ), caller_account->serialized_data, caller_account->serialized_data_len ) ) ) {
+                            (caller_account->serialized_data_len &&
+                              memcmp( fd_borrowed_account_get_data( &callee_acc ), caller_account->serialized_data, caller_account->serialized_data_len )) ) ) {
       /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1117-L1119 */
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
       return -1;
@@ -743,7 +744,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     /* Right after translating, Agave checks against MAX_SIGNERS:
        https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L602 */
     if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
-      FD_VM_LOG_SYSCALL_ERR_ONLY( vm, FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS );
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS );
       return FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS;
     }
 
@@ -788,14 +789,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Authorized program check *************************************************/
 
   if( FD_UNLIKELY( fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->txn_ctx, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) ) {
-    /* https://github.com/anza-xyz/agave/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1054 */
-    char program_id_base58[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( program_id->uc, NULL, program_id_base58 );
-    char err_msg[ FD_BASE58_ENCODED_32_SZ + 64 ];
-    snprintf( err_msg, sizeof(err_msg), "Program %s not supported by inner instructions", program_id_base58 );
-    fd_vm_syscall_set_override( FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED, err_msg );
-    FD_VM_PREPARE_ERR_OVERWRITE( vm );
-    FD_VM_LOG_SYSCALL_ERR_ONLY( vm, FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED );
+    /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1054 */
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED );
     return FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED;
   }
 

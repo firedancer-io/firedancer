@@ -4,7 +4,6 @@
 #include "fd_log_collector_base.h"
 #include "../runtime/context/fd_exec_instr_ctx.h"
 #include "../runtime/context/fd_exec_txn_ctx.h"
-#include "../vm/fd_vm_base.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
 #include <stdio.h>
@@ -485,16 +484,8 @@ fd_log_collector_program_failure( fd_exec_instr_ctx_t * ctx ) {
 
   /* Skip empty string, this means that the msg has already been logged. */
   if( FD_LIKELY( err[0] ) ) {
-    /* Agave logs syscall errors with "Syscall error: " prefix when they cannot be
-       downcast to InstructionError.  */
-    char err_prefix[ 17+FD_BASE58_ENCODED_32_SZ+15 ]; // 17==strlen("Program  failed: "), 15==strlen("Syscall error: ")
-    int needs_prefix = ( txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL ) &&
-                       ( txn_ctx->exec_err==FD_VM_SYSCALL_ERR_UNALIGNED_POINTER ||
-                         txn_ctx->exec_err==FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY ||
-                         txn_ctx->exec_err==FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS ||
-                         txn_ctx->exec_err==FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED );
-    const char * prefix = needs_prefix ? "Syscall error: " : "";
-    int err_prefix_len = sprintf( err_prefix, "Program %s failed: %s", ctx->program_id_base58, prefix );
+    char err_prefix[ 17+FD_BASE58_ENCODED_32_SZ ]; // 17==strlen("Program  failed: ")
+    int err_prefix_len = sprintf( err_prefix, "Program %s failed: ", ctx->program_id_base58 );
     if( err_prefix_len > 0 ) {
       /* Equivalent to: "Program %s failed: %s" */
       fd_log_collector_msg_many( ctx, 2, err_prefix, (ulong)err_prefix_len, err, (ulong)strlen(err) );
