@@ -6,13 +6,12 @@
 # need to be dedicated to generating and sending transactions for
 # benchmarking.
 [layout]
-  affinity = "14-63,f1"
   net_tile_count = 1
   quic_tile_count = 1
   resolv_tile_count = 1
-  verify_tile_count = 20
+  verify_tile_count = 31
   gossvf_tile_count = 1
-  bank_tile_count = 4
+  bank_tile_count = 3
   exec_tile_count = 1
   shred_tile_count = 1
   sign_tile_count = 2
@@ -23,7 +22,6 @@
 [development.bench]
   benchg_tile_count = 12
   benchs_tile_count = 2
-  affinity = "f1,0-13"
   larger_max_cost_per_block = true
   larger_shred_limits_per_block = true
 

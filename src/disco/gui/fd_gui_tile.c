@@ -51,6 +51,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_REPLAY_STAKE (13UL) /* firedancer only */
 #define IN_KIND_GENESI_OUT   (14UL) /* firedancer only */
 #define IN_KIND_SNAPIN       (15UL) /* firedancer only */
+#define IN_KIND_LAST         (16UL) /* must be last index */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -110,13 +111,6 @@ typedef struct {
   long       recal_next; /* next recalibration time (ns) */
 
   uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
-
-  /* This needs to be max(sz) across all kinds of messages.
-     Currently this is just figured out manually, it's a gossip update
-     message assuming the table is completely full (40200) of peers.
-
-     We also require an alignment of 64 to hold fd_txn_p_t structs. */
-  uchar      buf[ 8UL+FD_GUI_MAX_PEER_CNT*(58UL+12UL*34UL) ] __attribute__((aligned(64)));
 
   fd_http_server_t * gui_server;
 
@@ -209,14 +203,18 @@ before_frag( fd_gui_ctx_t * ctx,
   return 0;
 }
 
-static inline void
-during_frag( fd_gui_ctx_t * ctx,
-             ulong          in_idx,
-             ulong          seq    FD_PARAM_UNUSED,
-             ulong          sig,
-             ulong          chunk,
-             ulong          sz,
-             ulong          gui    FD_PARAM_UNUSED ) {
+static inline int
+returnable_frag( fd_gui_ctx_t *      ctx,
+                 ulong               in_idx,
+                 ulong               seq,
+                 ulong               sig,
+                 ulong               chunk,
+                 ulong               sz,
+                 ulong               ctl,
+                 ulong               tsorig,
+                 ulong               tspub,
+                 fd_stem_context_t * stem ) {
+  (void)seq; (void)ctl;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
@@ -248,44 +246,29 @@ during_frag( fd_gui_ctx_t * ctx,
   }
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
-    if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_BECAME_LEADER  ) ) return;
+    if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_BECAME_LEADER  ) ) return 0;
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
     /* There are multiple frags types sent on this link, the currently the
        only way to distinguish them is to check sz.  We dont actually read
        from the dcache.  */
-    return;
+    return 0;
   }
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] or too large (%lu)", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark, ctx->in[ in_idx ].mtu ));
 
-  fd_memcpy( ctx->buf, src, sz );
-}
-
-static inline void
-after_frag( fd_gui_ctx_t *      ctx,
-            ulong               in_idx,
-            ulong               seq,
-            ulong               sig,
-            ulong               sz,
-            ulong               tsorig,
-            ulong               tspub,
-            fd_stem_context_t * stem ) {
-  (void)seq;
-  (void)stem;
-
   switch ( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_PLUGIN: {
       FD_TEST( !ctx->is_full_client );
-      fd_gui_plugin_message( ctx->gui, sig, ctx->buf, fd_clock_now( ctx->clock ) );
+      fd_gui_plugin_message( ctx->gui, sig, src, fd_clock_now( ctx->clock ) );
       break;
     }
     case IN_KIND_REPLAY_OUT: {
       FD_TEST( ctx->is_full_client );
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
-        fd_replay_slot_completed_t const * replay =  (fd_replay_slot_completed_t const *)ctx->buf;
+        fd_replay_slot_completed_t const * replay =  (fd_replay_slot_completed_t const *)src;
 
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, replay->bank_idx );
         /* bank should already have positive refcnt */
@@ -353,39 +336,39 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_gui_handle_replay_update( ctx->gui, &slot_completed, fd_clock_now( ctx->clock ) );
 
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
-        fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
+        fd_became_leader_t * became_leader = (fd_became_leader_t *)src;
         fd_gui_became_leader( ctx->gui, became_leader->slot, became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
       } else {
-        return;
+        return 0;
       }
       break;
     }
     case IN_KIND_REPLAY_STAKE: {
       FD_TEST( ctx->is_full_client );
 
-      fd_stake_weight_msg_t * leader_schedule = (fd_stake_weight_msg_t *)ctx->buf;
+      fd_stake_weight_msg_t * leader_schedule = (fd_stake_weight_msg_t *)src;
       fd_gui_handle_leader_schedule( ctx->gui, leader_schedule, fd_clock_now( ctx->clock ) );
       break;
     }
     case IN_KIND_SNAPIN: {
       FD_TEST( ctx->is_full_client );
-      fd_gui_peers_handle_config_account( ctx->peers, ctx->buf, sz );
+      fd_gui_peers_handle_config_account( ctx->peers, src, sz );
       break;
     }
     case IN_KIND_GENESI_OUT: {
       FD_TEST( ctx->is_full_client );
 
       if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-        fd_gui_handle_genesis_hash( ctx->gui, ctx->buf+sizeof(fd_lthash_value_t) );
+        fd_gui_handle_genesis_hash( ctx->gui, src+sizeof(fd_lthash_value_t) );
       } else {
-        fd_gui_handle_genesis_hash( ctx->gui, ctx->buf );
+        fd_gui_handle_genesis_hash( ctx->gui, src );
       }
       break;
     }
     case IN_KIND_TOWER_OUT: {
       FD_TEST( ctx->is_full_client );
       if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE )) {
-        fd_tower_slot_done_t const * tower = (fd_tower_slot_done_t const *)ctx->buf;
+        fd_tower_slot_done_t const * tower = (fd_tower_slot_done_t const *)src;
         fd_gui_handle_tower_update( ctx->gui, tower, fd_clock_now( ctx->clock ) );
       }
       break;
@@ -405,14 +388,14 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_SNAPCT: {
       FD_TEST( ctx->is_full_client );
-      fd_gui_handle_snapshot_update( ctx->gui, (fd_snapct_update_t *)ctx->buf );
+      fd_gui_handle_snapshot_update( ctx->gui, (fd_snapct_update_t *)src );
       break;
     }
     case IN_KIND_REPAIR_NET: {
       FD_TEST( ctx->is_full_client );
       uchar * payload;
       ulong payload_sz;
-      if( FD_LIKELY( fd_ip4_udp_hdr_strip( ctx->buf, sz, &payload, &payload_sz, NULL, NULL, NULL ) ) ) {
+      if( FD_LIKELY( fd_ip4_udp_hdr_strip( src, sz, &payload, &payload_sz, NULL, NULL, NULL ) ) ) {
         fd_repair_msg_t const * msg = (fd_repair_msg_t const *)payload;
         long tsorig_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
         switch ( msg->kind ) {
@@ -432,7 +415,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       ulong payload_sz;
       fd_ip4_hdr_t * ip4_hdr;
       fd_udp_hdr_t * udp_hdr;
-      if( FD_LIKELY( fd_ip4_udp_hdr_strip( ctx->buf, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) ) ) {
+      if( FD_LIKELY( fd_ip4_udp_hdr_strip( src, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) ) ) {
         fd_gui_peers_handle_gossip_message( ctx->peers, payload, payload_sz, &(fd_ip4_port_t){ .addr = ip4_hdr->saddr, .port = udp_hdr->net_sport }, 1 );
       }
       break;
@@ -443,13 +426,13 @@ after_frag( fd_gui_ctx_t *      ctx,
       ulong payload_sz;
       fd_ip4_hdr_t * ip4_hdr;
       fd_udp_hdr_t * udp_hdr;
-      FD_TEST( fd_ip4_udp_hdr_strip( ctx->buf, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) );
+      FD_TEST( fd_ip4_udp_hdr_strip( src, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) );
       fd_gui_peers_handle_gossip_message( ctx->peers, payload, payload_sz, &(fd_ip4_port_t){ .addr = ip4_hdr->daddr, .port = udp_hdr->net_dport }, 0 );
       break;
     }
     case IN_KIND_GOSSIP_OUT: {
       FD_TEST( ctx->is_full_client );
-      fd_gossip_update_message_t * update = (fd_gossip_update_message_t *)ctx->buf;
+      fd_gossip_update_message_t * update = (fd_gossip_update_message_t *)src;
       switch( update->tag ) {
         case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: FD_TEST( sz == FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE ); break;
         case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: FD_TEST( sz == FD_GOSSIP_UPDATE_SZ_CONTACT_INFO ); break;
@@ -461,22 +444,32 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_POH_PACK: {
       FD_TEST( !ctx->is_full_client );
       FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
-      fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
+      fd_became_leader_t * became_leader = (fd_became_leader_t *)src;
       fd_gui_became_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
       break;
     }
     case IN_KIND_PACK_POH: {
-      fd_gui_unbecame_leader( ctx->gui, fd_disco_bank_sig_slot( sig ), (fd_done_packing_t const *)ctx->buf, fd_clock_now( ctx->clock ) );
+      fd_gui_unbecame_leader( ctx->gui, fd_disco_bank_sig_slot( sig ), (fd_done_packing_t const *)src, fd_clock_now( ctx->clock ) );
       break;
     }
     case IN_KIND_PACK_BANK: {
       if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
-        fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( ctx->buf+sz-sizeof(fd_microblock_bank_trailer_t) );
+        fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
         long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
+        // static long _prev1 = 0L;
+        // static long _max = 0L;
+        // if( !_prev1 ) _prev1 = now;
+        // else {
+        //   if( now-_prev1>100L*1000L ) {
+        //     _max = now-_prev1;
+        //     FD_LOG_WARNING(( "new max microblock inter-arrival time: %.1f millis", (double)_max/1e6 ));
+        //   }
+        //   _prev1 = now;
+        // }
         fd_gui_microblock_execution_begin( ctx->gui,
                                           now,
                                           fd_disco_poh_sig_slot( sig ),
-                                          (fd_txn_p_t *)ctx->buf,
+                                          (fd_txn_p_t *)src,
                                           (sz-sizeof( fd_microblock_bank_trailer_t ))/sizeof( fd_txn_p_t ),
                                           (uint)trailer->microblock_idx,
                                           trailer->pack_txn_idx );
@@ -486,14 +479,14 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_BANK_POH: {
-      fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( ctx->buf+sz-sizeof( fd_microblock_trailer_t ) );
+      fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( src+sz-sizeof( fd_microblock_trailer_t ) );
       long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
       fd_gui_microblock_execution_end( ctx->gui,
                                       now,
                                       ctx->in_bank_idx[ in_idx ],
                                       fd_disco_bank_sig_slot( sig ),
                                       (sz-sizeof( fd_microblock_trailer_t ))/sizeof( fd_txn_p_t ),
-                                      (fd_txn_p_t *)ctx->buf,
+                                      (fd_txn_p_t *)src,
                                       trailer->pack_txn_idx,
                                       trailer->txn_start_pct,
                                       trailer->txn_load_end_pct,
@@ -504,6 +497,8 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     default: FD_LOG_ERR(( "unexpected in_kind %lu", ctx->in_kind[ in_idx ] ));
   }
+
+  return 0;
 }
 
 static fd_http_server_response_t
@@ -816,6 +811,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_BURST (1UL)
 
 /* See explanation in fd_pack */
+#define STEM_ALWAYS_RETURN_CREDITS 1
 #define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gui_ctx_t
@@ -824,8 +820,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
-#define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 

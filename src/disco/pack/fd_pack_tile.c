@@ -1311,9 +1311,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
   ctx->crank->enabled                = tile->pack.bundle.enabled;
 
-  ctx->wait_duration_ticks[ 0 ] = ULONG_MAX;
+  ctx->wait_duration_ticks[ 0 ] = 0UL; //ULONG_MAX;
   for( ulong i=1UL; i<MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
-    ctx->wait_duration_ticks[ i ]=(ulong)(fd_tempo_tick_per_ns( NULL )*(double)wait_duration[ i ] + 0.5);
+    ctx->wait_duration_ticks[ i ]=0UL; //(ulong)(fd_tempo_tick_per_ns( NULL )*(double)wait_duration[ i ] + 0.5);
   }
 
   ctx->limits.slot_max_cost                = limits_lower->max_cost_per_block;

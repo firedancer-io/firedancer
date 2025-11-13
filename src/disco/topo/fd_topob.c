@@ -371,9 +371,6 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "sign",
     "plugin",
     "gui",
-    "rpc",    /* FIREDANCER only */
-    "gossvf", /* FIREDANCER only */
-    "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
     "exec",   /* FIREDANCER only */
@@ -395,9 +392,11 @@ fd_topob_auto_layout( fd_topo_t * topo,
 
   char const * CRITICAL_TILES[] = {
     "pack",
-    "poh",
     "snapdc", /* TODO: Snapshot loading speed depends on having full core */
     "snapin", /* TODO: Snapshot loading speed depends on having full core */
+    "gossvf", /* FIREDANCER only */
+    "gossip", /* FIREDANCER only */
+    "rpc",    /* FIREDANCER only */
   };
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
