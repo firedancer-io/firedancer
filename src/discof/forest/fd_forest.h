@@ -78,7 +78,9 @@ typedef struct fd_forest_blk fd_forest_blk_t;
 
 #define POOL_NAME fd_forest_pool
 #define POOL_T    fd_forest_blk_t
+#define FD_TMPL_USE_HANDHOLDING 1
 #include "../../util/tmpl/fd_pool.c"
+#undef FD_TMPL_USE_HANDHOLDING
 
 #define MAP_NAME  fd_forest_ancestry
 #define MAP_ELE_T fd_forest_blk_t

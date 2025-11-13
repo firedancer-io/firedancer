@@ -769,7 +769,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       ctx->skip_cnt         = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)bank_cnt/2L, 1L );
       fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now2 );
 
-      memcpy( ctx->last_sched_metrics->all, (ulong const *)fd_metrics_tl, sizeof(ctx->last_sched_metrics->all) );
+      // memcpy( ctx->last_sched_metrics->all, (ulong const *)fd_metrics_tl, sizeof(ctx->last_sched_metrics->all) );
       ctx->last_sched_metrics->time = now2;
 
       /* If we're using CU rebates, then we have one in for each bank in
@@ -1311,9 +1311,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
   ctx->crank->enabled                = tile->pack.bundle.enabled;
 
-  ctx->wait_duration_ticks[ 0 ] = ULONG_MAX;
+  ctx->wait_duration_ticks[ 0 ] = 0UL; //ULONG_MAX;
   for( ulong i=1UL; i<MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
-    ctx->wait_duration_ticks[ i ]=(ulong)(fd_tempo_tick_per_ns( NULL )*(double)wait_duration[ i ] + 0.5);
+    ctx->wait_duration_ticks[ i ]=0UL; //(ulong)(fd_tempo_tick_per_ns( NULL )*(double)wait_duration[ i ] + 0.5);
   }
 
   ctx->limits.slot_max_cost                = limits_lower->max_cost_per_block;

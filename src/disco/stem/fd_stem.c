@@ -716,6 +716,10 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)sz;
 
+#ifdef STEM_ALWAYS_RETURN_CREDITS
+    STEM_(in_update)( this_in );
+#endif
+
     metric_regime_ticks[1] += housekeeping_ticks;
     metric_regime_ticks[4] += prefrag_ticks;
     long next = fd_tickcount();

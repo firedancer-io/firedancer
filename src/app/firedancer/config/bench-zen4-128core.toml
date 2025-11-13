@@ -9,9 +9,9 @@
   net_tile_count = 1
   quic_tile_count = 1
   resolv_tile_count = 1
-  verify_tile_count = 31
+  verify_tile_count = 42
   gossvf_tile_count = 1
-  bank_tile_count = 3
+  bank_tile_count = 6
   exec_tile_count = 1
   shred_tile_count = 1
   sign_tile_count = 2
@@ -20,8 +20,8 @@
   fund_initial_accounts = 32768
 
 [development.bench]
-  benchg_tile_count = 12
-  benchs_tile_count = 2
+  benchg_tile_count = 20
+  benchs_tile_count = 3
   larger_max_cost_per_block = true
   larger_shred_limits_per_block = true
 
@@ -30,3 +30,11 @@
 
 [tiles.pack]
   schedule_strategy = "perf"
+  use_consumed_cus = true
+
+[tiles.gui]
+  enabled = true
+  gui_listen_address = "0.0.0.0"
+
+[tiles.metric]
+  prometheus_listen_address = "0.0.0.0"
