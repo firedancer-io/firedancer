@@ -243,5 +243,6 @@
   {"name":"enshrine_slashing_program","pubkey":"sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ"},
   {"name":"raise_account_cu_limit","pubkey":"htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8"},
   {"name":"stricter_abi_and_runtime_constraints","pubkey":"CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM"},
-  {"name":"account_data_direct_mapping","pubkey":"9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ"}
+  {"name":"account_data_direct_mapping","pubkey":"9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ"},
+  {"name":"fix_alt_bn128_pairing_length_check","pubkey":"bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm","hardcode_for_fuzzing":1}
 ]
