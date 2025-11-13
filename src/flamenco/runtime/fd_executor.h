@@ -64,7 +64,8 @@ fd_executor_txn_verify( fd_txn_p_t *  txn_p,
                         fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] );
 
 int
-fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
+fd_execute_instr( fd_runtime_t *      runtime,
+                  fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr_info );
 
 /*
@@ -72,7 +73,8 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
   Makes changes to the Funk accounts DB. */
 int
-fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx );
+fd_execute_txn( fd_runtime_t *      runtime,
+                fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );

@@ -1254,7 +1254,8 @@ fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
 }
 
 int
-fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
+fd_execute_instr( fd_runtime_t *      runtime,
+                  fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( txn_ctx->bank );
   int instr_exec_result = fd_instr_stack_push( txn_ctx, instr );
@@ -1271,6 +1272,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     .instr        = instr,
     .txn_ctx      = txn_ctx,
     .sysvar_cache = sysvar_cache,
+    .runtime      = runtime,
   };
   fd_base58_encode_32( txn_ctx->accounts.accounts[ instr->program_id ].pubkey->uc, NULL, ctx->program_id_base58 );
 
@@ -1533,7 +1535,8 @@ fd_executor_txn_verify( fd_txn_p_t *  txn_p,
 }
 
 int
-fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_execute_txn( fd_runtime_t *      runtime,
+                fd_exec_txn_ctx_t * txn_ctx ) {
 
   bool dump_insn = txn_ctx->log.capture_ctx && fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot && txn_ctx->log.capture_ctx->dump_instr_to_pb;
 
@@ -1547,7 +1550,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       fd_dump_instr_to_protobuf( txn_ctx, &txn_ctx->instr.infos[i], i );
     }
 
-    int instr_exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr.infos[i] );
+    int instr_exec_result = fd_execute_instr( runtime, txn_ctx, &txn_ctx->instr.infos[i] );
     if( FD_UNLIKELY( instr_exec_result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       if ( txn_ctx->err.exec_err_idx==INT_MAX ) {
         txn_ctx->err.exec_err_idx = i;

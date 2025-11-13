@@ -40,6 +40,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   uchar *             txn_ctx_mem = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ) );
 
+  fd_runtime_t * runtime = fd_spad_alloc( runner->spad, alignof(fd_runtime_t), sizeof(fd_runtime_t) );
+
   ctx->txn_ctx = txn_ctx;
 
   ctx->txn_ctx->exec_stack    = runner->exec_stack;
@@ -87,8 +89,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_ctx->funk = runner->funk;
 
   if( runner->progcache->funk->shmem ) {
-    txn_ctx->progcache = fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-    if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
+    if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
       FD_LOG_CRIT(( "fd_progcache_join() failed" ));
     }
   }
@@ -298,6 +299,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Restore sysvar cache */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb->funk, xid );
   ctx->sysvar_cache = fd_bank_sysvar_cache_modify( runner->bank );
+  ctx->runtime = runtime;
 
   uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
@@ -347,10 +349,10 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   if( runner->progcache->funk->shmem ) {
-    txn_ctx->progcache = fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-    if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
+    if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
       FD_LOG_CRIT(( "fd_progcache_join() failed" ));
     }
+    ctx->runtime->progcache = runner->progcache;
   }
 
   txn_ctx->bank_hash_cmp             = NULL;
@@ -390,7 +392,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 
   /* Execute the test */
-  int exec_result = fd_execute_instr( ctx->txn_ctx, instr );
+  int exec_result = fd_execute_instr( ctx->runtime, ctx->txn_ctx, instr );
 
   /* Allocate space to capture outputs */
 

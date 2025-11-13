@@ -57,8 +57,6 @@ fd_runtime_prepare_and_execute( fd_runtime_t *     runtime,
   (void)txn_out;
   fd_exec_txn_ctx_t txn_ctx;
 
-  txn_ctx.progcache = runtime->progcache;
-
   fd_runtime_prepare_and_execute_txn( bank,
                                       runtime,
                                       &txn_ctx,
@@ -1110,7 +1108,7 @@ fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
 
   /* Execute the transaction. */
   if( FD_LIKELY( txn_ctx->err.is_committable && !txn_ctx->err.is_fees_only ) ) {
-    txn_ctx->err.txn_err = fd_execute_txn( txn_ctx );
+    txn_ctx->err.txn_err = fd_execute_txn( runtime, txn_ctx );
   }
 
   return txn_ctx->err.txn_err;

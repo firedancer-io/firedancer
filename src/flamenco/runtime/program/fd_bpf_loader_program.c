@@ -2573,7 +2573,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->txn_ctx->bank );
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->txn_ctx->bank ), ctx->txn_ctx->bank->idx } };
   fd_progcache_rec_t const * cache_entry =
-      fd_progcache_pull( ctx->txn_ctx->progcache,
+      fd_progcache_pull( ctx->runtime->progcache,
                          ctx->txn_ctx->funk,
                          &xid,
                          program_id,
@@ -2621,7 +2621,6 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
   if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, accdb_shfunk ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
   }
-  txn_ctx->progcache                 = NULL;
   txn_ctx->bank_hash_cmp             = NULL;
   txn_ctx->log.enable_exec_recording = !!(bank->flags & FD_BANK_FLAGS_EXEC_RECORDING);
   txn_ctx->bank                      = bank;

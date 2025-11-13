@@ -345,8 +345,7 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
   txn_ctx->funk = runner->funk;
 
   uchar * pc_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  txn_ctx->progcache = fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
+  if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
     FD_LOG_CRIT(( "fd_progcache_join failed" ));
   }
   txn_ctx->bank_hash_cmp = NULL;
