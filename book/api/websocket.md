@@ -575,11 +575,60 @@ the middle.
 Information about the tile topology of Firedancer. This is a list of
 tiles in the system.
 
+In Firedancer, available tiles are
+
+- netlnk: Helps the net tile perform network-stack related functions.
+Separated from the net tile for security/performance reasons.
+- net: Handles all ingress/egress network traffic.
+- metric: Serves system-wide metrics from shared memory to an HTTP
+Prometheus endpoint.
+- ipecho: Obtains shred version from cluster.
+- gossvf: "Gossip verify". Performs preliminary validation of untrusted
+gossip messages arriving from the network.
+- gossip: Handles trusted, parsed messages from gossvf tile.
+- shred: Parses, verifies, and reconstructs untrusted shred payloads
+from the network.
+- repair: Consumes parsed shreds from shred tile, issues repair requests
+for any missing shreds, and reconstructs the block.
+- replay: Consumes block shreds from repair and schedules execution and
+validation of block transactions.
+- exec: Executes replay transactions.
+- tower: Maintains consensus-related data structures and helps replay
+vote.
+- send: Sends vote transactions originating from this validator into our
+own TPU as well as to other leaders' TPU.
+- quic: Implements QUIC network protocol for receiving transactions.
+- verify: Verifies transaction signatures and performs preliminary
+deduplication.
+- dedup: Performs second deduplication pass for verified transactions.
+- resolv: Resolves transaction address lookup tables (i.e., tables of
+account addresses which transactions use but must be retrieved from the
+accounts database).
+- pack: Functions as transaction scheduler.
+- bank: Helps pack execute scheduled transactions.
+- poh: Generates block "ticks" and manages leader status.
+- sign: Generates signatures for various tiles which require them (e.g.
+repair, gossip).
+- rpc: Supports a subset of the Solana RPC API.
+- gui: Serves the GUI, which includes the WebSocket API described in
+this document.
+
+##### short-lived
+
+- snapct: Manages the snapshot loading state machine.
+- snapld: Loads snapshots from the network or from the file system.
+- snapdc: Decompresses snapshot data.
+- snapin: Inserts snapshot data into the accounts database.
+- genesi: Handles cluster bootstrapping if validator is booting a new
+cluster. If booting into an existing cluster, fetches cluster info (e.g.
+genesis hash).
+
 **`Tile`**
-| Field   | Type    | Description
-|---------|---------|------------
-| kind    | `string` | What kind of tile it is. One of `net`, `sock`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, `plugin`, or `http`.
-| kind_id | `number` | The index of the tile in its kind. For example, if there are four `verify` tiles they have `kind_id` values of 0, 1, 2, and 3 respectively.
+| Field   | Type    | Description |
+|---------|---------|-------------|
+| kind    | `string` | What kind of tile it is. In Firedancer, one of the above tiles. In Frankendancer, might be one of `net`, `sock`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, `plugin`, or `http` |
+| kind_id | `number` | The index of the tile in its kind. For example, if there are four `verify` tiles they have `kind_id` values of 0, 1, 2, and 3 respectively |
+| pid     | `number` | The process id of the tile |
 
 ::: details Example
 
@@ -983,6 +1032,114 @@ first connect by the `summary.tiles` message.
 ```
 
 :::
+
+#### `summary.live_tile_metrics`
+| frequency        | type          | example |
+|------------------|---------------|---------|
+| *Once* + *10ms*  | `TileMetrics` | below   |
+
+Live tile metrics is a live feed of various metrics related to tile
+health and resource utilization.
+
+The timers field is a matrix of percentages, where entry on row
+`i`, column `j` is the percentage of time tile `i` spent in `regimes[j]`
+over the previous 10 millisecond sampling window. A value of `-1`
+indicates no sample was taken in the window, typically because the tile
+was context switched out by the kernel or it is hung.
+
+The regimes array contains the processing states that a tile can exist
+in. Tile regimes are the cartesian product of the following two state
+vectors:
+
+State vector 1:
+
+- running: means that at the time the run loop executed, there was no
+upstream message I/O for the tile to handle.
+- processing: means that at the time the run loop executed, there was one or
+more messages for the tile to consume.
+- stalled: means that at the time the run loop executed, a downstream
+consumer of the messages produced by this tile is slow or stalled, and
+the message link for that consumer has filled up. This state causes the
+tile to stop processing upstream messages.
+
+State Vector 2:
+
+- maintenance: the portion of the run loop that executes infrequent,
+potentially CPU heavy tasks
+- routine: the portion of the run loop that executes regularly,
+regardless of the presence of incoming messages
+- handling: the portion of the run loop that executes as a side effect
+of an incoming message from an upstream producer tile
+
+```json
+[
+    "running_maintenance",
+    "processing_maintenance",
+    "stalled_maintenance",
+    "running_routine",
+    "processing_routine",
+    "stalled_routine",
+    "running_handling",
+    "processing_handling",
+    // "stalled_handling" is an impossible state, and is therefore excluded
+]
+```
+
+The tiles indicies `i` appear in the same order here that they are
+reported when you first connect by the `summary.tiles` message.
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "live_tile_metrics",
+    "value": {
+        "timers": [
+            [10.1, 0, 0, 15.3, 17, 58, 0, 0],
+            [10, 0, 0, 15, 17, 58, 0, 0],
+            ...
+        ],
+        "in_backp": [
+            0,
+            0,
+            ...
+        ],
+        "backp_msgs": [
+            0,
+            10,
+            ...
+        ],
+        "alive": [
+            1,
+            1,
+            ...
+        ],
+        "nvcsw": [
+            0,
+            1234,
+            ...
+        ],
+        "nivcsw": [
+            0,
+            3,
+            ...
+        ]
+    }
+}
+```
+
+:::
+
+**`TileMetrics`**
+| Field      | Type         | Description |
+|------------|--------------|-------------|
+| timers     | `number[][]` | `timers[i][j]` is the percentage of time from the last 10ms tile `i` spent in regime `regimes[j]` |
+| in_backp   | `boolean[]`  | `in_backp[i]` is `true` if tile `i` is currently backpressured and `false` otherwise. See description of regimes above for more context |
+| backp_msgs | `number[]`   | `backp_msgs[i]` is the number of times since startup that tile `i` has had to wait for one of more consumers to catch up to resume publishing |
+| alive      | `boolean[]`  | `alive[i]` is `true` if tile `i` has updated its heartbeat timer any time in the last 10ms and `false` otherwise |
+| nvcsw      | `number[]`   | `nvcsw[i]` is the number of voluntary context switches the occurred for tile `i` since startup |
+| nivcsw     | `number[]`   | `nivcsw[i]` is the number of involuntary context switches the occurred for tile `i` since startup |
 
 ### block_engine
 Block engines are providers of additional transactions to the validator,

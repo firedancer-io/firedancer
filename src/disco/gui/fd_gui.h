@@ -233,16 +233,12 @@ struct fd_gui_validator_info {
 #define FD_GUI_SLOT_RANKING_TYPE_DESC (1)
 
 struct fd_gui_tile_timers {
-  ulong caughtup_housekeeping_ticks;
-  ulong processing_housekeeping_ticks;
-  ulong backpressure_housekeeping_ticks;
-
-  ulong caughtup_prefrag_ticks;
-  ulong processing_prefrag_ticks;
-  ulong backpressure_prefrag_ticks;
-
-  ulong caughtup_postfrag_ticks;
-  ulong processing_postfrag_ticks;
+  ulong timers[ FD_METRICS_ENUM_TILE_REGIME_CNT ];
+  int   in_backp;
+  ulong heartbeat;
+  ulong backp_cnt;
+  ulong nvcsw;
+  ulong nivcsw;
 };
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
