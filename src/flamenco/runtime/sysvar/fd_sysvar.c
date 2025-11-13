@@ -62,7 +62,7 @@ fd_sysvar_instr_acct_check( fd_exec_instr_ctx_t const * ctx,
                             fd_pubkey_t const *         addr_want ) {
 
   if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   ushort idx_in_txn = ctx->instr->accounts[idx].index_in_transaction;

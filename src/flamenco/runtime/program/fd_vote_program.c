@@ -2294,7 +2294,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L64
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   fd_guarded_borrowed_account_t me = {0};
@@ -2420,7 +2420,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   case fd_vote_instruction_enum_authorize_with_seed: {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L99
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 3 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
 
@@ -2452,7 +2452,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L112
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 4 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
 
@@ -2493,7 +2493,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   case fd_vote_instruction_enum_update_validator_identity: {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L131
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
 
@@ -2750,7 +2750,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    */
   case fd_vote_instruction_enum_withdraw: {
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
     fd_rent_t rent_;
@@ -2787,7 +2787,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    */
   case fd_vote_instruction_enum_authorize_checked: {
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 4 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
 
