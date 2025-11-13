@@ -9,14 +9,6 @@
 #define FD_SLOT_NULL                 ( ULONG_MAX )
 #define FD_SHRED_IDX_NULL            ( UINT_MAX )
 
-/* CLUSTER_VERSION is the default value for the cluster version
-   in the epoch context. This value will foll forward to the
-   latest version.
-*/
-#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR 2
-#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR 0
-#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH 0
-
 #if FD_HAS_ALLOCA
 
 /* FD_BASE58_ENC_{32,64}_ALLOCA is a shorthand for fd_base58_encode_{32,64},

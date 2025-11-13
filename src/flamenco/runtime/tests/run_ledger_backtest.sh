@@ -15,7 +15,6 @@ LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
 INGEST_MODE="rocksdb"
-CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
@@ -48,11 +47,6 @@ while [[ $# -gt 0 ]]; do
        ;;
     -a|--restore-archive)
        RESTORE_ARCHIVE="$LEDGER/$2"
-       shift
-       shift
-       ;;
-    -c|--cluster-version)
-       CLUSTER_VERSION="$2"
        shift
        shift
        ;;
@@ -239,7 +233,6 @@ echo "
         bank_hash_path = \"$DUMP/$LEDGER/bank_hashes.bin\"
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
-        cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
         enabled = false

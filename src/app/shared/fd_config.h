@@ -455,7 +455,6 @@ struct fd_config {
     } repair;
 
     struct {
-      char  cluster_version[ 32 ];
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;

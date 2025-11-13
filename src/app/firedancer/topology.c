@@ -1171,8 +1171,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.funk_obj_id      = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX ); FD_TEST( tile->replay.funk_obj_id     !=ULONG_MAX );
     tile->replay.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->replay.progcache_obj_id!=ULONG_MAX );
 
-    strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
-
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
 
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;

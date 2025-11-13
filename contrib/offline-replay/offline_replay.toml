@@ -6,8 +6,6 @@
         end_slot = {end_slot}
         ingest_mode = "rocksdb"
         rocksdb_path = "{ledger}/rocksdb"
-    [tiles.replay]
-        cluster_version = "{cluster_version}"
     [tiles.gui]
         enabled = false
     [tiles.rpc]

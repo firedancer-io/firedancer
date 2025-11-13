@@ -1365,10 +1365,6 @@ user = ""
         # Must be power of 2
         slot_max = 4096
 
-    [tiles.replay]
-        # TODO: What is this ... needs to be deleted
-        cluster_version =  "1.18.0"
-
     # The tower tile runs the fork choice and tower rules to determine
     # both what block to vote on and what block to build our own leader
     # blocks on top of.
