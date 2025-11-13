@@ -228,8 +228,6 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1688 */
 
   if( FD_UNLIKELY( params!=0UL ) ) {
-    fd_vm_syscall_set_override( FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS, "" );
-    FD_VM_PREPARE_ERR_OVERWRITE( vm );
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS );
     return FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS; /* PoseidonSyscallError::InvalidParameters */
   }
@@ -240,8 +238,6 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
        endianness!=0UL /* Big endian */
     && endianness!=1UL /* Little endian */
   ) ) {
-    fd_vm_syscall_set_override( FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS, "" );
-    FD_VM_PREPARE_ERR_OVERWRITE( vm );
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS );
     return FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS; /* PoseidonSyscallError::InvalidEndianness */
   }
