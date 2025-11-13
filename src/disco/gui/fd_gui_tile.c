@@ -25,8 +25,10 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../disco/gui/fd_gui.h"
 #include "../../disco/plugin/fd_plugin.h"
 #include "../../discof/replay/fd_exec.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/json/cJSON_alloc.h"
 #include "../../util/clock/fd_clock.h"
 #include "../../discof/repair/fd_repair.h"
@@ -178,6 +180,18 @@ during_housekeeping( fd_gui_ctx_t * ctx ) {
     fd_gui_set_identity( ctx->gui, ctx->keyswitch->bytes );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
+}
+
+static inline void
+metrics_write( fd_gui_ctx_t * ctx ) {
+  FD_MGAUGE_SET( GUI, CONNECTION_COUNT, ctx->gui_server->metrics.connection_cnt );
+  FD_MGAUGE_SET( GUI, WEBSOCKET_CONNECTION_COUNT, ctx->gui_server->metrics.ws_connection_cnt );
+
+  FD_MCNT_SET( GUI, WEBSOCKET_FRAMES_SENT,     ctx->gui_server->metrics.frames_written );
+  FD_MCNT_SET( GUI, WEBSOCKET_FRAMES_RECEIVED, ctx->gui_server->metrics.frames_read );
+
+  FD_MCNT_SET( GUI, BYTES_WRITTEN, ctx->gui_server->metrics.bytes_written );
+  FD_MCNT_SET( GUI, BYTES_READ,    ctx->gui_server->metrics.bytes_read );
 }
 
 static void
@@ -839,6 +853,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gui_ctx_t)
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag

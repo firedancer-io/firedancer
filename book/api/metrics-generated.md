@@ -486,6 +486,21 @@
 
 </div>
 
+## Gui Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">gui_&#8203;connection_&#8203;count</span> | gauge | The number of active connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;websocket_&#8203;connection_&#8203;count</span> | gauge | The number of active websocket connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;websocket_&#8203;frames_&#8203;sent</span> | counter | The total number of websocket frames sent to all connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;websocket_&#8203;frames_&#8203;received</span> | counter | The total number of websocket frames received from all connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all connections to the GUI service |
+
+</div>
+
 ## Replay Tile
 
 <div class="metrics">
