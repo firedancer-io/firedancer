@@ -1118,9 +1118,15 @@ metric introduced.
 </tile>
 
 <tile name="tower">
+
+    <!-- Vote txns from TPU / Gossip -->
+
     <counter name="VoteTxnInvalid" summary="Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.)" />
     <counter name="VoteTxnIgnored" summary="Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind)" />
     <counter name="VoteTxnMismatch" summary="Number of times a vote txn mismatched our own block id" />
+
+    <!-- Tower voting decisions -->
+
     <counter name="AncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
     <counter name="SiblingConfirmed" summary="Duplicate sibling got confirmed (can't vote)" />
     <counter name="SameFork" summary="Same fork as prev vote (can vote)" />
@@ -1129,6 +1135,12 @@ metric introduced.
     <counter name="LockoutFail" summary="Locked out (can't vote)" />
     <counter name="ThresholdFail" summary="Did not pass threshold check (can't vote)" />
     <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
+
+    <!-- Hard forks / bank hash cmp tracking -->
+
+    <counter name="HardForksSeen" summary="Number of hard forks we've seen (block ids with multiple candidate bank hashes)" />
+    <counter name="HardForksPruned" summary="Number of hard forks (candidate bank hashes) we've pruned" />
+    <gauge name="HardForksActive" summary="Currently active hard forks" />
 </tile>
 
 <tile name="gui">

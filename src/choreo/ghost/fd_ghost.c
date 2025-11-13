@@ -271,18 +271,18 @@ fd_ghost_insert( fd_ghost_t      * ghost,
 void
 fd_ghost_count_vote( fd_ghost_t *        ghost,
                      fd_ghost_blk_t *    blk,
-                     fd_pubkey_t const * vtr_addr,
+                     fd_pubkey_t const * vote_acc,
                      ulong               stake,
                      ulong               slot ) {
 
   fd_ghost_blk_t const * root = fd_ghost_root( ghost );
   fd_ghost_blk_t *       pool = ghost->pool;
-  fd_ghost_vtr_t *       vtr  = vtr_map_query( ghost->vtr_map, *vtr_addr, NULL );
+  fd_ghost_vtr_t *       vtr  = vtr_map_query( ghost->vtr_map, *vote_acc, NULL );
 
   if( FD_UNLIKELY( slot == ULONG_MAX  ) ) return; /* hasn't voted */
   if( FD_UNLIKELY( slot <  root->slot ) ) return; /* vote older than root */
 
-  if( FD_UNLIKELY( !vtr ) ) vtr = vtr_map_insert( ghost->vtr_map, *vtr_addr );
+  if( FD_UNLIKELY( !vtr ) ) vtr = vtr_map_insert( ghost->vtr_map, *vote_acc );
   else {
 
     /* Only process the vote if it is not the same as the previous vote

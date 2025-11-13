@@ -288,7 +288,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_CRIT(( "fd_progcache_join() failed" ));
   }
   ctx->txn_ctx->status_cache     = ctx->txncache;
-  ctx->txn_ctx->bank_hash_cmp    = ctx->bank_hash_cmp;
   ctx->txn_ctx->bundle.is_bundle = 0;
 
   /********************************************************************/

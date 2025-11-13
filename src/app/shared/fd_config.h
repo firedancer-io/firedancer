@@ -491,7 +491,7 @@ struct fd_config {
     } shredcap;
 
     struct {
-      ulong max_lookahead_conf;
+      ulong max_vote_lookahead;
     } tower;
 
   } tiles;

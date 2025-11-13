@@ -99,6 +99,10 @@ fd_forks_lowest_common_ancestor( fd_forks_t * forks,
   fd_tower_forks_t * fork1 = fd_tower_forks_query( forks->tower_forks, slot1, NULL );
   fd_tower_forks_t * fork2 = fd_tower_forks_query( forks->tower_forks, slot2, NULL );
 
+  if( FD_UNLIKELY( !fork1 )) FD_LOG_CRIT(( "slot1 %lu not found", slot1 ));
+  if( FD_UNLIKELY( !fork2 )) FD_LOG_CRIT(( "slot2 %lu not found", slot2 ));
+
+
   while( FD_LIKELY( fork1 && fork2 ) ) {
     if( FD_UNLIKELY( fork1->slot == fork2->slot ) ) return fork1->slot;
     if( fork1->slot > fork2->slot                 ) fork1 = fd_tower_forks_query( forks->tower_forks, fork1->parent_slot, NULL );

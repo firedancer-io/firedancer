@@ -1388,15 +1388,15 @@ user = ""
     [tiles.tower]
         # Solana reaches consensus via replay, but can "cluster confirm"
         # slots ahead of the replay tip by listening to vote txns from
-        # gossip or TPU.  The larger max_lookahead_conf, the further
+        # gossip or TPU.  The larger max_vote_lookahead, the further
         # ahead slots can be cluster confirmed before they are replayed.
         #
         # Specifically, tower will ignore gossip or TPU votes that are
-        # more than max_lookahead_conf slots ahead of the root.
+        # more than max_vote_lookahead slots ahead of the root.
         #
-        # Note max_lookahead_conf must be >= max_live_slots and
+        # Note max_vote_lookahead must be >= max_live_slots and
         # Firedancer will ignore a value where this is not the case.
-        max_lookahead_conf = 4096
+        max_vote_lookahead = 4096
 
     [tiles.send]
         # The port the send tile uses for QUIC, to send votes and other
