@@ -146,8 +146,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
 
         /* Commit. */
         if( FD_LIKELY( ctx->txn_ctx->err.is_committable ) ) {
-          fd_funk_txn_xid_t xid = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), bank->idx } };
-          fd_runtime_finalize_txn( ctx->funk, ctx->progcache, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx, NULL );
+          fd_runtime_commit_txn( &ctx->runtime, bank, ctx->txn_ctx, ctx->capture_ctx, NULL );
         }
 
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {

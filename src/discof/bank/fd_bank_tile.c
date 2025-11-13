@@ -221,15 +221,14 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        fork and diverge, so the link from here til PoH mixin must be
        completely reliable with nothing dropped.
 
-       fd_runtime_finalize_txn checks if the transaction fits into the
+       fd_runtime_commit_txn checks if the transaction fits into the
        block with the cost tracker.  If it doesn't fit, flags is set to
        zero.  A key invariant of the leader pipeline is that pack
        ensures all transactions must fit already, so it is a fatal error
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-    fd_runtime_finalize_txn( ctx->runtime.funk, ctx->runtime.progcache, ctx->runtime.status_cache, &xid, txn_ctx, bank, NULL, &tips );
+    fd_runtime_commit_txn( &ctx->runtime, bank, txn_ctx, NULL, &tips );
 
     if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
       /* If the transaction failed to fit into the block, we need to
@@ -399,8 +398,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
 
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-      fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-      fd_runtime_finalize_txn( ctx->runtime.funk, ctx->runtime.progcache, ctx->runtime.status_cache, &xid, txn_ctx, bank, NULL, &tips[ i ] );
+      fd_runtime_commit_txn( &ctx->runtime, bank, txn_ctx, NULL, &tips[ i ] );
       if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->err.exec_err)<<24);
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );

@@ -279,14 +279,6 @@ fd_runtime_prepare_and_execute( fd_runtime_t * runtime,
                                 fd_txn_in_t *  txn_in,
                                 fd_txn_out_t * txn_out );
 
-/* fd_runtime_commit_txn applies/commits the results of a transaction
-   (fd_txn_out_t) to the bank and runtime. */
-
-void
-fd_runtime_commit_txn( fd_runtime_t * runtime,
-                       fd_bank_t *    bank,
-                       fd_txn_out_t * txn_out );
-
 
 /* Runtime Helpers ************************************************************/
 
@@ -386,14 +378,11 @@ fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
                                     uchar *              tracing_mem );
 
 void
-fd_runtime_finalize_txn( fd_funk_t *               funk,
-                         fd_progcache_t *          progcache,
-                         fd_txncache_t *           txncache,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_exec_txn_ctx_t *       txn_ctx,
-                         fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx,
-                         ulong *                   tips_out_opt );
+fd_runtime_commit_txn( fd_runtime_t *            runtime,
+                       fd_bank_t *               bank,
+                       fd_exec_txn_ctx_t *       txn_ctx,
+                       fd_capture_ctx_t *        capture_ctx,
+                       ulong *                   tips_out_opt );
 
 /* Epoch Boundary *************************************************************/
 

@@ -494,14 +494,18 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
         break;
       }
 
+      fd_runtime_t runtime = {
+        .funk         = runner->accdb->funk,
+        .progcache    = runner->progcache,
+        .status_cache = NULL,
+        .exec_stack   = runner->exec_stack,
+      };
+
       /* Finalize the transaction */
-      fd_runtime_finalize_txn(
-          runner->accdb->funk,
-          runner->progcache,
-          NULL,
-          &xid,
-          txn_ctx,
+      fd_runtime_commit_txn(
+          &runtime,
           runner->bank,
+          txn_ctx,
           capture_ctx,
           NULL );
 

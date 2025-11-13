@@ -905,20 +905,19 @@ fd_runtime_save_account( fd_funk_t *               funk,
   fd_runtime_finalize_account( funk, xid, account, funk_prev_rec );
 }
 
-/* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
+/* fd_runtime_commit_txn is a helper used by the non-tpool transaction
    executor to finalize borrowed account changes back into funk. It also
    handles txncache insertion and updates to the vote/stake cache.
    TODO: This function should probably be moved to fd_executor.c. */
 
 void
-fd_runtime_finalize_txn( fd_funk_t *               funk,
-                         fd_progcache_t *          progcache,
-                         fd_txncache_t *           txncache,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_exec_txn_ctx_t *       txn_ctx,
-                         fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx,
-                         ulong *                   tips_out_opt ) {
+fd_runtime_commit_txn( fd_runtime_t *            runtime,
+                       fd_bank_t *               bank,
+                       fd_exec_txn_ctx_t *       txn_ctx,
+                       fd_capture_ctx_t *        capture_ctx,
+                       ulong *                   tips_out_opt ) {
+
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
 
   /* Collect fees */
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ), 1UL );
@@ -942,12 +941,12 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
 
        We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
     if( txn_ctx->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-      fd_runtime_save_account( funk, xid, txn_ctx->accounts.rollback_nonce, bank, capture_ctx );
+      fd_runtime_save_account( runtime->funk, &xid, txn_ctx->accounts.rollback_nonce, bank, capture_ctx );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
     if( FD_LIKELY( txn_ctx->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      fd_runtime_save_account( funk, xid, txn_ctx->accounts.rollback_fee_payer, bank, capture_ctx );
+      fd_runtime_save_account( runtime->funk, &xid, txn_ctx->accounts.rollback_fee_payer, bank, capture_ctx );
     }
   } else {
 
@@ -967,7 +966,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
 
       fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_ctx->accounts.accounts[i] );
       if( FD_UNLIKELY( !acc_rec ) ) {
-        FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join account at idx %u", i ));
+        FD_LOG_CRIT(( "fd_runtime_commit_txn: failed to join account at idx %u", i ));
       }
 
       /* Tips for bundles are collected in the bank: a user submitting a
@@ -996,7 +995,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
          cache updates have been applied. */
       fd_executor_reclaim_account( txn_ctx, &txn_ctx->accounts.accounts[i] );
 
-      fd_runtime_save_account( funk, xid, &txn_ctx->accounts.accounts[i], bank, capture_ctx );
+      fd_runtime_save_account( runtime->funk, &xid, &txn_ctx->accounts.accounts[i], bank, capture_ctx );
     }
 
     /* We need to queue any existing program accounts that may have
@@ -1006,7 +1005,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
       ulong current_slot = fd_bank_slot_get( bank );
       for( uchar i=0; i<txn_ctx->details.programs_to_reverify_cnt; i++ ) {
         fd_pubkey_t const * program_key = &txn_ctx->details.programs_to_reverify[i];
-        fd_progcache_invalidate( progcache, xid, program_key, current_slot );
+        fd_progcache_invalidate( runtime->progcache, &xid, program_key, current_slot );
       }
   }
 
@@ -1033,14 +1032,14 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
   fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
   int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
-    FD_LOG_DEBUG(( "fd_runtime_finalize_txn: transaction failed to fit into block %d", res ));
+    FD_LOG_DEBUG(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
     txn_ctx->err.is_committable = 0;
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
   txn_ctx->details.loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_ctx );
 
-  if( FD_LIKELY( txncache && txn_ctx->accounts.nonce_idx_in_txn==ULONG_MAX ) ) {
+  if( FD_LIKELY( runtime->status_cache && txn_ctx->accounts.nonce_idx_in_txn==ULONG_MAX ) ) {
     /* In Agave, durable nonce transactions are inserted to the status
        cache the same as any others, but this is only to serve RPC
        requests, they do not need to be in there for correctness as the
@@ -1048,7 +1047,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
        entirely to simplify and improve performance of the txn cache. */
 
     fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
-    fd_txncache_insert( txncache, bank->txncache_fork_id, blockhash->uc, txn_ctx->details.blake_txn_msg_hash.uc );
+    fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, blockhash->uc, txn_ctx->details.blake_txn_msg_hash.uc );
   }
 }
 
