@@ -49,10 +49,6 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-    -c|--cluster-version)
-        CLUSTER_VERSION="$2"
-        shift
-        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -95,7 +91,6 @@ echo "
         archiver_path = \"dump/$LEDGER/rocksdb\"
     [tiles.replay]
         snapshot = \"$SNAPSHOT\"
-        cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ \"$ONE_OFFS\" ]
     [tiles.gui]
         enabled = false

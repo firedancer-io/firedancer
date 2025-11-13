@@ -50,7 +50,6 @@ echo "
     [tiles.replay]
         capture = \"firedancer-dev.solcap\"
         snapshot = \"$FULL_SNAPSHOT\"
-        cluster_version = \"2.0.14\"
     [tiles.gui]
         enabled = false
         gui_listen_address = \"64.130.51.169\"

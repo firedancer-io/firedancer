@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 
 #include "../leaders/fd_leaders.h"
+#include "../types/fd_types.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -109,6 +110,12 @@ static const fd_pubkey_t TESTNET_TIP_ACCOUNTS[ 8 ] = {
    https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/runtime/src/bank.rs#L1859
    https://github.com/anza-xyz/solana-sdk/blob/badc2c40071e6e7f7a8e8452b792b66613c5164c/fee-structure/src/lib.rs#L100 */
 #define FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE (5000UL)
+
+static const fd_cluster_version_t FD_RUNTIME_CLUSTER_VERSION = {
+  .major = 3UL,
+  .minor = 0UL,
+  .patch = 3UL
+};
 
 FD_PROTOTYPES_END
 

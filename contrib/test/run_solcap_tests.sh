@@ -63,6 +63,7 @@ sed -i "/lock_pages/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
 sed -i "/heap_size_gib/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
 sed -i "/max_total_banks/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
 sed -i "/max_fork_width/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
+sed -i "/cluster_version/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
 
 echo "
 [gossip]
