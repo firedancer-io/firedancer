@@ -88,8 +88,10 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
     break;
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING:
-    /* Compute pairing */
-    if( FD_LIKELY( fd_bn254_pairing_is_one_syscall( call_result, input, input_sz )==0 ) ) {
+    /* Compute pairing with length check based on feature gate.
+       https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.1.2/bn254/src/pairing.rs#L76-L82 */
+    if( FD_LIKELY( fd_bn254_pairing_is_one_syscall( call_result, input, input_sz,
+                                                    FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->txn_ctx->bank, fix_alt_bn128_pairing_length_check ) )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;
