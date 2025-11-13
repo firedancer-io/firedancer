@@ -19,8 +19,41 @@ struct fd_txn_return_data {
   ulong       len;
   uchar       data[1024];
 };
-
 typedef struct fd_txn_return_data fd_txn_return_data_t;
+
+struct fd_txn_err {
+  int is_committable;
+  int is_fees_only;
+  int txn_err;
+  /* These are error fields produced by instruction execution
+      when txn_err == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR (-9). */
+  int  exec_err;
+  int  exec_err_kind;
+  int  exec_err_idx;
+  uint custom_err;
+};
+typedef struct fd_txn_err fd_txn_err_t;
+
+struct fd_txn_details {
+  fd_compute_budget_details_t compute_budget;                 /* Compute budget details */
+  ulong                       loaded_accounts_data_size;      /* The actual transaction loaded data size */
+  ulong                       loaded_accounts_data_size_cost; /* The cost of the loaded accounts data size in CUs */
+  ulong                       accounts_resize_delta;          /* Transaction level tracking for account resizing */
+  fd_txn_return_data_t        return_data;                    /* Data returned from `return_data` syscalls */
+  fd_hash_t                   blake_txn_msg_hash;             /* Hash of raw transaction message used by the status cache */
+  ulong                       execution_fee;                  /* Execution fee paid by the fee payer in the transaction */
+  ulong                       priority_fee;                   /* Priority fee paid by the fee payer in the transaction */
+  /* When a program is deployed or upgraded, we must queue it to be
+      updated in the program cache (if it exists already) so that
+      the cache entry's ELF / sBPF information can be updated for
+      future executions.  We keep an array of pubkeys for the
+      transaction to track which programs need to be reverified.  The
+      actual queueing for reverification is done in the transaction
+      finalization step. */
+  uchar                       programs_to_reverify_cnt;
+  fd_pubkey_t                 programs_to_reverify[ MAX_TX_ACCOUNT_LOCKS ];
+};
+typedef struct fd_txn_details fd_txn_details_t;
 
 /* fd_exec_txn_ctx_t is the context needed to execute a transaction. */
 
@@ -43,9 +76,8 @@ struct fd_exec_txn_ctx {
   /* Input fields: memory, bank, acc db, funk, prog cache, and txn */
   fd_bank_t *          bank;
   fd_txncache_t *      status_cache;
-  fd_funk_t            funk[1];
+  fd_funk_t *          funk;
   fd_progcache_t *     progcache;
-  fd_progcache_t       _progcache[1];
   fd_txn_p_t           txn;
   fd_exec_stack_t *    exec_stack;
   fd_exec_accounts_t * exec_accounts;
@@ -110,37 +142,8 @@ struct fd_exec_txn_ctx {
     ulong               prev_txn_ctxs_cnt;
   } bundle;
 
-  struct {
-    int is_committable;
-    int is_fees_only;
-    int txn_err;
-    /* These are error fields produced by instruction execution
-       when txn_err == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR (-9). */
-    int  exec_err;
-    int  exec_err_kind;
-    int  exec_err_idx;
-    uint custom_err;
-  } err;
-
-  struct {
-    fd_compute_budget_details_t compute_budget;                 /* Compute budget details */
-    ulong                       loaded_accounts_data_size;      /* The actual transaction loaded data size */
-    ulong                       loaded_accounts_data_size_cost; /* The cost of the loaded accounts data size in CUs */
-    ulong                       accounts_resize_delta;          /* Transaction level tracking for account resizing */
-    fd_txn_return_data_t        return_data;                    /* Data returned from `return_data` syscalls */
-    fd_hash_t                   blake_txn_msg_hash;             /* Hash of raw transaction message used by the status cache */
-    ulong                       execution_fee;                  /* Execution fee paid by the fee payer in the transaction */
-    ulong                       priority_fee;                   /* Priority fee paid by the fee payer in the transaction */
-    /* When a program is deployed or upgraded, we must queue it to be
-       updated in the program cache (if it exists already) so that
-       the cache entry's ELF / sBPF information can be updated for
-       future executions.  We keep an array of pubkeys for the
-       transaction to track which programs need to be reverified.  The
-       actual queueing for reverification is done in the transaction
-       finalization step. */
-    uchar                       programs_to_reverify_cnt;
-    fd_pubkey_t                 programs_to_reverify[ MAX_TX_ACCOUNT_LOCKS ];
-  } details;
+  fd_txn_err_t     err;
+  fd_txn_details_t details;
 
   struct {
     int                enable_exec_recording;

@@ -3,6 +3,7 @@
 
 #include "../../util/pod/fd_pod_format.h"
 #include "../../discof/replay/fd_exec.h"
+#include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_exec_stack.h"
@@ -80,6 +81,8 @@ typedef struct fd_exec_tile_ctx {
   uchar                 dumping_mem[ FD_SPAD_FOOTPRINT( 1UL<<28UL ) ] __attribute__((aligned(FD_SPAD_ALIGN)));
   uchar                 tracing_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_VM_TRACE_STATIC_ALIGN)));
 
+  fd_runtime_t runtime;
+
 } fd_exec_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -133,6 +136,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( bank );
         ctx->txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( bank,
+                                                                         &ctx->runtime,
                                                                          ctx->txn_ctx,
                                                                          &msg->txn,
                                                                          ctx->capture_ctx,
@@ -296,13 +300,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( ctx->txn_ctx ) ) );
 
-  if( FD_UNLIKELY( !fd_funk_join( ctx->txn_ctx->funk, shfunk ) ) ) {
-    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
-  }
-  ctx->txn_ctx->progcache = fd_progcache_join( ctx->txn_ctx->_progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  if( FD_UNLIKELY( !ctx->txn_ctx->progcache ) ) {
-    FD_LOG_CRIT(( "fd_progcache_join() failed" ));
-  }
+  ctx->txn_ctx->funk             = ctx->funk;
+  ctx->txn_ctx->progcache        = ctx->progcache;
   ctx->txn_ctx->status_cache     = ctx->txncache;
   ctx->txn_ctx->bank_hash_cmp    = ctx->bank_hash_cmp;
   ctx->txn_ctx->bundle.is_bundle = 0;
@@ -335,6 +334,17 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->pending_txn_finalized_msg = 0;
+
+  /********************************************************************/
+  /* Runtime                                                          */
+  /********************************************************************/
+
+  ctx->runtime = (fd_runtime_t) {
+    .funk         = ctx->funk,
+    .status_cache = ctx->txncache,
+    .progcache    = ctx->progcache,
+    .exec_stack   = &ctx->exec_stack,
+  };
 }
 
 /* Publish the next account update event buffered in the capture tile to the replay tile

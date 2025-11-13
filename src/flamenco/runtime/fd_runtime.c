@@ -20,6 +20,8 @@
 #include "../rewards/fd_rewards.h"
 #include "../progcache/fd_progcache_user.h"
 
+#include "../fd_flamenco.h"
+
 #include "context/fd_exec_txn_ctx.h"
 
 #include "program/fd_stake_program.h"
@@ -43,6 +45,40 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
+
+void
+fd_runtime_prepare_and_execute( fd_runtime_t *     runtime,
+                                fd_bank_t *        bank,
+                                fd_txn_in_t *      txn_in,
+                                fd_txn_out_t *     txn_out ) {
+  (void)runtime;
+  (void)bank;
+  (void)txn_in;
+  (void)txn_out;
+  fd_exec_txn_ctx_t txn_ctx;
+
+  txn_ctx.progcache    = runtime->progcache;
+  txn_ctx.status_cache = runtime->status_cache;
+
+  fd_runtime_prepare_and_execute_txn( bank,
+                                      runtime,
+                                      &txn_ctx,
+                                      txn_in->txn,
+                                      runtime->debugging.capture_ctx,
+                                      runtime->exec_stack,
+                                      (fd_exec_accounts_t *)txn_in->accounts_mem,
+                                      runtime->debugging.dumping_mem,
+                                      runtime->debugging.tracing_mem );
+}
+
+void
+fd_runtime_commit( fd_runtime_t * runtime,
+                   fd_bank_t *    bank,
+                   fd_txn_out_t * txn_out ) {
+  (void)runtime;
+  (void)bank;
+  (void)txn_out;
+}
 
 /******************************************************************************/
 /* Public Runtime Helpers                                                     */
@@ -1021,6 +1057,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
 
 int
 fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
+                                    fd_runtime_t *       runtime,
                                     fd_exec_txn_ctx_t *  txn_ctx,
                                     fd_txn_p_t *         txn,
                                     fd_capture_ctx_t *   capture_ctx,
@@ -1028,6 +1065,7 @@ fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
                                     fd_exec_accounts_t * exec_accounts,
                                     uchar *              dumping_mem,
                                     uchar *              tracing_mem ) {
+  (void)runtime;
 
   txn_ctx->bank                  = bank;
   txn_ctx->txn                   = *txn;

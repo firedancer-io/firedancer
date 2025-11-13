@@ -81,12 +81,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   uchar * progcache_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
-  if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, runner->accdb->funk->shmem ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_join( runner->funk, runner->accdb->funk->shmem ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
   }
+  txn_ctx->funk = runner->funk;
 
   if( runner->progcache->funk->shmem ) {
-    txn_ctx->progcache = fd_progcache_join( txn_ctx->_progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+    txn_ctx->progcache = fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
     if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
       FD_LOG_CRIT(( "fd_progcache_join() failed" ));
     }
@@ -284,7 +285,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
   }
 
-
   fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ fd_bank_slot_get( runner->bank ), runner->bank->idx } }};
   fd_accdb_attach_child        ( runner->accdb_admin,     xid, exec_xid );
   fd_progcache_txn_attach_child( runner->progcache_admin, xid, exec_xid );
@@ -348,7 +348,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   if( runner->progcache->funk->shmem ) {
-    txn_ctx->progcache = fd_progcache_join( txn_ctx->_progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+    txn_ctx->progcache = fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
     if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
       FD_LOG_CRIT(( "fd_progcache_join() failed" ));
     }

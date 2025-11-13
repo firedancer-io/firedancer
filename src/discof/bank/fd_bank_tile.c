@@ -57,6 +57,8 @@ typedef struct {
   fd_exec_accounts_t exec_accounts[ FD_PACK_MAX_TXN_PER_BUNDLE ];
   fd_exec_stack_t    exec_stack;
 
+  fd_runtime_t runtime;
+
 
   struct {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
@@ -185,6 +187,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
     txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( bank,
+                                                                &ctx->runtime,
                                                                 txn_ctx,
                                                                 txn,
                                                                 NULL,
@@ -375,7 +378,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
     txn_ctx->bundle.is_bundle = 1;
-    txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( bank, txn_ctx, txn, NULL, &ctx->exec_stack, &ctx->exec_accounts[ i ], NULL, NULL );
+    txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( bank, &ctx->runtime, txn_ctx, txn, NULL, &ctx->exec_stack, &ctx->exec_accounts[ i ], NULL, NULL );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->err.exec_err)<<24);
     if( FD_UNLIKELY( !txn_ctx->err.is_committable || txn_ctx->err.exec_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       execution_success = 0;
@@ -560,12 +563,18 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->txn_ctx[ i ].bundle.prev_txn_ctxs[ j ] = &ctx->txn_ctx[ j ];
     }
 
-    ctx->txn_ctx[ i ].bank_hash_cmp    = NULL; /* TODO - do we need this? */
-    ctx->txn_ctx[ i ].progcache        = ctx->txn_ctx[ i ]._progcache;
-    ctx->txn_ctx[ i ].status_cache     = txncache;
-    *(ctx->txn_ctx[ i ].funk)          = *funk;
-    *(ctx->txn_ctx[ i ]._progcache)    = *progcache;
+    ctx->txn_ctx[ i ].bank_hash_cmp = NULL; /* TODO - do we need this? */
+    ctx->txn_ctx[ i ].progcache     = progcache;
+    ctx->txn_ctx[ i ].status_cache  = txncache;
+    ctx->txn_ctx[ i ].funk          = funk;
   }
+
+  ctx->runtime = (fd_runtime_t) {
+    .funk         = funk,
+    .progcache    = progcache,
+    .status_cache = txncache,
+    .exec_stack   = &ctx->exec_stack,
+  };
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );

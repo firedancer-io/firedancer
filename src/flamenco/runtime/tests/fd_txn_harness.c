@@ -339,11 +339,13 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
   uchar *             txn_ctx_mem = fd_spad_alloc_check( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ) );
   txn_ctx->err.is_committable     = 1;
-  if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, runner->accdb->funk->shmem ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_join( runner->funk, runner->accdb->funk->shmem ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
+  txn_ctx->funk = runner->funk;
+
   uchar * pc_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  txn_ctx->progcache = fd_progcache_join( txn_ctx->_progcache, runner->progcache->funk->shmem, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  txn_ctx->progcache = fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
     FD_LOG_CRIT(( "fd_progcache_join failed" ));
   }
@@ -355,8 +357,16 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
     tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
   }
 
+  fd_runtime_t runtime = {
+    .funk         = runner->funk,
+    .progcache    = runner->progcache,
+    .status_cache = NULL,
+    .exec_stack   = runner->exec_stack,
+  };
+
   *exec_res = fd_runtime_prepare_and_execute_txn(
       runner->bank,
+      &runtime,
       txn_ctx,
       txn,
       NULL,

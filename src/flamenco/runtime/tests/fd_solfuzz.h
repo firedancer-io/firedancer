@@ -29,6 +29,8 @@ struct fd_solfuzz_runner {
   fd_banks_t * banks;
   fd_bank_t *  bank;
 
+  fd_funk_t funk[1];
+
   fd_progcache_t       progcache[1];
   fd_progcache_admin_t progcache_admin[1];
 

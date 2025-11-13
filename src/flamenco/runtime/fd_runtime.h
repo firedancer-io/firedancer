@@ -231,6 +231,63 @@ FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION
 
 FD_PROTOTYPES_BEGIN
 
+
+/**********************************************************************/
+
+struct fd_runtime {
+  fd_funk_t *       funk;
+  fd_txncache_t *   status_cache;
+  fd_progcache_t *  progcache;
+  fd_exec_stack_t * exec_stack;
+
+  struct {
+    fd_capture_ctx_t * capture_ctx;
+    uchar *            dumping_mem;
+    uchar *            tracing_mem;
+  } debugging;
+};
+typedef struct fd_runtime fd_runtime_t;
+
+struct fd_txn_in {
+  fd_txn_p_t * txn;
+  uchar *      accounts_mem[ MAX_TX_ACCOUNT_LOCKS ];
+  struct {
+    int              is_bundle;
+    int              prev_txn_cnt;
+    ulong            accounts_cnt[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+    fd_txn_account_t accounts[ FD_PACK_MAX_TXN_PER_BUNDLE ][ MAX_TX_ACCOUNT_LOCKS ];
+  } bundle;
+};
+typedef struct fd_txn_in fd_txn_in_t;
+
+struct fd_txn_out {
+  fd_exec_accounts_t * exec_accounts;
+  fd_txn_err_t         err;
+  fd_txn_details_t     details;
+  ulong                accounts_cnt;
+  fd_txn_account_t     accounts[ MAX_TX_ACCOUNT_LOCKS ];
+};
+typedef struct fd_txn_out fd_txn_out_t;
+
+/* fd_runtime_prepare_and_execute_txn executes a transaction (fd_txn_p_t)
+   against a bank (fd_bank_t) given a runtime (fd_runtime_t) and we
+   return an output/result of our execution (fd_txn_out_t). */
+
+void
+fd_runtime_prepare_and_execute( fd_runtime_t * runtime,
+                                fd_bank_t *    bank,
+                                fd_txn_in_t *  txn_in,
+                                fd_txn_out_t * txn_out );
+
+/* fd_runtime_commit_txn applies/commits the results of a transaction
+   (fd_txn_out_t) to the bank and runtime. */
+
+void
+fd_runtime_commit_txn( fd_runtime_t * runtime,
+                       fd_bank_t *    bank,
+                       fd_txn_out_t * txn_out );
+
+
 /* Runtime Helpers ************************************************************/
 
 /*
@@ -319,6 +376,7 @@ fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
+                                    fd_runtime_t *       runtime,
                                     fd_exec_txn_ctx_t *  txn_ctx,
                                     fd_txn_p_t *         txn,
                                     fd_capture_ctx_t *   capture_ctx,

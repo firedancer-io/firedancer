@@ -100,9 +100,6 @@ typedef union fd_runtime_stack fd_runtime_stack_t;
 struct fd_exec_stack;
 typedef struct fd_exec_stack fd_exec_stack_t;
 
-struct fd_status_cache;
-typedef struct fd_status_cache fd_status_cache_t;
-
 struct fd_account_meta {
   uchar owner[32];
   ulong lamports;
