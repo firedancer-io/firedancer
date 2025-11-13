@@ -223,6 +223,19 @@ authorized_voters_new( ulong               epoch,
   return authorized_voters;
 }
 
+// Helper to create an empty AuthorizedVoters structure (for default/uninitialized states)
+static fd_vote_authorized_voters_t *
+authorized_voters_new_empty( uchar * mem ) {
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  fd_vote_authorized_voters_t * authorized_voters = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_align(),       sizeof(fd_vote_authorized_voters_t) );
+  void *                        pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_pool_align(),  fd_vote_authorized_voters_pool_footprint( FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
+  void *                        treap_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_treap_align(), fd_vote_authorized_voters_treap_footprint( FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
+
+  authorized_voters->pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( pool_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
+  authorized_voters->treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( treap_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
+  return authorized_voters;
+}
+
 static inline int
 authorized_voters_is_empty( fd_vote_authorized_voters_t * self ) {
   return fd_vote_authorized_voters_treap_ele_cnt( self->treap ) == 0;
@@ -405,11 +418,8 @@ convert_to_current( fd_vote_state_versioned_t * self,
 
     fd_vote_authorized_voters_t * authorized_voters;
     if( is_uninitialized ) {
-      // Create empty AuthorizedVoters (default)
-      authorized_voters = (fd_vote_authorized_voters_t *)authorized_voters_mem;
-      fd_memset( authorized_voters, 0, sizeof(fd_vote_authorized_voters_t) );
-      authorized_voters->pool = NULL;
-      authorized_voters->treap = NULL;
+      // Create empty AuthorizedVoters (default), initialized but with no entries
+      authorized_voters = authorized_voters_new_empty( authorized_voters_mem );
     } else {
       authorized_voters = authorized_voters_new(
           state->authorized_voter_epoch, &state->authorized_voter, authorized_voters_mem );
