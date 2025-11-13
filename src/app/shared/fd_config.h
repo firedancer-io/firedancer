@@ -109,6 +109,10 @@ struct fd_configf {
     ulong file_size_gib;
     ulong max_cache_entries;
     ulong cache_size_gib;
+    struct {
+       int  enabled;
+       uint queue_depth;
+    } io_uring;
   } vinyl;
 
   struct {

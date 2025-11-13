@@ -7,9 +7,13 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../vinyl/fd_vinyl.h"
+#include "../../vinyl/io/fd_vinyl_io_ur.h"
 
 #include <errno.h>
 #include <fcntl.h>
+#if FD_HAS_LIBURING
+#include <liburing.h>
+#endif
 
 #define NAME "vinyl"
 #define MAX_INS 8
@@ -33,13 +37,35 @@ struct fd_vinyl_tile_ctx {
   void * obj_mem;      ulong obj_footprint;
 
   ulong * snapin_manif_fseq;
+
+  struct io_uring * ring;
+# if FD_HAS_LIBURING
+  struct io_uring _ring[1];
+# endif
 };
 
 typedef struct fd_vinyl_tile_ctx fd_vinyl_tile_ctx_t;
 
+#if FD_HAS_LIBURING
+
+static struct io_uring_params *
+vinyl_io_uring_params( struct io_uring_params * params,
+                       uint                     uring_depth ) {
+  memset( params, 0, sizeof(struct io_uring_params) );
+  params->flags      |= IORING_SETUP_CQSIZE;
+  params->cq_entries  = uring_depth;
+  params->flags      |= IORING_SETUP_COOP_TASKRUN;
+  params->flags      |= IORING_SETUP_SINGLE_ISSUER;
+  params->features   |= IORING_SETUP_DEFER_TASKRUN;
+  return params;
+}
+
+#endif
+
+
 static ulong
 scratch_align( void ) {
-  return fd_vinyl_align();
+  return FD_SHMEM_HUGE_PAGE_SZ;
 }
 
 static ulong
@@ -47,23 +73,17 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_vinyl_tile_ctx_t), sizeof(fd_vinyl_tile_ctx_t) );
+  if( tile->vinyl.io_type==FD_VINYL_IO_TYPE_UR ) {
+#   if FD_HAS_LIBURING
+    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_ur_align(), fd_vinyl_io_ur_footprint( IO_SPAD_MAX ) );
+#   endif
+  } else {
+    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_bd_align(), fd_vinyl_io_bd_footprint( IO_SPAD_MAX ) );
+  }
   l = FD_LAYOUT_APPEND( l, fd_vinyl_align(),         fd_vinyl_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_cnc_align(),           fd_cnc_footprint( FD_VINYL_CNC_APP_SZ ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_vinyl_line_t), sizeof(fd_vinyl_line_t)*tile->vinyl.vinyl_line_max );
-  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_bd_align(),   fd_vinyl_io_bd_footprint( IO_SPAD_MAX ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
-}
-
-/* vinyl_init_io creates a vinyl_io object over an existing bstream
-   file. */
-
-static fd_vinyl_io_t *
-vinyl_init_io( void * _io,
-               ulong  spad_max,
-               int    dev_fd ) {
-  fd_vinyl_io_t * io = fd_vinyl_io_bd_init( _io, spad_max, dev_fd, 0, NULL, 0UL, 0UL );
-  if( FD_UNLIKELY( !io ) ) FD_LOG_ERR(( "Failed to initialize I/O backend for account database" ));
-  return io;
 }
 
 /* vinyl_init_fast is a variation of fd_vinyl_init.  Creates tile
@@ -127,25 +147,51 @@ vinyl_init_fast( fd_vinyl_tile_ctx_t * ctx,
   vinyl->obj_footprint  = obj_footprint;
 
   ctx->vinyl = vinyl;
+
+  FD_LOG_NOTICE(( "Vinyl config"
+                  "\n\tline_cnt    %lu pairs"
+                  "\n\tpair_max    %lu pairs"
+                  "\n\tasync_min   %lu min iterations per async"
+                  "\n\tasync_max   %lu max iterations per async"
+                  "\n\tpart_thresh %lu bytes"
+                  "\n\tgc_thresh   %lu bytes"
+                  "\n\tgc_eager    %i",
+                  line_cnt, pair_max, async_min, async_max, part_thresh, gc_thresh, gc_eager ));
 }
+
+#if FD_HAS_LIBURING
+
+static void
+vinyl_io_uring_init( fd_vinyl_tile_ctx_t * ctx,
+                     uint                  uring_depth,
+                     int                   dev_fd ) {
+  ctx->ring = ctx->_ring;
+
+  /* Setup io_uring instance */
+  struct io_uring_params params[1];
+  vinyl_io_uring_params( params, uring_depth );
+  int init_err = io_uring_queue_init_params( uring_depth, ctx->ring, params );
+  if( FD_UNLIKELY( init_err<0 ) ) FD_LOG_ERR(( "io_uring_queue_init_params failed (%i-%s)", init_err, fd_io_strerror( -init_err ) ));
+
+  /* Setup io_uring file access */
+  FD_TEST( 0==io_uring_register_files( ctx->ring, &dev_fd, 1 ) );
+}
+
+#else /* no io_uring */
+
+static void
+vinyl_io_uring_init( fd_vinyl_tile_ctx_t * ctx,
+                     uint                  uring_depth,
+                     int                   dev_fd ) {
+  (void)ctx; (void)uring_depth; (void)dev_fd;
+  FD_LOG_ERR(( "Sorry, this build does not support io_uring" ));
+}
+
+#endif
 
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-  (void)topo;
-  fd_vinyl_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  memset( ctx, 0, sizeof(fd_vinyl_tile_ctx_t) );
-
-  /* FIXME use O_DIRECT? */
-  int dev_fd = open( tile->vinyl.vinyl_bstream_path, O_RDWR|O_CLOEXEC );
-  if( FD_UNLIKELY( dev_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_CLOEXEC) failed (%i-%s)", tile->vinyl.vinyl_bstream_path, errno, fd_io_strerror( errno ) ));
-
-  ctx->bstream_fd = dev_fd;
-}
-
-static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
   ulong cnc_footprint = fd_cnc_footprint( FD_VINYL_CNC_APP_SZ );
   ulong line_footprint;
   if( FD_UNLIKELY( !tile->vinyl.vinyl_line_max || __builtin_umull_overflow( tile->vinyl.vinyl_line_max, sizeof(fd_vinyl_line_t), &line_footprint ) ) ) {
@@ -154,18 +200,23 @@ unprivileged_init( fd_topo_t *      topo,
 
   void * tile_mem = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, tile_mem );
-  fd_vinyl_tile_ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_ctx_t), sizeof(fd_vinyl_tile_ctx_t) );
-  void *                vinyl_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_align(), fd_vinyl_footprint()   );
-  void *                _cnc      = FD_SCRATCH_ALLOC_APPEND( l, fd_cnc_align(),   cnc_footprint          );
-  fd_vinyl_line_t *     _line     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_line_t), line_footprint );
-  void *                _io       = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_bd_align(), fd_vinyl_io_bd_footprint( IO_SPAD_MAX ) );
-  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  fd_vinyl_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_ctx_t), sizeof(fd_vinyl_tile_ctx_t) );
+  void * _io = NULL;
+  if( tile->vinyl.io_type==FD_VINYL_IO_TYPE_UR ) {
+#   if FD_HAS_LIBURING
+    _io = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(), fd_vinyl_io_ur_footprint( IO_SPAD_MAX ) );
+#   endif
+  } else {
+    _io = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_bd_align(), fd_vinyl_io_bd_footprint( IO_SPAD_MAX ) );
+  }
+  void *            vinyl_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_align(), fd_vinyl_footprint()   );
+  void *            _cnc      = FD_SCRATCH_ALLOC_APPEND( l, fd_cnc_align(),   cnc_footprint          );
+  fd_vinyl_line_t * _line     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_line_t), line_footprint );
+  ulong             _end      = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   FD_TEST( (ulong)tile_mem==(ulong)ctx );
+  FD_TEST( (ulong)_end-(ulong)tile_mem==scratch_footprint( tile ) );
 
-  ulong manif_in_idx = fd_topo_find_tile_in_link( topo, tile, "snapin_manif", 0UL );
-  FD_TEST( manif_in_idx!=ULONG_MAX );
-  FD_TEST( manif_in_idx<MAX_INS );
-  ctx->in_kind[ manif_in_idx ] = IN_KIND_SNAP;
+  memset( ctx, 0, sizeof(fd_vinyl_tile_ctx_t) );
 
   void * _meta = fd_topo_obj_laddr( topo, tile->vinyl.vinyl_meta_map_obj_id  );
   void * _ele  = fd_topo_obj_laddr( topo, tile->vinyl.vinyl_meta_pool_obj_id );
@@ -178,6 +229,31 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->line_mem  = _line;  ctx->line_footprint = line_footprint;
   ctx->ele_mem   = _ele;   ctx->ele_footprint  = topo->objs[ tile->vinyl.vinyl_meta_pool_obj_id ].footprint;
   ctx->obj_mem   = _obj;   ctx->obj_footprint  = topo->objs[ tile->vinyl.vinyl_data_obj_id      ].footprint;
+
+  /* FIXME use O_DIRECT? */
+  int dev_fd = open( tile->vinyl.vinyl_bstream_path, O_RDWR|O_CLOEXEC );
+  if( FD_UNLIKELY( dev_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_CLOEXEC) failed (%i-%s)", tile->vinyl.vinyl_bstream_path, errno, fd_io_strerror( errno ) ));
+
+  ctx->bstream_fd = dev_fd;
+
+  int io_type = tile->vinyl.io_type;
+  if( io_type==FD_VINYL_IO_TYPE_UR ) {
+    vinyl_io_uring_init( ctx, tile->vinyl.uring_depth, dev_fd );
+  } else if( io_type!=FD_VINYL_IO_TYPE_BD ) {
+    FD_LOG_ERR(( "Unsupported vinyl io_type %d", io_type ));
+  }
+}
+
+static void
+unprivileged_init( fd_topo_t *      topo,
+                   fd_topo_tile_t * tile ) {
+
+  fd_vinyl_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  ulong manif_in_idx = fd_topo_find_tile_in_link( topo, tile, "snapin_manif", 0UL );
+  FD_TEST( manif_in_idx!=ULONG_MAX );
+  FD_TEST( manif_in_idx<MAX_INS );
+  ctx->in_kind[ manif_in_idx ] = IN_KIND_SNAP;
 
   /* Join a public CNC if provided (development only) */
   if( tile->vinyl.vinyl_cnc_obj_id!=ULONG_MAX ) {
@@ -194,8 +270,14 @@ unprivileged_init( fd_topo_t *      topo,
 __attribute__((noreturn)) static void
 enter_vinyl_exec( fd_vinyl_tile_ctx_t * ctx ) {
 
-  fd_vinyl_io_t * io = vinyl_init_io( ctx->io_mem, IO_SPAD_MAX, ctx->bstream_fd );
-  FD_TEST( io );
+  fd_vinyl_io_t * io = NULL;
+  if( ctx->ring ) {
+    io = fd_vinyl_io_ur_init( ctx->io_mem, IO_SPAD_MAX, ctx->bstream_fd, ctx->ring );
+    if( FD_UNLIKELY( !io ) ) FD_LOG_ERR(( "Failed to initialize io_uring I/O backend for account database" ));
+  } else {
+    io = fd_vinyl_io_bd_init( ctx->io_mem, IO_SPAD_MAX, ctx->bstream_fd, 0, NULL, 0UL, 0UL );
+    if( FD_UNLIKELY( !io ) ) FD_LOG_ERR(( "Failed to initialize blocking I/O backend for account database" ));
+  }
 
   ulong async_min   =         5UL;
   ulong async_max   = 2*async_min;

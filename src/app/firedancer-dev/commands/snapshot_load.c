@@ -215,12 +215,6 @@ snapshot_load_topo( config_t * config,
 
     fd_topob_wksp( topo, "vinyl_exec" );
     fd_topo_tile_t * vinyl_tile = fd_topob_tile( topo, "vinyl", "vinyl_exec", "metric_in", ULONG_MAX, 0, 0 );
-    vinyl_tile->vinyl.vinyl_meta_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX );
-    vinyl_tile->vinyl.vinyl_meta_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX );
-    vinyl_tile->vinyl.vinyl_line_max         = config->firedancer.vinyl.max_cache_entries;
-    vinyl_tile->vinyl.vinyl_cnc_obj_id       = vinyl_cnc->id;
-    vinyl_tile->vinyl.vinyl_data_obj_id      = vinyl_data->id;
-    fd_cstr_ncpy( vinyl_tile->vinyl.vinyl_bstream_path, config->paths.accounts, sizeof(vinyl_tile->vinyl.vinyl_bstream_path) );
 
     fd_topob_tile_uses( topo, vinyl_tile, vinyl_cnc,  FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, vinyl_tile, vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -583,6 +577,11 @@ fixup_config( config_t *     config,
 
     config->firedancer.funk.heap_size_gib       = 0;
     config->firedancer.funk.max_account_records = 0;
+
+    char const * io_mode = args->snapshot_load.vinyl_io;
+    if(      0==strcmp( io_mode, "ur" ) ) config->firedancer.vinyl.io_uring.enabled = 1;
+    else if( 0==strcmp( io_mode, "bd" ) ) {}
+    else FD_LOG_ERR(( "unsupported --vinyl-io '%s' (valid options are 'bd' and 'ur')", io_mode ));
   }
 
   if( args->snapshot_load.offline ) {
@@ -851,15 +850,15 @@ snapshot_load_cmd_fn( args_t *   args,
     /* Wait for vinyl tile to boot */
     fd_cnc_t * cnc = fd_cnc_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "vinyl.cnc", ULONG_MAX )  ) );
     FD_TEST( cnc );
-    ulong vinyl_status = fd_cnc_wait( cnc, FD_CNC_SIGNAL_BOOT, LONG_MAX, NULL );
-    FD_TEST( vinyl_status==FD_CNC_SIGNAL_RUN );
+    ulong vinyl_status = fd_cnc_wait( cnc, FD_VINYL_CNC_SIGNAL_BOOT, LONG_MAX, NULL );
+    FD_TEST( vinyl_status==FD_VINYL_CNC_SIGNAL_RUN );
     FD_LOG_NOTICE(( "Vinyl server running" ));
     for(;;) {
       vinyl_status = fd_cnc_wait( cnc, vinyl_status, LONG_MAX, NULL );
       char cnc_signal_cstr[ FD_VINYL_CNC_SIGNAL_CSTR_BUF_MAX ];
       fd_vinyl_cnc_signal_cstr( vinyl_status, cnc_signal_cstr );
       FD_LOG_NOTICE(( "Vinyl CNC signal %s", cnc_signal_cstr ));
-      if( vinyl_status==FD_CNC_SIGNAL_BOOT ) break;
+      //if( vinyl_status==FD_VINYL_CNC_SIGNAL_BOOT ) break;
     }
     FD_LOG_NOTICE(( "Vinyl server shut down" ));
     fd_cnc_leave( cnc );

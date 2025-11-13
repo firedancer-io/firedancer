@@ -610,6 +610,9 @@ struct fd_topo_tile {
       ulong vinyl_cnc_obj_id; /* optional */
       ulong vinyl_data_obj_id;
       char  vinyl_bstream_path[ PATH_MAX ];
+
+      int  io_type; /* FD_VINYL_IO_TYPE_* */
+      uint uring_depth;
     } vinyl;
   };
 };
