@@ -41,10 +41,10 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ) );
 
   fd_runtime_t * runtime = fd_spad_alloc( runner->spad, alignof(fd_runtime_t), sizeof(fd_runtime_t) );
+  runtime->exec_stack    = runner->exec_stack;
 
   ctx->txn_ctx = txn_ctx;
 
-  ctx->txn_ctx->exec_stack    = runner->exec_stack;
   ctx->txn_ctx->exec_accounts = runner->exec_accounts;
 
   /* Bank manager */

@@ -381,7 +381,6 @@ fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
                                     fd_exec_txn_ctx_t *  txn_ctx,
                                     fd_txn_p_t *         txn,
                                     fd_capture_ctx_t *   capture_ctx,
-                                    fd_exec_stack_t *    exec_stack,
                                     fd_exec_accounts_t * exec_accounts,
                                     uchar *              dumping_mem,
                                     uchar *              tracing_mem );

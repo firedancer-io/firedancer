@@ -140,7 +140,6 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
                                                                          ctx->txn_ctx,
                                                                          &msg->txn,
                                                                          ctx->capture_ctx,
-                                                                         &ctx->exec_stack,
                                                                          &ctx->exec_accounts,
                                                                          ctx->dumping_mem,
                                                                          &ctx->tracing_mem[0][0] );

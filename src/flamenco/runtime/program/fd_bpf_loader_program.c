@@ -159,19 +159,19 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* Allocate rodata segment */
-  void * rodata = instr_ctx->txn_ctx->exec_stack->bpf_loader_program.rodata;
+  void * rodata = instr_ctx->runtime->exec_stack->bpf_loader_program.rodata;
   if( FD_UNLIKELY( !rodata ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
   /* Allocate program buffer */
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( instr_ctx->txn_ctx->exec_stack->bpf_loader_program.sbpf_footprint, elf_info, rodata );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( instr_ctx->runtime->exec_stack->bpf_loader_program.sbpf_footprint, elf_info, rodata );
   if( FD_UNLIKELY( !prog ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_new() failed" ));
   }
 
   /* Load program */
-  void * scratch = instr_ctx->txn_ctx->exec_stack->bpf_loader_program.programdata;
+  void * scratch = instr_ctx->runtime->exec_stack->bpf_loader_program.programdata;
   int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, scratch, programdata_size );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;

@@ -62,7 +62,6 @@ fd_runtime_prepare_and_execute( fd_runtime_t *     runtime,
                                       &txn_ctx,
                                       txn_in->txn,
                                       runtime->debugging.capture_ctx,
-                                      runtime->exec_stack,
                                       NULL,
                                       runtime->debugging.dumping_mem,
                                       runtime->debugging.tracing_mem );
@@ -1059,7 +1058,6 @@ fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
                                     fd_exec_txn_ctx_t *  txn_ctx,
                                     fd_txn_p_t *         txn,
                                     fd_capture_ctx_t *   capture_ctx,
-                                    fd_exec_stack_t *    exec_stack,
                                     fd_exec_accounts_t * exec_accounts,
                                     uchar *              dumping_mem,
                                     uchar *              tracing_mem ) {
@@ -1067,7 +1065,6 @@ fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
 
   txn_ctx->bank                  = bank;
   txn_ctx->txn                   = *txn;
-  txn_ctx->exec_stack            = exec_stack;
   txn_ctx->exec_accounts         = exec_accounts;
 
   txn_ctx->accounts.accounts_cnt   = 0UL;
