@@ -11,10 +11,11 @@ ulong
 fd_vinyl_io_ur_align( void );
 
 ulong
-fd_vinyl_io_ur_footprint( void );
+fd_vinyl_io_ur_footprint( ulong spad_max );
 
 fd_vinyl_io_t *
 fd_vinyl_io_ur_init( void *            mem,
+                     ulong             spad_max,
                      int               dev_fd,
                      struct io_uring * ring );
 

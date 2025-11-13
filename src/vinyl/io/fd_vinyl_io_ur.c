@@ -16,6 +16,17 @@ bd_read( int    fd,
   /**/                 FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
 }
 
+static inline void
+bd_write( int          fd,
+          ulong        off,
+          void const * buf,
+          ulong        sz ) {
+  ssize_t ssz = pwrite( fd, buf, sz, (off_t)off );
+  if( FD_LIKELY( ssz==(ssize_t)sz ) ) return;
+  if( ssz<(ssize_t)0 ) FD_LOG_CRIT(( "pwrite(fd %i,off %lu,sz %lu) failed (%i-%s)", fd, off, sz, errno, fd_io_strerror( errno ) ));
+  else                 FD_LOG_CRIT(( "pwrite(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
+}
+
 /* fd_vinyl_io_ur_rd_t extends fd_vinyl_io_rd_t.  Describes an inflight
    read request.  Each object gets created with a fd_vinyl_io_read()
    call, has at least the lifetime of a io_uring SQE/CQE transaction,
@@ -62,6 +73,57 @@ struct fd_vinyl_io_ur {
 };
 
 typedef struct fd_vinyl_io_ur fd_vinyl_io_ur_t;
+
+/* fd_vinyl_io_ur_read_imm is identical to fd_vinyl_io_bd_read_imm. */
+
+static void
+fd_vinyl_io_ur_read_imm( fd_vinyl_io_t * io,
+                         ulong           seq0,
+                         void *          _dst,
+                         ulong           sz ) {
+  fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io;  /* Note: io must be non-NULL to have even been called */
+
+  /* If this is a request to read nothing, succeed immediately.  If
+     this is a request to read outside the bstream's past, fail. */
+
+  if( FD_UNLIKELY( !sz ) ) return;
+
+  uchar * dst  = (uchar *)_dst;
+  ulong   seq1 = seq0 + sz;
+
+  ulong seq_past    = ur->base->seq_past;
+  ulong seq_present = ur->base->seq_present;
+
+  int bad_seq  = !fd_ulong_is_aligned( seq0, FD_VINYL_BSTREAM_BLOCK_SZ );
+  int bad_dst  = (!fd_ulong_is_aligned( (ulong)dst, FD_VINYL_BSTREAM_BLOCK_SZ )) | !dst;
+  int bad_sz   = !fd_ulong_is_aligned( sz,   FD_VINYL_BSTREAM_BLOCK_SZ );
+  int bad_past = !(fd_vinyl_seq_le( seq_past, seq0 ) & fd_vinyl_seq_lt( seq0, seq1 ) & fd_vinyl_seq_le( seq1, seq_present ));
+
+  if( FD_UNLIKELY( bad_seq | bad_dst | bad_sz | bad_past ) )
+    FD_LOG_CRIT(( "bstream read_imm [%016lx,%016lx)/%lu failed (past [%016lx,%016lx)/%lu, %s)",
+                  seq0, seq1, sz, seq_past, seq_present, seq_present-seq_past,
+                  bad_seq ? "misaligned seq"         :
+                  bad_dst ? "misaligned or NULL dst" :
+                  bad_sz  ? "misaligned sz"          :
+                            "not in past" ));
+
+  /* At this point, we have a valid read request.  Map seq0 into the
+     bstream store.  Read the lesser of sz bytes or until the store end.
+     If we hit the store end with more to go, wrap around and finish the
+     read at the store start. */
+
+  int   dev_fd   = ur->dev_fd;
+  ulong dev_base = ur->dev_base;
+  ulong dev_sz   = ur->dev_sz;
+
+  ulong dev_off = seq0 % dev_sz;
+
+  ulong rsz = fd_ulong_min( sz, dev_sz - dev_off );
+  bd_read( dev_fd, dev_base + dev_off, dst, rsz );
+  sz -= rsz;
+
+  if( FD_UNLIKELY( sz ) ) bd_read( dev_fd, dev_base, dst + rsz, sz );
+}
 
 /* ### Read pipeline explainer
 
@@ -265,19 +327,315 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
   return FD_VINYL_SUCCESS;
 }
 
+/* fd_vinyl_io_ur_append is identical to fd_vinyl_io_bd_append. */
+
+static ulong
+fd_vinyl_io_ur_append( fd_vinyl_io_t * io,
+                       void const *    _src,
+                       ulong           sz ) {
+  fd_vinyl_io_ur_t * ur  = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+  uchar const *      src = (uchar const *)_src;
+
+  /* Validate the input args. */
+
+  ulong seq_future  = ur->base->seq_future;  if( FD_UNLIKELY( !sz ) ) return seq_future;
+  ulong seq_ancient = ur->base->seq_ancient;
+  int   dev_fd      = ur->dev_fd;
+  ulong dev_base    = ur->dev_base;
+  ulong dev_sz      = ur->dev_sz;
+
+  int bad_src      = !src;
+  int bad_align    = !fd_ulong_is_aligned( (ulong)src, FD_VINYL_BSTREAM_BLOCK_SZ );
+  int bad_sz       = !fd_ulong_is_aligned( sz,         FD_VINYL_BSTREAM_BLOCK_SZ );
+  int bad_capacity = sz > (dev_sz - (seq_future-seq_ancient));
+
+  if( FD_UNLIKELY( bad_src | bad_align | bad_sz | bad_capacity ) )
+    FD_LOG_CRIT(( bad_src   ? "NULL src"       :
+                  bad_align ? "misaligned src" :
+                  bad_sz    ? "misaligned sz"  :
+                              "device full" ));
+
+  /* At this point, we appear to have a valid append request.  Map it to
+     the bstream (updating seq_future) and map it to the device.  Then
+     write the lesser of sz bytes or until the store end.  If we hit the
+     store end with more to go, wrap around and finish the write at the
+     store start. */
+
+  ulong seq = seq_future;
+  ur->base->seq_future = seq + sz;
+
+  ulong dev_off = seq % dev_sz;
+
+  ulong wsz = fd_ulong_min( sz, dev_sz - dev_off );
+  bd_write( dev_fd, dev_base + dev_off, src, wsz );
+  sz -= wsz;
+  if( sz ) bd_write( dev_fd, dev_base, src + wsz, sz );
+
+  return seq;
+}
+
+/* fd_vinyl_io_ur_commit is identical to fd_vinyl_io_bd_commit. */
+
+static int
+fd_vinyl_io_ur_commit( fd_vinyl_io_t * io,
+                       int             flags ) {
+  fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+  (void)flags;
+
+  ur->base->seq_present = ur->base->seq_future;
+  ur->base->spad_used   = 0UL;
+
+  return FD_VINYL_SUCCESS;
+}
+
+/* fd_vinyl_io_ur_hint is identical to fd_vinyl_io_bd_hint. */
+
+static ulong
+fd_vinyl_io_ur_hint( fd_vinyl_io_t * io,
+                     ulong           sz ) {
+  fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+
+  ulong seq_future  = ur->base->seq_future;  if( FD_UNLIKELY( !sz ) ) return seq_future;
+  ulong seq_ancient = ur->base->seq_ancient;
+  ulong dev_sz      = ur->dev_sz;
+
+  int bad_sz       = !fd_ulong_is_aligned( sz, FD_VINYL_BSTREAM_BLOCK_SZ );
+  int bad_capacity = sz > (dev_sz - (seq_future-seq_ancient));
+
+  if( FD_UNLIKELY( bad_sz | bad_capacity ) ) FD_LOG_CRIT(( bad_sz ? "misaligned sz" : "device full" ));
+
+  return ur->base->seq_future;
+}
+
+/* fd_vinyl_io_ur_alloc is identical to fd_vinyl_io_bd_alloc. */
+
+static void *
+fd_vinyl_io_ur_alloc( fd_vinyl_io_t * io,
+                      ulong           sz,
+                      int             flags ) {
+  fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+
+  ulong spad_max  = ur->base->spad_max;
+  ulong spad_used = ur->base->spad_used; if( FD_UNLIKELY( !sz ) ) return ((uchar *)(ur+1)) + spad_used;
+
+  int bad_align = !fd_ulong_is_aligned( sz, FD_VINYL_BSTREAM_BLOCK_SZ );
+  int bad_sz    = sz > spad_max;
+
+  if( FD_UNLIKELY( bad_align | bad_sz ) ) FD_LOG_CRIT(( bad_align ? "misaligned sz" : "sz too large" ));
+
+  if( FD_UNLIKELY( sz > (spad_max - spad_used ) ) ) {
+    if( FD_UNLIKELY( fd_vinyl_io_ur_commit( io, flags ) ) ) return NULL;
+    spad_used = 0UL;
+  }
+
+  ur->base->spad_used = spad_used + sz;
+
+  return ((uchar *)(ur+1)) + spad_used;
+}
+
+/* fd_vinyl_io_ur_copy is identical to fd_vinyl_io_bd_copy. */
+
+static ulong
+fd_vinyl_io_ur_copy( fd_vinyl_io_t * io,
+                     ulong           seq_src0,
+                     ulong           sz ) {
+  fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+
+  /* Validate the input args */
+
+  ulong seq_ancient = ur->base->seq_ancient;
+  ulong seq_past    = ur->base->seq_past;
+  ulong seq_present = ur->base->seq_present;
+  ulong seq_future  = ur->base->seq_future;   if( FD_UNLIKELY( !sz ) ) return seq_future;
+  ulong spad_max    = ur->base->spad_max;
+  ulong spad_used   = ur->base->spad_used;
+  int   dev_fd      = ur->dev_fd;
+  ulong dev_base    = ur->dev_base;
+  ulong dev_sz      = ur->dev_sz;
+
+  ulong seq_src1 = seq_src0 + sz;
+
+  int bad_past     = !( fd_vinyl_seq_le( seq_past, seq_src0    ) &
+                        fd_vinyl_seq_lt( seq_src0, seq_src1    ) &
+                        fd_vinyl_seq_le( seq_src1, seq_present ) );
+  int bad_src      = !fd_ulong_is_aligned( seq_src0, FD_VINYL_BSTREAM_BLOCK_SZ );
+  int bad_sz       = !fd_ulong_is_aligned( sz,       FD_VINYL_BSTREAM_BLOCK_SZ );
+  int bad_capacity = sz > (dev_sz - (seq_future-seq_ancient));
+
+  if( FD_UNLIKELY( bad_past | bad_src | bad_sz | bad_capacity ) )
+    FD_LOG_CRIT(( bad_past ? "src is not in the past"    :
+                  bad_src  ? "misaligned src_seq"        :
+                  bad_sz   ? "misaligned sz"             :
+                             "device full" ));
+
+  /* At this point, we appear to have a valid copy request.  Get
+     buffer space from the scratch pad (committing as necessary). */
+
+  if( FD_UNLIKELY( sz>(spad_max-spad_used) ) ) {
+    fd_vinyl_io_ur_commit( io, FD_VINYL_IO_FLAG_BLOCKING );
+    spad_used = 0UL;
+  }
+
+  uchar * buf     = (uchar *)(ur+1) + spad_used;
+  ulong   buf_max = spad_max - spad_used;
+
+  /* Map the dst to the bstream (updating seq_future) and map the src
+     and dst regions onto the device.  Then copy as much as we can at a
+     time, handling device wrap around and copy buffering space. */
+
+  ulong seq = seq_future;
+  ur->base->seq_future = seq + sz;
+
+  ulong seq_dst0 = seq;
+
+  for(;;) {
+    ulong src_off = seq_src0 % dev_sz;
+    ulong dst_off = seq_dst0 % dev_sz;
+    ulong csz     = fd_ulong_min( fd_ulong_min( sz, buf_max ), fd_ulong_min( dev_sz - src_off, dev_sz - dst_off ) );
+
+    bd_read ( dev_fd, dev_base + src_off, buf, csz );
+    bd_write( dev_fd, dev_base + dst_off, buf, csz );
+
+    sz -= csz;
+    if( !sz ) break;
+
+    seq_src0 += csz;
+    seq_dst0 += csz;
+  }
+
+  return seq;
+}
+
+/* fd_vinyl_io_ur_forget is identical to fd_vinyl_io_bd_forget. */
+
+static void
+fd_vinyl_io_ur_forget( fd_vinyl_io_t * io,
+                       ulong           seq ) {
+  fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+
+  /* Validate input arguments.  Note that we don't allow forgetting into
+     the future even when we have no uncommitted blocks because the
+     resulting [seq_ancient,seq_future) might contain blocks that were
+     never written (which might not be an issue practically but it would
+     be a bit strange for something to try to scan starting from
+     seq_ancient and discover unwritten blocks). */
+
+  ulong seq_past    = ur->base->seq_past;
+  ulong seq_present = ur->base->seq_present;
+  ulong seq_future  = ur->base->seq_future;
+
+  int bad_seq    = !fd_ulong_is_aligned( seq, FD_VINYL_BSTREAM_BLOCK_SZ );
+  int bad_dir    = !(fd_vinyl_seq_le( seq_past, seq ) & fd_vinyl_seq_le( seq, seq_present ));
+  int bad_read   = !!ur->rd_head;
+  int bad_append = fd_vinyl_seq_ne( seq_present, seq_future );
+
+  if( FD_UNLIKELY( bad_seq | bad_dir | bad_read | bad_append ) )
+    FD_LOG_CRIT(( "forget to seq %016lx failed (past [%016lx,%016lx)/%lu, %s)",
+                  seq, seq_past, seq_present, seq_present-seq_past,
+                  bad_seq  ? "misaligned seq"             :
+                  bad_dir  ? "seq out of bounds"          :
+                  bad_read ? "reads in progress"          :
+                             "appends/copies in progress" ));
+
+  ur->base->seq_past = seq;
+}
+
+/* fd_vinyl_io_ur_rewind is identical to fd_vinyl_io_bd_rewind. */
+
+static void
+fd_vinyl_io_ur_rewind( fd_vinyl_io_t * io,
+                       ulong           seq ) {
+  fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+
+  /* Validate input argments.  Unlike forgot, we do allow rewinding to
+     before seq_ancient as the region of sequence space reported to the
+     caller as written is still accurate. */
+
+  ulong seq_ancient = ur->base->seq_ancient;
+  ulong seq_past    = ur->base->seq_past;
+  ulong seq_present = ur->base->seq_present;
+  ulong seq_future  = ur->base->seq_future;
+
+  int bad_seq    = !fd_ulong_is_aligned( seq, FD_VINYL_BSTREAM_BLOCK_SZ );
+  int bad_dir    = fd_vinyl_seq_gt( seq, seq_present );
+  int bad_read   = !!ur->rd_head;
+  int bad_append = fd_vinyl_seq_ne( seq_present, seq_future );
+
+  if( FD_UNLIKELY( bad_seq | bad_dir | bad_read | bad_append ) )
+    FD_LOG_CRIT(( "rewind to seq %016lx failed (present %016lx, %s)", seq, seq_present,
+                  bad_seq  ? "misaligned seq"             :
+                  bad_dir  ? "seq after seq_present"      :
+                  bad_read ? "reads in progress"          :
+                             "appends/copies in progress" ));
+
+  ur->base->seq_ancient = fd_ulong_if( fd_vinyl_seq_ge( seq, seq_ancient ), seq_ancient, seq );
+  ur->base->seq_past    = fd_ulong_if( fd_vinyl_seq_ge( seq, seq_past    ), seq_past,    seq );
+  ur->base->seq_present = seq;
+  ur->base->seq_future  = seq;
+}
+
+/* fd_vinyl_io_ur_sync is identical to fd_vinyl_io_bd_sync. */
+
+static int
+fd_vinyl_io_ur_sync( fd_vinyl_io_t * io,
+                     int             flags ) {
+  fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+  (void)flags;
+
+  ulong seed        = ur->base->seed;
+  ulong seq_past    = ur->base->seq_past;
+  ulong seq_present = ur->base->seq_present;
+
+  int   dev_fd       = ur->dev_fd;
+  ulong dev_sync     = ur->dev_sync;
+
+  fd_vinyl_bstream_block_t * block = ur->sync;
+
+  /* block->sync.ctl     current (static) */
+  block->sync.seq_past    = seq_past;
+  block->sync.seq_present = seq_present;
+  /* block->sync.info_sz current (static) */
+  /* block->sync.info    current (static) */
+
+  block->sync.hash_trail  = 0UL;
+  block->sync.hash_blocks = 0UL;
+  fd_vinyl_bstream_block_hash( seed, block ); /* sets hash_trail back to seed */
+
+  bd_write( dev_fd, dev_sync, block, FD_VINYL_BSTREAM_BLOCK_SZ );
+
+  ur->base->seq_ancient = seq_past;
+
+  return FD_VINYL_SUCCESS;
+}
+
+/* fd_vinyl_io_ur_fini is identical to fd_vinyl_io_bd_fini. */
+
+static void *
+fd_vinyl_io_ur_fini( fd_vinyl_io_t * io ) {
+  fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+
+  ulong seq_present = ur->base->seq_present;
+  ulong seq_future  = ur->base->seq_future;
+
+  if( FD_UNLIKELY( ur->rd_head                                ) ) FD_LOG_WARNING(( "fini completing outstanding reads" ));
+  if( FD_UNLIKELY( fd_vinyl_seq_ne( seq_present, seq_future ) ) ) FD_LOG_WARNING(( "fini discarding uncommited blocks" ));
+
+  return io;
+}
+
 static fd_vinyl_io_impl_t fd_vinyl_io_ur_impl[1] = { {
-  NULL, // fd_vinyl_io_ur_read_imm,
+  fd_vinyl_io_ur_read_imm,
   fd_vinyl_io_ur_read,
   fd_vinyl_io_ur_poll,
-  NULL, // fd_vinyl_io_ur_append,
-  NULL, // fd_vinyl_io_ur_commit,
-  NULL, // fd_vinyl_io_ur_hint,
-  NULL, // fd_vinyl_io_ur_alloc,
-  NULL, // fd_vinyl_io_ur_copy,
-  NULL, // fd_vinyl_io_ur_forget,
-  NULL, // fd_vinyl_io_ur_rewind,
-  NULL, // fd_vinyl_io_ur_sync,
-  NULL, // fd_vinyl_io_ur_fini
+  fd_vinyl_io_ur_append,
+  fd_vinyl_io_ur_commit,
+  fd_vinyl_io_ur_hint,
+  fd_vinyl_io_ur_alloc,
+  fd_vinyl_io_ur_copy,
+  fd_vinyl_io_ur_forget,
+  fd_vinyl_io_ur_rewind,
+  fd_vinyl_io_ur_sync,
+  fd_vinyl_io_ur_fini
 } };
 
 FD_STATIC_ASSERT( alignof(fd_vinyl_io_ur_t)==FD_VINYL_BSTREAM_BLOCK_SZ, layout );
@@ -288,12 +646,15 @@ fd_vinyl_io_ur_align( void ) {
 }
 
 ulong
-fd_vinyl_io_ur_footprint( void ) {
-  return sizeof(fd_vinyl_io_ur_t);
+fd_vinyl_io_ur_footprint( ulong spad_max ) {
+  if( FD_UNLIKELY( !((0UL<spad_max) & (spad_max<(1UL<<63)) & fd_ulong_is_aligned( spad_max, FD_VINYL_BSTREAM_BLOCK_SZ )) ) )
+    return 0UL;
+  return sizeof(fd_vinyl_io_ur_t) + spad_max;
 }
 
 fd_vinyl_io_t *
 fd_vinyl_io_ur_init( void *            mem,
+                     ulong             spad_max,
                      int               dev_fd,
                      struct io_uring * ring ) {
   fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)mem;
@@ -308,7 +669,7 @@ fd_vinyl_io_ur_init( void *            mem,
     return NULL;
   }
 
-  ulong footprint = fd_vinyl_io_ur_footprint();
+  ulong footprint = fd_vinyl_io_ur_footprint( spad_max );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "bad spad_max" ));
     return NULL;
@@ -342,7 +703,7 @@ fd_vinyl_io_ur_init( void *            mem,
   /* io_seed, seq_ancient, seq_past, seq_present, seq_future are init
      below */
 
-  ur->base->spad_max  = 0UL;  /* FIXME */
+  ur->base->spad_max  = spad_max;
   ur->base->spad_used = 0UL;
   ur->base->impl      = fd_vinyl_io_ur_impl;
 
@@ -408,10 +769,11 @@ fd_vinyl_io_ur_init( void *            mem,
 
   FD_LOG_NOTICE(( "IO config"
                   "\n\ttype     ur"
+                  "\n\tspad_max %lu bytes"
                   "\n\tdev_sz   %lu bytes"
                   "\n\tinfo     \"%s\" (info_sz %lu, discovered)"
                   "\n\tio_seed  0x%016lx (discovered)",
-                  dev_sz,
+                  spad_max, dev_sz,
                   (char const *)info, info_sz,
                   io_seed ));
 
