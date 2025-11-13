@@ -244,6 +244,14 @@ fd_gui_printf_repair_slot( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_peers_printf_vote_slot( fd_gui_peers_ctx_t * peers ) {
+  jsonp_open_envelope( peers->http, "summary", "vote_slot" );
+    if( FD_LIKELY( peers->slot_voted!=ULONG_MAX  ) ) jsonp_ulong( peers->http, "value", peers->slot_voted );
+    else                                             jsonp_null ( peers->http, "value" );
+  jsonp_close_envelope( peers->http );
+}
+
+void
 fd_gui_printf_turbine_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "turbine_slot" );
     if( FD_LIKELY( gui->summary.slot_turbine!=ULONG_MAX  ) ) jsonp_ulong( gui->http, "value", gui->summary.slot_turbine );
@@ -1360,6 +1368,8 @@ fd_gui_printf_slot( fd_gui_t * gui,
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
+        if( FD_UNLIKELY( slot->vote_slot!=ULONG_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
+        else                                            jsonp_null( gui->http, "vote_slot" );
 
         if( FD_UNLIKELY( lslot && lslot->leader_start_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time  );
         else                                                             jsonp_null       ( gui->http, "start_timestamp_nanos" );

@@ -488,6 +488,8 @@ typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
 struct fd_gui_slot {
   ulong slot;
   ulong parent_slot;
+  ulong vote_slot;
+  ulong reset_slot;
   uint  max_compute_units;
   long  completed_time;
   int   mine;
@@ -869,6 +871,7 @@ void
 fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_gui_slot_completed_t * slot_completed,
                              fd_hash_t const *         block_hash,
+                             ulong                     vote_slot,
                              long                      now );
 
 void

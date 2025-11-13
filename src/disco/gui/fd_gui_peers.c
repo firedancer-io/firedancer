@@ -636,6 +636,7 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
                                  fd_gui_peers_vote_t * votes,
                                  ulong                 vote_cnt,
                                  long                  now,
+                                 fd_pubkey_t *         identity,
                                  char                  country_code_map[ static 512 ][ 3 ] ) {
   (void)now;
   fd_gui_peers_vote_t * votes_sorted  = votes;
@@ -678,6 +679,25 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
   ulong count = 0UL;
   for( ulong i=0UL; i<vote_cnt; i++ ) {
     if( FD_UNLIKELY( votes_sorted[ i ].stake==ULONG_MAX ) ) continue;
+
+    /* votes_sorted is a copy of the vote_states bank field that has
+       been sorted by stake descending and deduplicated.  Deduplicated
+       here means if multiple vote accounts point to the same identity
+       key, we go with the one with the most stake.  TODO: This logic
+       will need to change once SIMD-0180 hits mainnet.
+
+       As long as the vote account exists, it will be in vote_states,
+       which get initialized at snapshot load and gets updated by the
+       runtime. So, on any given fork, `last_voted_slot` should reflect
+       the last landed vote for ALL the vote accounts (including those
+       referencing identity->uc) from the perspective of that fork's
+       bank, even if that slot didn't have landed votes for some of
+       those accounts. */
+    if( FD_UNLIKELY( !memcmp( &votes_sorted[ i ].node_account, identity->uc, sizeof(fd_pubkey_t) ) && peers->slot_voted!=votes_sorted[ i ].last_vote_slot ) ) {
+      peers->slot_voted = votes_sorted[ i ].last_vote_slot;
+      fd_gui_peers_printf_vote_slot( peers );
+      fd_http_server_ws_broadcast( peers->http );
+    }
 
     ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query( peers->node_pubkey_map, &votes_sorted[ i ].node_account, ULONG_MAX, peers->contact_info_table );
     if( FD_UNLIKELY( peer_idx==ULONG_MAX ) ) continue; /* peer not on gossip */

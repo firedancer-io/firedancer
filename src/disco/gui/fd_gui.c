@@ -1571,6 +1571,8 @@ fd_gui_clear_slot( fd_gui_t *      gui,
 
   slot->slot                   = _slot;
   slot->parent_slot            = _parent_slot;
+  slot->vote_slot              = ULONG_MAX;
+  slot->reset_slot             = ULONG_MAX;
   slot->max_compute_units      = UINT_MAX;
   slot->completed_time         = LONG_MAX;
   slot->mine                   = mine;
@@ -2623,27 +2625,25 @@ fd_gui_handle_notarization_update( fd_gui_t *                        gui,
   }
 }
 
-/* fd_gui_handle_tower_update handles updates from the tower tile, which
-   manages consensus related fork switching, rooting, slot confirmation. */
-void
-fd_gui_handle_tower_update( fd_gui_t *                   gui,
-                            fd_tower_slot_done_t const * tower,
-                            long                         now ) {
-  (void)now;
+static inline void
+try_publish_vote_status( fd_gui_t * gui, ulong _slot ) {
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  if( FD_UNLIKELY( !slot || slot->vote_slot==ULONG_MAX || slot->reset_slot==ULONG_MAX ) ) return;
 
-  /* handle new root */
-  if( FD_LIKELY( tower->root_slot!=ULONG_MAX && gui->summary.slot_rooted!=tower->root_slot ) ) {
-    fd_gui_handle_rooted_slot( gui, tower->root_slot );
+  ulong vote_distance = slot->reset_slot-slot->vote_slot;
+  for( ulong s=slot->vote_slot; s<slot->reset_slot; s++ ) {
+    fd_gui_slot_t * cur = fd_gui_get_slot( gui, s );
+    if( FD_UNLIKELY( cur && cur->skipped ) ) vote_distance--;
   }
 
-  if( FD_UNLIKELY( gui->summary.vote_distance!=tower->reset_slot-tower->vote_slot ) ) {
-    gui->summary.vote_distance = tower->reset_slot-tower->vote_slot;
+  if( FD_UNLIKELY( gui->summary.vote_distance!=vote_distance ) ) {
+    gui->summary.vote_distance = vote_distance;
     fd_gui_printf_vote_distance( gui );
     fd_http_server_ws_broadcast( gui->http );
   }
 
   if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) {
-    if( FD_UNLIKELY( tower->vote_slot==ULONG_MAX || (tower->vote_slot+150UL)<tower->reset_slot ) ) {
+    if( FD_UNLIKELY( slot->vote_slot==ULONG_MAX || vote_distance>150UL ) ) {
       if( FD_UNLIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_DELINQUENT ) ) {
         gui->summary.vote_state = FD_GUI_VOTE_STATE_DELINQUENT;
         fd_gui_printf_vote_state( gui );
@@ -2657,14 +2657,32 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
       }
     }
   }
+}
 
-  /* todo ... optimistic confirmation, waiting on fd_ghost / fd_notar */
+/* fd_gui_handle_tower_update handles updates from the tower tile, which
+   manages consensus related fork switching, rooting, slot confirmation. */
+void
+fd_gui_handle_tower_update( fd_gui_t *                   gui,
+                            fd_tower_slot_done_t const * tower,
+                            long                         now ) {
+  (void)now;
+
+  /* handle new root */
+  if( FD_LIKELY( tower->root_slot!=ULONG_MAX && gui->summary.slot_rooted!=tower->root_slot ) ) {
+    fd_gui_handle_rooted_slot( gui, tower->root_slot );
+  }
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, tower->replay_slot );
+  if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, tower->replay_slot, ULONG_MAX );
+  slot->reset_slot = tower->reset_slot;
+
+  try_publish_vote_status( gui, tower->replay_slot );
 }
 
 void
 fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_gui_slot_completed_t * slot_completed,
                              fd_hash_t const *         block_hash,
+                             ulong                     vote_slot,
                              long                      now ) {
   (void)now;
 
@@ -2713,6 +2731,9 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
   slot->tips                   = slot_completed->tips;
   slot->compute_units          = slot_completed->compute_units;
   slot->shred_cnt              = slot_completed->shred_cnt;
+  slot->vote_slot              = vote_slot;
+
+  try_publish_vote_status( gui, slot_completed->slot );
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && slot->slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
     gui->epoch.epochs[ 0 ].end_time = slot->completed_time;

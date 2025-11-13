@@ -12,6 +12,10 @@
 
 struct fd_tower_slot_done {
 
+  /* The completed replay slot which triggered this message */
+
+  ulong replay_slot;
+
   /* The slot being voted on.  There is not always a vote slot (locked
      out, failed switch threshhold, etc.) and will be set to ULONG_MAX
      when there is no slot to vote on.  When set, the vote slot is used

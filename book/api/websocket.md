@@ -293,6 +293,14 @@ The largest slot for which the validator sent out a repair request.
 This slot has the same problem as `summary.turbine_slot` (it might
 sporadically become unboundedly large) and provides the same guarantees.
 
+#### `summary.vote_slot`
+| frequency       | type           | example |
+|-----------------|----------------|---------|
+| *Once* + *Live* | `number\|null` | `100`   |
+
+The most recent slot this node has landed a vote for. Will typically be
+one slot behind the current slot on the leader schedule.
+
 #### `summary.caught_up_slot`
 | frequency       | type           | example |
 |-----------------|----------------|---------|
@@ -1775,6 +1783,7 @@ initially replay one but the cluster votes on the other one.
 | transaction_fee              | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
+| vote_slot                    | `number\|null` | The most recent slot for which this valiadtor had landed a vote as of the time that this slot was replayed.  This is equivalent to the largest voted-for slot in this validator's on-chain vote account after the execution of `slot`. `vote_slot` will typically be one less than `slot`, though `vote_slot` may be arbitrarily small if the last successfully landed vote from this validator was long before `slot`. May be `null` if the vote account for this node does not exist |
 
 #### `slot.skipped_history`
 | frequency       | type       | example |
@@ -2027,7 +2036,8 @@ explicitly mentioned, skipped slots are not included.
             "shreds": 123,
             "transaction_fee": 12345,
             "priority_fee": 123456,
-            "tips": 0
+            "tips": 0,
+            "vote_slot": 289245043
         }
     }
 }
@@ -2081,7 +2091,8 @@ explicitly mentioned, skipped slots are not included.
             "shreds": 123,
             "transaction_fee": 12345,
             "priority_fee": 123456,
-            "tips": 0
+            "tips": 0,
+            "vote_slot": 289245043
         },
         "waterfall": {
             "in": {
@@ -2243,7 +2254,8 @@ explicitly mentioned, skipped slots are not included.
             "shreds": 123,
             "transaction_fee": 12345,
             "priority_fee": 123456,
-            "tips": 0
+            "tips": 0,
+            "vote_slot": 289245043
         },
         "limits": {
             "used_total_block_cost": 10000000,
