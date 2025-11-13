@@ -302,7 +302,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->txn_ctx->funk             = ctx->funk;
   ctx->txn_ctx->progcache        = ctx->progcache;
-  ctx->txn_ctx->status_cache     = ctx->txncache;
   ctx->txn_ctx->bank_hash_cmp    = ctx->bank_hash_cmp;
   ctx->txn_ctx->bundle.is_bundle = 0;
 

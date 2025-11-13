@@ -230,7 +230,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
     fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-    fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, &xid, txn_ctx, bank, NULL, &tips );
+    fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, ctx->runtime.status_cache, &xid, txn_ctx, bank, NULL, &tips );
 
     if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
       /* If the transaction failed to fit into the block, we need to
@@ -401,7 +401,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-      fd_runtime_finalize_txn( txn_ctx->funk, txn_ctx->progcache, txn_ctx->status_cache, &xid, txn_ctx, bank, NULL, &tips[ i ] );
+      fd_runtime_finalize_txn( txn_ctx->funk, txn_ctx->progcache, ctx->runtime.status_cache, &xid, txn_ctx, bank, NULL, &tips[ i ] );
       if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->err.exec_err)<<24);
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
@@ -555,7 +555,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( txncache_shmem );
   fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( txncache );
-  ctx->txn_ctx->status_cache = txncache;
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_ctx[ i ].bundle.prev_txn_ctxs_cnt = i;
@@ -565,7 +564,6 @@ unprivileged_init( fd_topo_t *      topo,
 
     ctx->txn_ctx[ i ].bank_hash_cmp = NULL; /* TODO - do we need this? */
     ctx->txn_ctx[ i ].progcache     = progcache;
-    ctx->txn_ctx[ i ].status_cache  = txncache;
     ctx->txn_ctx[ i ].funk          = funk;
   }
 

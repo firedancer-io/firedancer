@@ -276,8 +276,9 @@ fd_validate_fee_payer( fd_txn_account_t * account,
 }
 
 static int
-fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
-  if( FD_UNLIKELY( !txn_ctx->status_cache ) ) {
+fd_executor_check_status_cache( fd_txncache_t *     status_cache,
+                                fd_exec_txn_ctx_t * txn_ctx ) {
+  if( FD_UNLIKELY( !status_cache ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
@@ -299,7 +300,7 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_blake3_fini( b3, &txn_ctx->details.blake_txn_msg_hash );
 
   fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
-  int found = fd_txncache_query( txn_ctx->status_cache, txn_ctx->bank->txncache_fork_id, blockhash->uc, txn_ctx->details.blake_txn_msg_hash.uc );
+  int found = fd_txncache_query( status_cache, txn_ctx->bank->txncache_fork_id, blockhash->uc, txn_ctx->details.blake_txn_msg_hash.uc );
   if( FD_UNLIKELY( found ) ) return FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -335,7 +336,8 @@ get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L61-L75 */
 int
-fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_executor_check_transactions( fd_txncache_t *     status_cache,
+                                fd_exec_txn_ctx_t * txn_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L68-L73 */
   int err = fd_executor_check_transaction_age_and_compute_budget_limits( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -343,7 +345,7 @@ fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L74 */
-  err = fd_executor_check_status_cache( txn_ctx );
+  err = fd_executor_check_status_cache( status_cache, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }

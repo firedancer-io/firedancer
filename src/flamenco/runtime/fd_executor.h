@@ -49,7 +49,8 @@ int
 fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx );
 
 int
-fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_check_transactions( fd_txncache_t *     status_cache,
+                                fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
    instruction processing.  Does fd_spad_t allocations.  Returns an

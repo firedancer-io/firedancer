@@ -57,8 +57,7 @@ fd_runtime_prepare_and_execute( fd_runtime_t *     runtime,
   (void)txn_out;
   fd_exec_txn_ctx_t txn_ctx;
 
-  txn_ctx.progcache    = runtime->progcache;
-  txn_ctx.status_cache = runtime->status_cache;
+  txn_ctx.progcache = runtime->progcache;
 
   fd_runtime_prepare_and_execute_txn( bank,
                                       runtime,
@@ -66,7 +65,7 @@ fd_runtime_prepare_and_execute( fd_runtime_t *     runtime,
                                       txn_in->txn,
                                       runtime->debugging.capture_ctx,
                                       runtime->exec_stack,
-                                      (fd_exec_accounts_t *)txn_in->accounts_mem,
+                                      NULL,
                                       runtime->debugging.dumping_mem,
                                       runtime->debugging.tracing_mem );
 }
@@ -599,7 +598,8 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
    transaction sanitization checks. */
 
 int
-fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
+                              fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Set up the core account keys. These are the account keys directly
      passed in via the serialized transaction, represented as an array.
@@ -671,7 +671,7 @@ fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* load_and_execute_transactions() -> check_transactions()
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
-  err = fd_executor_check_transactions( txn_ctx );
+  err = fd_executor_check_transactions( runtime->status_cache, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_ctx->err.is_committable = 0;
     return err;
@@ -1106,7 +1106,7 @@ fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
 
   /* Transaction sanitization.  If a transaction can't be commited or is
      fees-only, we return early. */
-  txn_ctx->err.txn_err = fd_runtime_pre_execute_check( txn_ctx );
+  txn_ctx->err.txn_err = fd_runtime_pre_execute_check( runtime, txn_ctx );
 
   /* Execute the transaction. */
   if( FD_LIKELY( txn_ctx->err.is_committable && !txn_ctx->err.is_fees_only ) ) {

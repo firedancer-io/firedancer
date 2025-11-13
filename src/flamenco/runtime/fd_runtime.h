@@ -368,7 +368,8 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 /* Transaction Level Execution Management *************************************/
 
 int
-fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx );
+fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
+                              fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_runtime_prepare_and_execute_txn is the main entrypoint from the
    executor tile. It is responsible for preparing and executing a single
