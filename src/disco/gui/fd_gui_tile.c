@@ -404,6 +404,9 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_tower_slot_done_t const * tower = (fd_tower_slot_done_t const *)ctx->buf;
         fd_gui_handle_tower_update( ctx->gui, tower, fd_clock_now( ctx->clock ) );
       }
+      if( FD_UNLIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
+        fd_gui_handle_notarization_update( ctx->gui, (fd_tower_slot_confirmed_t const *)ctx->buf );
+      }
       break;
     }
     case IN_KIND_SHRED_OUT: {
