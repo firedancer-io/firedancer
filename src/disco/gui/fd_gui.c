@@ -2059,9 +2059,7 @@ fd_gui_handle_rooted_slot_legacy( fd_gui_t * gui,
 
 static void
 fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
-                                             ulong *    msg ) {
-  ulong _slot = msg[ 0 ];
-
+                                             ulong      _slot ) {
   /* Slot 0 is always rooted.  No need to iterate all the way back to
      i==_slot */
   for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
@@ -2516,6 +2514,14 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
   fd_http_server_ws_broadcast( gui->http );
 }
 
+void
+fd_gui_handle_notarization_update( fd_gui_t *                        gui,
+                                   fd_tower_slot_confirmed_t const * notar ) {
+  if( FD_UNLIKELY( notar->slot!=ULONG_MAX && gui->summary.slot_optimistically_confirmed!=notar->slot && notar->kind==FD_TOWER_SLOT_CONFIRMED_CLUSTER ) ) {
+    fd_gui_handle_optimistically_confirmed_slot( gui, notar->slot );
+  }
+}
+
 /* fd_gui_handle_tower_update handles updates from the tower tile, which
    manages consensus related fork switching, rooting, slot confirmation. */
 void
@@ -2646,7 +2652,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       fd_gui_handle_rooted_slot_legacy( gui, (ulong *)msg );
       break;
     case FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED:
-      fd_gui_handle_optimistically_confirmed_slot( gui, (ulong *)msg );
+      fd_gui_handle_optimistically_confirmed_slot( gui, ((ulong *)msg)[0] );
       break;
     case FD_PLUGIN_MSG_SLOT_COMPLETED: {
       fd_gui_handle_completed_slot( gui, (ulong *)msg, now );
