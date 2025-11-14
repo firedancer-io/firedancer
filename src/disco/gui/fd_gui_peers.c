@@ -786,6 +786,7 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
 
   if( FD_UNLIKELY( fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &node_info->pubkey, NULL, peers->node_info_pool ) ) ) {
     fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
+    cJSON_Delete( json );
     return; /* no duplicate entries */
   }
 
