@@ -1,5 +1,6 @@
 #include "fd_ssload.h"
 
+#include "../../../disco/genesis/fd_genesis_cluster.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_ssmsg.h"
 
@@ -83,6 +84,8 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   fee_rate_governor->min_lamports_per_signature    = manifest->fee_rate_governor.min_lamports_per_signature;
   fee_rate_governor->max_lamports_per_signature    = manifest->fee_rate_governor.max_lamports_per_signature;
   fee_rate_governor->burn_percent                  = manifest->fee_rate_governor.burn_percent;
+  /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/serde_snapshot.rs#L464-L466 */
+  fd_bank_rbh_lamports_per_sig_set( bank, manifest->lamports_per_signature );
 
   fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
   inflation->initial         = manifest->inflation_params.initial;
@@ -123,23 +126,37 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
 
   /* PoH */
   fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
-  fd_hash_t const * last_hash = fd_blockhashes_peek_last( bhq );
+  fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
   if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( bank, *last_hash );
 
   fd_bank_capitalization_set( bank, manifest->capitalization );
-  fd_bank_lamports_per_signature_set( bank, manifest->lamports_per_signature );
-  fd_bank_prev_lamports_per_signature_set( bank, manifest->lamports_per_signature );
   fd_bank_transaction_count_set( bank, manifest->transaction_count );
   fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
   fd_bank_tick_height_set( bank, manifest->tick_height );
   fd_bank_max_tick_height_set( bank, manifest->max_tick_height );
-  fd_bank_ns_per_slot_set( bank, manifest->ns_per_slot );
+  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } } );
   fd_bank_ticks_per_slot_set( bank, manifest->ticks_per_slot );
   fd_bank_genesis_creation_time_set( bank, manifest->creation_time_millis );
   fd_bank_slots_per_year_set( bank, manifest->slots_per_year );
   fd_bank_block_height_set( bank, manifest->block_height );
   fd_bank_execution_fees_set( bank, manifest->collector_fees );
   fd_bank_priority_fees_set( bank, 0UL );
+
+  /* Set the cluster type based on the genesis creation time.  This is
+     later cross referenced against the genesis hash. */
+  switch( fd_bank_genesis_creation_time_get( bank ) ) {
+    case FD_RUNTIME_GENESIS_CREATION_TIME_TESTNET:
+      fd_bank_cluster_type_set( bank, FD_CLUSTER_TESTNET );
+      break;
+    case FD_RUNTIME_GENESIS_CREATION_TIME_MAINNET:
+      fd_bank_cluster_type_set( bank, FD_CLUSTER_MAINNET_BETA );
+      break;
+    case FD_RUNTIME_GENESIS_CREATION_TIME_DEVNET:
+      fd_bank_cluster_type_set( bank, FD_CLUSTER_DEVNET );
+      break;
+    default:
+      fd_bank_cluster_type_set( bank, FD_CLUSTER_UNKNOWN );
+  }
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
@@ -242,7 +259,6 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->last_vote_timestamp = elem->timestamp;
     vote_state->last_vote_slot      = elem->slot;
     vote_state->stake               = elem->stake;
-    vote_state->stake               = elem->stake;
   }
 
   /* Vote states for the current epoch. */
@@ -253,6 +269,9 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     fd_vote_state_ele_t * vote_state_prev_prev = fd_vote_states_query( vote_stakes_prev_prev, (fd_pubkey_t *)elem->vote_account_pubkey );
     ulong prev_prev_stake = vote_state_prev_prev ? vote_state_prev_prev->stake : 0UL;
 
+    fd_vote_state_ele_t * vote_state_prev = fd_vote_states_query( vote_stakes_prev, (fd_pubkey_t *)elem->vote_account_pubkey );
+    ulong prev_stake = vote_state_prev ? vote_state_prev->stake : 0UL;
+
     fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote_account_pubkey );
 
     vote_state->node_account        = *(fd_pubkey_t *)elem->node_account_pubkey;
@@ -260,6 +279,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->last_vote_timestamp = elem->last_timestamp;
     vote_state->last_vote_slot      = elem->last_slot;
     vote_state->stake               = elem->stake;
+    vote_state->stake_t_1           = prev_stake;
     vote_state->stake_t_2           = prev_prev_stake;
   }
   fd_bank_vote_states_end_locking_modify( bank );

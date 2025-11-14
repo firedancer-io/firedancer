@@ -94,7 +94,7 @@ test_ctx_setup( void ) {
   FD_TEST( banks_mem );
 
   /* Initialize banks */
-  test_ctx->banks = fd_banks_join( fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX ) );
+  test_ctx->banks = fd_banks_join( fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 0, 8888UL ) );
   FD_TEST( test_ctx->banks );
 
   /* Initialize stake delegations at the root level */
@@ -218,8 +218,7 @@ static void
 register_vote_account_from_funk( fd_funk_t *               funk,
                                  fd_funk_txn_xid_t const * xid,
                                  fd_vote_states_t *        vote_states,
-                                 fd_pubkey_t *             pubkey,
-                                 fd_spad_t *               spad ) {
+                                 fd_pubkey_t *             pubkey ) {
   fd_txn_account_t acc[1];
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
     return;
@@ -237,13 +236,6 @@ register_vote_account_from_funk( fd_funk_t *               funk,
 
   /* Account must be initialized correctly */
   if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc ) ) ) {
-    return;
-  }
-
-  /* Get the vote state from the account data */
-  fd_vote_state_versioned_t * vsv = NULL;
-  int err = fd_vote_get_state( acc, spad, &vsv );
-  if( FD_UNLIKELY( err ) ) {
     return;
   }
 
@@ -300,7 +292,7 @@ register_stake_delegation_from_funk( fd_funk_t *               funk,
 
 /* Helper: Load accounts from protobuf into funk */
 static void
-load_accounts_from_proto( fd_funk_t * funk,
+load_accounts_from_proto( fd_accdb_user_t * accdb,
                           fd_funk_txn_xid_t const * xid,
                           fd_exec_test_acct_state_t const * acct_states,
                           pb_size_t acct_states_count ) {
@@ -318,8 +310,8 @@ load_accounts_from_proto( fd_funk_t * funk,
     fd_funk_rec_prepare_t prepare = {0};
     fd_txn_account_t acc[1];
 
-    int err = fd_txn_account_init_from_funk_mutable( acc, pubkey, funk, xid, 1, size, &prepare );
-    if( FD_UNLIKELY( err ) ) {
+    int ok = !!fd_txn_account_init_from_funk_mutable( acc, pubkey, accdb, xid, 1, size, &prepare );
+    if( FD_UNLIKELY( !ok ) ) {
       continue;
     }
 
@@ -336,7 +328,7 @@ load_accounts_from_proto( fd_funk_t * funk,
     fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );
     fd_txn_account_set_readonly( acc );
 
-    fd_txn_account_mutable_fini( acc, funk, &prepare );
+    fd_txn_account_mutable_fini( acc, accdb, &prepare );
   }
 }
 
@@ -370,8 +362,6 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   fd_bank_parent_slot_set( test_ctx->parent_bank, parent_slot - 1 );
   fd_bank_block_height_set( test_ctx->parent_bank, parent_slot );  /* Assume block_height == slot for simplicity */
   fd_bank_capitalization_set( test_ctx->parent_bank, input_ctx.slot_ctx.prev_epoch_capitalization );
-  fd_bank_lamports_per_signature_set( test_ctx->parent_bank, input_ctx.slot_ctx.prev_lps );
-  fd_bank_prev_lamports_per_signature_set( test_ctx->parent_bank, input_ctx.slot_ctx.prev_lps );
   fd_bank_hashes_per_tick_set( test_ctx->parent_bank, input_ctx.epoch_ctx.hashes_per_tick );
   fd_bank_ticks_per_slot_set( test_ctx->parent_bank, input_ctx.epoch_ctx.ticks_per_slot );
   fd_bank_slots_per_year_set( test_ctx->parent_bank, input_ctx.epoch_ctx.slots_per_year );
@@ -399,6 +389,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     frg->min_lamports_per_signature    = input_ctx.slot_ctx.fee_rate_governor.min_lamports_per_signature;
     frg->max_lamports_per_signature    = input_ctx.slot_ctx.fee_rate_governor.max_lamports_per_signature;
     frg->burn_percent                  = (uchar)input_ctx.slot_ctx.fee_rate_governor.burn_percent;
+    fd_runtime_new_fee_rate_governor_derived( test_ctx->parent_bank, input_ctx.slot_ctx.parent_signature_count );
   }
 
   /* Set inflation */
@@ -482,7 +473,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   fd_accdb_attach_child( test_ctx->accdb_admin, &root_xid, &test_ctx->parent_xid );
 
   /* Load accounts into Funk */
-  load_accounts_from_proto( test_ctx->accdb->funk, &test_ctx->parent_xid, input_ctx.acct_states, input_ctx.acct_states_count );
+  load_accounts_from_proto( test_ctx->accdb, &test_ctx->parent_xid, input_ctx.acct_states, input_ctx.acct_states_count );
 
   /* Initialize and populate stake delegations cache from accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( test_ctx->banks );
@@ -496,7 +487,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     fd_memcpy( &pubkey, input_ctx.acct_states[i].address, sizeof(fd_pubkey_t) );
 
     /* Register vote account in current epoch */
-    register_vote_account_from_funk( test_ctx->accdb->funk, &test_ctx->parent_xid, vote_states_current, &pubkey, test_ctx->spad );
+    register_vote_account_from_funk( test_ctx->accdb->funk, &test_ctx->parent_xid, vote_states_current, &pubkey );
 
     /* Register stake delegation */
     register_stake_delegation_from_funk( test_ctx->accdb->funk, &test_ctx->parent_xid, stake_delegations, &pubkey );
@@ -533,7 +524,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     FD_TEST( txn_p );
 
     /* Serialize the protobuf transaction to raw txn format */
-    ulong msg_sz = fd_runtime_fuzz_serialize_txn( txn_p->payload, txn );
+    ulong msg_sz = fd_solfuzz_pb_txn_serialize( txn_p->payload, txn );
     FD_TEST( msg_sz!=ULONG_MAX );
 
     txn_p->payload_sz = msg_sz;

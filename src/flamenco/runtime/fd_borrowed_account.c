@@ -224,7 +224,7 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
   /* TODO: The size delta should never exceed the value of ULONG_MAX so this
      could be replaced with a normal addition. However to match execution with
      the agave client, this is being left as a sat add */
-  instr_ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->accounts_resize_delta, size_delta );
+  instr_ctx->txn_ctx->details.accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->details.accounts_resize_delta, size_delta );
   *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }

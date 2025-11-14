@@ -1,4 +1,5 @@
 #include "fd_gui_printf.h"
+#include "fd_gui_config_parse.h"
 
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
@@ -642,10 +643,14 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
       jsonp_ulong( gui->http, "pack_invalid",        cur->out.pack_invalid        - prev->out.pack_invalid );
       jsonp_ulong( gui->http, "pack_invalid_bundle", cur->out.pack_invalid_bundle - prev->out.pack_invalid_bundle );
       jsonp_ulong( gui->http, "pack_expired",        cur->out.pack_expired        - prev->out.pack_expired );
+      jsonp_ulong( gui->http, "pack_already_executed", cur->out.pack_already_executed - prev->out.pack_already_executed );
       jsonp_ulong( gui->http, "pack_retained",       cur->out.pack_retained );
       jsonp_ulong( gui->http, "pack_wait_full",      cur->out.pack_wait_full      - prev->out.pack_wait_full );
       jsonp_ulong( gui->http, "pack_leader_slow",    cur->out.pack_leader_slow    - prev->out.pack_leader_slow );
       jsonp_ulong( gui->http, "bank_invalid",        cur->out.bank_invalid        - prev->out.bank_invalid );
+      jsonp_ulong( gui->http, "bank_nonce_already_advanced", cur->out.bank_nonce_already_advanced - prev->out.bank_nonce_already_advanced );
+      jsonp_ulong( gui->http, "bank_nonce_advance_failed",   cur->out.bank_nonce_advance_failed   - prev->out.bank_nonce_advance_failed   );
+      jsonp_ulong( gui->http, "bank_nonce_wrong_blockhash",  cur->out.bank_nonce_wrong_blockhash  - prev->out.bank_nonce_wrong_blockhash  );
       jsonp_ulong( gui->http, "block_success",       cur->out.block_success       - prev->out.block_success );
       jsonp_ulong( gui->http, "block_fail",          cur->out.block_fail          - prev->out.block_fail );
     jsonp_close_object( gui->http );
@@ -909,6 +914,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
         jsonp_string( gui->http, "details", gui->validator_info.info[ info_idx ].details );
         jsonp_string( gui->http, "website", gui->validator_info.info[ info_idx ].website );
         jsonp_string( gui->http, "icon_url", gui->validator_info.info[ info_idx ].icon_uri );
+        jsonp_string( gui->http, "keybase_username", "" );
       jsonp_close_object( gui->http );
     }
 
@@ -917,7 +923,8 @@ fd_gui_printf_peer( fd_gui_t *    gui,
 
 static void
 peers_printf_node( fd_gui_peers_ctx_t * peers,
-                          ulong                contact_info_table_idx ) {
+                   ulong                contact_info_table_idx,
+                   char                 country_code_map[ static 512 ][ 3 ] ) {
   fd_gui_peers_node_t * peer = &peers->contact_info_table[ contact_info_table_idx ];
 
   jsonp_open_object( peers->http, NULL );
@@ -960,6 +967,12 @@ peers_printf_node( fd_gui_peers_ctx_t * peers,
         }
       jsonp_close_object( peers->http );
 
+      if( FD_LIKELY( peer->country_code_idx!=UCHAR_MAX ) ) {
+        jsonp_string( peers->http, "country_code", country_code_map[ peer->country_code_idx ] );
+      } else {
+        jsonp_null( peers->http, "country_code" );
+      }
+
     jsonp_close_object( peers->http );
 
     if( FD_LIKELY( !peer->has_vote_info ) ) {
@@ -981,14 +994,16 @@ peers_printf_node( fd_gui_peers_ctx_t * peers,
       jsonp_close_array( peers->http );
     }
 
-    if( FD_UNLIKELY( !peer->has_val_info ) ) {
+    fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &peer->contact_info.pubkey, NULL, peers->node_info_pool );
+    if( FD_UNLIKELY( !node_info ) ) {
       jsonp_string( peers->http, "info", NULL );
     } else {
       jsonp_open_object( peers->http, "info" );
-        jsonp_string( peers->http, "name", peer->name );
-        jsonp_string( peers->http, "details", peer->details );
-        jsonp_string( peers->http, "website", peer->website );
-        jsonp_string( peers->http, "icon_url", peer->icon_uri );
+        jsonp_string( peers->http, "name", node_info->name );
+        jsonp_string( peers->http, "details", node_info->details );
+        jsonp_string( peers->http, "website", node_info->website );
+        jsonp_string( peers->http, "icon_url", node_info->icon_uri );
+        jsonp_string( peers->http, "keybase_username", node_info->keybase_username );
       jsonp_close_object( peers->http );
     }
 
@@ -999,15 +1014,16 @@ void
 fd_gui_peers_printf_nodes( fd_gui_peers_ctx_t * peers,
                            int *                actions,
                            ulong *              idxs,
-                           ulong                count ) {
+                           ulong                count,
+                           char                 country_code_map[ static 512 ][ 3 ] ) {
   jsonp_open_envelope( peers->http, "peers", "update" );
     jsonp_open_object( peers->http, "value" );
       jsonp_open_array( peers->http, "add" );
-        for( ulong i=0UL; i<count; i++ ) if( FD_UNLIKELY( actions[ i ]==FD_GUI_PEERS_NODE_ADD ) ) peers_printf_node( peers, idxs[ i ] );
+        for( ulong i=0UL; i<count; i++ ) if( FD_UNLIKELY( actions[ i ]==FD_GUI_PEERS_NODE_ADD ) ) peers_printf_node( peers, idxs[ i ], country_code_map );
       jsonp_close_array( peers->http );
 
       jsonp_open_array( peers->http, "update" );
-        for( ulong i=0UL; i<count; i++ ) if( FD_UNLIKELY( actions[ i ]==FD_GUI_PEERS_NODE_UPDATE ) ) peers_printf_node( peers, idxs[ i ] );
+        for( ulong i=0UL; i<count; i++ ) if( FD_UNLIKELY( actions[ i ]==FD_GUI_PEERS_NODE_UPDATE ) ) peers_printf_node( peers, idxs[ i ], country_code_map );
       jsonp_close_array( peers->http );
 
       jsonp_open_array( peers->http, "remove" );
@@ -1026,7 +1042,8 @@ fd_gui_peers_printf_nodes( fd_gui_peers_ctx_t * peers,
 }
 
 void
-fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t * peers ) {
+fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t * peers,
+                              char                 country_code_map[ static 512 ][ 3 ] ) {
   jsonp_open_envelope( peers->http, "peers", "update" );
     jsonp_open_object( peers->http, "value" );
       jsonp_open_array( peers->http, "add" );
@@ -1035,7 +1052,7 @@ fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t * peers ) {
              !fd_gui_peers_bandwidth_tracking_fwd_iter_done( iter );
              iter = fd_gui_peers_bandwidth_tracking_fwd_iter_next( iter, peers->contact_info_table ), j++ ) {
           ulong contact_info_table_idx = fd_gui_peers_bandwidth_tracking_fwd_iter_idx( iter );
-          peers_printf_node( peers, contact_info_table_idx );
+          peers_printf_node( peers, contact_info_table_idx, country_code_map );
         }
       jsonp_close_array( peers->http );
       jsonp_open_array( peers->http, "update" );
@@ -1257,9 +1274,16 @@ fd_gui_printf_slot( fd_gui_t * gui,
 
   jsonp_open_envelope( gui->http, "slot", "update" );
     jsonp_open_object( gui->http, "value" );
+      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
+
+        if( FD_UNLIKELY( lslot && lslot->leader_start_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time  );
+        else                                                             jsonp_null       ( gui->http, "start_timestamp_nanos" );
+        if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
+        else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
+
         jsonp_bool( gui->http, "skipped", slot->skipped );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
@@ -1280,7 +1304,7 @@ fd_gui_printf_slot( fd_gui_t * gui,
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "failed_vote_transaction_cnt" );
         else                                                           jsonp_ulong( gui->http, "failed_vote_transaction_cnt", slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt );
         if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui->http, "max_compute_units" );
-        else                                                       jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
+        else                                                   jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui->http, "compute_units" );
         else                                               jsonp_ulong( gui->http, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, "shreds" );
@@ -1384,16 +1408,23 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "slot", "query" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
+      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
 
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
+
+        if( FD_UNLIKELY( lslot && lslot->leader_start_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time  );
+        else                                                             jsonp_null       ( gui->http, "start_timestamp_nanos" );
+        if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
+        else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
+
         jsonp_bool( gui->http, "skipped", slot->skipped );
         jsonp_string( gui->http, "level", level );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui->http, "completed_time_nanos" );
-        else                                                jsonp_long( gui->http, "completed_time_nanos", slot->completed_time );
+        else                                                jsonp_long_as_str( gui->http, "completed_time_nanos", slot->completed_time );
         if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX
                          || slot->vote_txn_cnt==UINT_MAX
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "success_nonvote_transaction_cnt" );
@@ -1408,7 +1439,7 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "failed_vote_transaction_cnt" );
         else                                                           jsonp_ulong( gui->http, "failed_vote_transaction_cnt", slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt );
         if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui->http, "max_compute_units" );
-        else                                                       jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
+        else                                                   jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui->http, "compute_units" );
         else                                               jsonp_ulong( gui->http, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, "shreds" );
@@ -1450,16 +1481,23 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "slot", "query" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
+      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
 
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
+
+        if( FD_UNLIKELY( lslot && lslot->leader_start_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time  );
+        else                                                             jsonp_null       ( gui->http, "start_timestamp_nanos" );
+        if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
+        else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
+
         jsonp_bool( gui->http, "skipped", slot->skipped );
         jsonp_string( gui->http, "level", level );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui->http, "completed_time_nanos" );
-        else                                                jsonp_long( gui->http, "completed_time_nanos", slot->completed_time );
+        else                                                jsonp_long_as_str( gui->http, "completed_time_nanos", slot->completed_time );
         if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX
                          || slot->vote_txn_cnt==UINT_MAX
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "success_nonvote_transaction_cnt" );
@@ -1474,7 +1512,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "failed_vote_transaction_cnt" );
         else                                                           jsonp_ulong( gui->http, "failed_vote_transaction_cnt", slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt );
         if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui->http, "max_compute_units" );
-        else                                                       jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
+        else                                                   jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui->http, "compute_units" );
         else                                               jsonp_ulong( gui->http, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, "shreds" );
@@ -1487,7 +1525,55 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         else                                       jsonp_ulong( gui->http, "tips", slot->tips );
       jsonp_close_object( gui->http );
 
-      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
+      if( FD_UNLIKELY( lslot ) ) {
+        jsonp_open_object( gui->http, "limits" );
+          jsonp_ulong( gui->http, "used_total_block_cost",        lslot->scheduler_stats->limits_usage->block_cost          );
+          jsonp_ulong( gui->http, "used_total_vote_cost",         lslot->scheduler_stats->limits_usage->vote_cost           );
+          jsonp_ulong( gui->http, "used_total_bytes",             lslot->scheduler_stats->limits_usage->block_data_bytes    );
+          jsonp_ulong( gui->http, "used_total_microblocks",       lslot->scheduler_stats->limits_usage->microblocks         );
+          jsonp_open_array( gui->http, "used_account_write_costs" );
+            for( ulong i = 0; i<FD_PACK_TOP_WRITERS_CNT; i++ ) {
+              if( FD_UNLIKELY( !memcmp( lslot->scheduler_stats->limits_usage->top_writers[ i ].key.b, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) ) ) break;
+
+              jsonp_open_object( gui->http, NULL );
+                char account_base58[ FD_BASE58_ENCODED_32_SZ ];
+                fd_base58_encode_32( lslot->scheduler_stats->limits_usage->top_writers[ i ].key.b, NULL, account_base58 );
+                jsonp_string( gui->http, "account", account_base58 );
+                jsonp_ulong( gui->http, "cost", lslot->scheduler_stats->limits_usage->top_writers[ i ].total_cost );
+              jsonp_close_object( gui->http );
+            }
+          jsonp_close_array( gui->http );
+
+          jsonp_ulong( gui->http, "max_total_block_cost",        lslot->scheduler_stats->limits->max_cost_per_block        );
+          jsonp_ulong( gui->http, "max_total_vote_cost",         lslot->scheduler_stats->limits->max_vote_cost_per_block   );
+          jsonp_ulong( gui->http, "max_account_write_cost",      lslot->scheduler_stats->limits->max_write_cost_per_acct   );
+          jsonp_ulong( gui->http, "max_total_bytes",             lslot->scheduler_stats->limits->max_data_bytes_per_block  );
+          jsonp_ulong( gui->http, "max_total_microblocks",       lslot->scheduler_stats->limits->max_microblocks_per_block );
+        jsonp_close_object( gui->http );
+
+        jsonp_open_object( gui->http, "scheduler_stats" );
+          jsonp_open_array( gui->http, "slot_schedule_counts" );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->block_results[ i ] );
+          jsonp_close_array( gui->http );
+          jsonp_open_array( gui->http, "end_slot_schedule_counts" );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->end_block_results[ i ] );
+          jsonp_close_array( gui->http );
+
+          if( FD_LIKELY( lslot->scheduler_stats->pending_smallest->cus!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_smallest_cost", lslot->scheduler_stats->pending_smallest->cus );
+          else                                                                        jsonp_null( gui->http, "pending_smallest_cost" );
+          if( FD_LIKELY( lslot->scheduler_stats->pending_smallest->bytes!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_smallest_bytes", lslot->scheduler_stats->pending_smallest->bytes );
+          else                                                                          jsonp_null( gui->http, "pending_smallest_bytes" );
+          if( FD_LIKELY( lslot->scheduler_stats->pending_votes_smallest->cus!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_vote_smallest_cost", lslot->scheduler_stats->pending_votes_smallest->cus );
+          else                                                                              jsonp_null( gui->http, "pending_vote_smallest_cost" );
+          if( FD_LIKELY( lslot->scheduler_stats->pending_votes_smallest->bytes!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_vote_smallest_bytes", lslot->scheduler_stats->pending_votes_smallest->bytes );
+          else                                                                                jsonp_null( gui->http, "pending_vote_smallest_bytes" );
+        jsonp_close_object( gui->http );
+
+      } else {
+        jsonp_null( gui->http, "limits" );
+        jsonp_null( gui->http, "scheduler_stats" );
+      }
+
       int overwritten               = lslot && (gui->pack_txn_idx - lslot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
       int processed_all_microblocks = lslot &&
                                       lslot->txs.start_offset!=ULONG_MAX &&
@@ -1501,7 +1587,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
 
         jsonp_open_object( gui->http, "transactions" );
           jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time );
-          jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_start_time );
+          jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time );
           jsonp_open_array( gui->http, "txn_mb_start_timestamps_nanos" );
             for( ulong i=0UL; i<txn_cnt; i++) jsonp_long_as_str( gui->http, NULL, lslot->leader_start_time + (long)gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos );
           jsonp_close_array( gui->http );
@@ -1654,16 +1740,23 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "slot", "query" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
+      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
 
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
+
+        if( FD_UNLIKELY( lslot && lslot->leader_start_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time  );
+        else                                                             jsonp_null       ( gui->http, "start_timestamp_nanos" );
+        if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
+        else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
+
         jsonp_bool( gui->http, "skipped", slot->skipped );
         jsonp_string( gui->http, "level", level );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui->http, "completed_time_nanos" );
-        else                                                jsonp_long( gui->http, "completed_time_nanos", slot->completed_time );
+        else                                                jsonp_long_as_str( gui->http, "completed_time_nanos", slot->completed_time );
         if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX
                          || slot->vote_txn_cnt==UINT_MAX
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "success_nonvote_transaction_cnt" );
@@ -1707,6 +1800,26 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         } else {
           /* Our tile timers were overwritten. */
           jsonp_null( gui->http, "tile_timers" );
+        }
+
+        if( FD_LIKELY( lslot ) ) {
+          jsonp_open_array( gui->http, "scheduler_counts" );
+            /* Unlike tile timers (which are counters), scheduler counts
+               are a gauge and we don't take a diff. */
+            for( ulong i=0UL; i<lslot->scheduler_counts_sample_cnt; i++ ) {
+              fd_gui_scheduler_counts_t const * cur = lslot->scheduler_counts[ i ];
+              jsonp_open_object( gui->http, NULL );
+                jsonp_long_as_str( gui->http, "timestamp_nanos", cur->sample_time_ns );
+                jsonp_ulong      ( gui->http, "regular",         cur->regular        );
+                jsonp_ulong      ( gui->http, "votes",           cur->votes          );
+                jsonp_ulong      ( gui->http, "conflicting",     cur->conflicting    );
+                jsonp_ulong      ( gui->http, "bundles",         cur->bundles        );
+              jsonp_close_object( gui->http );
+            }
+          jsonp_close_array( gui->http );
+        } else {
+          /* Our scheduler counts were overwritten. */
+          jsonp_null( gui->http, "scheduler_counts" );
         }
 
         fd_gui_printf_tile_stats( gui, slot->tile_stats_begin, slot->tile_stats_end );
@@ -1799,6 +1912,16 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
 
           /* This code should be kept in sync with updates to
              fd_gui_peers_live_table */
+          if( FD_UNLIKELY( cur->stake!=ref->stake ) ) {
+            jsonp_open_object( peers->http, NULL );
+              jsonp_ulong ( peers->http, "row_index", j );
+              jsonp_string( peers->http, "column_name", "Stake" );
+
+              if( FD_UNLIKELY( cur->stake==ULONG_MAX ) ) jsonp_long ( peers->http, "new_value", -1 );
+              else                                       jsonp_ulong( peers->http, "new_value", cur->stake );
+            jsonp_close_object( peers->http );
+          }
+
           if( FD_UNLIKELY( memcmp( cur->contact_info.pubkey.uc, ref->contact_info.pubkey.uc, 32UL ) ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
@@ -1821,14 +1944,14 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
             jsonp_close_object( peers->http );
           }
 
-          long cur_egress_push_kbps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
-          long ref_egress_push_kbps           = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
-          long cur_ingress_push_kbps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
-          long ref_ingress_push_kbps          = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
-          long cur_egress_pull_response_kbps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
-          long ref_egress_pull_response_kbps  = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
-          long cur_ingress_pull_response_kbps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
-          long ref_ingress_pull_response_kbps = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
+          long cur_egress_push_kbps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long ref_egress_push_kbps           = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_ingress_push_kbps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long ref_ingress_push_kbps          = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_egress_pull_response_kbps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long ref_egress_pull_response_kbps  = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_ingress_pull_response_kbps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long ref_ingress_pull_response_kbps = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
 
           if( FD_UNLIKELY( ref->valid && cur_ingress_pull_response_kbps!=ref_ingress_pull_response_kbps ) ) {
             jsonp_open_object( peers->http, NULL );
@@ -1890,6 +2013,8 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
         jsonp_open_object( peers->http, row_index_cstr );
           /* This code should be kept in sync with updates to
             fd_gui_peers_live_table */
+          if( FD_UNLIKELY( cur->stake==ULONG_MAX ) ) jsonp_long ( peers->http, "Stake", -1 );
+          else                                       jsonp_ulong( peers->http, "Stake", cur->stake );
 
           char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
           fd_base58_encode_32( cur->contact_info.pubkey.uc, NULL, pubkey_base58 );
@@ -1899,10 +2024,10 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
           FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(cur->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr) ) );
           jsonp_string( peers->http, "IP Addr", peer_addr );
 
-          long cur_egress_push_kbps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
-          long cur_ingress_push_kbps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate;
-          long cur_egress_pull_response_kbps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
-          long cur_ingress_pull_response_kbps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate;
+          long cur_egress_push_kbps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_ingress_push_kbps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_egress_pull_response_kbps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_ingress_pull_response_kbps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
 
           jsonp_long  ( peers->http, "Ingress Pull", cur_ingress_pull_response_kbps );
           jsonp_long  ( peers->http, "Ingress Push", cur_ingress_push_kbps );

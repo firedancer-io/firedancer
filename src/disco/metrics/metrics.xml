@@ -254,7 +254,7 @@ metric introduced.
     <counter name="PktOversz" summary="Number of QUIC packets dropped due to being too large." />
     <counter name="PktVerneg" summary="Number of QUIC version negotiation packets received." />
     <counter name="RetrySent" summary="Number of QUIC Retry packets sent." />
-    <counter name="PktRetransmissions" summary="Number of QUIC packets that retransmitted." />
+    <counter name="PktRetransmissions" enum="QuicEncLevel" summary="Number of QUIC packets that retransmitted." />
 </tile>
 
 <enum name="NewContactOutcome">
@@ -282,6 +282,7 @@ metric introduced.
     <int value="2" name="NewConnection" label="Initiated connection" />
     <int value="3" name="ConnFailed" label="Connection failed" />
     <int value="4" name="Connected" label="Connection exists" />
+    <int value="5" name="Cooldown" label="Connection cooldown" />
 </enum>
 
 <tile name="send">
@@ -305,9 +306,6 @@ metric introduced.
 
     <counter name="HandshakeComplete" enum="SendQuicPorts" summary="Total number of times we completed a handshake" />
     <counter name="QuicConnFinal" enum="SendQuicPorts" summary="Total number of times QUIC connection closed" />
-
-    <gauge name="StakedNoCi" summary="Last counted # staked accounts without contact info" />
-    <gauge name="StaleCi" summary="Last counted # staked accounts with stale contact info" />
 
     <!-- QUIC packet metrics -->
     <counter name="ReceivedPackets" summary="Total count of QUIC packets received" />
@@ -339,7 +337,7 @@ metric introduced.
     <counter name="PktUndersz" summary="Total count of undersized packets" />
     <counter name="PktOversz" summary="Total count of oversized packets" />
     <counter name="PktVerneg" summary="Total count of version negotiation packets" />
-    <counter name="PktRetransmissions" summary="Total count of packet retransmissions" />
+    <counter name="PktRetransmissions" enum="QuicEncLevel" summary="Total count of QUIC packet retransmissions." />
 
     <!-- QUIC handshake metrics -->
     <counter name="HandshakesCreated" summary="Total count of QUIC handshakes created" />
@@ -402,6 +400,7 @@ metric introduced.
     <counter name="TransactionParseFailure" summary="Count of transactions that failed to parse" />
     <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
     <counter name="TransactionVerifyFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
+    <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
 </tile>
 
 <tile name="dedup">
@@ -540,6 +539,7 @@ metric introduced.
     <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
     <counter name="TransactionExpired" summary="Transactions deleted from pack because their TTL expired" />
     <counter name="TransactionDeleted" summary="Transactions dropped from pack because they were requested to be deleted" />
+    <counter name="TransactionAlreadyExecuted" summary="Transactions dropped from pack because they were already executed (in either the replay or leader pipeline)" />
     <counter name="TransactionDroppedPartialBundle" summary="Transactions dropped from pack because they were part of a partial bundle" />
 
     <gauge name="AvailableTransactions" enum="AvailTxnType" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
@@ -585,7 +585,7 @@ metric introduced.
     <int value="3" name="InvalidAccountOwner" label="The account that owns the referenced lookup table is not the address lookup table program." />
     <int value="4" name="InvalidAccountData" label="The data for the referenced address lookup table is malformed." />
     <int value="5" name="InvalidIndex" label="The referenced index in the address lookup table does not exist." />
-</enum>"
+</enum>
 
 <enum name="TransactionError">
     <int value="0" name="Success" label="Success" />
@@ -657,29 +657,40 @@ metric introduced.
     <int value="13" name="MaxLoadedAccountsDataSizeExceeded" label="The total account data size of the loaded accounts exceeds the consensus limit" />
     <int value="14" name="DuplicateInstruction" label="A compute budget program instruction was invoked more than once" />
     <int value="15" name="InvalidLoadedAccountsDataSizeLimit" label="The compute budget program was invoked and set the loaded accounts data size to zero" />
+    <int value="16" name="NonceAlreadyAdvanced" label="The transaction references a nonce account that is already advanced" />
+    <int value="17" name="NonceAdvanceFailed" label="The transaction is a nonce transaction but the advance instruction was not valid or failed" />
+    <int value="18" name="NonceWrongBlockhash" label="The transaction is a nonce transaction but the blockhash is not the correct one" />
 
     <!-- Preflight errors during replay. These are errors in validation
          before we begin executing the transaction, which can only
          occur during replay, as such transactions do not make it to
          execution when we are leader. -->
-    <int value="16" name="AccountInUse" label="The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher" />
-    <int value="17" name="AccountLoadedTwice" label="The transaction references the same account twice" />
-    <int value="18" name="SignatureFailure" label="The transaction had an invalid signature" />
-    <int value="19" name="TooManyAccountLocks" label="The transaction references too many accounts. TODO: No longer possible with smart dispatcher" />
+    <int value="19" name="AccountInUse" label="The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher" />
+    <int value="20" name="AccountLoadedTwice" label="The transaction references the same account twice" />
+    <int value="21" name="SignatureFailure" label="The transaction had an invalid signature" />
+    <int value="22" name="TooManyAccountLocks" label="The transaction references too many accounts. TODO: No longer possible with smart dispatcher" />
 
     <!-- Execution errors. These are errors which occur during actual
          execution of the transaction, after it has been validated. -->
-    <int value="20" name="InsufficientFundsForRent" label="The transaction would leave an account with a lower balance than the rent-exempt minimum" />
-    <int value="21" name="UnbalancedTransaction" label="The total referenced account lamports before and after the transaction was unbalanced" />
+    <int value="23" name="InsufficientFundsForRent" label="The transaction would leave an account with a lower balance than the rent-exempt minimum" />
+    <int value="24" name="UnbalancedTransaction" label="The total referenced account lamports before and after the transaction was unbalanced" />
 
     <!-- Errors that aren't returned by the runtime execution itself,
          but are used by bank as an additional reason transactions
          might fail. -->
-    <int value="22" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
+    <int value="25" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
+</enum>
+
+<enum name="TransactionLanded">
+    <int value="0" name="LandedSuccess" label="Transaction landed" />
+    <int value="1" name="LandedFeesOnly" label="Transaction landed, but was fees only and did not execute" />
+    <int value="2" name="LandedFailed" label="Transaction landed, but failed to execute" />
+    <int value="3" name="Unlanded" label="Transaction did not land" />
 </enum>
 
 <tile name="bankf">
     <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction." />
+    <counter name="TransactionLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not." />
 </tile>
 
 <tile name="bank">
@@ -822,6 +833,8 @@ metric introduced.
     <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
     <counter name="SignTileUnavail"                                                                     summary="How many times no sign tiles were available to send request" />
     <counter name="EagerRepairAggresses"                                                                summary="How many times we pass eager repair threshold" />
+    <counter name="RerequestQueue"                                                                      summary="How many times we re-request a shred from the inflights queue" />
+    <counter name="MalformedPing"                                                                       summary="How many times we received a malformed ping" />
     <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
       <summary>Time in seconds it took to complete a slot</summary>
     </histogram>
@@ -829,6 +842,7 @@ metric introduced.
       <summary>Time in nanoseconds it took to receive a repair request response</summary>
     </histogram>
     <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
+
 </tile>
 
 <enum name="CrdsValue">
@@ -1049,6 +1063,27 @@ metric introduced.
     <gauge name="AccountsInserted" summary="Number of accounts inserted during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
+<tile name="snapwr">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN" />
+    <gauge name="VinylBytesWritten" summary="Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted" />
+</tile>
+
+<tile name="snapwh">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN" />
+</tile>
+
+<tile name="snapla">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
+    <gauge name="FullAccountsHashed" summary="Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+</tile>
+
+<tile name="snapls">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
+    <gauge name="FullAccountsHashed" summary="Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 </tile>
@@ -1075,6 +1110,35 @@ metric introduced.
     <counter name="ProgcacheFillFails" summary="Number of program cache load fails (tombstones inserted)" />
     <counter name="ProgcacheDupInserts" summary="Number of time two tiles raced to insert the same cache entry" />
     <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
+</tile>
+
+<tile name="benchs">
+    <counter name="TransactionsSent" summary="Number of benchmark packets sent" />
+</tile>
+
+<tile name="tower">
+    <counter name="VoteTxnInvalid" summary="Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.)" />
+    <counter name="VoteTxnIgnored" summary="Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind)" />
+    <counter name="VoteTxnMismatch" summary="Number of times a vote txn mismatched our own block id" />
+    <counter name="AncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
+    <counter name="SiblingConfirmed" summary="Duplicate sibling got confirmed (can't vote)" />
+    <counter name="SameFork" summary="Same fork as prev vote (can vote)" />
+    <counter name="SwitchPass" summary="Prev vote was on a different fork, but we are allowed to switch (can vote)" />
+    <counter name="SwitchFail" summary="Prev vote was on a different fork, and we are not allowed to switch (can't vote)" />
+    <counter name="LockoutFail" summary="Locked out (can't vote)" />
+    <counter name="ThresholdFail" summary="Did not pass threshold check (can't vote)" />
+    <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
+</tile>
+
+<tile name="gui">
+    <gauge name="ConnectionCount" summary="The number of active connections to the GUI service" />
+    <gauge name="WebsocketConnectionCount" summary="The number of active websocket connections to the GUI service" />
+
+    <counter name="WebsocketFramesSent" summary="The total number of websocket frames sent to all connections to the GUI service" />
+    <counter name="WebsocketFramesReceived" summary="The total number of websocket frames received from all connections to the GUI service" />
+
+    <counter name="BytesWritten" summary="The total number of bytes written to all connections to the GUI service" />
+    <counter name="BytesRead" summary="The total number of bytes read from all connections to the GUI service" />
 </tile>
 
 </metrics>

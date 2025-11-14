@@ -9,14 +9,6 @@
 #define FD_SLOT_NULL                 ( ULONG_MAX )
 #define FD_SHRED_IDX_NULL            ( UINT_MAX )
 
-/* CLUSTER_VERSION is the default value for the cluster version
-   in the epoch context. This value will foll forward to the
-   latest version.
-*/
-#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR 2
-#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR 0
-#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH 0
-
 #if FD_HAS_ALLOCA
 
 /* FD_BASE58_ENC_{32,64}_ALLOCA is a shorthand for fd_base58_encode_{32,64},
@@ -93,11 +85,20 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 struct fd_txn_account;
 typedef struct fd_txn_account fd_txn_account_t;
 
+struct fd_exec_accounts;
+typedef struct fd_exec_accounts fd_exec_accounts_t;
+
 union fd_features;
 typedef union fd_features fd_features_t;
 
 struct fd_progcache;
 typedef struct fd_progcache fd_progcache_t;
+
+union fd_runtime_stack;
+typedef union fd_runtime_stack fd_runtime_stack_t;
+
+struct fd_exec_stack;
+typedef struct fd_exec_stack fd_exec_stack_t;
 
 struct fd_account_meta {
   uchar owner[32];

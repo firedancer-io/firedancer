@@ -359,12 +359,12 @@ fd_spad_private_frame_end( fd_spad_t ** _spad ) { /* declared here to avoid a fd
   fd_spad_pop( *_spad );
 }
 
-#define FD_SPAD_FRAME_BEGIN(spad) do {                                            \
+#define FD_SPAD_FRAME_BEGIN(spad) {                                               \
   fd_spad_t * _spad __attribute__((cleanup(fd_spad_private_frame_end))) = (spad); \
   fd_spad_push( _spad );                                                          \
-  do
+  {
 
-#define FD_SPAD_FRAME_END while(0); } while(0)
+#define FD_SPAD_FRAME_END }}
 
 /* fd_spad_alloc allocates sz bytes with alignment align from spad.
    Returns a pointer in the caller's address space to the first byte of

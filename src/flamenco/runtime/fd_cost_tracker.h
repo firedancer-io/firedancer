@@ -70,8 +70,6 @@ FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==321280UL, "Incorrec
 
 #define FD_COST_TRACKER_ALIGN (128UL)
 
-#define FD_COST_TRACKER_MAGIC (0xF17EDA2CE7C05170UL) /* FIREDANCER COST V0 */
-
 struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
   ulong block_cost;
   ulong vote_cost;
@@ -80,11 +78,33 @@ struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
   ulong block_cost_limit;
   ulong vote_cost_limit;
   ulong account_cost_limit;
+
+  int larger_max_cost_per_block;
 };
 
 typedef struct fd_cost_tracker fd_cost_tracker_t;
 
 FD_PROTOTYPES_BEGIN
+
+static inline int
+fd_cost_tracker_err_to_runtime_err( int err ) {
+  switch( err ) {
+    case FD_COST_TRACKER_SUCCESS:
+      return FD_RUNTIME_EXECUTE_SUCCESS;
+    case FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT:
+      return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT;
+    case FD_COST_TRACKER_ERROR_WOULD_EXCEED_VOTE_MAX_LIMIT:
+      return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_VOTE_COST_LIMIT;
+    case FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT:
+      return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT;
+    case FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT:
+      return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT;
+    case FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT:
+      return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT;
+    default:
+      __builtin_unreachable();
+  }
+}
 
 FD_FN_CONST ulong
 fd_cost_tracker_align( void );
@@ -94,6 +114,7 @@ fd_cost_tracker_footprint( void );
 
 void *
 fd_cost_tracker_new( void * shmem,
+                     int    larger_max_cost_per_block,
                      ulong  seed );
 
 fd_cost_tracker_t *
@@ -104,13 +125,10 @@ fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
                       fd_features_t const * features,
                       ulong                 slot );
 
-ulong
-fd_cost_tracker_block_cost_limit( fd_bank_t const * bank );
-
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
 FD_FN_PURE static inline ulong
 fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
-  ulong cost = fd_ulong_sat_sub( fd_ulong_sat_add( txn_ctx->loaded_accounts_data_size,
+  ulong cost = fd_ulong_sat_sub( fd_ulong_sat_add( txn_ctx->details.loaded_accounts_data_size,
                                                    FD_ACCOUNT_DATA_COST_PAGE_SIZE ),
                                  1UL );
   cost /= FD_ACCOUNT_DATA_COST_PAGE_SIZE;

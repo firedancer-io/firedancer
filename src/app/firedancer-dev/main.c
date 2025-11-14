@@ -12,6 +12,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_mcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fseq;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
+extern fd_topo_obj_callbacks_t fd_obj_cb_cnc;
 extern fd_topo_obj_callbacks_t fd_obj_cb_opaque;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
@@ -21,16 +22,20 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
-extern fd_topo_obj_callbacks_t fd_obj_cb_exec_spad;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
 extern fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp;
+
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta_ele;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_data;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
   &fd_obj_cb_dcache,
   &fd_obj_cb_fseq,
   &fd_obj_cb_metrics,
+  &fd_obj_cb_cnc,
   &fd_obj_cb_opaque,
   &fd_obj_cb_dbl_buf,
   &fd_obj_cb_neigh4_hmap,
@@ -40,12 +45,16 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_store,
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
-  &fd_obj_cb_exec_spad,
   &fd_obj_cb_banks,
   &fd_obj_cb_funk,
   &fd_obj_cb_bank_hash_cmp,
+  &fd_obj_cb_vinyl_meta,
+  &fd_obj_cb_vinyl_meta_ele,
+  &fd_obj_cb_vinyl_data,
   NULL,
 };
+
+extern configure_stage_t fd_cfg_stage_vinyl;
 
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,
@@ -58,6 +67,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_keys,
   &fd_cfg_stage_genesis,
   &fd_cfg_stage_snapshots,
+  &fd_cfg_stage_vinyl,
   NULL,
 };
 
@@ -77,6 +87,7 @@ extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
 extern fd_topo_run_tile_t fd_tile_cswtch;
 extern fd_topo_run_tile_t fd_tile_gui;
+extern fd_topo_run_tile_t fd_tile_rpc;
 extern fd_topo_run_tile_t fd_tile_plugin;
 extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
@@ -94,17 +105,21 @@ extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execor;
 extern fd_topo_run_tile_t fd_tile_send;
 extern fd_topo_run_tile_t fd_tile_tower;
-extern fd_topo_run_tile_t fd_tile_rpcserv;
 extern fd_topo_run_tile_t fd_tile_backtest;
 extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_shredcap;
+extern fd_topo_run_tile_t fd_tile_vinyl;
 
 extern fd_topo_run_tile_t fd_tile_snapct;
 extern fd_topo_run_tile_t fd_tile_snapld;
 extern fd_topo_run_tile_t fd_tile_snapdc;
 extern fd_topo_run_tile_t fd_tile_snapin;
+extern fd_topo_run_tile_t fd_tile_snapwh;
+extern fd_topo_run_tile_t fd_tile_snapwr;
+extern fd_topo_run_tile_t fd_tile_snapla;
+extern fd_topo_run_tile_t fd_tile_snapls;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -121,6 +136,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_metric,
   &fd_tile_cswtch,
   &fd_tile_gui,
+  &fd_tile_rpc,
   &fd_tile_plugin,
   &fd_tile_bencho,
   &fd_tile_benchg,
@@ -134,7 +150,6 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_poh,
   &fd_tile_send,
   &fd_tile_tower,
-  &fd_tile_rpcserv,
   &fd_tile_archiver_feeder,
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
@@ -151,8 +166,13 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapld,
   &fd_tile_snapdc,
   &fd_tile_snapin,
+  &fd_tile_snapwh,
+  &fd_tile_snapwr,
+  &fd_tile_snapla,
+  &fd_tile_snapls,
   &fd_tile_genesi,
   &fd_tile_ipecho,
+  &fd_tile_vinyl,
   NULL,
 };
 
@@ -234,12 +254,16 @@ main( int     argc,
   fd_config_file_t testnet = fd_config_file_testnet();
   fd_config_file_t devnet = fd_config_file_devnet();
   fd_config_file_t mainnet = fd_config_file_mainnet();
+  fd_config_file_t testnet_jito = fd_config_file_testnet_jito();
+  fd_config_file_t mainnet_jito = fd_config_file_mainnet_jito();
 
   fd_config_file_t * configs[] = {
     &_default,
     &testnet,
     &devnet,
     &mainnet,
+    &testnet_jito,
+    &mainnet_jito,
     NULL
   };
 

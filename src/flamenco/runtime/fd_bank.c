@@ -48,10 +48,10 @@ fd_bank_footprint( void ) {
       fd_bank_##name##_t * bank_##name = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx );          \
       return (type *)bank_##name->data;                                                                            \
     }                                                                                                              \
+    fd_rwlock_write( fd_bank_get_##name##_pool_lock( bank ) );                                                     \
     if( FD_UNLIKELY( !fd_bank_##name##_pool_free( name##_pool ) ) ) {                                              \
       FD_LOG_CRIT(( "Failed to acquire " #name " pool element: pool is full" ));                                   \
     }                                                                                                              \
-    fd_rwlock_write( fd_bank_get_##name##_pool_lock( bank ) );                                                     \
     fd_bank_##name##_t * child_##name = fd_bank_##name##_pool_ele_acquire( name##_pool );                          \
     if( FD_UNLIKELY( !child_##name ) ) {                                                                           \
       FD_LOG_CRIT(( "Failed to acquire " #name " pool element" ));                                                 \
@@ -168,28 +168,28 @@ fd_banks_footprint( ulong max_total_banks,
 }
 
 void *
-fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
-
-  fd_banks_t * banks = (fd_banks_t *)shmem;
-
-  if( FD_UNLIKELY( !banks ) ) {
-    FD_LOG_WARNING(( "NULL banks" ));
+fd_banks_new( void * shmem,
+              ulong  max_total_banks,
+              ulong  max_fork_width,
+              int    larger_max_cost_per_block,
+              ulong  seed ) {
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)banks, fd_banks_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned banks" ));
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_banks_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
   }
-
-  /* Set the rwlock to unlocked. */
-  fd_rwlock_unwrite( &banks->rwlock );
 
   /* First, layout the banks and the pool used by fd_banks_t. */
-  FD_SCRATCH_ALLOC_INIT( l, banks );
-  banks                        = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  fd_banks_t * banks           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
   void * pool_mem              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
   void * cost_tracker_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+
+  fd_rwlock_new( &banks->rwlock );
 
   /* Need to layout all of the CoW pools. */
   #define HAS_COW_1_LIMIT_1(name) \
@@ -247,7 +247,7 @@ fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
 
   for( ulong i=0UL; i<max_fork_width; i++ ) {
     fd_bank_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i );
-    fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, 88888UL /* TODO: REAL SEED */ ) );
+    fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, larger_max_cost_per_block, seed ) );
   }
 
   /* Now, call _new() and _join() for all of the CoW pools. */
@@ -518,8 +518,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_unwrite( &bank->cost_tracker_lock );
 
-  bank->flags |= FD_BANK_FLAGS_INIT;
-  bank->flags |= FD_BANK_FLAGS_FROZEN;
+  bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_REPLAYABLE | FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
 
   bank->first_fec_set_received_nanos      = fd_log_wallclock();
@@ -796,14 +795,22 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     /* Decide if we need to free any CoW fields. We free a CoW member
        from its pool if the dirty flag is set unless it is the same
-       pool that the new root uses. */
-    #define HAS_COW_1(name)                                                          \
-      if( head->name##_dirty && head->name##_pool_idx!=new_root->name##_pool_idx ) { \
-        fd_rwlock_write( &banks->name##_pool_lock );                                 \
-        fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );      \
-        fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );     \
-        fd_rwlock_unwrite( &banks->name##_pool_lock );                               \
-      }
+       pool that the new root uses.
+
+       If the new root did not have the dirty bit set, that means the node
+       didn't own the pool index. Change the ownership to the new root. */
+    #define HAS_COW_1(name)                                                                                                  \
+      fd_rwlock_write( &new_root->name##_lock );                                                                             \
+      fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );                                                \
+      if( head->name##_dirty && head->name##_pool_idx!=new_root->name##_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) { \
+        fd_rwlock_write( &banks->name##_pool_lock );                                                                         \
+        fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );                                             \
+        fd_rwlock_unwrite( &banks->name##_pool_lock );                                                                       \
+      } else if( new_root->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) {                                \
+        new_root->name##_dirty = 1;                                                                                          \
+      }                                                                                                                      \
+      fd_rwlock_unwrite( &new_root->name##_lock );
+
     /* Do nothing for these. */
     #define HAS_COW_0(name)
 
@@ -818,23 +825,6 @@ fd_banks_advance_root( fd_banks_t * banks,
     fd_banks_pool_ele_release( bank_pool, head );
     head = next;
   }
-
-  /* If the new root did not have the dirty bit set, that means the node
-     didn't own the pool index. Change the ownership to the new root. */
-  #define HAS_COW_1(name)                                                            \
-    fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );          \
-    if( new_root->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) { \
-      new_root->name##_dirty = 1;                                                    \
-    }
-  /* Do nothing if not CoW. */
-  #define HAS_COW_0(name)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
 
   new_root->parent_idx = null_idx;
   banks->root_idx      = new_root->idx;
@@ -985,12 +975,28 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
     curr         = fd_banks_pool_ele( bank_pool, curr->parent_idx );
   }
 
-  ulong advance_candidate_idx = prev->idx;
-
   /* If we didn't reach the old root or there is no parent, target is
      not a descendant. */
   if( FD_UNLIKELY( !curr || prev->parent_idx!=root->idx ) ) {
     FD_LOG_CRIT(( "invariant violation: target bank_idx %lu is not a direct descendant of root bank_idx %lu %lu %lu", target_bank_idx, root->idx, prev->idx, prev->parent_idx ));
+  }
+
+  curr = root;
+  while( curr && (curr->flags&FD_BANK_FLAGS_ROOTED) && curr!=target_bank ) { /* curr!=target_bank to avoid abandoning good forks. */
+    fd_bank_t * rooted_child = NULL;
+    ulong       child_idx    = curr->child_idx;
+    while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+      fd_bank_t * child_bank = fd_banks_pool_ele( bank_pool, child_idx );
+      if( child_bank->flags&FD_BANK_FLAGS_ROOTED ) {
+        rooted_child = child_bank;
+      } else {
+        /* This is a minority fork. */
+        FD_LOG_DEBUG(( "abandoning minority fork on bank idx %lu", child_bank->idx ));
+        fd_banks_subtree_mark_dead( bank_pool, child_bank );
+      }
+      child_idx = child_bank->sibling_idx;
+    }
+    curr = rooted_child;
   }
 
   /* We should mark the old root bank as dead. */
@@ -1001,11 +1007,11 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
      potential new root are eligible for pruning.  Each of the sibling
      subtrees can be pruned if the subtrees have no active references on
      their bank. */
+  ulong advance_candidate_idx = prev->idx;
   ulong child_idx = root->child_idx;
   while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
     fd_bank_t * child_bank = fd_banks_pool_ele( bank_pool, child_idx );
     if( child_idx!=advance_candidate_idx ) {
-      fd_banks_subtree_mark_dead( bank_pool, child_bank );
       if( !fd_banks_subtree_can_be_pruned( bank_pool, child_bank ) ) {
         fd_rwlock_unread( &banks->rwlock );
         return 0;

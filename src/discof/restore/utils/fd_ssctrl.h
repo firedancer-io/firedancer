@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_restore_utils_fd_ssctrl_h
 
 #include "../../../util/net/fd_net_headers.h"
+#include "../../../flamenco/runtime/fd_runtime_const.h"
 
 /* The snapshot tiles have a somewhat involved state machine, which is
    controlled by snapct.  Imagine first the following sequence:
@@ -70,6 +71,17 @@
 #define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (7UL) /* No work left to do, perform final cleanup and shut down */
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
 
+/* snapla -> snapls */
+#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD       (9UL) /* Hash result sent from snapla to snapls */
+
+/* snapin -> snapls */
+#define FD_SNAPSHOT_HASH_MSG_EXPECTED         (10UL) /* Hash result sent from snapin to snapls */
+
+/* snapin -> snapls */
+#define FD_SNAPSHOT_HASH_MSG_SUB              (11UL) /* Duplicate account sent from snapin to snapls, includes account header and data */
+#define FD_SNAPSHOT_HASH_MSG_SUB_HDR          (12UL) /* Duplicate account sent from snapin to snapls, only the account header, no data */
+#define FD_SNAPSHOT_HASH_MSG_SUB_DATA         (13UL) /* Duplicate account sent from snapin to snapls, only the account data, no header */
+
 /* Sent by snapct to tell snapld whether to load a local file or
    download from a particular external peer. */
 typedef struct fd_ssctrl_init {
@@ -82,5 +94,46 @@ typedef struct fd_ssctrl_meta {
   ulong total_sz;
   char  name[ PATH_MAX ];
 } fd_ssctrl_meta_t;
+
+struct fd_snapshot_account_hdr {
+  uchar   pubkey[ FD_PUBKEY_FOOTPRINT ];
+  uchar   owner[ FD_PUBKEY_FOOTPRINT ];
+  ulong   lamports;
+  uchar   executable;
+  ulong   data_len;
+};
+typedef struct fd_snapshot_account_hdr fd_snapshot_account_hdr_t;
+
+/* fd_snapshot_account_hdr_init initializes a fd_snapshot_account_hdr_t struct
+   with the appropriate account metadata fields. */
+static inline void
+fd_snapshot_account_hdr_init( fd_snapshot_account_hdr_t * account,
+                           uchar const                    pubkey[ FD_PUBKEY_FOOTPRINT ],
+                           uchar const                    owner[ FD_PUBKEY_FOOTPRINT ],
+                           ulong                          lamports,
+                           uchar                          executable,
+                           ulong                          data_len ) {
+  fd_memcpy( account->pubkey, pubkey, FD_PUBKEY_FOOTPRINT );
+  fd_memcpy( account->owner,  owner,  FD_PUBKEY_FOOTPRINT );
+  account->lamports   = lamports;
+  account->executable = executable;
+  account->data_len   = data_len;
+}
+
+/* fd_snapshot_full_account is the contents of the
+   SNAPSHOT_HASH_MSG_SUB message.  It contains a fd_snapshot_account_hdr_t
+   header and the corresponding account data in a single message.
+
+   For simplicity and conformance to burst limitations in snapin, the
+   entire duplicate account is sent in one message (one frag).  Consider
+   caching the lthash of the duplicate account so we do not have to
+   send the entire account over. */
+struct fd_snapshot_full_account {
+  fd_snapshot_account_hdr_t hdr;
+  uchar                     data[ FD_RUNTIME_ACC_SZ_MAX ];
+};
+typedef struct fd_snapshot_full_account fd_snapshot_full_account_t;
+
+#define FD_SNAPSHOT_MAX_SNAPLA_TILES (8UL)
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssctrl_h */

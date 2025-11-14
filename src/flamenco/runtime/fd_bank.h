@@ -209,21 +209,21 @@ FD_PROTOTYPES_BEGIN
   /* type,                             name,                        footprint,                                 align,                                      CoW, limit fork width, has lock */                                                          \
   X(fd_blockhashes_t,                  block_hash_queue,            sizeof(fd_blockhashes_t),                  alignof(fd_blockhashes_t),                  0,   0,                0    )  /* Block hash queue */                                       \
   X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0,                0    )  /* Fee rate governor */                                      \
+  X(ulong,                             rbh_lamports_per_sig,        sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Recent Block Hashes lamports per signature */             \
   X(ulong,                             slot,                        sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Slot */                                                   \
   X(ulong,                             parent_slot,                 sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Parent slot */                                            \
   X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Capitalization */                                         \
-  X(ulong,                             lamports_per_signature,      sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Lamports per signature */                                 \
-  X(ulong,                             prev_lamports_per_signature, sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Previous lamports per signature */                        \
   X(ulong,                             transaction_count,           sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Transaction count */                                      \
   X(ulong,                             parent_signature_cnt,        sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Parent signature count */                                 \
   X(ulong,                             tick_height,                 sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Tick height */                                            \
   X(ulong,                             max_tick_height,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Max tick height */                                        \
   X(ulong,                             hashes_per_tick,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Hashes per tick */                                        \
-  X(uint128,                           ns_per_slot,                 sizeof(uint128),                           alignof(uint128),                           0,   0,                0    )  /* NS per slot */                                            \
+  X(fd_w_u128_t,                       ns_per_slot,                 sizeof(fd_w_u128_t),                       alignof(fd_w_u128_t),                       0,   0,                0    )  /* NS per slot */                                            \
   X(ulong,                             ticks_per_slot,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Ticks per slot */                                         \
   X(ulong,                             genesis_creation_time,       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Genesis creation time */                                  \
   X(double,                            slots_per_year,              sizeof(double),                            alignof(double),                            0,   0,                0    )  /* Slots per year */                                         \
   X(fd_inflation_t,                    inflation,                   sizeof(fd_inflation_t),                    alignof(fd_inflation_t),                    0,   0,                0    )  /* Inflation */                                              \
+  X(ulong,                             cluster_type,                sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Cluster type */                                           \
   X(ulong,                             total_epoch_stake,           sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Total epoch stake */                                      \
                                                                                                                                                                                           /* This is only used for the get_epoch_stake syscall. */     \
                                                                                                                                                                                           /* If we are executing in epoch E, this is the total */      \
@@ -231,10 +231,10 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             block_height,                sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Block height */                                           \
   X(ulong,                             execution_fees,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Execution fees */                                         \
   X(ulong,                             priority_fees,               sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Priority fees */                                          \
+  X(ulong,                             tips,                        sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Tips collected */                                         \
   X(ulong,                             signature_count,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Signature count */                                        \
   X(fd_hash_t,                         poh,                         sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* PoH */                                                    \
   X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot,           sizeof(fd_sol_sysvar_last_restart_slot_t), alignof(fd_sol_sysvar_last_restart_slot_t), 0,   0,                0    )  /* Last restart slot */                                      \
-  X(fd_cluster_version_t,              cluster_version,             sizeof(fd_cluster_version_t),              alignof(fd_cluster_version_t),              0,   0,                0    )  /* Cluster version */                                        \
   X(fd_hash_t,                         bank_hash,                   sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Bank hash */                                              \
   X(fd_hash_t,                         prev_bank_hash,              sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Previous bank hash */                                     \
   X(fd_hash_t,                         genesis_hash,                sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Genesis hash */                                           \
@@ -790,7 +790,9 @@ fd_banks_footprint( ulong max_total_banks,
 void *
 fd_banks_new( void * mem,
               ulong  max_total_banks,
-              ulong  max_fork_width );
+              ulong  max_fork_width,
+              int    larger_max_cost_per_block,
+              ulong  seed );
 
 /* fd_banks_join() joins a new fd_banks_t struct. */
 

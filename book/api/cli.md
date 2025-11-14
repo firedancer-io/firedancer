@@ -68,8 +68,7 @@ following stages to each configure command:
  - `hyperthreads` Disables hyperthreaded pair for critical CPU cores.
  - `ethtool-channels` Configures the number of channels on the network
     device.
- - `ethtool-offloads` Disables generic receive offload (GRO) and GRE
-    segmentation offload on the network device.
+ - `ethtool-offloads` Modify offload feature flags on the network device.
  - `ethtool-loopback` Disables UDP segmentation on the loopback device.
 
 | Arguments         | Description |

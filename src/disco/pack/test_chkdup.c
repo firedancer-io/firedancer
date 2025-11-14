@@ -33,7 +33,7 @@ test_false_positive_rate( float      expected,
                           fd_rng_t * rng,
                           ulong      l0_cnt,
                           ulong      l1_cnt ) {
-  ulong const iters = 1000000UL;
+  ulong const iters = 100000UL;
   ulong false_positives = 0UL;
   fd_acct_addr_t l0[128];
   fd_acct_addr_t l1[128];

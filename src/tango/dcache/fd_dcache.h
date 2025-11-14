@@ -11,31 +11,32 @@
    (e.g. will not require a footprint larger than ULONG_MAX).  These are
    provided to facilitate compile time dcache declarations. */
 
-#define FD_DCACHE_ALIGN (128UL)
+#define FD_DCACHE_ALIGN (4096UL)
 #define FD_DCACHE_FOOTPRINT( data_sz, app_sz )                                                            \
   FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
-    FD_DCACHE_ALIGN, 128UL                     ), /* hdr   */                                             \
-    FD_DCACHE_ALIGN, FD_DCACHE_GUARD_FOOTPRINT ), /* guard */                                             \
-    FD_DCACHE_ALIGN, (data_sz)                 ), /* data  */                                             \
-    FD_DCACHE_ALIGN, (app_sz)                  ), /* app   */                                             \
+    FD_DCACHE_SLOT_ALIGN, 128UL                     ), /* hdr   */                                             \
+    FD_DCACHE_SLOT_ALIGN, FD_DCACHE_GUARD_FOOTPRINT ), /* guard */                                             \
+    FD_DCACHE_ALIGN,      (data_sz)                 ), /* data  */                                             \
+    FD_DCACHE_ALIGN,      (app_sz)                  ), /* app   */                                             \
     FD_DCACHE_ALIGN )
 
 /* FD_DCACHE_GUARD_FOOTPRINT specify the footprint of the guard region
    immediately before the dcache data region.  The guard region
-   footprint is FD_DCACHE_ALIGN aligned and a FD_DCACHE_ALIGN multiple.
-   It provides flexibility (up to the magnitude of the footprint) to
-   align how a producer might write directly into a dcache such that the
-   frag payload alignment a consumer sees is consistent regardless of
-   the details of the underlying producer. */
+   footprint is FD_DCACHE_SLOT_ALIGN aligned and a FD_DCACHE_SLOT_ALIGN
+   multiple.  It provides flexibility (up to the magnitude of the
+   footprint) to align how a producer might write directly into a dcache
+   such that the frag payload alignment a consumer sees is consistent
+   regardless of the details of the underlying producer. */
 
-#define FD_DCACHE_GUARD_FOOTPRINT (128UL)
+#define FD_DCACHE_GUARD_FOOTPRINT (3968UL)
 
-/* FD_DCACHE_SLOT_FOOTPRINT returns the footprint of a FD_DCACHE_ALIGN
-   aligned slot sufficient to hold a frag payload of up to mtu bytes.
-   Returns 0 if mtu is not valid (i.e. so large that the required slot
-   size is larger than ULONG_MAX). */
+/* FD_DCACHE_SLOT_FOOTPRINT returns the footprint of a
+   FD_DCACHE_SLOT_ALIGN aligned slot sufficient to hold a frag payload
+   of up to mtu bytes.  Returns 0 if mtu is not valid (i.e. so large
+   that the required slot size is larger than ULONG_MAX). */
 
-#define FD_DCACHE_SLOT_FOOTPRINT( mtu ) FD_ULONG_ALIGN_UP( (mtu), FD_DCACHE_ALIGN )
+#define FD_DCACHE_SLOT_ALIGN            (128UL)
+#define FD_DCACHE_SLOT_FOOTPRINT( mtu ) FD_ULONG_ALIGN_UP( (mtu), FD_DCACHE_SLOT_ALIGN )
 
 /* FD_DCACHE_REQ_DATA_SZ returns the size of a data region in bytes
    sufficient for a dcache whose producer writes frag payloads up to mtu

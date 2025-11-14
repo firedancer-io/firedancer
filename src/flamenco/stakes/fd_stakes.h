@@ -28,7 +28,7 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
 
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
-                          fd_funk_t *                    funk,
+                          fd_accdb_user_t *              accdb,
                           fd_funk_txn_xid_t const *      xid,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,

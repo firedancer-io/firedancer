@@ -766,6 +766,8 @@ int main( int     argc,
   /* [tile-unit-test] unprivileged_init and priviledged_init. */
   mock_privileged_init( &config->topo, test_tile );
   unprivileged_init(    &config->topo, test_tile );
+  ctx->net_tile_id  = 0U;
+  ctx->net_tile_cnt = 1U;
 
   /* Ensure initial device table is valid */
   FD_TEST( net_check_gre_interface_exists( ctx )==0 );

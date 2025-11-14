@@ -3,6 +3,7 @@
 #include "../../../util/log/fd_log.h"
 #include "../../../util/archive/fd_tar.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
+#include "../../../flamenco/runtime/fd_system_ids.h"
 
 #include <stdio.h>
 
@@ -15,9 +16,11 @@
 #define FD_SSPARSE_STATE_ACCOUNT_PADDING        (6)
 #define FD_SSPARSE_STATE_STATUS_CACHE           (7)
 #define FD_SSPARSE_STATE_SCROLL_ACCOUNT_GARBAGE (8)
+#define FD_SSPARSE_STATE_ACCOUNT_BATCH          (9)
 
 struct fd_ssparse_private {
   int state;
+  uint batch_enabled : 1;
 
   struct {
     int seen_zero_tar_frame;
@@ -41,6 +44,7 @@ struct fd_ssparse_private {
   } tar;
 
   struct {
+    uchar const * owner;
     uchar header[ 136UL ];
     ulong header_bytes_consumed;
     ulong data_bytes_consumed;
@@ -106,6 +110,7 @@ fd_ssparse_new( void *  shmem,
   ssparse->tar.file_bytes_consumed   = 0UL;
   ssparse->tar.file_bytes            = 0UL;
 
+  ssparse->account.owner                 = NULL;
   ssparse->account.header_bytes_consumed = 0UL;
   ssparse->account.data_bytes_consumed   = 0UL;
   ssparse->account.data_len              = 0UL;
@@ -150,6 +155,7 @@ fd_ssparse_reset( fd_ssparse_t * ssparse ) {
   ssparse->tar.file_bytes_consumed       = 0UL;
   ssparse->tar.file_bytes                = 0UL;
 
+  ssparse->account.owner                 = NULL;
   ssparse->account.header_bytes_consumed = 0UL;
   ssparse->account.data_bytes_consumed   = 0UL;
   ssparse->account.data_len              = 0UL;
@@ -268,7 +274,7 @@ advance_tar( fd_ssparse_t *                ssparse,
   switch( desired_state ) {
     case FD_SSPARSE_STATE_VERSION:
       if( FD_UNLIKELY( ssparse->flags.seen_version ) ) {
-        FD_LOG_WARNING(( "unexpected duplicate verison file" ));
+        FD_LOG_WARNING(( "unexpected duplicate version file" ));
         return FD_SSPARSE_ADVANCE_ERROR;
       }
 
@@ -411,6 +417,67 @@ advance_next_tar( fd_ssparse_t *               ssparse,
 }
 
 static int
+advance_account_batch( fd_ssparse_t *                ssparse,
+                       uchar const *                 data,
+                       ulong                         data_sz,
+                       fd_ssparse_advance_result_t * result ) {
+  /* Cannot create a batch unless the parser is aligned to an account. */
+  if( FD_UNLIKELY( ssparse->account.header_bytes_consumed ) ) return FD_SSPARSE_ADVANCE_AGAIN;
+
+  /* Each account is at least 136 bytes large.  Don't attempt to create
+     a batch unless at least 4 accounts fit. */
+  ulong avail = fd_ulong_min( data_sz, ssparse->acc_vec_bytes - ssparse->tar.file_bytes_consumed );
+  if( FD_UNLIKELY( avail<(4*136UL) ) ) return FD_SSPARSE_ADVANCE_AGAIN;
+
+  /* Skip over accounts until we reached EOF or batch is full */
+  result->account_batch.batch_cnt = 0;
+  ulong off = 0UL;
+  for( ulong idx=0UL; idx<FD_SSPARSE_ACC_BATCH_MAX && off+136UL<=avail; idx++ ) {
+    uchar const * acc_hdr     = (uchar *)data+off;
+
+    /* We want ConfigProgram accounts to go through the slow path,
+       since they are published from there to consumers for monitoring. */
+    if( FD_UNLIKELY( !memcmp( acc_hdr+64UL, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) ) ) {
+      if( FD_UNLIKELY( idx==0UL  ) ) return FD_SSPARSE_ADVANCE_AGAIN; /* At the front of the batch, abort */
+      else                           break; /* otherwise, break early.  */
+    }
+
+    ulong         acc_data_sz = fd_ulong_load_8_fast( acc_hdr+8 );
+    ulong         next_off    = off+136UL+acc_data_sz;
+    ulong         pad_sz      = fd_ulong_align_up( ssparse->tar.file_bytes_consumed+next_off, 8UL ) -
+                                                 ( ssparse->tar.file_bytes_consumed+next_off );
+    next_off += pad_sz;
+    if( FD_UNLIKELY( next_off>avail ) ) break; /* account is fragmented */
+    if( FD_UNLIKELY( acc_data_sz > (24UL<<20) ) ) {
+      FD_LOG_ERR(( "invalid account data size %lu", acc_data_sz ));
+    }
+    result->account_batch.batch_cnt        = idx+1UL;
+    result->account_batch.batch[ idx ]     = acc_hdr;
+    ssparse->account.header_bytes_consumed = 136UL;
+    ssparse->account.data_bytes_consumed   = acc_data_sz;
+    ssparse->account.data_len              = acc_data_sz;
+    off = next_off;
+  }
+
+  /* Not worth batching if current chunk contains too few accounts. */
+  if( FD_UNLIKELY( result->account_batch.batch_cnt!=FD_SSPARSE_ACC_BATCH_MAX ) ) {
+    return FD_SSPARSE_ADVANCE_AGAIN;
+  }
+
+  ssparse->tar.file_bytes_consumed += off;
+  ssparse->bytes_consumed          += off;
+  result->bytes_consumed            = off;
+
+  /* reset state */
+
+  ssparse->state = FD_SSPARSE_STATE_ACCOUNT_PADDING;
+
+  result->account_batch.slot = ssparse->slot;
+
+  return FD_SSPARSE_ADVANCE_ACCOUNT_BATCH;
+}
+
+static int
 advance_account_header( fd_ssparse_t *                ssparse,
                         uchar const *                 data,
                         ulong                         data_sz,
@@ -426,7 +493,14 @@ advance_account_header( fd_ssparse_t *                ssparse,
     }
   }
 
-  if( FD_UNLIKELY( consume<136UL ) ) fd_memcpy( ssparse->account.header+ssparse->account.header_bytes_consumed, data, consume );
+  if( FD_UNLIKELY( consume<136UL ) ) {
+    fd_memcpy( ssparse->account.header+ssparse->account.header_bytes_consumed, data, consume );
+  } else if( ssparse->batch_enabled ) {
+    /* fast path */
+    int res = advance_account_batch( ssparse, data, data_sz, result );
+    if( res==FD_SSPARSE_ADVANCE_ACCOUNT_BATCH ) return res;
+    /* fall through and continue processing account header */
+  }
 
   ssparse->account.header_bytes_consumed += consume;
   ssparse->tar.file_bytes_consumed       += consume;
@@ -458,6 +532,7 @@ advance_account_header( fd_ssparse_t *                ssparse,
   result->account_header.hash       = hdr+104UL;
   result->account_header.slot       = ssparse->slot;
 
+  ssparse->account.owner               = hdr+64UL;
   ssparse->account.data_len            = result->account_header.data_len;
   ssparse->account.data_bytes_consumed = 0UL;
   ssparse->state = FD_SSPARSE_STATE_ACCOUNT_DATA;
@@ -489,6 +564,7 @@ advance_account_data( fd_ssparse_t *                ssparse,
   ssparse->account.data_bytes_consumed += consume;
   result->bytes_consumed                = consume;
 
+  result->account_data.owner    = ssparse->account.owner;
   result->account_data.data_sz  = consume;
   result->account_data.data     = data;
 
@@ -570,6 +646,12 @@ fd_ssparse_advance( fd_ssparse_t *                ssparse,
     case FD_SSPARSE_STATE_SCROLL_ACCOUNT_GARBAGE: return advance_account_garbage( ssparse, data, data_sz, result );
     default: FD_LOG_ERR(( "invalid state %d", ssparse->state ));
   }
+}
+
+void
+fd_ssparse_batch_enable( fd_ssparse_t * ssparse,
+                         int            enabled ) {
+  ssparse->batch_enabled = !!enabled;
 }
 
 int

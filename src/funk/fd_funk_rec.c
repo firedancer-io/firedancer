@@ -97,29 +97,6 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
   return fd_funk_rec_map_query_ele( query );
 }
 
-
-fd_funk_rec_t *
-fd_funk_rec_modify( fd_funk_t *               funk,
-                    fd_funk_txn_xid_t const * xid,
-                    fd_funk_rec_key_t const * key,
-                    fd_funk_rec_query_t *     query ) {
-  fd_funk_rec_map_t *    rec_map = fd_funk_rec_map( funk );
-  fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, xid, key );
-
-  int err = fd_funk_rec_map_modify_try( rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
-  if( err==FD_MAP_ERR_KEY ) return NULL;
-  if( err!=FD_MAP_SUCCESS ) FD_LOG_CRIT(( "query returned err %d", err ));
-
-  fd_funk_rec_t * rec = fd_funk_rec_map_query_ele( query );
-  return rec;
-}
-
-void
-fd_funk_rec_modify_publish( fd_funk_rec_query_t * query ) {
-  fd_funk_rec_map_modify_test( query );
-}
-
 fd_funk_rec_t const *
 fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_txn_xid_t const * xid,
@@ -207,36 +184,6 @@ found:
   if( FD_LIKELY( txn ) ) fd_funk_txn_xid_assert( txn, pair->xid );
   fd_funk_rec_txn_release( txn_query );
   return res;
-}
-
-uchar const *
-fd_funk_rec_query_copy( fd_funk_t *               funk,
-                        fd_funk_txn_xid_t const * xid,
-                        fd_funk_rec_key_t const * key,
-                        uchar *                   out,
-                        ulong                     out_max,
-                        ulong *                   sz_out ) {
-  *sz_out = ULONG_MAX;
-  fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, xid, key );
-
-  for(;;) {
-    fd_funk_rec_query_t query[1];
-    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
-    if( err == FD_MAP_ERR_KEY   ) return NULL;
-    if( err == FD_MAP_ERR_AGAIN ) continue;
-    if( err != FD_MAP_SUCCESS   ) FD_LOG_CRIT(( "query returned err %d", err ));
-    fd_funk_rec_t const * rec = fd_funk_rec_map_query_ele_const( query );
-    ulong sz = fd_ulong_min( fd_funk_val_sz( rec ), out_max ); /* FIXME REMOVE SILENT TRUNCATION */
-    memcpy( out, fd_funk_val( rec, fd_funk_wksp( funk ) ), sz );
-    *sz_out = sz;
-    if( !fd_funk_rec_query_test( query ) ) return out;
-  }
-}
-
-int
-fd_funk_rec_query_test( fd_funk_rec_query_t * query ) {
-  return fd_funk_rec_map_query_test( query );
 }
 
 fd_funk_rec_t *
@@ -379,63 +326,6 @@ fd_funk_rec_publish( fd_funk_t *             funk,
   int insert_err = fd_funk_rec_map_insert( funk->rec_map, rec, FD_MAP_FLAG_BLOCKING );
   if( insert_err ) {
     FD_LOG_CRIT(( "fd_funk_rec_map_insert failed (%i-%s)", insert_err, fd_map_strerror( insert_err ) ));
-  }
-}
-
-void
-fd_funk_rec_cancel( fd_funk_t *             funk,
-                    fd_funk_rec_prepare_t * prepare ) {
-  fd_funk_rec_t * rec = prepare->rec;
-  rec->map_next  = FD_FUNK_REC_IDX_NULL;
-  rec->next_idx  = FD_FUNK_REC_IDX_NULL;
-  rec->prev_idx  = FD_FUNK_REC_IDX_NULL;
-  rec->val_sz    = 0;
-  rec->val_max   = 0;
-  rec->tag       = 0;
-  rec->val_gaddr = 0UL;
-  memset( &rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
-  FD_COMPILER_MFENCE();
-  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
-  fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
-  memset( prepare, 0, sizeof(fd_funk_rec_prepare_t) );
-}
-
-fd_funk_rec_t *
-fd_funk_rec_clone( fd_funk_t *               funk,
-                   fd_funk_txn_xid_t const * xid,
-                   fd_funk_rec_key_t const * key,
-                   fd_funk_rec_prepare_t *   prepare,
-                   int *                     opt_err ) {
-  fd_funk_rec_t * new_rec = fd_funk_rec_prepare( funk, xid, key, prepare, opt_err );
-  if( !new_rec ) return NULL;
-
-  for(;;) {
-    fd_funk_rec_query_t query[1];
-    fd_funk_rec_t const * old_rec = fd_funk_rec_query_try_global( funk, xid, key, NULL, query );
-    if( !old_rec ) {
-      fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_KEY );
-      fd_funk_rec_cancel( funk, prepare );
-      return NULL;
-    }
-
-    fd_wksp_t * wksp = fd_funk_wksp( funk );
-    ulong val_sz     = old_rec->val_sz;
-    void * buf = fd_funk_val_truncate(
-        new_rec,
-        fd_funk_alloc( funk ),
-        wksp,
-        0UL,
-        val_sz,
-        opt_err );
-    if( !buf ) {
-      fd_funk_rec_cancel( funk, prepare );
-      return NULL;
-    }
-    memcpy( buf, fd_funk_val( old_rec, wksp ), val_sz );
-
-    if( !fd_funk_rec_query_test( query ) ) {
-      return new_rec;
-    }
   }
 }
 

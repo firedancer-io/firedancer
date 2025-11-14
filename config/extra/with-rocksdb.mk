@@ -7,7 +7,7 @@ ROCKSDB_LIBS:=$(OPT)/lib/librocksdb.a $(OPT)/lib/libsnappy.a
 
 # RocksDB enables io_uring support opportunistically; only link liburing when
 # the static archive actually references its symbols (e.g. Arch Linux builds).
-ifneq (,$(shell nm -A $(OPT)/lib/librocksdb.a 2>/dev/null | grep -F io_uring_queue_init))
+ifneq (,$(shell nm -A $(OPT)/lib/librocksdb.a 2>/dev/null | $(GREP) -F io_uring_queue_init))
 ROCKSDB_LIBS+=-luring
 endif
 else

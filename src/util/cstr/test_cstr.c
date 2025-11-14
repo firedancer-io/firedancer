@@ -32,6 +32,32 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
+  char const * ref_empty = "";
+  char const * ref_short = "0";                ulong len_short =  1UL;
+  char const * ref_long  = "0123456789abcdef"; ulong len_long  = 16UL;
+
+  FD_TEST( fd_cstr_ncpy( NULL, NULL,      0UL )==NULL );
+  FD_TEST( fd_cstr_ncpy( NULL, ref_empty, 0UL )==NULL );
+  FD_TEST( fd_cstr_ncpy( NULL, ref_short, 0UL )==NULL );
+  FD_TEST( fd_cstr_ncpy( NULL, ref_long,  0UL )==NULL );
+
+  char dst[8];
+  for( ulong sz=0UL; sz<9UL; sz++ ) {
+
+    FD_TEST( fd_cstr_ncpy( dst, NULL, sz )==dst );
+    for( ulong i=0UL; i<sz; i++ ) FD_TEST( dst[i]=='\0' );
+
+    FD_TEST( fd_cstr_ncpy( dst, ref_empty, sz )==dst );
+    for( ulong i=0UL; i<sz; i++ ) FD_TEST( dst[i]=='\0' );
+
+    FD_TEST( fd_cstr_ncpy( dst, ref_short, sz )==dst );
+    for( ulong i=0UL; i<sz; i++ ) FD_TEST( dst[i]==((i<fd_ulong_min(sz-1UL,len_short)) ? ref_short[i] : '\0') );
+
+    FD_TEST( fd_cstr_ncpy( dst, ref_long, sz )==dst );
+    for( ulong i=0UL; i<sz; i++ ) FD_TEST( dst[i]==((i<fd_ulong_min(sz-1UL,len_long )) ? ref_long[i]  : '\0') );
+
+  }
+
   do {
     ulong len;
     len=1UL; FD_TEST( fd_cstr_printf      ( NULL,      128UL, &len, "dummy" )==NULL      && len==0UL ); /* NULL cstr */

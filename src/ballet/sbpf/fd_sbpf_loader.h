@@ -87,6 +87,24 @@
 #define SET_NAME fd_sbpf_calldests
 #include "../../util/tmpl/fd_set_dynamic.c"
 
+/* The sbpf program footprint is large when stricter elf headers are
+   not enabled due to the calldests bitmap being included.  So, the
+   total footprint of the sbpf_program is the size of the sbpf_program
+   struct plus the calldests bitmap.
+
+   The calldests bitmap is variable with the text_cnt.  A loose bound on
+   the textcnt is the max size of an account / 8.  So, the max possible
+   text_cnt is 1310720.  So the footprint of the sbpf_calldests is as
+   follows:
+   sizeof(SET_(private_t))-sizeof(SET_(t)) + sizeof(SET_(t))*SET_(private_word_cnt)( max )
+   private_word_cnt(1310720) = 20480
+   sizeof(SET_(t)) = 8 (ulong)
+   sizeof(SET_(private_t)) = 32
+   */
+#define FD_SBPF_TEXT_CNT_MAX (FD_RUNTIME_ACC_SZ_MAX / 8UL)
+#define FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT ( (FD_SBPF_TEXT_CNT_MAX +63UL)>>6 )
+#define FD_SBPF_PROGRAM_FOOTPRINT (sizeof(fd_sbpf_calldests_private_t)-sizeof(ulong) + sizeof(ulong)*FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT )
+
 /* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
    vm is a handle to the running VM.  Returns 0 on suceess or an integer
    error code on failure.

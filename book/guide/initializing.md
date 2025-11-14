@@ -9,8 +9,7 @@ so Firedancer can run correctly. It does the following:
 * **hyperthreads** Checks hyperthreaded pair for critical CPU cores.
 * **ethtool-channels** Configures the number of channels on the network
 device.
-* **ethtool-offloads** Disable generic-receive-offload (GRO) and GRE
-segmentation offload on the network device.
+* **ethtool-offloads** Modify offload feature flags on the network device.
 * **ethtool-loopback** Disable tx-udp-segmentation on the loopback
 device.
 
@@ -188,7 +187,7 @@ privileges, and cannot be performed with capabilities.
 
 ## ethtool-offloads
 XDP is incompatible with a feature of network devices called
-`generic-receive-offload`. This feature must be disabled for Firedancer
+`rx-udp-gro-forwarding`. This feature must be disabled for Firedancer
 to work. GRE segmentation offload is also disabled.
 
 The command run by the stage is similar to running

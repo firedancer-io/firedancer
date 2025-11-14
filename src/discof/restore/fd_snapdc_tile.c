@@ -289,6 +289,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
 
   fd_topo_link_t * snapin_link = &topo->links[ tile->out_link_id[ 0UL ] ];
+  FD_TEST( 0==strcmp( snapin_link->name, "snapdc_in" ) );
   ctx->out.wksp   = topo->workspaces[ topo->objs[ snapin_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.wksp, snapin_link->dcache );
   ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, snapin_link->dcache, snapin_link->mtu );

@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 #include "fd_http_resolver.h"
 #include "fd_ssresolve.h"
 
@@ -20,6 +19,9 @@
 #define PEER_DEADLINE_NANOS_VALID   (5L*1000L*1000L*1000L) /* 5 seconds */
 #define PEER_DEADLINE_NANOS_RESOLVE (1L*1000L*1000L*1000L) /* 1 second */
 #define PEER_DEADLINE_NANOS_INVALID (5L*1000L*1000L*1000L) /* 5 seconds */
+
+/* FIXME: The fds/fds_len/idx logic is fragile, replace with something
+   that duplicates less state / etc. */
 
 struct fd_ssresolve_peer {
   fd_ip4_port_t addr;
@@ -201,17 +203,17 @@ fd_http_resolver_add( fd_http_resolver_t * resolver,
 static int
 create_socket( fd_http_resolver_t *  resolver,
                fd_ssresolve_peer_t * peer ) {
-  int sockfd = socket( PF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  int sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
 
   int optval = 1;
-  if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_TCP, TCP_NODELAY, &optval, sizeof(int) ) ) ) {
+  if( FD_UNLIKELY( -1==setsockopt( sockfd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(int) ) ) ) {
     FD_LOG_ERR(( "setsockopt() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   struct sockaddr_in addr = {
     .sin_family = AF_INET,
-    .sin_port   = fd_ushort_bswap( peer->addr.port ),
+    .sin_port   = peer->addr.port,
     .sin_addr   = { .s_addr = peer->addr.addr }
   };
 
@@ -263,6 +265,10 @@ static inline void
 remove_peer( fd_http_resolver_t * resolver,
              ulong                idx ) {
   FD_TEST( idx<resolver->fds_len );
+
+  /* FIXME: These sockets should be closed at the correct location */
+  close( resolver->fds[ idx ].fd );
+  if( FD_LIKELY( -1!=resolver->fds[ idx+1UL ].fd ) ) close( resolver->fds[ idx+1UL ].fd );
 
   if( FD_UNLIKELY( resolver->fds_len==2UL ) ) {
     resolver->fds_len = 0UL;
@@ -385,7 +391,7 @@ fd_http_resolver_advance( fd_http_resolver_t *   resolver,
   while( !deadline_list_is_empty( resolver->unresolved, resolver->pool ) )  {
     fd_ssresolve_peer_t * peer = deadline_list_ele_pop_head( resolver->unresolved, resolver->pool );
 
-    FD_LOG_INFO(( "resolving " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port ));
+    FD_LOG_INFO(( "resolving " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
     int result = peer_connect( resolver, peer );
     if( FD_UNLIKELY( -1==result ) ) {
       peer->state          = PEER_STATE_INVALID;

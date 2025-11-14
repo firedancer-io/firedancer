@@ -72,22 +72,6 @@ my_handshake_complete( fd_quic_conn_t * conn,
 /* global "clock" */
 long now = 123;
 
-static void
-test_invalid_tx_buf_sz( fd_wksp_t * wksp ) {
-  FD_LOG_NOTICE(( "Testing invalid tx_buf_sz" ));
-  FD_TEST( !fd_ulong_pow2( FD_TXN_MTU ) );
-
-  fd_quic_limits_t const bad_limits = {
-    .conn_cnt           = 2,
-    .conn_id_cnt        = 4,
-    .handshake_cnt      = 10,
-    .inflight_frame_cnt = 100 * 2,
-    .tx_buf_sz          = FD_TXN_MTU,
-    .stream_pool_cnt    = 512
-  };
-  FD_TEST( !fd_quic_new( wksp, &bad_limits ) );
-}
-
 int
 main( int     argc,
       char ** argv ) {
@@ -110,8 +94,6 @@ main( int     argc,
   FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
-
-  test_invalid_tx_buf_sz( wksp );
 
   FD_LOG_NOTICE(( "Creating server QUIC" ));
 

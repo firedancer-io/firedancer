@@ -113,13 +113,13 @@ fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );
 static inline int
 fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,
                      ulong               cus ) {
-  ulong new_cus   =  txn_ctx->compute_budget_details.compute_meter - cus;
-  int   underflow = (txn_ctx->compute_budget_details.compute_meter < cus);
+  ulong new_cus   =  txn_ctx->details.compute_budget.compute_meter - cus;
+  int   underflow = (txn_ctx->details.compute_budget.compute_meter < cus);
   if( FD_UNLIKELY( underflow ) ) {
-    txn_ctx->compute_budget_details.compute_meter = 0UL;
+    txn_ctx->details.compute_budget.compute_meter = 0UL;
     return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
   }
-  txn_ctx->compute_budget_details.compute_meter = new_cus;
+  txn_ctx->details.compute_budget.compute_meter = new_cus;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -132,17 +132,6 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
 int
 fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
                     fd_instr_info_t const *   instr );
-
-void
-fd_exec_txn_ctx_setup( fd_bank_t *               bank,
-                       void *                    accdb_shfunk,
-                       void *                    progcache_shfunk,
-                       fd_funk_txn_xid_t const * xid,
-                       fd_txncache_t *           status_cache,
-                       fd_exec_txn_ctx_t *       ctx,
-                       fd_bank_hash_cmp_t *      bank_hash_cmp,
-                       void *                    progcache_scratch,
-                       ulong                     progcache_scratch_sz );
 
 FD_PROTOTYPES_END
 

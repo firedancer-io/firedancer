@@ -64,7 +64,7 @@ fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *     
       funk, xid, programdata_address, NULL, NULL, out_xid );
   if( FD_UNLIKELY( !meta ) ) return NULL;
   fd_txn_account_t _rec[1];
-  fd_txn_account_t * programdata_acc = fd_txn_account_join( fd_txn_account_new( _rec, programdata_address, (void *)meta, 0 ), funk->wksp );
+  fd_txn_account_t * programdata_acc = fd_txn_account_join( fd_txn_account_new( _rec, programdata_address, (void *)meta, 0 ) );
   if( FD_UNLIKELY( !programdata_acc ) ) FD_LOG_CRIT(( "fd_txn_account_new failed" ));
 
   /* We don't actually need to decode here, just make sure that the account
@@ -114,7 +114,7 @@ fd_prog_load_elf( fd_funk_t const *         accdb,
       accdb, xid, &prog_addr, NULL, NULL, out_xid );
   if( FD_UNLIKELY( !meta ) ) return NULL;
   fd_txn_account_t _rec[1];
-  fd_txn_account_t * rec = fd_txn_account_join( fd_txn_account_new( _rec, &prog_addr, (void *)meta, 0 ), accdb->wksp );
+  fd_txn_account_t * rec = fd_txn_account_join( fd_txn_account_new( _rec, &prog_addr, (void *)meta, 0 ) );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_CRIT(( "fd_txn_account_new failed" ));
 
   /* v1/v2 loaders: Programdata is just the account data.

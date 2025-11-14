@@ -4,6 +4,8 @@
 #include "../../util/fd_util_base.h"
 
 struct fd_poh_reset {
+  ulong bank_idx;
+
   long  timestamp;
   ulong completed_slot;
   uchar completed_blockhash[ 32UL ];

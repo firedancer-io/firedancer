@@ -247,9 +247,9 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
 }
 
 int
-fd_solfuzz_instr_fixture( fd_solfuzz_runner_t * runner,
-                          uchar const *         in,
-                          ulong                 in_sz ) {
+fd_solfuzz_pb_instr_fixture( fd_solfuzz_runner_t * runner,
+                             uchar const *         in,
+                             ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_instr_fixture_t fixture[1] = {0};
   void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_instr_fixture_t_msg );
@@ -261,7 +261,7 @@ fd_solfuzz_instr_fixture( fd_solfuzz_runner_t * runner,
   int ok = 0;
   // Execute
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_instr_run );
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_instr_run );
 
   // Compare effects
   ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_instr_effects_t_msg, runner->spad );
@@ -272,9 +272,9 @@ fd_solfuzz_instr_fixture( fd_solfuzz_runner_t * runner,
 }
 
 int
-fd_solfuzz_txn_fixture( fd_solfuzz_runner_t * runner,
-                        uchar const *         in,
-                        ulong                 in_sz ) {
+fd_solfuzz_pb_txn_fixture( fd_solfuzz_runner_t * runner,
+                           uchar const *         in,
+                           ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_txn_fixture_t fixture[1] = {0};
   void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_txn_fixture_t_msg );
@@ -286,7 +286,7 @@ fd_solfuzz_txn_fixture( fd_solfuzz_runner_t * runner,
   fd_spad_push( runner->spad );
   int ok = 0;
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_txn_run );
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_txn_run );
   if( FD_LIKELY( output ) ) {
     // Compare effects
     fd_exec_test_txn_result_t * effects = output;
@@ -300,9 +300,9 @@ fd_solfuzz_txn_fixture( fd_solfuzz_runner_t * runner,
 }
 
 int
-fd_solfuzz_block_fixture( fd_solfuzz_runner_t * runner,
-                          uchar const *         in,
-                          ulong                 in_sz ) {
+fd_solfuzz_pb_block_fixture( fd_solfuzz_runner_t * runner,
+                             uchar const *         in,
+                             ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_block_fixture_t fixture[1] = {0};
   void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_block_fixture_t_msg );
@@ -313,7 +313,7 @@ fd_solfuzz_block_fixture( fd_solfuzz_runner_t * runner,
 
   fd_spad_push( runner->spad );
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_block_run );
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_block_run );
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_block_effects_t_msg, runner->spad );
   fd_spad_pop( runner->spad );
 
@@ -323,9 +323,9 @@ fd_solfuzz_block_fixture( fd_solfuzz_runner_t * runner,
 }
 
 int
-fd_solfuzz_elf_loader_fixture( fd_solfuzz_runner_t * runner,
-                               uchar const *         in,
-                               ulong                 in_sz ) {
+fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
+                                  uchar const *         in,
+                                  ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_elf_loader_fixture_t fixture[1] = {0};
   void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_elf_loader_fixture_t_msg );
@@ -336,7 +336,7 @@ fd_solfuzz_elf_loader_fixture( fd_solfuzz_runner_t * runner,
 
   fd_spad_push( runner->spad );
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_elf_loader_run );
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_elf_loader_run );
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_elf_loader_effects_t_msg, runner->spad );
   fd_spad_pop( runner->spad );
 
@@ -346,9 +346,9 @@ fd_solfuzz_elf_loader_fixture( fd_solfuzz_runner_t * runner,
 }
 
 int
-fd_solfuzz_syscall_fixture( fd_solfuzz_runner_t * runner,
-                            uchar const *         in,
-                            ulong                 in_sz ) {
+fd_solfuzz_pb_syscall_fixture( fd_solfuzz_runner_t * runner,
+                               uchar const *         in,
+                               ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_syscall_fixture_t fixture[1] = {0};
   if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
@@ -358,7 +358,7 @@ fd_solfuzz_syscall_fixture( fd_solfuzz_runner_t * runner,
 
   fd_spad_push( runner->spad );
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_syscall_run );
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_syscall_run );
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg, runner->spad );
   fd_spad_pop( runner->spad );
 
@@ -368,9 +368,9 @@ fd_solfuzz_syscall_fixture( fd_solfuzz_runner_t * runner,
 }
 
 int
-fd_solfuzz_vm_interp_fixture( fd_solfuzz_runner_t * runner,
-                              uchar const *         in,
-                              ulong                 in_sz ) {
+fd_solfuzz_pb_vm_interp_fixture( fd_solfuzz_runner_t * runner,
+                                 uchar const *         in,
+                                 ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_syscall_fixture_t fixture[1] = {0};
   if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
@@ -380,7 +380,7 @@ fd_solfuzz_vm_interp_fixture( fd_solfuzz_runner_t * runner,
 
   fd_spad_push( runner->spad );
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_vm_interp_run );
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_vm_interp_run );
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg, runner->spad );
   fd_spad_pop( runner->spad );
 

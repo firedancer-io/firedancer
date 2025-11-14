@@ -67,8 +67,8 @@ cas_inc( uint * p ) {
 }
 ```
 
-The name of the hook (`"cas_inc:load"`) is arbitrary.  Per convention,
-we use `<algorithm name>:<critical section name>`.
+The name of the hook (`"cas_inc:post_load"`) is arbitrary.  Per
+convention, we use `<algorithm name>:<critical section name>`.
 
 ## Methods
 
@@ -87,8 +87,9 @@ static uint g_seq; /* shared variable */
    atomically. */
 
 static void
-inject_cas_inc_fault( void * ctx ) {
-  (void)ctx; /* callback context for more complex setups */
+inject_cas_inc_fault( void * ctx, ulong name_hash ) {
+  (void)ctx;
+  (void)name_hash;
   static uint injected = 0;
   if( !injected ) { /* Inject a racy increment once */
     FD_VOLATILE( g_seq ) = FD_VOLATILE_CONST( g_seq )+1U;
@@ -137,8 +138,6 @@ cas_inc_async( void * ctx ) {
 
 void
 test_cas_inc_async( void ) {
-  fd_racesan_t racesan[1];
-  FD_TEST( fd_racesan_new( racesan, NULL ) );
   fd_racesan_async_t async[1];
   FD_TEST( fd_racesan_async_new( async, cas_inc_async, NULL ) );
 
@@ -188,9 +187,9 @@ static void
 cas_dbl_async( void * ctx ) {
   (void)ctx;
   for(;;) {
-    uint v = FD_VOLATILE_CONST( *p );
+    uint v = FD_VOLATILE_CONST( g_seq );
     fd_racesan_hook( "cas_dbl:post_load" );
-    if( FD_LIKELY( __sync_bool_compare_and_swap( p, v, (v<<1) ) ) ) break;
+    if( FD_LIKELY( __sync_bool_compare_and_swap( &g_seq, v, (v<<1) ) ) ) break;
     FD_LOG_WARNING(( "overrun, retrying" ));
   }
 }
@@ -199,9 +198,9 @@ static void
 cas_inc_async( void * ctx ) {
   (void)ctx;
   for(;;) {
-    uint v = FD_VOLATILE_CONST( *p );
+    uint v = FD_VOLATILE_CONST( g_seq );
     fd_racesan_hook( "cas_inc:post_load" );
-    if( FD_LIKELY( __sync_bool_compare_and_swap( p, v, v+1U ) ) ) break;
+    if( FD_LIKELY( __sync_bool_compare_and_swap( &g_seq, v, v+1U ) ) ) break;
     FD_LOG_WARNING(( "overrun, retrying" ));
   }
 }

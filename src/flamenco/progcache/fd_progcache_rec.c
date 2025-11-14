@@ -87,7 +87,7 @@ fd_progcache_rec_new( void *                          mem,
                    0U,
                    NULL,
                    0,
-                   FD_FEATURE_ACTIVE( load_slot, features, bpf_account_data_direct_mapping ),
+                   FD_FEATURE_ACTIVE( load_slot, features, account_data_direct_mapping ),
                    FD_FEATURE_ACTIVE( load_slot, features, stricter_abi_and_runtime_constraints ),
                    0 );
   if( FD_UNLIKELY( !vm ) ) FD_LOG_CRIT(( "fd_vm_init failed" ));

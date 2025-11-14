@@ -78,7 +78,7 @@ recommendations for `mainnet-beta`,
 | `net`    | 1               | Handles >1M TPS per tile. Designed to scale out for future network conditions, but there is no need to run more than 1 net tile at the moment on `mainnet-beta` |
 | `quic`   | 1               | Handles >1M TPS per tile. Designed to scale out for future network conditions, but there is no need to run more than 1 QUIC tile at the moment on `mainnet-beta` |
 | `verify` | 4               | Handles 20-40k TPS per tile. Recommend running many verify tiles, as signature verification is the primary bottleneck of the application |
-| `bank`   | 2               | Handles 20-40k TPS per tile, with diminishing returns from adding more tiles. Designed to scale out for future network conditions, but 2 tiles is enough to handle current `mainnet-beta` conditions. Can be increased further when benchmarking to test future network performance |
+| `bank`   | 4               | Handles 20-40k TPS per tile, with diminishing returns from adding more tiles. Designed to scale out for future network conditions, but 4 tiles is enough to handle current `mainnet-beta` conditions. Can be increased further when benchmarking to test future network performance |
 | `shred`  | 1               | Throughput is mainly dependent on cluster size, 1 tile is enough to handle current `mainnet-beta` conditions. In benchmarking, if the cluster size is small, 1 tile can handle >1M TPS |
 
 ## Testing

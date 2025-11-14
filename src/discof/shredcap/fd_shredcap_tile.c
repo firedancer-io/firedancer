@@ -807,7 +807,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->manifest_bank_mem    = manifest_bank_mem;
 
-  ctx->banks = fd_banks_join( fd_banks_new( ctx->manifest_bank_mem, MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH ) );
+  // TODO: ???? Why is this calling fd_banks_new ... does not seem right
+  ctx->banks = fd_banks_join( fd_banks_new( ctx->manifest_bank_mem, MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH, 0 /* TODO? */, 8888UL /* TODO? */ ) );
   FD_TEST( ctx->banks );
   ctx->bank  = fd_banks_init_bank( ctx->banks );
   fd_bank_slot_set( ctx->bank, 0UL );

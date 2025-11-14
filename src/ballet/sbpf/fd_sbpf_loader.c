@@ -608,7 +608,7 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t const *      elf,
     ulong refd_addr = 0UL;
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1230-L1239 */
-    if( FD_UNLIKELY( fd_ulong_sat_add( r_offset, 4UL /* BYTE_LENGTH_IMMEDIATE */ )>elf_sz ) ) {
+    if( FD_UNLIKELY( fd_ulong_sat_add( imm_offset, 4UL /* BYTE_LENGTH_IMMEDIATE */ )>elf_sz ) ) {
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
     refd_addr = FD_LOAD( uint, rodata+imm_offset );
@@ -742,6 +742,7 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
     | ( ehdr.e_ident[ FD_ELF_EI_DATA    ] != FD_ELF_DATA_LE        )
     | ( ehdr.e_ident[ FD_ELF_EI_VERSION ] != 1                     )
     | ( ehdr.e_ident[ FD_ELF_EI_OSABI   ] != FD_ELF_OSABI_NONE     )
+    // The 7 padding bytes [9, 16) must be 0. Byte 8 (EI_OSABI) is 0 due to above check, so check [8, 16).
     | ( fd_ulong_load_8( ehdr.e_ident+8 ) != 0UL                   )
     | ( ehdr.e_type                       != FD_ELF_ET_DYN         )
     | ( ehdr.e_machine                    != FD_ELF_EM_SBPF        )
@@ -1465,14 +1466,8 @@ fd_sbpf_program_get_sbpf_version_or_err( void const *                    bin,
   }
   uint e_flags = FD_LOAD( uint, bin+E_FLAGS_OFFSET );
 
-  uint sbpf_version = 0U;
-  if( FD_UNLIKELY( config->sbpf_max_version==FD_SBPF_V0 ) ) {
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L384-L388 */
-    sbpf_version = e_flags==E_FLAGS_SBPF_V2 ? FD_SBPF_RESERVED : FD_SBPF_V0;
-  } else {
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L390-L396 */
-    sbpf_version = e_flags < FD_SBPF_VERSION_COUNT ? e_flags : FD_SBPF_RESERVED;
-  }
+  /* https://github.com/anza-xyz/sbpf/blob/v0.13.0/src/elf.rs#L382-L390 */
+  uint sbpf_version = ( e_flags < FD_SBPF_VERSION_COUNT ) ? e_flags : FD_SBPF_RESERVED;
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L399-L401 */
   if( FD_UNLIKELY( !( config->sbpf_min_version <= sbpf_version && sbpf_version <= config->sbpf_max_version ) ) ) {

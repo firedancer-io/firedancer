@@ -1,4 +1,5 @@
 #include "fd_sched.h"
+#include "../../util/math/fd_stat.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
 
@@ -64,6 +65,7 @@ struct fd_sched_block {
   fd_acct_addr_t      aluts[ 256 ]; /* Resolve ALUT accounts into this buffer for more parallelism. */
   uint                fec_buf_sz;   /* Size of the fec_buf in bytes. */
   uint                fec_buf_soff; /* Starting offset into fec_buf for unparsed transactions. */
+  uint                fec_buf_boff; /* Byte offset into raw block data of the first byte currently in fec_buf */
   uint                fec_eob:1;    /* FEC end-of-batch: set if the last FEC set in the batch is being
                                        ingested. */
   uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be receiving a new
@@ -89,6 +91,7 @@ struct fd_sched_block {
                                                              stageable unstaged descendants are counted. */
   uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
                                                              parseable after the next FEC set is ingested. */
+  uint                shred_blk_offs[ FD_SHRED_BLK_MAX ]; /* The byte offsets into block data of ingested shreds */
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
@@ -276,8 +279,8 @@ block_should_deactivate( fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_block( fd_sched_block_t * block ) {
-  FD_LOG_INFO(( "block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_soff %u, fec_eob %d, fec_sob %d",
-                block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_soff, block->fec_eob, block->fec_sob ));
+  FD_LOG_INFO(( "block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d",
+                block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob ));
 }
 
 FD_FN_UNUSED static void
@@ -289,8 +292,8 @@ print_block_and_parent( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_metrics( fd_sched_t * sched ) {
-  FD_LOG_NOTICE(( "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu",
-                  sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt ));
+  FD_LOG_NOTICE(( "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu",
+                  sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt ));
 }
 
 FD_FN_UNUSED static void
@@ -576,18 +579,19 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
        the new FEC set. */
     memmove( block->fec_buf, block->fec_buf+block->fec_buf_soff, block->fec_buf_sz-block->fec_buf_soff );
   }
-  block->fec_buf_sz  -= block->fec_buf_soff;
-  block->fec_buf_soff = 0;
+  block->fec_buf_boff += block->fec_buf_soff;
+  block->fec_buf_sz   -= block->fec_buf_soff;
+  block->fec_buf_soff  = 0;
   /* Addition is safe and won't overflow because we checked the FEC
      set size above. */
-  if( FD_UNLIKELY( block->fec_buf_sz-block->fec_buf_soff+fec->fec->data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
+  if( FD_UNLIKELY( block->fec_buf_sz+fec->fec->data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
     /* In a conformant block, there shouldn't be more than a
        transaction's worth of residual data left over from the previous
        FEC set within the same batch.  So if this condition doesn't
        hold, it's a bad block.  Instead of crashing, we should refuse to
        replay down the fork. */
-    FD_LOG_INFO(( "bad block: fec_buf_sz %u, fec_buf_soff %u, fec->data_sz %lu, fec->mr %s, slot %lu, parent slot %lu",
-                  block->fec_buf_sz, block->fec_buf_soff, fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
+    FD_LOG_INFO(( "bad block: fec_buf_sz %u, fec->data_sz %lu, fec->mr %s, slot %lu, parent slot %lu",
+                  block->fec_buf_sz, fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
     print_block( block );
     subtree_abandon( sched, block );
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
@@ -595,9 +599,6 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
     check_or_set_active_block( sched );
     return 0;
   }
-
-  block->shred_cnt += fec->shred_cnt;
-  sched->metrics->fec_cnt++;
 
   /* Append the new FEC set to the end of the buffer. */
   fd_memcpy( block->fec_buf+block->fec_buf_sz, fec->fec->data, fec->fec->data_sz );
@@ -607,7 +608,25 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   block->fec_eob = fec->is_last_in_batch;
   block->fec_eos = fec->is_last_in_block;
 
+  ulong block_sz = block->shred_cnt>0 ? block->shred_blk_offs[ block->shred_cnt-1 ] : 0UL;
+  for( ulong i=0; i<fec->shred_cnt; i++ ) {
+    if( FD_LIKELY( i<32UL ) ) {
+      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->block_offs[ i ];
+    } else if( FD_UNLIKELY( i!=fec->shred_cnt-1UL ) ) {
+      /* We don't track shred boundaries after 32 shreds, assume they're
+         sized uniformly */
+      ulong num_overflow_shreds = fec->shred_cnt-32UL;
+      ulong overflow_idx        = i-32UL;
+      ulong overflow_data_sz    = fec->fec->data_sz-fec->fec->block_offs[ 31 ];
+      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->block_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
+    } else {
+      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + (uint)fec->fec->data_sz;
+    }
+  }
+  sched->metrics->fec_cnt++;
+
   int err = fd_sched_parse( sched, block, fec->alut_ctx );
+
   if( FD_UNLIKELY( err==FD_SCHED_PARSER_BAD_BLOCK ) ) {
     FD_LOG_INFO(( "bad block" ));
     print_block( block );
@@ -913,6 +932,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       FD_LOG_CRIT(( "invariant violation: active block shouldn't be dying, bank_idx %lu, slot %lu, parent slot %lu",
                     bank_idx, block->slot, block->parent_slot ));
     }
+    FD_LOG_DEBUG(( "dying block %lu drained", block->slot ));
     subtree_abandon( sched, block );
     return;
   }
@@ -948,6 +968,7 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
   subtree_abandon( sched, block );
 
   /* Reset the active block. */
+  FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
   sched->active_bank_idx = ULONG_MAX;
   sched->metrics->deactivate_abandoned_cnt++;
   FD_LOG_INFO(( "block %lu abandoned", block->slot ));
@@ -956,12 +977,13 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
 }
 
 void
-fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_idx ) {
+fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_idx, ulong slot ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   add_block( sched, bank_idx, parent_bank_idx );
+  block->slot                   = slot;
   block->txn_parsed_cnt         = UINT_MAX;
   block->txn_exec_done_cnt      = UINT_MAX;
   block->txn_sigverify_done_cnt = UINT_MAX;
@@ -971,10 +993,15 @@ fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_i
   block->block_end_signaled     = 1;
   block->block_start_done       = 1;
   block->block_end_done         = 1;
+  if( FD_LIKELY( parent_bank_idx!=ULONG_MAX ) ) {
+    fd_sched_block_t * parent_block = block_pool_ele( sched, parent_bank_idx );
+    block->parent_slot = parent_block->slot;
+  }
   if( FD_UNLIKELY( parent_bank_idx==ULONG_MAX ) ) {
     /* Assumes that a NULL parent implies the snapshot slot. */
-    sched->root_idx = bank_idx;
-    block->rooted   = 1;
+    block->parent_slot = ULONG_MAX;
+    block->rooted      = 1;
+    sched->root_idx    = bank_idx;
   }
 }
 
@@ -1109,6 +1136,7 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
         rooted_child_block = child;
       } else {
         /* This is a minority fork. */
+        FD_LOG_DEBUG(( "abandoning minority fork on block %lu", child->slot ));
         subtree_abandon( sched, child );
       }
       child_idx = child->sibling_idx;
@@ -1172,6 +1200,7 @@ add_block( fd_sched_t * sched,
   block->mblks_rem    = 0UL;
   block->txns_rem     = 0UL;
   block->fec_buf_sz   = 0U;
+  block->fec_buf_boff = 0U;
   block->fec_buf_soff = 0U;
   block->fec_eob      = 0;
   block->fec_sob      = 1;
@@ -1271,6 +1300,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
   if( block->fec_eob ) {
     /* Ignore trailing bytes at the end of a batch. */
     sched->metrics->bytes_ingested_unparsed_cnt += block->fec_buf_sz-block->fec_buf_soff;
+    block->fec_buf_boff += block->fec_buf_sz;
     block->fec_buf_soff = 0U;
     block->fec_buf_sz   = 0U;
     block->fec_sob      = 1;
@@ -1283,12 +1313,23 @@ FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   fd_txn_t * txn = fd_type_pun( block->txn );
 
+  /* FIXME: For the replay pipeline, we allow up to 128 instructions per
+     transaction.  Note that we are not concomitantly bumping the size
+     of fd_txn_t.  We allow this because transactions like that do get
+     packed by other validators, so we have to replay them.  Those
+     transactions will eventually fail in the runtime, which imposes a
+     limit of 64 instructions, but unfortunately they are not tossed out
+     at parse time and they land on chain.  static_instruction_limit is
+     going to enforece this limit at parse time, and transactions like
+     that would not land on chain.  Then this short term change should
+     be rolled back. */
   ulong pay_sz = 0UL;
   ulong txn_sz = fd_txn_parse_core( block->fec_buf+block->fec_buf_soff,
                                     fd_ulong_min( FD_TXN_MTU, block->fec_buf_sz-block->fec_buf_soff ),
                                     txn,
                                     NULL,
-                                    &pay_sz );
+                                    &pay_sz,
+                                    FD_TXN_INSTR_MAX*2UL );
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */
@@ -1305,9 +1346,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   int has_aluts   = txn->transaction_version==FD_TXN_V0 && txn->addr_table_adtl_cnt>0;
   int serializing = 0;
   if( has_aluts ) {
-    /* FIXME: statically size out slot hashes decode footprint. */
-    FD_SPAD_FRAME_BEGIN( alut_ctx->runtime_spad ) {
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( alut_ctx->accdb->funk, alut_ctx->xid, alut_ctx->runtime_spad );
+    uchar __attribute__((aligned(FD_SLOT_HASHES_GLOBAL_ALIGN))) slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( alut_ctx->accdb->funk, alut_ctx->xid, slot_hashes_mem );
     if( FD_LIKELY( slot_hashes_global ) ) {
       fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
       serializing = !!fd_runtime_load_txn_address_lookup_tables( txn, block->fec_buf+block->fec_buf_soff, alut_ctx->accdb->funk, alut_ctx->xid, alut_ctx->els, slot_hash, block->aluts );
@@ -1315,7 +1355,6 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     } else {
       serializing = 1;
     }
-    } FD_SPAD_FRAME_END;
   }
 
   ulong bank_idx = (ulong)(block-sched->block_pool);
@@ -1326,6 +1365,11 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_pool_free_cnt--;
   fd_txn_p_t * txn_p = sched->txn_pool + txn_idx;
   txn_p->payload_sz  = pay_sz;
+
+  txn_p->start_shred_idx = (ushort)fd_sort_up_uint_search_geq( block->shred_blk_offs, block->shred_cnt, block->fec_buf_boff+block->fec_buf_soff );
+  txn_p->start_shred_idx = fd_ushort_if( txn_p->start_shred_idx>0U, (ushort)(txn_p->start_shred_idx-1U), txn_p->start_shred_idx );
+  txn_p->end_shred_idx = (ushort)fd_sort_up_uint_search_geq( block->shred_blk_offs, block->shred_cnt, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz );
+
   fd_memcpy( txn_p->payload, block->fec_buf+block->fec_buf_soff, pay_sz );
   fd_memcpy( TXN(txn_p),     txn,                                txn_sz );
   sched->txn_to_bank_idx[ txn_idx ] = bank_idx;
@@ -1471,6 +1515,12 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
                    !block->staged    || /* parent is in the dispatcher and staged but this block is unstaged */
                    block->staging_lane!=parent->staging_lane; /* this block is on a different staging lane than its parent */
 
+    if( FD_UNLIKELY( in_order && block->staged && sched->active_bank_idx==sched->staged_head_bank_idx[ block->staging_lane ] && sched->active_bank_idx!=ULONG_MAX ) ) {
+      FD_TEST( block_pool_ele( sched, sched->active_bank_idx )==block );
+      FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
+      sched->active_bank_idx = ULONG_MAX;
+    }
+
     /* We inform the dispatcher of an abandon only when there are no
        more in-flight transactions.  Otherwise, if the dispatcher
        recycles the same txn_id that was just abandoned, and we receive
@@ -1500,12 +1550,6 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
         sched->staged_bitset = fd_ulong_clear_bit( sched->staged_bitset, (int)block->staging_lane );
         sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
       }
-    }
-
-    if( FD_UNLIKELY( in_order && block->staged && sched->active_bank_idx==sched->staged_head_bank_idx[ block->staging_lane ] ) ) {
-      FD_TEST( block_pool_ele( sched, sched->active_bank_idx )==block );
-      /* Dying blocks should not be active. */
-      sched->active_bank_idx = ULONG_MAX;
     }
   }
 
@@ -1541,6 +1585,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
           if( FD_UNLIKELY( !block_is_activatable( child ) ) ) {
             /* ... but the child is not activatable, likely because
                there are no transactions available yet. */
+            FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
             sched->active_bank_idx = ULONG_MAX;
             sched->metrics->deactivate_no_txn_cnt++;
             try_activate_block( sched );
@@ -1559,6 +1604,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
         } else {
           /* ... but the child block is considered dead, likely because
              the parser considers it invalid. */
+          FD_LOG_INFO(( "child block %lu is already dead", child->slot ));
           subtree_abandon( sched, child );
           break;
         }
@@ -1571,6 +1617,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
     sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
 
     /* Reset the active block. */
+    FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
     sched->active_bank_idx = ULONG_MAX;
     sched->metrics->deactivate_no_child_cnt++;
     try_activate_block( sched );

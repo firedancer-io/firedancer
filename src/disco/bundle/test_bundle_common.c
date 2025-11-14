@@ -114,6 +114,7 @@ test_bundle_env_mock_h2_hs( fd_bundle_tile_t * ctx ) {
 FD_FN_UNUSED static void
 test_bundle_env_mock_builder_info( fd_bundle_tile_t * ctx ) {
   ctx->builder_info_avail = 1;
+  ctx->builder_info_valid_until = fd_bundle_now() + (long)( 60e9 * 5. );
   /* FIXME actually fill it in ... */
 }
 

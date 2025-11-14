@@ -8,9 +8,9 @@
 [funk]
     heap_size_gib = 40
     max_account_records = 200_000_000
-[layout]
-    gossvf_tile_count = 4
 [snapshots]
-    [[snapshots.sources.http]]
-        enabled = true
-        url = "http://solana-testnet-rpc.jumpisolated.com:8899"
+    [snapshots.sources]
+        servers = [ "http://solana-testnet-rpc.jumpisolated.com:8899" ]
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []

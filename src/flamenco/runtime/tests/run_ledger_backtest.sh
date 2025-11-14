@@ -15,7 +15,6 @@ LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
 INGEST_MODE="rocksdb"
-CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
@@ -26,6 +25,7 @@ SKIP_CHECKSUM=1
 DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
+DISABLE_LTHASH_VERIFICATION=true
 
 if [[ -n "$CI" ]]; then
   SKIP_CHECKSUM=0
@@ -47,11 +47,6 @@ while [[ $# -gt 0 ]]; do
        ;;
     -a|--restore-archive)
        RESTORE_ARCHIVE="$LEDGER/$2"
-       shift
-       shift
-       ;;
-    -c|--cluster-version)
-       CLUSTER_VERSION="$2"
        shift
        shift
        ;;
@@ -121,6 +116,10 @@ while [[ $# -gt 0 ]]; do
     --log)
         LOG="$2"
         shift
+        shift
+        ;;
+    -lt|--lthash-verification)
+        DISABLE_LTHASH_VERIFICATION=false
         shift
         ;;
     -*|--*)
@@ -215,12 +214,16 @@ fi
 echo "
 [snapshots]
     incremental_snapshots = $HAS_INCREMENTAL
-    download = false
-    minimum_download_speed_mib = 0
-    maximum_local_snapshot_age = 0
-    maximum_download_retry_abort = 0
+    [snapshots.sources]
+        servers = []
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []
 [layout]
     shred_tile_count = 4
+    snapla_tile_count = 1
+    verify_tile_count = 2
+    exec_tile_count = 6
 [tiles]
     [tiles.archiver]
         enabled = true
@@ -230,10 +233,10 @@ echo "
         bank_hash_path = \"$DUMP/$LEDGER/bank_hashes.bin\"
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
-        cluster_version = \"$CLUSTER_VERSION\"
-        heap_size_gib = 50
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
+        enabled = false
+    [tiles.rpc]
         enabled = false
 [store]
     max_completed_shred_sets = 32768
@@ -251,7 +254,10 @@ echo "
     snapshots = \"$DUMP/$LEDGER\"
 [hugetlbfs]
     mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
-    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE" > $DUMP_DIR/${LEDGER}_backtest.toml
+    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
+[development]
+    [development.snapshots]
+        disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION" > $DUMP_DIR/${LEDGER}_backtest.toml
 
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]

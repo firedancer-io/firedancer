@@ -18,7 +18,6 @@ case $network in
     export INDEX_MAX=1100000000
     export PAGES=50
     export AGAVE_TAG=v2.3.6
-    export FD_CLUSTER_VERSION=2.3.6
     ;;
   "testnet")
     export BUCKET_ENDPOINT="gs://testnet-ledger-us-sv15"
@@ -28,7 +27,6 @@ case $network in
     export INDEX_MAX=200000000
     export PAGES=50
     export AGAVE_TAG=v2.3.6
-    export FD_CLUSTER_VERSION=2.3.6
     ;;
   "devnet")
     export BUCKET_ENDPOINT="gs://solana-devnet-ledger-us-ny5"
@@ -38,7 +36,6 @@ case $network in
     export INDEX_MAX=200000000
     export PAGES=50
     export AGAVE_TAG=v2.3.6
-    export FD_CLUSTER_VERSION=2.3.6
     ;;
   *)
     echo "Unknown network: $network"

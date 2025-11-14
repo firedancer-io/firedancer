@@ -1,5 +1,3 @@
-ifdef FD_HAS_INT128
-
 ### Reusable
 
 $(call add-hdrs,fd_builtin_programs.h)
@@ -32,11 +30,15 @@ $(call add-objs,fd_config_program,fd_flamenco)
 $(call add-hdrs,fd_compute_budget_program.h)
 $(call add-objs,fd_compute_budget_program,fd_flamenco)
 
+ifdef FD_HAS_DOUBLE
 $(call add-hdrs,fd_stake_program.h)
 $(call add-objs,fd_stake_program,fd_flamenco)
+endif
 
+ifdef FD_HAS_ALLOCA
 $(call add-hdrs,fd_system_program.h)
 $(call add-objs,fd_system_program fd_system_program_nonce,fd_flamenco)
+endif
 
 $(call add-hdrs,fd_vote_program.h)
 $(call add-objs,fd_vote_program,fd_flamenco)
@@ -46,5 +48,3 @@ $(call add-objs,fd_zk_elgamal_proof_program,fd_flamenco)
 
 $(call add-hdrs,fd_native_cpi.h)
 $(call add-objs,fd_native_cpi,fd_flamenco)
-
-endif

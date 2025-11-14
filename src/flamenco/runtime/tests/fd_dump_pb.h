@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_tests_fd_dump_pb_h
 #define HEADER_fd_src_flamenco_runtime_tests_fd_dump_pb_h
 
+#if FD_HAS_FLATCC
+
 /* fd_dump_pb.h provides APIs for dumping syscalls, instructions, transactions, and blocks
    into a digestable and replayable Protobuf message. This is useful for debugging
    ledger test mismatches, collecting seed corpora, and gathering real data to test
@@ -158,7 +160,7 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
                            ushort              instruction_idx );
 
 void
-fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
+fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx );
 
 /* Block dumping is a little bit different than the other harnesses due
    to the architecture of our system.  Unlike the other dumping
@@ -208,5 +210,7 @@ fd_dump_elf_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
                          fd_txn_account_t *  program_acc );
 
 FD_PROTOTYPES_END
+
+#endif /* FD_HAS_FLATCC */
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_fd_dump_pb_h */

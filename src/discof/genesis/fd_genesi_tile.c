@@ -16,6 +16,7 @@
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <linux/fs.h>
@@ -114,11 +115,8 @@ should_shutdown( fd_genesi_tile_t * ctx ) {
 
 static void
 initialize_accdb( fd_genesi_tile_t * ctx ) {
-  /* Change 'last published' XID to 0 */
+  /* Insert accounts at root */
   fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
-  fd_funk_txn_xid_t target_xid = { .ul = { 0UL, 0UL } };
-  fd_accdb_attach_child( ctx->accdb_admin, &root_xid, &target_xid );
-  fd_accdb_advance_root( ctx->accdb_admin, &target_xid );
 
   fd_genesis_solana_global_t * genesis = fd_type_pun( ctx->genesis );
 
@@ -127,26 +125,24 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
   for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
     fd_pubkey_account_pair_global_t const * account = &accounts[ i ];
 
-    fd_funk_rec_prepare_t prepare;
-
-    fd_txn_account_t rec[1];
-    int err = fd_txn_account_init_from_funk_mutable( rec,
-                                                     &account->key,
-                                                     ctx->accdb->funk,
-                                                     &target_xid,
-                                                     1, /* do_create */
-                                                     account->account.data_len,
-                                                     &prepare );
-    FD_TEST( !err );
-
-    fd_txn_account_set_data( rec, fd_solana_account_data_join( &account->account ), account->account.data_len );
-    fd_txn_account_set_lamports( rec, account->account.lamports );
-    fd_txn_account_set_executable( rec, account->account.executable );
-    fd_txn_account_set_owner( rec, &account->account.owner );
-    fd_txn_account_mutable_fini( rec, ctx->accdb->funk, &prepare );
+    /* FIXME use accdb API */
+    fd_funk_rec_prepare_t prepare[1];
+    fd_funk_rec_key_t key[1]; memcpy( key->uc, account->key.uc, sizeof(fd_pubkey_t) );
+    fd_funk_rec_t * rec = fd_funk_rec_prepare( ctx->accdb->funk, &root_xid, key, prepare, NULL );
+    FD_TEST( rec );
+    fd_account_meta_t * meta = fd_funk_val_truncate( rec, ctx->accdb->funk->alloc, ctx->accdb->funk->wksp, 16UL, sizeof(fd_account_meta_t)+account->account.data_len, NULL );
+    FD_TEST( meta );
+    void * data = (void *)( meta+1 );
+    fd_memcpy( meta->owner, account->account.owner.uc, sizeof(fd_pubkey_t) );
+    meta->lamports = account->account.lamports;
+    meta->slot = 0UL;
+    meta->executable = !!account->account.executable;
+    meta->dlen = (uint)account->account.data_len;
+    fd_memcpy( data, fd_solana_account_data_join( &account->account ), account->account.data_len );
+    fd_funk_rec_publish( ctx->accdb->funk, prepare );
 
     fd_lthash_value_t new_hash[1];
-    fd_hashes_account_lthash( rec->pubkey, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), new_hash );
+    fd_hashes_account_lthash( &account->key, meta, data, new_hash );
     fd_lthash_add( ctx->lthash, new_hash );
   }
 }
@@ -433,16 +429,16 @@ privileged_init( fd_topo_t *      topo,
             are still done as root. */
           gid_t gid = getgid();
           uid_t uid = getuid();
-          if( FD_LIKELY( !gid && setegid( tile->genesi.target_gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-          if( FD_LIKELY( !uid && seteuid( tile->genesi.target_uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_LIKELY( !gid && -1==syscall( __NR_setresgid, -1, tile->genesi.target_gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_LIKELY( !uid && -1==syscall( __NR_setresuid, -1, tile->genesi.target_uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
           char partialname[ PATH_MAX ];
           FD_TEST( fd_cstr_printf_check( partialname, PATH_MAX, NULL, "%s.partial", tile->genesi.genesis_path ) );
           ctx->out_fd = openat( ctx->out_dir_fd, "genesis.bin.partial", O_CREAT|O_WRONLY|O_CLOEXEC|O_TRUNC, S_IRUSR|S_IWUSR );
           if( FD_UNLIKELY( -1==ctx->out_fd ) ) FD_LOG_ERR(( "openat() failed for genesis file `%s` (%i-%s)", partialname, errno, fd_io_strerror( errno ) ));
 
-          if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-          if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
           ctx->local_genesis = 0;
           ctx->client = fd_genesis_client_join( fd_genesis_client_new( _client ) );

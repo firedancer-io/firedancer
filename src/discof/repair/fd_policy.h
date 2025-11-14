@@ -151,12 +151,12 @@ struct fd_policy_peers {
 };
 typedef struct fd_policy_peers fd_policy_peers_t;
 
-#define FD_POLICY_LATENCY_FAST  1
+#define FD_POLICY_LATENCY_FAST 1
 #define FD_POLICY_LATENCY_SLOW 3
 
 /* Policy parameters start */
-#define FD_POLICY_LATENCY_THRESH 30e6L /* less than this is a BEST peer, otherwise a WORST peer */
-#define FD_POLICY_DEDUP_TIMEOUT  50e6L /* how long wait to request the same shred */
+#define FD_POLICY_LATENCY_THRESH 80e6L /* less than this is a BEST peer, otherwise a WORST peer */
+#define FD_POLICY_DEDUP_TIMEOUT  100e6L /* how long wait to request the same shred */
 
 /* Round robins through ALL the worst peers once, then round robins
    through ALL the best peers once, then round robins through ALL the
@@ -179,9 +179,6 @@ struct fd_policy {
   fd_policy_peers_t peers; /* repair peers (strategy & data) */
   long              tsmax; /* maximum time for an iteration before resetting the DFS to root */
   long              tsref; /* reference timestamp for resetting DFS */
-
-  fd_forest_iter_t  iterf; /* forest iterator */
-  ulong             tsreset; /* ms timestamp of last reset of iterf */
 
   ulong turbine_slot0;
   uint nonce;
@@ -258,7 +255,7 @@ fd_policy_delete( void * policy );
    Currently implements the default round-robin DFS strategy. */
 
 fd_repair_msg_t const *
-fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot );
+fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy );
 
 fd_policy_peer_t const *
 fd_policy_peer_insert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr );
@@ -284,10 +281,10 @@ fd_policy_peer_latency_bucket( fd_policy_t * policy, long total_rtt /* ns */, ul
 void
 fd_policy_peer_response_update( fd_policy_t * policy, fd_pubkey_t const * to, long rtt );
 
+int
+fd_policy_passes_throttle_threshold( fd_policy_t * policy, fd_forest_blk_t * ele );
+
 void
 fd_policy_set_turbine_slot0( fd_policy_t * policy, ulong slot );
 
-void
-fd_policy_reset( fd_policy_t * policy, fd_forest_t * forest );
-
-#endif /* HEADER_fd_src_discof_repair_fd_policy_h */
+#endif /* HEADER_fd_src_choreo_policy_fd_policy_h */

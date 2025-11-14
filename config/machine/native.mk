@@ -1,3 +1,7 @@
+ifneq ($(CROSS),)
+$(error "native build not supported when cross-compiling.  Try setting MACHINE=linux_clang_zen2")
+endif
+
 define _map-define
   ifeq ($(shell echo | $(CC) -march=native -E -dM - | grep -c $(2)),1)
     CPPFLAGS+=-D$(1)=1

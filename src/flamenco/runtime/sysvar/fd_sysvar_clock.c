@@ -1,8 +1,10 @@
 #include "fd_sysvar.h"
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
+#include "../fd_runtime_stack.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
+#include "../program/fd_program_util.h"
 
 /* Syvar Clock Possible Values:
   slot:
@@ -50,12 +52,12 @@ unix_timestamp_from_genesis( fd_bank_t * bank ) {
   /* TODO: genesis_creation_time needs to be a long in the bank. */
   return fd_long_sat_add(
       (long)fd_bank_genesis_creation_time_get( bank ),
-      (long)( fd_uint128_sat_mul( fd_bank_slot_get( bank ), fd_bank_ns_per_slot_get( bank ) ) / NS_IN_S ) );
+      (long)( fd_uint128_sat_mul( fd_bank_slot_get( bank ), fd_bank_ns_per_slot_get( bank ).ud ) / NS_IN_S ) );
 }
 
 void
 fd_sysvar_clock_write( fd_bank_t *               bank,
-                       fd_funk_t *               funk,
+                       fd_accdb_user_t *         accdb,
                        fd_funk_txn_xid_t const * xid,
                        fd_capture_ctx_t *        capture_ctx,
                        fd_sol_sysvar_clock_t *   clock ) {
@@ -68,7 +70,7 @@ fd_sysvar_clock_write( fd_bank_t *               bank,
     FD_LOG_ERR(( "fd_sol_sysvar_clock_encode failed" ));
   }
 
-  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_clock_id, enc, sizeof(fd_sol_sysvar_clock_t) );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_clock_id, enc, sizeof(fd_sol_sysvar_clock_t) );
 }
 
 
@@ -99,7 +101,7 @@ fd_sysvar_clock_read( fd_funk_t *               funk,
 
 void
 fd_sysvar_clock_init( fd_bank_t *               bank,
-                      fd_funk_t *               funk,
+                      fd_accdb_user_t *         accdb,
                       fd_funk_txn_xid_t const * xid,
                       fd_capture_ctx_t *        capture_ctx ) {
   long timestamp = unix_timestamp_from_genesis( bank );
@@ -111,15 +113,8 @@ fd_sysvar_clock_init( fd_bank_t *               bank,
     .leader_schedule_epoch = 1,
     .unix_timestamp        = timestamp,
   };
-  fd_sysvar_clock_write( bank, funk, xid, capture_ctx, &clock );
+  fd_sysvar_clock_write( bank, accdb, xid, capture_ctx, &clock );
 }
-
-struct ts_est_ele {
-  long    timestamp;
-  uint128 stake; /* should really be fine as ulong, but we match Agave*/
-};
-
-typedef struct ts_est_ele ts_est_ele_t;
 
 #define SORT_NAME  sort_stake_ts
 #define SORT_KEY_T ts_est_ele_t
@@ -136,12 +131,13 @@ typedef struct ts_est_ele ts_est_ele_t;
   https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2563-L2601 */
 long
 get_timestamp_estimate( fd_bank_t *             bank,
-                        fd_sol_sysvar_clock_t * clock ) {
+                        fd_sol_sysvar_clock_t * clock,
+                        fd_runtime_stack_t *    runtime_stack ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       slot_duration  = (ulong)fd_bank_ns_per_slot_get( bank );
+  ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
   ulong                       current_slot   = fd_bank_slot_get( bank );
 
-  static FD_TL ts_est_ele_t ts_eles[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
   ulong ts_ele_cnt = 0UL;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L41 */
@@ -197,7 +193,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
        https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
     ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
       .timestamp = estimate,
-      .stake     = vote_state->stake_t_2,
+      .stake     = { .ud=vote_state->stake_t_2 },
     };
     ts_ele_cnt++;
 
@@ -218,7 +214,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
   uint128 stake_accumulator = 0;
   long    estimate          = 0L;
   for( ulong i=0UL; i<ts_ele_cnt; i++ ) {
-    stake_accumulator = fd_uint128_sat_add( stake_accumulator, ts_eles[i].stake );
+    stake_accumulator = fd_uint128_sat_add( stake_accumulator, ts_eles[i].stake.ud );
     if( stake_accumulator>(total_stake/2UL) ) {
       estimate = ts_eles[ i ].timestamp;
       break;
@@ -266,12 +262,13 @@ get_timestamp_estimate( fd_bank_t *             bank,
    https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2158-L2215 */
 void
 fd_sysvar_clock_update( fd_bank_t *               bank,
-                        fd_funk_t *               funk,
+                        fd_accdb_user_t *         accdb,
                         fd_funk_txn_xid_t const * xid,
                         fd_capture_ctx_t *        capture_ctx,
+                        fd_runtime_stack_t *      runtime_stack,
                         ulong const *             parent_epoch ) {
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( funk, xid, clock_ );
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb->funk, xid, clock_ );
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
@@ -286,7 +283,7 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
 
   /* TODO: Are we handling slot 0 correctly?
      https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2176-L2183 */
-  long timestamp_estimate = get_timestamp_estimate( bank, clock );
+  long timestamp_estimate = get_timestamp_estimate( bank, clock, runtime_stack );
 
   /* If the timestamp was successfully calculated, use it. It not keep the old one. */
   if( FD_LIKELY( timestamp_estimate!=0L ) ) {
@@ -320,5 +317,5 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2209-L2214 */
-  fd_sysvar_clock_write( bank, funk, xid, capture_ctx, clock );
+  fd_sysvar_clock_write( bank, accdb, xid, capture_ctx, clock );
 }

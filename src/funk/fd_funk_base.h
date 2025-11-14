@@ -166,16 +166,14 @@ fd_xxh3_mul128_fold64( ulong lhs, ulong rhs ) {
 
 static inline ulong
 fd_xxh3_mix16b( ulong i0, ulong i1,
-             ulong s0, ulong s1,
-             ulong seed ) {
+                ulong s0, ulong s1,
+                ulong seed ) {
   return fd_xxh3_mul128_fold64( i0 ^ (s0 + seed), i1 ^ (s1 - seed) );
 }
 
 FD_FN_PURE static inline ulong
 fd_funk_rec_key_hash1( uchar const key[ 32 ],
-                       ulong       rec_type,
                        ulong       seed ) {
-  seed ^= rec_type;
   ulong k0 = FD_LOAD( ulong, key+ 0 );
   ulong k1 = FD_LOAD( ulong, key+ 8 );
   ulong k2 = FD_LOAD( ulong, key+16 );
@@ -192,9 +190,7 @@ fd_funk_rec_key_hash1( uchar const key[ 32 ],
 FD_FN_PURE static inline ulong
 fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
                       ulong                     seed ) {
-  /* tons of ILP */
-  return (fd_ulong_hash( seed ^ (1UL<<0) ^ k->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ k->ul[1] ) ) ^
-         (fd_ulong_hash( seed ^ (1UL<<2) ^ k->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ k->ul[3] ) );
+  return fd_funk_rec_key_hash1( k->uc, seed );
 }
 
 #else
@@ -206,9 +202,7 @@ fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
 
 FD_FN_PURE static inline ulong
 fd_funk_rec_key_hash1( uchar const key[ 32 ],
-                       ulong       rec_type,
                        ulong       seed ) {
-  seed ^= rec_type;
   /* tons of ILP */
   return (fd_ulong_hash( seed ^ (1UL<<0) ^ FD_LOAD( ulong, key+ 0 ) )   ^
           fd_ulong_hash( seed ^ (1UL<<1) ^ FD_LOAD( ulong, key+ 8 ) ) ) ^
@@ -219,7 +213,7 @@ fd_funk_rec_key_hash1( uchar const key[ 32 ],
 FD_FN_PURE static inline ulong
 fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
                       ulong                     seed ) {
-  return fd_funk_rec_key_hash1( k->uc, 0UL, seed );
+  return fd_funk_rec_key_hash1( k->uc, seed );
 }
 
 #endif /* FD_HAS_INT128 */

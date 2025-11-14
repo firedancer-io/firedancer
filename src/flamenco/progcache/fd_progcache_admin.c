@@ -1,4 +1,5 @@
 #include "fd_progcache_admin.h"
+#include "fd_progcache_rec.h"
 
 /* Algorithm to estimate size of cache metadata structures (rec_pool
    object pool and rec_map hashchain table).
@@ -223,6 +224,44 @@ fd_progcache_gc_root( fd_progcache_admin_t *         cache,
   fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
 }
 
+/* fd_progcache_gc_invalidation cleans up a "cache invalidate" record,
+   which may not exist at the database root. */
+
+static void
+fd_progcache_gc_invalidation( fd_progcache_admin_t * cache,
+                              fd_funk_rec_t *        rec ) {
+  fd_funk_t * funk = cache->funk;
+
+  /* Phase 1: Remove record from map if found */
+
+  fd_funk_xid_key_pair_t pair = rec->pair;
+  fd_funk_rec_query_t query[1];
+  int rm_err = fd_funk_rec_map_remove( funk->rec_map, &pair, NULL, query, FD_MAP_FLAG_BLOCKING );
+  if( rm_err==FD_MAP_ERR_KEY ) return;
+  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed: %i-%s", rm_err, fd_map_strerror( rm_err ) ));
+  if( FD_UNLIKELY( query->ele!=rec ) ) {
+    FD_LOG_CRIT(( "Found record collision in program cache: xid=%lu:%lu key=%016lx%016lx%016lx%016lx ele0=%u ele1=%u",
+                  pair.xid->ul[0], pair.xid->ul[1],
+                  fd_ulong_bswap( pair.key->ul[0] ),
+                  fd_ulong_bswap( pair.key->ul[1] ),
+                  fd_ulong_bswap( pair.key->ul[2] ),
+                  fd_ulong_bswap( pair.key->ul[3] ),
+                  (uint)( query->ele - funk->rec_pool->ele ),
+                  (uint)( rec        - funk->rec_pool->ele ) ));
+  }
+
+  /* Phase 2: Invalidate record */
+
+  memset( &rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
+  FD_COMPILER_MFENCE();
+
+  /* Phase 3: Free record */
+
+  rec->map_next = FD_FUNK_REC_IDX_NULL;
+  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+  fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
+}
+
 /* fd_progcache_publish_recs publishes all of a progcache's records.
    It is assumed at this point that the txn has no more concurrent
    users. */
@@ -237,20 +276,27 @@ fd_progcache_publish_recs( fd_progcache_admin_t * cache,
   while( !fd_funk_rec_idx_is_null( head ) ) {
     fd_funk_rec_t * rec = &cache->funk->rec_pool->ele[ head ];
 
-   /* Evict previous value from hash chain */
+    /* Evict previous value from hash chain */
     fd_funk_xid_key_pair_t pair[1];
     fd_funk_rec_key_copy( pair->key, rec->pair.key );
     fd_funk_txn_xid_set_root( pair->xid );
     fd_progcache_gc_root( cache, pair );
-
-    /* Migrate record to root */
     uint next = rec->next_idx;
-    rec->prev_idx = FD_FUNK_REC_IDX_NULL;
-    rec->next_idx = FD_FUNK_REC_IDX_NULL;
-    fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
-    fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
 
-    head = next; /* next record*/
+    fd_progcache_rec_t * prec = fd_funk_val( rec, cache->funk->wksp );
+    FD_TEST( prec );
+    if( FD_UNLIKELY( prec->invalidate ) ) {
+      /* Drop cache invalidate records */
+      fd_progcache_gc_invalidation( cache, rec );
+    } else {
+      /* Migrate record to root */
+      rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+      rec->next_idx = FD_FUNK_REC_IDX_NULL;
+      fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
+      fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
+    }
+
+    head = next; /* next record */
   }
 }
 

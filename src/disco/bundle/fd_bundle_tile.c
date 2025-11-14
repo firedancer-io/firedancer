@@ -68,7 +68,7 @@ metrics_write( fd_bundle_tile_t * ctx ) {
     FD_LOG_ERR(( "fd_wksp_usage failed" )); /* unreachable */
   }
   FD_MGAUGE_SET( BUNDLE, HEAP_SIZE,       usage->total_sz );
-  FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->used_sz  );
+  FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->free_sz  );
 
   int bundle_status = fd_bundle_client_status( ctx );
   FD_MGAUGE_SET( BUNDLE, CONNECTED, bundle_status==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
@@ -334,6 +334,7 @@ fd_bundle_tile_load_certs( SSL_CTX * ssl_ctx ) {
   }
 
   struct dirent * entry;
+  errno = 0; // clear old value since entry can be NULL when reaching end of directory.
   while( (entry = readdir( dir )) ) {
     if( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) continue;
 

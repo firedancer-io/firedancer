@@ -25,6 +25,7 @@ ready_cmd_fn( args_t *   args FD_PARAM_UNUSED,
       ulong status = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_STATUS_OFF ];
 
       if( FD_LIKELY( status==1UL ) ) break;
+      else if( FD_UNLIKELY( tile->allow_shutdown && status==2UL ) ) break;
       else if( FD_UNLIKELY( status ) )
         FD_LOG_ERR(( "status for tile %s:%lu is in bad state %lu", tile->name, tile->kind_id, status ));
 

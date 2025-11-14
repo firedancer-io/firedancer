@@ -20,7 +20,7 @@ agave_thread_main( void * _args ) {
 void
 fddev_bench_cmd_fn( args_t *   args,
                     config_t * config ) {
-  bench_cmd_fn( args, config );
+  bench_cmd_fn( args, config, 0 );
 
   pthread_t agave;
   pthread_create( &agave, NULL, agave_thread_main, (void *)config );

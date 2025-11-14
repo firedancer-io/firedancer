@@ -1,5 +1,4 @@
 ifdef FD_HAS_HOSTED
-ifdef FD_HAS_INT128
 ifdef FD_HAS_SECP256K1
 
 $(call add-hdrs,fd_vm_base.h fd_vm.h fd_vm_private.h) # FIXME: PRIVATE TEMPORARILY HERE DUE TO SOME MESSINESS IN FD_VM_SYSCALL.H
@@ -23,6 +22,7 @@ $(call run-unit-test,test_vm_interp)
 endif
 endif
 
+ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_pointer_chase,test_pointer_chase,fd_util)
 $(call run-unit-test,test_pointer_chase)
 endif

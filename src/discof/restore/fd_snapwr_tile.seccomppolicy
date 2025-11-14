@@ -1,0 +1,24 @@
+uint logfile_fd, uint vinyl_fd
+
+# snapshot: write bytes to vinyl file
+pwrite64: (eq (arg 0) vinyl_fd)
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.  The other files that can be
+# written to are the out descriptors for the full and incremental
+# snapshots.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# shutdown: exit is called on shutdown
+exit: (eq (arg 0) 0)

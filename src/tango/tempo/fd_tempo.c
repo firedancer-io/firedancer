@@ -26,8 +26,8 @@ fd_tempo_wallclock_model( double * opt_tau ) {
 
     ulong iter = 0UL;
     for(;;) {
-#     define TRIAL_CNT 512UL
-#     define TRIM_CNT  64UL
+#     define TRIAL_CNT 64UL
+#     define TRIM_CNT   8UL
       double trial[ TRIAL_CNT ];
       for( ulong trial_idx=0UL; trial_idx<TRIAL_CNT; trial_idx++ ) {
         FD_COMPILER_MFENCE();
@@ -288,4 +288,3 @@ fd_tempo_async_min( long  lazy,
   ulong async_target = (ulong)_async_target;       /* in [1,2^32), O(1) ulp error typically (biased conservative) */
   return 1UL << fd_ulong_find_msb( async_target ); /* guaranteed power of 2 in [1,2^31] */
 }
-

@@ -81,7 +81,13 @@ walk_timeout_period( fd_quic_conn_t * client_conn, fd_quic_t * server_quic, int 
   for( int i=0; i<eighths; ++i ) {
     now+=timestep;
     fd_quic_service( client_quic, now );
+    if( client_conn->state==FD_QUIC_CONN_STATE_ACTIVE && now >= client_conn->last_activity + idle_timeout/2 ) {
+      FD_TEST( client_conn->svc_meta.next_timeout == client_conn->last_activity + idle_timeout );
+    }
     fd_quic_service( server_quic, now );
+    if( server_conn->state==FD_QUIC_CONN_STATE_ACTIVE ) {
+      FD_TEST( server_conn->svc_meta.next_timeout == server_conn->last_activity + idle_timeout );
+    }
   }
 
   return timestep;
@@ -97,6 +103,7 @@ test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep
   walk_timeout_period( client_conn, server_quic, 8 );
   if( keep_alive ) {
     FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+    FD_TEST( server_conn->svc_meta.next_timeout == server_conn->last_activity+server_conn->idle_timeout_ns );
   } else {
     FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_INVALID ||
              server_conn->state == FD_QUIC_CONN_STATE_DEAD );
@@ -110,7 +117,7 @@ test_quic_let_die( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   fd_quic_conn_t * client_conn = test_init( client_quic, server_quic );
 
   long const timestep = client_conn->idle_timeout_ns>>3;
-  fd_quic_conn_let_die( client_conn, timestep );
+  fd_quic_conn_let_die( client_conn, timestep, now );
   walk_timeout_period( client_conn, server_quic, 8 );
   FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_INVALID ||
            server_conn->state == FD_QUIC_CONN_STATE_DEAD );

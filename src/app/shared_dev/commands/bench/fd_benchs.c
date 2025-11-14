@@ -1,6 +1,7 @@
 /* _GNU_SOURCE for recvmmsg and sendmmsg */
 #define _GNU_SOURCE
 
+#include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/quic/tests/fd_quic_test_helpers.h"
@@ -198,6 +199,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_quic_align(), quic_fp );
   }
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static inline void
+metrics_write( fd_benchs_ctx_t * ctx ) {
+  FD_MCNT_SET( BENCHS, TRANSACTIONS_SENT, ctx->packet_cnt );
 }
 
 static inline int
@@ -525,6 +531,7 @@ during_housekeeping( fd_benchs_ctx_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_benchs_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_benchs_ctx_t)
 
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping

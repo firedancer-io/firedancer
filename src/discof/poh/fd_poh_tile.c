@@ -67,7 +67,7 @@ after_credit( fd_poh_tile_t *     ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
   ctx->idle_cnt++;
-  if( FD_UNLIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt ) ) {
+  if( FD_LIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt || fd_poh_must_tick( ctx->poh ) ) ) {
     /* We would like to fully drain input links to the best of our
        knowledge, before we spend cycles on hashing.  That is, we would
        like to assert that all input links have stayed empty since the
@@ -77,7 +77,12 @@ after_credit( fd_poh_tile_t *     ctx,
        in_cnt-1 in the subsequent input link shuffle.  So strictly
        speaking we will need to have observed 2*in_cnt-1 consecutive
        empty in links to be able to assert that link L has been empty
-       since the last time we polled it. */
+       since the last time we polled it.
+
+       Except that when we are leader and the hashcnt is right before a
+       tick boundary, poh must advance to the tick boundary and produce
+       the tick.  Otherwise, a tick will be skipped if a microblock
+       mixin happens. */
     fd_poh_advance( ctx->poh, stem, opt_poll_in, charge_busy );
     ctx->idle_cnt = 0UL;
   }
@@ -118,6 +123,15 @@ returnable_frag( fd_poh_tile_t *     ctx,
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+  /* There's a race condition where we might receive microblocks from
+     banks before we have learned what the leader bank is from replay
+     (the become_leader message makes it from replay->pack->bank->poh)
+     before it just makes it from replay->poh.  This is rare but
+     violates invariants in poh, so we simply do not process any
+     transactions for mixin until we have learned what the leader bank
+     is. */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK && !fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
   /* If prior leaders skipped, it might happen that replay tells us to

@@ -78,8 +78,13 @@ load_cmd_fn( args_t *   args,
                  config->tiles.quic.quic_transaction_listen_port );
   }
 
-  if( FD_UNLIKELY( !args->load.rpc_port ) )
-    args->load.rpc_port    = config->rpc.port;
+  if( FD_UNLIKELY( !args->load.rpc_port ) ) {
+    if( FD_UNLIKELY( config->is_firedancer ) ) {
+      args->load.rpc_port = config->tiles.rpc.rpc_listen_port;
+    } else {
+      args->load.rpc_port = config->frankendancer.rpc.port;
+    }
+  }
   if( FD_UNLIKELY( !args->load.rpc_port ) )
     FD_LOG_ERR(( "Missing --rpc-port" ));
 

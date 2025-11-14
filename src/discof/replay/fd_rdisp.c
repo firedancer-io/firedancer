@@ -71,9 +71,7 @@
    and so they don't have globally acceptable type names (e.g.
    fd_rdisp_edge_t). */
 
-/* Everything is set up to allow this to be 128, but we can save the
-   space until it's necessary. */
-#define MAX_ACCT_PER_TXN 64UL
+#define MAX_ACCT_PER_TXN 128UL
 
 /* edge_t: Fields typed edge_t represent an edge in one of the parallel
    account-conflict DAGs.  Each transaction stores a list of all its

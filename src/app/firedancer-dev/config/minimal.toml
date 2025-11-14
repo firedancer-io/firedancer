@@ -6,9 +6,6 @@ max_account_records = 1048576
 heap_size_gib = 20
 max_database_transactions = 1024
 
-[runtime]
-heap_size_gib = 4
-
 [runtime.limits]
 max_live_slots = 512
 max_vote_accounts = 32

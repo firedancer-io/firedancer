@@ -81,6 +81,7 @@ union fdctl_args {
     char iptable_path[ 256UL ];
     int  metrics_only;
     int  forest_only;
+    int  sorted;
   } repair;
 
   struct {
@@ -108,16 +109,33 @@ union fdctl_args {
   } quic_trace;
 
   struct {
-    char tile_cpus[ 256UL ];
-  } snapshot_load;
-
-  struct {
     ushort listen_port;
   } udpecho;
 
   struct {
     char topo[ 64 ];
   } metrics;
+
+  struct {
+    uint fsck : 1;
+    uint fsck_lthash : 1;
+    uint lthash : 1;
+    uint accounts_hist : 1;
+    uint offline : 1;
+    uint no_incremental : 1;
+    uint no_watch : 1;
+    uint is_vinyl : 1;
+    uint vinyl_server : 1;
+
+    char snapshot_dir[ PATH_MAX ];
+    char vinyl_path  [ PATH_MAX ];
+    char vinyl_io    [ 3 ];
+
+    ulong db_sz;
+    ulong db_rec_max;
+    ulong cache_sz;
+    ulong cache_rec_max;
+  } snapshot_load;
 
 };
 

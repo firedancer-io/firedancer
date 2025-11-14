@@ -142,16 +142,23 @@
    Exit
    At this point, cu is positive and err is clear.
 */
+
+# if FD_HAS_FLATCC
+# define FD_VM_INTERP_SYSCALL_EXEC_DUMP                                       \
+  /* Dumping for debugging purposes */                                        \
+  if( FD_UNLIKELY( vm->dump_syscall_to_pb ) ) {                               \
+    fd_dump_vm_syscall_to_protobuf( vm, syscall->name );                      \
+  }
+# else
+# define FD_VM_INTERP_SYSCALL_EXEC_DUMP
+# endif
 # define FD_VM_INTERP_SYSCALL_EXEC                                            \
   /* Setup */                                                                 \
   vm->pc        = pc;                                                         \
   vm->ic        = ic;                                                         \
   vm->cu        = cu;                                                         \
   vm->frame_cnt = frame_cnt;                                                  \
-  /* Dumping for debugging purposes */                                        \
-  if( FD_UNLIKELY( vm->dump_syscall_to_pb ) ) {                               \
-    fd_dump_vm_syscall_to_protobuf( vm, syscall->name );                      \
-  }                                                                           \
+  FD_VM_INTERP_SYSCALL_EXEC_DUMP                                              \
   /* Execution */                                                             \
   ulong ret[1];                                                               \
   err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );     \

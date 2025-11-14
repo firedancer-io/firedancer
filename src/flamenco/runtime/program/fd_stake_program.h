@@ -36,7 +36,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx );
    https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs
  */
 void
-fd_stake_program_config_init( fd_funk_t *               funk,
+fd_stake_program_config_init( fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid );
 
 int

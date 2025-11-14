@@ -1,5 +1,5 @@
 #include "fd_sysvar_instructions.h"
-#include "../fd_borrowed_account.h"
+#include "../fd_exec_stack.h"
 #include "../fd_system_ids.h"
 
 static ulong
@@ -35,7 +35,8 @@ instructions_serialized_size( fd_instr_info_t const *   instrs,
 void
 fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
                                           fd_instr_info_t const *  instrs,
-                                          ushort                   instrs_cnt ) {
+                                          ushort                   instrs_cnt,
+                                          ulong                    txn_idx ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
   fd_txn_account_t * rec = NULL;
@@ -60,9 +61,9 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
         - sizeof(fd_account_meta_t) + serialized_sz will always be less than FD_ACC_TOT_SZ_MAX
         - at most 127 accounts could be using spad memory right now, so this allocation is safe */
   if( !fd_txn_account_is_mutable( rec ) ) {
-    uchar *             mem  = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) + serialized_sz );
+    uchar *             mem  = txn_ctx->exec_accounts->accounts_mem[ txn_idx ];
     fd_account_meta_t * meta = (fd_account_meta_t *)mem;
-    fd_txn_account_t *  acc  = fd_txn_account_join( fd_txn_account_new( rec, &fd_sysvar_instructions_id, meta, 1 ), txn_ctx->spad_wksp );
+    fd_txn_account_t *  acc  = fd_txn_account_join( fd_txn_account_new( rec, &fd_sysvar_instructions_id, meta, 1 ) );
     if( FD_UNLIKELY( !acc ) ) {
       FD_LOG_CRIT(( "Failed to join txn account" ));
     }
@@ -108,12 +109,12 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
 
       // pubkey
       ushort idx_in_txn = instr->accounts[j].index_in_transaction;
-      FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_ctx->account_keys[ idx_in_txn ] );
+      FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_ctx->accounts.account_keys[ idx_in_txn ] );
       offset += sizeof(fd_pubkey_t);
     }
 
     // program_id_pubkey
-    FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_ctx->account_keys[ instr->program_id ] );
+    FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_ctx->accounts.account_keys[ instr->program_id ] );
     offset += sizeof(fd_pubkey_t);
 
     // instr_data_len

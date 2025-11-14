@@ -11,3 +11,9 @@
 [funk]
     heap_size_gib = 600
     max_account_records = 1_100_000_000
+[snapshots]
+    [snapshots.sources]
+        servers = [ "http://solana-mainnet-rpc.jumpisolated.com:8899" ]
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []

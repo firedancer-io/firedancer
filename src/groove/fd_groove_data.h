@@ -487,7 +487,7 @@ fd_groove_data_alloc_stop_const( void const * obj ) {
    current local join and the groove data is idle.  This only verifies
    the groove data's state.  Specifically, it verifies the join, the
    data volume pool, the active superblocks and the inactive superblocks
-   look correct.  It is does verify the entire containts of all volumes.
+   look correct.  It is does verify the entire contains of all volumes.
    Use fd_groove_data_verify for that. */
 
 int

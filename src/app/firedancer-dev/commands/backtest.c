@@ -47,9 +47,12 @@ backtest_topo( config_t * config ) {
   config->development.no_clone = 1;
 
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
+  ulong lta_tile_cnt    = config->firedancer.layout.snapla_tile_count;
 
-  int disable_snap_loader = !config->gossip.entrypoints_cnt;
-  int solcap_enabled      = strlen( config->capture.solcap_capture )>0;
+  int disable_snap_loader      = !config->gossip.entrypoints_cnt;
+  int snap_vinyl               = !!config->firedancer.vinyl.enabled;
+  int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
+  int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -88,6 +91,10 @@ backtest_topo( config_t * config ) {
       config->firedancer.runtime.program_cache.heap_size_mib<<20 );
   fd_topob_tile_uses( topo, replay_tile, progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
+  if( snap_vinyl ) {
+    setup_topo_vinyl_meta( topo, &config->firedancer );
+  }
+
   /**********************************************************************/
   /* Add the executor tiles to topo                                     */
   /**********************************************************************/
@@ -104,10 +111,20 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapld" );
     fd_topob_wksp( topo, "snapdc" );
     fd_topob_wksp( topo, "snapin" );
+
+    if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
+      fd_topob_wksp( topo, "snapla" );
+      fd_topob_wksp( topo, "snapls" );
+    }
+
     fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct",  "snapct",  "metric_in",  cpu_idx++, 0, 0 );
     fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld",  "snapld",  "metric_in",  cpu_idx++, 0, 0 );
     fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0 );
                      snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0 );
+    if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
+      FOR(lta_tile_cnt)  fd_topob_tile( topo, "snapla", "snapla", "metric_in", cpu_idx++,  0, 0 )->allow_shutdown = 1;
+      /**/               fd_topob_tile( topo, "snapls", "snapls", "metric_in", cpu_idx++,  0, 0 )->allow_shutdown = 1;
+    }
     snapct_tile->allow_shutdown = 1;
     snapld_tile->allow_shutdown = 1;
     snapdc_tile->allow_shutdown = 1;
@@ -138,18 +155,40 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapct_ld"    );
     fd_topob_wksp( topo, "snapld_dc"    );
     fd_topob_wksp( topo, "snapdc_in"    );
-    fd_topob_wksp( topo, "snapin_rd"    );
+    if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
+      fd_topob_wksp( topo, "snapin_ct"   );
+    } else {
+      fd_topob_wksp( topo, "snapls_ct" );
+    }
+
     fd_topob_wksp( topo, "snapin_manif" );
     fd_topob_wksp( topo, "snapct_repr"  );
+
+    if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
+      fd_topob_wksp( topo, "snapla_ls" );
+      fd_topob_wksp( topo, "snapin_ls" );
+    }
 
     fd_topob_link( topo, "snapct_ld",    "snapct_ld",    128UL,   sizeof(fd_ssctrl_init_t),       1UL );
     fd_topob_link( topo, "snapld_dc",    "snapld_dc",    16384UL, USHORT_MAX,                     1UL );
     fd_topob_link( topo, "snapdc_in",    "snapdc_in",    16384UL, USHORT_MAX,                     1UL );
-    fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,   0UL,                            1UL );
+    if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
+      fd_topob_link( topo, "snapin_ct",  "snapin_ct",    128UL,   0UL,                            1UL );
+    }
     fd_topob_link( topo, "snapin_manif", "snapin_manif", 4UL,     sizeof(fd_snapshot_manifest_t), 1UL ); /* TODO: Should be depth 1 or 2 but replay backpressures */
     fd_topob_link( topo, "snapct_repr",  "snapct_repr",  128UL,   0UL,                            1UL )->permit_no_consumers = 1;
 
-    fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapin_rd",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
+      FOR(lta_tile_cnt) fd_topob_link( topo, "snapla_ls",  "snapla_ls",   128UL,  sizeof(fd_lthash_value_t),          1UL );
+      /**/              fd_topob_link( topo, "snapin_ls",  "snapin_ls",   256UL,  sizeof(fd_snapshot_full_account_t), 1UL );
+      /**/              fd_topob_link( topo, "snapls_ct",  "snapls_ct",   128UL,  0UL,                                1UL );
+    }
+
+    if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
+      fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapin_ct",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    } else {
+      fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapls_ct",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    }
     fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     fd_topob_tile_out( topo, "snapct",  0UL,              "snapct_ld",    0UL                                       );
     fd_topob_tile_out( topo, "snapct",  0UL,              "snapct_repr",  0UL                                       );
@@ -158,9 +197,22 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_in ( topo, "snapdc",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     fd_topob_tile_out( topo, "snapdc",  0UL,              "snapdc_in",    0UL                                       );
     fd_topob_tile_in ( topo, "snapin",  0UL, "metric_in", "snapdc_in",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_rd",    0UL                                       );
+    if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
+      fd_topob_tile_out( topo, "snapin",  0UL, "snapin_ct", 0UL );
+    } else {
+      fd_topob_tile_out( topo, "snapin",  0UL, "snapin_ls", 0UL );
+    }
+
     fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_manif", 0UL                                       );
     fd_topob_tile_in ( topo, "replay",  0UL, "metric_in", "snapin_manif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
+
+    if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
+      FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapla", i,   "metric_in", "snapdc_in",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      FOR(lta_tile_cnt) fd_topob_tile_out( topo, "snapla", i,                "snapla_ls",   i                                          );
+      /**/              fd_topob_tile_in ( topo, "snapls", 0UL, "metric_in", "snapin_ls",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapls", 0UL, "metric_in", "snapla_ls",   i,    FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      /**/              fd_topob_tile_out( topo, "snapls", 0UL,              "snapls_ct",   0UL                                        );
+    }
   } else {
     fd_topob_wksp( topo, "genesi_out" );
     fd_topob_link( topo, "genesi_out", "genesi_out", 2UL, 10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
@@ -256,7 +308,7 @@ backtest_topo( config_t * config ) {
 
   /* banks_obj shared by replay and exec tiles */
   fd_topob_wksp( topo, "banks" );
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width );
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, 0 );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
@@ -268,14 +320,6 @@ backtest_topo( config_t * config ) {
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bank_hash_cmp_obj->id, "bh_cmp" ) );
 
-  /* exec_spad_obj used by exec tiles */
-  fd_topob_wksp( topo, "exec_spad" );
-  for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
-    fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
-  }
-
   /* txncache_obj, busy_obj and poh_slot_obj only by replay tile */
   fd_topob_wksp( topo, "txncache"    );
   fd_topob_wksp( topo, "bank_busy"   );
@@ -284,13 +328,18 @@ backtest_topo( config_t * config ) {
       fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    if( snap_vinyl ) {
+      ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
+      ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+      fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
+      fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
+      fd_topob_tile_uses( topo, snapin_tile, vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, snapin_tile, vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    }
   }
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  }
-  for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
@@ -328,6 +377,8 @@ backtest_cmd_topo( config_t * config ) {
   backtest_topo( config );
 }
 
+extern configure_stage_t fd_cfg_stage_vinyl;
+
 static args_t
 configure_args( void ) {
   args_t args = {
@@ -337,6 +388,7 @@ configure_args( void ) {
   ulong stage_idx = 0UL;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_snapshots;
+  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_vinyl;
   args.configure.stages[ stage_idx++ ] = NULL;
 
   return args;

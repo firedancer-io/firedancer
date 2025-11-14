@@ -4,6 +4,7 @@
    This unit test just runs an instance of pubkey_validity. */
 #include "fd_zksdk_private.h"
 #include "../../../../ballet/hex/fd_hex.h"
+#include "../../fd_bank.h"
 
 #include "instructions/test_fd_zksdk_pubkey_validity.h"
 
@@ -33,19 +34,19 @@ void
 create_test_ctx( fd_exec_instr_ctx_t * ctx,
                  fd_exec_txn_ctx_t *   txn_ctx,
                  fd_instr_info_t *     instr,
-                 uchar * tx,
-                 ulong   tx_len,
-                 ulong   instr_off,
-                 ulong   compute_meter ) {
+                 uchar *               tx,
+                 ulong                 tx_len,
+                 ulong                 instr_off,
+                 ulong                 compute_meter ) {
   // This is just minimally setting the instr data so we can test zkp verification
   // TODO: properly load tx
   ctx->txn_ctx = txn_ctx;
-  txn_ctx->compute_budget_details.compute_meter = compute_meter;
+  txn_ctx->details.compute_budget.compute_meter = compute_meter;
   ctx->instr = instr;
   instr->data = &tx[instr_off];
   instr->data_sz = (ushort)(tx_len - instr_off); //TODO: this only works if the instruction is the last one
   instr->acct_cnt = 0; // TODO: hack to avoid filling proof context account (it requires to create the account first)
-  fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
+  fd_log_collector_init( &ctx->txn_ctx->log.log_collector, 1 );
 }
 
 void
@@ -68,8 +69,14 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng ) {
   fd_exec_instr_ctx_t ctx;
   fd_exec_txn_ctx_t txn_ctx[1];
   fd_instr_info_t instr[1];
+  fd_bank_t bank[1];
   ulong tx_len = 0;
   ulong proof_offset = offset + 1 + context_sz;
+
+  txn_ctx->bank = bank;
+  fd_bank_slot_set( bank, 0UL );
+  fd_features_t * features = fd_bank_features_modify( bank );
+  fd_features_enable_all( features );
 
   // load test data
   uchar * tx = load_test_tx( hex, hex_sz, &tx_len );

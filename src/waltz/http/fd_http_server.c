@@ -215,6 +215,8 @@ fd_http_server_new( void *                     shmem,
   http->pollfds[ params.max_connection_cnt+params.max_ws_connection_cnt ].fd     = -1;
   http->pollfds[ params.max_connection_cnt+params.max_ws_connection_cnt ].events = POLLIN | POLLOUT;
 
+  memset( &http->metrics, 0, sizeof( http->metrics ) );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( http->magic ) = FD_HTTP_SERVER_MAGIC;
   FD_COMPILER_MFENCE();
@@ -348,6 +350,9 @@ close_conn( fd_http_server_t * http,
     if( FD_LIKELY( ws_conn->send_frame_cnt ) ) ws_conn_treap_ele_remove( http->ws_conn_treap, ws_conn, http->ws_conns );
     ws_conn_pool_ele_release( http->ws_conns, ws_conn );
   }
+
+  if( FD_LIKELY( conn_idx<http->max_conns ) ) http->metrics.connection_cnt--;
+  else                                        http->metrics.ws_connection_cnt--;
 }
 
 void
@@ -421,6 +426,7 @@ accept_conns( fd_http_server_t * http ) {
       http->callbacks.open( conn_id, fd, http->callback_ctx );
     }
 
+    http->metrics.connection_cnt++;
 #if FD_HTTP_SERVER_DEBUG
     FD_LOG_NOTICE(( "Accepted connection %lu (fd=%d)", conn_id, fd ));
 #endif
@@ -446,6 +452,7 @@ read_conn_http( fd_http_server_t * http,
   else if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "read failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
 
   /* New data was read... process it */
+  http->metrics.bytes_read += (ulong)sz;
   conn->request_bytes_read += (ulong)sz;
   if( FD_UNLIKELY( conn->request_bytes_read==http->max_request_len ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
@@ -668,6 +675,7 @@ read_conn_ws( fd_http_server_t * http,
 
   /* New data was read... process it */
   conn->recv_bytes_read += (ulong)sz;
+  http->metrics.bytes_read += (ulong)sz;
 again:
   if( FD_UNLIKELY( conn->recv_bytes_read<2UL ) ) return; /* Need at least 2 bytes to determine frame length */
 
@@ -728,6 +736,8 @@ again:
 
   uchar * payload = conn->recv_bytes+conn->recv_bytes_parsed+header_len;
   for( ulong i=0UL; i<payload_len; i++ ) conn->recv_bytes[ conn->recv_bytes_parsed+i ] = payload[ i ] ^ mask_copy[ i % 4 ];
+
+  http->metrics.frames_read++;
 
   /* Frame is complete, process it */
 
@@ -937,6 +947,7 @@ write_conn_http( fd_http_server_t * http,
   }
   if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "write failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
 
+  http->metrics.bytes_written += (ulong)sz;
   conn->response_bytes_written += (ulong)sz;
   if( FD_UNLIKELY( conn->response_bytes_written==response_len ) ) {
     switch( conn->state ) {
@@ -977,6 +988,9 @@ write_conn_http( fd_http_server_t * http,
           http->ws_conns[ ws_conn_id ].recv_bytes_read          = 0UL;
           http->ws_conns[ ws_conn_id ].send_frame_bytes_written = 0UL;
           http->ws_conns[ ws_conn_id ].compress_websocket       = conn->response.compress_websocket;
+
+          http->metrics.connection_cnt--;
+          http->metrics.ws_connection_cnt++;
 
           FD_TEST( conn->request_bytes_read>=conn->request_bytes_len );
           if( FD_UNLIKELY( conn->request_bytes_read-conn->request_bytes_len>0UL ) ) {
@@ -1035,6 +1049,7 @@ maybe_write_pong( fd_http_server_t * http,
   }
   else if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "write failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
 
+  http->metrics.bytes_written += (ulong)sz;
   conn->pong_bytes_written += (ulong)sz;
   if( FD_UNLIKELY( conn->pong_bytes_written==2UL+conn->pong_data_len ) ) {
     conn->pong_state = FD_HTTP_SERVER_PONG_STATE_NONE;
@@ -1087,6 +1102,7 @@ write_conn_ws( fd_http_server_t * http,
       }
       else if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "write failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
 
+      http->metrics.bytes_written += (ulong)sz;
       conn->send_frame_bytes_written += (ulong)sz;
       if( FD_UNLIKELY( conn->send_frame_bytes_written==header_len ) ) {
         conn->send_frame_state         = FD_HTTP_SERVER_SEND_FRAME_STATE_DATA;
@@ -1107,6 +1123,7 @@ write_conn_ws( fd_http_server_t * http,
       }
       else if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "write failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
 
+      http->metrics.bytes_written += (ulong)sz;
       conn->send_frame_bytes_written += (ulong)sz;
       if( FD_UNLIKELY( conn->send_frame_bytes_written==frame->len ) ) {
         conn->send_frame_state = FD_HTTP_SERVER_SEND_FRAME_STATE_HEADER;
@@ -1116,6 +1133,8 @@ write_conn_ws( fd_http_server_t * http,
 
         ws_conn_treap_ele_remove( http->ws_conn_treap, conn, http->ws_conns );
         if( FD_LIKELY( conn->send_frame_cnt ) ) ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
+
+        http->metrics.frames_written++;
       }
       break;
     }

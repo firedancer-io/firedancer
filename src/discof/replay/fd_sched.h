@@ -58,7 +58,6 @@ struct fd_sched_alut_ctx {
   fd_accdb_user_t   accdb[1];
   fd_funk_txn_xid_t xid[1];
   ulong             els; /* Effective lookup slot. */
-  fd_spad_t *       runtime_spad;
 };
 typedef struct fd_sched_alut_ctx fd_sched_alut_ctx_t;
 
@@ -236,7 +235,7 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx );
    packed leader block.  Parent block should be ULONG_MAX for the
    snapshot slot, and otherwise a block that hasn't been pruned. */
 void
-fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_idx );
+fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_idx, ulong slot );
 
 /* Advance the root, pruning all blocks across forks that do not descend
    from the new root.  Assumes the new root is in the fork tree and

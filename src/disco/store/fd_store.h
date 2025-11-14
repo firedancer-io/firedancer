@@ -185,7 +185,7 @@ struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
   /* Keys */
 
   fd_store_key_t key; /* map key, merkle root of the FEC set + a partition index */
-  fd_hash_t cmr;      /* parent's map key, chained merkle root of the FEC set */
+  fd_hash_t      cmr; /* parent's map key, chained merkle root of the FEC set */
 
   /* Pointers.  These are internal to the store and callers should not
                 interface with them directly. */
@@ -197,6 +197,7 @@ struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
 
   /* Data */
 
+  uint block_offs[ 32 ];         /* block_offs[ i ] is the total size of data shreds [0, i] */
   ulong data_sz;                 /* TODO fixed-32. sz of the FEC set payload, guaranteed < FD_STORE_DATA_MAX */
   uchar data[FD_STORE_DATA_MAX]; /* FEC set payload = coalesced data shreds (byte array) */
 };

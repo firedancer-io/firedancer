@@ -73,7 +73,7 @@
    ### Authentication
 
    Shreds are signed by the block producer.
-   Consequentially, only the block producer is able to create valid shreds for any given block. */
+   Consequently, only the block producer is able to create valid shreds for any given block. */
 
 #include "../fd_ballet.h"
 

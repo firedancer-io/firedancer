@@ -6,6 +6,7 @@
 #include "../topo/fd_topo.h"
 
 #include "../../ballet/txn/fd_txn.h"
+#include "../../disco/tiles.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../discof/tower/fd_tower_tile.h"
@@ -32,11 +33,6 @@
 #define FD_GUI_START_PROGRESS_TYPE_HALTED                             (10)
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
-
-/* frankendancer only */
-#define FD_GUI_SLOT_LEADER_UNSTARTED (0UL)
-#define FD_GUI_SLOT_LEADER_STARTED   (1UL)
-#define FD_GUI_SLOT_LEADER_ENDED     (2UL)
 
 /* frankendancer only */
 struct fd_gui_gossip_peer {
@@ -96,9 +92,11 @@ struct fd_gui_validator_info {
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L)
 #define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
 
-#define FD_GUI_TILE_TIMER_SNAP_CNT                 (512UL)
-#define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT    (50UL)    /* 500ms / 10ms */
-#define FD_GUI_TILE_TIMER_TILE_CNT                 (128UL)
+#define FD_GUI_TILE_TIMER_SNAP_CNT                   (512UL)
+#define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT      (50UL)  /* 500ms / 10ms */
+#define FD_GUI_SCHEDULER_COUNT_SNAP_CNT              (512UL)
+#define FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT (50UL)  /* 500ms / 10ms */
+#define FD_GUI_TILE_TIMER_TILE_CNT                   (256UL)
 
 #define FD_GUI_VOTE_STATE_NON_VOTING (0)
 #define FD_GUI_VOTE_STATE_VOTING     (1)
@@ -223,56 +221,16 @@ struct fd_gui_validator_info {
    bound heuristically. */
 #define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 6UL)
 
-#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST         (0UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE (1UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR  (2UL)
-#define FD_GUI_SLOT_SHRED_SHRED_REPLAYED         (3UL)
-#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE    (4UL)
+#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST          (0UL)
+#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE  (1UL)
+#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR   (2UL)
+/* #define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START (3UL) // UNUSED */
+#define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE  (3UL)
+#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE     (4UL)
 
 #define FD_GUI_SLOT_RANKINGS_SZ (100UL)
 #define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
 #define FD_GUI_SLOT_RANKING_TYPE_DESC (1)
-
-/* FD_GUI_SHREDS_STAGING_SZ is number of shred events we'll retain in
-   in a small staging area.  The lifecycle of a shred looks something
-   like the following
-
-   states] turbine -> repairing (optional) ->  processing                   -> waiting_for_siblings -> slot_complete
-   events]         ^-repair_requested      ^-shred_received/shred_repaired  ^-shred_replayed        ^-max(shred_replayed)
-
-   We're interested in recording timestamps for state transitions (which
-   these docs call "shred events").  Unfortunately, due to forking,
-   duplicate packets, etc we can't make any guarantees about ordering or
-   uniqueness for these event timestamps.  Instead the GUI just records
-   timestamps for all events as they occur and put them into an array.
-   Newly recorded event timestamps are also broadcast live to WebSocket
-   consumers.
-
-   The amount of shred events for non-finalized blocks can't really be
-   bounded, so we use generous estimates here to set a memory bound. */
-#define FD_GUI_MAX_SHREDS_PER_BLOCK  (32UL*1024UL)
-#define FD_GUI_MAX_EVENTS_PER_SHRED  (       32UL)
-#define FD_GUI_SHREDS_STAGING_SZ     (32UL * FD_GUI_MAX_SHREDS_PER_BLOCK * FD_GUI_MAX_EVENTS_PER_SHRED)
-
-/* FD_GUI_SHREDS_HISTORY_SZ the number of shred events in our historical
-   shred store.  Shred events here belong to finalized slots which means
-   we won't record any additional shred updates for these slots.
-
-   All shred events for a given slot will be places in a contiguous
-   chunk in the array, and the bounding indicies are stored in the
-   fd_gui_slot_t slot history.  Within a slot chunk, shred events are
-   ordered in the ordered they were recorded by the gui tile.
-
-   Ideally, we have enough space to store an epoch's worth of events,
-   but we are limited by realistic memory consumption.  Instead, we pick
-   bound heuristically. */
-#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 6UL)
-
-#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST         (0UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE (1UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR  (2UL)
-#define FD_GUI_SLOT_SHRED_SHRED_REPLAYED         (3UL)
-#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE    (4UL)
 
 struct fd_gui_tile_timers {
   ulong caughtup_housekeeping_ticks;
@@ -288,6 +246,16 @@ struct fd_gui_tile_timers {
 };
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
+
+struct fd_gui_scheduler_counts {
+  long sample_time_ns;
+  ulong regular;
+  ulong votes;
+  ulong conflicting;
+  ulong bundles;
+};
+
+typedef struct fd_gui_scheduler_counts fd_gui_scheduler_counts_t;
 
 struct fd_gui_leader_slot {
   ulong slot;
@@ -317,6 +285,9 @@ struct fd_gui_leader_slot {
   fd_gui_tile_timers_t tile_timers[ FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
   ulong                tile_timers_sample_cnt;
 
+  fd_gui_scheduler_counts_t scheduler_counts[ FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT ][ 1 ];
+  ulong                     scheduler_counts_sample_cnt;
+
   struct {
     uint microblocks_upper_bound; /* An upper bound on the number of microblocks in the slot.  If the number of
                                      microblocks observed is equal to this, the slot can be considered over.
@@ -333,6 +304,8 @@ struct fd_gui_leader_slot {
     ulong   end_offset;   /* The largest pack transaction index for this slot, plus 1. The last transaction for this
                              slot will be written to gui->txs[ (start_offset-1)%FD_GUI_TXN_HISTORY_SZ ]. */
   } txs;
+
+  fd_done_packing_t scheduler_stats[ 1 ];
 };
 
 typedef struct fd_gui_leader_slot fd_gui_leader_slot_t;
@@ -359,7 +332,6 @@ struct fd_gui_slot_staged_shred_event {
   long   timestamp;
   ulong  slot;
   ushort shred_idx;
-  ushort fec_idx;
   uchar  event;
 };
 
@@ -400,8 +372,8 @@ struct fd_gui_slot_rankings {
 typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 
 struct fd_gui_ephemeral_slot {
-      ulong slot; /* ULONG_MAX indicates invalid/evicted */
-      long timestamp_arrival_nanos;
+  ulong slot; /* ULONG_MAX indicates invalid/evicted */
+  long timestamp_arrival_nanos;
 };
 typedef struct fd_gui_ephemeral_slot fd_gui_ephemeral_slot_t;
 
@@ -469,10 +441,14 @@ struct fd_gui_txn_waterfall {
     ulong pack_invalid;
     ulong pack_invalid_bundle;
     ulong pack_expired;
+    ulong pack_already_executed;
     ulong pack_retained;
     ulong pack_wait_full;
     ulong pack_leader_slow;
     ulong bank_invalid;
+    ulong bank_nonce_already_advanced;
+    ulong bank_nonce_advance_failed;
+    ulong bank_nonce_wrong_blockhash;
     ulong block_success;
     ulong block_fail;
   } out;
@@ -546,7 +522,7 @@ struct fd_gui {
   long next_sample_100millis;
   long next_sample_10millis;
 
-  ulong debug_in_leader_slot;
+  ulong leader_slot;
 
   struct {
     fd_pubkey_t identity_key[ 1 ];
@@ -667,7 +643,17 @@ struct fd_gui {
     ulong                tile_timers_snap_idx_slot_start;
     /* Temporary storage for samples. Will be downsampled into leader history on slot end. */
     fd_gui_tile_timers_t tile_timers_snap[ FD_GUI_TILE_TIMER_SNAP_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
+
+    ulong                     scheduler_counts_snap_idx;
+    ulong                     scheduler_counts_snap_idx_slot_start;
+    /* Temporary storage for samples. Will be downsampled into leader history on slot end. */
+    fd_gui_scheduler_counts_t scheduler_counts_snap[ FD_GUI_SCHEDULER_COUNT_SNAP_CNT ][ 1 ];
   } summary;
+
+  struct {
+    fd_gui_ipinfo_node_t * nodes;
+    char country_code[ 512 ][ 3 ]; /* ISO 3166-1 alpha-2 country codes */
+  } ipinfo;
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
 
@@ -729,12 +715,12 @@ struct fd_gui {
   struct {
     ulong staged_next_broadcast; /* staged[ staged_next_broadcast % FD_GUI_SHREDS_STAGING_SZ ] is the first shred event
                                     that hasn't yet been broadcast to WebSocket clients */
-    ulong staged_head;            /* staged_head % FD_GUI_SHREDS_STAGING_SZ is the valid event in staged */
-    ulong staged_tail;            /* staged_head % FD_GUI_SHREDS_STAGING_SZ is the last valid event in staged */
+    ulong staged_head;            /* staged_head % FD_GUI_SHREDS_STAGING_SZ is the first valid event in staged */
+    ulong staged_tail;            /* staged_tail % FD_GUI_SHREDS_STAGING_SZ is one past the last valid event in staged */
     fd_gui_slot_staged_shred_event_t  staged [ FD_GUI_SHREDS_STAGING_SZ ];
 
     ulong history_slot;          /* the largest slot store in history */
-    ulong history_tail;          /* history_tail % FD_GUI_SHREDS_STAGING_SZ is the last valid event in history +1 */
+    ulong history_tail;          /* history_tail % FD_GUI_SHREDS_HISTORY_SZ is one past the last valid event in history */
     fd_gui_slot_history_shred_event_t history[ FD_GUI_SHREDS_HISTORY_SZ ];
 
     /* scratch space for stable sorts */
@@ -800,9 +786,10 @@ fd_gui_became_leader( fd_gui_t * gui,
                       ulong      max_microblocks );
 
 void
-fd_gui_unbecame_leader( fd_gui_t * gui,
-                        ulong      slot,
-                        ulong      microblocks_in_slot );
+fd_gui_unbecame_leader( fd_gui_t *                gui,
+                        ulong                     _slot,
+                        fd_done_packing_t const * done_packing,
+                        long                      now );
 
 void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
@@ -834,9 +821,16 @@ void
 fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      slot,
                      ulong      shred_idx,
-                     ulong      fec_idx,
                      int        is_turbine,
                      long       tsorig );
+
+void
+fd_gui_handle_exec_txn_done( fd_gui_t * gui,
+                             ulong      slot,
+                             ulong      start_shred_idx,
+                             ulong      end_shred_idx,
+                             long       tsorig_ns,
+                             long       tspub_ns );
 
 void
 fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now );

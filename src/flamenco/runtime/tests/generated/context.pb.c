@@ -9,9 +9,6 @@
 PB_BIND(FD_EXEC_TEST_FEATURE_SET, fd_exec_test_feature_set_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_SEED_ADDRESS, fd_exec_test_seed_address_t, AUTO)
-
-
 PB_BIND(FD_EXEC_TEST_ACCT_STATE, fd_exec_test_acct_state_t, AUTO)
 
 

@@ -2,7 +2,7 @@
 
 static void
 test_bank_advancing( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 2UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 2UL, 0, 8888UL ) );
   /* Create the following fork tree with refcnts:
 
          P(0)
@@ -278,7 +278,7 @@ main( int argc, char ** argv ) {
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 2UL ), 1UL );
   FD_TEST( mem );
 
-  mem = fd_banks_new( mem, 16UL, 2UL );
+  mem = fd_banks_new( mem, 16UL, 2UL, 0, 8888UL );
   FD_TEST( mem );
 
   /* Init banks */

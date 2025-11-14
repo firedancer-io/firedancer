@@ -61,10 +61,14 @@
 
 /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/version/src/lib.rs#L95-L105 */
 
-#define FD_CONTACT_INFO_VERSION_CLIENT_SOLANA_LABS (0)
-#define FD_CONTACT_INFO_VERSION_CLIENT_JITO_LABS   (1)
-#define FD_CONTACT_INFO_VERSION_CLIENT_FIREDANCER  (2)
-#define FD_CONTACT_INFO_VERSION_CLIENT_AGAVE       (3)
+#define FD_CONTACT_INFO_VERSION_CLIENT_SOLANA_LABS   (0)
+#define FD_CONTACT_INFO_VERSION_CLIENT_JITO_LABS     (1)
+#define FD_CONTACT_INFO_VERSION_CLIENT_FRANKENDANCER (2)
+#define FD_CONTACT_INFO_VERSION_CLIENT_AGAVE         (3)
+#define FD_CONTACT_INFO_VERSION_CLIENT_AGAVE_PALADIN (4)
+#define FD_CONTACT_INFO_VERSION_CLIENT_FIREDANCER    (5)
+#define FD_CONTACT_INFO_VERSION_CLIENT_AGAVE_BAM     (6)
+#define FD_CONTACT_INFO_VERSION_CLIENT_SIG           (7)
 
 /* A contact info represents a peer node in the cluster that is
    publishing information about itself to the gossip network.  It it
@@ -124,9 +128,13 @@ typedef struct fd_contact_info fd_contact_info_t;
 
    The transaction is not validated or parsed in any way yet, and in
    particular the signatures have not been verified.   Transaction data
-   is arbitrary and could be empty or corrupt or malicious. */
+   is arbitrary and could be empty or corrupt or malicious.
+
+   The source peer socket is included for use by downstream monitoring
+   tools. */
 
 struct fd_gossip_vote {
+  fd_ip4_port_t socket;
   uchar vote_tower_index;
   ulong txn_sz;
   uchar txn[ 1232UL ];

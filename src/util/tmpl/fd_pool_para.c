@@ -862,9 +862,23 @@ POOL_(release)( POOL_(t) *   join,
 
 POOL_STATIC int
 POOL_(is_empty)( POOL_(t) * join ) {
-  ulong ver_top = join->pool->ver_top;
-  ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
-  return POOL_(idx_is_null)( ele_idx );
+  POOL_(shmem_t) const * pool = join->pool;
+  FD_COMPILER_MFENCE();
+  ulong ver_top  = pool->ver_top;
+# if POOL_LAZY
+  ulong ver_lazy = pool->ver_lazy;
+# endif
+  FD_COMPILER_MFENCE();
+
+  ulong top_idx = POOL_(private_vidx_idx)( ver_top );
+# if POOL_LAZY
+  ulong  ele_max = join->ele_max;
+  if( FD_LIKELY( top_idx<ele_max ) ) return 0;  /* explicit stack non-empty */
+  ulong lazy_idx = POOL_(private_vidx_idx)( ver_lazy );
+  return !(lazy_idx<ele_max);                   /* empty only if lazy also empty */
+# else
+  return POOL_(idx_is_null)( top_idx );
+# endif
 }
 
 POOL_STATIC int

@@ -305,7 +305,6 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   /* Mock a completed handshake */
   conn->handshake_complete = 1;
-  conn->peer_enc_level     = fd_quic_enc_level_appdata_id;
   conn->keys_avail         = 1U<<fd_quic_enc_level_appdata_id;
 
   conn->idle_timeout_ns    = FD_QUIC_SANDBOX_IDLE_TIMEOUT;

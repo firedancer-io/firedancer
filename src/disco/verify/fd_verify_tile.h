@@ -53,6 +53,7 @@ typedef struct {
     ulong verify_fail_cnt;
     ulong dedup_fail_cnt;
     ulong bundle_peer_fail_cnt;
+    ulong gossiped_votes_cnt;
   } metrics;
 } fd_verify_ctx_t;
 

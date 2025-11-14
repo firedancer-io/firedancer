@@ -573,6 +573,12 @@ void fd_log_enable_unclean_exit( void ) { fd_log_private_unclean_exit = 1; }
 static int fd_log_private_shared_lock_local[1] __attribute__((aligned(128))); /* location of lock if boot mmap fails */
        int * fd_log_private_shared_lock  = fd_log_private_shared_lock_local;  /* Local lock outside boot/halt, init at boot */
 
+/* File descriptor to restore when logging a message that will terminate
+   the application, incase it was redirected to some other consumer in
+   the process which will not be able to process it in time */
+static int fd_log_private_stderr_fileno = STDERR_FILENO;
+int fd_log_private_restore_stderr = STDERR_FILENO;
+
 void
 fd_log_private_fprintf_0( int          fd,
                           char const * fmt, ... ) {
@@ -826,7 +832,7 @@ fd_log_private_1( int          level,
 
         if( to_stderr ) {
           char * then_short_cstr = then_cstr+5; then_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
-          fd_log_private_fprintf_0( STDERR_FILENO, "SNIP    %s %-6lu %-4s %-4s stopped repeating (%lu identical messages)\n",
+          fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "SNIP    %s %-6lu %-4s %-4s stopped repeating (%lu identical messages)\n",
                                     then_short_cstr, tid,cpu,thread, dedup_cnt+1UL );
         }
 
@@ -857,7 +863,7 @@ fd_log_private_1( int          level,
                                     fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
         if( to_stderr ) {
           char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
-          fd_log_private_fprintf_0( STDERR_FILENO, "SNIP    %s %-6lu %-4s %-4s repeating (%lu identical messages)\n",
+          fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "SNIP    %s %-6lu %-4s %-4s repeating (%lu identical messages)\n",
                                     now_short_cstr, tid,cpu,thread, dedup_cnt+1UL );
         }
         dedup_last = now;
@@ -902,7 +908,7 @@ fd_log_private_1( int          level,
       /* 7 */ TEXT_RED TEXT_BOLD TEXT_UNDERLINE TEXT_BLINK "EMERG  " TEXT_NORMAL
     };
     char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
-    fd_log_private_fprintf_0( STDERR_FILENO, "%s %s %-6lu %-4s %-4s %s(%i): %s\n",
+    fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "%s %s %-6lu %-4s %-4s %s(%i): %s\n",
                               fd_log_private_colorize ? color_level_cstr[level] : level_cstr[level],
                               now_short_cstr, tid,cpu,thread, file, line, msg );
   }
@@ -919,6 +925,15 @@ fd_log_private_2( int          level,
                   int          line,
                   char const * func,
                   char const * msg ) {
+  if( level<fd_log_level_core() && fd_log_private_restore_stderr!=-1 ) {
+    /* Restore stderr to original fd in case it was redirected to
+       something that won't be able to process the fatal message */
+
+    fd_log_private_stderr_fileno = fd_log_private_restore_stderr;
+    fd_log_private_restore_stderr = -1;
+
+  }
+
   fd_log_private_1( level, now, file, line, func, msg );
 
   if( level<fd_log_level_core() ) {
@@ -938,7 +953,7 @@ fd_log_private_raw_2( char const * file,
                       int          line,
                       char const * func,
                       char const * msg ) {
-  fd_log_private_fprintf_nolock_0( STDERR_FILENO, "%s(%i)[%s]: %s\n", file, line, func, msg );
+  fd_log_private_fprintf_nolock_0( fd_log_private_stderr_fileno, "%s(%i)[%s]: %s\n", file, line, func, msg );
 # if defined(__linux__)
   syscall( SYS_exit_group, 1 );
 # else

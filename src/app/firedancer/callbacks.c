@@ -26,7 +26,9 @@ banks_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 banks_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width") ) );
+  int larger_max_cost_per_block = fd_pod_queryf_int( topo->props, 0, "obj.%lu.larger_max_cost_per_block", obj->id );
+  ulong seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
+  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width"), larger_max_cost_per_block, seed ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_banks = {
@@ -81,7 +83,6 @@ funk_footprint( fd_topo_t const *     topo,
 static ulong
 funk_loose( fd_topo_t const *     topo,
             fd_topo_obj_t const * obj ) {
-  (void)topo;
   return VAL("heap_max");
 }
 
@@ -99,6 +100,34 @@ fd_topo_obj_callbacks_t fd_obj_cb_funk = {
   .loose     = funk_loose,
   .align     = funk_align,
   .new       = funk_new,
+};
+
+/* cnc: a tile admin message queue */
+
+static ulong
+cnc_align( fd_topo_t const *     topo,
+           fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_cnc_align();
+}
+
+static ulong
+cnc_footprint( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  return fd_cnc_footprint( VAL("app_sz") );
+}
+
+static void
+cnc_new( fd_topo_t const *     topo,
+         fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_cnc_new( fd_topo_obj_laddr( topo, obj->id ), VAL("app_sz"), VAL("type"), fd_log_wallclock() ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_cnc = {
+  .name      = "cnc",
+  .footprint = cnc_footprint,
+  .align     = cnc_align,
+  .new       = cnc_new,
 };
 
 static ulong
@@ -174,31 +203,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_txncache = {
   .footprint = txncache_footprint,
   .align     = txncache_align,
   .new       = txncache_new,
-};
-
-static ulong
-exec_spad_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
-                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_spad_footprint( FD_EXEC_TXN_CTX_FOOTPRINT + FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
-}
-
-static ulong
-exec_spad_align( fd_topo_t const *     topo FD_FN_UNUSED,
-                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_spad_align();
-}
-
-static void
-exec_spad_new( fd_topo_t const *     topo,
-               fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_spad_new( fd_topo_obj_laddr( topo, obj->id ), FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_exec_spad = {
-  .name      = "exec_spad",
-  .footprint = exec_spad_footprint,
-  .align     = exec_spad_align,
-  .new       = exec_spad_new,
 };
 
 #undef VAL

@@ -6,10 +6,9 @@
         end_slot = {end_slot}
         ingest_mode = "rocksdb"
         rocksdb_path = "{ledger}/rocksdb"
-    [tiles.replay]
-        cluster_version = "{cluster_version}"
-        heap_size_gib = {heap_size}
     [tiles.gui]
+        enabled = false
+    [tiles.rpc]
         enabled = false
 [funk]
     heap_size_gib = {funk_pages}
@@ -18,8 +17,8 @@
 [runtime]
     max_live_slots = 4
     max_fork_width = 4
-[consensus]
-    vote = false
+    [runtime.program_cache]
+        heap_size_mib = 4096
 [development]
     sandbox = false
     no_agave = true
@@ -30,10 +29,12 @@
 [paths]
     snapshots = "{ledger}"
 [snapshots]
-    download = false
     incremental_snapshots = false
-    minimum_download_speed_mib = 0
-    maximum_local_snapshot_age = 0
-    maximum_download_retry_abort = 0
+    max_full_snapshots_to_keep = 5
+    [snapshots.sources]
+        servers = []
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]

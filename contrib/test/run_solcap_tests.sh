@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -xeou pipefail
 
 source contrib/test/ledger_common.sh
 
@@ -57,15 +57,30 @@ cp $DUMP/$LEDGER/devnet-398736132.toml $DUMP/$LEDGER/devnet-398736132_current.to
 export ledger_dir=$(realpath $DUMP/$LEDGER)
 sed -i "s#{ledger_dir}#${ledger_dir}#g" "$DUMP/$LEDGER/devnet-398736132_current.toml"
 sed -i "s/max_total_banks = [0-9]*/max_total_banks = 32/g" "$DUMP/$LEDGER/devnet-398736132_current.toml"
-sed -i "s/minimum_download_speed_mib = 0/download = false/g" "$DUMP/$LEDGER/devnet-398736132_current.toml" # TODO: Set this properly in the configs
+sed -i -z "s/\[snapshots\].*\[layout\]/[layout]/" "$DUMP/$LEDGER/devnet-398736132_current.toml"
+sed -i "/writer_tile_count/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
+sed -i "/lock_pages/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
+sed -i "/heap_size_gib/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
+sed -i "/max_total_banks/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
+sed -i "/max_fork_width/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
+sed -i "/cluster_version/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
 
 echo "
 [gossip]
   entrypoints = [ \"0.0.0.0:1\" ]" >> "$DUMP/$LEDGER/devnet-398736132_current.toml"
 
-$OBJDIR/bin/firedancer-dev configure init all --config $DUMP/$LEDGER/devnet-398736132_current.toml &> /dev/null
+echo "
+[snapshots]
+    incremental_snapshots = false
+    [snapshots.sources]
+        servers = []
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []" >> "$DUMP/$LEDGER/devnet-398736132_current.toml"
+
+$OBJDIR/bin/firedancer-dev configure init all --config $DUMP/$LEDGER/devnet-398736132_current.toml
 $OBJDIR/bin/firedancer-dev backtest --config $DUMP/$LEDGER/devnet-398736132_current.toml
-$OBJDIR/bin/firedancer-dev configure fini all --config $DUMP/$LEDGER/devnet-398736132_current.toml &> /dev/null
+$OBJDIR/bin/firedancer-dev configure fini all --config $DUMP/$LEDGER/devnet-398736132_current.toml
 
 $OBJDIR/bin/fd_solcap_import $DUMP/$LEDGER/bank_hash_details/ $DUMP/$LEDGER/solana.solcap
 $OBJDIR/bin/fd_solcap_diff $DUMP/$LEDGER/solana.solcap $DUMP/$LEDGER/fd.solcap -v 4

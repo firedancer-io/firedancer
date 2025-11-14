@@ -130,7 +130,7 @@ struct fd_eqvoc_proof {
   /* static declaration of an fd_set that occupies 4 words ie. 256 bits
      that tracks which proof chunks have been received. */
 
-  fd_eqvoc_proof_set_t set[UCHAR_MAX / sizeof( ulong )];
+  fd_eqvoc_proof_set_t set[ fd_eqvoc_proof_set_word_cnt ];
 
   /* DuplicateShred messages are serialized in the following format:
 

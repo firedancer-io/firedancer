@@ -72,12 +72,11 @@ privileged_init( fd_topo_t *      topo,
   ulong incr_slot = ULONG_MAX;
   char full_path[ PATH_MAX ] = { 0 };
   char incr_path[ PATH_MAX ] = { 0 };
-  if( FD_UNLIKELY( -1==fd_ssarchive_latest_pair( tile->snapld.snapshots_path, 1,
-                                                 &full_slot, &incr_slot,
-                                                 full_path, incr_path ) ) ) {
-    ctx->local_full_fd = -1;
-    ctx->local_incr_fd = -1;
-  } else {
+  ctx->local_full_fd = -1;
+  ctx->local_incr_fd = -1;
+  if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path, 1,
+                                               &full_slot, &incr_slot,
+                                               full_path, incr_path ) ) ) {
     FD_TEST( full_slot!=ULONG_MAX );
 
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
@@ -170,7 +169,10 @@ after_credit( fd_snapld_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) return;
+  if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) {
+    fd_log_sleep( (long)1e6 );
+    return;
+  }
 
   uchar * out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
 
@@ -204,13 +206,10 @@ after_credit( fd_snapld_tile_t *  ctx,
           ctx->sent_meta = 1;
           fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)out;
           ulong next_chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
-          fd_memcpy( fd_chunk_to_laddr( ctx->out_dc.mem, next_chunk ), out, data_len );
-          char const * full_name;
-          char const * incr_name;
-          fd_sshttp_snapshot_names( ctx->sshttp, &full_name, &incr_name );
+          memmove( fd_chunk_to_laddr( ctx->out_dc.mem, next_chunk ), out, data_len );
           meta->total_sz = fd_sshttp_content_len( ctx->sshttp );
           FD_TEST( meta->total_sz!=ULONG_MAX );
-          fd_memcpy( meta->name, ctx->load_full ? full_name : incr_name, PATH_MAX );
+          fd_memcpy( meta->name, fd_sshttp_snapshot_name( ctx->sshttp ), PATH_MAX );
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = next_chunk;
         }

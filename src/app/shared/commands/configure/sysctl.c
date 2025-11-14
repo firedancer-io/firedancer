@@ -170,7 +170,8 @@ check_param_list( sysctl_param_t const * list ) {
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
   configure_result_t r;
 
   r = check_param_list( params );

@@ -1250,12 +1250,13 @@ the client's new view.
 When a client first connects, the start with the following sort key by
 default, until an update is made.
 
+- ("Stake", desc)
+- ("Pubkey", desc)
+- ("IP Addr", desc)
 - ("Ingress Push", desc)
 - ("Ingress Pull", desc)
 - ("Egress Push", desc)
 - ("Egress Pull", desc)
-- ("Pubkey", desc)
-- ("IP Addr", desc)
 
 The provided sort key is a list of column names and a corresponding list
 of column directions. Directions are provided as signed integers with
@@ -1278,8 +1279,8 @@ direction of `0`. Not that the relative ordering of columns with
     "key": "query_sort",
     "id": 32,
     "params": {
-        "col": ["IP Addr", "Pubkey", "Egress Pull", "Egress Push", "Ingress Pull", "Ingress Push"],
-        "dir": [1, 0, 0, 0, 0, 0],
+        "col": ["IP Addr", "Pubkey", "Stake", "Egress Pull", "Egress Push", "Ingress Pull", "Ingress Push"],
+        "dir": [1, 0, 0, 0, 0, 0, 0],
     }
 }
 ```
@@ -1399,7 +1400,8 @@ identity is no longer in these three data sources, it will be removed.
                     "gossip": "93.119.195.160:8001",
                     "tpu": "192.64.85.26:8000",
                     // ... other sockets ...
-                }
+                },
+                "country_code": "CN"
             },
             "vote": [
                 {
@@ -1416,7 +1418,8 @@ identity is no longer in these three data sources, it will be removed.
                 "name": "ExampleStake Firedancer 🔥💃",
                 "details": "A longer description of the validator, perhaps describing the team behind it or how the node is operated",
                 "website": "https://github.com/firedancer-io/firedancer",
-                "icon_url": "https://docs.firedancer.io/fire.svg"
+                "icon_url": "https://docs.firedancer.io/fire.svg",
+                "keybase_username": ""
             }
         }
     ],
@@ -1436,6 +1439,7 @@ identity is no longer in these three data sources, it will be removed.
 | version       | `string\|null` | Software version being advertised by the validator. Might be `null` if the validator is not gossiping a version, or we have received the contact information but not the version yet. The version string, if not null, will always be formatted like `major`.`minor`.`patch` where `major`, `minor`, and `patch` are `u16`s |
 | feature_set   | `number\|null` | First four bytes of the `FeatureSet` hash interpreted as a little endian `u32`. Might be `null` if the validator is not gossiping a feature set, or we have received the contact information but not the feature set yet |
 | sockets       | `[key: string]: string` | A dictionary of sockets that are advertised by the validator. `key` will be one of gossip `serve_repair_quic`, `rpc`, `rpc_pubsub`, `serve_repair`, `tpu`, `tpu_forwards`, `tpu_forwards_quic`, `tpu_quic`, `tpu_vote`, `tvu`, `tvu_quic`, `tpu_vote_quic`, or `alpenglow`. The value is an address like `<addr>:<port>`: the location to send traffic to for this validator with the given protocol. Address might be either an IPv4 or an IPv6 address |
+| country_code  | `string\|null` | ISO 3166-1 alpha-2 country code of where the validator is located, determined by GeoIP lookup on the gossip IP address. Country code may not be correct and is a best estimate. If no country code could be determined, will be `null`. |
 
 **`PeerUpdateVoteAccount`**
 | Field           | Type           | Description |
@@ -1448,29 +1452,30 @@ identity is no longer in these three data sources, it will be removed.
 | delinquent      | `boolean`      | Whether the vote account is delinquent or not. A vote account is considered delinquent if it has not had a vote land on chain for any of the last 127 (inclusive) confirmed slots, according to this validator. If there have been less than 128 confirmed slots on the chain (it is a new chain), a validator is considered delinquent only if it has not voted yet at all |
 
 **`PeerUpdateInfo`**
-| Field    | Type     | Description |
-|----------|----------|-------------|
-| name     | `string\|null` | Self reported name of the validator, could be any string or null if there is no name set |
-| details  | `string\|null` | Self reported detailed description of the validator, could be any string or null if there is no details set |
-| website  | `string\|null` | Self reported website of the validator, could be any string and need not be a valid URI, or could be null if there is no website set |
-| icon_url | `string\|null` | Self reported URL of the validator icon, could be any string and need not be a valid URI, or could be null if there is no icon URI set |
+| Field            | Type     | Description |
+|------------------|----------|-------------|
+| name             | `string` | Self reported name of the validator, could be any string or empty string if there is no name set |
+| details          | `string` | Self reported detailed description of the validator, could be any string or empty string if there is no details set |
+| website          | `string` | Self reported website of the validator, could be any string and need not be a valid URI, or could be empty string if there is no website set |
+| icon_url         | `string` | Self reported URL of the validator icon, could be any string and need not be a valid URI, or could be empty string if there is no icon URI set |
+| keybase_username | `string` | Self reported keybase username of the validator, could be any string or empty string if there is no username set.  Keybase is a public, legacy storage for icon images.  Although this method for publiscising an icon is deprecated, it is included for completeness as many validators have not migrated to `iconUrl` |
 
 **`PeerUpdate`**
-| Field    | Type   | Description
-|----------|--------|------------
-| identity | `string` | Identity public key of the validator, encoded in base58 |
-| gossip   | `PeerUpdateGossip\|null` | Information reported for the validator identity over the gossip network. This is authenticated and the gossip node must have been in possession of the private key to publish gossip data as this identity. Gossip information is not validated or checked for correctness and could be set to any values by the peer |
+| Field    | Type                      | Description |
+|----------|---------------------------|-------------|
+| identity | `string`                  | Identity public key of the validator, encoded in base58 |
+| gossip   | `PeerUpdateGossip\|null`  | Information reported for the validator identity over the gossip network. This is authenticated and the gossip node must have been in possession of the private key to publish gossip data as this identity. Gossip information is not validated or checked for correctness and could be set to any values by the peer |
 | vote     | `PeerUpdateVoteAccount[]` | Information about the vote account(s) associated with this identity key, if there are any. It is extremely unusual for multiple vote accounts to report the same identity key. Vote account information like stake and commission is derived from the accounts on chain and cannot be corrupt, invalid, or incorrect |
-| info     | `PeerUpdateInfo\|null` | If the validator has published self reported identifying information to the chain. This is authenticated and the operator must have been in possession of the private key to publish info as this identity. Information is not validated or checked for correctness and could be set to any values by the peer |
+| info     | `PeerUpdateInfo\|null`    | If the validator has published self reported identifying information to the chain. This is authenticated and the operator must have been in possession of the private key to publish info as this identity. Information is not validated or checked for correctness and could be set to any values by the peer |
 
 **`PeerRemove`**
-| Field    | Type   | Description |
-|----------|--------|-------------|
+| Field    | Type     | Description |
+|----------|----------|-------------|
 | identity | `string` | Identity public key of the validator, encoded in base58 |
 
 **`PeersUpdate`**
-| Field  | Type   | Description |
-|--------|--------|-------------|
+| Field  | Type                 | Description |
+|--------|----------------------|-------------|
 | add    | `GossipPeerUpdate[]` | List of peer validators that were added since the last update, or all of the peers for the first update after connecting |
 | update | `GossipPeerUpdate[]` | List of peer validators that were changed since the last update |
 | remove | `GossipPeerRemove[]` | List of peer validators that were removed since the last update |
@@ -1547,6 +1552,8 @@ initially replay one but the cluster votes on the other one.
 |------------------------------|----------------|-------------|
 | slot                         | `number`       | Identity of the slot, counting up from zero for the first slot in the chain |
 | mine                         | `boolean`      | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information, except in cases where the validator identity is changed while the validator is running |
+| start_timestamp_nanos        | `string`       | A UNIX timestamp, in nanoseconds, representing the time that the validator is first aware that it is leader. At this point the poh tile will signal the pack tile to begin filling the block for this slot with transactions |
+| target_end_timestamp_nanos   | `string`       | A UNIX timestamp, in nanoseconds, representing the target time in nanoeconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
 | skipped                      | `boolean`      | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
 | duration_nanos               | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
 | completed_time_nanos         | `string\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
@@ -1563,9 +1570,9 @@ initially replay one but the cluster votes on the other one.
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 
 #### `slot.skipped_history`
-| frequency      | type       | example |
-|----------------|------------|---------|
- *Once* + *Live* | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
+| frequency       | type       | example |
+|-----------------|------------|---------|
+| *Once* + *Live* | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
 
 A list of all of the recent leader slots of the validator which were
 skipped. Only two epochs of leader slots are tracked, and skips prior
@@ -1624,7 +1631,7 @@ and is broadcast to all WebSocket clients.
 | reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
 | slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
 | shred_idxs      | `(number\|null)[]` | `shred_idxs[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
-| events          | `string[]`         | `events[i]` is the name of shred event `i`. Possible values are `repair_request`, `shred_received`, `shred_replayed`, and `slot_complete` |
+| events          | `number[]`         | `events[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
 | events_ts_delta | `string[]`         | `reference_ts + events_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occured |
 
 #### `slot.query_shreds`
@@ -1798,14 +1805,22 @@ explicitly mentioned, skipped slots are not included.
         "publish": {
             "slot": 289245044,
             "mine": true,
+            "start_timestamp_nanos": null,
+            "target_end_timestamp_nanos": null,
             "skipped": false,
+            "duration_nanos": 400000000,
+            "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "transactions": 6821,
-            "vote_transactions": 6746,
-            "failed_transactions": 3703,
+            "success_nonvote_transactions": 6821,
+            "failed_nonvote_transactions": 6746,
+            "success_vote_transactions": 3703,
+            "failed_vote_transactions": 0,
             "max_compute_units": 48000000,
             "compute_units": 0,
-            "shreds": 123
+            "shreds": 123,
+            "transaction_fee": 12345,
+            "priority_fee": 123456,
+            "tips": 0
         }
     }
 }
@@ -1844,14 +1859,22 @@ explicitly mentioned, skipped slots are not included.
         "publish": {
             "slot": 289245044,
             "mine": true,
+            "start_timestamp_nanos": null,
+            "target_end_timestamp_nanos": null,
             "skipped": false,
+            "duration_nanos": 400000000,
+            "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "transactions": 6821,
-            "vote_transactions": 6746,
-            "failed_transactions": 3703,
+            "success_nonvote_transactions": 6821,
+            "failed_nonvote_transactions": 6746,
+            "success_vote_transactions": 3703,
+            "failed_vote_transactions": 0,
             "max_compute_units": 48000000,
             "compute_units": 0,
-            "shreds": 123
+            "shreds": 123,
+            "transaction_fee": 12345,
+            "priority_fee": 123456,
+            "tips": 0
         },
         "waterfall": {
             "in": {
@@ -1882,6 +1905,7 @@ explicitly mentioned, skipped slots are not included.
                 "resolv_no_ledger": 0,
                 "pack_invalid": 0,
                 "pack_expired": 0,
+                "pack_already_executed": 0,
                 "pack_retained": 2225,
                 "pack_wait_full": 0,
                 "pack_leader_slow": 0,
@@ -1945,6 +1969,23 @@ explicitly mentioned, skipped slots are not included.
             },
             // ... many more ...
         ],
+        "scheduler_counts": [
+            {
+                "timestamp_nanos": "1739657041688242791",
+                "regular": 123,
+                "votes": 123,
+                "conflicting": 123,
+                "bundles": 123
+            },
+            {
+                "timestamp_nanos": "1739657041688342791",
+                "regular": 124,
+                "votes": 120,
+                "conflicting": 123,
+                "bundles": 123
+            }
+            // ... many more ...
+        ]
     }
 }
 ```
@@ -1980,14 +2021,42 @@ explicitly mentioned, skipped slots are not included.
         "publish": {
             "slot": 289245044,
             "mine": true,
+            "start_timestamp_nanos": "1739657041688346791",
+            "target_end_timestamp_nanos": "1739657042088346880",
             "skipped": false,
+            "duration_nanos": 400000000,
+            "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "transactions": 6821,
-            "vote_transactions": 6746,
-            "failed_transactions": 3703,
+            "success_nonvote_transactions": 6821,
+            "failed_nonvote_transactions": 6746,
+            "success_vote_transactions": 3703,
+            "failed_vote_transactions": 0,
             "max_compute_units": 48000000,
             "compute_units": 0,
-            "shreds": 123
+            "shreds": 123,
+            "transaction_fee": 12345,
+            "priority_fee": 123456,
+            "tips": 0
+        },
+        "limits": {
+            "used_total_block_cost": 10000000,
+            "used_total_vote_cost": 5000000,
+            "used_account_write_costs": 1000000,
+            "used_total_bytes": 123456,
+            "used_total_microblocks": 12345,
+            "max_total_block_cost": 100000000,
+            "max_total_vote_cost": 12000000,
+            "max_account_write_cost": 40000000,
+            "max_total_bytes": 987654321,
+            "max_total_microblocks": 32768
+        },
+        "scheduler_stats": {
+            "slot_schedule_counts": [123, 123, 123, 123, 123, 123, 123],
+            "end_slot_schedule_counts": [0, 10, 0, 0, 0, 0, 0],
+            "pending_smallest_cost": 3000,
+            "pending_smallest_bytes": 1232,
+            "pending_vote_smallest_cost": 3000,
+            "pending_vote_smallest_bytes": 1232
         },
         "transactions": {
             "start_timestamp_nanos": "1739657041688346791",
@@ -2027,12 +2096,15 @@ explicitly mentioned, skipped slots are not included.
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 | tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest. We store this information for the most recently completed 4096 leader slots. This will be `null` for leader slots before that |
+| scheduler_counts    | `SchedulerCounts[]\|null` | If the slot is not `mine`, will be `null`. Otherwise, an array of `SchedulerCounts` samples from the slot, sorted earliest to latest. We store this information for the most recently completed 4096 leader slots. This will be `null` for leader slots before that  |
 
 **`SlotTransactionsResponse`**
 | Field               | Type                      | Description |
 |---------------------|---------------------------|-------------|
 | publish             | `SlotPublish`             | General information about the slot.  Contains several nullable fields in case a future slot is queried and he information is not known yet |
 | transactions        | `Transactions\|null`      | If the slot is not `mine`, will be `null`. Otherwise, metrics for the transactions in this slot. Arrays have a seperate entry for each scheduled transaction that was packed in this slot, and are ordered in the same order the transactions appear in the block. Note that not all scheduled transactions will land in the produced block (e.g. failed bundles are ignored), but these arrays nonetheless include metrics for excluded transactions |
+| limits              | `SlotLimits`              | The various protocol-derived resource limits and their corresponding utilization for this block. If `mine` is false, then this value is `null` |
+| scheduler_stats     | `SlotScheduleStats`       | Various metrics tracked by the transaction scheduler and collected at the end of a leader slot. If `mine` is false, then this value is `null` |
 
 **`TxnWaterfall`**
 | Field | Type              | Description |
@@ -2052,32 +2124,42 @@ explicitly mentioned, skipped slots are not included.
 | block_engine    | `number` | A transaction received from a block engine, for example Jito. The transaction might or might not have been part of a bundle |
 
 **`TxnWaterfallOut`**
-| Field             | Type     | Description |
-|-------------------|----------|-------------|
-| net_overrun       | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
-| quic_overrun      | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
-| quic_frag_drop    | `number` | Transactions were dropped because there are more ongoing receive operations than buffer space |
-| quic_abandoned    | `number` | Transactions were dropped because a connection closed before all bytes were received |
-| tpu_quic_invalid  | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per invalid packet |
-| tpu_udp_invalid   | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid |
-| verify_overrun    | `number` | Transactions were dropped because the verify tiles could not verify them quickly enough |
-| verify_parse      | `number` | Transactions were dropped because they were malformed and failed to parse |
-| verify_failed     | `number` | Transactions were dropped because signature verification failed |
-| verify_duplicate  | `number` | Transactions were dropped because the verify tiles determined that they had already been processed |
-| dedup_duplicate   | `number` | Transactions were dropped because the dedup tile determined that they had already been processed |
-| resolv_retained   | `number` | Transactions were retained inside the validator memory because they referenced a blockhash we do not yet know. We might include the transactions in a future block, if we learn about the blockhash they reference |
-| resolv_lut_failed | `number` | Transactions were dropped because they contained invalid address lookup tables (LUTs) |
-| resolv_expired    | `number` | Transactions were dropped because they contained a transaction that was already expired |
-| resolv_no_ledger  | `number` | Transactions were dropped because they contained a LUT but we didn't yet have a ledger to look them up in |
-| resolv_ancient    | `number` | Transactions were dropped because they referenced a blockhash we didn't recognize, and while waiting to see if the blockhash would arrive, the buffer became full |
-| pack_invalid      | `number` | Transactions were dropped because pack determined they would never execute. Reasons can include the transaction requested too many compute units, or was too large to fit in a block |
-| pack_expired      | `number` | Transactions were dropped because pack determined that their TTL expired |
-| pack_retained     | `number` | Transactions were retained inside the validator memory because they were not high enough priority to make it into a prior block we produced, but have not yet expired. We might include the transactions in a future block |
-| pack_leader_slow  | `number` | Transactions were dropped while leader because the bank tiles could not execute them quickly enough, pack will drop the lowest priority transactions first |
-| pack_wait_full    | `number` | Transactions were dropped while we were waiting for our leader slot because we ran out of memory to store them. All incoming transactions are dropped without regard for the priority |
-| bank_invalid      | `number` | Transactions were dropped because a bank tile could not execute them enough to charge fees. Failed transactions can still pay fees and be included in a block, but invalid transactions do not make it to a block. Reasons can include insufficient fee payer balance, or invalid address lookup tables |
-| block_success     | `number` | Transactions made it into a block, and execution succeeded |
-| block_failure     | `number` | Transactions made it into a block, but execution failed |
+| Field              | Type     | Description |
+|--------------------|----------|-------------|
+| net_overrun           | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
+| quic_overrun          | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
+| quic_frag_drop        | `number` | Transactions were dropped because there are more ongoing receive operations than buffer space |
+| quic_abandoned        | `number` | Transactions were dropped because a connection closed before all bytes were received |
+| tpu_quic_invalid      | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per invalid packet |
+| tpu_udp_invalid       | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid |
+| verify_overrun        | `number` | Transactions were dropped because the verify tiles could not verify them quickly enough |
+| verify_parse          | `number` | Transactions were dropped because they were malformed and failed to parse |
+| verify_failed         | `number` | Transactions were dropped because signature verification failed |
+| verify_duplicate      | `number` | Transactions were dropped because the verify tiles determined that they had already been processed |
+| dedup_duplicate       | `number` | Transactions were dropped because the dedup tile determined that they had already been processed |
+| resolv_retained       | `number` | Transactions were retained inside the validator memory because they referenced a blockhash we do not yet know. We might include the transactions in a future block, if we learn about the blockhash they reference |
+| resolv_lut_failed     | `number` | Transactions were dropped because they contained invalid address lookup tables (LUTs) |
+| resolv_expired        | `number` | Transactions were dropped because they contained a transaction that was already expired |
+| resolv_no_ledger      | `number` | Transactions were dropped because they contained a LUT but we didn't yet have a ledger to look them up in |
+| resolv_ancient        | `number` | Transactions were dropped because they referenced a blockhash we didn't recognize, and while waiting to see if the blockhash would arrive, the buffer became full |
+| pack_invalid          | `number` | Transactions were dropped because pack determined they would never execute. Reasons can include the transaction requested too many compute units, or was too large to fit in a block |
+| pack_expired          | `number` | Transactions were dropped because pack determined that their TTL expired |
+| pack_already_executed | `number` | Transactions dropped from pack because they were already executed (in either the replay or leader pipeline) |
+| pack_retained         | `number` | Transactions were retained inside the validator memory because they were not high enough priority to make it into a prior block we produced, but have not yet expired. We might include the transactions in a future block |
+| pack_leader_slow      | `number` | Transactions were dropped while leader because the bank tiles could not execute them quickly enough, pack will drop the lowest priority transactions first |
+| pack_wait_full        | `number` | Transactions were dropped while we were waiting for our leader slot because we ran out of memory to store them. All incoming transactions are dropped without regard for the priority |
+| bank_invalid          | `number` | Transactions were dropped because a bank tile could not execute them enough to charge fees. Failed transactions can still pay fees and be included in a block, but invalid transactions do not make it to a block. Reasons can include insufficient fee payer balance, or invalid address lookup tables |
+| block_success         | `number` | Transactions made it into a block, and execution succeeded |
+| block_failure         | `number` | Transactions made it into a block, but execution failed |
+
+**`SchedulerCounts`**
+| Field           | Type     | Description |
+|-----------------|----------|-------------|
+| timestamp_nanos | `string` | A UNIX nanosecond timestamp representing the time when these counts were sampled by the gui tile. |
+| regular         | `number` | The number of transactions stored in the "regular" treap (i.e. the primary buffer) at `timestamp_nanos` |
+| votes           | `number` | The number of transactions stored in the "votes" treap (i.e. the buffer dedicated for vote transactions) at `timestamp_nanos` |
+| conflicting     | `number` | The number of transactions stored in the "conflicting" treap (i.e. the buffer for transations with percieved account write conflicts, which recieve slightly less priority) at `timestamp_nanos` |
+| bundles         | `number` | The number of transactions stored in the "bundles" treap (i.e. the buffer dedicated for bundle transactions) at `timestamp_nanos` |
 
 **`TsTileTimers`**
 | Field             | Type          | Description |
@@ -2085,32 +2167,63 @@ explicitly mentioned, skipped slots are not included.
 | timestamp_nanos   | `string`      | A timestamp of when the tile timers were sampled, nanoseconds since the UNIX epoch |
 | tile_timers       | `TileTimer[]` | A list of all tile timing information at the given sample timestamp |
 
+**`WriteAcctCost`**
+| Field   | Type     | Description |
+|---------|----------|-------------|
+| account | `string` | The pubkey for this writeable account |
+| cost    | `number` | The total compute units for all transactions that list `account` as a writeable account |
+
+**`SlotLimits`**
+| Field                        | Type              | Description |
+|------------------------------|-------------------|-------------|
+| used_total_block_cost        | `number`          | The total block cost in compute units |
+| used_total_vote_cost         | `number`          | The compute units from vote transactions consumed for this block |
+| used_account_write_costs     | `WriteAcctCost[]` | The top 5 writeable account costs for this block |
+| used_total_bytes             | `number`          | The number of bytes from transaciton payloads and microbloack headers consumed in total for this block |
+| used_total_microblocks       | `number`          | The total number of microblocks included in this block |
+| max_total_block_cost         | `number`          | The maximum possible value for `used_total_block_cost` |
+| max_total_vote_cost          | `number`          | The maximum possible value for `used_total_vote_cost` |
+| max_account_write_cost       | `number`          | The maximum possible value for `used_account_write_cost` |
+| max_total_bytes              | `number`          | The maximum possible value for `used_total_bytes` |
+| max_total_microblocks        | `number`          | The maximum possible value for `used_total_microblocks` |
+
+**`SlotScheduleStats`**
+| Field                        | Type              | Description |
+|------------------------------|-------------------|-------------|
+| slot_schedule_counts         | `number[]`        | `slot_schedule_counts[i]` is the number of transactions across the leader slot that had `["success", "fail_taken", "fail_fast_path", "fail_byte_limit", "fail_write_cost", "fail_slow_path", "fail_defer_skip"][i]` as the outcome after being scheduled. "success" means the transaction was successfully scheduled to a bank. "fail_cu_limit" means Pack skipped the transaction because it would have exceeded the block CU limit. "fail_fast_path" means Pack skipped the transaction because of account conflicts using the fast bitvector check. "fail_byte_limit" means Pack skipped the transaction because it would have exceeded the block data size limit. "fail_write_cost" means Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit. "fail_slow_path" means Pack skipped the transaction because of account conflicts using the full slow check. "fail_defer_skip" means Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times |
+| end_slot_schedule_counts     | `number[]`        | `end_slot_schedule_counts` has the same meaning as `slot_schedule_counts` except only transactions that occur after the last successfully scheduled transaction in the slot are counted |
+| pending_smallest_cost        | `number`          | The cost in compute units of the smallest eligible non-vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
+| pending_smallest_bytes       | `number`          | The size in bytes of the smallest eligible non-vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
+| pending_vote_smallest_cost   | `number`          | The cost in compute units of the smallest eligible vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
+| pending_vote_smallest_bytes  | `number`          | The size in bytes of the smallest eligible vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
+
+
 **`Transactions`**
-| Field                             | Type        | Description |
-|-----------------------------------|-------------|-------------|
-| start_timestamp_nanos             | `string`    | A UNIX timestamp, in nanoseconds, representing the time that the validator is first aware that it is leader. At this point the poh tile will signal the pack tile to begin filling the block for this slot with transactions |
-| target_end_timestamp_nanos        | `string`    | A UNIX timestamp, in nanoseconds, representing the target time in nanoeconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
-| txn_arrival_timestamps_nanos      | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_arrival_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot arrived at the transaction scheduler (i.e. pack) |
-| txn_mb_start_timestamps_nanos     | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_mb_start_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot was successfully scheduled for execution by pack.  At this point, the microblock was sent off to a bank tile for execution.  Since a microblock may contain multiple transactions (e.g. a bundle), all transactions from the same microblock will share the same start timestamp |
-| txn_preload_end_timstamps_nanos   | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_preload_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot was succesfully dispatched into an execution environemnt and is about to start validation checks, which include a final deduplication check as well as an expiration check |
-| txn_start_timstamps_nanos         | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_start_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot started loading |
-| txn_load_end_timstamps_nanos      | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_load_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished loading and started executing. At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
-| txn_end_timstamps_nanos           | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished executing |
-| txn_mb_end_timestamps_nanos       | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_mb_end_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot completed executing.  At this point, the bank tile for this microblock was ready to communicate the execution result back to the pack. pack uses this result to track the progress of the growing block and also repurposes any unused compute units for other microblocks.  The current implementation splits microblocks which originally contained multiple transactions (i.e. bundles) apart so that consumers always receive one transaction per microblock, so unlike `txn_mb_start_timestamps_nanos` this timestamp may be unique for a given transaction |
-| txn_compute_units_requested       | `number[]`  | `txn_compute_units_estimated[i]` is a strict upper bound on the total cost for the `i`-th transaction in the slot.  The transaction cannot have succeeded if its incurred cost (known after execution) exceeds this bound.  This bound is used by the pack tile to estimate the pace at which the block is being filled, and to filter out transactions that it knows will fail ahead of time |
-| txn_compute_units_consumed        | `number[]`  | `txn_compute_units_consumed[i]` is the actual post-execution cost of `i`-th transaction in the slot.  While some transactions costs are known from the transaction payload itself (such as the cost incurred by the amount of instruction data), other costs (like execution costs or the cost due to loaded on-chain account data) are a function of the state of the blockchain at the time of execution. This value represents the actual cost after a transaction is executed.  Consensus requires that all validators agree on this value for a given transaction in a slot. There are two special cases to consider for scheduled transactions that were not added to the produced block. Failed bundle transactions that successfully executed up to the point of failure will show actual consumed CUs. Subsequent failed bundle transactions will show 0 cus consumed.  Non-bundle transactions that were not added to the block will also show 0 cus consumed |
-| txn_transaction_fee               | `string[]`  | `txn_non_execution_fee[i]` is the signature fee for the `i`-th transaction in the slot. Currenlty, this is the number of signatures in the transaction times 5000 lamports. This fee used to (and may in the future) include rewards from other parts of the transaction, which is why a more general name is used.  50% of this fee is burned and the other 50% is included in validator block rewards. The provided values reflect the fee balance after burning |
-| txn_priority_fee                  | `string[]`  | `txn_priority_fee[i]` is the priority fee in lamports for the `i`-th transaction in the slot.  The priority fee is a static metric computed by multiplying the requested execution cost (derived from a provided computeBudget instruction, or from a protocol defined default) by the compute unit price (derived from a seperate computeBudget instruction) |
-| txn_tips                          | `string[]`  | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
-| txn_error_code                    | `number[]`  | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
-| txn_from_bundle                   | `boolean[]` | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
-| txn_is_simple_vote                | `boolean[]` | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise |
-| txn_landed                        | `boolean[]` | `txn_landed[i]` is `true` if the `i`-th transaction in the slot was included in the produced block. A scheduled transaction may not be included in the block for any number of reasons (e.g. a failed bundle, a duplicate transaction, invalid fee-payer) |
-| txn_bank_idx                      | `number[]`  | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
-| txn_microblock_id                 | `string[]`  | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
-| txn_signature                     | `string[]`  | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
-| txn_source_ipv4                   | `string[]`  | `txn_source_ipv4[i]` is the source ipv4 address for the `i`-th transaction in the slot |
-| txn_source_tpu                    | `string[]`  | `txn_source_tpu[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
+| Field                             | Type                | Description |
+|-----------------------------------|---------------------|-------------|
+| start_timestamp_nanos             | `string`            | A UNIX timestamp, in nanoseconds, representing the time that the validator is first aware that it is leader. At this point the poh tile will signal the pack tile to begin filling the block for this slot with transactions |
+| target_end_timestamp_nanos        | `string`            | A UNIX timestamp, in nanoseconds, representing the target time in nanoeconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
+| txn_arrival_timestamps_nanos      | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_arrival_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot arrived at the transaction scheduler (i.e. pack) |
+| txn_mb_start_timestamps_nanos     | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_start_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot was successfully scheduled for execution by pack.  At this point, the microblock was sent off to a bank tile for execution.  Since a microblock may contain multiple transactions (e.g. a bundle), all transactions from the same microblock will share the same start timestamp |
+| txn_preload_end_timstamps_nanos   | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_preload_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot was succesfully dispatched into an execution environemnt and is about to start validation checks, which include a final deduplication check as well as an expiration check |
+| txn_start_timstamps_nanos         | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_start_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot started loading |
+| txn_load_end_timstamps_nanos      | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_load_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished loading and started executing. At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
+| txn_end_timstamps_nanos           | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished executing |
+| txn_mb_end_timestamps_nanos       | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_end_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot completed executing.  At this point, the bank tile for this microblock was ready to communicate the execution result back to the pack. pack uses this result to track the progress of the growing block and also repurposes any unused compute units for other microblocks.  The current implementation splits microblocks which originally contained multiple transactions (i.e. bundles) apart so that consumers always receive one transaction per microblock, so unlike `txn_mb_start_timestamps_nanos` this timestamp may be unique for a given transaction |
+| txn_compute_units_requested       | `number[]`          | `txn_compute_units_estimated[i]` is a strict upper bound on the total cost for the `i`-th transaction in the slot.  The transaction cannot have succeeded if its incurred cost (known after execution) exceeds this bound.  This bound is used by the pack tile to estimate the pace at which the block is being filled, and to filter out transactions that it knows will fail ahead of time |
+| txn_compute_units_consumed        | `number[]`          | `txn_compute_units_consumed[i]` is the actual post-execution cost of `i`-th transaction in the slot.  While some transactions costs are known from the transaction payload itself (such as the cost incurred by the amount of instruction data), other costs (like execution costs or the cost due to loaded on-chain account data) are a function of the state of the blockchain at the time of execution. This value represents the actual cost after a transaction is executed.  Consensus requires that all validators agree on this value for a given transaction in a slot. There are two special cases to consider for scheduled transactions that were not added to the produced block. Failed bundle transactions that successfully executed up to the point of failure will show actual consumed CUs. Subsequent failed bundle transactions will show 0 cus consumed.  Non-bundle transactions that were not added to the block will also show 0 cus consumed |
+| txn_transaction_fee               | `string[]`          | `txn_non_execution_fee[i]` is the signature fee for the `i`-th transaction in the slot. Currenlty, this is the number of signatures in the transaction times 5000 lamports. This fee used to (and may in the future) include rewards from other parts of the transaction, which is why a more general name is used.  50% of this fee is burned and the other 50% is included in validator block rewards. The provided values reflect the fee balance after burning |
+| txn_priority_fee                  | `string[]`          | `txn_priority_fee[i]` is the priority fee in lamports for the `i`-th transaction in the slot.  The priority fee is a static metric computed by multiplying the requested execution cost (derived from a provided computeBudget instruction, or from a protocol defined default) by the compute unit price (derived from a seperate computeBudget instruction) |
+| txn_tips                          | `string[]`          | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
+| txn_error_code                    | `number[]`          | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
+| txn_from_bundle                   | `boolean[]`         | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
+| txn_is_simple_vote                | `boolean[]`         | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise |
+| txn_landed                        | `boolean[]`         | `txn_landed[i]` is `true` if the `i`-th transaction in the slot was included in the produced block. A scheduled transaction may not be included in the block for any number of reasons (e.g. a failed bundle, a duplicate transaction, invalid fee-payer) |
+| txn_bank_idx                      | `number[]`          | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
+| txn_microblock_id                 | `string[]`          | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
+| txn_signature                     | `string[]`          | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
+| txn_source_ipv4                   | `string[]`          | `txn_source_ipv4[i]` is the source ipv4 address for the `i`-th transaction in the slot |
+| txn_source_tpu                    | `string[]`          | `txn_source_tpu[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
 
 The source tpu for a transaction can be one of the following
 
@@ -2167,3 +2280,6 @@ These are the possible error codes that might be included in `txn_error_code` an
 | ProgramCacheHitMaxLimit               | 38   | The program cache allocated for transaction batch for this transaction hit its load limit |
 | CommitCancelled                       | 39   | This transaction was aborted during the commit stage |
 | BundlePeer                            | 40   | This transaction was part of a bundle that failed |
+| BlockhashNonceAlreadyAdvanced         | 50   | This transaction references a nonce account that is already advanced |
+| BlockhashNonceAdvanceFailed           | 51   | This transaction is a nonce transaction but the advance instruction was not valid or failed |
+| BlockhashNonceWrong                   | 52   | This transaction is a nonce transaction but the blockhash is not the correct one |

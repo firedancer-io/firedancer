@@ -1,5 +1,6 @@
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
+#include "../../runtime/fd_bank.h"
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
@@ -7,7 +8,7 @@ static void
 test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
   ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
   char const * one_offs[] = { "9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ", "CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM" };
-  fd_features_enable_one_offs( (fd_features_t*)&vm_ctx->instr_ctx->txn_ctx->features, one_offs, 1U, slot );
+  fd_features_enable_one_offs( fd_bank_features_modify( vm_ctx->instr_ctx->txn_ctx->bank ), one_offs, 1U, slot );
   vm_ctx->direct_mapping = enable;
   vm_ctx->stricter_abi_and_runtime_constraints = enable;
 }
@@ -121,7 +122,7 @@ test_vm_syscall_sol_log( char const *            test_case_name,
                          int                     expected_err,
                          uchar *                 expected_log,
                          ulong                   expected_log_sz ) {
-  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log.log_collector;
   ulong log_vec_len = fd_log_collector_debug_len( log );
 
   ulong ret = 0UL;
@@ -150,7 +151,7 @@ test_vm_syscall_sol_log_64( char const *            test_case_name,
                             int                     expected_err,
                             uchar *                 expected_log,
                             ulong                   expected_log_sz ) {
-  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log.log_collector;
   ulong log_vec_len = fd_log_collector_debug_len( log );
 
   ulong ret = 0UL;
@@ -176,7 +177,7 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
                               int                     expected_err,
                               uchar *                 expected_log,
                               ulong                   expected_log_sz ) {
-  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log.log_collector;
   ulong log_vec_len = fd_log_collector_debug_len( log );
 
   ulong ret = 0UL;
@@ -192,6 +193,25 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
 
   test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
+}
+
+static void
+dump_syscall_table( void ) {
+  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ] = {0};
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
+  FD_TEST( syscalls );
+
+  FD_TEST( fd_vm_syscall_register_all( syscalls, 0 )==FD_VM_SUCCESS );
+
+  FD_LOG_NOTICE(( "Syscall table" ));
+  for( ulong slot=0UL; slot<(1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT); slot++ ) {
+    fd_sbpf_syscalls_t * entry = syscalls+slot;
+    if( entry->func ) {
+      FD_LOG_NOTICE(( "  %08x %s", (uint)entry->key, entry->name ));
+    }
+  }
+
+  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
 }
 
 int
@@ -224,7 +244,8 @@ main( int     argc,
 
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_exec_txn_ctx_t   txn_ctx[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
+  fd_bank_t           bank[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank );
 
   int vm_ok = !!fd_vm_init(
       /* vm                                   */ vm,
@@ -247,8 +268,8 @@ main( int     argc,
       /* mem_regions_cnt                      */ (uint)mem_regions_cnt,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );
@@ -684,7 +705,7 @@ main( int     argc,
     expected_log_sz += _cpy_sz;                                                          \
   } while(0)
 
-  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log_collector, 1 );
+  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log.log_collector, 1 );
 
   expected_log_sz = 0UL;
   APPEND( "Program log: hello world", 24UL );
@@ -725,7 +746,7 @@ main( int     argc,
 
   // test for collecting log_64 at the heap region
 
-  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log_collector, 1 );
+  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log.log_collector, 1 );
 
   expected_log_sz = 0UL;
 
@@ -745,7 +766,7 @@ main( int     argc,
 
   // test for collecting log_data at the heap region
 
-  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log_collector, 1 );
+  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log.log_collector, 1 );
 
   expected_log_sz = 0UL;
 
@@ -765,6 +786,8 @@ main( int     argc,
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
+
+  dump_syscall_table();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

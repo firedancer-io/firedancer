@@ -41,9 +41,7 @@ fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed ) {
   policy->peers.pool    = fd_peer_pool_new        ( peers_pool, peer_max        );
   policy->peers.fast    = fd_peer_dlist_new       ( peers_fast                  );
   policy->peers.slow    = fd_peer_dlist_new       ( peers_slow                  );
-  policy->iterf.ele_idx = ULONG_MAX;
   policy->turbine_slot0 = ULONG_MAX;
-  policy->tsreset       = 0;
   policy->nonce         = 1;
 
   return shmem;
@@ -165,6 +163,8 @@ fd_policy_peer_select( fd_policy_t * policy ) {
   fd_peer_dlist_t * worst_dlist = policy->peers.slow;
   fd_peer_t       * pool        = policy->peers.pool;
 
+  if( FD_UNLIKELY( fd_peer_pool_used( policy->peers.pool ) == 0 ) ) return NULL;
+
   fd_peer_dlist_t * dlist = bucket_stages[policy->peers.select.stage] == FD_POLICY_LATENCY_FAST ? best_dlist : worst_dlist;
 
   while( FD_UNLIKELY( fd_peer_dlist_iter_done( policy->peers.select.iter, dlist, pool ) ) ) {
@@ -178,9 +178,10 @@ fd_policy_peer_select( fd_policy_t * policy ) {
 }
 
 fd_repair_msg_t const *
-fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot ) {
+fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy ) {
   fd_forest_blk_t *      pool     = fd_forest_pool( forest );
   fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
+  *charge_busy = 0;
 
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return NULL;
   if( FD_UNLIKELY( fd_peer_pool_used( policy->peers.pool ) == 0 ) ) return NULL;
@@ -189,6 +190,7 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
   ulong now_ms = ts_ms( now );
 
   if( FD_UNLIKELY( forest->subtree_cnt > 0 ) ) {
+    *charge_busy = 1;
     for( fd_forest_subtrees_iter_t iter = fd_forest_subtrees_iter_init( subtrees, pool );
           !fd_forest_subtrees_iter_done( iter, subtrees, pool );
           iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
@@ -202,85 +204,62 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
     }
   }
 
-  /* Every so often we'll need to reset the frontier iterator to the
-     head of frontier, because we could end up traversing down a very
-     long tree if we are far behind. */
-
-  if( FD_UNLIKELY( now_ms - policy->tsreset > 100UL /* ms */ ||
-                   policy->iterf.frontier_ver != fd_fseq_query( fd_forest_ver_const( forest ) ) ) ) {
-    fd_policy_reset( policy, forest );
+  /* Select a slot to operate on 🔪. Advance either the orphan iter or
+     regular iter. */
+  fd_forest_iter_t * iter = NULL;
+  if( FD_UNLIKELY( fd_forest_reqslist_is_empty( fd_forest_reqslist( forest ), fd_forest_reqspool( forest ) ) ) ) {
+    /* If the main tree has nothing to iterate at the moment, we can
+       request down the ORPHAN trees on slots we know about. */
+    iter = &forest->orphiter;
+  } else {
+    iter = &forest->iter;
   }
 
-  fd_forest_blk_t * ele = fd_forest_pool_ele( pool, policy->iterf.ele_idx );
-  if( FD_UNLIKELY( !ele ) ) {
-    // This happens when we are fully caught up i.e. we have all the shreds of every slot we know about.
+  fd_forest_iter_next( iter, forest );
+  if( FD_UNLIKELY( fd_forest_iter_done( iter, forest ) ) ) {
+    // This happens when we have already requested all the shreds we know about.
     return NULL;
   }
 
-  /* When we are at the head of the turbine, we should give turbine the
-     chance to complete the shreds.  Agave waits 200ms from the
-     estimated "correct time" of the highest shred received to repair.
-     i.e. if we've received the first 200 shreds, the 200th has a tick
-     of x. Translate that to millis, and we should wait to request shred
-     201 until x + 200ms.  If we have a hole, i.e. first 200 shreds
-     receive except shred 100, and the 101th shred has a tick of y, we
-     should wait until y + 200ms to request shred 100.
+  fd_forest_blk_t * ele = fd_forest_pool_ele( pool, iter->ele_idx );
+  if( FD_UNLIKELY( !passes_throttle_threshold( policy, ele ) ) ) {
+    /* When we are at the head of the turbine, we should give turbine the
+       chance to complete the shreds.  Agave waits 200ms from the
+       estimated "correct time" of the highest shred received to repair.
+       i.e. if we've received the first 200 shreds, the 200th has a tick
+       of x. Translate that to millis, and we should wait to request shred
+       201 until x + 200ms.  If we have a hole, i.e. first 200 shreds
+       receive except shred 100, and the 101th shred has a tick of y, we
+       should wait until y + 200ms to request shred 100.
 
-     At the start of the loop, the policy iterf is valid and requestable.
-     At the end of the loop, the policy iterf has been advanced to the
-     next valid requestable element. */
+       Here we did not pass the timeout threshold, so we are not ready
+       to repair this slot yet.  But it's possible we have another fork
+       that we need to repair... so we just should skip to the next SLOT
+       in the main tree iterator.  The likelihood that this ele is the
+       head of turbine is high, which means that the shred_idx of the
+       iterf is likely to be UINT_MAX, which means calling
+       fd_forest_iter_next will advance the iterf to the next slot. */
+    iter->shred_idx = UINT_MAX;
+    /* TODO: Heinous... but the easiest way to ensure this slot gets
+       added back to the requests deque is if we set the shred_idx to
+       UINT_MAX, but maybe there should be an explicit API for it. */
 
-  int req_made = 0;
-  while( !req_made ) {
-    ele = fd_forest_pool_ele( pool, policy->iterf.ele_idx );
-
-    if( FD_UNLIKELY( !passes_throttle_threshold( policy, ele ) ) ) {
-      /* We are not ready to repair this slot yet.  But it's possible we
-         have another fork that we need to repair... so we just
-         should skip to the next SLOT in the consumed iterator.  The
-         likelihood that this ele is the head of turbine is high, which
-         means that the shred_idx of the iterf is likely to be UINT_MAX,
-         which means calling fd_forest_iter_next will advance the iterf
-         to the next slot. */
-      policy->iterf.shred_idx = UINT_MAX; // heinous... i'm sorry
-      policy->iterf = fd_forest_iter_next( policy->iterf, forest );
-      if( FD_UNLIKELY( fd_forest_iter_done( policy->iterf, forest ) ) ) {
-         policy->iterf = fd_forest_iter_init( forest );
-         break;
-      }
-      continue;
-    }
-
-    if( FD_UNLIKELY( policy->iterf.shred_idx == UINT_MAX ) ) {
-      ulong key = fd_policy_dedup_key( FD_REPAIR_KIND_HIGHEST_SHRED, ele->slot, 0 );
-      if( FD_UNLIKELY( ele->slot < highest_known_slot && !dedup_next( policy, key, now ) ) ) {
-        // We'll never know the the highest shred for the current turbine slot, so there's no point in requesting it.
-        out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, 0 );
-        policy->nonce++;
-        req_made = 1;
-      }
-    } else {
-      ulong key = fd_policy_dedup_key( FD_REPAIR_KIND_SHRED, ele->slot, policy->iterf.shred_idx );
-      if( FD_UNLIKELY( !dedup_next( policy, key, now ) ) ) {
-        out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, policy->iterf.shred_idx );
-        policy->nonce++;
-        if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
-        req_made = 1;
-      }
-    }
-
-    /* Even if we have a request ready, we need to advance the iterator.
-       Otherwise on the next call of policy_next, we'll try to re-request the
-       same shred and it will get deduped. */
-
-    policy->iterf = fd_forest_iter_next( policy->iterf, forest );
-    if( FD_UNLIKELY( fd_forest_iter_done( policy->iterf, forest ) ) ) {
-      policy->iterf = fd_forest_iter_init( forest );
-      break;
-    }
+    return NULL;
   }
 
-  if( FD_UNLIKELY( !req_made ) ) return NULL;
+  *charge_busy = 1;
+
+  if( FD_UNLIKELY( iter->shred_idx == UINT_MAX ) ) {
+    if( FD_UNLIKELY( ele->slot < highest_known_slot ) ) {
+      // We'll never know the the highest shred for the current turbine slot, so there's no point in requesting it.
+      out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, 0 );
+      policy->nonce++;
+    }
+  } else {
+    out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, iter->shred_idx );
+    policy->nonce++;
+    if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
+  }
   return out;
 }
 
@@ -325,7 +304,7 @@ fd_policy_peer_remove( fd_policy_t * policy, fd_pubkey_t const * key ) {
 
   if( FD_UNLIKELY( policy->peers.select.iter == fd_peer_pool_idx( policy->peers.pool, peer_ele ) ) ) {
     /* In general removal during iteration is safe, except when the iterator is on the peer to be removed. */
-    fd_peer_dlist_t * dlist = policy->peers.select.stage == FD_POLICY_LATENCY_FAST ? policy->peers.fast : policy->peers.slow;
+    fd_peer_dlist_t * dlist = bucket_stages[policy->peers.select.stage] == FD_POLICY_LATENCY_FAST ? policy->peers.fast : policy->peers.slow;
     policy->peers.select.iter = fd_peer_dlist_iter_fwd_next( policy->peers.select.iter, dlist, policy->peers.pool );
   }
 
@@ -363,12 +342,6 @@ fd_policy_peer_response_update( fd_policy_t * policy, fd_pubkey_t const * to, lo
       fd_peer_dlist_ele_push_tail( new_bucket,  peer_ele, policy->peers.pool );
     }
   }
-}
-
-void
-fd_policy_reset( fd_policy_t * policy, fd_forest_t * forest ) {
-  policy->iterf   = fd_forest_iter_init( forest );
-  policy->tsreset = ts_ms( fd_log_wallclock() );
 }
 
 void

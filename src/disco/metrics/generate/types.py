@@ -37,6 +37,12 @@ class Tile(Enum):
     RESOLF = 31
     BACKT = 32
     EXEC = 33
+    SNAPWR = 34
+    BENCHS = 35
+    SNAPWH = 36
+    SNAPLA = 37
+    SNAPLS = 38
+    TOWER = 39
 
 class MetricType(Enum):
     COUNTER = 0

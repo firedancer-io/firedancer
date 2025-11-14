@@ -3,8 +3,6 @@
 
 /* fd_acc_mgr provides APIs for the Solana account database. */
 
-#include "../fd_flamenco_base.h"
-#include "../../ballet/txn/fd_txn.h"
 #include "fd_txn_account.h"
 
 #if FD_HAS_AVX
@@ -16,8 +14,6 @@
 
 #define FD_ACC_MGR_SUCCESS             (0)
 #define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
-#define FD_ACC_MGR_ERR_WRITE_FAILED    (-2)
-#define FD_ACC_MGR_ERR_READ_FAILED     (-3)
 
 #define FD_ACC_NONCE_SZ_MAX (80UL)     /* 80 bytes */
 
@@ -147,53 +143,7 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
                                fd_pubkey_t const *       pubkey,
                                fd_funk_rec_t const **    orec,
                                int *                     opt_err,
-                               fd_funk_txn_xid_t *       xid_out ) ;
-
-/* fd_funk_get_acc_meta_mutable requests a writable handle to an account.
-   Follows interface of fd_funk_get_account_meta_readonly with the following
-   changes:
-
-   - do_create controls behavior if account does not exist.  If set to
-     0, returns error.  If set to 1, creates account with given size
-     and zero-initializes metadata.  Caller must initialize metadata of
-     returned handle in this case.
-   - min_data_sz is the minimum writable data size that the caller will
-     accept.  This parameter will never shrink an existing account.  If
-     do_create, specifies the new account's size.  Otherwise, increases
-     record size if necessary.
-   - When resizing or creating an account, the caller should also always
-     set the account meta's size field.  This is not done automatically.
-   - If caller already has a read-only handle to the requested account,
-     opt_con_rec can be used to skip query by pubkey.
-   - In most cases, account is copied to "dirty cache".
-
-   On success:
-   - If opt_out_rec!=NULL, sets *opt_out_rec to a pointer to writable
-     funk rec.
-   - If a record was cloned from an ancestor funk txn or created,
-     out_prepare is populated with the prepared record object.
-   - Returns pointer to mutable account metadata and data analogous to
-     fd_funk_get_acc_meta_readonly.
-   - IMPORTANT:  Return value may point to the same memory region as a
-     previous calls to fd_funk_get_acc_meta_readonly or fd_funk_get_acc_meta_mutable do,
-     for the same funk rec (account/txn pair).  fd_funk_acc_mgr APIs only promises
-     that account handles requested for different funk txns will not
-     alias. Generally, for each funk txn, the user should only ever
-     access the latest handle returned by view/modify.
-
-   IMPORTANT: fd_funk_get_acc_meta_mutable can only be called if
-   it is guaranteed that there are no other modifying accesses to
-   that account. */
-
-fd_account_meta_t *
-fd_funk_get_acc_meta_mutable( fd_funk_t *               funk,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_pubkey_t const *       pubkey,
-                              int                       do_create,
-                              ulong                     min_data_sz,
-                              fd_funk_rec_t **          opt_out_rec,
-                              fd_funk_rec_prepare_t *   out_prepare,
-                              int *                     opt_err );
+                               fd_funk_txn_xid_t *       xid_out );
 
 /* fd_acc_mgr_strerror converts an fd_acc_mgr error code into a human
    readable cstr.  The lifetime of the returned pointer is infinite and

@@ -334,7 +334,7 @@
    microblocks from pack, so this upper bound is a coordination
    mechanism so that PoH can progress hashcnts while the slot is active,
    and know that pack will not need those hashcnts later to do mixins. */
-#define MAX_MICROBLOCKS_PER_SLOT (32768UL)
+#define MAX_MICROBLOCKS_PER_SLOT (131072UL)
 
 /* When we are hashing in the background in case a prior leader skips
    their slot, we need to store the result of each tick hash so we can
@@ -482,6 +482,9 @@ fd_poh_have_leader_bank( fd_poh_t const * poh );
 
 int
 fd_poh_hashing_to_leader_slot( fd_poh_t const * poh );
+
+int
+fd_poh_must_tick( fd_poh_t const * poh );
 
 void
 fd_poh_begin_leader( fd_poh_t * poh,

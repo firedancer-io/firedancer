@@ -1065,6 +1065,7 @@ after_frag( fd_shred_ctx_t *    ctx,
         }
         fd_memcpy( fec->data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
         fec->data_sz += payload_sz;
+        if( FD_LIKELY( i<32UL ) ) fec->block_offs[ i ] = (uint)payload_sz + fd_uint_if( i==0UL, 0UL, fec->block_offs[ i-1UL ] );
       }
 
       /* It's safe to memcpy the FEC payload outside of the shared-lock,

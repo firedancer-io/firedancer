@@ -13,7 +13,7 @@
 #define MAP_ELE_T              fd_stake_delegation_t
 #define MAP_KEY                stake_account
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
-#define MAP_KEY_HASH(key,seed) (fd_funk_rec_key_hash1( (uchar *)key, 0, seed ))
+#define MAP_KEY_HASH(key,seed) (fd_funk_rec_key_hash1( key->uc, seed ))
 #define MAP_NEXT               next_
 #include "../../util/tmpl/fd_map_chain.c"
 

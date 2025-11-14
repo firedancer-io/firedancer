@@ -27,7 +27,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector ) {
   };
   fd_sspeer_selector_process_cluster_slot( selector, cluster_ssinfo.full.slot, cluster_ssinfo.incremental.slot );
   /* Add a peer and it should be the best peer */
-  fd_ip4_port_t addr = { .addr = FD_IP4_ADDR( 35, 123, 172, 227 ), .port = 8899 };
+  fd_ip4_port_t addr = { .addr = FD_IP4_ADDR( 35, 123, 172, 227 ), .port = fd_ushort_bswap( 8899 ) };
   FD_TEST( add_peer( selector, addr, 1000UL, 1500UL, 5L*1000L*1000L )==5UL*1000UL*1000UL );
   fd_sspeer_t best = fd_sspeer_selector_best( selector, 0, ULONG_MAX);
   FD_TEST( best.addr.l==addr.l );
@@ -38,7 +38,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector ) {
 
   /* Add a peer with better latency at the same slot and it should be
      the best peer */
-  fd_ip4_port_t addr2 = { .addr = FD_IP4_ADDR( 35, 123, 172, 228 ), .port = 8899 };
+  fd_ip4_port_t addr2 = { .addr = FD_IP4_ADDR( 35, 123, 172, 228 ), .port = fd_ushort_bswap( 8899 ) };
   FD_TEST( add_peer( selector, addr2, 1000UL, 1500UL, 3L*1000L*1000L )==3UL*1000UL*1000UL );
   best = fd_sspeer_selector_best( selector, 0, ULONG_MAX);
   FD_TEST( best.addr.l==addr2.l );
@@ -48,7 +48,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector ) {
   FD_TEST( best.score==3L*1000L*1000L );
 
   /* Add a peer with the same latency but lagging slots behind */
-  fd_ip4_port_t addr3 = { .addr = FD_IP4_ADDR( 35, 123, 172, 229 ), .port = 8899 };
+  fd_ip4_port_t addr3 = { .addr = FD_IP4_ADDR( 35, 123, 172, 229 ), .port = fd_ushort_bswap( 8899 ) };
   FD_TEST( add_peer( selector, addr3, 1000UL, 1400UL, 3L*1000L*1000L )==3UL*1000UL*1000UL + 100UL*1000UL );
   best = fd_sspeer_selector_best( selector, 0, ULONG_MAX);
   FD_TEST( best.addr.l==addr2.l );
@@ -61,7 +61,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector ) {
   fd_sspeer_selector_process_cluster_slot( selector, cluster_ssinfo.full.slot, cluster_ssinfo.incremental.slot );
 
   /* Add a peer that is slightly slower but caught up in slots */
-  fd_ip4_port_t addr4 = { .addr = FD_IP4_ADDR( 35, 123, 172, 230 ), .port = 8899 };
+  fd_ip4_port_t addr4 = { .addr = FD_IP4_ADDR( 35, 123, 172, 230 ), .port = fd_ushort_bswap( 8899 ) };
   FD_TEST( add_peer( selector, addr4, 1000UL, 1600UL, 3L*1000L*1000L + 75L*1000L )==3UL*1000UL*1000UL + 75UL*1000UL );
   best = fd_sspeer_selector_best( selector, 0, ULONG_MAX );
   FD_TEST( best.addr.l==addr4.l );
@@ -71,7 +71,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector ) {
   FD_TEST( best.score==3L*1000L*1000L + 75L*1000L );
 
   /* Add a fast peer that doesn't have resolved slots */
-  fd_ip4_port_t addr5 = { .addr = FD_IP4_ADDR( 35, 123, 172, 231 ), .port = 8899 };
+  fd_ip4_port_t addr5 = { .addr = FD_IP4_ADDR( 35, 123, 172, 231 ), .port = fd_ushort_bswap( 8899 ) };
   FD_TEST( add_peer( selector, addr5, ULONG_MAX, ULONG_MAX, 2L*1000L*1000L )==2UL*1000UL*1000UL + 1000UL*1000UL*1000UL);
   best = fd_sspeer_selector_best( selector, 0, ULONG_MAX );
   FD_TEST( best.addr.l==addr4.l );
@@ -93,7 +93,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector ) {
 
   /* Add a peer that is fast and at the highest slot but not building
      off full slot, which makes it invalid an incremental peer */
-  fd_ip4_port_t addr6 = { .addr = FD_IP4_ADDR( 35, 123, 172, 232 ), .port = 8899 };
+  fd_ip4_port_t addr6 = { .addr = FD_IP4_ADDR( 35, 123, 172, 232 ), .port = fd_ushort_bswap( 8899 ) };
   FD_TEST( add_peer( selector, addr6, 900UL, 1700UL, 2L*1000L*1000L )==2UL*1000UL*1000UL );
   best = fd_sspeer_selector_best( selector, 1, 1000UL );
   FD_TEST( best.addr.l==addr4.l );
@@ -103,7 +103,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector ) {
   FD_TEST( best.score==3L*1000L*1000L + 75L*1000L + 100UL*1000UL );
 
   /* Add a fast incremental peer that is caught up to the cluster slot */
-  fd_ip4_port_t addr7 = { .addr = FD_IP4_ADDR( 35, 123, 172, 233 ), .port = 8899 };
+  fd_ip4_port_t addr7 = { .addr = FD_IP4_ADDR( 35, 123, 172, 233 ), .port = fd_ushort_bswap( 8899 ) };
   FD_TEST( add_peer( selector, addr7, 1000UL, 1700UL, 2L*1000L*1000L )==2UL*1000UL*1000UL );
   best = fd_sspeer_selector_best( selector, 1, 1000UL );
   FD_TEST( best.addr.l==addr7.l );

@@ -166,6 +166,7 @@ struct fd_quic_conn {
                                  INITIAL, HANDSHAKE and APPLICATION */
   ulong pkt_number[3];      /* tx packet number by pn space */
   ulong last_pkt_number[3]; /* last (highest) packet number seen */
+  ulong highest_acked[3];   /* highest packet number acked (meaningless if 0) */
 
   ushort ipv4_id;           /* ipv4 id field */
 
@@ -208,9 +209,6 @@ struct fd_quic_conn {
      if we time out this packet (or possibly a later packet) we resend the frame
        and update this value */
   ulong                upd_pkt_number;
-
-  /* highest peer encryption level */
-  uchar                peer_enc_level;
 
   /* idle timeout arguments */
   long                 idle_timeout_ns;

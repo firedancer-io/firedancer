@@ -12,41 +12,17 @@ fd_quic_buffer_store( fd_quic_buffer_t * buf,
   /* see fd_quic_stream.h for invariants */
   uchar * raw   = buf->buf;
   ulong   cap   = buf->cap;
-  ulong   mask  = cap - 1ul;
   ulong   head  = buf->head;
-  ulong   tail  = buf->tail;
-  ulong   used  = head - tail;
-  ulong   free  = cap - used;
-  ulong   mtail = tail & mask;
-  ulong   mhead = head & mask;
+  ulong   free  = cap - head;
 
   /* not enough room - caller responsible for checking available space */
   if( data_sz > free ) {
     return;
   }
 
-  /* two cases:
-       1. data fits within  free contiguous space at m_head
-       2. data must be split
+  fd_memcpy( raw + head, data, data_sz );
 
-     used is in [tail,head) */
-
-  if( mhead >= mtail ) {
-    /* free space split */
-    ulong end_sz = cap - mhead;
-    if( data_sz <= end_sz ) {
-      /* fits entirely into space at end of buffer */
-      fd_memcpy( raw + mhead, data, data_sz );
-    } else {
-      /* must split between front and end of buffer */
-      fd_memcpy( raw + mhead, data,          end_sz );
-      fd_memcpy( raw,         data + end_sz, data_sz - end_sz );
-    }
-  } else {
-    /* contiguous space */
-    fd_memcpy( raw + mhead, data, data_sz );
-  }
-
+  buf->head += data_sz;
 }
 
 /* fd_quic_buffer_load
@@ -57,37 +33,18 @@ fd_quic_buffer_load( fd_quic_buffer_t * buf,
                      uchar *            data,
                      ulong              data_sz ) {
   uchar * raw   = buf->buf;
-  ulong   cap   = buf->cap;
-  ulong   mask  = cap - 1ul;
   ulong   head  = buf->head;
-  ulong   tail  = offs;
-  ulong   mtail = tail & mask;
-  ulong   mhead = head & mask;
 
   /* caller responsible for checking operation valid */
-  if( FD_UNLIKELY( tail > head || offs < buf->tail ) ) return;
+  if( FD_UNLIKELY( offs+data_sz > head ) ) return;
 
   /* two cases:
      1. data fits within free contiguous space at m_tail
      2. data is split
 
-     used is in [tail,head) */
+     used is in [offs,head) */
 
-  if( mtail >= mhead ) {
-    /* free space split */
-    ulong end_sz = cap - mtail;
-    if( data_sz <= end_sz ) {
-      /* consists entirely of space at end of buffer */
-      fd_memcpy( data, raw + mtail, data_sz );
-    } else {
-      /* split between front and end of buffer */
-      fd_memcpy( data,          raw + mtail, end_sz );
-      fd_memcpy( data + end_sz, raw,         data_sz - end_sz );
-    }
-  } else {
-    /* contiguous data */
-    fd_memcpy( data, raw + mtail, data_sz );
-  }
+  fd_memcpy( data, raw + offs, data_sz );
 }
 
 
@@ -97,12 +54,10 @@ fd_quic_stream_align( void );
 
 ulong
 fd_quic_stream_footprint( ulong tx_buf_sz ) {
-  if( FD_UNLIKELY( !fd_ulong_is_pow2( tx_buf_sz ) ) ) return 0UL;
-
   ulong align           = fd_quic_stream_align();
   ulong offs            = 0ul;
 
-  ulong tx_ack_sz       = tx_buf_sz >> 3ul;
+  ulong tx_ack_sz       = (tx_buf_sz >> 3ul)+1UL;
   ulong align_stream_sz = fd_ulong_align_up( sizeof( fd_quic_stream_t ), align );
   ulong align_tx_ack_sz = fd_ulong_align_up( tx_ack_sz, align );
   ulong align_tx_buf_sz = fd_ulong_align_up( tx_buf_sz, align );
@@ -124,7 +79,7 @@ fd_quic_stream_t *
 fd_quic_stream_new( void * mem, fd_quic_conn_t * conn, ulong tx_buf_sz ) {
   ulong align = fd_quic_stream_align();
 
-  ulong tx_ack_sz       = tx_buf_sz >> 3ul;
+  ulong tx_ack_sz       = (tx_buf_sz >> 3ul)+1UL;
   ulong align_stream_sz = fd_ulong_align_up( sizeof( fd_quic_stream_t ), align );
   ulong align_tx_buf_sz = fd_ulong_align_up( tx_buf_sz, align );
   ulong align_tx_ack_sz = fd_ulong_align_up( tx_ack_sz, align );

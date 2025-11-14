@@ -35,9 +35,10 @@ PREFIX="$(pwd)/opt"
 
 DEVMODE=0
 MSAN=0
+LIBURING=0
 _CC="${CC:=gcc}"
 _CXX="${CXX:=g++}"
-EXTRA_CFLAGS=""
+EXTRA_CFLAGS="-g3 -fno-omit-frame-pointer"
 EXTRA_CXXFLAGS=""
 EXTRA_LDFLAGS=""
 
@@ -133,15 +134,17 @@ fetch () {
   if [[ $MSAN == 1 ]]; then
     checkout_llvm
   fi
-  checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.7"
-  checkout_repo lz4       https://github.com/lz4/lz4                "v1.10.0"
-  checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "4d2e22a"
-  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.6.0"
-  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.7.0"
+  checkout_repo zstd      https://github.com/facebook/zstd            "v1.5.7"
+  checkout_repo lz4       https://github.com/lz4/lz4                  "v1.10.0"
+  checkout_repo liburing  https://github.com/axboe/liburing           "liburing-2.12"
+  checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "4d2e22a"
+  checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.0"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1   "v0.7.0"
+  checkout_repo flatcc    https://github.com/dvidelabs/flatcc.git     "" "3ae5eda"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo bzip2     https://gitlab.com/bzip2/bzip2            "bzip2-1.0.8"
-    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v10.5.1"
-    checkout_repo snappy    https://github.com/google/snappy          "1.2.2"
+    checkout_repo bzip2   https://gitlab.com/bzip2/bzip2              "bzip2-1.0.8"
+    checkout_repo rocksdb https://github.com/facebook/rocksdb         "v10.5.1"
+    checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
   fi
 }
 
@@ -266,13 +269,13 @@ check_alpine_pkgs () {
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf )
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf coreutils )
 
   echo "[~] Checking for required brew formulae"
 
   local MISSING_FORMULAE=( )
   for formula in "${REQUIRED_FORMULAE[@]}"; do
-    if [[ ! -d "/usr/local/Cellar/$formula" ]]; then
+    if ! brew ls --versions "$formula" >/dev/null 2>&1; then
       MISSING_FORMULAE+=( "$formula" )
     fi
   done
@@ -425,8 +428,7 @@ install_bzip2 () {
   cd "$PREFIX/git/bzip2"
 
   echo "[+] Installing bzip2 to $PREFIX"
-  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" CFLAGS="-fPIC $EXTRA_CFLAGS -Wall -Winline -O2 -g" libbz2.a
-  cp libbz2.a "$PREFIX/lib"
+  # Not building bzip2 here, see src/ballet/bzip2/Local.mk
   cp bzlib.h "$PREFIX/include"
   echo "[+] Successfully installed bzip2"
 }
@@ -437,6 +439,16 @@ install_lz4 () {
   echo "[+] Installing lz4 to $PREFIX"
   "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no CFLAGS="-fPIC $EXTRA_CFLAGS" install
   echo "[+] Successfully installed lz4"
+}
+
+install_liburing () {
+  cd "$PREFIX/git/liburing"
+
+  echo "[+] Installing liburing to $PREFIX"
+  ./configure --prefix="$PREFIX" --cc="$CC -fPIC $EXTRA_CFLAGS"
+  "${MAKE[@]}"
+  "${MAKE[@]}" install
+  echo "[+] Successfully installed liburing"
 }
 
 install_s2n () {
@@ -611,6 +623,21 @@ install_snappy () {
   echo "[+] Successfully installed snappy"
 }
 
+install_flatcc () {
+  echo "[+] Installing flatcc"
+  cd "$PREFIX/git/flatcc"
+  cmake -B build \
+    -DCMAKE_INSTALL_PREFIX=$PREFIX \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DFLATCC_INSTALL=ON \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_CXX_FLAGS="$EXTRA_CXXFLAGS" \
+    -DCMAKE_EXE_LINKER_FLAGS="$EXTRA_LDFLAGS"
+  cmake --build build -j
+  cmake --install build
+  echo "[+] Successfully installed flatcc"
+}
+
 install () {
   CC="$(command -v $_CC)"
   cc="$CC"
@@ -630,6 +657,11 @@ install () {
   fi
   ( install_zstd      )
   ( install_lz4       )
+  if [[ $LIBURING == 1 ]]; then
+    if [[ "$OS" == "Linux" ]]; then
+      ( install_liburing )
+    fi
+  fi
   if [[ "$(uname -m)" == x86_64 ]]; then
     ( install_s2n )
   fi
@@ -639,6 +671,7 @@ install () {
     ( install_bzip2     )
     ( install_snappy    )
     ( install_rocksdb   )
+    ( install_flatcc    )
   fi
 
   # Merge lib64 with lib
@@ -666,13 +699,17 @@ while [[ $# -gt 0 ]]; do
       PREFIX="$(pwd)/opt-msan"
       _CC=clang
       _CXX=clang++
-      EXTRA_CFLAGS+="-fsanitize=memory -fno-omit-frame-pointer"
-      EXTRA_CXXFLAGS+="$EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
-      EXTRA_LDFLAGS+="$PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a"
+      EXTRA_CFLAGS+=" -fsanitize=memory"
+      EXTRA_CXXFLAGS+=" $EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
+      EXTRA_LDFLAGS+=" $PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a"
       ;;
     "+dev")
       shift
       DEVMODE=1
+      ;;
+    "+uring")
+      shift
+      LIBURING=1
       ;;
     nuke)
       shift

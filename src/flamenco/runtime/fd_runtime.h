@@ -16,6 +16,8 @@
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../vm/fd_vm_base.h"
 
+#include "program/fd_bpf_loader_program.h"
+
 /* Various constant values used by the runtime. */
 
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
@@ -89,46 +91,74 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
    execution of a single transaction. */
 #define FD_RUNTIME_BORROWED_ACCOUNT_FOOTPRINT (MAX_TX_ACCOUNT_LOCKS * FD_ULONG_ALIGN_UP( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ))
 
-/* The tight-ish upper bound on input region footprint over the
-   execution of a single transaction. See input serialization code for
-   reference: fd_bpf_loader_serialization.c
+/* The bpf loader's serialization footprint is bounded in the worst case
+   by 64 unique writable accounts which are each 10MiB in size (bounded
+   by the amount of transaction accounts).  We can also have up to
+   FD_INSTR_ACCT_MAX (256) referenced accounts in an instruction.
 
-   This bound is based off of the transaction MTU. We consider the
-   question of what kind of transaction one would construct to
-   maximally bloat the input region.
-   The worst case scenario is when every nested instruction references
-   all unique accounts in the transaction. A transaction can lock a max
-   of MAX_TX_ACCOUNT_LOCKS accounts. Then all remaining input account
-   references are going to be duplicates, which cost 1 byte to specify
-   offset in payload, and which cost 8 bytes during serialization. Then
-   there would be 0 bytes of instruction data, because they exist byte
-   for byte in the raw payload, which is not a worthwhile bloat factor.
+   - 8 bytes for the account count
+   For each account:
+     If duplicated:
+       - 8 bytes for each duplicated account
+    If not duplicated:
+     - header for each unique account (96 bytes)
+       - 1 account idx byte
+       - 1 is_signer byte
+       - 1 is_writable byte
+       - 1 executable byte
+       - 4 bytes for the original data length
+       - 32 bytes for the key
+       - 32 bytes for the owner
+       - 8 bytes for the lamports
+       - 8 bytes for the data length
+       - 8 bytes for the rent epoch
+     - 10MiB for the data (10485760 bytes)
+     - 10240 bytes for resizing the data
+     - 0 padding bytes because this is already 8 byte aligned
+   - 8 bytes for instruction data length
+   - 1232 bytes for the instruction data (TXN_MTU)
+   - 32 bytes for the program id
+
+  So the total footprint is:
+  8 header bytes +
+  192 duplicate accounts (256 instr accounts - 64 unique accounts) * 8 bytes     = 1536      duplicate account bytes +
+  64 unique accounts * (96 header bytes + 10485760 bytes + 10240 resizing bytes) = 671750144 unique account bytes +
+  8 + 1232 + 32                                                                  = 1272 bytes trailer bytes + program id = 671751416 bytes
+  Total footprint: 671752960 bytes
+
+  This is a reasonably tight-ish upper bound on the input region
+  footprint for a single instruction at a single stack depth.  In
+  reality the footprint would be slightly smaller because the
+  instruction data can't be equal to the transaction MTU.
  */
-#define FD_RUNTIME_INPUT_REGION_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)                                                                                              \
-                                                        (1UL                         /* dup byte          */                                                        + \
-                                                         sizeof(uchar)               /* is_signer         */                                                        + \
-                                                         sizeof(uchar)               /* is_writable       */                                                        + \
-                                                         sizeof(uchar)               /* executable        */                                                        + \
-                                                         sizeof(uint)                /* original_data_len */                                                        + \
-                                                         sizeof(fd_pubkey_t)         /* key               */                                                        + \
-                                                         sizeof(fd_pubkey_t)         /* owner             */                                                        + \
-                                                         sizeof(ulong)               /* lamports          */                                                        + \
-                                                         sizeof(ulong)               /* data len          */                                                        + \
-                                                         (direct_mapping ? FD_BPF_ALIGN_OF_U128 : FD_ULONG_ALIGN_UP( FD_RUNTIME_ACC_SZ_MAX, FD_BPF_ALIGN_OF_U128 )) + \
-                                                         MAX_PERMITTED_DATA_INCREASE                                                                                + \
-                                                         sizeof(ulong))              /* rent_epoch        */
+#define FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)                                                                                              \
+                                              (1UL                         /* dup byte          */                                                        + \
+                                               sizeof(uchar)               /* is_signer         */                                                        + \
+                                               sizeof(uchar)               /* is_writable       */                                                        + \
+                                               sizeof(uchar)               /* executable        */                                                        + \
+                                               sizeof(uint)                /* original_data_len */                                                        + \
+                                               sizeof(fd_pubkey_t)         /* key               */                                                        + \
+                                               sizeof(fd_pubkey_t)         /* owner             */                                                        + \
+                                               sizeof(ulong)               /* lamports          */                                                        + \
+                                               sizeof(ulong)               /* data len          */                                                        + \
+                                               (direct_mapping ? FD_BPF_ALIGN_OF_U128 : FD_ULONG_ALIGN_UP( FD_RUNTIME_ACC_SZ_MAX, FD_BPF_ALIGN_OF_U128 )) + \
+                                               MAX_PERMITTED_DATA_INCREASE                                                                                + \
+                                               sizeof(ulong))              /* rent_epoch        */
+#define FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT (8UL) /* 1 dup byte + 7 bytes for padding */
 
-#define FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                       \
-                                              (FD_ULONG_ALIGN_UP( (sizeof(ulong)         /* acct_cnt       */                                          + \
-                                                                   account_lock_limit*FD_RUNTIME_INPUT_REGION_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping) + \
-                                                                   sizeof(ulong)         /* instr data len */                                          + \
-                                                                                         /* No instr data  */                                            \
-                                                                   sizeof(fd_pubkey_t)), /* program id     */                                            \
-                                                                   FD_RUNTIME_EBPF_HOST_ALIGN ) + FD_BPF_ALIGN_OF_U128)
+#define FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(account_lock_limit, direct_mapping)                                                                      \
+                                              (FD_ULONG_ALIGN_UP( (sizeof(ulong)         /* acct_cnt       */                                       + \
+                                                                   account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)        + \
+                                                                   (FD_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
+                                                                   sizeof(ulong)         /* instr data len */                                       + \
+                                                                   FD_TXN_MTU            /* No instr data  */                                       + \
+                                                                   sizeof(fd_pubkey_t)), /* program id     */                                          \
+                                                                   FD_RUNTIME_EBPF_HOST_ALIGN ))
 
-#define FD_RUNTIME_INPUT_REGION_TXN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                           \
-                                             ((FD_MAX_INSTRUCTION_STACK_DEPTH*FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)) + \
-                                              ((FD_TXN_MTU-FD_TXN_MIN_SERIALIZED_SZ-account_lock_limit)*8UL)) /* We can have roughly this much duplicate offsets */
+
+
+#define BPF_LOADER_SERIALIZATION_FOOTPRINT (671752960UL)
+FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0), bpf_loader_serialization_footprint );
 
 /* Bincode alloc footprint over the execution of a single transaction.
    As well as other footprint specific to each native program type.
@@ -180,6 +210,9 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 #define FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX (2048UL)
 #define FD_RUNTIME_VM_TRACE_FOOTPRINT      (FD_MAX_INSTRUCTION_STACK_DEPTH*fd_ulong_align_up( fd_vm_trace_footprint( FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ), fd_vm_trace_align() ))
 
+#define FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT (FD_RUNTIME_VM_TRACE_EVENT_MAX + sizeof(fd_vm_trace_t))
+#define FD_RUNTIME_VM_TRACE_STATIC_ALIGN     (8UL)
+
 #define FD_RUNTIME_MISC_FOOTPRINT (FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT)
 #define FD_SOLFUZZ_MISC_FOOTPRINT (FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT + FD_RUNTIME_VM_TRACE_FOOTPRINT)
 
@@ -196,53 +229,6 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0) + FD_SOLFUZZ_MISC_FOOTPRINT
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 
-/* Helpers for runtime public frame management. */
-
-/* Helpers for runtime spad frame management. */
-struct fd_runtime_spad_verify_handle_private {
-  fd_spad_t *         spad;
-  fd_exec_txn_ctx_t * txn_ctx;
-};
-typedef struct fd_runtime_spad_verify_handle_private fd_runtime_spad_verify_handle_private_t;
-
-static inline void
-fd_runtime_spad_private_frame_end( fd_runtime_spad_verify_handle_private_t * _spad_handle ) {
-  /* fd_spad_verify() returns 0 if everything looks good, and non-zero
-     otherwise.
-
-     Since the fast spad alloc API doesn't check for or indicate an OOM
-     situation and is going to happily permit an OOB alloc, we need
-     some way of detecting that. Moreover, we would also like to detect
-     unbalanced frame push/pop or usage of more frames than allowed.
-     While surrounding the spad with guard regions will help detect the
-     former, it won't necessarily catch the latter.
-
-     On compliant transactions, fd_spad_verify() isn't all that
-     expensive.  Nonetheless, We invoke fd_spad_verify() only at the
-     peak of memory usage, and not gratuitously everywhere. One peak
-     would be right before we do the most deeply nested spad frame pop.
-     However, we do pops through compiler-inserted cleanup functions
-     that take only a single pointer, so we define this helper function
-     to access the needed context info.  The end result is that we do
-     super fast spad calls everywhere in the runtime, and every now and
-     then we invoke verify to check things. */
-  /* -1UL because spad pop is called after instr stack pop. */
-  if( FD_UNLIKELY( _spad_handle->txn_ctx->instr_stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH-1UL && fd_spad_verify( _spad_handle->txn_ctx->spad ) ) ) {
-    uchar const * txn_signature = (uchar const *)fd_txn_get_signatures( TXN( &_spad_handle->txn_ctx->txn ), _spad_handle->txn_ctx->txn.payload );
-    FD_BASE58_ENCODE_64_BYTES( txn_signature, sig );
-    FD_LOG_ERR(( "spad corrupted or overflown on transaction %s", sig ));
-  }
-  fd_spad_pop( _spad_handle->spad );
-}
-
-#define FD_RUNTIME_TXN_SPAD_FRAME_BEGIN(_spad, _txn_ctx) do {                                                        \
-  fd_runtime_spad_verify_handle_private_t _spad_handle __attribute__((cleanup(fd_runtime_spad_private_frame_end))) = \
-    (fd_runtime_spad_verify_handle_private_t) { .spad = _spad, .txn_ctx = _txn_ctx };                                \
-  fd_spad_push( _spad_handle.spad );                                                                                 \
-  do
-
-#define FD_RUNTIME_TXN_SPAD_FRAME_END while(0); } while(0)
-
 FD_PROTOTYPES_BEGIN
 
 /* Runtime Helpers ************************************************************/
@@ -257,21 +243,8 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
-fd_runtime_update_leaders( fd_bank_t * bank,
-                           fd_spad_t * runtime_spad );
-
-/* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
-   and will be torn out entirely very soon. */
-ulong
-fd_runtime_collect_rent_from_account( fd_epoch_schedule_t const * schedule,
-                                      fd_rent_t const *           rent,
-                                      double                      slots_per_year,
-                                      fd_txn_account_t *          acc,
-                                      ulong                       epoch );
-
-void
-fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
-                                   ulong       slots_per_epoch );
+fd_runtime_update_leaders( fd_bank_t *          bank,
+                           fd_runtime_stack_t * runtime_stack );
 
 /* Block Level Execution Prep/Finalize ****************************************/
 
@@ -284,141 +257,6 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
 #define FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT (6UL)
 #define FD_BLOCK_ERR_TRAILING_ENTRY          (7UL)
 #define FD_BLOCK_ERR_DUPLICATE_BLOCK         (8UL)
-
-/*
-   https://github.com/anza-xyz/agave/blob/v2.1.0/ledger/src/blockstore_processor.rs#L1096
-   This function assumes a full block.
-   This needs to be called after epoch processing to get the up to date
-   hashes_per_tick.
-
-   Provide scratch memory >= the max size of a batch to use. This is because we can only
-   assemble shreds by batch, so we iterate and assemble shreds by batch in this function
-   without needing the caller to do so.
- */
-// FD_FN_UNUSED ulong /* FIXME */
-// fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
-//                                ulong             slot,
-//                                uchar *           block_data_mem,
-//                                ulong             block_data_sz,
-//                                ulong             tick_height,
-//                                ulong             max_tick_height,
-//                                ulong             hashes_per_tick );
-
-/* The following microblock-level functions are exposed and non-static due to also being used for fd_replay.
-   The block-level equivalent functions, on the other hand, are mostly static as they are only used
-   for offline replay */
-
-/* extra fine-grained streaming tick verification */
-// FD_FN_UNUSED int /* FIXME */
-// fd_runtime_microblock_verify_ticks( fd_blockstore_t *           blockstore,
-//                                     ulong                       slot,
-//                                     fd_microblock_hdr_t const * hdr,
-//                                     bool               slot_complete,
-//                                     ulong              tick_height,
-//                                     ulong              max_tick_height,
-//                                     ulong              hashes_per_tick );
-
-/*
-   fd_runtime_microblock_verify_read_write_conflicts verifies that a
-   list of txns (e.g., those in a microblock) do not have read-write
-   or write-write conflits. FD_TXN_CONFLICT_MAP_MAX_NACCT defines a
-   conservative estimation of the number of accounts touched by txns
-   in one slot. Given the conservative estimation, the footprint of
-   the account map (fd_conflict_detect_map) is about 2112MB. One can
-   certainly use a better estimation leading to a smaller footprint.
-
-   this function corresponds to try_lock_accounts in Agave which
-   detects transaction conflicts:
-   https://github.com/anza-xyz/agave/blob/v2.2.3/runtime/src/bank.rs
-   #L3145
-
-   Specifically, from the replay stage of Agave, the control flow is
-   (1) replay_blockstore_into_bank: https://github.com/anza-xyz/agave/
-   blob/v2.2.3/core/src/replay_stage.rs#L2232
-   (2) confirm_slot: https://github.com/anza-xyz/agave/blob/v2.2.3/
-   ledger/src/blockstore_processor.rs#L1561
-   (3) confirm_slot_entries: https://github.com/anza-xyz/agave/blob/
-   v2.2.3/ledger/src/blockstore_processor.rs#L1609
-   (4) process_entries: https://github.com/anza-xyz/agave/blob/v2.2.3/
-   ledger/src/blockstore_processor.rs#L704
-   (5) queue_batches_with_lock_retry: https://github.com/anza-xyz/agave/
-   blob/v2.2.3/ledger/src/blockstore_processor.rs#L789
-   (6) bank.try_lock_accounts is called in queue_batches_with_lock_retry
-   (7) this try_lock_accounts eventually calls another try_lock_accounts,
-       (see https://github.com/anza-xyz/agave/blob/v2.2.3/accounts-db/src
-       /account_locks.rs#L24), which acquires the locks and returns
-       TransactionError::AccountInUse if r-w or w-w conflict is detected
-   (8) when calling try_lock_accounts, function accounts_with_is_writable
-   is used to decide whether an account is writable (see https://github.
-   com/anza-xyz/agave/blob/v2.2.3/accounts-db/src/accounts.rs#L605) which
-   internally calls the is_writable function depending on whether the txn
-   is legacy or V0:
-
-   is_writable for legacy: https://github.com/anza-xyz/solana-sdk/blob/
-   message%40v2.2.1/message/src/sanitized.rs#L75
-
-   is_writable for V0: https://github.com/anza-xyz/solana-sdk/blob/
-   message%40v2.2.1/message/src/versions/v0/loaded.rs#L152
-
-   In both cases, Agave does the following check in addition to whether
-   an account has been specified as writable in the transaction message
-   (https://github.com/anza-xyz/solana-sdk/blob/message%40v2.2.1/message
-   /src/versions/v0/loaded.rs#L146). This additional check is handled by
-   function fd_txn_account_is_writable_idx_flat in our code.
-
-   txns is an array containing txn_cnt transactions in fd_txn_p_t type;
-   acct_map is used to detect conflicts and acct_arr is used to clear the
-   map before the function returns; funk and funk_txn are used to read
-   Solana accounts for address lookup tables; slot and slot_hashes are
-   needed for checking certain bounds in the address lookup table system
-   program; features is needed in fd_txn_account_is_writable_idx_flat to
-   decide whether a writable account is demoted to read-only.
-
-   If an error occurs in runtime, the function returns the runtime error.
-   If there's no conflict, the return value is FD_RUNTIME_EXECUTE_SUCCESS
-   and out_conflict_detected will be 0. If there's a conflict, the return
-   value is FD_RUNTIME_TXN_ERR_ACCOUNT_IN_USE and out_conflict_detected
-   will be 1 (read-write) or 2 (write-write), and out_conflict_addr_opt,
-   if not NULL, will hold the account address causing the conflict.
- */
-struct fd_conflict_detect_ele {
-  fd_acct_addr_t key;
-  uchar          writable;
-};
-typedef struct fd_conflict_detect_ele fd_conflict_detect_ele_t;
-#define FD_TXN_CONFLICT_MAP_SEED        (0UL)
-#define FD_TXN_CONFLICT_MAP_MAX_NACCT   (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT / FD_TXN_MIN_SERIALIZED_SZ * FD_TXN_ACCT_ADDR_MAX)
-
-static const fd_acct_addr_t fd_acct_addr_null = {.b={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF}};
-#define MAP_NAME              fd_conflict_detect_map
-#define MAP_KEY_T             fd_acct_addr_t
-#define MAP_T                 fd_conflict_detect_ele_t
-#define MAP_HASH_T            ulong
-#define MAP_KEY_NULL          (fd_acct_addr_null)
-#define MAP_KEY_EQUAL(k0,k1)  (0==memcmp((k0).b,(k1).b,32))
-#define MAP_KEY_HASH(key)     fd_hash( FD_TXN_CONFLICT_MAP_SEED, key.b, 32 )
-#define MAP_KEY_INVAL(k)      (0==memcmp(&fd_acct_addr_null, (k).b, 32))
-#define MAP_KEY_EQUAL_IS_SLOW 0
-#define MAP_MEMOIZE           0
-
-#include "../../util/tmpl/fd_map_dynamic.c"
-
-#define FD_RUNTIME_NO_CONFLICT_DETECTED          0
-#define FD_RUNTIME_READ_WRITE_CONFLICT_DETECTED  1
-#define FD_RUNTIME_WRITE_WRITE_CONFLICT_DETECTED 2
-
-int
-fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *               txns,
-                                                   ulong                      txn_cnt,
-                                                   fd_conflict_detect_ele_t * acct_map,
-                                                   fd_acct_addr_t *           acct_arr,
-                                                   fd_funk_t *                funk,
-                                                   fd_funk_txn_xid_t const *  xid,
-                                                   ulong                      slot,
-                                                   fd_slot_hash_t *           slot_hashes,
-                                                   fd_features_t *            features,
-                                                   int *                      out_conflict_detected,
-                                                   fd_acct_addr_t *           out_conflict_addr_opt );
 
 /* Load the accounts in the address lookup tables of txn into out_accts_alt */
 int
@@ -434,17 +272,41 @@ fd_runtime_load_txn_address_lookup_tables(
 
 int
 fd_runtime_block_execute_prepare( fd_bank_t *               bank,
-                                  fd_funk_t *               funk,
+                                  fd_accdb_user_t  *        accdb,
                                   fd_funk_txn_xid_t const * xid,
-                                  fd_capture_ctx_t *        capture_ctx,
-                                  fd_spad_t *               runtime_spad );
+                                  fd_runtime_stack_t *      runtime_stack,
+                                  fd_capture_ctx_t *        capture_ctx );
 
 void
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
-                                   fd_funk_t *               funk,
+                                   fd_accdb_user_t  *        accdb,
                                    fd_funk_txn_xid_t const * xid,
                                    fd_capture_ctx_t *        capture_ctx,
                                    int                       silent );
+
+/* fd_runtime_new_fee_rate_governor_derived updates the bank's
+   FeeRateGovernor to a new derived value based on the parent bank's
+   FeeRateGovernor and the latest_signatures_per_slot.
+   https://github.com/anza-xyz/solana-sdk/blob/badc2c40071e6e7f7a8e8452b792b66613c5164c/fee-calculator/src/lib.rs#L97-L157
+
+   latest_signatures_per_slot is typically obtained from the parent
+   slot's signature count for the bank being processed.
+
+   The fee rate governor is deprecated in favor of FeeStructure in
+   transaction fee calculations but we still need to maintain the old
+   logic for recent blockhashes sysvar (and nonce logic that relies on
+   it). Thus, a separate bank field, `rbh_lamports_per_sig`, tracks the
+   updates to the fee rate governor derived lamports-per-second value.
+
+   Relevant links:
+   - Deprecation issue tracker:
+     https://github.com/anza-xyz/agave/issues/3303
+   - PR that deals with disambiguation between FeeStructure and
+     FeeRateGovernor in SVM: https://github.com/anza-xyz/agave/pull/3216
+  */
+void
+fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
+                                          ulong       latest_signatures_per_slot );
 
 /* Transaction Level Execution Management *************************************/
 
@@ -456,11 +318,14 @@ fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx );
    transaction. */
 
 int
-fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
-                                    ulong               bank_idx,
-                                    fd_exec_txn_ctx_t * txn_ctx,
-                                    fd_txn_p_t *        txn,
-                                    fd_capture_ctx_t *  capture_ctx );
+fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
+                                    fd_exec_txn_ctx_t *  txn_ctx,
+                                    fd_txn_p_t *         txn,
+                                    fd_capture_ctx_t *   capture_ctx,
+                                    fd_exec_stack_t *    exec_stack,
+                                    fd_exec_accounts_t * exec_accounts,
+                                    uchar *              dumping_mem,
+                                    uchar *              tracing_mem );
 
 void
 fd_runtime_finalize_txn( fd_funk_t *               funk,
@@ -469,7 +334,8 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
                          fd_funk_txn_xid_t const * xid,
                          fd_exec_txn_ctx_t *       txn_ctx,
                          fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx );
+                         fd_capture_ctx_t *        capture_ctx,
+                         ulong *                   tips_out_opt );
 
 /* Epoch Boundary *************************************************************/
 
@@ -481,10 +347,10 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
                                                 fd_bank_t *               bank,
-                                                fd_funk_t *               funk,
+                                                fd_accdb_user_t *         accdb,
                                                 fd_funk_txn_xid_t const * xid,
                                                 fd_capture_ctx_t *        capture_ctx,
-                                                fd_spad_t *               runtime_spad,
+                                                fd_runtime_stack_t *      runtime_stack,
                                                 int *                     is_epoch_boundary );
 
 /* Offline Replay *************************************************************/
@@ -492,13 +358,13 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
 void
 fd_runtime_read_genesis( fd_banks_t *                       banks,
                          fd_bank_t *                        bank,
-                         fd_funk_t *                        funk,
+                         fd_accdb_user_t *                  accdb,
                          fd_funk_txn_xid_t const *          xid,
                          fd_capture_ctx_t *                 capture_ctx,
                          fd_hash_t const *                  genesis_hash,
                          fd_lthash_value_t const *          genesis_lthash,
                          fd_genesis_solana_global_t const * genesis_block,
-                         fd_spad_t *                        runtime_spad );
+                         fd_runtime_stack_t *               runtime_stack );
 
 
 /* Returns whether the specified epoch should use the new vote account

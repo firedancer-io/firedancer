@@ -209,12 +209,30 @@ test_aes_128_ecb_( fd_aes_128_ecb_fixture_t const * ecb ) {
 }
 
 void
+test_aes_128_ecb_api( fd_aes_128_ecb_fixture_t const * ecb ) {
+
+  fd_aes_key_t key[1];
+  uchar c[ 16 ];
+  uchar p[ 16 ];
+
+  fd_aes_set_encrypt_key( ecb->k, 128, key );
+  fd_aes_encrypt( ecb->p, c, key );
+  FD_TEST( 0==memcmp( c, ecb->c, 16 ) );
+
+  fd_aes_set_decrypt_key( ecb->k, 128, key );
+  fd_aes_decrypt( ecb->c, p, key );
+  FD_TEST( 0==memcmp( p, ecb->p, 16 ) );
+
+}
+
+void
 test_aes_128_ecb( void ) {
   fd_aes_128_ecb_fixture_t const * v  = fd_aes_128_ecb_test_vec;
   fd_aes_128_ecb_fixture_t const * v1 = v + sizeof(fd_aes_128_ecb_test_vec)/sizeof(fd_aes_128_ecb_fixture_t);
 
   while( v<v1 ) {
     test_aes_128_ecb_( v++ );
+    test_aes_128_ecb_api( v++ );
   }
 
   FD_LOG_INFO(( "OK: AES-128-ECB encrypt+decrypt (ref)" ));

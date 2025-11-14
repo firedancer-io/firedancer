@@ -1,9 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 #define HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 
-#include "../../fd_flamenco_base.h"
-#include "../../types/fd_types.h"
 #include "../fd_txn_account.h"
+#include "../fd_executor_err.h"
+#include "../../../ballet/txn/fd_txn.h"
 
 /* While the maximum number of instruction accounts allowed for instruction
    execution is 256, it is entirely possible to have a transaction with more
@@ -130,7 +130,7 @@ fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,
     - 0 if the query was successful. Check the return value to see
       if the account is a signer.
 
-  https://github.com/firedancer-io/agave/blob/9e6bb8209d012e819e55ad90949dec17bc150fca/transaction-context/src/lib.rs#L782-L791    */
+  https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L782-L791    */
 FD_FN_PURE static inline int
 fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
                             ushort                  idx,

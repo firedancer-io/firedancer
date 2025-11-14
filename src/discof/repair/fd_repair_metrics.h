@@ -18,7 +18,7 @@ struct fd_slot_metrics {
 };
 typedef struct fd_slot_metrics fd_slot_metrics_t;
 
-#define FD_CATCHUP_METRICS_MAX 256
+#define FD_CATCHUP_METRICS_MAX 16384
 
 struct fd_repair_metrics_t {
   fd_slot_metrics_t slots[ FD_CATCHUP_METRICS_MAX ];
@@ -50,6 +50,9 @@ fd_repair_metrics_set_turbine_slot0( fd_repair_metrics_t * repair_metrics, ulong
 
 void
 fd_repair_metrics_print( fd_repair_metrics_t * repair_metrics, int verbose );
+
+void
+fd_repair_metrics_print_sorted( fd_repair_metrics_t * repair_metrics, int verbose, fd_slot_metrics_t * temp_slots );
 
 void
 fd_repair_metrics_add_slot( fd_repair_metrics_t * repair_metrics, ulong slot, long first_ts, long slot_complete_ts, uint repair_cnt, uint turbine_cnt );
