@@ -671,6 +671,35 @@ fd_gui_printf_live_txn_waterfall( fd_gui_t *                     gui,
 }
 
 static void
+fd_gui_printf_network_metrics( fd_gui_t *                     gui,
+                               fd_gui_network_stats_t const * cur ) {
+  jsonp_open_array( gui->http, "ingress" );
+    jsonp_ulong( gui->http, NULL, cur->in.turbine );
+    jsonp_ulong( gui->http, NULL, cur->in.gossip  );
+    jsonp_ulong( gui->http, NULL, cur->in.tpu     );
+    jsonp_ulong( gui->http, NULL, cur->in.repair  );
+    jsonp_ulong( gui->http, NULL, cur->in.metric  );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "egress" );
+    jsonp_ulong( gui->http, NULL, cur->out.turbine );
+    jsonp_ulong( gui->http, NULL, cur->out.gossip  );
+    jsonp_ulong( gui->http, NULL, cur->out.tpu     );
+    jsonp_ulong( gui->http, NULL, cur->out.repair  );
+    jsonp_ulong( gui->http, NULL, cur->out.metric  );
+  jsonp_close_array( gui->http );
+}
+
+void
+fd_gui_printf_live_network_metrics( fd_gui_t *                     gui,
+                                    fd_gui_network_stats_t const * cur ) {
+  jsonp_open_envelope( gui->http, "summary", "live_network_metrics" );
+    jsonp_open_object( gui->http, "value" );
+      fd_gui_printf_network_metrics( gui, cur );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+}
+
+static void
 fd_gui_printf_tile_stats( fd_gui_t *                  gui,
                           fd_gui_tile_stats_t const * prev,
                           fd_gui_tile_stats_t const * cur ) {

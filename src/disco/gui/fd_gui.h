@@ -257,6 +257,19 @@ struct fd_gui_scheduler_counts {
 
 typedef struct fd_gui_scheduler_counts fd_gui_scheduler_counts_t;
 
+struct fd_gui_network_stats {
+  /* total bytes accumulated */
+  struct {
+    ulong turbine;
+    ulong gossip;
+    ulong tpu;
+    ulong repair;
+    ulong metric;
+  } in, out;
+};
+
+typedef struct fd_gui_network_stats fd_gui_network_stats_t;
+
 struct fd_gui_leader_slot {
   ulong slot;
   fd_hash_t block_hash;
@@ -633,6 +646,8 @@ struct fd_gui {
 
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
+
+    fd_gui_network_stats_t network_stats_current[ 1 ];
 
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];

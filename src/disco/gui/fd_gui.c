@@ -1,6 +1,7 @@
 #include "fd_gui.h"
 #include "fd_gui_peers.h"
 #include "fd_gui_printf.h"
+#include "fd_gui_metrics.h"
 
 #include "../metrics/fd_metrics.h"
 #include "../plugin/fd_plugin.h"
@@ -395,6 +396,82 @@ fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
   gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 1 ] = vote_txn_cnt;
   gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 2 ] = nonvote_failed_txn_cnt;
   gui->summary.estimated_tps_history_idx = (gui->summary.estimated_tps_history_idx+1UL) % FD_GUI_TPS_HISTORY_SAMPLE_CNT;
+}
+
+static void
+fd_gui_network_stats_snap( fd_gui_t *               gui,
+                           fd_gui_network_stats_t * cur ) {
+  fd_topo_t * topo = gui->topo;
+  ulong gossvf_tile_cnt = fd_topo_tile_name_cnt( topo, "gossvf" );
+  ulong gossip_tile_cnt = fd_topo_tile_name_cnt( topo, "gossip" );
+  ulong shred_tile_cnt  = fd_topo_tile_name_cnt( topo, "shred" );
+  ulong net_tile_cnt    = fd_topo_tile_name_cnt( topo, "net" );
+  ulong quic_tile_cnt   = fd_topo_tile_name_cnt( topo, "quic" );
+
+  cur->in.gossip   = fd_gui_metrics_gossip_total_ingress_bytes( topo, gossvf_tile_cnt );
+  cur->out.gossip  = fd_gui_metrics_gosip_total_egress_bytes( topo, gossip_tile_cnt );
+  cur->in.turbine  = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_TURBINE_RCV_BYTES ) );
+
+  cur->out.turbine = 0UL;
+  cur->out.repair  = 0UL;
+  cur->out.tpu     = 0UL;
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    ulong net_tile_idx = fd_topo_find_tile( topo, "net", i );
+    if( FD_UNLIKELY( net_tile_idx==ULONG_MAX ) ) continue;
+    fd_topo_tile_t const * net = &topo->tiles[ net_tile_idx ];
+    for( ulong j=0UL; j<net->in_cnt; j++ ) {
+      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "shred_net" ) ) ) {
+          cur->out.turbine += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+      }
+
+      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "repair_net" ) ) ) {
+          cur->out.repair += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+      }
+
+      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "send_net" ) ) ) {
+          cur->out.tpu += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+      }
+    }
+  }
+
+  cur->in.repair = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_OUT_RCV_BYTES ) );
+  ulong repair_tile_idx = fd_topo_find_tile( topo, "repair", 0UL );
+  if( FD_LIKELY( repair_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * repair = &topo->tiles[ repair_tile_idx ];
+
+    for( ulong i=0UL; i<repair->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !strcmp( topo->links[ repair->in_link_id[ i ] ].name, "net_repair" ) ) ) {
+          cur->in.repair += fd_metrics_link_in( repair->metrics, i )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+      }
+    }
+  }
+
+  cur->in.tpu = 0UL;
+  for( ulong i=0UL; i<quic_tile_cnt; i++ ) {
+    ulong quic_tile_idx = fd_topo_find_tile( topo, "quic", i );
+    if( FD_UNLIKELY( quic_tile_idx==ULONG_MAX ) ) continue;
+    fd_topo_tile_t const * quic = &topo->tiles[ quic_tile_idx ];
+    volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
+    cur->in.tpu += quic_metrics[ MIDX( COUNTER, QUIC, RECEIVED_BYTES ) ];
+  }
+
+  ulong bundle_tile_idx = fd_topo_find_tile( topo, "bundle", 0UL );
+  if( FD_LIKELY( bundle_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * bundle = &topo->tiles[ bundle_tile_idx ];
+    volatile ulong * bundle_metrics = fd_metrics_tile( bundle->metrics );
+    cur->in.tpu += bundle_metrics[ MIDX( COUNTER, BUNDLE, PROTO_RECEIVED_BYTES ) ];
+  }
+
+  ulong metric_tile_idx = fd_topo_find_tile( topo, "metric", 0UL );
+  if( FD_LIKELY( metric_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * metric = &topo->tiles[ metric_tile_idx ];
+    volatile ulong * metric_metrics = fd_metrics_tile( metric->metrics );
+    cur->in.metric  = metric_metrics[ MIDX( COUNTER, METRIC, BYTES_READ ) ];
+    cur->out.metric = metric_metrics[ MIDX( COUNTER, METRIC, BYTES_WRITTEN ) ];
+  } else {
+    cur->in.metric  = 0UL;
+    cur->out.metric = 0UL;
+  }
 }
 
 /* Snapshot all of the data from metrics to construct a view of the
@@ -826,6 +903,10 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
   if( FD_LIKELY( now>gui->next_sample_100millis ) ) {
     fd_gui_txn_waterfall_snap( gui, gui->summary.txn_waterfall_current );
     fd_gui_printf_live_txn_waterfall( gui, gui->summary.txn_waterfall_reference, gui->summary.txn_waterfall_current, 0UL /* TODO: REAL NEXT LEADER SLOT */ );
+    fd_http_server_ws_broadcast( gui->http );
+
+    fd_gui_network_stats_snap( gui, gui->summary.network_stats_current );
+    fd_gui_printf_live_network_metrics( gui, gui->summary.network_stats_current );
     fd_http_server_ws_broadcast( gui->http );
 
     *gui->summary.tile_stats_reference = *gui->summary.tile_stats_current;
