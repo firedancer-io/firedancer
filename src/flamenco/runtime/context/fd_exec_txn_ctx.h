@@ -177,8 +177,8 @@ FD_PROTOTYPES_BEGIN
 
 #else
 
-#define FD_TXN_TEST_ERR_OVERWRITE( txn_ctx ) ( ( void )0 )
-#define FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx ) ( ( void )0 )
+#define FD_TXN_TEST_ERR_OVERWRITE( txn_out ) ( ( void )0 )
+#define FD_TXN_PREPARE_ERR_OVERWRITE( txn_out ) ( ( void )0 )
 
 #endif
 

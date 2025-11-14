@@ -1258,7 +1258,7 @@ fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
 
   /* Only report the stack pop error on success */
   if( FD_UNLIKELY( instr_exec_result==FD_EXECUTOR_INSTR_SUCCESS && stack_pop_err ) ) {
-    FD_TXN_PREPARE_ERR_OVERWRITE( instr_ctx->txn_ctx );
+    FD_TXN_PREPARE_ERR_OVERWRITE( instr_ctx->txn_out );
     FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, stack_pop_err, instr_ctx->txn_out->err.exec_err_idx );
     instr_exec_result = stack_pop_err;
   }
@@ -1306,7 +1306,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
                                                               &is_precompile );
 
   if( FD_UNLIKELY( err ) ) {
-    FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+    FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
     FD_TXN_ERR_FOR_LOG_INSTR( txn_out, err, txn_out->err.exec_err_idx );
     return err;
   }
@@ -1345,12 +1345,12 @@ fd_execute_instr( fd_runtime_t *      runtime,
        is not set yet. We should change our native programs to set
        this in their respective processors. */
     if( !txn_out->err.exec_err ) {
-      FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+      FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
       FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
       fd_log_collector_program_failure( ctx );
     } else {
       fd_log_collector_program_failure( ctx );
-      FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+      FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
       FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
     }
   }
