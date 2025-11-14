@@ -515,10 +515,10 @@ $(OBJDIR)/cov/cov.profdata: $(wildcard $(OBJDIR)/cov/raw/*.profraw)
 # objects compiled from assembly code.
 .PHONY: $(OBJDIR)/cov/mappings.ar
 $(OBJDIR)/cov/mappings.ar:
-	rm -f $(OBJDIR)/cov/mappings.ar &&                       \
-  $(MKDIR) $(dir $@) &&                                    \
-  find $(addsuffix /obj,$(OBJDIR)) -name '*.o' -exec sh -c \
-    '[ -n "`llvm-objdump -h $$1 | grep llvm_covmap`" ]     \
+	rm -f $(OBJDIR)/cov/mappings.ar &&                        \
+  $(MKDIR) $(dir $@) &&                                       \
+  $(FIND) $(addsuffix /obj,$(OBJDIR)) -name '*.o' -exec sh -c \
+    '[ -n "`llvm-objdump -h $$1 | $(GREP) llvm_covmap`" ]     \
     && llvm-ar --thin q $@ $$1' sh {} \;
 
 # llvm-cov step 1.5
@@ -535,7 +535,7 @@ endif
 
 # llvm-cov step 2.1
 # Merge multiple lcov files together
-$(BASEDIR)/cov/cov.lcov: $(shell find $(BASEDIR) -name 'cov.lcov' -print)
+$(BASEDIR)/cov/cov.lcov: $(shell $(FIND) $(BASEDIR) -name 'cov.lcov' -print)
 	$(MKDIR) $(BASEDIR)/cov && $(LCOV) -o $@ $(addprefix -a ,$^)
 
 # llvm-cov step 1.6, 2.2
@@ -577,7 +577,7 @@ frontend: frontend-clean
 	for release_channel in stable alpha dev; do \
 		counter=0; \
 		if [ ! -d "src/disco/gui/dist_$$release_channel" ]; then continue; fi; \
-		for file in $$(find src/disco/gui/dist_$$release_channel -type f | sort); do \
+		for file in $$($(FIND) src/disco/gui/dist_$$release_channel -type f | sort); do \
 			compress_prefix=$$(echo "$$file" | sed "s|src/disco/gui/dist_$${release_channel}/|src/disco/gui/dist_$${release_channel}_cmp/|"); \
 			echo "FD_IMPORT_BINARY( file_$$release_channel$$counter, \"$$file\" );" >> src/disco/gui/generated/http_import_dist.c; \
 			echo "FD_IMPORT_BINARY( file_$$release_channel$${counter}_zstd, \"$${compress_prefix}.zst\" );" >> src/disco/gui/generated/http_import_dist.c; \
@@ -590,7 +590,7 @@ frontend: frontend-clean
 	for release_channel in stable alpha dev; do \
 		echo "fd_http_static_file_t STATIC_FILES_$$(echo $$release_channel | tr '[:lower:]' '[:upper:]')[] = {" >> src/disco/gui/generated/http_import_dist.c; \
 		counter=0; \
-		for file in $$(find src/disco/gui/dist_$$release_channel -type f | sort); do \
+		for file in $$($(FIND) src/disco/gui/dist_$$release_channel -type f | sort); do \
 			stripped_file=$$(echo $$file | sed "s|^src/disco/gui/dist_$$release_channel/||"); \
 			echo "	{" >> src/disco/gui/generated/http_import_dist.c; \
 			echo "		.name = \"/$$stripped_file\"," >> src/disco/gui/generated/http_import_dist.c; \
