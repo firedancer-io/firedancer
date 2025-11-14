@@ -317,7 +317,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       fd_vm_cpi_caller_account_t * caller_account = caller_accounts + *out_len;
       /* Record the indicies of this account */
       ushort index_in_caller = instruction_accounts[i].index_in_caller;
-      if (instruction_accounts[i].is_writable) {
+      if( vm->stricter_abi_and_runtime_constraints || instruction_accounts[i].is_writable ) {
         out_callee_indices[*out_len] = index_in_caller;
         out_caller_indices[*out_len] = j;
         (*out_len)++;
@@ -480,12 +480,14 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       ////// END from_account_info
 
       // TODO We should be able to cache the results of translation and reuse them in the update function.
-      /* Update the callee account to reflect any changes the caller has made
-         https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L863-L873 */
-      int err = VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( vm, caller_account, (uchar)index_in_caller );
-      if( FD_UNLIKELY( err ) ) {
-        /* errors are propagated in the function itself. */
-        return err;
+      /* Update the callee account to reflect any changes the caller has made.
+         This code is split out under stricter_abi_and_runtime_constraints
+         https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/program-runtime/src/cpi.rs#L1092-L1106 */
+      if( !vm->stricter_abi_and_runtime_constraints ) {
+        int err = VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( vm, caller_account, (uchar)index_in_caller );
+        if( FD_UNLIKELY( err ) ) {
+          return err;
+        }
       }
     }
 
@@ -863,6 +865,20 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   );
   /* errors are propagated in the function itself. */
   if( FD_UNLIKELY( err ) ) return err;
+
+  /* Before stricter_abi_and_runtime_constraints, this happens in
+     VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC.
+     https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/program-runtime/src/cpi.rs#L856-L876 */
+  if( vm->stricter_abi_and_runtime_constraints ) {
+    for( ulong i=0UL; i<caller_accounts_to_update_len; i++ ) {
+      /* Update the callee account to reflect any changes the caller has made
+         https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/program-runtime/src/cpi.rs#L866-L872 */
+      err = VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( vm, caller_accounts + i, (uchar)callee_account_keys[i] );
+      if( FD_UNLIKELY( err ) ) {
+        return err;
+      }
+    }
+  }
 
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
