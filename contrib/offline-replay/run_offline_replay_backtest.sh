@@ -40,7 +40,7 @@ EOF
     curl -X POST -H 'Content-type: application/json' --data "$json_payload" $SLACK_DEBUG_WEBHOOK_URL
 }
 
-send_slack_message "Starting $NETWORK-offline-replay run on \`$(hostname)\` in \`$(pwd)\` with agave tag \`$AGAVE_TAG\`
+send_slack_message "Starting $NETWORK-offline-replay run on \`$(hostname)\` in \`$(pwd)\` with agave tag \`$AGAVE_TAG\`"
 CURRENT_MISMATCH_COUNT=0
 CURRENT_FAILURE_COUNT=0
 
@@ -165,7 +165,7 @@ while true; do
 
         while [ $DONE -eq 0 ]; do
             cd $FIREDANCER_REPO
-            send_slack_message "Starting ledger replay with commit \`$FD_COMMIT\`
+            send_slack_message "Starting ledger replay with commit \`$FD_COMMIT\`"
             set +e
 
             cp $FIREDANCER_REPO/contrib/offline-replay/offline_replay.toml $LEDGER_DIR
