@@ -122,8 +122,8 @@ typedef struct {
       ulong slot;
     } repair_net;
 
-    uchar net_gossvf[ 1232UL ];
-    uchar gossip_net[ 1232UL ];
+    uchar net_gossvf[ FD_NET_MTU ];
+    uchar gossip_net[ FD_NET_MTU ];
   } parsed;
 
   fd_http_server_t * gui_server;
