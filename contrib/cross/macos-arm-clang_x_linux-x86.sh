@@ -9,7 +9,7 @@ mkdir -p "$PREFIX"
 cd "$PREFIX"
 
 macos_pkgs () {
-  local REQUIRED_FORMULAE=( rpm llvm lld coreutils findutils git make cmake )
+  local REQUIRED_FORMULAE=( rpm llvm lld coreutils findutils grep git make cmake )
 
   echo "[~] Checking for required brew formulae"
 
