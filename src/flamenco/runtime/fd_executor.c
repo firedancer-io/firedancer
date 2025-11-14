@@ -309,6 +309,7 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L77-L141 */
 static int
 fd_executor_check_transaction_age_and_compute_budget_limits( fd_runtime_t *      runtime,
+                                                             fd_txn_out_t *      txn_out,
                                                              fd_exec_txn_ctx_t * txn_ctx ) {
   /* Note that in Agave, although this function is called after the
      compute budget limits are sanitized, if the transaction age checks
@@ -321,7 +322,7 @@ fd_executor_check_transaction_age_and_compute_budget_limits( fd_runtime_t *     
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L103 */
-  err = fd_sanitize_compute_unit_limits( txn_ctx );
+  err = fd_sanitize_compute_unit_limits( txn_out, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
@@ -338,9 +339,10 @@ get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L61-L75 */
 int
 fd_executor_check_transactions( fd_runtime_t *      runtime,
+                                fd_txn_out_t *      txn_out,
                                 fd_exec_txn_ctx_t * txn_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L68-L73 */
-  int err = fd_executor_check_transaction_age_and_compute_budget_limits( runtime, txn_ctx );
+  int err = fd_executor_check_transaction_age_and_compute_budget_limits( runtime, txn_out, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
@@ -366,11 +368,12 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L5725-L5753 */
 int
-fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_executor_verify_transaction( fd_txn_out_t *      txn_out,
+                                fd_exec_txn_ctx_t * txn_ctx ) {
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L566-L569 */
-  err = fd_executor_compute_budget_program_execute_instructions( txn_ctx );
+  err = fd_executor_compute_budget_program_execute_instructions( txn_out, txn_ctx );
   if( FD_UNLIKELY( err ) ) return err;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -1256,7 +1259,7 @@ fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
   /* Only report the stack pop error on success */
   if( FD_UNLIKELY( instr_exec_result==FD_EXECUTOR_INSTR_SUCCESS && stack_pop_err ) ) {
     FD_TXN_PREPARE_ERR_OVERWRITE( instr_ctx->txn_ctx );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, stack_pop_err, instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, stack_pop_err, instr_ctx->txn_out->err.exec_err_idx );
     instr_exec_result = stack_pop_err;
   }
 
@@ -1265,13 +1268,14 @@ fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
 
 int
 fd_execute_instr( fd_runtime_t *      runtime,
+                  fd_txn_out_t *      txn_out,
                   fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( txn_ctx->bank );
   int instr_exec_result = fd_instr_stack_push( txn_ctx, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {
-    FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-    FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->err.exec_err_idx );
+    FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
+    FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
     return instr_exec_result;
   }
 
@@ -1283,6 +1287,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
     .txn_ctx      = txn_ctx,
     .sysvar_cache = sysvar_cache,
     .runtime      = runtime,
+    .txn_out      = txn_out,
   };
   fd_base58_encode_32( txn_ctx->accounts.accounts[ instr->program_id ].pubkey->uc, NULL, ctx->program_id_base58 );
 
@@ -1302,7 +1307,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
 
   if( FD_UNLIKELY( err ) ) {
     FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-    FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( txn_out, err, txn_out->err.exec_err_idx );
     return err;
   }
 
@@ -1321,8 +1326,8 @@ fd_execute_instr( fd_runtime_t *      runtime,
   } else {
     /* Unknown program. In this case specifically, we should not log the program id. */
     instr_exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
-    FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-    FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->err.exec_err_idx );
+    FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
+    FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
     return fd_execute_instr_end( ctx, instr, instr_exec_result );
   }
 
@@ -1339,14 +1344,14 @@ fd_execute_instr( fd_runtime_t *      runtime,
        TODO: This hackily handles cases where the exec_err and exec_err_kind
        is not set yet. We should change our native programs to set
        this in their respective processors. */
-    if( !txn_ctx->err.exec_err ) {
+    if( !txn_out->err.exec_err ) {
       FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
       fd_log_collector_program_failure( ctx );
     } else {
       fd_log_collector_program_failure( ctx );
       FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
     }
   }
 
@@ -1549,6 +1554,7 @@ fd_executor_txn_verify( fd_txn_p_t *  txn_p,
 
 int
 fd_execute_txn( fd_runtime_t *      runtime,
+                fd_txn_out_t *      txn_out,
                 fd_exec_txn_ctx_t * txn_ctx ) {
 
   bool dump_insn = txn_ctx->log.capture_ctx && fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot && txn_ctx->log.capture_ctx->dump_instr_to_pb;
@@ -1563,10 +1569,10 @@ fd_execute_txn( fd_runtime_t *      runtime,
       fd_dump_instr_to_protobuf( runtime, txn_ctx, &txn_ctx->instr.infos[i], i );
     }
 
-    int instr_exec_result = fd_execute_instr( runtime, txn_ctx, &txn_ctx->instr.infos[i] );
+    int instr_exec_result = fd_execute_instr( runtime, txn_out, txn_ctx, &txn_ctx->instr.infos[i] );
     if( FD_UNLIKELY( instr_exec_result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      if ( txn_ctx->err.exec_err_idx==INT_MAX ) {
-        txn_ctx->err.exec_err_idx = i;
+      if( txn_out->err.exec_err_idx==INT_MAX ) {
+        txn_out->err.exec_err_idx = i;
       }
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }

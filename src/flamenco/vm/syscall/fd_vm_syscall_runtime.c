@@ -79,7 +79,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
 
   fd_epoch_schedule_t schedule;
   if( FD_UNLIKELY( !fd_sysvar_cache_epoch_schedule_read( instr_ctx->sysvar_cache, &schedule ) ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
   memcpy( var_query.haddr, &schedule, sizeof(fd_epoch_schedule_t) );
@@ -159,7 +159,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
 
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
   if( FD_UNLIKELY( !fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache, &last_restart_slot ) ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
 
@@ -603,7 +603,7 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
 
   fd_sysvar_epoch_rewards_t epoch_rewards;
   if( FD_UNLIKELY( !fd_sysvar_cache_epoch_rewards_read( instr_ctx->sysvar_cache, &epoch_rewards ) ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
   memcpy( out, &epoch_rewards, sizeof(fd_sysvar_epoch_rewards_t) );

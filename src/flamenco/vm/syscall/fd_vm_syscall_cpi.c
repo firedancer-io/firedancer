@@ -82,7 +82,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
          transactions accounts. */
       FD_BASE58_ENCODE_32_BYTES( instr_acct_keys[i].uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
@@ -105,7 +105,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     /* TODO: this code would maybe be easier to read if we inverted the branches */
     if( duplicate_index!=ULONG_MAX ) {
       if ( FD_UNLIKELY( duplicate_index >= deduplicated_instruction_accounts_cnt ) ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->err.exec_err_idx );
+        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_out->err.exec_err_idx );
         return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
       }
 
@@ -143,7 +143,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     if( FD_UNLIKELY( instruction_account->is_writable && !fd_borrowed_account_is_writable( &borrowed_caller_acct ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
@@ -151,7 +151,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.acct->pubkey, signers, signers_cnt) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
   }
@@ -170,7 +170,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
       callee_instr->accounts[i].is_writable = !!(instruction_accounts[i].is_writable);
       callee_instr->accounts[i].is_signer   = !!(instruction_accounts[i].is_signer);
     } else {
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
   }
@@ -181,7 +181,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
   if( FD_UNLIKELY( program_idx == -1 ) ) {
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
@@ -191,7 +191,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
   fd_guarded_borrowed_account_t borrowed_program_account = {0};
   int err = fd_exec_instr_ctx_try_borrow_instr_account( instr_ctx, (ushort)program_idx, &borrowed_program_account );
   if( FD_UNLIKELY( err ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, err, instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, err, instr_ctx->txn_out->err.exec_err_idx );
     return err;
   }
 
@@ -199,7 +199,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
   /* Check that the program account is executable. We need to ensure that the
@@ -209,7 +209,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     if( FD_UNLIKELY( !fd_borrowed_account_is_executable( &borrowed_program_account ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 3, "Account ", 8UL, id_b58, id_b58_len, " is not executable", 18UL );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
     }
   }

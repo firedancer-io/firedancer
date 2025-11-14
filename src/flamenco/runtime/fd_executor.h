@@ -46,10 +46,12 @@ uchar
 fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey );
 
 int
-fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_verify_transaction( fd_txn_out_t *      txn_out,
+                                fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_check_transactions( fd_runtime_t *      runtime,
+                                fd_txn_out_t *      txn_out,
                                 fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
@@ -65,6 +67,7 @@ fd_executor_txn_verify( fd_txn_p_t *  txn_p,
 
 int
 fd_execute_instr( fd_runtime_t *      runtime,
+                  fd_txn_out_t *      txn_out,
                   fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr_info );
 
@@ -74,6 +77,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
   Makes changes to the Funk accounts DB. */
 int
 fd_execute_txn( fd_runtime_t *      runtime,
+                fd_txn_out_t *      txn_out,
                 fd_exec_txn_ctx_t * txn_ctx );
 
 int

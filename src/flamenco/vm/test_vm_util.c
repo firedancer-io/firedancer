@@ -23,8 +23,8 @@ test_vm_minimal_exec_instr_ctx( fd_exec_instr_ctx_t * instr_ctx,
 }
 
 void
-test_vm_clear_txn_ctx_err( fd_exec_txn_ctx_t * txn_ctx ) {
-  txn_ctx->err.exec_err      = 0;
-  txn_ctx->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
+test_vm_clear_txn_ctx_err( fd_txn_out_t * txn_out ) {
+  txn_out->err.exec_err      = 0;
+  txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
   return;
 }

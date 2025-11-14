@@ -40,10 +40,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   uchar *             txn_ctx_mem = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ) );
 
+  fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
+
   fd_runtime_t * runtime = fd_spad_alloc( runner->spad, alignof(fd_runtime_t), sizeof(fd_runtime_t) );
   runtime->exec_stack    = runner->exec_stack;
 
   ctx->txn_ctx = txn_ctx;
+  ctx->txn_out = txn_out;
 
   ctx->txn_ctx->exec_accounts = runner->exec_accounts;
 
@@ -117,8 +120,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_ctx->instr.info_cnt     = 0UL;
   txn_ctx->instr.trace_length = 0UL;
 
-  txn_ctx->err.exec_err       = 0;
-  txn_ctx->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
+  txn_out->err.exec_err       = 0;
+  txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
   txn_ctx->instr.current_idx  = 0;
 
   txn_ctx->txn                                               = *txn;
@@ -393,7 +396,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 
   /* Execute the test */
-  int exec_result = fd_execute_instr( ctx->runtime, ctx->txn_ctx, instr );
+  int exec_result = fd_execute_instr( ctx->runtime, ctx->txn_out, ctx->txn_ctx, instr );
 
   /* Allocate space to capture outputs */
 
@@ -419,7 +422,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
     int program_id_idx = ctx->instr[ 0UL ].program_id;
     if( exec_result==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
         fd_executor_lookup_native_precompile_program( &ctx->txn_ctx->accounts.accounts[ program_id_idx ] )==NULL ) {
-      effects->custom_err = ctx->txn_ctx->err.custom_err;
+      effects->custom_err = ctx->txn_out->err.custom_err;
     }
   }
 

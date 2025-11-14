@@ -403,6 +403,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   ctx->txn_ctx->instr.trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
   ctx->txn_ctx->instr.trace[0].stack_height = 1;
+  ctx->txn_out->err.exec_err = 0;
+  ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
 
   /* Capture outputs */
   ulong output_end = (ulong)output_buf + output_bufsz;
@@ -555,6 +557,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   *instr_ctx = (fd_exec_instr_ctx_t) {
     .instr     = ctx->instr,
     .txn_ctx   = ctx->txn_ctx,
+    .txn_out   = ctx->txn_out,
   };
 
   /* Actually invoke the syscall */
@@ -569,7 +572,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   }
 
   /* Capture the effects */
-  int exec_err = vm->instr_ctx->txn_ctx->err.exec_err;
+  int exec_err = vm->instr_ctx->txn_out->err.exec_err;
   effects->error = 0;
   if( syscall_err ) {
     if( exec_err==0 ) {
@@ -580,7 +583,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
       /* Map error kind, equivalent to:
           effects->error_kind = (fd_exec_test_err_kind_t)(vm->instr_ctx->txn_ctx->err.exec_err_kind); */
-      switch (vm->instr_ctx->txn_ctx->err.exec_err_kind) {
+      switch (vm->instr_ctx->txn_out->err.exec_err_kind) {
         case FD_EXECUTOR_ERR_KIND_EBPF:
           effects->error_kind = FD_EXEC_TEST_ERR_KIND_EBPF;
           break;

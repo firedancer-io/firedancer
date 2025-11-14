@@ -138,7 +138,6 @@ struct fd_exec_txn_ctx {
     ulong               prev_txn_ctxs_cnt;
   } bundle;
 
-  fd_txn_err_t     err;
   fd_txn_details_t details;
 
   struct {
@@ -165,16 +164,16 @@ FD_PROTOTYPES_BEGIN
 #ifdef FD_RUNTIME_ERR_HANDHOLDING
 
 /* Asserts that the error and error kind are not populated (zero) */
-#define FD_TXN_TEST_ERR_OVERWRITE( txn_ctx ) \
-   FD_TEST( !txn_ctx->err.exec_err );        \
-   FD_TEST( !txn_ctx->err.exec_err_kind )
+#define FD_TXN_TEST_ERR_OVERWRITE( txn_out ) \
+   FD_TEST( !txn_out->err.exec_err );        \
+   FD_TEST( !txn_out->err.exec_err_kind )
 
 /* Used prior to a FD_TXN_ERR_FOR_LOG_INSTR call to deliberately
    bypass overwrite handholding checks.
    Only use this if you know what you're doing. */
-#define FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx ) \
-   txn_ctx->err.exec_err = 0;                   \
-   txn_ctx->err.exec_err_kind = 0
+#define FD_TXN_PREPARE_ERR_OVERWRITE( txn_out ) \
+   txn_out->err.exec_err = 0;                   \
+   txn_out->err.exec_err_kind = 0
 
 #else
 
@@ -183,11 +182,11 @@ FD_PROTOTYPES_BEGIN
 
 #endif
 
-#define FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err_, idx ) (__extension__({ \
-    FD_TXN_TEST_ERR_OVERWRITE( txn_ctx );                               \
-    txn_ctx->err.exec_err = err_;                                       \
-    txn_ctx->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;            \
-    txn_ctx->err.exec_err_idx = idx;                                    \
+#define FD_TXN_ERR_FOR_LOG_INSTR( txn_out, err_, idx ) (__extension__({ \
+    FD_TXN_TEST_ERR_OVERWRITE( txn_out );                               \
+    txn_out->err.exec_err = err_;                                       \
+    txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;            \
+    txn_out->err.exec_err_idx = idx;                                    \
   }))
 
 void *

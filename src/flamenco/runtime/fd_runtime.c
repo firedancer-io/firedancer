@@ -566,6 +566,7 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
 
 int
 fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
+                              fd_txn_out_t *      txn_out,
                               fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Set up the core account keys. These are the account keys directly
@@ -610,16 +611,16 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* Verify the transaction. For now, this step only involves processing
      the compute budget instructions. */
-  err = fd_executor_verify_transaction( txn_ctx );
+  err = fd_executor_verify_transaction( txn_out, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_ctx->err.is_committable = 0;
+    txn_out->err.is_committable = 0;
     return err;
   }
 
   /* Resolve and verify ALUT-referenced account keys, if applicable */
   err = fd_executor_setup_txn_alut_account_keys( runtime, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_ctx->err.is_committable = 0;
+    txn_out->err.is_committable = 0;
     return err;
   }
 
@@ -632,15 +633,15 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
   err = fd_executor_validate_account_locks( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_ctx->err.is_committable = 0;
+    txn_out->err.is_committable = 0;
     return err;
   }
 
   /* load_and_execute_transactions() -> check_transactions()
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
-  err = fd_executor_check_transactions( runtime, txn_ctx );
+  err = fd_executor_check_transactions( runtime, txn_out, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_ctx->err.is_committable = 0;
+    txn_out->err.is_committable = 0;
     return err;
   }
 
@@ -649,7 +650,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
   err = fd_executor_validate_transaction_fee_payer( runtime, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_ctx->err.is_committable = 0;
+    txn_out->err.is_committable = 0;
     return err;
   }
 
@@ -659,7 +660,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.
        https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
-    txn_ctx->err.is_fees_only = 1;
+    txn_out->err.is_fees_only = 1;
 
     /* If the transaction fails to load, the "rollback" accounts will include one of the following:
         1. Nonce account only
@@ -883,6 +884,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
 void
 fd_runtime_commit_txn( fd_runtime_t *            runtime,
                        fd_bank_t *               bank,
+                       fd_txn_out_t *            txn_out,
                        fd_exec_txn_ctx_t *       txn_ctx,
                        fd_capture_ctx_t *        capture_ctx,
                        ulong *                   tips_out_opt ) {
@@ -895,7 +897,7 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ), txn_ctx->details.priority_fee );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), TXN( &txn_ctx->txn )->signature_cnt );
 
-  if( FD_UNLIKELY( txn_ctx->err.exec_err ) ) {
+  if( FD_UNLIKELY( txn_out->err.exec_err ) ) {
 
     /* Save the fee_payer. Everything but the fee balance should be reset.
        TODO: an optimization here could be to use a dirty flag in the
@@ -984,13 +986,13 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
     ulong * nonvote_txn_count = fd_bank_nonvote_txn_count_modify( bank );
     FD_ATOMIC_FETCH_AND_ADD(nonvote_txn_count, 1);
 
-    if( FD_UNLIKELY( txn_ctx->err.exec_err ) ) {
+    if( FD_UNLIKELY( txn_out->err.exec_err ) ) {
       ulong * nonvote_failed_txn_count = fd_bank_nonvote_failed_txn_count_modify( bank );
       FD_ATOMIC_FETCH_AND_ADD( nonvote_failed_txn_count, 1 );
     }
   }
 
-  if( FD_UNLIKELY( txn_ctx->err.exec_err ) ) {
+  if( FD_UNLIKELY( txn_out->err.exec_err ) ) {
     ulong * failed_txn_count = fd_bank_failed_txn_count_modify( bank );
     FD_ATOMIC_FETCH_AND_ADD( failed_txn_count, 1 );
   }
@@ -1003,7 +1005,7 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
   int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
     FD_LOG_DEBUG(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
-    txn_ctx->err.is_committable = 0;
+    txn_out->err.is_committable = 0;
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
@@ -1061,24 +1063,23 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   txn_ctx->accounts.accounts_cnt   = 0UL;
   txn_ctx->accounts.executable_cnt = 0UL;
 
-  txn_ctx->err.is_committable = 1;
-  txn_ctx->err.is_fees_only   = 0;
-  txn_ctx->err.txn_err        = FD_RUNTIME_EXECUTE_SUCCESS;
-  txn_ctx->err.exec_err       = FD_EXECUTOR_INSTR_SUCCESS;
-  txn_ctx->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
-  txn_ctx->err.exec_err_idx   = INT_MAX;
-  txn_ctx->err.custom_err     = 0;
+  txn_out->err.is_committable = 1;
+  txn_out->err.is_fees_only   = 0;
+  txn_out->err.txn_err        = FD_RUNTIME_EXECUTE_SUCCESS;
+  txn_out->err.exec_err       = FD_EXECUTOR_INSTR_SUCCESS;
+  txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
+  txn_out->err.exec_err_idx   = INT_MAX;
 
   /* Transaction sanitization.  If a transaction can't be commited or is
      fees-only, we return early. */
-  txn_ctx->err.txn_err = fd_runtime_pre_execute_check( runtime, txn_ctx );
+  txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, txn_out, txn_ctx );
 
   /* Execute the transaction. */
-  if( FD_LIKELY( txn_ctx->err.is_committable && !txn_ctx->err.is_fees_only ) ) {
-    txn_ctx->err.txn_err = fd_execute_txn( runtime, txn_ctx );
+  if( FD_LIKELY( txn_out->err.is_committable && !txn_out->err.is_fees_only ) ) {
+    txn_out->err.txn_err = fd_execute_txn( runtime, txn_out, txn_ctx );
   }
 
-  return txn_ctx->err.txn_err;
+  return txn_out->err.txn_err;
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble

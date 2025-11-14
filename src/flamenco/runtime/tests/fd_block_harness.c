@@ -489,9 +489,9 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       res = FD_RUNTIME_EXECUTE_SUCCESS;
       fd_txn_out_t txn_out;
       fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, txn, &res, &txn_out );
-      txn_ctx->err.exec_err = res;
+      txn_out.err.exec_err = res;
 
-      if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
+      if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
         break;
       }
 
@@ -506,11 +506,12 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       fd_runtime_commit_txn(
           &runtime,
           runner->bank,
+          &txn_out,
           txn_ctx,
           capture_ctx,
           NULL );
 
-      if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
+      if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
         break;
       }
 

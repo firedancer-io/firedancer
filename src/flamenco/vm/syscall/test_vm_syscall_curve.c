@@ -21,7 +21,7 @@ test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
     if( syscall_ret==FD_VM_SUCCESS ) {
       FD_TEST( ret_code == expected_ret_code );
     }
-    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
     const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, 32 );
     if (ret_code == 0 && syscall_ret == 0) {
@@ -48,7 +48,7 @@ test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
     int   syscall_ret = fd_vm_syscall_sol_curve_group_op((void *) vm, curve_id, op_id, in0_vaddr, in1_vaddr, result_point_vaddr, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
     FD_TEST( syscall_ret == expected_syscall_ret );
-    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
     const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, 32 );
     if (ret_code == 0 && syscall_ret == 0) {
@@ -132,7 +132,7 @@ main( int     argc,
     FD_VM_SYSCALL_ERR_SEGFAULT, // syscall_ret
     expected_result_host_ptr
   ) );
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
   // invalid (max 512 points)
   FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
@@ -147,7 +147,7 @@ main( int     argc,
     FD_VM_SYSCALL_ERR_INVALID_LENGTH, // syscall_ret
     expected_result_host_ptr
   ) );
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
   // invalid (max 512 points)
   FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
@@ -162,7 +162,7 @@ main( int     argc,
     FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE, // syscall_ret
     expected_result_host_ptr
   ) );
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
   // success
   // https://github.com/solana-labs/solana/blob/v1.17.15/programs/bpf_loader/src/syscalls/mod.rs#L3107

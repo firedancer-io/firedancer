@@ -173,6 +173,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx[ 0 ];
+    fd_txn_out_t * txn_out = &ctx->txn_out[ 0 ];
     ctx->txn_ctx->bundle.is_bundle = 0;
 
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
@@ -187,36 +188,36 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
-    txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime,
+    txn_out->err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime,
                                                                 bank,
                                                                 txn_ctx,
                                                                 txn,
-                                                                &ctx->txn_out[0],
+                                                                txn_out,
                                                                 NULL,
                                                                 &ctx->exec_accounts[0],
                                                                 NULL,
                                                                 NULL );
 
     /* Stash the result in the flags value so that pack can inspect it. */
-    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->err.exec_err)<<24);
+    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.exec_err)<<24);
 
-    if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
-      FD_TEST( !txn_ctx->err.is_fees_only );
+    if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
+      FD_TEST( !txn_out->err.is_fees_only );
       fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
       ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-      ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_ctx->err.exec_err ) ]++;
+      ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_out->err.exec_err ) ]++;
       continue;
     }
 
-    if( FD_UNLIKELY( txn_ctx->err.is_fees_only ) ) ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FEES_ONLY_IDX ]++;
-    else if( FD_UNLIKELY( txn_ctx->err.txn_err ) ) ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FAILED_IDX    ]++;
+    if( FD_UNLIKELY( txn_out->err.is_fees_only ) ) ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FEES_ONLY_IDX ]++;
+    else if( FD_UNLIKELY( txn_out->err.txn_err ) ) ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FAILED_IDX    ]++;
     else                                           ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX   ]++;
 
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
        transactions. */
     txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-    ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_ctx->err.exec_err ) ]++;
+    ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_out->err.exec_err ) ]++;
 
     /* Commit must succeed so no failure path.  Once commit is called,
        the transactions MUST be mixed into the PoH otherwise we will
@@ -230,12 +231,12 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_commit_txn( &ctx->runtime, bank, txn_ctx, NULL, &tips );
+    fd_runtime_commit_txn( &ctx->runtime, bank, txn_out, txn_ctx, NULL, &tips );
 
-    if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
+    if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       /* If the transaction failed to fit into the block, we need to
          updated the transaction flag with the error code. */
-      txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->err.exec_err)<<24);
+      txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.exec_err)<<24);
       fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
       uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
       int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
@@ -284,7 +285,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       FD_LOG_ERR(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
                    "(%u) requested_exec_plus_acct_data_cus (%u) is_simple_vote (%i) exec_failed (%i)",
                    actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus, is_simple_vote,
-                   txn_ctx->err.exec_err ));
+                   txn_out->err.exec_err ));
     }
 
   }
@@ -366,6 +367,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     fd_txn_p_t *        txn     = &txns[ i ];
     fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx[ i ];
+    fd_txn_out_t *      txn_out = &ctx->txn_out[ i ];
     txn_ctx->bundle.is_bundle = 1;
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
@@ -378,9 +380,9 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
     txn_ctx->bundle.is_bundle = 1;
-    txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime, bank, txn_ctx, txn, &ctx->txn_out[ i ], NULL, &ctx->exec_accounts[ i ], NULL, NULL );
-    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->err.exec_err)<<24);
-    if( FD_UNLIKELY( !txn_ctx->err.is_committable || txn_ctx->err.exec_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    txn_out->err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime, bank, txn_ctx, txn, txn_out, NULL, &ctx->exec_accounts[ i ], NULL, NULL );
+    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.exec_err)<<24);
+    if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.exec_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       execution_success = 0;
       continue;
     }
@@ -397,12 +399,13 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
       fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx[ i ];
+      fd_txn_out_t *      txn_out = &ctx->txn_out[ i ];
       uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
 
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-      fd_runtime_commit_txn( &ctx->runtime, bank, txn_ctx, NULL, &tips[ i ] );
-      if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
-        txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->err.exec_err)<<24);
+      fd_runtime_commit_txn( &ctx->runtime, bank, txn_out, txn_ctx, NULL, &tips[ i ] );
+      if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
+        txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.exec_err)<<24);
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
         int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));

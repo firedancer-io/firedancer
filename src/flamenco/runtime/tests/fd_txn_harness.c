@@ -339,7 +339,7 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
   /* Setup the spad for account allocation */
   uchar *             txn_ctx_mem = fd_spad_alloc_check( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ) );
-  txn_ctx->err.is_committable     = 1;
+  txn_out->err.is_committable     = 1;
   if( FD_UNLIKELY( !fd_funk_join( runner->funk, runner->accdb->funk->shmem ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
@@ -416,8 +416,8 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     /* Capture basic results fields */
-    txn_result->executed                          = txn_ctx->err.is_committable;
-    txn_result->sanitization_error                = !txn_ctx->err.is_committable;
+    txn_result->executed                          = txn_out.err.is_committable;
+    txn_result->sanitization_error                = !txn_out.err.is_committable;
     txn_result->has_resulting_state               = false;
     txn_result->resulting_state.acct_states_count = 0;
     txn_result->is_ok                             = !exec_res;
@@ -430,17 +430,17 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
 
     if( txn_result->sanitization_error ) {
       /* Collect fees for transactions that failed to load */
-      if( txn_ctx->err.is_fees_only ) {
+      if( txn_out.err.is_fees_only ) {
         txn_result->has_fee_details                = true;
         txn_result->fee_details.prioritization_fee = txn_ctx->details.priority_fee;
         txn_result->fee_details.transaction_fee    = txn_ctx->details.execution_fee;
       }
 
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
-        txn_result->instruction_error       = (uint32_t) -txn_ctx->err.exec_err;
-        txn_result->instruction_error_index = (uint32_t) txn_ctx->err.exec_err_idx;
-        if( txn_ctx->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
-          txn_result->custom_error = txn_ctx->err.custom_err;
+        txn_result->instruction_error       = (uint32_t) -txn_out.err.exec_err;
+        txn_result->instruction_error_index = (uint32_t) txn_out.err.exec_err_idx;
+        if( txn_out.err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+          txn_result->custom_error = txn_out.err.custom_err;
         }
       }
 
@@ -453,16 +453,16 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     } else {
       /* Capture the instruction error code */
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
-        int instr_err_idx                   = txn_ctx->err.exec_err_idx;
+        int instr_err_idx                   = txn_out.err.exec_err_idx;
         int program_id_idx                  = txn_ctx->instr.infos[instr_err_idx].program_id;
 
-        txn_result->instruction_error       = (uint32_t) -txn_ctx->err.exec_err;
+        txn_result->instruction_error       = (uint32_t) -txn_out.err.exec_err;
         txn_result->instruction_error_index = (uint32_t) instr_err_idx;
 
         /* If the exec err was a custom instr error and came from a precompile instruction, don't capture the custom error code. */
-        if( txn_ctx->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
+        if( txn_out.err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
             fd_executor_lookup_native_precompile_program( &txn_ctx->accounts.accounts[ program_id_idx ] )==NULL ) {
-          txn_result->custom_error = txn_ctx->err.custom_err;
+          txn_result->custom_error = txn_out.err.custom_err;
         }
       }
     }
@@ -501,7 +501,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     /* If the transaction is a fees-only transaction, we have to create rollback accounts to iterate over and save. */
     fd_txn_account_t * accounts_to_save = txn_ctx->accounts.accounts;
     ulong              accounts_cnt     = txn_ctx->accounts.accounts_cnt;
-    if( txn_ctx->err.is_fees_only ) {
+    if( txn_out.err.is_fees_only ) {
       accounts_to_save = fd_spad_alloc( runner->spad, alignof(fd_txn_account_t), sizeof(fd_txn_account_t) * 2 );
       accounts_cnt     = 0UL;
 

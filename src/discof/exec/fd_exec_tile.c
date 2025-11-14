@@ -137,7 +137,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( bank );
-        ctx->txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime,
+        ctx->txn_out.err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime,
                                                                          bank,
                                                                          ctx->txn_ctx,
                                                                          &msg->txn,
@@ -148,8 +148,8 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
                                                                          &ctx->tracing_mem[0][0] );
 
         /* Commit. */
-        if( FD_LIKELY( ctx->txn_ctx->err.is_committable ) ) {
-          fd_runtime_commit_txn( &ctx->runtime, bank, ctx->txn_ctx, ctx->capture_ctx, NULL );
+        if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
+          fd_runtime_commit_txn( &ctx->runtime, bank, &ctx->txn_out, ctx->txn_ctx, ctx->capture_ctx, NULL );
         }
 
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
@@ -397,12 +397,12 @@ publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
   fd_exec_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
   msg->bank_idx                  = ctx->txn_ctx->bank->idx;
   msg->txn_exec->txn_idx         = ctx->txn_idx;
-  msg->txn_exec->err             = !ctx->txn_ctx->err.is_committable;
+  msg->txn_exec->err             = !ctx->txn_out.err.is_committable;
   msg->txn_exec->slot            = ctx->slot;
   msg->txn_exec->start_shred_idx = ctx->txn_ctx->txn.start_shred_idx;
   msg->txn_exec->end_shred_idx   = ctx->txn_ctx->txn.end_shred_idx;
   if( FD_UNLIKELY( msg->txn_exec->err ) ) {
-    FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d", ctx->txn_ctx->err.txn_err ));
+    FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d", ctx->txn_out.err.txn_err ));
   }
 
   fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( fd_tickcount() ) );

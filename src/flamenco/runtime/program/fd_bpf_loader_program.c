@@ -497,7 +497,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   if( FD_LIKELY( !exec_err ) ) {
     ulong status = vm->reg[0];
     if( FD_UNLIKELY( status ) ) {
-      err = program_error_to_instr_error( status, &instr_ctx->txn_ctx->err.custom_err );
+      err = program_error_to_instr_error( status, &instr_ctx->txn_out->err.custom_err );
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
       return err;
@@ -516,7 +516,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
        as to what caused the error.
        https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1556-L1618 */
     if( FD_UNLIKELY( stricter_abi_and_runtime_constraints &&
-                     ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_ctx->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
+                     ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
                      vm->segv_vaddr!=ULONG_MAX ) ) {
 
       /* vaddrs start at 0xFFFFFFFF + 1, so anything below it would not correspond to any account metadata. */
@@ -584,8 +584,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
        and our design decisions for making our error codes match. */
 
     /* Instr error case. Set the error kind and return the instruction error */
-    if( instr_ctx->txn_ctx->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR ) {
-      err = instr_ctx->txn_ctx->err.exec_err;
+    if( instr_ctx->txn_out->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR ) {
+      err = instr_ctx->txn_out->err.exec_err;
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
       return err;
@@ -593,8 +593,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
     /* Syscall error case. The VM would have also set the syscall error
        code in the txn_ctx exec_err. */
-    if( instr_ctx->txn_ctx->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL ) {
-      err = instr_ctx->txn_ctx->err.exec_err;
+    if( instr_ctx->txn_out->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL ) {
+      err = instr_ctx->txn_out->err.exec_err;
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
       return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
@@ -1172,7 +1172,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       ulong seed_sz   = sizeof(fd_pubkey_t);
       uchar bump_seed = 0;
       err = fd_pubkey_find_program_address( program_id, 1UL, seeds, &seed_sz, derived_address,
-                                            &bump_seed, &instr_ctx->txn_ctx->err.custom_err );
+                                            &bump_seed, &instr_ctx->txn_out->err.custom_err );
       if( FD_UNLIKELY( err ) ) {
         /* TODO: We should handle these errors more gracefully instead of just killing the client (e.g. excluding the transaction
            from the block). */
@@ -1244,7 +1244,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* caller_program_id == program_id */
       fd_pubkey_t signers[ 1UL ];
-      err = fd_pubkey_derive_pda( program_id, 1UL, seeds, &seed_sz, &bump_seed, signers, &instr_ctx->txn_ctx->err.custom_err );
+      err = fd_pubkey_derive_pda( program_id, 1UL, seeds, &seed_sz, &bump_seed, signers, &instr_ctx->txn_out->err.custom_err );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -2643,8 +2643,9 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
   txn_ctx->instr.info_cnt     = 0UL;
   txn_ctx->instr.trace_length = 0UL;
 
-  txn_ctx->err.exec_err          = 0;
-  txn_ctx->err.exec_err_kind     = FD_EXECUTOR_ERR_KIND_NONE;
+  fd_txn_out_t txn_out;
+  txn_out.err.exec_err          = 0;
+  txn_out.err.exec_err_kind     = FD_EXECUTOR_ERR_KIND_NONE;
   txn_ctx->instr.current_idx = 0;
 
   txn_ctx->instr.stack_sz = 1;
@@ -2652,6 +2653,7 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
   *instr_ctx = (fd_exec_instr_ctx_t) {
     .instr     = NULL,
     .txn_ctx   = txn_ctx,
+    .txn_out   = &txn_out,
   };
 
   /* Important note: this function is called at the epoch boundary and

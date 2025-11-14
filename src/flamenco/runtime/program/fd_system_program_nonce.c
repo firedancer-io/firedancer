@@ -67,7 +67,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   fd_hash_t const *        last_hash   = fd_blockhashes_peek_last( blockhashes );
   if( FD_UNLIKELY( last_hash==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
-    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -194,7 +194,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     if( FD_UNLIKELY( 0==memcmp( data->durable_nonce.hash, next_durable_nonce.hash, sizeof(fd_hash_t) ) ) ) {
       fd_log_collector_msg_literal( ctx, "Advance nonce account: nonce can only advance once per slot" );
-      ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
+      ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -273,7 +273,7 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   } while(0);
   if( FD_UNLIKELY( bhq_empty ) ) {
     fd_log_collector_msg_literal( ctx, "Advance nonce account: recent blockhash list is empty" );
-    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -377,7 +377,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
       if( FD_UNLIKELY( 0==memcmp( data->durable_nonce.hash, next_durable_nonce.hash, sizeof(fd_hash_t) ) ) ) {
         fd_log_collector_msg_literal( ctx, "Withdraw nonce account: nonce can only advance once per slot" );
-        ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
+        ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
 
@@ -642,7 +642,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
   } while(0);
   if( FD_UNLIKELY( bhq_empty ) ) {
     fd_log_collector_msg_literal( ctx, "Initialize nonce account: recent blockhash list is empty" );
-    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 

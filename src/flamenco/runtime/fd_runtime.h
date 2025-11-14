@@ -350,6 +350,7 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 
 int
 fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
+                              fd_txn_out_t *      txn_out,
                               fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_runtime_prepare_and_execute_txn is the main entrypoint from the
@@ -370,6 +371,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
 void
 fd_runtime_commit_txn( fd_runtime_t *            runtime,
                        fd_bank_t *               bank,
+                       fd_txn_out_t *            txn_out,
                        fd_exec_txn_ctx_t *       txn_ctx,
                        fd_capture_ctx_t *        capture_ctx,
                        ulong *                   tips_out_opt );

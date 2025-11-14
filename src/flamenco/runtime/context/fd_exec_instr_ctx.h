@@ -18,6 +18,7 @@ struct fd_exec_instr_ctx {
   fd_instr_info_t const *   instr;   /* The instruction info for this instruction */
   fd_exec_txn_ctx_t *       txn_ctx; /* The transaction context for this instruction */
   fd_runtime_t *            runtime; /* The runtime for this instruction */
+  fd_txn_out_t *            txn_out; /* The output for this instruction */
   fd_sysvar_cache_t const * sysvar_cache;
 
   /* Most instructions log the base58 program id multiple times, so it's

@@ -8,6 +8,7 @@
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/context/fd_exec_txn_ctx.h"
 #include "../runtime/fd_runtime_const.h"
+#include "../runtime/fd_runtime.h"
 #include "../features/fd_features.h"
 #include "fd_vm_base.h"
 
@@ -124,20 +125,20 @@ FD_PROTOTYPES_BEGIN
 #ifdef FD_RUNTIME_ERR_HANDHOLDING
 /* Asserts that the error and error kind are populated (non-zero) */
 #define FD_VM_TEST_ERR_EXISTS( vm )                                       \
-    FD_TEST( vm->instr_ctx->txn_ctx->err.exec_err );                      \
-    FD_TEST( vm->instr_ctx->txn_ctx->err.exec_err_kind )
+    FD_TEST( vm->instr_ctx->txn_out->err.exec_err );                      \
+    FD_TEST( vm->instr_ctx->txn_out->err.exec_err_kind )
 
 /* Used prior to a FD_VM_ERR_FOR_LOG_INSTR call to deliberately
    bypass overwrite handholding checks.
    Only use this if you know what you're doing. */
 #define FD_VM_PREPARE_ERR_OVERWRITE( vm )                                 \
-   vm->instr_ctx->txn_ctx->err.exec_err = 0;                              \
-   vm->instr_ctx->txn_ctx->err.exec_err_kind = 0
+   vm->instr_ctx->txn_out->err.exec_err = 0;                              \
+   vm->instr_ctx->txn_out->err.exec_err_kind = 0
 
 /* Asserts that the error and error kind are not populated (zero) */
 #define FD_VM_TEST_ERR_OVERWRITE( vm )                                    \
-    FD_TEST( !vm->instr_ctx->txn_ctx->err.exec_err );                     \
-    FD_TEST( !vm->instr_ctx->txn_ctx->err.exec_err_kind )
+    FD_TEST( !vm->instr_ctx->txn_out->err.exec_err );                     \
+    FD_TEST( !vm->instr_ctx->txn_out->err.exec_err_kind )
 #else
 #define FD_VM_TEST_ERR_EXISTS( vm ) ( ( void )0 )
 #define FD_VM_PREPARE_ERR_OVERWRITE( vm ) ( ( void )0 )
@@ -148,20 +149,20 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_VM_ERR_FOR_LOG_EBPF( vm, err_ ) (__extension__({                \
     FD_VM_TEST_ERR_OVERWRITE( vm );                                        \
-    vm->instr_ctx->txn_ctx->err.exec_err = err_;                           \
-    vm->instr_ctx->txn_ctx->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF; \
+    vm->instr_ctx->txn_out->err.exec_err = err_;                           \
+    vm->instr_ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF; \
   }))
 
 #define FD_VM_ERR_FOR_LOG_SYSCALL( vm, err_ ) (__extension__({                \
     FD_VM_TEST_ERR_OVERWRITE( vm );                                           \
-    vm->instr_ctx->txn_ctx->err.exec_err = err_;                              \
-    vm->instr_ctx->txn_ctx->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL; \
+    vm->instr_ctx->txn_out->err.exec_err = err_;                              \
+    vm->instr_ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL; \
   }))
 
 #define FD_VM_ERR_FOR_LOG_INSTR( vm, err_ ) (__extension__({                \
     FD_VM_TEST_ERR_OVERWRITE( vm );                                         \
-    vm->instr_ctx->txn_ctx->err.exec_err = err_;                            \
-    vm->instr_ctx->txn_ctx->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR; \
+    vm->instr_ctx->txn_out->err.exec_err = err_;                            \
+    vm->instr_ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR; \
   }))
 
 #define FD_VADDR_TO_REGION( _vaddr ) fd_ulong_min( (_vaddr) >> FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS, FD_VM_HIGH_REGION )
