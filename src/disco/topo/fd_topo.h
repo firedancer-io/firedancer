@@ -99,6 +99,7 @@ struct fd_topo_net_tile {
   ushort repair_intake_listen_port;
   ushort repair_serve_listen_port;
   ushort send_src_port;
+  ushort jito_ss_listen_port;
 };
 typedef struct fd_topo_net_tile fd_topo_net_tile_t;
 

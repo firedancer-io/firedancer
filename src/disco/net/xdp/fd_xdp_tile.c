@@ -209,6 +209,7 @@ typedef struct {
   ushort repair_intake_listen_port;
   ushort repair_serve_listen_port;
   ushort send_src_port;
+  ushort jito_ss_listen_port;
 
   ulong in_cnt;
   fd_net_in_ctx_t in[ MAX_NET_INS ];
@@ -966,6 +967,10 @@ net_rx_packet( fd_net_ctx_t * ctx,
   if(      FD_UNLIKELY( udp_dstport==ctx->shred_listen_port ) ) {
     proto = DST_PROTO_SHRED;
     out = ctx->shred_out;
+  } else if( FD_UNLIKELY( udp_dstport==ctx->jito_ss_listen_port ) ) {
+    // FD_LOG_WARNING(("jito_ss_listen_port: %hu", ctx->jito_ss_listen_port));
+    proto = DST_PROTO_JITO_SS;
+    out = ctx->shred_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->quic_transaction_listen_port ) ) {
     proto = DST_PROTO_TPU_QUIC;
     out = ctx->quic_out;
@@ -989,10 +994,11 @@ net_rx_packet( fd_net_ctx_t * ctx,
 
     FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
                   "Only the following ports should be configured to forward packets: "
-                  "%hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
+                  "%hu, %hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
                   "Please report this error to Firedancer maintainers.",
                   udp_dstport,
                   ctx->shred_listen_port,
+                  ctx->jito_ss_listen_port,
                   ctx->quic_transaction_listen_port,
                   ctx->legacy_transaction_listen_port,
                   ctx->gossip_listen_port,
@@ -1319,6 +1325,7 @@ privileged_init( fd_topo_t *      topo,
       (ushort)tile->xdp.net.legacy_transaction_listen_port,
       (ushort)tile->xdp.net.quic_transaction_listen_port,
       (ushort)tile->xdp.net.shred_listen_port,
+      (ushort)tile->xdp.net.jito_ss_listen_port,
       (ushort)tile->xdp.net.gossip_listen_port,
       (ushort)tile->xdp.net.repair_intake_listen_port,
       (ushort)tile->xdp.net.repair_serve_listen_port,
@@ -1401,7 +1408,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_intake_listen_port      = tile->net.repair_intake_listen_port;
   ctx->repair_serve_listen_port       = tile->net.repair_serve_listen_port;
   ctx->send_src_port                  = tile->net.send_src_port;
-
+  ctx->jito_ss_listen_port            = tile->net.jito_ss_listen_port;
+  // FD_LOG_WARNING(("jito_ss_listen_port: %hu", ctx->jito_ss_listen_port));
   /* Put a bound on chunks we read from the input, to make sure they
      are within in the data region of the workspace. */
 

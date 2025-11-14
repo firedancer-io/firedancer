@@ -229,7 +229,7 @@ get_timestamp_ns( fd_feccap_tile_ctx_t * ctx ) {
   return (ulong)fd_tickcount();
 }
 
-static void
+static void FD_FN_UNUSED
 process_fec_complete( fd_feccap_tile_ctx_t * ctx, fd_hash_t const * merkle_root ) {
   if( FD_UNLIKELY( ctx->feccap_fd < 0 ) ) {
     FD_LOG_NOTICE(( "FECCAP: No persistent file handle available" ));
@@ -258,7 +258,6 @@ process_fec_complete( fd_feccap_tile_ctx_t * ctx, fd_hash_t const * merkle_root 
                    fd_io_buffered_ostream_write( &ctx->feccap_ostream, fec->data, fec->data_sz ) == 0 ) ) {
       ctx->fecs_count++;
       ctx->total_bytes_written += bytes_written;
-      FD_LOG_NOTICE(( "FECCAP: Wrote FEC complete record (%lu bytes, total: %lu bytes)", bytes_written, ctx->total_bytes_written ));
     } else {
       FD_LOG_WARNING(( "FECCAP: Failed to write FEC record to persistent file" ));
     }
@@ -269,7 +268,7 @@ process_fec_complete( fd_feccap_tile_ctx_t * ctx, fd_hash_t const * merkle_root 
   }
 }
 
-static inline void
+static inline void FD_FN_UNUSED
 process_shred_received( fd_feccap_tile_ctx_t * ctx,
                         fd_shred_t const *     shred,
                         uchar                   is_turbine ) {
@@ -301,7 +300,6 @@ process_shred_received( fd_feccap_tile_ctx_t * ctx,
   if( FD_LIKELY( fd_io_buffered_ostream_write( &ctx->feccap_ostream, &hdr, sizeof(fd_feccap_chunk_hdr_t) ) == 0 &&
                  fd_io_buffered_ostream_write( &ctx->feccap_ostream, &recv, sizeof(fd_feccap_shred_recv_t) ) == 0 ) ) {
     ctx->total_bytes_written += bytes_written;
-    FD_LOG_NOTICE(( "FECCAP: Wrote shred received record (%lu bytes, total: %lu bytes)", bytes_written, ctx->total_bytes_written ));
     /* Flush immediately after each write */
     if( FD_UNLIKELY( fd_io_buffered_ostream_flush( &ctx->feccap_ostream ) != 0 ) ) {
       FD_LOG_WARNING(( "FECCAP: Failed to flush shred received record" ));
@@ -333,10 +331,20 @@ returnable_frag( fd_feccap_tile_ctx_t * ctx,
     uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in_net_rx[ in_idx ], chunk, ctl, sz );
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     if( FD_LIKELY( hdr_sz <= sz ) ) {
+      fd_ip4_udp_hdrs_t const * header = (fd_ip4_udp_hdrs_t const *)dcache_entry;
+      (void)header;
+      // print the source given the sig
+      ulong sig_src = fd_disco_netmux_sig_proto( sig );
+      // FD_LOG_DEBUG(( "FECCAP: Received shred from port: %u", fd_ushort_bswap(header->udp->net_sport) ));
       fd_shred_t const * shred = fd_shred_parse( dcache_entry + hdr_sz, sz - hdr_sz );
+      // FD_LOG_DEBUG(( "FECCAP: Received shred from source: %lu", sig_src ));
+
       if( FD_LIKELY( shred ) ) {
-        uchar is_turbine = (fd_disco_netmux_sig_proto( sig ) == DST_PROTO_SHRED ) ? 1 : 0;
-        process_shred_received( ctx, shred, is_turbine );
+        if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) == DST_PROTO_JITO_SS || fd_disco_netmux_sig_proto( sig ) == DST_PROTO_SHRED ) ) {
+          FD_LOG_DEBUG(( "source: %lu, slot: %lu, idx: %u, is_coding: %d", sig_src, shred->slot, shred->idx, fd_shred_is_code( shred->variant ) ));
+        }
+        // uchar is_turbine = (fd_disco_netmux_sig_proto( sig ) == DST_PROTO_SHRED || fd_disco_netmux_sig_proto( sig ) == DST_PROTO_JITO_SS ) ? 1 : 0;
+        // process_shred_received( ctx, shred, is_turbine );
       }
     }
     return 0;
@@ -348,7 +356,8 @@ returnable_frag( fd_feccap_tile_ctx_t * ctx,
     /* Extract merkle root from the message - it's at offset FD_SHRED_DATA_HEADER_SZ */
     uchar const * chunk_data = fd_chunk_to_laddr( ctx->in_mem[ in_idx ], chunk );
     fd_hash_t const * mr = (fd_hash_t const *)(chunk_data + FD_SHRED_DATA_HEADER_SZ );
-    process_fec_complete( ctx, mr );
+    (void)mr;
+    // process_fec_complete( ctx, mr );
     return 0;
   }
 

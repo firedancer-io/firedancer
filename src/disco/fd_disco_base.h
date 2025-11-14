@@ -14,6 +14,7 @@
 #define DST_PROTO_REPAIR   (4UL)
 #define DST_PROTO_GOSSIP   (5UL)
 #define DST_PROTO_SEND     (6UL)
+#define DST_PROTO_JITO_SS  (7UL)
 
 #define POH_PKT_TYPE_MICROBLOCK    (0UL)
 #define POH_PKT_TYPE_BECAME_LEADER (1UL)

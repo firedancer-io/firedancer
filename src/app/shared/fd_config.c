@@ -183,6 +183,14 @@ fd_config_fillh( fd_config_t * config ) {
                  "This must be outside the dynamic port range `%s`",
                  config->tiles.shred.shred_listen_port,
                  config->frankendancer.dynamic_port_range ));
+
+  if( FD_UNLIKELY( config->tiles.shred.jito_ss_listen_port != 0 &&
+                   config->tiles.shred.jito_ss_listen_port >= agave_port_min &&
+                   config->tiles.shred.jito_ss_listen_port < agave_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.shred.jito_ss_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 config->tiles.shred.jito_ss_listen_port,
+                 config->frankendancer.dynamic_port_range ));
 }
 
 static void

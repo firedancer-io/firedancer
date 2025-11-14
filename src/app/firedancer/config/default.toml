@@ -1331,6 +1331,7 @@ user = ""
         # is broadcast over gossip so other validators know how to reach
         # this one.
         shred_listen_port = 8003
+        jito_ss_listen_port = 8004
 
         # Shreds can also be forwarded to specific addresses, for
         # example to run an unstaked RPC or for archiving.  Each new, valid

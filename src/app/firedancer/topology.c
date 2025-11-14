@@ -971,6 +971,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->net.repair_intake_listen_port      = config->tiles.repair.repair_intake_listen_port;
     tile->net.repair_serve_listen_port       = config->tiles.repair.repair_serve_listen_port;
     tile->net.send_src_port                  = config->tiles.send.send_src_port;
+    tile->net.jito_ss_listen_port            = config->tiles.shred.jito_ss_listen_port;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 

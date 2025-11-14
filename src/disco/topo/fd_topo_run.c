@@ -266,11 +266,12 @@ fd_topo_install_xdp( fd_topo_t const * topo,
   ulong net0_tile_idx = fd_topo_find_tile( topo, "net", 0UL );
   FD_TEST( net0_tile_idx!=ULONG_MAX );
   fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
-
+  FD_LOG_WARNING(("xdp.net.jito_ss_listen_port: %hu", net0_tile->xdp.net.jito_ss_listen_port));
   ushort udp_port_candidates[] = {
     (ushort)net0_tile->xdp.net.legacy_transaction_listen_port,
     (ushort)net0_tile->xdp.net.quic_transaction_listen_port,
     (ushort)net0_tile->xdp.net.shred_listen_port,
+    (ushort)net0_tile->xdp.net.jito_ss_listen_port,
     (ushort)net0_tile->xdp.net.gossip_listen_port,
     (ushort)net0_tile->xdp.net.repair_intake_listen_port,
     (ushort)net0_tile->xdp.net.repair_serve_listen_port,
