@@ -2,7 +2,11 @@
 #define HEADER_fd_src_waltz_ip_fd_fib4_private_h
 
 #include "fd_fib4.h"
-#include "../../util/simd/fd_sse.h"
+
+#if FD_HAS_X86
+#include <immintrin.h>
+#endif
+
 #include "../../util/fd_util.h"
 
 struct __attribute__((aligned(16))) fd_fib4_key {
@@ -45,83 +49,99 @@ FD_FN_CONST static inline fd_fib4_hop_t *       fd_fib4_hop_tbl      ( fd_fib4_t
 
 
 /* Hashmap private APIs */
-struct __attribute__((aligned(16))) fd_fib4_hmap_entry {
-  uint dst_addr; /* Little endian. All 32-bits defined */
-  fd_fib4_hop_t next_hop;
-  uint hash;
+union __attribute__((aligned(16))) fd_fib4_hmap_entry {
+  struct {
+    uint dst_addr; /* Little endian. All 32-bits defined */
+    uint hash;
+    fd_fib4_hop_t next_hop; /* 16 bytes */
+  };
+#if FD_HAS_INT128
+  uint128 uf[2];
+#endif
+#if FD_HAS_X86
+  __m128i xmm[2];
+#endif
+#if FD_HAS_AVX
+  __m256i avx[1];
+#endif
 };
 
-typedef struct fd_fib4_hmap_entry fd_fib4_hmap_entry_t;
+typedef union fd_fib4_hmap_entry fd_fib4_hmap_entry_t;
 
-/* fd_fib4_hop_st_atomic stores from src into dst. Assumes no other writers,
-   and that src is non-volatile. Write to dst is atomic  */
-FD_STATIC_ASSERT( sizeof(fd_fib4_hop_t) == 16, "atomic st assumes 16 bytes" );
+/* fd_fib4_hmap_entry_st stores from src into dst. Assumes no other writers,
+   and that src is non-volatile. Best effort for atomicity, but only guaranteed
+   when FD_HAS_AVX. */
 static inline void
-fd_fib4_hop_st_atomic( fd_fib4_hop_t       * dst,
-                       fd_fib4_hop_t const * src ) {
-  # if FD_HAS_X86
-   FD_VOLATILE( *(__m128i *)( dst ) ) = *(__m128i const *)( src );
-  # elif FD_HAS_INT128
-    FD_VOLATILE( *(uint128 *)( dst ) ) = *(uint128 const *)( src );
-  # else
-    FD_VOLATILE( *dst ) = *src;
-  #endif
-}
-
-/* fd_fib4_hop_ld_atomic loads atomically from src into dst.
-   Assumes that dst is non-volatile. */
-FD_STATIC_ASSERT( sizeof(fd_fib4_hop_t) == 16, "atomic st assumes 16 bytes" );
-static inline void
-fd_fib4_hop_ld_atomic( fd_fib4_hop_t       * dst,
-                       fd_fib4_hop_t const * src ) {
-  #if FD_HAS_X86
-    *(__m128i *)( dst ) = FD_VOLATILE_CONST( *(__m128i const *)( src ) );
-  #elif FD_HAS_INT128
-    *(uint128 *)( dst ) = FD_VOLATILE_CONST( *(uint128 const *)( src ) );
-  # else
-    *dst = *src;
-  #endif
-}
-
-/* Atomically write hop, then write hash and key. Assumes no other writers */
-static void
-fd_fib4_hmap_entry_move( fd_fib4_hmap_entry_t * dst,
-                         fd_fib4_hmap_entry_t const * src) {
-  fd_fib4_hop_st_atomic( &dst->next_hop, &src->next_hop );
+fd_fib4_hmap_entry_st( fd_fib4_hmap_entry_t       * dst,
+                       fd_fib4_hmap_entry_t const * src ) {
+# if FD_HAS_X86
+  FD_VOLATILE( dst->xmm[0] ) = src->xmm[0];
+  FD_VOLATILE( dst->xmm[1] ) = src->xmm[1];
+# elif FD_HAS_INT128
+  FD_VOLATILE( dst->uf[0] )  = src->uf[0];
+  FD_VOLATILE( dst->uf[1] )  = src->uf[1];
+# elif FD_HAS_AVX
+  FD_VOLATILE( dst->avx[0] ) = src->avx[0];
+# else
+  dst->dst_addr = src->dst_addr;
   dst->hash     = src->hash;
-  dst->dst_addr = src->dst_addr; /* write key last, so query hits valid data */
+  dst->next_hop = src->next_hop;
+#endif
 }
 
-#define MAP_NAME fd_fib4_hmap
-#define MAP_T fd_fib4_hmap_entry_t
-#define MAP_KEY_T uint
-#define MAP_KEY dst_addr
-#define MAP_KEY_HASH(key) fd_uint_hash( key )
-#define MAP_KEY_NULL ((uint)0U)
-#define MAP_KEY_INVAL(k) !(k)
-#define MAP_KEY_EQUAL(a,b) ((a)==(b))
-#define MAP_KEY_EQUAL_IS_SLOW 0
+/* fd_fib4_hmap_entry_ld loads from src into dst.
+   Best effort for atomicity, but only guaranteed when FD_HAS_AVX.
+   Assumes that dst is non-volatile. */
+static inline void
+fd_fib4_hmap_entry_ld( fd_fib4_hmap_entry_t       * dst,
+                       fd_fib4_hmap_entry_t const * src ) {
+#if FD_HAS_X86
+  dst->xmm[0] = FD_VOLATILE_CONST( src->xmm[0] );
+  dst->xmm[1] = FD_VOLATILE_CONST( src->xmm[1] );
+#elif FD_HAS_INT128
+  dst->uf[0] = FD_VOLATILE_CONST( src->uf[0] );
+  dst->uf[1] = FD_VOLATILE_CONST( src->uf[1] );
+# elif FD_HAS_AVX
+  dst->avx[0] = FD_VOLATILE_CONST( src->avx[0] );
+# else
+  dst->dst_addr = src->dst_addr;
+  dst->hash     = src->hash;
+  dst->next_hop = src->next_hop;
+#endif
+}
 
-#define MAP_MOVE(d,s) fd_fib4_hmap_entry_move(&d,&s)
+#define MAP_NAME               fd_fib4_hmap
+#define MAP_T                  fd_fib4_hmap_entry_t
+#define MAP_KEY_T              uint
+#define MAP_KEY                dst_addr
+#define MAP_KEY_HASH(key,seed) fd_uint_hash( key ) ^ ((uint)seed)
+#define MAP_KEY_NULL           ((uint)0U)
+#define MAP_KEY_INVAL(k)       !(k)
+#define MAP_KEY_EQUAL(a,b)     ((a)==(b))
+#define MAP_KEY_EQUAL_IS_SLOW  0
+
+#define MAP_MOVE(d,s) fd_fib4_hmap_entry_st(&d,&s)
 #define MAP_QUERY_OPT 2 /* low fill ratio, rare query success */
 
 #include "../../util/tmpl/fd_map_dynamic.c"
 
+/* fd_fib4_hmap_query_hop queries the routing table for the next hop
+   for the given destination address. Attemps (but does not guarantee) atomicity.
+   If the destination address is not found, returns a route with rtype
+   set to UNSPEC. The result is not guaranteed to be valid - the caller
+   is responsible for validating the result. */
+
 static inline fd_fib4_hop_t
-fd_fib4_hmap_query_atomic( fd_fib4_hmap_entry_t * map,
-                           uint dst_addr ) {
+fd_fib4_hmap_query_hop( fd_fib4_hmap_entry_t * map,
+                        uint                   dst_addr ) {
   static fd_fib4_hop_t null = {0};
   fd_fib4_hmap_entry_t const * entry = fd_fib4_hmap_query( map, dst_addr, NULL );
   if( !entry ) return null;
 
-  fd_fib4_hop_t next_hop;
-  fd_fib4_hop_ld_atomic( &next_hop, &entry->next_hop );
+  fd_fib4_hmap_entry_t hmap_entry;
+  fd_fib4_hmap_entry_ld( &hmap_entry, entry );
 
-  /* confirm it's still the same IP we expected */
-  int torn_read = FD_VOLATILE_CONST( entry->dst_addr )!=dst_addr;
-  if( FD_UNLIKELY( torn_read ) ) return null;
-
-  return next_hop;
+  return hmap_entry.next_hop;
 }
 
 /* access the fib4 hmap */
@@ -133,11 +153,11 @@ fd_fib4_hmap_const( fd_fib4_t const * fib ) {
 
 static inline fd_fib4_hmap_entry_t *
 fd_fib4_hmap( fd_fib4_t * fib ) {
-  return (fd_fib4_hmap_entry_t*)fd_fib4_hmap_const( fib );
+  return (fd_fib4_hmap_entry_t*)( (ulong)fib + fib->hmap_join_offset );
 }
 
 static inline int
-_fd_fib4_hmap_lg_slot_cnt( ulong route_peer_max ) {
+fd_fib4_hmap_est_lg_slot_cnt( ulong route_peer_max ) {
   if( FD_UNLIKELY( !route_peer_max )) return -1;
 
   #define FD_FIB4_DEFAULT_SPARSITY (2.5)
@@ -146,14 +166,6 @@ _fd_fib4_hmap_lg_slot_cnt( ulong route_peer_max ) {
   #undef FD_FIB4_DEFAULT_SPARSITY
 
   return lg_slot_cnt;
-}
-
-static inline ulong
-_fd_fib4_hmap_footprint( ulong route_peer_max) {
-  if( FD_UNLIKELY( !route_peer_max )) return 0UL;
-
-  int lg_slot_cnt = _fd_fib4_hmap_lg_slot_cnt( route_peer_max );
-  return fd_fib4_hmap_footprint( lg_slot_cnt );
 }
 
 #endif /* HEADER_fd_src_waltz_ip_fd_fib4_private_h */

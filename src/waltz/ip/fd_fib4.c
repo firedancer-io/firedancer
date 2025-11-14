@@ -23,7 +23,8 @@ fd_fib4_footprint( ulong route_max,
                    ulong route_peer_max ) {
   if( route_max==0 || route_max>UINT_MAX ||
       route_peer_max==0 || route_peer_max>UINT_MAX ) return 0UL;
-  ulong hmap_footprint = _fd_fib4_hmap_footprint( route_peer_max );
+  int   lg_slot_cnt    = fd_fib4_hmap_est_lg_slot_cnt( route_peer_max ); FD_TEST( lg_slot_cnt>0 );
+  ulong hmap_footprint = fd_fib4_hmap_footprint( lg_slot_cnt );
   if( FD_UNLIKELY( !hmap_footprint ) ) return 0UL;
 
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
@@ -37,7 +38,8 @@ fd_fib4_footprint( ulong route_max,
 void *
 fd_fib4_new( void * mem,
              ulong  route_max,
-             ulong  route_peer_max ) {
+             ulong  route_peer_max,
+             ulong  route_peer_seed ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -57,7 +59,8 @@ fd_fib4_new( void * mem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  ulong  hmap_footprint = _fd_fib4_hmap_footprint( route_peer_max );
+  int   fib_lg_slot_cnt = fd_fib4_hmap_est_lg_slot_cnt( route_peer_max ); FD_TEST( fib_lg_slot_cnt>0 );
+  ulong hmap_footprint  = fd_fib4_hmap_footprint( fib_lg_slot_cnt );
   if( FD_UNLIKELY( !hmap_footprint ) ) {
     FD_LOG_WARNING(( "invalid fd_fib4_hmap_footprint" ));
     return NULL;
@@ -75,7 +78,7 @@ fd_fib4_new( void * mem,
 
   /* hmap_footprint!=0 --> lg_slot_cnt > 0  */
   fd_fib4_hmap_entry_t * map = fd_fib4_hmap_join(
-                                 fd_fib4_hmap_new( fib4_hmap_mem, _fd_fib4_hmap_lg_slot_cnt( route_peer_max ) )
+                                 fd_fib4_hmap_new( fib4_hmap_mem, fib_lg_slot_cnt, route_peer_seed )
                                );
   FD_TEST( map );
 
@@ -134,18 +137,18 @@ fd_fib4_cnt( fd_fib4_t const * fib ) {
 /* fd_fib4_hmap_insert adds a new entry (key=ip4_dst, value=hop) to the fib4
    hmap. Assume the netmask for the ip4_dst entry is 32, and ip4_dst is not 0.
    Fails if the map capacity has hit configured hmap_max. Returns 1 on success,
-   or 0 on failure.
+   or 0 on failure. Assumes we are the only writer.
 */
 
 static inline int
-_fd_fib4_hmap_insert( fd_fib4_t *    fib,
-                     uint            ip4_dst,
-                     fd_fib4_hop_t * hop ) {
+fd_fib4_hmap_insert_entry( fd_fib4_t *     fib,
+                           uint            ip4_dst,
+                           fd_fib4_hop_t * hop ) {
 
   if( FD_UNLIKELY( fib->hmap_cnt>=fib->hmap_max ) ) return 0;
   FD_TEST( hop );
 
-  fd_fib4_hmap_entry_t * map = fd_fib4_hmap( fib );
+  fd_fib4_hmap_entry_t * map   = fd_fib4_hmap( fib );
   fd_fib4_hmap_entry_t * entry = fd_fib4_hmap_insert( map, ip4_dst );
   if( FD_UNLIKELY( !entry ) ) {
     /* update existing entry */
@@ -153,7 +156,13 @@ _fd_fib4_hmap_insert( fd_fib4_t *    fib,
   }
   FD_TEST( entry );
 
-  fd_fib4_hop_st_atomic( &entry->next_hop, hop );
+  fd_fib4_hmap_entry_t to_enter = {
+    .dst_addr = ip4_dst,
+    .hash     = fd_uint_hash( ip4_dst ),
+    .next_hop = *hop
+  };
+  fd_fib4_hmap_entry_st( entry, &to_enter );
+
   fib->hmap_cnt++;
   return 1;
 }
@@ -167,7 +176,7 @@ fd_fib4_insert( fd_fib4_t *     fib,
 
   FD_TEST( hop );
   if( ip4_dst!=0 && prefix==32 ) {
-    if( _fd_fib4_hmap_insert( fib, ip4_dst, hop ) ) return 1;
+    if( fd_fib4_hmap_insert_entry( fib, ip4_dst, hop ) ) return 1;
     FD_LOG_WARNING(( "Failed to insert /32 route " FD_IP4_ADDR_FMT " into fib4 hashmap", FD_IP4_ADDR_FMT_ARGS(ip4_dst) ));
     return 0;
   }
@@ -225,17 +234,16 @@ fd_fib4_insert( fd_fib4_t *     fib,
 }
 
 fd_fib4_hop_t
-fd_fib4_lookup( fd_fib4_t const * fib,
-                uint              ip4_dst,
-                ulong             flags ) {
+fd_fib4_lookup( fd_fib4_t  * fib,
+                uint         ip4_dst,
+                ulong        flags ) {
   if( FD_UNLIKELY( flags ) ) {
     return fd_fib4_hop_tbl_const( fib )[0]; /* dead route */
   }
 
   if( fib->hmap_cnt>0 ) {
-    fd_fib4_hmap_entry_t * map   = fd_fib4_hmap( (fd_fib4_t *)fib );
-
-    fd_fib4_hop_t next_hop = fd_fib4_hmap_query_atomic( map, ip4_dst );
+    fd_fib4_hmap_entry_t * map      = fd_fib4_hmap ( fib );
+    fd_fib4_hop_t          next_hop = fd_fib4_hmap_query_hop( map, ip4_dst );
     if( next_hop.rtype!=FD_FIB4_RTYPE_UNSPEC ) {
       return next_hop;
     }

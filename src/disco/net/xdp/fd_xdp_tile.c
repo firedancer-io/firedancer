@@ -229,8 +229,8 @@ typedef struct {
   fd_net_flusher_t tx_flusher[2]; /* one per XSK */
 
   /* Route and neighbor tables */
-  fd_fib4_t const * fib_local;
-  fd_fib4_t const * fib_main;
+  fd_fib4_t *       fib_local;
+  fd_fib4_t *       fib_main;
   fd_neigh4_hmap_t  neigh4[1];
   fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
 
