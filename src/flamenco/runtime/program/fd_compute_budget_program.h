@@ -27,10 +27,12 @@ FD_PROTOTYPES_BEGIN
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L101-L153 */
 int
-fd_sanitize_compute_unit_limits( fd_exec_txn_ctx_t * ctx );
+fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out );
 
 int
-fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx );
+fd_executor_compute_budget_program_execute_instructions( fd_bank_t *         bank,
+                                                         fd_txn_in_t const * txn_in,
+                                                         fd_txn_out_t *      txn_out );
 
 int
 fd_compute_budget_program_execute( fd_exec_instr_ctx_t * ctx );

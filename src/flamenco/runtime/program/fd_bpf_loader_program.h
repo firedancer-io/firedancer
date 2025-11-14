@@ -93,12 +93,12 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L155-L233 */
 int
-fd_directly_invoke_loader_v3_deploy( fd_bank_t *               bank,
-                                     void *                    accdb_shfunk,
-                                     fd_funk_txn_xid_t const * xid,
-                                     fd_pubkey_t const *       program_key,
-                                     uchar const *             elf,
-                                     ulong                     elf_sz );
+fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
+                                     fd_funk_t *         funk,
+                                     void *              accdb_shfunk,
+                                     fd_pubkey_t const * program_key,
+                                     uchar const *       elf,
+                                     ulong               elf_sz );
 
 FD_PROTOTYPES_END
 

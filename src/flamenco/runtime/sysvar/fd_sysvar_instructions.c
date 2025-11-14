@@ -33,14 +33,18 @@ instructions_serialized_size( fd_instr_info_t const *   instrs,
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/svm/src/account_loader.rs#L547-L576 */
 void
-fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
+fd_sysvar_instructions_serialize_account( fd_txn_in_t const *      txn_in,
+                                          fd_txn_out_t *           txn_out,
+                                          fd_exec_txn_ctx_t *      txn_ctx,
                                           fd_instr_info_t const *  instrs,
                                           ushort                   instrs_cnt,
                                           ulong                    txn_idx ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
   fd_txn_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_with_key( txn_ctx,
+  int err = fd_exec_txn_ctx_get_account_with_key( txn_in,
+                                                  txn_out,
+                                                  txn_ctx,
                                                   &fd_sysvar_instructions_id,
                                                   &rec,
                                                   fd_txn_account_check_exists );
@@ -109,12 +113,12 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
 
       // pubkey
       ushort idx_in_txn = instr->accounts[j].index_in_transaction;
-      FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_ctx->accounts.account_keys[ idx_in_txn ] );
+      FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_out->accounts.account_keys[ idx_in_txn ] );
       offset += sizeof(fd_pubkey_t);
     }
 
     // program_id_pubkey
-    FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_ctx->accounts.account_keys[ instr->program_id ] );
+    FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_out->accounts.account_keys[ instr->program_id ] );
     offset += sizeof(fd_pubkey_t);
 
     // instr_data_len

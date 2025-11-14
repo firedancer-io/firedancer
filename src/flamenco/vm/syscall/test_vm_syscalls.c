@@ -8,7 +8,7 @@ static void
 test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
   ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
   char const * one_offs[] = { "9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ", "CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM" };
-  fd_features_enable_one_offs( fd_bank_features_modify( vm_ctx->instr_ctx->txn_ctx->bank ), one_offs, 1U, slot );
+  fd_features_enable_one_offs( fd_bank_features_modify( vm_ctx->instr_ctx->bank ), one_offs, 1U, slot );
   vm_ctx->direct_mapping = enable;
   vm_ctx->stricter_abi_and_runtime_constraints = enable;
 }
@@ -35,7 +35,7 @@ test_vm_syscall_sol_memset( char const * test_case_name,
     FD_TEST( !memcmp( (void *)dst_haddr, expected_block, sz ) );
   }
 
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -58,7 +58,7 @@ test_vm_syscall_sol_memcpy( char const * test_case_name,
 
   if( !ret && !err ) FD_TEST( !memcmp( (void *)dst_haddr, (void *)src_haddr, sz ) );
 
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out  );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -81,7 +81,7 @@ test_vm_syscall_sol_memcmp( char const * test_case_name,
 
   if( !ret && !err ) FD_TEST( memcmp( (void *)haddr_1, (void *)haddr_2, sz )==*(int *)(host_cmp_result_addr) );
 
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -109,7 +109,7 @@ test_vm_syscall_sol_memmove( char const * test_case_name,
 
   free( temp );
 
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -135,7 +135,7 @@ test_vm_syscall_sol_log( char const *            test_case_name,
     fd_log_collector_debug_get( log, log_vec_len, &msg, &msg_sz );
     FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
   }
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -164,7 +164,7 @@ test_vm_syscall_sol_log_64( char const *            test_case_name,
     fd_log_collector_debug_get( log, log_vec_len, &msg, &msg_sz );
     FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
   }
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -191,7 +191,7 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
     FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
   }
 
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -245,7 +245,8 @@ main( int     argc,
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_exec_txn_ctx_t   txn_ctx[1];
   fd_bank_t           bank[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank );
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank, txn_out );
 
   int vm_ok = !!fd_vm_init(
       /* vm                                   */ vm,
@@ -268,8 +269,8 @@ main( int     argc,
       /* mem_regions_cnt                      */ (uint)mem_regions_cnt,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );

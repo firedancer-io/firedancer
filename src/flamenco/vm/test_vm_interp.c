@@ -54,8 +54,8 @@ test_program_success( char *                test_case_name,
       /* mem_regions_cnt                      */ 0UL,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );
@@ -228,7 +228,8 @@ test_0cu_exit( void ) {
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_exec_txn_ctx_t   txn_ctx[1];
   fd_bank_t           bank[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank );
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank, txn_out );
 
   /* Ensure the VM exits with success if the CU count after the final
      exit instruction reaches zero. */
@@ -254,8 +255,8 @@ test_0cu_exit( void ) {
       /* mem_regions_cnt                      */ 0UL,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );
@@ -287,8 +288,8 @@ test_0cu_exit( void ) {
       /* mem_regions_cnt                      */ 0UL,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );
@@ -455,7 +456,8 @@ main( int     argc,
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_exec_txn_ctx_t   txn_ctx[1];
   fd_bank_t           bank[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank );
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank, txn_out );
 
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 

@@ -100,6 +100,15 @@ typedef union fd_runtime_stack fd_runtime_stack_t;
 struct fd_exec_stack;
 typedef struct fd_exec_stack fd_exec_stack_t;
 
+struct fd_runtime;
+typedef struct fd_runtime fd_runtime_t;
+
+struct fd_txn_in;
+typedef struct fd_txn_in fd_txn_in_t;
+
+struct fd_txn_out;
+typedef struct fd_txn_out fd_txn_out_t;
+
 struct fd_account_meta {
   uchar owner[32];
   ulong lamports;

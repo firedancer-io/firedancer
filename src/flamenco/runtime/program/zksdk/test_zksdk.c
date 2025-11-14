@@ -32,6 +32,7 @@ load_test_tx(char * hex[], ulong hex_sz, ulong * tx_len) {
 
 void
 create_test_ctx( fd_exec_instr_ctx_t * ctx,
+                 fd_txn_out_t *        txn_out,
                  fd_exec_txn_ctx_t *   txn_ctx,
                  fd_instr_info_t *     instr,
                  uchar *               tx,
@@ -41,7 +42,8 @@ create_test_ctx( fd_exec_instr_ctx_t * ctx,
   // This is just minimally setting the instr data so we can test zkp verification
   // TODO: properly load tx
   ctx->txn_ctx = txn_ctx;
-  txn_ctx->details.compute_budget.compute_meter = compute_meter;
+  ctx->txn_out = txn_out;
+  ctx->txn_out->details.compute_budget.compute_meter = compute_meter;
   ctx->instr = instr;
   instr->data = &tx[instr_off];
   instr->data_sz = (ushort)(tx_len - instr_off); //TODO: this only works if the instruction is the last one
@@ -68,19 +70,20 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng ) {
 
   fd_exec_instr_ctx_t ctx;
   fd_exec_txn_ctx_t txn_ctx[1];
+  fd_txn_out_t txn_out[1];
   fd_instr_info_t instr[1];
   fd_bank_t bank[1];
   ulong tx_len = 0;
   ulong proof_offset = offset + 1 + context_sz;
+  ctx.bank = bank;
 
-  txn_ctx->bank = bank;
   fd_bank_slot_set( bank, 0UL );
   fd_features_t * features = fd_bank_features_modify( bank );
   fd_features_enable_all( features );
 
   // load test data
   uchar * tx = load_test_tx( hex, hex_sz, &tx_len );
-  create_test_ctx( &ctx, txn_ctx, instr, tx, tx_len, offset, cu );
+  create_test_ctx( &ctx, txn_out, txn_ctx, instr, tx, tx_len, offset, cu );
 
   void const * context = tx + offset + 1;
   void const * proof = tx + proof_offset;

@@ -23,7 +23,7 @@
    and fails in case of error. */
 #define FD_EXEC_CU_UPDATE( ctx, cost ) do {               \
   fd_exec_instr_ctx_t * _ctx = (ctx);                     \
-  int err = fd_exec_consume_cus( _ctx->txn_ctx, (cost) ); \
+  int err = fd_exec_consume_cus( _ctx->txn_out, (cost) ); \
   if( FD_UNLIKELY( err ) ) return err;                    \
   } while(0)
 
@@ -46,10 +46,16 @@ uchar
 fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey );
 
 int
-fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_verify_transaction( fd_bank_t *         bank,
+                                fd_txn_in_t const * txn_in,
+                                fd_txn_out_t *      txn_out );
 
 int
-fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_check_transactions( fd_runtime_t *      runtime,
+                                fd_bank_t *         bank,
+                                fd_txn_in_t const * txn_in,
+                                fd_txn_out_t *      txn_out,
+                                fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
    instruction processing.  Does fd_spad_t allocations.  Returns an
@@ -63,7 +69,11 @@ fd_executor_txn_verify( fd_txn_p_t *  txn_p,
                         fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] );
 
 int
-fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
+fd_execute_instr( fd_runtime_t *      runtime,
+                  fd_bank_t *         bank,
+                  fd_txn_in_t const * txn_in,
+                  fd_txn_out_t *      txn_out,
+                  fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr_info );
 
 /*
@@ -71,30 +81,47 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
   Makes changes to the Funk accounts DB. */
 int
-fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx );
+fd_execute_txn( fd_runtime_t *      runtime,
+                fd_bank_t *         bank,
+                fd_txn_in_t const * txn_in,
+                fd_txn_out_t *      txn_out,
+                fd_exec_txn_ctx_t * txn_ctx );
 
 int
-fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
+                                            fd_bank_t *         bank,
+                                            fd_txn_in_t const * txn_in,
+                                            fd_txn_out_t *      txn_out,
+                                            fd_exec_txn_ctx_t * txn_ctx );
 
 void
-fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
+                                    fd_bank_t *         bank,
+                                    fd_txn_in_t const * txn_in,
+                                    fd_txn_out_t *      txn_out,
+                                    fd_exec_txn_ctx_t * txn_ctx );
 
 void
-fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_setup_txn_account_keys( fd_txn_in_t const * txn_in,
+                                    fd_txn_out_t *      txn_out );
 
 int
-fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
+                                         fd_bank_t *         bank,
+                                         fd_txn_in_t const * txn_in,
+                                         fd_txn_out_t *      txn_out );
 
 /*
   Validate the txn after execution for violations of various lamport balance and size rules
  */
 
 int
-fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_txn_check( fd_bank_t *    bank,
+                       fd_txn_out_t * txn_out );
 
 void
-fd_executor_reclaim_account( fd_exec_txn_ctx_t * txn_ctx,
-                             fd_txn_account_t *  account );
+fd_executor_reclaim_account( fd_txn_account_t * account,
+                             ulong              slot );
 
 /* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
    human readable cstr.  The lifetime of the returned pointer is
@@ -105,33 +132,42 @@ FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
 int
-fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
+                                       fd_bank_t *         bank,
+                                       fd_txn_in_t const * txn_in,
+                                       fd_txn_out_t *      txn_out,
+                                       fd_exec_txn_ctx_t * txn_ctx );
 
 int
-fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );
+fd_executor_validate_account_locks( fd_bank_t *          bank,
+                                    fd_txn_out_t const * txn_out );
 
 static inline int
-fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,
-                     ulong               cus ) {
-  ulong new_cus   =  txn_ctx->details.compute_budget.compute_meter - cus;
-  int   underflow = (txn_ctx->details.compute_budget.compute_meter < cus);
+fd_exec_consume_cus( fd_txn_out_t * txn_out,
+                     ulong          cus ) {
+  ulong new_cus   =  txn_out->details.compute_budget.compute_meter - cus;
+  int   underflow = (txn_out->details.compute_budget.compute_meter < cus);
   if( FD_UNLIKELY( underflow ) ) {
-    txn_ctx->details.compute_budget.compute_meter = 0UL;
+    txn_out->details.compute_budget.compute_meter = 0UL;
     return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
   }
-  txn_ctx->details.compute_budget.compute_meter = new_cus;
+  txn_out->details.compute_budget.compute_meter = new_cus;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 /* We expose these only for the fuzzing harness.
    Normally you shouldn't be invoking these manually. */
 int
-fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
-                     fd_instr_info_t *       instr );
+fd_instr_stack_push( fd_runtime_t *      runtime,
+                     fd_txn_in_t const * txn_in,
+                     fd_txn_out_t *      txn_out,
+                     fd_exec_txn_ctx_t * txn_ctx,
+                     fd_instr_info_t *   instr );
 
 int
-fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
-                    fd_instr_info_t const *   instr );
+fd_instr_stack_pop( fd_runtime_t *          runtime,
+                    fd_txn_out_t *          txn_out,
+                    fd_instr_info_t const * instr );
 
 FD_PROTOTYPES_END
 

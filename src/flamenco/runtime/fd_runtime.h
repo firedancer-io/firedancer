@@ -231,6 +231,89 @@ FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION
 
 FD_PROTOTYPES_BEGIN
 
+
+/**********************************************************************/
+
+struct fd_runtime {
+  fd_funk_t *       funk;
+  fd_txncache_t *   status_cache;
+  fd_progcache_t *  progcache;
+  fd_exec_stack_t * exec_stack;
+
+  struct {
+    uchar                       stack_sz;                              /* Current depth of the instruction execution stack. */
+    fd_exec_instr_ctx_t         stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
+    /* The memory for all of the instructions in the transaction
+       (including CPI instructions) are preallocated.  However, the order
+       in which the instructions are executed does not match the order in
+       which they are allocated.  The instr_trace will instead be used to
+       track the order in which the instructions are executed.  We leave
+       space for an extra instruction to account for the case where the
+       transaction has too many instructions leading to
+       FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED.
+       TODO: In reality, we should just be allocating instr_infos per
+       instruction and not up front.  The dependency on using instr_info
+       for the sysvar instruction setup is not needed and should be
+       removed.  At this point, instr_info snad instr_trace should be
+       combined. */
+    fd_instr_info_t             infos[FD_MAX_INSTRUCTION_TRACE_LENGTH * 2UL];
+    ulong                       info_cnt;
+    fd_exec_instr_trace_entry_t trace[FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
+    ulong                       trace_length;                           /* Number of instructions in the trace */
+    /* The current instruction index being executed */
+    int current_idx;
+  } instr;
+
+};
+typedef struct fd_runtime fd_runtime_t;
+
+struct fd_txn_in {
+  fd_txn_p_t txn;
+
+  struct {
+    int            is_bundle;
+    fd_txn_in_t *  prev_txn_ins[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+    fd_txn_out_t * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+    ulong          prev_txn_cnt;
+  } bundle;
+};
+typedef struct fd_txn_in fd_txn_in_t;
+
+struct fd_txn_out {
+  fd_exec_accounts_t * exec_accounts;
+  fd_txn_err_t         err;
+  fd_txn_details_t     details;
+
+  /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139
+     Nonetheless, when Agave prepares a sanitized batch for execution and tries to lock accounts, a lower limit is enforced:
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
+     That is the limit we are going to use here. */
+  struct {
+    ulong                           accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
+    fd_pubkey_t                     account_keys[ MAX_TX_ACCOUNT_LOCKS ];        /* Array of account pubkeys accessed by this transaction. */
+    fd_txn_account_t                accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
+    ulong                           executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
+    fd_txn_account_t                executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
+  /* The next three fields describe Agave's "rollback" accounts, which
+     are copies of the fee payer and (if applicable) nonce account.  If
+     the transaction fails to load, the fee payer is still debited the
+     transaction fee, and the nonce account is advanced.  The fee payer
+     must also be rolled back to its state pre-transaction, plus
+     debited any transaction fees.
+     This is a bit of a misnomer but Agave calls it "rollback".
+     This is the account state that the nonce account should be in when
+     the txn fails. It will advance the nonce account, rather than "roll
+     back". */
+    fd_txn_account_t                rollback_nonce[ 1 ];
+    /* If the transaction has a nonce account that must be advanced,
+       this would be !=ULONG_MAX. */
+    ulong                           nonce_idx_in_txn;
+    fd_txn_account_t                rollback_fee_payer[ 1 ];
+  } accounts;
+};
+typedef struct fd_txn_out fd_txn_out_t;
+
 /* Runtime Helpers ************************************************************/
 
 /*
@@ -311,31 +394,34 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 /* Transaction Level Execution Management *************************************/
 
 int
-fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx );
+fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
+                              fd_bank_t *         bank,
+                              fd_txn_in_t const * txn_in,
+                              fd_txn_out_t *      txn_out,
+                              fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_runtime_prepare_and_execute_txn is the main entrypoint from the
    executor tile. It is responsible for preparing and executing a single
    transaction. */
 
 int
-fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
+fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
+                                    fd_bank_t *          bank,
+                                    fd_txn_in_t const *  txn_in,
                                     fd_exec_txn_ctx_t *  txn_ctx,
-                                    fd_txn_p_t *         txn,
+                                    fd_txn_out_t *       txn_out,
                                     fd_capture_ctx_t *   capture_ctx,
-                                    fd_exec_stack_t *    exec_stack,
                                     fd_exec_accounts_t * exec_accounts,
                                     uchar *              dumping_mem,
                                     uchar *              tracing_mem );
 
 void
-fd_runtime_finalize_txn( fd_funk_t *               funk,
-                         fd_progcache_t *          progcache,
-                         fd_txncache_t *           txncache,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_exec_txn_ctx_t *       txn_ctx,
-                         fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx,
-                         ulong *                   tips_out_opt );
+fd_runtime_commit_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       fd_capture_ctx_t *  capture_ctx,
+                       ulong *             tips_out_opt );
 
 /* Epoch Boundary *************************************************************/
 

@@ -176,7 +176,7 @@ fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
 
   /* To become executable an account must be rent exempt
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1003-L1006 */
-  fd_rent_t const * rent = fd_bank_rent_query( borrowed_acct->instr_ctx->txn_ctx->bank );
+  fd_rent_t const * rent = fd_bank_rent_query( borrowed_acct->instr_ctx->bank );
   if( FD_UNLIKELY( fd_txn_account_get_lamports( acct )<fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( acct ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
   }
@@ -224,7 +224,7 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
   /* TODO: The size delta should never exceed the value of ULONG_MAX so this
      could be replaced with a normal addition. However to match execution with
      the agave client, this is being left as a sat add */
-  instr_ctx->txn_ctx->details.accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->details.accounts_resize_delta, size_delta );
+  instr_ctx->txn_out->details.accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_out->details.accounts_resize_delta, size_delta );
   *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }

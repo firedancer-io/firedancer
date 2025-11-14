@@ -4,6 +4,7 @@
 #include "fd_log_collector_base.h"
 #include "../runtime/context/fd_exec_instr_ctx.h"
 #include "../runtime/context/fd_exec_txn_ctx.h"
+#include "../runtime/fd_runtime.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
 #include <stdio.h>
@@ -387,11 +388,11 @@ fd_log_collector_program_invoke( fd_exec_instr_ctx_t * ctx ) {
     return;
   }
 
-  fd_pubkey_t const * program_id_pubkey = &ctx->txn_ctx->accounts.account_keys[ ctx->instr->program_id ];
+  fd_pubkey_t const * program_id_pubkey = &ctx->txn_out->accounts.account_keys[ ctx->instr->program_id ];
   /* Cache ctx->program_id_base58 */
   fd_base58_encode_32( program_id_pubkey->uc, NULL, ctx->program_id_base58 );
   /* Max msg_sz: 22 - 4 + 44 + 10 = 72 < 127 => we can use printf */
-  fd_log_collector_printf_dangerous_max_127( ctx, "Program %s invoke [%u]", ctx->program_id_base58, ctx->txn_ctx->instr.stack_sz );
+  fd_log_collector_printf_dangerous_max_127( ctx, "Program %s invoke [%u]", ctx->program_id_base58, ctx->runtime->instr.stack_sz );
 }
 
 /* fd_log_collector_program_log logs:
@@ -421,8 +422,8 @@ fd_log_collector_program_return( fd_exec_instr_ctx_t * ctx ) {
 
   /* ctx->txn_ctx->return_data is 1024 bytes max, so its base64 repr
      is at most (1024+2)/3*4 bytes, plus we use 1 byte for \0. */
-  char return_base64[ (sizeof(ctx->txn_ctx->details.return_data.data)+2)/3*4+1 ];
-  ulong sz = fd_base64_encode( return_base64, ctx->txn_ctx->details.return_data.data, ctx->txn_ctx->details.return_data.len );
+  char return_base64[ (sizeof(ctx->txn_out->details.return_data.data)+2)/3*4+1 ];
+  ulong sz = fd_base64_encode( return_base64, ctx->txn_out->details.return_data.data, ctx->txn_out->details.return_data.len );
   return_base64[ sz ] = 0;
   /* Max msg_sz: 21 - 4 + 44 + 1368 = 1429 < 1500 => we can use printf, but have to handle sz */
   ulong msg_sz = 17 + strlen(ctx->program_id_base58) + sz;
@@ -464,21 +465,20 @@ fd_log_collector_program_failure( fd_exec_instr_ctx_t * ctx ) {
 
   char custom_err[33] = { 0 };
   const char * err = custom_err;
-  const fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
-  if( FD_UNLIKELY( txn_ctx->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR &&
-                   txn_ctx->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) ) {
+  if( FD_UNLIKELY( ctx->txn_out->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR &&
+                   ctx->txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) ) {
     /* Max msg_sz = 32 <= 66 */
-    snprintf( custom_err, sizeof(custom_err), "custom program error: 0x%x", txn_ctx->err.custom_err );
-  } else if( txn_ctx->err.exec_err ) {
-    switch( txn_ctx->err.exec_err_kind ) {
+    snprintf( custom_err, sizeof(custom_err), "custom program error: 0x%x", ctx->txn_out->err.custom_err );
+  } else if( ctx->txn_out->err.exec_err ) {
+    switch( ctx->txn_out->err.exec_err_kind ) {
       case FD_EXECUTOR_ERR_KIND_SYSCALL:
-        err = fd_vm_syscall_strerror( txn_ctx->err.exec_err );
+        err = fd_vm_syscall_strerror( ctx->txn_out->err.exec_err );
         break;
       case FD_EXECUTOR_ERR_KIND_INSTR:
-        err = fd_executor_instr_strerror( txn_ctx->err.exec_err );
+        err = fd_executor_instr_strerror( ctx->txn_out->err.exec_err );
         break;
       default:
-        err = fd_vm_ebpf_strerror( txn_ctx->err.exec_err );
+        err = fd_vm_ebpf_strerror( ctx->txn_out->err.exec_err );
     }
   }
 

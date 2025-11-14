@@ -82,7 +82,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
          transactions accounts. */
       FD_BASE58_ENCODE_32_BYTES( instr_acct_keys[i].uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
@@ -105,7 +105,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     /* TODO: this code would maybe be easier to read if we inverted the branches */
     if( duplicate_index!=ULONG_MAX ) {
       if ( FD_UNLIKELY( duplicate_index >= deduplicated_instruction_accounts_cnt ) ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->err.exec_err_idx );
+        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
         return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
@@ -143,7 +143,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     if( FD_UNLIKELY( instruction_account->is_writable && !fd_borrowed_account_is_writable( &borrowed_caller_acct ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
@@ -151,7 +151,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.acct->pubkey, signers, signers_cnt) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
   }
@@ -170,7 +170,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
       callee_instr->accounts[i].is_writable = !!(instruction_accounts[i].is_writable);
       callee_instr->accounts[i].is_signer   = !!(instruction_accounts[i].is_signer);
     } else {
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
   }
@@ -181,7 +181,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
   if( FD_UNLIKELY( program_idx == -1 ) ) {
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
@@ -191,7 +191,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
   fd_guarded_borrowed_account_t borrowed_program_account = {0};
   int err = fd_exec_instr_ctx_try_borrow_instr_account( instr_ctx, (ushort)program_idx, &borrowed_program_account );
   if( FD_UNLIKELY( err ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, err, instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, err, instr_ctx->txn_out->err.exec_err_idx );
     return err;
   }
 
@@ -199,17 +199,17 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
   /* Check that the program account is executable. We need to ensure that the
     program account is a valid instruction account.
     https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L438 */
-  if( !FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+  if( !FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, remove_accounts_executable_flag_checks ) ) {
     if( FD_UNLIKELY( !fd_borrowed_account_is_executable( &borrowed_program_account ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 3, "Account ", 8UL, id_b58, id_b58_len, " is not executable", 18UL );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_ctx->err.exec_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
     }
   }
@@ -244,8 +244,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
    the limits, they will have to take a look. */
 FD_STATIC_ASSERT( FD_CPI_MAX_ACCOUNT_INFOS==MAX_TX_ACCOUNT_LOCKS, cpi_max_account_info );
 static inline ulong
-get_cpi_max_account_infos( fd_exec_txn_ctx_t const * txn_ctx ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, increase_tx_account_lock_limit ), FD_CPI_MAX_ACCOUNT_INFOS, 64UL );
+get_cpi_max_account_infos( fd_bank_t * bank ) {
+  return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( bank, increase_tx_account_lock_limit ), FD_CPI_MAX_ACCOUNT_INFOS, 64UL );
 }
 
 /* Maximum CPI instruction data size. 10 KiB was chosen to ensure that CPI
@@ -275,7 +275,7 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
                                      ulong           acct_cnt,
                                      ulong           data_sz ) {
   /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L958-L959 */
-  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->txn_ctx->bank, loosen_cpi_size_restriction ) ) {
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
       // SyscallError::MaxInstructionDataLenExceeded
@@ -358,11 +358,11 @@ fd_vm_syscall_cpi_check_id( fd_pubkey_t const * program_id,
    https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/src/precompiles.rs#L93
  */
 static inline int
-fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id, fd_exec_txn_ctx_t const * txn_ctx ) {
+fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id, fd_bank_t * bank ) {
   return fd_vm_syscall_cpi_check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) |
          fd_vm_syscall_cpi_check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key) |
          ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_secp256r1_program_id.key) &&
-           FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, enable_secp256r1_precompile ) );
+           FD_FEATURE_ACTIVE_BANK( bank, enable_secp256r1_precompile ) );
 }
 
 /* fd_vm_syscall_cpi_check_authorized_program corresponds to
@@ -374,10 +374,10 @@ It determines if the given program_id is authorized to execute a CPI call.
 FIXME: return type
  */
 static inline ulong
-fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *       program_id,
-                                            fd_exec_txn_ctx_t const * txn_ctx,
-                                            uchar const *             instruction_data,
-                                            ulong                     instruction_data_len ) {
+fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
+                                            fd_bank_t *         bank,
+                                            uchar const *       instruction_data,
+                                            ulong               instruction_data_len ) {
   /* FIXME: do this in a branchless manner? using bitwise comparison would probably be faster */
   return ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_native_loader_id.key) ||
            fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_program_id.key) ||
@@ -385,12 +385,12 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *       program_id
            ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key) &&
              !(( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_upgrade ) ||
                ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_set_authority ) ||
-               ( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, enable_bpf_loader_set_authority_checked_ix ) &&
+               ( FD_FEATURE_ACTIVE_BANK( bank, enable_bpf_loader_set_authority_checked_ix ) &&
                  ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_set_authority_checked )) ||
-               ( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, enable_extend_program_checked ) &&
+               ( FD_FEATURE_ACTIVE_BANK( bank, enable_extend_program_checked ) &&
                  ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_extend_program_checked )) ||
                ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_close ))) ||
-           fd_vm_syscall_cpi_is_precompile( program_id, txn_ctx ) );
+           fd_vm_syscall_cpi_is_precompile( program_id, bank ) );
 }
 
 /* The data and lamports fields are in an Rc<Refcell<T>> in the Rust ABI AccountInfo.
