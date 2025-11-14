@@ -114,8 +114,8 @@ static inline fd_fib4_hop_t
 fd_fib4_hmap_query_atomic( fd_fib4_hmap_entry_t * map,
                            uint dst_addr ) {
   static fd_fib4_hop_t null = {0};
-  fd_fib4_hmap_entry_t const * entry = fd_fib4_hmap_query( map, dst_addr, fd_type_pun( &null ));
-  if( !entry ) return null;
+  fd_fib4_hmap_entry_t const * entry = fd_fib4_hmap_query( map, dst_addr, NULL );
+  if( FD_UNLIKELY( !entry ) ) return null;
 
   fd_fib4_hop_t next_hop;
   fd_fib4_hop_ld_atomic( &next_hop, &entry->next_hop );
