@@ -1490,6 +1490,7 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     }
   }
 
+# if FD_HAS_FLATCC
   /* Dumping ELF files to protobuf, if applicable */
   int dump_elf_to_pb = txn_ctx->log.capture_ctx &&
                        fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot &&
@@ -1499,6 +1500,7 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       fd_dump_elf_to_protobuf( txn_ctx, &txn_ctx->accounts.accounts[i] );
     }
   }
+# endif
 
   txn_ctx->accounts.nonce_idx_in_txn = ULONG_MAX;
   txn_ctx->accounts.executable_cnt   = j;
@@ -1529,16 +1531,19 @@ int
 fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
   bool dump_insn = txn_ctx->log.capture_ctx && fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot && txn_ctx->log.capture_ctx->dump_instr_to_pb;
+  (void)dump_insn;
 
   /* Initialize log collection. */
   fd_log_collector_init( &txn_ctx->log.log_collector, txn_ctx->log.enable_exec_recording );
 
   for( ushort i=0; i<TXN( &txn_ctx->txn )->instr_cnt; i++ ) {
     txn_ctx->instr.current_idx = i;
+#   if FD_HAS_FLATCC
     if( FD_UNLIKELY( dump_insn ) ) {
       // Capture the input and convert it into a Protobuf message
       fd_dump_instr_to_protobuf( txn_ctx, &txn_ctx->instr.infos[i], i );
     }
+#   endif
 
     int instr_exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr.infos[i] );
     if( FD_UNLIKELY( instr_exec_result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
