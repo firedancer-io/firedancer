@@ -869,7 +869,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   vm->instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
 
   /* Execute the CPI instruction in the runtime */
-  int err_exec = fd_execute_instr( vm->instr_ctx->runtime, vm->instr_ctx->txn_out, vm->instr_ctx->txn_ctx, instruction_to_execute );
+  int err_exec = fd_execute_instr( vm->instr_ctx->runtime, vm->instr_ctx->txn_in, vm->instr_ctx->txn_out, vm->instr_ctx->txn_ctx, instruction_to_execute );
   ulong instr_exec_res = (ulong)err_exec;
 
   /* Set the CU meter to the instruction context's transaction context's compute meter,

@@ -876,6 +876,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
 fd_check_transaction_age( fd_runtime_t *      runtime,
+                          fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out,
                           fd_exec_txn_ctx_t * txn_ctx ) {
   fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( txn_ctx->bank );
@@ -887,8 +888,8 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   /* check_transaction_age */
   fd_hash_t   next_durable_nonce   = {0};
   fd_durable_nonce_from_blockhash( &next_durable_nonce, last_blockhash );
-  ushort      recent_blockhash_off = TXN( &txn_ctx->txn )->recent_blockhash_off;
-  fd_hash_t * recent_blockhash     = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + recent_blockhash_off);
+  ushort      recent_blockhash_off = TXN( &txn_in->txn )->recent_blockhash_off;
+  fd_hash_t * recent_blockhash     = (fd_hash_t *)((uchar *)txn_in->txn.payload + recent_blockhash_off);
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/runtime/src/bank.rs#L3538-L3542 */
   /* get_hash_info_if_valid. Check 151 hashes from the block hash queue and its
@@ -909,7 +910,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L87-L119 */
   /* get_durable_nonce */
-  if( FD_UNLIKELY( !TXN( &txn_ctx->txn )->instr_cnt ) ) {
+  if( FD_UNLIKELY( !TXN( &txn_in->txn )->instr_cnt ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
   /* Check the first instruction (nonce instruction) to see if the
@@ -917,14 +918,14 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      advance nonce account instruction.  Finally make sure that the
      first instruction account is writable; if it is, then that account
      is a durable nonce account. */
-  fd_txn_instr_t const * txn_instr = &TXN( &txn_ctx->txn )->instr[0];
-  fd_acct_addr_t const * tx_accs   = fd_txn_get_acct_addrs( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
+  fd_txn_instr_t const * txn_instr = &TXN( &txn_in->txn )->instr[0];
+  fd_acct_addr_t const * tx_accs   = fd_txn_get_acct_addrs( TXN( &txn_in->txn ), txn_in->txn.payload );
   fd_acct_addr_t const * prog_id   = tx_accs + txn_instr->program_id;
   if( FD_UNLIKELY( memcmp( prog_id->b, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
-  uchar const * instr_data  = fd_txn_get_instr_data( txn_instr, txn_ctx->txn.payload );
-  uchar const * instr_accts = fd_txn_get_instr_accts( txn_instr, txn_ctx->txn.payload );
+  uchar const * instr_data  = fd_txn_get_instr_data( txn_instr, txn_in->txn.payload );
+  uchar const * instr_accts = fd_txn_get_instr_accts( txn_instr, txn_in->txn.payload );
   uchar         nonce_idx   = instr_accts[0];
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L99-L105 */
@@ -938,11 +939,11 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      - statically included in the transaction account keys (if SIMD-242
        is active)
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L110-L111 */
-  if( FD_UNLIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_out,txn_ctx, nonce_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, txn_ctx, nonce_idx ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, require_static_nonce_account ) &&
-                   nonce_idx>=TXN( &txn_ctx->txn )->acct_addr_cnt ) ) {
+                   nonce_idx>=TXN( &txn_in->txn )->acct_addr_cnt ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
@@ -992,7 +993,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   /* Finally check that the nonce is authorized by seeing if any accounts in
      the nonce instruction are signers. This is a successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
-    if( fd_txn_is_signer( TXN( &txn_ctx->txn ), (int)instr_accts[i] ) ) {
+    if( fd_txn_is_signer( TXN( &txn_in->txn ), (int)instr_accts[i] ) ) {
       if( !memcmp( &txn_out->accounts.account_keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof(fd_pubkey_t) ) ) {
         /*
            Mark nonce account to make sure that we modify and hash the

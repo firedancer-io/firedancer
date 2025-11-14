@@ -79,7 +79,8 @@ fd_exec_txn_ctx_find_index_of_account( fd_txn_out_t const * txn_out,
 }
 
 int
-fd_exec_txn_ctx_get_account_at_index( fd_txn_out_t *                  txn_out,
+fd_exec_txn_ctx_get_account_at_index( fd_txn_in_t const *             txn_in,
+                                      fd_txn_out_t *                  txn_out,
                                       fd_exec_txn_ctx_t *             txn_ctx,
                                       ushort                          idx,
                                       fd_txn_account_t * *            account,
@@ -92,7 +93,7 @@ fd_exec_txn_ctx_get_account_at_index( fd_txn_out_t *                  txn_out,
   *account = txn_account;
 
   if( FD_LIKELY( condition != NULL ) ) {
-    if( FD_UNLIKELY( !condition( *account, txn_out, txn_ctx, idx ) ) ) {
+    if( FD_UNLIKELY( !condition( *account, txn_in, txn_out, txn_ctx, idx ) ) ) {
       return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
     }
   }
@@ -101,7 +102,8 @@ fd_exec_txn_ctx_get_account_at_index( fd_txn_out_t *                  txn_out,
 }
 
 int
-fd_exec_txn_ctx_get_account_with_key( fd_txn_out_t *                  txn_out,
+fd_exec_txn_ctx_get_account_with_key( fd_txn_in_t const *             txn_in,
+                                      fd_txn_out_t *                  txn_out,
                                       fd_exec_txn_ctx_t *             ctx,
                                       fd_pubkey_t const *             pubkey,
                                       fd_txn_account_t * *            account,
@@ -111,7 +113,8 @@ fd_exec_txn_ctx_get_account_with_key( fd_txn_out_t *                  txn_out,
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  return fd_exec_txn_ctx_get_account_at_index( txn_out,
+  return fd_exec_txn_ctx_get_account_at_index( txn_in,
+                                               txn_out,
                                                ctx,
                                                (uchar)index,
                                                account,
@@ -119,7 +122,8 @@ fd_exec_txn_ctx_get_account_with_key( fd_txn_out_t *                  txn_out,
 }
 
 int
-fd_exec_txn_ctx_get_executable_account( fd_txn_out_t *                  txn_out,
+fd_exec_txn_ctx_get_executable_account( fd_txn_in_t const *             txn_in,
+                                        fd_txn_out_t *                  txn_out,
                                         fd_exec_txn_ctx_t *             ctx,
                                         fd_pubkey_t const *             pubkey,
                                         fd_txn_account_t * *            account,
@@ -129,7 +133,8 @@ fd_exec_txn_ctx_get_executable_account( fd_txn_out_t *                  txn_out,
      borrowed account since it reflects changes from prior instructions. Referencing the
      read-only executable accounts list is incorrect behavior when the program
      data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
-  int err = fd_exec_txn_ctx_get_account_with_key( txn_out,
+  int err = fd_exec_txn_ctx_get_account_with_key( txn_in,
+                                                  txn_out,
                                                   ctx,
                                                   pubkey,
                                                   account,
@@ -144,7 +149,7 @@ fd_exec_txn_ctx_get_executable_account( fd_txn_out_t *                  txn_out,
       *account = txn_account;
 
       if( FD_LIKELY( condition != NULL ) ) {
-        if( FD_UNLIKELY( !condition( *account, txn_out, ctx, i ) ) ) {
+        if( FD_UNLIKELY( !condition( *account, txn_in, txn_out, ctx, i ) ) ) {
           return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
         }
       }
@@ -203,12 +208,15 @@ fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
 
    https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
 int
-fd_exec_txn_ctx_account_is_writable_idx( fd_txn_out_t const * txn_out, fd_exec_txn_ctx_t const * txn_ctx, ushort idx ) {
+fd_exec_txn_ctx_account_is_writable_idx( fd_txn_in_t const *       txn_in,
+                                         fd_txn_out_t const *      txn_out,
+                                         fd_exec_txn_ctx_t const * txn_ctx,
+                                         ushort                    idx ) {
   uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.account_keys, txn_out->accounts.accounts_cnt );
   return fd_exec_txn_account_is_writable_idx_flat( fd_bank_slot_get( txn_ctx->bank ),
                                                    idx,
                                                    &txn_out->accounts.account_keys[idx],
-                                                   TXN( &txn_ctx->txn ),
+                                                   TXN( &txn_in->txn ),
                                                    fd_bank_features_query( txn_ctx->bank ),
                                                    bpf_upgradeable );
 }
@@ -246,9 +254,11 @@ fd_exec_txn_account_is_writable_idx_flat( const ulong           slot,
 
 int
 fd_txn_account_check_exists( fd_txn_account_t *        acc,
+                             fd_txn_in_t const *       txn_in,
                              fd_txn_out_t *            txn_out,
                              fd_exec_txn_ctx_t const * ctx,
                              ushort                    idx ) {
+  (void) txn_in;
   (void) txn_out;
   (void) ctx;
   (void) idx;
@@ -257,29 +267,34 @@ fd_txn_account_check_exists( fd_txn_account_t *        acc,
 
 int
 fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
+                                  fd_txn_in_t const *       txn_in,
                                   fd_txn_out_t *            txn_out,
                                   fd_exec_txn_ctx_t const * ctx,
                                   ushort                    idx ) {
   (void) txn_out;
   (void) acc;
-  return fd_exec_txn_ctx_account_is_writable_idx( txn_out, ctx, idx );
+  return fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, ctx, idx );
 }
 
 int
 fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
+                                         fd_txn_in_t const *       txn_in,
                                          fd_txn_out_t *            txn_out,
                                          fd_exec_txn_ctx_t const * ctx,
                                          ushort                    idx ) {
+  (void) ctx;
   (void) txn_out;
   (void) acc;
-  return fd_txn_is_writable( TXN( &ctx->txn ), idx );
+  return fd_txn_is_writable( TXN( &txn_in->txn ), idx );
 }
 
 int
 fd_txn_account_check_borrow_mut( fd_txn_account_t *        acc,
+                                 fd_txn_in_t const *       txn_in,
                                  fd_txn_out_t *            txn_out,
                                  fd_exec_txn_ctx_t const * ctx,
                                  ushort                    idx ) {
+  (void) txn_in;
   (void) txn_out;
   (void) ctx;
   (void) idx;

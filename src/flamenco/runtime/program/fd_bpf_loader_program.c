@@ -2517,7 +2517,8 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     fd_txn_account_t * program_data_account = NULL;
     fd_pubkey_t *      programdata_pubkey   = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
-    err = fd_exec_txn_ctx_get_executable_account( ctx->txn_out,
+    err = fd_exec_txn_ctx_get_executable_account( ctx->txn_in,
+                                                  ctx->txn_out,
                                                   ctx->txn_ctx,
                                                   programdata_pubkey,
                                                   &program_data_account,

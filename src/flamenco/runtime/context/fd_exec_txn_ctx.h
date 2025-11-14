@@ -75,7 +75,6 @@ typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
 struct fd_exec_txn_ctx {
   /* Input fields: memory, bank, acc db, funk, prog cache, and txn */
   fd_bank_t *          bank;
-  fd_txn_p_t           txn;
   fd_exec_accounts_t * exec_accounts;
   fd_bank_hash_cmp_t * bank_hash_cmp;
 
@@ -151,6 +150,7 @@ fd_exec_txn_ctx_find_index_of_account( fd_txn_out_t const * txn_out,
                                        fd_pubkey_t const *  pubkey );
 
 typedef int fd_txn_account_condition_fn_t ( fd_txn_account_t *   acc,
+                                            fd_txn_in_t const *  txn_in,
                                             fd_txn_out_t *       txn_out,
                                             fd_exec_txn_ctx_t const *  txn_ctx,
                                             ushort               idx );
@@ -164,7 +164,8 @@ typedef int fd_txn_account_condition_fn_t ( fd_txn_account_t *   acc,
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L223-L230 */
 
 int
-fd_exec_txn_ctx_get_account_at_index( fd_txn_out_t *                  txn_out,
+fd_exec_txn_ctx_get_account_at_index( fd_txn_in_t const *             txn_in,
+                                      fd_txn_out_t *                  txn_out,
                                       fd_exec_txn_ctx_t *             ctx,
                                       ushort                          idx,
                                       fd_txn_account_t * *            account,
@@ -174,7 +175,8 @@ fd_exec_txn_ctx_get_account_at_index( fd_txn_out_t *                  txn_out,
    account from the transaction context by its pubkey. */
 
 int
-fd_exec_txn_ctx_get_account_with_key( fd_txn_out_t *                  txn_out,
+fd_exec_txn_ctx_get_account_with_key( fd_txn_in_t const *             txn_in,
+                                      fd_txn_out_t *                  txn_out,
                                       fd_exec_txn_ctx_t *             ctx,
                                       fd_pubkey_t const *             pubkey,
                                       fd_txn_account_t * *            account,
@@ -183,7 +185,8 @@ fd_exec_txn_ctx_get_account_with_key( fd_txn_out_t *                  txn_out,
 /* Gets an executable (program data) account via its pubkey. */
 
 int
-fd_exec_txn_ctx_get_executable_account( fd_txn_out_t *                  txn_out,
+fd_exec_txn_ctx_get_executable_account( fd_txn_in_t const *             txn_in,
+                                        fd_txn_out_t *                  txn_out,
                                         fd_exec_txn_ctx_t *             ctx,
                                         fd_pubkey_t const *             pubkey,
                                         fd_txn_account_t * *            account,
@@ -212,7 +215,8 @@ fd_exec_txn_ctx_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L137-L150 */
 
 int
-fd_exec_txn_ctx_account_is_writable_idx( fd_txn_out_t const *      txn_out,
+fd_exec_txn_ctx_account_is_writable_idx( fd_txn_in_t const *       txn_in,
+                                         fd_txn_out_t const *      txn_out,
                                          fd_exec_txn_ctx_t const * txn_ctx,
                                          ushort                    idx );
 
@@ -241,12 +245,14 @@ fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
 
 int
 fd_txn_account_check_exists( fd_txn_account_t *        acc,
+                             fd_txn_in_t const *       txn_in,
                              fd_txn_out_t *            txn_out,
                              fd_exec_txn_ctx_t const * ctx,
                              ushort                    idx );
 
 int
 fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
+                                  fd_txn_in_t const *       txn_in,
                                   fd_txn_out_t *            txn_out,
                                   fd_exec_txn_ctx_t const * ctx,
                                   ushort                    idx );
@@ -259,6 +265,7 @@ fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
 
 int
 fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
+                                         fd_txn_in_t const *       txn_in,
                                          fd_txn_out_t *            txn_out,
                                          fd_exec_txn_ctx_t const * ctx,
                                          ushort                    idx );
@@ -276,6 +283,7 @@ fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
 
 int
 fd_txn_account_check_borrow_mut( fd_txn_account_t *        acc,
+                                 fd_txn_in_t const *       txn_in,
                                  fd_txn_out_t *            txn_out,
                                  fd_exec_txn_ctx_t const * ctx,
                                  ushort                    idx );

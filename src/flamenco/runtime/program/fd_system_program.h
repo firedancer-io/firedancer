@@ -54,6 +54,7 @@ int fd_system_program_exec_upgrade_nonce_account   ( fd_exec_instr_ctx_t * ctx  
 
 int
 fd_check_transaction_age( fd_runtime_t *      runtime,
+                          fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out,
                           fd_exec_txn_ctx_t * txn_ctx );
 

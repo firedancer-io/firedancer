@@ -268,14 +268,7 @@ struct fd_runtime {
 typedef struct fd_runtime fd_runtime_t;
 
 struct fd_txn_in {
-  fd_txn_p_t * txn;
-  uchar *      accounts_mem[ MAX_TX_ACCOUNT_LOCKS ];
-  struct {
-    int              is_bundle;
-    int              prev_txn_cnt;
-    ulong            accounts_cnt[ FD_PACK_MAX_TXN_PER_BUNDLE ];
-    fd_txn_account_t accounts[ FD_PACK_MAX_TXN_PER_BUNDLE ][ MAX_TX_ACCOUNT_LOCKS ];
-  } bundle;
+  fd_txn_p_t txn;
 };
 typedef struct fd_txn_in fd_txn_in_t;
 
@@ -395,6 +388,7 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 
 int
 fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
+                              fd_txn_in_t const * txn_in,
                               fd_txn_out_t *      txn_out,
                               fd_exec_txn_ctx_t * txn_ctx );
 
@@ -405,8 +399,8 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 int
 fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
                                     fd_bank_t *          bank,
+                                    fd_txn_in_t *        txn_in,
                                     fd_exec_txn_ctx_t *  txn_ctx,
-                                    fd_txn_p_t *         txn,
                                     fd_txn_out_t *       txn_out,
                                     fd_capture_ctx_t *   capture_ctx,
                                     fd_exec_accounts_t * exec_accounts,
@@ -414,12 +408,13 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
                                     uchar *              tracing_mem );
 
 void
-fd_runtime_commit_txn( fd_runtime_t *            runtime,
-                       fd_bank_t *               bank,
-                       fd_txn_out_t *            txn_out,
-                       fd_exec_txn_ctx_t *       txn_ctx,
-                       fd_capture_ctx_t *        capture_ctx,
-                       ulong *                   tips_out_opt );
+fd_runtime_commit_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       fd_exec_txn_ctx_t * txn_ctx,
+                       fd_capture_ctx_t *  capture_ctx,
+                       ulong *             tips_out_opt );
 
 /* Epoch Boundary *************************************************************/
 

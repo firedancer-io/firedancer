@@ -47,7 +47,8 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
   /* Get the account from the transaction context using idx_in_txn.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L600-L602 */
   fd_txn_account_t * txn_account = NULL;
-  int err = fd_exec_txn_ctx_get_account_at_index( ctx->txn_out,
+  int err = fd_exec_txn_ctx_get_account_at_index( ctx->txn_in,
+                                                  ctx->txn_out,
                                                   ctx->txn_ctx,
                                                   idx_in_txn,
                                                   &txn_account,

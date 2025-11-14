@@ -74,7 +74,8 @@ typedef struct fd_exec_tile_ctx {
   fd_exec_stack_t       exec_stack;
   fd_exec_accounts_t    exec_accounts;
 
-  fd_txn_out_t         txn_out;
+  fd_txn_in_t           txn_in;
+  fd_txn_out_t          txn_out;
 
   /* tracing_mem is staging memory to dump instructions/transactions
      into protobuf files.  tracing_mem is staging memory to output vm
@@ -137,26 +138,27 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( bank );
+        ctx->txn_in.txn = msg->txn;
         ctx->txn_out.err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime,
-                                                                         bank,
-                                                                         ctx->txn_ctx,
-                                                                         &msg->txn,
-                                                                         &ctx->txn_out,
-                                                                         ctx->capture_ctx,
-                                                                         &ctx->exec_accounts,
-                                                                         ctx->dumping_mem,
-                                                                         &ctx->tracing_mem[0][0] );
+                                                                        bank,
+                                                                        &ctx->txn_in,
+                                                                        ctx->txn_ctx,
+                                                                        &ctx->txn_out,
+                                                                        ctx->capture_ctx,
+                                                                        &ctx->exec_accounts,
+                                                                        ctx->dumping_mem,
+                                                                        &ctx->tracing_mem[0][0] );
 
         /* Commit. */
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          fd_runtime_commit_txn( &ctx->runtime, bank, &ctx->txn_out, ctx->txn_ctx, ctx->capture_ctx, NULL );
+          fd_runtime_commit_txn( &ctx->runtime, bank, &ctx->txn_in, &ctx->txn_out, ctx->txn_ctx, ctx->capture_ctx, NULL );
         }
 
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
           /* Copy the txn signature to the signature out link so the
              dedup/pack tiles can drop already executed transactions. */
           memcpy( fd_chunk_to_laddr( ctx->exec_sig_out->mem, ctx->exec_sig_out->chunk ),
-                  (uchar *)ctx->txn_ctx->txn.payload + TXN( &ctx->txn_ctx->txn )->signature_off,
+                  (uchar *)ctx->txn_in.txn.payload + TXN( &ctx->txn_in.txn )->signature_off,
                   64UL );
           fd_stem_publish( stem, ctx->exec_sig_out->idx, 0UL, ctx->exec_sig_out->chunk, 64UL, 0UL, 0UL, 0UL );
           ctx->exec_sig_out->chunk = fd_dcache_compact_next( ctx->exec_sig_out->chunk, 64UL, ctx->exec_sig_out->chunk0, ctx->exec_sig_out->wmark );
@@ -399,8 +401,8 @@ publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
   msg->txn_exec->txn_idx         = ctx->txn_idx;
   msg->txn_exec->err             = !ctx->txn_out.err.is_committable;
   msg->txn_exec->slot            = ctx->slot;
-  msg->txn_exec->start_shred_idx = ctx->txn_ctx->txn.start_shred_idx;
-  msg->txn_exec->end_shred_idx   = ctx->txn_ctx->txn.end_shred_idx;
+  msg->txn_exec->start_shred_idx = ctx->txn_in.txn.start_shred_idx;
+  msg->txn_exec->end_shred_idx   = ctx->txn_in.txn.end_shred_idx;
   if( FD_UNLIKELY( msg->txn_exec->err ) ) {
     FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d", ctx->txn_out.err.txn_err ));
   }

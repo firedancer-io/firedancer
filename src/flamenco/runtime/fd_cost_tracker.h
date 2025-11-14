@@ -155,6 +155,7 @@ fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_txn_out_t const * t
 
 int
 fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
+                                        fd_txn_in_t const *       txn_in,
                                         fd_txn_out_t *            txn_out,
                                         fd_exec_txn_ctx_t const * txn_ctx );
 

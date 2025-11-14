@@ -106,6 +106,7 @@ fd_instr_info_accumulate_starting_lamports( fd_instr_info_t * instr,
 
 void
 fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
+                                   fd_txn_in_t const *    txn_in,
                                    fd_txn_out_t *         txn_out,
                                    fd_exec_txn_ctx_t *    txn_ctx,
                                    fd_txn_instr_t const * txn_instr );

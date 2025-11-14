@@ -33,7 +33,8 @@ instructions_serialized_size( fd_instr_info_t const *   instrs,
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/svm/src/account_loader.rs#L547-L576 */
 void
-fd_sysvar_instructions_serialize_account( fd_txn_out_t *           txn_out,
+fd_sysvar_instructions_serialize_account( fd_txn_in_t const *      txn_in,
+                                          fd_txn_out_t *           txn_out,
                                           fd_exec_txn_ctx_t *      txn_ctx,
                                           fd_instr_info_t const *  instrs,
                                           ushort                   instrs_cnt,
@@ -41,7 +42,8 @@ fd_sysvar_instructions_serialize_account( fd_txn_out_t *           txn_out,
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
   fd_txn_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_with_key( txn_out,
+  int err = fd_exec_txn_ctx_get_account_with_key( txn_in,
+                                                  txn_out,
                                                   txn_ctx,
                                                   &fd_sysvar_instructions_id,
                                                   &rec,
