@@ -399,7 +399,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 int
 fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
                                     fd_bank_t *          bank,
-                                    fd_txn_in_t *        txn_in,
+                                    fd_txn_in_t const *  txn_in,
                                     fd_exec_txn_ctx_t *  txn_ctx,
                                     fd_txn_out_t *       txn_out,
                                     fd_capture_ctx_t *   capture_ctx,

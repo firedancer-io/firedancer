@@ -752,11 +752,12 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 static void
 create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_msg,
                                       fd_runtime_t *               runtime,
-                                      fd_txn_out_t *                txn_out,
-                                      fd_exec_txn_ctx_t *          txn_ctx,
+                                      fd_bank_t *                  bank,
+                                      fd_txn_in_t const *          txn_in,
+                                      fd_txn_out_t *               txn_out,
                                       fd_spad_t *                  spad ) {
-  fd_txn_t const * txn_descriptor = TXN( &txn_ctx->txn );
-  uchar const *    txn_payload    = (uchar const *) txn_ctx->txn.payload;
+  fd_txn_t const * txn_descriptor = TXN( &txn_in->txn );
+  uchar const *    txn_payload    = (uchar const *) txn_in->txn.payload;
 
   /* Transaction Context -> account_shared_data
      Contains:
@@ -772,7 +773,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   txn_context_msg->account_shared_data = fd_spad_alloc( spad,
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
   for( ulong i = 0; i < txn_out->accounts.accounts_cnt; ++i ) {
     fd_txn_account_t txn_account[1];
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_out->accounts.account_keys[i], runtime->funk, &xid );
@@ -873,17 +874,17 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                       alignof(pb_bytes_array_t *),
                                                       PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASHES_MAX) * sizeof(pb_bytes_array_t *)) );
   txn_context_msg->blockhash_queue = output_blockhash_queue;
-  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( txn_ctx->bank );
+  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
   dump_blockhash_queue( block_hash_queue, spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );
 
   /* Transaction Context -> epoch_ctx */
   txn_context_msg->has_epoch_ctx = true;
   txn_context_msg->epoch_ctx.has_features = true;
-  dump_sorted_features( fd_bank_features_query( txn_ctx->bank ), &txn_context_msg->epoch_ctx.features, spad );
+  dump_sorted_features( fd_bank_features_query( bank ), &txn_context_msg->epoch_ctx.features, spad );
 
   /* Transaction Context -> slot_ctx */
   txn_context_msg->has_slot_ctx  = true;
-  txn_context_msg->slot_ctx.slot = fd_bank_slot_get( txn_ctx->bank );
+  txn_context_msg->slot_ctx.slot = fd_bank_slot_get( bank );
 }
 
 static void
@@ -985,6 +986,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
 void
 fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
+                           fd_txn_in_t const * txn_in,
                            fd_txn_out_t *      txn_out,
                            fd_exec_txn_ctx_t * txn_ctx,
                            fd_instr_info_t *   instr,
@@ -993,7 +995,7 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
 
   FD_SPAD_FRAME_BEGIN( spad ) {
     // Get base58-encoded tx signature
-    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
+    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( &txn_in->txn ), txn_in->txn.payload );
     fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
     char encoded_signature[FD_BASE58_ENCODED_64_SZ];
     ulong out_size;
@@ -1029,13 +1031,14 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
 
 void
 fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
+                         fd_txn_in_t const * txn_in,
                          fd_txn_out_t *      txn_out,
                          fd_exec_txn_ctx_t * txn_ctx ) {
   fd_spad_t * spad = fd_spad_join( fd_spad_new( txn_ctx->log.dumping_mem, 1UL<<28UL ) );
 
   FD_SPAD_FRAME_BEGIN( spad ) {
     // Get base58-encoded tx signature
-    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
+    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( &txn_in->txn ), txn_in->txn.payload );
     fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
     char encoded_signature[FD_BASE58_ENCODED_64_SZ];
     ulong out_size;
@@ -1049,7 +1052,7 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
     }
 
     fd_exec_test_txn_context_t txn_context_msg = FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT;
-    create_txn_context_protobuf_from_txn( &txn_context_msg, runtime, txn_out, txn_ctx, spad );
+    create_txn_context_protobuf_from_txn( &txn_context_msg, runtime, txn_ctx->bank, txn_in, txn_out, spad );
 
     /* Output to file */
     ulong        out_buf_size = 100UL<<20UL; // 100 MB
@@ -1122,7 +1125,7 @@ fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
 FD_SPAD_FRAME_BEGIN( spad ) {
 
   fd_ed25519_sig_t signature;
-  memcpy( signature, (uchar const *)vm->instr_ctx->txn_ctx->txn.payload + TXN( &vm->instr_ctx->txn_ctx->txn )->signature_off, sizeof(fd_ed25519_sig_t) );
+  memcpy( signature, (uchar const *)vm->instr_ctx->txn_in->txn.payload + TXN( &vm->instr_ctx->txn_in->txn )->signature_off, sizeof(fd_ed25519_sig_t) );
   char encoded_signature[FD_BASE58_ENCODED_64_SZ];
   fd_base58_encode_64( signature, NULL, encoded_signature );
 
@@ -1239,6 +1242,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
 
 void
 fd_dump_elf_to_protobuf( fd_runtime_t *      runtime,
+                         fd_txn_in_t const * txn_in,
                          fd_exec_txn_ctx_t * txn_ctx,
                          fd_txn_account_t *  program_acc ) {
 fd_spad_t * spad = fd_spad_join( fd_spad_new( txn_ctx->log.dumping_mem, 1UL<<28UL ) );
@@ -1257,7 +1261,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
 
   /* Serialize the ELF to protobuf */
   fd_ed25519_sig_t signature;
-  memcpy( signature, (uchar const *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off, sizeof(fd_ed25519_sig_t) );
+  memcpy( signature, (uchar const *)txn_in->txn.payload + TXN( &txn_in->txn )->signature_off, sizeof(fd_ed25519_sig_t) );
   char encoded_signature[FD_BASE58_ENCODED_64_SZ];
   fd_base58_encode_64( signature, NULL, encoded_signature );
 

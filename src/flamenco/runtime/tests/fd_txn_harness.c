@@ -333,7 +333,7 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
 fd_exec_txn_ctx_t *
 fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
                          fd_runtime_t *            runtime,
-                         fd_txn_p_t *              txn,
+                         fd_txn_in_t const *       txn_in,
                          int *                     exec_res,
                          fd_txn_out_t *            txn_out ) {
 
@@ -365,8 +365,8 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
   *exec_res = fd_runtime_prepare_and_execute_txn(
       runtime,
       runner->bank,
+      txn_in,
       txn_ctx,
-      txn,
       txn_out,
       NULL,
       runner->exec_accounts,
@@ -393,8 +393,10 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     /* Execute the transaction against the runtime */
     int exec_res = 0;
     fd_runtime_t *      runtime = fd_spad_alloc( runner->spad, alignof(fd_runtime_t), sizeof(fd_runtime_t) );
+    fd_txn_in_t *       txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
     fd_txn_out_t *      txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
-    fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, runtime, txn, &exec_res, txn_out );
+    txn_in->txn = *txn;
+    fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, runtime, txn_in, &exec_res, txn_out );
 
     /* Start saving txn exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
@@ -518,7 +520,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     for( ulong j=0UL; j<accounts_cnt; j++ ) {
       fd_txn_account_t * acc = &accounts_to_save[j];
 
-      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_out, txn_ctx, (ushort)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
+      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, txn_ctx, (ushort)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
       assert( fd_txn_account_is_mutable( acc ) );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;

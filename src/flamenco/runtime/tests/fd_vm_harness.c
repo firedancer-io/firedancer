@@ -161,7 +161,7 @@ do{
                                             ( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
-  int stack_push_err = fd_instr_stack_push( instr_ctx->runtime, instr_ctx->txn_out, instr_ctx->txn_ctx, (fd_instr_info_t *)instr_ctx->instr );
+  int stack_push_err = fd_instr_stack_push( instr_ctx->runtime, instr_ctx->txn_in, instr_ctx->txn_out, instr_ctx->txn_ctx, (fd_instr_info_t *)instr_ctx->instr );
   if( FD_UNLIKELY( stack_push_err ) ) {
     FD_LOG_WARNING(( "instr stack push err" ));
     fd_solfuzz_pb_instr_ctx_destroy( runner, instr_ctx );
@@ -472,7 +472,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                                       ( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
-  int stack_push_err = fd_instr_stack_push( ctx->runtime, ctx->txn_out, ctx->txn_ctx, (fd_instr_info_t *)ctx->instr );
+  int stack_push_err = fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, ctx->txn_ctx, (fd_instr_info_t *)ctx->instr );
   if( FD_UNLIKELY( stack_push_err ) ) {
       FD_LOG_WARNING(( "instr stack push err" ));
       goto error;

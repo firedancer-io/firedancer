@@ -156,6 +156,7 @@ fd_block_dump_context_reset( fd_block_dump_ctx_t * ctx ) {
 
 void
 fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
+                           fd_txn_in_t const * txn_in,
                            fd_txn_out_t *      txn_out,
                            fd_exec_txn_ctx_t * txn_ctx,
                            fd_instr_info_t *   instr,
@@ -163,6 +164,7 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
 
 void
 fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
+                         fd_txn_in_t const * txn_in,
                          fd_txn_out_t *      txn_out,
                          fd_exec_txn_ctx_t * txn_ctx );
 
@@ -211,6 +213,7 @@ fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
 
 void
 fd_dump_elf_to_protobuf( fd_runtime_t *      runtime,
+                         fd_txn_in_t const * txn_in,
                          fd_exec_txn_ctx_t * txn_ctx,
                          fd_txn_account_t *  program_acc );
 

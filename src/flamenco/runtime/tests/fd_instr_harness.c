@@ -40,6 +40,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   uchar *             txn_ctx_mem = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ) );
 
+  fd_txn_in_t *  txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
   fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
 
   fd_runtime_t * runtime = fd_spad_alloc( runner->spad, alignof(fd_runtime_t), sizeof(fd_runtime_t) );
@@ -47,6 +48,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   ctx->txn_ctx = txn_ctx;
   ctx->txn_out = txn_out;
+  ctx->txn_in  = txn_in;
 
   ctx->txn_ctx->exec_accounts = runner->exec_accounts;
 
@@ -124,7 +126,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
   runtime->instr.current_idx  = 0;
 
-  txn_ctx->txn                                               = *txn;
+  txn_in->txn                                                = *txn;
   txn_out->details.compute_budget.compute_unit_limit = test_ctx->cu_avail;
   txn_out->details.compute_budget.compute_meter      = test_ctx->cu_avail;
   runtime->instr.info_cnt                                    = 1UL;
@@ -396,7 +398,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 
   /* Execute the test */
-  int exec_result = fd_execute_instr( ctx->runtime, ctx->txn_out, ctx->txn_ctx, instr );
+  int exec_result = fd_execute_instr( ctx->runtime, ctx->txn_in, ctx->txn_out, ctx->txn_ctx, instr );
 
   /* Allocate space to capture outputs */
 

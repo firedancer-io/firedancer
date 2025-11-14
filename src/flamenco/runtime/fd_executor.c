@@ -1576,7 +1576,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                        txn_ctx->log.capture_ctx->dump_elf_to_pb;
   if( FD_UNLIKELY( dump_elf_to_pb ) ) {
     for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
-      fd_dump_elf_to_protobuf( runtime, txn_ctx, &txn_out->accounts.accounts[i] );
+      fd_dump_elf_to_protobuf( runtime, txn_in, txn_ctx, &txn_out->accounts.accounts[i] );
     }
   }
 # endif
@@ -1623,7 +1623,7 @@ fd_execute_txn( fd_runtime_t *      runtime,
 #   if FD_HAS_FLATCC
     if( FD_UNLIKELY( dump_insn ) ) {
       // Capture the input and convert it into a Protobuf message
-      fd_dump_instr_to_protobuf( runtime, txn_out, txn_ctx, &runtime->instr.infos[i], i );
+      fd_dump_instr_to_protobuf( runtime, txn_in, txn_out, txn_ctx, &runtime->instr.infos[i], i );
     }
 #   endif
 
