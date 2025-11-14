@@ -1683,8 +1683,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x08\xe9\x40\xc0\xc3\x42\x8a\xf0\xbd\x9d\x09\x80\xa6\xce\x78\xcb\x1c\xc6\x57\x4e\x44\xfe\xf5\x52\xe7\x0c\x40\x70\xe9\x51\xec\x74"},
                                  /* bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm */
     .name                      = "fix_alt_bn128_pairing_length_check",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
-    .hardcode_for_fuzzing = 1 },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index = ULONG_MAX }
 };
