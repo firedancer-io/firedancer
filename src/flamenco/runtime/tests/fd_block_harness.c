@@ -171,7 +171,9 @@ static void
 fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *            vote_states,
                                                    fd_exec_test_vote_account_t * vote_accounts,
                                                    pb_size_t                     vote_accounts_cnt,
-                                                   fd_spad_t *                   spad ) {
+                                                   fd_runtime_stack_t *          runtime_stack,
+                                                   fd_spad_t *                   spad,
+                                                   uchar                         is_t_1 ) {
   FD_SPAD_FRAME_BEGIN( spad ) {
     for( uint i=0U; i<vote_accounts_cnt; i++ ) {
       fd_exec_test_acct_state_t * vote_account  = &vote_accounts[i].vote_account;
@@ -195,6 +197,36 @@ fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *           
       vote_state->stake     += stake;
       vote_state->stake_t_1 += stake;
       vote_state->stake_t_2 += stake;
+
+      if( !is_t_1 ) continue;
+
+      /* Update vote credits for T-1 */
+      fd_vote_epoch_credits_t * epoch_credits = NULL;
+      switch( res->discriminant ) {
+        case fd_vote_state_versioned_enum_v0_23_5:
+          epoch_credits = res->inner.v0_23_5.epoch_credits;
+          break;
+        case fd_vote_state_versioned_enum_v1_14_11:
+          epoch_credits = res->inner.v1_14_11.epoch_credits;
+          break;
+        case fd_vote_state_versioned_enum_current:
+          epoch_credits = res->inner.current.epoch_credits;
+          break;
+        default:
+          __builtin_unreachable();
+      }
+
+      fd_vote_state_credits_t * vote_credits = &runtime_stack->stakes.vote_credits[ vote_state->idx ];
+      vote_credits->credits_cnt = 0UL;
+      for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+           !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+           iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+        fd_vote_epoch_credits_t const * credit_ele = deq_fd_vote_epoch_credits_t_iter_ele_const( epoch_credits, iter );
+        vote_credits->epoch[ vote_credits->credits_cnt ]        = (ushort)credit_ele->epoch;
+        vote_credits->credits[ vote_credits->credits_cnt ]      = credit_ele->credits;
+        vote_credits->prev_credits[ vote_credits->credits_cnt ] = credit_ele->prev_credits;
+        vote_credits->credits_cnt++;
+      }
     }
   } FD_SPAD_FRAME_END;
 }
@@ -347,7 +379,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       vote_states_prev,
       test_ctx->epoch_ctx.vote_accounts_t_1,
       test_ctx->epoch_ctx.vote_accounts_t_1_count,
-      runner->spad );
+      runtime_stack,
+      runner->spad,
+      1 );
   fd_bank_vote_states_prev_end_locking_modify( bank );
 
   /* Update vote cache for epoch T-2 */
@@ -356,7 +390,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       vote_states_prev_prev,
       test_ctx->epoch_ctx.vote_accounts_t_2,
       test_ctx->epoch_ctx.vote_accounts_t_2_count,
-      runner->spad );
+      runtime_stack,
+      runner->spad,
+      0 );
 
   /* Refresh vote accounts to calculate stake delegations */
   fd_solfuzz_block_refresh_vote_accounts(
@@ -626,14 +662,18 @@ fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *              
         tmp_vs,
         test_ctx->epoch_ctx.vote_accounts_t_1,
         test_ctx->epoch_ctx.vote_accounts_t_1_count,
-        runner->spad );
+        runner->runtime_stack,
+        runner->spad,
+        1 );
   } else if ( agave_epoch==fd_slot_to_leader_schedule_epoch( sched, parent_slot )-1UL ) {
     /* One before parent epoch, so use vote_accounts_t_2 */
     fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
         tmp_vs,
         test_ctx->epoch_ctx.vote_accounts_t_2,
         test_ctx->epoch_ctx.vote_accounts_t_2_count,
-        runner->spad );
+        runner->runtime_stack,
+        runner->spad,
+        0 );
   } else if (agave_epoch==fd_slot_to_leader_schedule_epoch(sched, parent_slot)+1UL) {
     /* One ahead of parent epoch, so use current acct_states */
     for ( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
