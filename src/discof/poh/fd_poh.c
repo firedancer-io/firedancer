@@ -484,15 +484,15 @@ fd_poh_advance( fd_poh_t *          poh,
      count to the current system clock, and clamp it to the allowed
      range. */
   long now = fd_log_wallclock();
-  ulong target_hashcnt;
+  ulong target_hashcnt_clock;
   if( FD_LIKELY( poh->state==STATE_FOLLOWER ||poh->state==STATE_WAITING_FOR_SLOT ) ) {
-    target_hashcnt = (ulong)((double)(now - poh->reset_slot_start_ns) / poh->hashcnt_duration_ns) - (poh->slot-poh->reset_slot)*poh->hashcnt_per_slot;
+    target_hashcnt_clock = (ulong)((double)(now - poh->reset_slot_start_ns) / poh->hashcnt_duration_ns) - (poh->slot-poh->reset_slot)*poh->hashcnt_per_slot;
   } else {
     FD_TEST( poh->state==STATE_LEADER );
-    target_hashcnt = (ulong)((double)(now - poh->leader_slot_start_ns) / poh->hashcnt_duration_ns);
+    target_hashcnt_clock = (ulong)((double)(now - poh->leader_slot_start_ns) / poh->hashcnt_duration_ns);
   }
   /* Clamp to [min_hashcnt, restricted_hashcnt] as above */
-  target_hashcnt = fd_ulong_max( fd_ulong_min( target_hashcnt, restricted_hashcnt ), min_hashcnt );
+  ulong target_hashcnt_clamped = fd_ulong_max( fd_ulong_min( target_hashcnt_clock, restricted_hashcnt ), min_hashcnt );
 
   /* The above proof showed that it was always possible to pick a value
      of target_hashcnt, but we still have a lot of freedom in how to
@@ -521,7 +521,7 @@ fd_poh_advance( fd_poh_t *          poh,
      m_{j+1}, as desired. */
 
   ulong next_tick_hashcnt = poh->hashcnt_per_tick * (1UL+(poh->hashcnt/poh->hashcnt_per_tick));
-  target_hashcnt = fd_ulong_min( target_hashcnt, next_tick_hashcnt );
+  ulong target_hashcnt = fd_ulong_min( target_hashcnt_clamped, next_tick_hashcnt );
 
   /* We still need to enforce rule (i). We know that min_hashcnt%T !=
      T-1 because of rule (ii).  That means that if target_hashcnt%T ==
@@ -529,6 +529,8 @@ fd_poh_advance( fd_poh_t *          poh,
      strict), so target_hashcnt-1 >= min_hashcnt and is thus still a
      valid choice for target_hashcnt. */
   target_hashcnt -= (ulong)( (!low_power_mode) & ((target_hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL)) );
+
+  if( poh->state==STATE_LEADER ) FD_LOG_DEBUG(("max_microblocks_per_slot %lu microblocks_lower_bound %lu max_remaining_microblocks %lu max_remaining_ticks_or_microblocks %lu restricted_hashcnt %lu current hashcnt %lu min_hashcnt %lu target_hashcnt_clock %lu target_hashcnt_clamped %lu next_tick_hashcnt %lu target_hashcnt %lu", poh->max_microblocks_per_slot, poh->microblocks_lower_bound, max_remaining_microblocks, max_remaining_ticks_or_microblocks, restricted_hashcnt, poh->hashcnt, min_hashcnt, target_hashcnt_clock, target_hashcnt_clamped, next_tick_hashcnt, target_hashcnt));
 
   FD_TEST( target_hashcnt >= poh->hashcnt       );
   FD_TEST( target_hashcnt >= min_hashcnt        );
@@ -677,6 +679,7 @@ fd_poh1_mixin( fd_poh_t *          poh,
   fd_memcpy( data+32UL, hash, 32UL );
   fd_sha256_hash( data, 64UL, poh->hash );
 
+  if( ((poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL)) ) FD_LOG_WARNING(("hashcnt %lu is modulo %lu-1", poh->hashcnt, poh->hashcnt_per_tick));
   poh->hashcnt++;
   FD_TEST( poh->hashcnt>poh->last_hashcnt );
   ulong hashcnt_delta = poh->hashcnt - poh->last_hashcnt;
