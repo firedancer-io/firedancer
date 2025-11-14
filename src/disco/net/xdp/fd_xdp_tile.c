@@ -385,9 +385,7 @@ interface specified by if_idx. Null if the if_idx is invalid */
 static fd_netdev_t *
 net_query_netdev_tbl( fd_net_ctx_t * ctx,
                       uint           if_idx ) {
-  /* dev_tbl is one-indexed */
-  if( if_idx>ctx->netdev_tbl.hdr->dev_cnt ) return NULL;
-  return &ctx->netdev_tbl.dev_tbl[ if_idx ];
+  return fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
 }
 
 /* Iterates the netdev table and returns 1 if a GRE interface exists, 0 otherwise.
@@ -1374,7 +1372,7 @@ init_device_table( fd_net_ctx_t * ctx,
   ctx->netdev_buf_sz  = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
 
   /* Create temporary empty device table during startup */
-  FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, fd_netdev_tbl_new( ctx->netdev_buf, 1, 1 ) ) );
+  FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, fd_netdev_tbl_new( ctx->netdev_buf, NETDEV_MAX, BOND_MASTER_MAX ) ) );
 
 }
 

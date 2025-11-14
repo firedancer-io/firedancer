@@ -104,9 +104,9 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
     }
     struct ifinfomsg const * ifi = NLMSG_DATA( nlh );
 
-    if( FD_UNLIKELY( ifi->ifi_index<0 || ifi->ifi_index>=tbl->hdr->dev_max ) ) {
-      FD_LOG_WARNING(( "Error reading interface table: interface %d is beyond max of %u", ifi->ifi_index, tbl->hdr->dev_max ));
-      err = ENOSPC;
+    if( FD_UNLIKELY( ifi->ifi_index<0 ) ) {
+      FD_LOG_WARNING(( "Error reading interface table: interface %d has invalid index", ifi->ifi_index ));
+      err = EPROTO;
       break;
     }
 
@@ -173,7 +173,7 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
           err = EPROTO;
           goto fail;
         }
-        netdev->master_idx = (short)master_idx;
+        netdev->master_idx = master_idx;
         break;
       } /* IFLA_MASTER */
 
@@ -224,8 +224,19 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
     }
 
     netdev->dev_type = ifi_type;
-    tbl->dev_tbl[ ifi->ifi_index ] = *netdev;
-    tbl->hdr->dev_cnt = (ushort)fd_uint_max( tbl->hdr->dev_cnt, (uint)ifi->ifi_index+1U );
+    netdev->if_idx = (uint)ifi->ifi_index;
+    fd_netdev_t * dst = fd_netdev_tbl_query( tbl, (uint)ifi->ifi_index );
+    if( FD_UNLIKELY( !dst ) ) {
+      if( FD_UNLIKELY( tbl->hdr->dev_cnt >= tbl->hdr->dev_max ) ) {
+        FD_LOG_WARNING(( "Error reading interface table: tracked interface limit %u reached (dropping ifindex %i)",
+                         tbl->hdr->dev_max, ifi->ifi_index ));
+        err = ENOSPC;
+        break;
+      }
+      dst = &tbl->dev_tbl[ tbl->hdr->dev_cnt ]; // alloc new entry
+      tbl->hdr->dev_cnt = (ushort)(tbl->hdr->dev_cnt + 1);
+    }
+    *dst = *netdev;
   }
 
   /* Walk the table again to index the bond master => slave mapping */
@@ -237,8 +248,11 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
     /* Find master */
     int master_idx = tbl->dev_tbl[ j ].master_idx;
     if( master_idx<0 ) continue;
-    if( FD_UNLIKELY( master_idx>=tbl->hdr->dev_max ) ) continue; /* unreachable */
-    fd_netdev_t * master = &tbl->dev_tbl[ master_idx ];
+    fd_netdev_t * master = fd_netdev_tbl_query( tbl, (uint)master_idx );
+    if( FD_UNLIKELY( !master ) ) {
+      FD_LOG_WARNING(( "Error reading interface table: Bond device references missing master %d", master_idx ));
+      continue;
+    }
 
     /* Allocate a new bond slave table if needed */
     if( master->slave_tbl_idx<0 ) {

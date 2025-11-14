@@ -133,6 +133,16 @@ fd_netdev_tbl_reset( fd_netdev_tbl_join_t * tbl ) {
   fd_memset( tbl->bond_tbl, 0, sizeof(fd_netdev_bond_t) * tbl->hdr->bond_max );
 }
 
+fd_netdev_t *
+fd_netdev_tbl_query( fd_netdev_tbl_join_t * tbl,
+                     uint                  if_idx ) {
+  fd_netdev_t * dev     = tbl->dev_tbl;
+  for( ushort j=0U; j<tbl->hdr->dev_cnt; j++, dev++ ) {
+    if( dev->if_idx==if_idx ) return dev;
+  }
+  return NULL;
+}
+
 #if FD_HAS_HOSTED
 
 #include <errno.h>
