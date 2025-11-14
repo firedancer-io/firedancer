@@ -701,6 +701,10 @@ test_point_validate( FD_PARAM_UNUSED fd_rng_t * rng ) {
   fd_hex_decode( buf, "f0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
   FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
 
+  // non-canonical points are accepted
+  fd_hex_decode( buf, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(ff..ff)" );
+
   /* negative tests */
 
   fd_hex_decode( buf, "0200000000000000000000000000000000000000000000000000000000000000", 32 );
@@ -708,6 +712,50 @@ test_point_validate( FD_PARAM_UNUSED fd_rng_t * rng ) {
 
   fd_hex_decode( buf, "b898e00f6f6df758b3f9a05cbf73b15fd392a008a9a417d471c178c1b28c7447", 32 );
   FD_TEST_CUSTOM( !fd_ed25519_point_validate( buf ), "!fd_ed25519_point_validate(02..00)" );
+}
+
+static void
+test_point_frombytes( FD_PARAM_UNUSED fd_rng_t * rng ) {
+  uchar _bufa[32]; uchar * bufa = _bufa;
+  uchar _bufr[32]; uchar * bufr = _bufr;
+  uchar _bufx[32]; uchar * bufx = _bufx;
+  uchar _bufy[32]; uchar * bufy = _bufy;
+
+  fd_f25519_t x[1], y[1], z[1], t[1];
+  fd_ed25519_point_t a[1];
+
+  {
+    fd_hex_decode( bufa, "ffffffffffff0100fffffffffffffffffffffffffffdffffffffffffffffffff", 32 );
+    fd_hex_decode( bufx, "3d0f773c2d26e69aa19258013f0bb4eb72a8db858498e6c802089ca8972b101b", 32 );
+    fd_hex_decode( bufy, "ffffffffffff0100fffffffffffffffffffffffffffdffffffffffffffffff7f", 32 );
+
+    FD_TEST( fd_ed25519_point_frombytes( a, bufa ) );
+
+    fd_ed25519_point_tobytes( bufr, a );
+    FD_TEST( fd_memeq( bufr, bufa, 32UL ) );
+
+    fd_ed25519_point_to( x, y, z, t, a );
+    fd_f25519_tobytes( bufr, x );
+    FD_TEST( fd_memeq( bufr, bufx, 32UL ) );
+    fd_f25519_tobytes( bufr, y );
+    FD_TEST( fd_memeq( bufr, bufy, 32UL ) );
+  }
+  {
+    fd_hex_decode( bufa, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+    fd_hex_decode( bufx, "c50fe3127abac974ddd36f74e8988d7fe71cfc79d15fce531b42ccafd973d348", 32 );
+    fd_hex_decode( bufy, "1200000000000000000000000000000000000000000000000000000000000000", 32 );
+
+    FD_TEST( fd_ed25519_point_frombytes( a, bufa ) );
+
+    fd_ed25519_point_tobytes( bufr, a );
+    FD_TEST( !fd_memeq( bufr, bufa, 32UL ) ); // non-canonical
+
+    fd_ed25519_point_to( x, y, z, t, a );
+    fd_f25519_tobytes( bufr, x );
+    FD_TEST( fd_memeq( bufr, bufx, 32UL ) );
+    fd_f25519_tobytes( bufr, y );
+    FD_TEST( fd_memeq( bufr, bufy, 32UL ) );
+  }
 }
 
 static void
@@ -763,6 +811,31 @@ test_point_sub( fd_rng_t * rng FD_PARAM_UNUSED ) {
 
     fd_ed25519_point_sub( r, a, b );
     fd_ed25519_point_tobytes( bufr, r );
+
+    FD_TEST( fd_memeq( bufr, bufe, 32UL ) );
+  }
+  {
+    // this failed sub, non-canonical point
+    fd_hex_decode( bufa, "0100000000000000000000000000000000b90000000000000000000000000080", 32 );
+    fd_hex_decode( bufb, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+    fd_hex_decode( bufe, "39b4ef21660663d8955e024b1a7d921cf76b6300dbd94827d47ec62829a7dddc", 32 );
+
+    FD_TEST( fd_ed25519_point_frombytes( a, bufa ) );
+    FD_TEST( fd_ed25519_point_frombytes( b, bufb ) );
+
+    FD_TEST( fd_ed25519_point_frombytes( e, bufe ) );
+    {
+      fd_ed25519_point_tobytes( bufr, a );
+      FD_TEST( fd_memeq( bufr, bufa, 32UL ) );
+      fd_ed25519_point_tobytes( bufr, b );
+      FD_TEST( !fd_memeq( bufr, bufb, 32UL ) ); // non-canonical
+    }
+
+    fd_ed25519_point_sub( r, a, b );
+    fd_ed25519_point_tobytes( bufr, r );
+
+    // FD_LOG_HEXDUMP_WARNING(( "bufr", bufr, 32 ));
+    // FD_LOG_HEXDUMP_WARNING(( "bufe", bufe, 32 ));
 
     FD_TEST( fd_memeq( bufr, bufe, 32UL ) );
   }
@@ -1225,6 +1298,7 @@ main( int     argc,
   test_affine_is_small_order ( rng );
 
   test_point_validate( rng );
+  test_point_frombytes( rng );
   test_point_sub( rng );
 
   test_sc_validate  ( rng );
