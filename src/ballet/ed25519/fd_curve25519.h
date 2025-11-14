@@ -179,7 +179,7 @@ fd_ed25519_multi_scalar_mul_base( fd_ed25519_point_t *     r,
 
 /* fd_ed25519_point_frombytes deserializes a 32-byte buffer buf into a
    point r, and returns r (on success, NULL on error).
-   buf is in little endian form, according to RFC 8032.
+   buf is in little endian form, we accept non-canonical points unlike RFC 8032.
    Cost: 1sqrt ~= 1inv ~= 250mul */
 fd_ed25519_point_t *
 fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
@@ -187,7 +187,7 @@ fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
 
 /* fd_ed25519_point_frombytes_2x deserializes 2x 32-byte buffers buf1, buf2
    resp. into points r1, r2, and returns r.
-   buf1, buf2 are in little endian form, according to RFC 8032.
+   buf1, buf2 are in little endian form, we accept non-canonical points unlike RFC 8032.
    It returns 0 on success, 1 or 2 on failure.
    Cost: 2sqrt (executed concurrently if possible) */
 int
@@ -208,7 +208,8 @@ fd_ed25519_point_validate(uchar const buf[ 32 ] ) {
 
 /* fd_ed25519_point_tobytes serializes a point a into
    a 32-byte buffer out, and returns out.
-   out is in little endian form, according to RFC 8032. */
+   out is in little endian form, according to RFC 8032
+   (we don't output non-canonical points). */
 uchar *
 fd_ed25519_point_tobytes( uchar                      out[ 32 ],
                           fd_ed25519_point_t const * a );
