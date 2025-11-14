@@ -469,9 +469,9 @@ main( int     argc,
     "throw default metric 4294967295\n"
     "local 127.0.0.0/8 dev 1 scope host src 127.0.0.1\n"
     "local 192.0.2.0/32 dev 6 scope host src 192.0.2.165\n"
-    "broadcast 192.0.2.191/32 dev 6 scope link src 192.0.2.165\n"
     "local 127.0.0.1/32 dev 1 scope host src 127.0.0.1\n"
     "broadcast 192.0.2.160/32 dev 6 scope link src 192.0.2.165\n"
+    "broadcast 192.0.2.191/32 dev 6 scope link src 192.0.2.165\n"
     "broadcast 127.0.0.0/32 dev 1 scope link src 127.0.0.1\n"
     "broadcast 127.0.255.255/32 dev 1 scope link src 127.0.0.1\n"
   );

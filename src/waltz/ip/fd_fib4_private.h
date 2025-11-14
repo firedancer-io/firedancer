@@ -2,7 +2,11 @@
 #define HEADER_fd_src_waltz_ip_fd_fib4_private_h
 
 #include "fd_fib4.h"
-#include "../../util/simd/fd_sse.h"
+
+#if FD_HAS_X86
+#include <immintrin.h>
+#endif
+
 #include "../../util/fd_util.h"
 
 struct __attribute__((aligned(FD_FIB4_ALIGN))) fd_fib4_key {
