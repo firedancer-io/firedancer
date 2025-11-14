@@ -334,7 +334,7 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
 #ifdef FD_HAS_S2NBIGNUM
 int
 fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
-  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, enable_secp256r1_precompile ) ) ) {
+  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->bank, enable_secp256r1_precompile ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 

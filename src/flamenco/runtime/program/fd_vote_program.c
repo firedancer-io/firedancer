@@ -1985,7 +1985,7 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
     //
     // There is no corresponding code in anza
 
-    fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->txn_ctx->bank );
+    fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->bank );
     if( !vote_states ) {
       FD_LOG_CRIT(( "vote_states is NULL" ));
     }
@@ -2010,7 +2010,7 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
       }
     }
 
-    fd_bank_vote_states_end_locking_query( ctx->txn_ctx->bank );
+    fd_bank_vote_states_end_locking_query( ctx->bank );
   }
 
   fd_vote_state_t vote_state;
@@ -2084,7 +2084,7 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
     if( !deq_fd_vote_lockout_t_empty( tower_sync->lockouts ) ) {
       fd_vote_lockout_t *  lockout       = deq_fd_vote_lockout_t_peek_tail( tower_sync->lockouts );
       fd_bank_hash_cmp_t * bank_hash_cmp = ctx->txn_ctx->bank_hash_cmp;
-      fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->txn_ctx->bank );
+      fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->bank );
       if( !vote_states ) {
         FD_LOG_CRIT(( "vote_states is NULL" ));
       }
@@ -2099,7 +2099,7 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
             vote_state_ele->stake );
         fd_bank_hash_cmp_unlock( bank_hash_cmp );
       }
-      fd_bank_vote_states_end_locking_query( ctx->txn_ctx->bank );
+      fd_bank_vote_states_end_locking_query( ctx->bank );
     }
   }
 
@@ -2507,7 +2507,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L154
    */
   case fd_vote_instruction_enum_vote_switch: {
-    if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, deprecate_legacy_vote_ixs ) ) {
+    if( FD_FEATURE_ACTIVE_BANK( ctx->bank, deprecate_legacy_vote_ixs ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
@@ -2562,7 +2562,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L169
    */
   case fd_vote_instruction_enum_update_vote_state_switch: {
-    if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, deprecate_legacy_vote_ixs ) ) {
+    if( FD_FEATURE_ACTIVE_BANK( ctx->bank, deprecate_legacy_vote_ixs ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
@@ -2623,7 +2623,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    */
   case fd_vote_instruction_enum_compact_update_vote_state_switch: {
     /* https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/vote/src/vote_processor.rs#L183-L191 */
-    if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, deprecate_legacy_vote_ixs ) ) {
+    if( FD_FEATURE_ACTIVE_BANK( ctx->bank, deprecate_legacy_vote_ixs ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 

@@ -193,8 +193,8 @@ set_state( fd_borrowed_account_t *     borrowed_acct,
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/lib.rs#L29
 static inline ulong
-get_minimum_delegation( fd_exec_txn_ctx_t const * txn_ctx /* feature set */ ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, stake_raise_minimum_delegation_to_1_sol ),
+get_minimum_delegation( fd_bank_t * bank ) {
+  return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( bank, stake_raise_minimum_delegation_to_1_sol ),
                       MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL,
                       1 );
 }
@@ -223,14 +223,14 @@ typedef struct validated_delegated_info validated_delegated_info_t;
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L963
 static int
-validate_delegated_amount( fd_borrowed_account_t *      account,
+validate_delegated_amount( fd_bank_t *                  bank,
+                           fd_borrowed_account_t *      account,
                            fd_stake_meta_t const *      meta,
-                           fd_exec_txn_ctx_t const *    txn_ctx,
                            validated_delegated_info_t * out,
                            uint *                       custom_err ) {
   ulong stake_amount = fd_ulong_sat_sub( fd_borrowed_account_get_lamports( account ), meta->rent_exempt_reserve );
 
-  if( FD_UNLIKELY( stake_amount<get_minimum_delegation( txn_ctx ) ) ) {
+  if( FD_UNLIKELY( stake_amount<get_minimum_delegation( bank ) ) ) {
     *custom_err = FD_STAKE_ERR_INSUFFICIENT_DELEGATION;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -305,7 +305,7 @@ validate_split_amount( fd_exec_instr_ctx_t const * invoke_context,
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1048
   if( FD_UNLIKELY(
-           FD_FEATURE_ACTIVE_BANK( invoke_context->txn_ctx->bank, require_rent_exempt_split_destination ) &&
+           FD_FEATURE_ACTIVE_BANK( invoke_context->bank, require_rent_exempt_split_destination ) &&
            source_is_active && source_remaining_balance!=0 &&
            destination_lamports<destination_rent_exempt_reserve ) ) {
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -850,8 +850,8 @@ get_if_mergeable( fd_exec_instr_ctx_t *         invoke_context, // not const to 
     int err;
     int is_some = fd_new_warmup_cooldown_rate_epoch(
         epoch_schedule,
-        fd_bank_features_query( invoke_context->txn_ctx->bank ),
-        fd_bank_slot_get( invoke_context->txn_ctx->bank ),
+        fd_bank_features_query( invoke_context->bank ),
+        fd_bank_slot_get( invoke_context->bank ),
         &new_rate_activation_epoch,
         &err );
     if( FD_UNLIKELY( err ) ) return err;
@@ -1169,8 +1169,8 @@ get_stake_status( fd_exec_instr_ctx_t const *    invoke_context,
   int err;
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       epoch_schedule,
-      fd_bank_features_query( invoke_context->txn_ctx->bank ),
-      fd_bank_slot_get( invoke_context->txn_ctx->bank ),
+      fd_bank_features_query( invoke_context->bank ),
+      fd_bank_slot_get( invoke_context->bank ),
       &new_rate_activation_epoch,
       &err );
   if( FD_UNLIKELY( err ) ) return err;
@@ -1215,8 +1215,8 @@ redelegate_stake( fd_exec_instr_ctx_t const *   ctx,
   int err;
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       epoch_schedule,
-      fd_bank_features_query( ctx->txn_ctx->bank ),
-      fd_bank_slot_get( ctx->txn_ctx->bank ),
+      fd_bank_features_query( ctx->bank ),
+      fd_bank_slot_get( ctx->bank ),
       &new_rate_activation_epoch,
       &err );
   if( FD_UNLIKELY( err ) ) return err;
@@ -1450,9 +1450,9 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L335-L336
     validated_delegated_info_t validated_delegated_info;
-    rc = validate_delegated_amount( &stake_account,
+    rc = validate_delegated_amount( ctx->bank,
+                                    &stake_account,
                                     &meta,
-                                    ctx->txn_ctx,
                                     &validated_delegated_info,
                                     &ctx->txn_out->err.custom_err );
     if( FD_UNLIKELY( rc ) ) return rc;
@@ -1484,9 +1484,9 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L347-L348
     validated_delegated_info_t validated_delegated_info;
-    rc = validate_delegated_amount( &stake_account,
+    rc = validate_delegated_amount( ctx->bank,
+                                    &stake_account,
                                     &meta,
-                                    ctx->txn_ctx,
                                     &validated_delegated_info,
                                     &ctx->txn_out->err.custom_err );
     if( FD_UNLIKELY( rc ) ) return rc;
@@ -1649,10 +1649,10 @@ split( fd_exec_instr_ctx_t const * ctx,
     rc = authorized_check( &meta->authorized, signers, STAKE_AUTHORIZE_STAKER );
     if( FD_UNLIKELY( rc ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L431
-    ulong minimum_delegation = get_minimum_delegation( ctx->txn_ctx );
+    ulong minimum_delegation = get_minimum_delegation( ctx->bank );
 
     int is_active;
-    if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, require_rent_exempt_split_destination ) ) ) {
+    if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->bank, require_rent_exempt_split_destination ) ) ) {
       // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L434
       fd_sol_sysvar_clock_t clock_;
       fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
@@ -2072,7 +2072,7 @@ move_stake(fd_exec_instr_ctx_t * ctx, // not const to log
   fd_stake_t * source_stake = &source_merge_kind.inner.fully_active.stake;
 
   // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L827
-  ulong minimum_delegation = get_minimum_delegation( ctx->txn_ctx );
+  ulong minimum_delegation = get_minimum_delegation( ctx->bank );
 
   // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L831
   if( FD_UNLIKELY( source_stake->delegation.stake<lamports ) )
@@ -2546,7 +2546,7 @@ get_stake_account( fd_exec_instr_ctx_t const * ctx,
 int
 fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Prevent execution of migrated native programs */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, migrate_stake_program_to_core_bpf ) ) ) {
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->bank, migrate_stake_program_to_core_bpf ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
@@ -2871,8 +2871,8 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     int   err;
     int   is_some = fd_new_warmup_cooldown_rate_epoch(
         epoch_schedule,
-        fd_bank_features_query( ctx->txn_ctx->bank ),
-        fd_bank_slot_get( ctx->txn_ctx->bank ),
+        fd_bank_features_query( ctx->bank ),
+        fd_bank_slot_get( ctx->bank ),
         &new_rate_activation_epoch,
         &err );
     if( FD_UNLIKELY( err ) ) return err;
@@ -3145,7 +3145,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L313
    */
   case fd_stake_instruction_enum_get_minimum_delegation: {
-    ulong minimum_delegation = get_minimum_delegation( ctx->txn_ctx );
+    ulong minimum_delegation = get_minimum_delegation( ctx->bank );
     fd_memcpy( &ctx->txn_out->details.return_data.program_id, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t));
     fd_memcpy(ctx->txn_out->details.return_data.data, (uchar*)(&minimum_delegation), sizeof(ulong));
     ctx->txn_out->details.return_data.len = sizeof(ulong);

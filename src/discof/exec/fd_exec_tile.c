@@ -74,6 +74,8 @@ typedef struct fd_exec_tile_ctx {
   fd_exec_stack_t       exec_stack;
   fd_exec_accounts_t    exec_accounts;
 
+  fd_bank_t *           bank;
+
   fd_txn_in_t           txn_in;
   fd_txn_out_t          txn_out;
 
@@ -136,11 +138,11 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
       case FD_EXEC_TT_TXN_EXEC: {
         /* Execute. */
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
-        FD_TEST( bank );
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
         ctx->txn_in.txn = msg->txn;
         ctx->txn_out.err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime,
-                                                                        bank,
+                                                                        ctx->bank,
                                                                         &ctx->txn_in,
                                                                         ctx->txn_ctx,
                                                                         &ctx->txn_out,
@@ -151,7 +153,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
 
         /* Commit. */
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          fd_runtime_commit_txn( &ctx->runtime, bank, &ctx->txn_in, &ctx->txn_out, ctx->txn_ctx, ctx->capture_ctx, NULL );
+          fd_runtime_commit_txn( &ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->capture_ctx, NULL );
         }
 
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
@@ -167,7 +169,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         /* Notify replay. */
         ctx->txn_idx = msg->txn_idx;
         ctx->dispatch_time_comp = tspub;
-        ctx->slot = fd_bank_slot_get( bank );
+        ctx->slot = fd_bank_slot_get( ctx->bank );
         ctx->pending_txn_finalized_msg = 1;
 
         break;
@@ -397,7 +399,7 @@ static void
 publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
                            fd_stem_context_t *  stem ) {
   fd_exec_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
-  msg->bank_idx                  = ctx->txn_ctx->bank->idx;
+  msg->bank_idx                  = ctx->bank->idx;
   msg->txn_exec->txn_idx         = ctx->txn_idx;
   msg->txn_exec->err             = !ctx->txn_out.err.is_committable;
   msg->txn_exec->slot            = ctx->slot;

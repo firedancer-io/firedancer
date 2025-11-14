@@ -21,9 +21,9 @@ fd_instr_info_accumulate_starting_lamports( fd_instr_info_t * instr,
 
 void
 fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
+                                   fd_bank_t *            bank,
                                    fd_txn_in_t const *    txn_in,
                                    fd_txn_out_t *         txn_out,
-                                   fd_exec_txn_ctx_t *    txn_ctx,
                                    fd_txn_instr_t const * txn_instr ) {
 
   fd_txn_t const * txn_descriptor = TXN( &txn_in->txn );
@@ -51,7 +51,7 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
                                        acc_idx,
                                        acc_idx,
                                        i,
-                                       (uchar)fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, txn_ctx, instr_acc_idxs[i] ),
+                                       (uchar)fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, bank, instr_acc_idxs[i] ),
                                        (uchar)fd_txn_is_signer( txn_descriptor, instr_acc_idxs[i] ) );
 
   }

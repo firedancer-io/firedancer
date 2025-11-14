@@ -154,10 +154,10 @@ fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_txn_out_t const * t
     https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
 
 int
-fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
-                                        fd_txn_in_t const *       txn_in,
-                                        fd_txn_out_t *            txn_out,
-                                        fd_exec_txn_ctx_t const * txn_ctx );
+fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t * cost_tracker,
+                                        fd_bank_t *         bank,
+                                        fd_txn_in_t const * txn_in,
+                                        fd_txn_out_t *      txn_out );
 
 FD_PROTOTYPES_END
 

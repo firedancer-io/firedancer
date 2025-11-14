@@ -84,7 +84,7 @@ main( int     argc,
   fd_txn_out_t        txn_out[1];
   test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank, txn_out );
 
-  fd_features_enable_all( fd_bank_features_modify( txn_ctx->bank ) );
+  fd_features_enable_all( fd_bank_features_modify( bank ) );
 
   int vm_ok = !!fd_vm_init(
       /* vm                                   */ vm,
@@ -107,8 +107,8 @@ main( int     argc,
       /* mem_regions_cnt                      */ 0UL,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );

@@ -235,7 +235,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_commit_txn( &ctx->runtime, bank, txn_in, txn_out, txn_ctx, NULL, &tips );
+    fd_runtime_commit_txn( &ctx->runtime, bank, txn_in, txn_out, NULL, &tips );
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       /* If the transaction failed to fit into the block, we need to
@@ -243,7 +243,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.exec_err)<<24);
       fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
       uchar * signature = (uchar *)txn_in->txn.payload + TXN( &txn_in->txn )->signature_off;
-      int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_in, txn_out, txn_ctx );
+      int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, bank, txn_in, txn_out );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
                     "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
@@ -406,17 +406,16 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
-      fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx[ i ];
-      fd_txn_in_t *       txn_in  = &ctx->txn_in[ i ];
-      fd_txn_out_t *      txn_out = &ctx->txn_out[ i ];
-      uchar * signature = (uchar *)txn_in->txn.payload + TXN( &txn_in->txn )->signature_off;
+      fd_txn_in_t *  txn_in  = &ctx->txn_in[ i ];
+      fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
+      uchar *        signature = (uchar *)txn_in->txn.payload + TXN( &txn_in->txn )->signature_off;
 
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-      fd_runtime_commit_txn( &ctx->runtime, bank, txn_in, txn_out, txn_ctx, NULL, &tips[ i ] );
+      fd_runtime_commit_txn( &ctx->runtime, bank, txn_in, txn_out, NULL, &tips[ i ] );
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.exec_err)<<24);
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-        int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_in, txn_out, txn_ctx );
+        int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, bank, txn_in, txn_out );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
                       "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "

@@ -76,7 +76,6 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng ) {
   ulong tx_len = 0;
   ulong proof_offset = offset + 1 + context_sz;
 
-  txn_ctx->bank = bank;
   fd_bank_slot_set( bank, 0UL );
   fd_features_t * features = fd_bank_features_modify( bank );
   fd_features_enable_all( features );

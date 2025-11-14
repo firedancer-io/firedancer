@@ -490,7 +490,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       fd_txn_in_t  txn_in = { .txn = *txn };
       fd_txn_out_t txn_out;
       fd_runtime_t runtime;
-      fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, &runtime, &txn_in, &res, &txn_out );
+      fd_solfuzz_txn_ctx_exec( runner, &runtime, &txn_in, &res, &txn_out );
       txn_out.err.exec_err = res;
 
       if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
@@ -503,7 +503,6 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
           runner->bank,
           &txn_in,
           &txn_out,
-          txn_ctx,
           capture_ctx,
           NULL );
 

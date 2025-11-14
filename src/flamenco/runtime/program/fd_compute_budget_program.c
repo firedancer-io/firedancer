@@ -14,9 +14,9 @@
 #define MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT (3000UL)
 
 FD_FN_PURE static inline uchar
-get_program_kind( fd_txn_in_t const *       txn_in,
-                  fd_exec_txn_ctx_t const * txn_ctx,
-                  fd_txn_instr_t const *    instr ) {
+get_program_kind( fd_bank_t *            bank,
+                  fd_txn_in_t const *    txn_in,
+                  fd_txn_instr_t const * instr ) {
   fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( TXN( &txn_in->txn ), txn_in->txn.payload );
   fd_pubkey_t const *    program_pubkey = fd_type_pun_const( &txn_accs[ instr->program_id ] );
 
@@ -26,7 +26,7 @@ get_program_kind( fd_txn_in_t const *       txn_in,
   }
 
   uchar migrated_yet;
-  uchar is_migrating_program = fd_is_migrating_builtin_program( txn_ctx, program_pubkey, &migrated_yet );
+  uchar is_migrating_program = fd_is_migrating_builtin_program( bank, program_pubkey, &migrated_yet );
 
   /* The program has a BPF migration config but has not been migrated yet, so it's still a builtin program */
   if( is_migrating_program && !migrated_yet ) {
@@ -114,16 +114,16 @@ fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out ) {
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L54-L99 */
 int
-fd_executor_compute_budget_program_execute_instructions( fd_txn_in_t const *       txn_in,
-                                                         fd_txn_out_t *            txn_out,
-                                                         fd_exec_txn_ctx_t *       ctx ) {
+fd_executor_compute_budget_program_execute_instructions( fd_bank_t *         bank,
+                                                         fd_txn_in_t const * txn_in,
+                                                         fd_txn_out_t *      txn_out ) {
   fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
 
   for( ushort i=0; i<TXN( &txn_in->txn )->instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &TXN( &txn_in->txn )->instr[i];
 
     /* Only `FD_PROGRAM_KIND_BUILTIN` gets charged as a builtin instruction */
-    uchar program_kind = get_program_kind( txn_in, ctx, instr );
+    uchar program_kind = get_program_kind( bank, txn_in, instr );
     if( program_kind==FD_PROGRAM_KIND_BUILTIN ) {
       details->num_builtin_instrs++;
     } else {

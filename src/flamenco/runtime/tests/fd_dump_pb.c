@@ -890,14 +890,14 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 static void
 create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
                                                  fd_runtime_t *                 runtime,
+                                                 fd_bank_t *                    bank,
                                                  fd_txn_out_t *                 txn_out,
-                                                 fd_exec_txn_ctx_t const *      txn_ctx,
                                                  fd_instr_info_t const *        instr,
                                                  fd_spad_t *                    spad ) {
   /* Program ID */
   fd_memcpy( instr_context->program_id, txn_out->accounts.account_keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
 
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
 
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_out->accounts.accounts_cnt;
@@ -979,13 +979,14 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Epoch Context */
   instr_context->has_epoch_context = true;
   instr_context->epoch_context.has_features = true;
-  dump_sorted_features( fd_bank_features_query( txn_ctx->bank ), &instr_context->epoch_context.features, spad );
+  dump_sorted_features( fd_bank_features_query( bank ), &instr_context->epoch_context.features, spad );
 }
 
 /***** PUBLIC APIs *****/
 
 void
 fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
+                           fd_bank_t *         bank,
                            fd_txn_in_t const * txn_in,
                            fd_txn_out_t *      txn_out,
                            fd_exec_txn_ctx_t * txn_ctx,
@@ -1011,7 +1012,7 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
     }
 
     fd_exec_test_instr_context_t instr_context = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
-    create_instr_context_protobuf_from_instructions( &instr_context, runtime, txn_out, txn_ctx, instr, spad );
+    create_instr_context_protobuf_from_instructions( &instr_context, runtime, bank, txn_out, instr, spad );
 
     /* Output to file */
     ulong        out_buf_size = 100 * 1024 * 1024;
@@ -1031,6 +1032,7 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
 
 void
 fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
+                         fd_bank_t *         bank,
                          fd_txn_in_t const * txn_in,
                          fd_txn_out_t *      txn_out,
                          fd_exec_txn_ctx_t * txn_ctx ) {
@@ -1052,7 +1054,7 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
     }
 
     fd_exec_test_txn_context_t txn_context_msg = FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT;
-    create_txn_context_protobuf_from_txn( &txn_context_msg, runtime, txn_ctx->bank, txn_in, txn_out, spad );
+    create_txn_context_protobuf_from_txn( &txn_context_msg, runtime, bank, txn_in, txn_out, spad );
 
     /* Output to file */
     ulong        out_buf_size = 100UL<<20UL; // 100 MB
@@ -1201,8 +1203,8 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   sys_ctx.has_instr_ctx = 1;
   create_instr_context_protobuf_from_instructions( &sys_ctx.instr_ctx,
                                                    vm->instr_ctx->runtime,
+                                                   vm->instr_ctx->bank,
                                                    vm->instr_ctx->txn_out,
-                                                   vm->instr_ctx->txn_ctx,
                                                    vm->instr_ctx->instr,
                                                    spad );
 
@@ -1242,6 +1244,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
 
 void
 fd_dump_elf_to_protobuf( fd_runtime_t *      runtime,
+                         fd_bank_t *         bank,
                          fd_txn_in_t const * txn_in,
                          fd_exec_txn_ctx_t * txn_ctx,
                          fd_txn_account_t *  program_acc ) {
@@ -1249,7 +1252,7 @@ fd_spad_t * spad = fd_spad_join( fd_spad_new( txn_ctx->log.dumping_mem, 1UL<<28U
 
 FD_SPAD_FRAME_BEGIN( spad ) {
 
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
 
   /* Get the programdata for the account */
   ulong         program_data_len = 0UL;
@@ -1273,7 +1276,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
           txn_ctx->log.capture_ctx->dump_proto_output_dir,
           encoded_signature,
           program_acc_b58,
-          fd_bank_slot_get( txn_ctx->bank ) );
+          fd_bank_slot_get( bank ) );
 
   /* The generated filename should be unique for every call. Silently return otherwise. */
   if( FD_UNLIKELY( access( filename, F_OK )!=-1 ) ) {
@@ -1290,7 +1293,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
 
   /* ElfLoaderCtx -> features */
   elf_ctx.has_features = true;
-  dump_sorted_features( fd_bank_features_query( txn_ctx->bank ), &elf_ctx.features, spad );
+  dump_sorted_features( fd_bank_features_query( bank ), &elf_ctx.features, spad );
 
   /* ElfLoaderCtx -> deploy_checks
      We hardcode this to true and rely the fuzzer to toggle this as it pleases */

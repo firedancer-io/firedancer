@@ -106,9 +106,9 @@ fd_instr_info_accumulate_starting_lamports( fd_instr_info_t * instr,
 
 void
 fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
+                                   fd_bank_t *            bank,
                                    fd_txn_in_t const *    txn_in,
                                    fd_txn_out_t *         txn_out,
-                                   fd_exec_txn_ctx_t *    txn_ctx,
                                    fd_txn_instr_t const * txn_instr );
 
 /* https://github.com/anza-xyz/solana-sdk/blob/589e6237f203c2719c300dc044f4e00f48e66a8f/message/src/versions/v0/loaded.rs#L152-L157 */

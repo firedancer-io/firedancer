@@ -122,6 +122,7 @@ fd_solfuzz_pb_vm_interp_run( fd_solfuzz_runner_t * runner,
   }
 
   fd_spad_t * spad = runner->spad;
+  instr_ctx->bank  = runner->bank;
 
   /* Create effects */
   ulong output_end = (ulong) output_buf + output_bufsz;
@@ -151,8 +152,8 @@ do{
   fd_vm_input_region_t     input_mem_regions[1000]                 = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t  acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
   uint                     input_mem_regions_cnt                   = 0UL;
-  int                      direct_mapping                          = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping );
-  int                      stricter_abi_and_runtime_constraints    = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints );
+  int                      direct_mapping                          = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
+  int                      stricter_abi_and_runtime_constraints    = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
 
   uchar *                  input_ptr      = NULL;
   uchar                    program_id_idx = instr_ctx->instr->program_id;
@@ -211,8 +212,8 @@ do{
   /* Setup syscalls. Have them all be no-ops */
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc_check( spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   fd_vm_syscall_register_slot( syscalls,
-                               fd_bank_slot_get( instr_ctx->txn_ctx->bank ),
-                               fd_bank_features_query( instr_ctx->txn_ctx->bank ),
+                               fd_bank_slot_get( instr_ctx->bank ),
+                               fd_bank_features_query( instr_ctx->bank ),
                                0 );
 
   for( ulong i=0; i< fd_sbpf_syscalls_slot_cnt(); i++ ){
@@ -405,6 +406,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   ctx->runtime->instr.trace[0].stack_height = 1;
   ctx->txn_out->err.exec_err = 0;
   ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
+  ctx->bank = runner->bank;
 
   /* Capture outputs */
   ulong output_end = (ulong)output_buf + output_bufsz;
@@ -462,8 +464,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   fd_vm_input_region_t    input_mem_regions[1000]                = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t acc_region_metas[256]                  = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                  = 0U;
-  int                     direct_mapping                         = FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, account_data_direct_mapping );
-  int                     stricter_abi_and_runtime_constraints   = FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints );
+  int                     direct_mapping                         = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
+  int                     stricter_abi_and_runtime_constraints   = FD_FEATURE_ACTIVE_BANK( ctx->bank, stricter_abi_and_runtime_constraints );
 
   uchar *            input_ptr      = NULL;
   uchar              program_id_idx = ctx->instr->program_id;

@@ -74,7 +74,6 @@ typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
 
 struct fd_exec_txn_ctx {
   /* Input fields: memory, bank, acc db, funk, prog cache, and txn */
-  fd_bank_t *          bank;
   fd_exec_accounts_t * exec_accounts;
   fd_bank_hash_cmp_t * bank_hash_cmp;
 
@@ -215,10 +214,10 @@ fd_exec_txn_ctx_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L137-L150 */
 
 int
-fd_exec_txn_ctx_account_is_writable_idx( fd_txn_in_t const *       txn_in,
-                                         fd_txn_out_t const *      txn_out,
-                                         fd_exec_txn_ctx_t const * txn_ctx,
-                                         ushort                    idx );
+fd_exec_txn_ctx_account_is_writable_idx( fd_txn_in_t const *  txn_in,
+                                         fd_txn_out_t const * txn_out,
+                                         fd_bank_t *          bank,
+                                         ushort               idx );
 
 /* This flat function does the same as the function above, but uses the
    exact arguments needed instead of the full fd_exec_txn_ctx_t */
@@ -251,11 +250,11 @@ fd_txn_account_check_exists( fd_txn_account_t *        acc,
                              ushort                    idx );
 
 int
-fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
-                                  fd_txn_in_t const *       txn_in,
-                                  fd_txn_out_t *            txn_out,
-                                  fd_exec_txn_ctx_t const * ctx,
-                                  ushort                    idx );
+fd_txn_account_check_is_writable( fd_txn_account_t *  acc,
+                                  fd_txn_in_t const * txn_in,
+                                  fd_txn_out_t *      txn_out,
+                                  fd_bank_t *         bank,
+                                  ushort              idx );
 
 /* The fee payer is a valid modifiable account if it is passed in as writable
    in the message via a valid signature. We ignore if the account has been

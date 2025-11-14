@@ -102,7 +102,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   txn_ctx->bank_hash_cmp             = NULL;
   txn_ctx->log.enable_exec_recording = !!( runner->bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
-  txn_ctx->bank                      = runner->bank;
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
   runtime->instr.stack_sz            = 0;
@@ -363,7 +362,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   txn_ctx->bank_hash_cmp             = NULL;
   txn_ctx->log.enable_exec_recording = !!( runner->bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
-  txn_ctx->bank                      = runner->bank;
 
   fd_log_collector_init( &ctx->txn_ctx->log.log_collector, 1 );
   fd_base58_encode_32( txn_out->accounts.account_keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
@@ -398,7 +396,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 
   /* Execute the test */
-  int exec_result = fd_execute_instr( ctx->runtime, ctx->txn_in, ctx->txn_out, ctx->txn_ctx, instr );
+  int exec_result = fd_execute_instr( ctx->runtime, runner->bank, ctx->txn_in, ctx->txn_out, ctx->txn_ctx, instr );
 
   /* Allocate space to capture outputs */
 

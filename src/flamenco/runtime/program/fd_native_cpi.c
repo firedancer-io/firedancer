@@ -64,7 +64,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L315-L321 */
-  return fd_execute_instr( ctx->runtime, ctx->txn_in, ctx->txn_out, ctx->txn_ctx, instr_info );
+  return fd_execute_instr( ctx->runtime, ctx->bank, ctx->txn_in, ctx->txn_out, ctx->txn_ctx, instr_info );
 }
 
 void

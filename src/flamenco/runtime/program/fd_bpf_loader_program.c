@@ -127,8 +127,8 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
                    ulong                 programdata_size ) {
   int deploy_mode                          = 1;
-  int direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping );
-  int stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints );
+  int direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
+  int stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
 
   uchar syscalls_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
@@ -139,13 +139,13 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   fd_vm_syscall_register_slot( syscalls,
-                               fd_bank_slot_get( instr_ctx->txn_ctx->bank ),
-                               fd_bank_features_query( instr_ctx->txn_ctx->bank ),
+                               fd_bank_slot_get( instr_ctx->bank ),
+                               fd_bank_features_query( instr_ctx->bank ),
                                1 );
 
   /* Load executable */
   fd_sbpf_elf_info_t elf_info[ 1UL ];
-  fd_prog_versions_t versions = fd_prog_versions( fd_bank_features_query( instr_ctx->txn_ctx->bank ), fd_bank_slot_get( instr_ctx->txn_ctx->bank ) );
+  fd_prog_versions_t versions = fd_prog_versions( fd_bank_features_query( instr_ctx->bank ), fd_bank_slot_get( instr_ctx->bank ) );
 
   fd_sbpf_loader_config_t config = { 0 };
   config.elf_deploy_checks = deploy_mode;
@@ -386,8 +386,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* TODO do we really need to re-do this on every instruction? */
   fd_vm_syscall_register_slot( syscalls,
-                               fd_bank_slot_get( instr_ctx->txn_ctx->bank ),
-                               fd_bank_features_query( instr_ctx->txn_ctx->bank ),
+                               fd_bank_slot_get( instr_ctx->bank ),
+                               fd_bank_features_query( instr_ctx->bank ),
                                0 );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
@@ -396,8 +396,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   fd_vm_input_region_t    input_mem_regions[1000]              = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t acc_region_metas[256]                = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                = 0U;
-  int                     direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping );
-  int                     stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints );
+    int                     direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
+  int                     stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
 
   uchar * input = NULL;
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, &input_sz, pre_lens,
@@ -429,7 +429,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* For dumping syscalls for seed corpora */
   int dump_syscall_to_pb = instr_ctx->txn_ctx->log.capture_ctx &&
-                           fd_bank_slot_get( instr_ctx->txn_ctx->bank ) >= instr_ctx->txn_ctx->log.capture_ctx->dump_proto_start_slot &&
+                           fd_bank_slot_get( instr_ctx->bank ) >= instr_ctx->txn_ctx->log.capture_ctx->dump_proto_start_slot &&
                            instr_ctx->txn_ctx->log.capture_ctx->dump_syscall_to_pb;
 
   /* TODO: (topointon): correctly set check_size in vm setup */
@@ -505,7 +505,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   } else {
     /* https://github.com/anza-xyz/agave/blob/v2.1.13/programs/bpf_loader/src/lib.rs#L1434-L1439 */
     /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
-    if( FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, deplete_cu_meter_on_vm_failure ) &&
+    if( FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, deplete_cu_meter_on_vm_failure ) &&
         exec_err!=FD_VM_ERR_EBPF_SYSCALL_ERROR ) {
       instr_ctx->txn_out->details.compute_budget.compute_meter = 0UL;
     }
@@ -776,7 +776,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1480-L1485 */
-  fd_rent_t const * rent             = fd_bank_rent_query( instr_ctx->txn_ctx->bank );
+  fd_rent_t const * rent             = fd_bank_rent_query( instr_ctx->bank );
   ulong             balance          = fd_borrowed_account_get_lamports( &programdata_account );
   ulong             min_balance      = fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_len ), 1UL );
   ulong             required_payment = fd_ulong_sat_sub( min_balance, balance );
@@ -1075,7 +1075,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Verify Program account */
 
       fd_pubkey_t *     new_program_id = NULL;
-      fd_rent_t const * rent           = fd_bank_rent_query( instr_ctx->txn_ctx->bank );
+      fd_rent_t const * rent           = fd_bank_rent_query( instr_ctx->bank );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L545 */
       fd_guarded_borrowed_account_t program = {0};
@@ -1405,7 +1405,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 1UL, &program );
 
       /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L758-L765 */
-      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) &&
+      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, remove_accounts_executable_flag_checks ) &&
                        !fd_borrowed_account_is_executable( &program ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not executable" );
         return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
@@ -1489,7 +1489,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_guarded_borrowed_account_t programdata = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &programdata );
 
-      fd_rent_t const * rent = fd_bank_rent_query( instr_ctx->txn_ctx->bank );
+      fd_rent_t const * rent = fd_bank_rent_query( instr_ctx->bank );
 
       programdata_balance_required = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( &programdata ) ) );
 
@@ -1752,7 +1752,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L958-L1030 */
     case fd_bpf_upgradeable_loader_program_instruction_enum_set_authority_checked: {
       int err;
-      if( !FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, enable_bpf_loader_set_authority_checked_ix ) ) {
+      if( !FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, enable_bpf_loader_set_authority_checked_ix ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
 
@@ -2005,7 +2005,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     }
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1158-L1170 */
     case fd_bpf_upgradeable_loader_program_instruction_enum_extend_program: {
-      if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, enable_extend_program_checked ) ) ) {
+      if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, enable_extend_program_checked ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "ExtendProgram was superseded by ExtendProgramChecked" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
@@ -2018,7 +2018,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     }
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1171-L1179 */
     case fd_bpf_upgradeable_loader_program_instruction_enum_extend_program_checked: {
-      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, enable_extend_program_checked ) ) ) {
+      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, enable_extend_program_checked ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
       err = common_extend_program( instr_ctx, instruction->inner.extend_program_checked.additional_bytes, 1 );
@@ -2031,7 +2031,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1338-L1508 */
     case fd_bpf_upgradeable_loader_program_instruction_enum_migrate: {
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1339-L1344 */
-      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, enable_loader_v4 ) ) ) {
+      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, enable_loader_v4 ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
 
@@ -2444,7 +2444,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     } else {
       fd_log_collector_msg_literal( ctx, "Invalid BPF loader id" );
       /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L429-L436 */
-      if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+      if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
@@ -2453,7 +2453,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L445-L452 */
   /* Program invocation. Any invalid programs will be caught here or at the program load. */
-  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) &&
+  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) &&
                     !fd_borrowed_account_is_executable( &program_account ) ) ) {
     fd_log_collector_msg_literal( ctx, "Program is not executable" );
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
@@ -2491,7 +2491,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     err = fd_bpf_loader_program_get_state( program_account.acct, program_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
-      if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+      if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2509,7 +2509,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       if( !fd_is_non_migrating_builtin_program( program_id ) ) {
         fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       }
-      if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+      if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2525,7 +2525,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
                                                   fd_txn_account_check_exists );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
-      if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+      if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2533,7 +2533,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     if( FD_UNLIKELY( fd_txn_account_get_data_len( program_data_account )<PROGRAMDATA_METADATA_SIZE ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
-      if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+      if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2543,7 +2543,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     err = fd_bpf_loader_program_get_state( program_data_account, program_data_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
-      if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+      if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2554,26 +2554,26 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program_data( program_data_account_state ) ) ) {
       /* The account is closed. */
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
-      if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+      if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
     ulong program_data_slot = program_data_account_state->inner.program_data.slot;
-    if( FD_UNLIKELY( program_data_slot>=fd_bank_slot_get( ctx->txn_ctx->bank ) ) ) {
+    if( FD_UNLIKELY( program_data_slot>=fd_bank_slot_get( ctx->bank ) ) ) {
       /* The account was likely just deployed or upgraded. Corresponds to
          'LoadedProgramType::DelayVisibility' */
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
-      if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+      if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
   }
 
-  fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->txn_ctx->bank );
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->txn_ctx->bank ), ctx->txn_ctx->bank->idx } };
+  fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), ctx->bank->idx } };
   fd_progcache_rec_t const * cache_entry =
       fd_progcache_pull( ctx->runtime->progcache,
                          ctx->runtime->funk,
@@ -2584,7 +2584,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_log_collector_msg_literal( ctx, "Program is not cached" );
 
     /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L460-L467 */
-    if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+    if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2593,7 +2593,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* The program may be in the cache but could have failed verification in the current epoch. */
   if( FD_UNLIKELY( cache_entry->executable==0 ) ) {
     fd_log_collector_msg_literal( ctx, "Program is not deployed" );
-    if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
+    if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;

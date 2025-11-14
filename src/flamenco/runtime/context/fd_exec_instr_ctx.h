@@ -21,6 +21,7 @@ struct fd_exec_instr_ctx {
   fd_txn_in_t const *       txn_in;  /* The input for this instruction */
   fd_txn_out_t *            txn_out; /* The output for this instruction */
   fd_sysvar_cache_t const * sysvar_cache;
+  fd_bank_t *               bank;
 
   /* Most instructions log the base58 program id multiple times, so it's
      convenient to compute it once and reuse it. */

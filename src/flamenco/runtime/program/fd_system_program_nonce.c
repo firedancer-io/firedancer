@@ -63,7 +63,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   /* The environment config blockhash comes from `bank.last_blockhash_and_lamports_per_signature()`,
      which takes the top element from the blockhash queue.
      https://github.com/anza-xyz/agave/blob/v2.1.6/programs/system/src/system_instruction.rs#L47 */
-  fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( ctx->txn_ctx->bank );
+  fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( ctx->bank );
   fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
   if( FD_UNLIKELY( last_bhash_info==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
@@ -876,10 +876,11 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
 fd_check_transaction_age( fd_runtime_t *      runtime,
+                          fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out,
                           fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( txn_ctx->bank );
+  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
   fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last_hash( block_hash_queue );
   if( FD_UNLIKELY( !last_blockhash ) ) {
     FD_LOG_CRIT(( "blockhash queue is empty" ));
@@ -939,16 +940,16 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      - statically included in the transaction account keys (if SIMD-242
        is active)
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L110-L111 */
-  if( FD_UNLIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, txn_ctx, nonce_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, bank, nonce_idx ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, require_static_nonce_account ) &&
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, require_static_nonce_account ) &&
                    nonce_idx>=TXN( &txn_in->txn )->acct_addr_cnt ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   fd_txn_account_t durable_nonce_rec[1];
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
                                                     &txn_out->accounts.account_keys[ nonce_idx ],
                                                     runtime->funk,
@@ -1027,7 +1028,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
               .durable_nonce  = next_durable_nonce,
               .fee_calculator = {
                 /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/bank/check_transactions.rs#L88-L90 */
-                .lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( txn_ctx->bank )
+                .lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( bank )
               }
             } }
           } }

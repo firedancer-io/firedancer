@@ -715,7 +715,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Agave consumes CU in translate_instruction
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
-  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->txn_ctx->bank, loosen_cpi_size_restriction ) ) {
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
     FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
   }
 
@@ -789,7 +789,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Authorized program check *************************************************/
 
-  if( FD_UNLIKELY( fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->txn_ctx, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) ) {
+  if( FD_UNLIKELY( fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->bank, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) ) {
     /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1054 */
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED );
     return FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED;
@@ -826,7 +826,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Right after translating, Agave checks the number of account infos:
      https://github.com/anza-xyz/agave/blob/v3.0.1/syscalls/src/cpi.rs#L752 */
-  if( FD_UNLIKELY( acct_info_cnt > get_cpi_max_account_infos( vm->instr_ctx->txn_ctx ) ) ) {
+  if( FD_UNLIKELY( acct_info_cnt > get_cpi_max_account_infos( vm->instr_ctx->bank ) ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED );
     return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;
   }
@@ -869,7 +869,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   vm->instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
 
   /* Execute the CPI instruction in the runtime */
-  int err_exec = fd_execute_instr( vm->instr_ctx->runtime, vm->instr_ctx->txn_in, vm->instr_ctx->txn_out, vm->instr_ctx->txn_ctx, instruction_to_execute );
+  int err_exec = fd_execute_instr( vm->instr_ctx->runtime, vm->instr_ctx->bank, vm->instr_ctx->txn_in, vm->instr_ctx->txn_out, vm->instr_ctx->txn_ctx, instruction_to_execute );
   ulong instr_exec_res = (ulong)err_exec;
 
   /* Set the CU meter to the instruction context's transaction context's compute meter,

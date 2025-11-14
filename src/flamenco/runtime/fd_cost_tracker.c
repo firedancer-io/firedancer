@@ -277,9 +277,9 @@ calculate_allocated_accounts_data_size( fd_txn_in_t const * txn_in ) {
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L123-L149 */
 static inline fd_transaction_cost_t
-calculate_non_vote_transaction_cost( fd_txn_in_t const *  txn_in,
+calculate_non_vote_transaction_cost( fd_bank_t *          bank,
+                                     fd_txn_in_t const *  txn_in,
                                      fd_txn_out_t const * txn_out,
-                                     fd_bank_t *          bank,
                                      ulong                loaded_accounts_data_size_cost,
                                      ulong                data_bytes_cost ) {
 
@@ -349,9 +349,9 @@ get_allocated_accounts_data_size( fd_transaction_cost_t const * txn_cost ) {
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L277-L322 */
 static inline int
 would_fit( fd_cost_tracker_t const *     cost_tracker,
+           fd_bank_t *                   bank,
            fd_txn_in_t const *           txn_in,
            fd_txn_out_t *                txn_out,
-           fd_exec_txn_ctx_t const *     txn_ctx,
            fd_transaction_cost_t const * tx_cost ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L281 */
@@ -389,7 +389,7 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
   account_cost_t const * pool = fd_type_pun_const( (void*)((ulong)cost_tracker + ((cost_tracker_outer_t const *)cost_tracker)->pool_offset) );
 
   for( ulong i=0UL; i<txn_out->accounts.accounts_cnt; i++ ) {
-    if( !fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, txn_ctx, (ushort)i ) ) continue;
+    if( !fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, bank, (ushort)i ) ) continue;
 
     fd_pubkey_t const * writable_acc = &txn_out->accounts.account_keys[i];
 
@@ -405,9 +405,9 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L352-L372 */
 static inline void
 add_transaction_execution_cost( fd_cost_tracker_t *           _cost_tracker,
+                                fd_bank_t *                   bank,
                                 fd_txn_in_t const *           txn_in,
                                 fd_txn_out_t *                txn_out,
-                                fd_exec_txn_ctx_t const *     txn_ctx,
                                 fd_transaction_cost_t const * tx_cost,
                                 ulong                         adjustment ) {
   cost_tracker_outer_t * cost_tracker = fd_type_pun( _cost_tracker );
@@ -415,7 +415,7 @@ add_transaction_execution_cost( fd_cost_tracker_t *           _cost_tracker,
   account_cost_t * pool = fd_type_pun( (void*)((ulong)cost_tracker+cost_tracker->pool_offset) );
 
   for( ulong i=0UL; i<txn_out->accounts.accounts_cnt; i++ ) {
-    if( FD_LIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, txn_ctx, (ushort)i ) ) ) continue;
+    if( FD_LIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, bank, (ushort)i ) ) ) continue;
 
     fd_pubkey_t const * writable_acc = &txn_out->accounts.account_keys[i];
 
@@ -444,20 +444,20 @@ add_transaction_execution_cost( fd_cost_tracker_t *           _cost_tracker,
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L325-L335 */
 static inline void
 add_transaction_cost( fd_cost_tracker_t *           cost_tracker,
+                      fd_bank_t *                   bank,
                       fd_txn_in_t const *           txn_in,
                       fd_txn_out_t *                txn_out,
-                      fd_exec_txn_ctx_t const *     txn_ctx,
                       fd_transaction_cost_t const * tx_cost ) {
   /* Note: We purposely omit signature counts updates since they're not relevant to cost calculations right now. */
   cost_tracker->allocated_accounts_data_size += get_allocated_accounts_data_size( tx_cost );
-  add_transaction_execution_cost( cost_tracker, txn_in, txn_out, txn_ctx, tx_cost, transaction_cost_sum( tx_cost ) );
+  add_transaction_execution_cost( cost_tracker, bank, txn_in, txn_out, tx_cost, transaction_cost_sum( tx_cost ) );
 }
 
 int
 fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
+                                        fd_bank_t *               bank,
                                         fd_txn_in_t const *       txn_in,
-                                        fd_txn_out_t *            txn_out,
-                                        fd_exec_txn_ctx_t const * txn_ctx ) {
+                                        fd_txn_out_t *            txn_out ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/cost-model/src/cost_model.rs#L83-L85 */
   fd_transaction_cost_t txn_cost;
@@ -471,16 +471,16 @@ fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
     ulong instructions_data_cost = get_instructions_data_cost( txn_in );
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L85-L93 */
-    txn_cost = calculate_non_vote_transaction_cost( txn_in, txn_out, txn_ctx->bank, loaded_accounts_data_size_cost, instructions_data_cost );
+    txn_cost = calculate_non_vote_transaction_cost( bank, txn_in, txn_out, loaded_accounts_data_size_cost, instructions_data_cost );
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L167 */
-  int err = would_fit( cost_tracker, txn_in, txn_out, txn_ctx, &txn_cost );
+  int err = would_fit( cost_tracker, bank, txn_in, txn_out, &txn_cost );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* We don't need `updated_costliest_account_cost` since it seems to be
      for a different use case other than validating block cost limits.
      https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L168 */
-  add_transaction_cost( cost_tracker, txn_in, txn_out, txn_ctx, &txn_cost );
+  add_transaction_cost( cost_tracker, bank, txn_in, txn_out, &txn_cost );
   return FD_COST_TRACKER_SUCCESS;
 }

@@ -208,16 +208,16 @@ fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
 
    https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
 int
-fd_exec_txn_ctx_account_is_writable_idx( fd_txn_in_t const *       txn_in,
-                                         fd_txn_out_t const *      txn_out,
-                                         fd_exec_txn_ctx_t const * txn_ctx,
-                                         ushort                    idx ) {
+fd_exec_txn_ctx_account_is_writable_idx( fd_txn_in_t const *  txn_in,
+                                         fd_txn_out_t const * txn_out,
+                                         fd_bank_t *          bank,
+                                         ushort               idx ) {
   uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.account_keys, txn_out->accounts.accounts_cnt );
-  return fd_exec_txn_account_is_writable_idx_flat( fd_bank_slot_get( txn_ctx->bank ),
+  return fd_exec_txn_account_is_writable_idx_flat( fd_bank_slot_get( bank ),
                                                    idx,
                                                    &txn_out->accounts.account_keys[idx],
                                                    TXN( &txn_in->txn ),
-                                                   fd_bank_features_query( txn_ctx->bank ),
+                                                   fd_bank_features_query( bank ),
                                                    bpf_upgradeable );
 }
 
@@ -269,11 +269,11 @@ int
 fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
                                   fd_txn_in_t const *       txn_in,
                                   fd_txn_out_t *            txn_out,
-                                  fd_exec_txn_ctx_t const * ctx,
+                                  fd_bank_t *               bank,
                                   ushort                    idx ) {
   (void) txn_out;
   (void) acc;
-  return fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, ctx, idx );
+  return fd_exec_txn_ctx_account_is_writable_idx( txn_in, txn_out, bank, idx );
 }
 
 int
