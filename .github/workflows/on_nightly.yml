@@ -64,3 +64,8 @@ jobs:
       build_arm: false
       clang: none
       cid: 6
+  backtest:
+    uses: ./.github/workflows/backtest.yml
+    with:
+      script: src/flamenco/runtime/tests/run_backtest_all.sh
+    secrets: inherit
