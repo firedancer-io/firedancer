@@ -22,7 +22,7 @@ test_fib_print( fd_fib4_t const * fib,
   ulong sz = (ulong)ftell( dump );
   fclose( dump );
 
-  if( FD_UNLIKELY( 0!=strncmp( dump_buf, actual, sz ) ) ) {
+  if( FD_UNLIKELY( sz!=strlen( actual ) || 0!=strncmp( dump_buf, actual, sz ) ) ) {
     fwrite( dump_buf, 1, sz, stderr );
     fflush( stderr );
     FD_LOG_ERR(( "FAIL: fd_fib4_fprintf(fib) != expected" ));
@@ -434,7 +434,7 @@ main( int     argc,
 
      # ip route list table local
      broadcast 192.0.2.160     dev bond0 proto kernel scope link src 192.0.2.165
-     local     192.0.2.165     dev bond0 proto kernel scope host src 192.0.2.165
+     local     192.0.2.0       dev bond0 proto kernel scope host src 192.0.2.165
      broadcast 192.0.2.191     dev bond0 proto kernel scope link src 192.0.2.165
      broadcast 127.0.0.0       dev lo    proto kernel scope link src 127.0.0.1
      local     127.0.0.0/8     dev lo    proto kernel scope host src 127.0.0.1
@@ -456,7 +456,7 @@ main( int     argc,
   fd_fib4_hop_t hop7 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_BROADCAST, .if_idx=1, .scope=253, .ip4_src=FD_IP4_ADDR( 127,0,0,1   ) };
 
   FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,160   ), 32, 0, &hop1 ) );  // fib4 hashmap
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,165   ), 24, 0, &hop2 ) );
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,165   ), 32, 0, &hop2 ) );
   FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,191   ), 32, 0, &hop3 ) );
   FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,0     ), 30, 0, &hop4 ) );
   FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,0     ),  8, 0, &hop5 ) );
@@ -467,10 +467,10 @@ main( int     argc,
 
   test_fib_print( fib_local,
     "throw default metric 4294967295\n"
-    "local 192.0.2.165/24 dev 6 scope host src 192.0.2.165\n"
     "broadcast 127.0.0.0/30 dev 1 scope link src 127.0.0.1\n"
     "local 127.0.0.0/8 dev 1 scope host src 127.0.0.1\n"
     "broadcast 127.0.255.255/30 dev 1 scope link src 127.0.0.1\n"
+    "local 192.0.2.165/32 dev 6 scope host src 192.0.2.165\n"
     "broadcast 192.0.2.191/32 dev 6 scope link src 192.0.2.165\n"
     "local 127.0.0.1/32 dev 1 scope host src 127.0.0.1\n"
     "broadcast 192.0.2.160/32 dev 6 scope link src 192.0.2.165\n" );
@@ -480,8 +480,8 @@ main( int     argc,
   fd_fib4_hop_t hop8 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_UNICAST, .ip4_gw=FD_IP4_ADDR( 192,0,2,161 ), .if_idx=6,             .ip4_src=FD_IP4_ADDR( 192,0,2,165 ) };
   fd_fib4_hop_t hop9 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_UNICAST,                                     .if_idx=6, .scope=253, .ip4_src=FD_IP4_ADDR( 192,0,2,165 ) };
 
-  fd_fib4_insert( fib_main, FD_IP4_ADDR( 0,0,0,0     ),  0, 300, &hop8 );
-  fd_fib4_insert( fib_main, FD_IP4_ADDR( 192,0,2,161 ), 27, 300, &hop9 );
+  FD_TEST( fd_fib4_insert( fib_main, FD_IP4_ADDR( 0,0,0,0     ),  0, 300, &hop8 ) );
+  FD_TEST( fd_fib4_insert( fib_main, FD_IP4_ADDR( 192,0,2,161 ), 27, 300, &hop9 ) );
 
   test_fib_print( fib_main,
     "throw default metric 4294967295\n"

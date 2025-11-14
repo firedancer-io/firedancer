@@ -66,8 +66,10 @@
 
 /* FD_VINYL_IO_TYPE_* identifies which IO implementation is in use. */
 
-#define FD_VINYL_IO_TYPE_MM (0)
-#define FD_VINYL_IO_TYPE_BD (1)
+#define FD_VINYL_IO_TYPE_MM (0)  /* memory mapped */
+#define FD_VINYL_IO_TYPE_BD (1)  /* synchronous blocking */
+#define FD_VINYL_IO_TYPE_WD (2)  /* async O_DIRECT write (specialized) */
+#define FD_VINYL_IO_TYPE_UR (3)  /* async io_uring */
 
 /* FD_VINYL_IO_FLAG_* are flags used by various vinyl IO APIs */
 

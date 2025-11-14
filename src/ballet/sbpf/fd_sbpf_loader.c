@@ -1466,14 +1466,8 @@ fd_sbpf_program_get_sbpf_version_or_err( void const *                    bin,
   }
   uint e_flags = FD_LOAD( uint, bin+E_FLAGS_OFFSET );
 
-  uint sbpf_version = 0U;
-  if( FD_UNLIKELY( config->sbpf_max_version==FD_SBPF_V0 ) ) {
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L384-L388 */
-    sbpf_version = e_flags==E_FLAGS_SBPF_V2 ? FD_SBPF_RESERVED : FD_SBPF_V0;
-  } else {
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L390-L396 */
-    sbpf_version = e_flags < FD_SBPF_VERSION_COUNT ? e_flags : FD_SBPF_RESERVED;
-  }
+  /* https://github.com/anza-xyz/sbpf/blob/v0.13.0/src/elf.rs#L382-L390 */
+  uint sbpf_version = ( e_flags < FD_SBPF_VERSION_COUNT ) ? e_flags : FD_SBPF_RESERVED;
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L399-L401 */
   if( FD_UNLIKELY( !( config->sbpf_min_version <= sbpf_version && sbpf_version <= config->sbpf_max_version ) ) ) {

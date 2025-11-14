@@ -126,15 +126,15 @@ FD_IMPORT_BINARY( file_dev5_gzip, "src/disco/gui/dist_dev_cmp/assets/frankendanc
 FD_IMPORT_BINARY( file_dev6, "src/disco/gui/dist_dev/assets/index-_5_CxKB1.css" );
 FD_IMPORT_BINARY( file_dev6_zstd, "src/disco/gui/dist_dev_cmp/assets/index-_5_CxKB1.css.zst" );
 FD_IMPORT_BINARY( file_dev6_gzip, "src/disco/gui/dist_dev_cmp/assets/index-_5_CxKB1.css.gz" );
-FD_IMPORT_BINARY( file_dev7, "src/disco/gui/dist_dev/assets/index-BZ6phWb9.js" );
-FD_IMPORT_BINARY( file_dev7_zstd, "src/disco/gui/dist_dev_cmp/assets/index-BZ6phWb9.js.zst" );
-FD_IMPORT_BINARY( file_dev7_gzip, "src/disco/gui/dist_dev_cmp/assets/index-BZ6phWb9.js.gz" );
+FD_IMPORT_BINARY( file_dev7, "src/disco/gui/dist_dev/assets/index-BY4kCnrv.js" );
+FD_IMPORT_BINARY( file_dev7_zstd, "src/disco/gui/dist_dev_cmp/assets/index-BY4kCnrv.js.zst" );
+FD_IMPORT_BINARY( file_dev7_gzip, "src/disco/gui/dist_dev_cmp/assets/index-BY4kCnrv.js.gz" );
 FD_IMPORT_BINARY( file_dev8, "src/disco/gui/dist_dev/assets/index-cxKTti9M.css" );
 FD_IMPORT_BINARY( file_dev8_zstd, "src/disco/gui/dist_dev_cmp/assets/index-cxKTti9M.css.zst" );
 FD_IMPORT_BINARY( file_dev8_gzip, "src/disco/gui/dist_dev_cmp/assets/index-cxKTti9M.css.gz" );
-FD_IMPORT_BINARY( file_dev9, "src/disco/gui/dist_dev/assets/index-euWjzME9.js" );
-FD_IMPORT_BINARY( file_dev9_zstd, "src/disco/gui/dist_dev_cmp/assets/index-euWjzME9.js.zst" );
-FD_IMPORT_BINARY( file_dev9_gzip, "src/disco/gui/dist_dev_cmp/assets/index-euWjzME9.js.gz" );
+FD_IMPORT_BINARY( file_dev9, "src/disco/gui/dist_dev/assets/index-rEOAdg7Y.js" );
+FD_IMPORT_BINARY( file_dev9_zstd, "src/disco/gui/dist_dev_cmp/assets/index-rEOAdg7Y.js.zst" );
+FD_IMPORT_BINARY( file_dev9_gzip, "src/disco/gui/dist_dev_cmp/assets/index-rEOAdg7Y.js.gz" );
 FD_IMPORT_BINARY( file_dev10, "src/disco/gui/dist_dev/assets/inter-tight-latin-400-normal-BLrFJfvD.woff" );
 FD_IMPORT_BINARY( file_dev10_zstd, "src/disco/gui/dist_dev_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.zst" );
 FD_IMPORT_BINARY( file_dev10_gzip, "src/disco/gui/dist_dev_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.gz" );
@@ -540,7 +540,7 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev6_gzip_sz,
 	},
 	{
-		.name = "/assets/index-BZ6phWb9.js",
+		.name = "/assets/index-BY4kCnrv.js",
 		.data = file_dev7,
 		.data_len = &file_dev7_sz,
 		.zstd_data = file_dev7_zstd,
@@ -558,7 +558,7 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev8_gzip_sz,
 	},
 	{
-		.name = "/assets/index-euWjzME9.js",
+		.name = "/assets/index-rEOAdg7Y.js",
 		.data = file_dev9,
 		.data_len = &file_dev9_sz,
 		.zstd_data = file_dev9_zstd,

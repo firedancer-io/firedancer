@@ -223,6 +223,19 @@ authorized_voters_new( ulong               epoch,
   return authorized_voters;
 }
 
+// Helper to create an empty AuthorizedVoters structure (for default/uninitialized states)
+static fd_vote_authorized_voters_t *
+authorized_voters_new_empty( uchar * mem ) {
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  fd_vote_authorized_voters_t * authorized_voters = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_align(),       sizeof(fd_vote_authorized_voters_t) );
+  void *                        pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_pool_align(),  fd_vote_authorized_voters_pool_footprint( FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
+  void *                        treap_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_treap_align(), fd_vote_authorized_voters_treap_footprint( FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
+
+  authorized_voters->pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( pool_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
+  authorized_voters->treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( treap_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
+  return authorized_voters;
+}
+
 static inline int
 authorized_voters_is_empty( fd_vote_authorized_voters_t * self ) {
   return fd_vote_authorized_voters_treap_ele_cnt( self->treap ) == 0;
@@ -394,9 +407,23 @@ convert_to_current( fd_vote_state_versioned_t * self,
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L19
   case fd_vote_state_versioned_enum_v0_23_5: {
     fd_vote_state_0_23_5_t * state = &self->inner.v0_23_5;
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L21
-    fd_vote_authorized_voters_t * authorized_voters = authorized_voters_new(
-        state->authorized_voter_epoch, &state->authorized_voter, authorized_voters_mem );
+    // Check if uninitialized (authorized_voter is all zeros)
+    int is_uninitialized = 1;
+    for( ulong i = 0; i < sizeof(fd_pubkey_t); i++ ) {
+      if( state->authorized_voter.uc[i] != 0 ) {
+        is_uninitialized = 0;
+        break;
+      }
+    }
+
+    fd_vote_authorized_voters_t * authorized_voters;
+    if( is_uninitialized ) {
+      // Create empty AuthorizedVoters (default), initialized but with no entries
+      authorized_voters = authorized_voters_new_empty( authorized_voters_mem );
+    } else {
+      authorized_voters = authorized_voters_new(
+          state->authorized_voter_epoch, &state->authorized_voter, authorized_voters_mem );
+    }
 
     /* Temporary to hold current */
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L23
@@ -2219,7 +2246,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L64
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   fd_guarded_borrowed_account_t me = {0};
@@ -2345,7 +2372,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   case fd_vote_instruction_enum_authorize_with_seed: {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L99
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 3 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
 
@@ -2377,7 +2404,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L112
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 4 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
 
@@ -2418,7 +2445,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   case fd_vote_instruction_enum_update_validator_identity: {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L131
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
 
@@ -2675,7 +2702,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    */
   case fd_vote_instruction_enum_withdraw: {
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
     fd_rent_t rent_;
@@ -2712,7 +2739,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    */
   case fd_vote_instruction_enum_authorize_checked: {
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 4 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
 

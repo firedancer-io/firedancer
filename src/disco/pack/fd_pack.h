@@ -11,6 +11,7 @@
 #include "fd_est_tbl.h"
 #include "fd_microblock.h"
 #include "fd_pack_rebate_sum.h"
+#include "../metrics/generated/fd_metrics_enums.h"
 
 #define FD_PACK_ALIGN     (128UL)
 
@@ -748,6 +749,10 @@ void fd_pack_clear_all( fd_pack_t * pack );
 void
 fd_pack_metrics_write( fd_pack_t const * pack );
 
+/* fd_pack_get_sched_metrics: copies the current
+   FD_METRICS_ENUM_PACK_TXN_SCHEDULE_CNT counters to metrics */
+void
+fd_pack_get_sched_metrics( fd_pack_t const * pack, ulong * metrics );
 
 /* fd_pack_leave leaves a local join of a pack object.  Returns pack. */
 void * fd_pack_leave(  fd_pack_t * pack );

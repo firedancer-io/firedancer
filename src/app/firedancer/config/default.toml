@@ -504,6 +504,9 @@ user = ""
     file_size_gib = 16
     max_cache_entries = 1_000_000
     cache_size_gib = 2
+    [vinyl.io_uring]
+        enabled = false
+        queue_depth = 2048
 
 [runtime]
     # TODO: This is not respected, the max vote accounts seems to be

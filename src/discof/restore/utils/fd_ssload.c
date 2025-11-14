@@ -126,7 +126,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
 
   /* PoH */
   fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
-  fd_hash_t const * last_hash = fd_blockhashes_peek_last( bhq );
+  fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
   if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( bank, *last_hash );
 
   fd_bank_capitalization_set( bank, manifest->capitalization );

@@ -116,6 +116,11 @@ typedef struct {
 } block_builder_info_t;
 
 typedef struct {
+  long time;
+  ulong sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_CNT ];
+} fd_pack_sched_results_snap_t;
+
+typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
   ulong       wmark;
@@ -264,15 +269,14 @@ typedef struct {
     long metric_timing[ 16 ];
   };
 
-  struct {
-    long time;
-    ulong all[ FD_METRICS_TOTAL_SZ ];
-  } last_sched_metrics[1];
+  /* last_sched_metrics is a snapshot of the schedule outcome counters
+     during the last schedule which included at least one successful
+     outcome. */
+  fd_pack_sched_results_snap_t last_sched_metrics[ 1 ];
 
-    struct {
-    long time;
-    ulong all[ FD_METRICS_TOTAL_SZ ];
-  } start_block_sched_metrics[1];
+    /* last_sched_metrics is a snapshot of the schedule outcome counters
+       at the last start-of-leader-block event. */
+  fd_pack_sched_results_snap_t start_block_sched_metrics[ 1 ];
 
   struct {
     ulong id;
@@ -376,16 +380,17 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static inline void
 log_end_block_metrics( fd_pack_ctx_t * ctx,
                        long            now,
-                       char const    * reason ) {
-#define DELTA( m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ] - ctx->last_sched_metrics->all[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ])
+                       char const    * reason,
+                       ulong           cus_consumed_in_block ) {
+#define DELTA( m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ] - ctx->last_sched_metrics->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
 #define AVAIL( m ) (fd_metrics_tl[ MIDX(GAUGE, PACK, AVAILABLE_TRANSACTIONS_##m) ])
     FD_LOG_INFO(( "pack_end_block(slot=%lu,%s,%lx,ticks_since_last_schedule=%ld,reasons=%lu,%lu,%lu,%lu,%lu,%lu,%lu;remaining=%lu+%lu+%lu+%lu;smallest=%lu;cus=%lu->%lu)",
           ctx->leader_slot, reason, ctx->bank_idle_bitset, now-ctx->last_sched_metrics->time,
           DELTA( TAKEN ), DELTA( CU_LIMIT ), DELTA( FAST_PATH ), DELTA( BYTE_LIMIT ), DELTA( WRITE_COST ), DELTA( SLOW_PATH ), DELTA( DEFER_SKIP ),
           AVAIL(REGULAR), AVAIL(VOTES), AVAIL(BUNDLES), AVAIL(CONFLICTING),
           (fd_metrics_tl[ MIDX(GAUGE, PACK, SMALLEST_PENDING_TRANSACTION) ]),
-          (ctx->last_sched_metrics->all[ MIDX(GAUGE, PACK, CUS_CONSUMED_IN_BLOCK) ]),
-          (fd_metrics_tl               [ MIDX(GAUGE, PACK, CUS_CONSUMED_IN_BLOCK) ])
+          (cus_consumed_in_block),
+          (fd_metrics_tl[ MIDX(GAUGE, PACK, CUS_CONSUMED_IN_BLOCK) ])
     ));
 #undef AVAIL
 #undef DELTA
@@ -396,7 +401,7 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing ) {
     done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
     fd_pack_get_block_limits( ctx->pack, done_packing->limits_usage, done_packing->limits );
 
-#define DELTA( mem, m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ] - ctx->mem->all[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ])
+#define DELTA( mem, m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ] - ctx->mem->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
     done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX      ] = DELTA( start_block_sched_metrics, TAKEN      );
     done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX   ] = DELTA( start_block_sched_metrics, CU_LIMIT   );
     done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX  ] = DELTA( start_block_sched_metrics, FAST_PATH  );
@@ -577,7 +582,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(fd_done_packing_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
     ctx->pack_idx++;
 
-    log_end_block_metrics( ctx, now, "time" );
+    log_end_block_metrics( ctx, now, "time", done_packing->limits_usage->block_cost );
     ctx->drain_banks         = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -769,8 +774,8 @@ after_credit( fd_pack_ctx_t *     ctx,
       ctx->skip_cnt         = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)bank_cnt/2L, 1L );
       fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now2 );
 
-      memcpy( ctx->last_sched_metrics->all, (ulong const *)fd_metrics_tl, sizeof(ctx->last_sched_metrics->all) );
       ctx->last_sched_metrics->time = now2;
+      fd_pack_get_sched_metrics( ctx->pack, ctx->last_sched_metrics->sched_results );
 
       /* If we're using CU rebates, then we have one in for each bank in
         addition to the two normal ones. We want to skip schedule attempts
@@ -806,7 +811,6 @@ after_credit( fd_pack_ctx_t *     ctx,
        metric, but we end the slot early so won't see it unless we also
        increment it here. */
     FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT, 1UL );
-    log_end_block_metrics( ctx, now, "microblock" );
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
     get_done_packing( ctx, done_packing );
@@ -817,6 +821,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(fd_done_packing_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
     ctx->pack_idx++;
 
+    log_end_block_metrics( ctx, now, "microblock", done_packing->limits_usage->block_cost );
     ctx->drain_banks         = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -1003,8 +1008,8 @@ after_frag( fd_pack_ctx_t *     ctx,
       if( FD_UNLIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
       leader_slot = ctx->_became_leader->slot;
 
-      memcpy( ctx->start_block_sched_metrics->all, (ulong const *)fd_metrics_tl, sizeof(ctx->start_block_sched_metrics->all) );
       ctx->start_block_sched_metrics->time = now;
+      fd_pack_get_sched_metrics( ctx->pack, ctx->start_block_sched_metrics->sched_results );
       break;
     case IN_KIND_POH:
       if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
@@ -1031,7 +1036,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       ctx->pack_idx++;
 
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", leader_slot, ctx->leader_slot ));
-      log_end_block_metrics( ctx, now_ticks, "switch" );
+      log_end_block_metrics( ctx, now_ticks, "switch", done_packing->limits_usage->block_cost );
       ctx->drain_banks         = 1;
       ctx->leader_slot         = ULONG_MAX;
       ctx->slot_microblock_cnt = 0UL;

@@ -602,12 +602,14 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   */
 
+# if FD_HAS_FLATCC
   uchar dump_txn = !!( txn_ctx->log.capture_ctx &&
                        fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot &&
                        txn_ctx->log.capture_ctx->dump_txn_to_pb );
   if( FD_UNLIKELY( dump_txn ) ) {
     fd_dump_txn_to_protobuf( runtime, txn_out, txn_ctx );
   }
+# endif
 
   /* Verify the transaction. For now, this step only involves processing
      the compute budget instructions. */
@@ -1342,7 +1344,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   /* Distribute rewards.  This involves calculating the rewards for
      every vote and stake account. */
 
-  fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+  fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
   fd_begin_partitioned_rewards( bank,
                                 accdb,
                                 xid,

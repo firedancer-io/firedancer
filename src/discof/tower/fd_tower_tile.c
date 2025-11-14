@@ -17,6 +17,8 @@
 #include "../../discof/replay/fd_exec.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/fd_flamenco_base.h"
+#include "../../util/pod/fd_pod.h"
+#include "../../flamenco/runtime/fd_bank.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -50,9 +52,7 @@
 
 #define IN_KIND_DEDUP   (0)
 #define IN_KIND_EXEC    (1)
-#define IN_KIND_GENESIS (2)
-#define IN_KIND_REPLAY  (3)
-#define IN_KIND_SNAP    (4)
+#define IN_KIND_REPLAY  (2)
 
 #define VOTE_TXN_SIG_MAX (2UL) /* validator identity and vote authority */
 
@@ -91,6 +91,8 @@ typedef struct {
   fd_tower_forks_t * tower_forks;
   fd_tower_t *       tower_spare; /* spare tower used during processing */
   conf_t *           confs;       /* deque of confirmations queued for publishing */
+  fd_banks_t *       banks;
+  fd_accdb_user_t    accdb[1];
 
   /* frag-related structures (consume and publish) */
 
@@ -367,11 +369,68 @@ count_vote_txn( ctx_t *             ctx,
   }
 }
 
+ulong
+get_voters( fd_tower_accts_t * tower_accts_deque,
+            fd_banks_t       * banks,
+            ulong              bank_idx ) {
+  ulong voters_cnt = 0UL;
+  fd_bank_t * bank = fd_banks_bank_query( banks, bank_idx );
+  if( FD_UNLIKELY( !bank || !(bank->flags & FD_BANK_FLAGS_FROZEN) ) ) FD_LOG_ERR(( "invariant violation: bank %lu is not frozen or missing", bank_idx ));
+
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+                                     !fd_vote_states_iter_done( iter );
+                                      fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+    if( FD_UNLIKELY( vote_state->stake_t_2 == 0 ) ) continue; /* skip unstaked vote accounts */
+    if( FD_UNLIKELY( voters_cnt >= FD_VOTER_MAX ) ) break;    /* voters deque is full */
+    fd_pubkey_t const * vote_account_pubkey = &vote_state->vote_account;
+    fd_tower_accts_push_tail( tower_accts_deque, (fd_tower_accts_t){ .addr = *vote_account_pubkey, .stake = vote_state->stake_t_2 } );
+    voters_cnt++;
+  }
+  fd_bank_vote_states_end_locking_query( bank );
+  return voters_cnt;
+}
+
+static int
+get_vote_account_from_accdb( ctx_t *                   ctx,
+                             fd_pubkey_t const       * vote_account_pubkey,
+                             fd_tower_accts_t        * vote_tower_out,
+                             fd_funk_txn_xid_t const * xid ) {
+
+  for(;;) {
+    fd_memset( vote_tower_out->data, 0, sizeof(vote_tower_out->data) );
+
+    fd_accdb_peek_t peek[1];
+    if( FD_UNLIKELY( !fd_accdb_peek( ctx->accdb, peek, xid, vote_account_pubkey->uc ) ) ) {
+      /* Vote account should be guaranteed to be in the accdb */
+      FD_BASE58_ENCODE_32_BYTES( vote_account_pubkey->uc, acc_cstr );
+      FD_LOG_CRIT(( "vote account not found. address: %s", acc_cstr ));
+    }
+
+    ulong data_sz = fd_accdb_ref_data_sz( peek->acc );
+    if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->data) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( vote_account_pubkey->uc, acc_cstr );
+      FD_LOG_CRIT(( "vote account %s has too large data. dlen %lu > %lu", acc_cstr, data_sz, sizeof(vote_tower_out->data) ));
+    }
+    fd_memcpy( vote_tower_out->data, fd_accdb_ref_data_const( peek->acc ), data_sz );
+
+    if( FD_LIKELY( fd_accdb_peek_test( peek ) ) ) break;
+    FD_SPIN_PAUSE();
+  }
+  return 0;
+}
+
 static void
 replay_slot_completed( ctx_t *                      ctx,
                        fd_replay_slot_completed_t * slot_info,
                        ulong                        tsorig,
                        fd_stem_context_t *          stem ) {
+  /* Populate the tower_accts deque with the vote pubkeys and stakes from the bank. */
+
+  fd_tower_accts_remove_all( ctx->tower_accts );
+  get_voters( ctx->tower_accts, ctx->banks, slot_info->bank_idx );
 
   /* fd_notar requires some bookkeeping when there is a new epoch. */
 
@@ -379,16 +438,27 @@ replay_slot_completed( ctx_t *                      ctx,
     fd_notar_advance_epoch( ctx->notar, ctx->tower_accts, slot_info->epoch );
   }
 
+  FD_TEST( !fd_tower_forks_query( ctx->tower_forks, slot_info->slot, NULL ) );
+  fd_tower_forks_t * fork = fd_tower_forks_insert( ctx->tower_forks, slot_info->slot );
+
+  if( FD_UNLIKELY( ctx->init_slot == ULONG_MAX ) ) {
+    ctx->init_slot = slot_info->slot;
+    fork->confirmed = 1;
+    fork->confirmed_block_id = manifest_block_id;
+
+    ctx->root_slot = slot_info->slot;
+    ctx->conf_slot = slot_info->slot;
+  }
+
   /* Insert the just replayed block into ghost. */
 
   fd_hash_t const * parent_block_id = &slot_info->parent_block_id;
   if( FD_UNLIKELY( slot_info->parent_slot==ctx->init_slot ) ) parent_block_id = &manifest_block_id;
+  if( FD_UNLIKELY( slot_info->slot       ==ctx->init_slot ) ) parent_block_id = NULL;
   fd_ghost_blk_t * ghost_blk = fd_ghost_insert( ctx->ghost, &slot_info->block_id, parent_block_id, slot_info->slot );
 
-  /* Insert the just replayed block into tower forks. */
+  /* Record metadata about the replayed block. */
 
-  FD_TEST( !fd_tower_forks_query( ctx->tower_forks, slot_info->slot, NULL ) );
-  fd_tower_forks_t * fork = fd_tower_forks_insert( ctx->tower_forks, slot_info->slot );
   fork->parent_slot       = slot_info->parent_slot;
   fork->confirmed         = 0;
   fork->voted             = 0;
@@ -420,15 +490,18 @@ replay_slot_completed( ctx_t *                      ctx,
 
   /* Iterate all the vote accounts to count votes towards fork choice
      (fd_ghost) and confirmation (fd_notar) and also reconcile our local
-     tower with our on-chain one (fd_tower_reconcile).
+     tower with our on-chain one (fd_tower_reconcile). */
 
-     TODO replace with direct funk query */
-
+  fd_funk_txn_xid_t xid = { .ul = { slot_info->slot, slot_info->bank_idx } };
   ulong total_stake = 0;
+
+  /* For each vote account, populate the vote account data from funk and count the vote. */
   for( fd_tower_accts_iter_t iter = fd_tower_accts_iter_init( ctx->tower_accts       );
                                    !fd_tower_accts_iter_done( ctx->tower_accts, iter );
                              iter = fd_tower_accts_iter_next( ctx->tower_accts, iter ) ) {
-    fd_tower_accts_t const * acct = fd_tower_accts_iter_ele( ctx->tower_accts, iter );
+    fd_tower_accts_t  * acct = fd_tower_accts_iter_ele( ctx->tower_accts, iter );
+    fd_pubkey_t const * vote_account_pubkey = &acct->addr;
+    FD_TEST( 0==get_vote_account_from_accdb( ctx, vote_account_pubkey, acct, &xid ) );
 
     total_stake += acct->stake;
 
@@ -496,7 +569,10 @@ replay_slot_completed( ctx_t *                      ctx,
 
   if( FD_UNLIKELY( out.root_slot!=ULONG_MAX ) ) {
     fd_ghost_blk_t * newr = fd_ghost_query( ctx->ghost, &out.root_block_id );
-    FD_TEST( newr );
+    if( FD_UNLIKELY( !newr ) ) {
+      FD_BASE58_ENCODE_32_BYTES( out.root_block_id.uc, block_id_cstr );
+      FD_LOG_CRIT(( "missing root block id %s at slot %lu", block_id_cstr, out.root_slot ));
+    }
     fd_ghost_publish( ctx->ghost, newr );
     fd_notar_advance_wmark( ctx->notar, out.root_slot );
     for(ulong slot = ctx->root_slot; slot < out.root_slot; slot++ ) {
@@ -525,6 +601,7 @@ replay_slot_completed( ctx_t *                      ctx,
   msg->reset_block_id        = out.reset_block_id;
   msg->root_slot             = out.root_slot;
   msg->root_block_id         = out.root_block_id;
+  msg->replay_bank_idx       = slot_info->bank_idx;
 
   /* Populate slot_done with a vote txn representing our current tower
      (regardless of whether there was a new vote slot or not).
@@ -546,37 +623,6 @@ replay_slot_completed( ctx_t *                      ctx,
   fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ) );
   fd_tower_print( ctx->tower, fd_ghost_root( ctx->ghost )->slot );
 # endif
-}
-
-static void
-init_genesis( ctx_t * ctx ) {
-  FD_TEST( ctx->init_slot==ULONG_MAX );
-  FD_TEST( ctx->root_slot==ULONG_MAX );
-  FD_TEST( ctx->conf_slot==ULONG_MAX );
-  ctx->init_slot = 0;
-  ctx->root_slot = 0;
-  ctx->conf_slot = 0;
-
-  fd_ghost_insert( ctx->ghost, &manifest_block_id, NULL, 0 );
-  fd_tower_forks_t * fork  = fd_tower_forks_insert( ctx->tower_forks, 0 );
-  fork->confirmed          = 1;
-  fork->confirmed_block_id = manifest_block_id;
-}
-
-static void
-snapshot_done( ctx_t *                        ctx,
-               fd_snapshot_manifest_t const * manifest ) {
-  FD_TEST( ctx->init_slot==ULONG_MAX );
-  FD_TEST( ctx->root_slot==ULONG_MAX );
-  FD_TEST( ctx->conf_slot==ULONG_MAX );
-  ctx->init_slot = manifest->slot;
-  ctx->root_slot = manifest->slot;
-  ctx->conf_slot = manifest->slot;
-
-  fd_ghost_insert( ctx->ghost, &manifest_block_id, NULL, manifest->slot );
-  fd_tower_forks_t * fork = fd_tower_forks_insert( ctx->tower_forks, manifest->slot );
-  fork->confirmed          = 1;
-  fork->confirmed_block_id = manifest_block_id;
 }
 
 static inline void
@@ -601,7 +647,7 @@ returnable_frag( ctx_t *             ctx,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               ctl,
+                 ulong               ctl FD_PARAM_UNUSED,
                  ulong               tsorig,
                  ulong               tspub FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
@@ -624,33 +670,12 @@ returnable_frag( ctx_t *             ctx,
     }
     return 0;
   }
-  case IN_KIND_GENESIS: {
-    if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) init_genesis( ctx );
-    return 0;
-  }
   case IN_KIND_REPLAY: {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
       FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    if( FD_UNLIKELY( ctx->root_slot==ULONG_MAX ) ) return 1;
     if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
       fd_memcpy( &ctx->replay_slot_completed, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_completed_t) );
-    } else if( FD_LIKELY( sig==REPLAY_SIG_VOTE_STATE ) ) {
-      if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) fd_tower_accts_remove_all( ctx->tower_accts );
-      fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      fd_tower_accts_t acct = { .addr = vote_state->key, .stake = vote_state->stake };
-      fd_memcpy( acct.data, vote_state->acc, vote_state->acc_sz );
-      fd_tower_accts_push_tail( ctx->tower_accts, acct );
-      if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) replay_slot_completed( ctx, &ctx->replay_slot_completed /* FIXME this seems racy */, tsorig, stem );
-    }
-    return 0;
-  }
-  case IN_KIND_SNAP: {
-    if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) snapshot_done( ctx, &ctx->manifest );
-    else {
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-        FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-      fd_memcpy( &ctx->manifest, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_snapshot_manifest_t) );
+      replay_slot_completed( ctx, &ctx->replay_slot_completed, tsorig, stem );
     }
     return 0;
   }
@@ -734,6 +759,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->root_slot = ULONG_MAX;
   ctx->conf_slot = ULONG_MAX;
 
+  ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
+  FD_TEST( banks_obj_id!=ULONG_MAX );
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  FD_TEST( ctx->banks );
+
+  ulong funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX );
+  FD_TEST( funk_obj_id!=ULONG_MAX );
+  FD_TEST( fd_accdb_user_join( ctx->accdb, fd_topo_obj_laddr( topo, funk_obj_id ) ) );
+
   FD_TEST( tile->in_cnt<sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -741,9 +775,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if     ( FD_LIKELY( !strcmp( link->name, "dedup_resolv" ) ) ) ctx->in_kind[ i ] = IN_KIND_DEDUP;
     else if( FD_LIKELY( !strcmp( link->name, "replay_exec"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXEC;
-    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_LIKELY( !strcmp( link->name, "snapin_manif" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else     FD_LOG_ERR(( "tower tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem    = link_wksp->wksp;

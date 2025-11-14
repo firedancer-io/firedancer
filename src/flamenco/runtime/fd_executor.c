@@ -1157,7 +1157,7 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
     fd_txn_account_t * sysvar_instructions_account = NULL;
     err = fd_exec_txn_ctx_get_account_at_index( txn_out, txn_ctx, (ushort)idx, &sysvar_instructions_account, NULL );
     if( FD_UNLIKELY( err ) ) {
-      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L401-L402 */
@@ -1547,6 +1547,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     }
   }
 
+# if FD_HAS_FLATCC
   /* Dumping ELF files to protobuf, if applicable */
   int dump_elf_to_pb = txn_ctx->log.capture_ctx &&
                        fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot &&
@@ -1556,6 +1557,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
       fd_dump_elf_to_protobuf( runtime, txn_ctx, &txn_out->accounts.accounts[i] );
     }
   }
+# endif
 
   txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
   txn_out->accounts.executable_cnt   = j;
@@ -1588,16 +1590,19 @@ fd_execute_txn( fd_runtime_t *      runtime,
                 fd_exec_txn_ctx_t * txn_ctx ) {
 
   bool dump_insn = txn_ctx->log.capture_ctx && fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot && txn_ctx->log.capture_ctx->dump_instr_to_pb;
+  (void)dump_insn;
 
   /* Initialize log collection. */
   fd_log_collector_init( &txn_ctx->log.log_collector, txn_ctx->log.enable_exec_recording );
 
   for( ushort i=0; i<TXN( &txn_ctx->txn )->instr_cnt; i++ ) {
     runtime->instr.current_idx = i;
+#   if FD_HAS_FLATCC
     if( FD_UNLIKELY( dump_insn ) ) {
       // Capture the input and convert it into a Protobuf message
       fd_dump_instr_to_protobuf( runtime, txn_out, txn_ctx, &runtime->instr.infos[i], i );
     }
+#   endif
 
     int instr_exec_result = fd_execute_instr( runtime, txn_out, txn_ctx, &runtime->instr.infos[i] );
     if( FD_UNLIKELY( instr_exec_result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {

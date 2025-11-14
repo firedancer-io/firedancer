@@ -117,6 +117,11 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
 
+  /* TODO: Consider implementing custom allocators and emitters.
+     The default builder / emitter uses libc allocators */
+  int builder_err = flatcc_builder_init( runner->fb_builder );
+  if( FD_UNLIKELY( builder_err ) ) goto bail2;
+
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
   runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max, 0, 8888UL ) );
@@ -160,6 +165,8 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
   void * shpcache = NULL;
   fd_progcache_admin_leave( runner->progcache_admin, &shpcache );
   if( shpcache ) fd_wksp_free_laddr( fd_funk_delete( shpcache ) );
+
+  flatcc_builder_clear( runner->fb_builder );
 
   if( runner->spad  ) fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
   if( runner->banks ) fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( runner->banks ) ) );
