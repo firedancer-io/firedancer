@@ -1,6 +1,8 @@
+ifeq ($(CROSS),)
 CC:=clang
 CXX:=clang++
 LD:=clang++
+endif
 
 # Sigh ... strict clang builds will not let you even let you get the
 # address of a packed structure element and this is pretty elementary

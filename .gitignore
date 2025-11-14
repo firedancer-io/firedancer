@@ -1,10 +1,12 @@
 *ATTIC*
 /build
+/build-cross
 bin
 dump
 unit-test
 tmp
 frontend
+.DS_Store
 
 genhtml/
 target/
