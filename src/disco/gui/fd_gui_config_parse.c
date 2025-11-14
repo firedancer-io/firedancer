@@ -48,7 +48,7 @@ fd_gui_config_parse_validator_info_check( uchar const * data,
      don't do i+n<=payload_sz */
 #define CHECK_LEFT( n ) CHECK( (n)<=(sz-i) )
 
-  CHECK_LEFT( 1UL ); uchar ck_sz = data[ i ]; i++;
+  CHECK_LEFT( 1UL ); uchar ck_sz = FD_LOAD( uchar, data+i ); i++;
   if( FD_UNLIKELY( ck_sz!=2 ) ) return 0;
 
   struct __attribute__((packed, aligned(1))) config_keys {
@@ -64,7 +64,7 @@ fd_gui_config_parse_validator_info_check( uchar const * data,
   uchar expected[ 32UL ] = { 0x07, 0x51, 0x97, 0x01, 0x74, 0x48, 0xf2, 0xac, 0x5d, 0xc2, 0x3c, 0x9e, 0xbc, 0x7a, 0xc7, 0x8c, 0x0a, 0x27, 0x25, 0x7a, 0xc6, 0x14, 0x45, 0x8d, 0xe0, 0xa4, 0xf1, 0x6f, 0x80, 0x00, 0x00, 0x00 };
   if( FD_UNLIKELY( memcmp( data_config_keys[0].pubkey.uc, expected, sizeof(fd_pubkey_t) ) || data_config_keys[0].is_signer ) ) return 0;
 
-  CHECK_LEFT( sizeof(ulong) ); ulong json_str_sz = *(ulong *)(data+i); i += sizeof(ulong);
+  CHECK_LEFT( sizeof(ulong) ); ulong json_str_sz = FD_LOAD( ulong, data+i ); i += sizeof(ulong);
 
   CHECK_LEFT( json_str_sz );
   cJSON * json = cJSON_ParseWithLengthOpts( (char *)(data+i), json_str_sz, NULL, 0 );
