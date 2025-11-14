@@ -219,7 +219,7 @@ encode_vote( send_test_ctx_t * ctx, fd_tower_slot_done_t * slot_done ) {
 
   /* Mock values */
   fd_lockout_offset_t lockouts_scratch[1];
-  fd_hash_t test_hash;
+  fd_hash_t test_hash = {0};
   fd_txn_p_t txn[1];
 
   /* Use fd_tower_to_vote_txn to generate the transaction */
