@@ -50,3 +50,7 @@ CC_MAJOR_VERSION=$(shell $(CC) -dumpversion | cut -f1 -d.)
 
 # Default _FORTIFY_SOURCE level
 FORTIFY_SOURCE?=2
+
+ifneq ($(CROSS),)
+include config/cross/$(CROSS).mk
+endif
