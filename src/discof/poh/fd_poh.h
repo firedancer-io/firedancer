@@ -483,6 +483,9 @@ fd_poh_have_leader_bank( fd_poh_t const * poh );
 int
 fd_poh_hashing_to_leader_slot( fd_poh_t const * poh );
 
+int
+fd_poh_must_tick( fd_poh_t const * poh );
+
 void
 fd_poh_begin_leader( fd_poh_t * poh,
                      ulong      slot,
