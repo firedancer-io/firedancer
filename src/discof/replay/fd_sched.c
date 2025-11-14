@@ -1313,12 +1313,23 @@ FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   fd_txn_t * txn = fd_type_pun( block->txn );
 
+  /* FIXME: For the replay pipeline, we allow up to 128 instructions per
+     transaction.  Note that we are not concomitantly bumping the size
+     of fd_txn_t.  We allow this because transactions like that do get
+     packed by other validators, so we have to replay them.  Those
+     transactions will eventually fail in the runtime, which imposes a
+     limit of 64 instructions, but unfortunately they are not tossed out
+     at parse time and they land on chain.  static_instruction_limit is
+     going to enforece this limit at parse time, and transactions like
+     that would not land on chain.  Then this short term change should
+     be rolled back. */
   ulong pay_sz = 0UL;
   ulong txn_sz = fd_txn_parse_core( block->fec_buf+block->fec_buf_soff,
                                     fd_ulong_min( FD_TXN_MTU, block->fec_buf_sz-block->fec_buf_soff ),
                                     txn,
                                     NULL,
-                                    &pay_sz );
+                                    &pay_sz,
+                                    FD_TXN_INSTR_MAX*2UL );
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */
