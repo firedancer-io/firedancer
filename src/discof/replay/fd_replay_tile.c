@@ -380,8 +380,10 @@ struct fd_replay_tile {
   int gui_enabled;
   int rpc_enabled;
 
+# if FD_HAS_FLATCC
   /* For dumping blocks to protobuf. For backtest only. */
   fd_block_dump_ctx_t * block_dump_ctx;
+# endif
 
   /* We need a few pieces of information to compute the right addresses
      for bundle crank information that we need to send to pack. */
@@ -428,9 +430,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),    fd_vote_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),     fd_capture_ctx_footprint() );
 
+# if FD_HAS_FLATCC
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
   }
+# endif
 
   l = FD_LAYOUT_FINI( l, scratch_align() );
 
@@ -788,12 +792,14 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
      tower stuff. */
   publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */ );
 
+# if FD_HAS_FLATCC
   /* If enabled, dump the block to a file and reset the dumping
      context state */
   if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
     fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb->funk, ctx->capture_ctx );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
+# endif
 }
 
 /**********************************************************************/
@@ -1532,12 +1538,14 @@ dispatch_task( fd_replay_tile_t *  ctx,
       /* Insert or reverify invoked programs for this epoch, if needed. */
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->txn_exec->bank_idx );
 
+#     if FD_HAS_FLATCC
       /* Add the transaction to the block dumper if necessary. This
          logic doesn't need to be fork-aware since it's only meant to
          be used in backtest. */
       if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
         fd_dump_block_to_protobuf_collect_tx( ctx->block_dump_ctx, txn_p );
       }
+#     endif
 
       bank->refcnt++;
 
@@ -2356,10 +2364,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * sched_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.max_live_slots ) );
   void * vote_tracker_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx      = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
+# if FD_HAS_FLATCC
   void * block_dump_ctx    = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
   }
+# endif
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );
@@ -2440,11 +2450,13 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) ctx->capture_ctx->dump_block_to_pb = tile->replay.dump_block_to_pb;
   }
 
+# if FD_HAS_FLATCC
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     ctx->block_dump_ctx = fd_block_dump_context_join( fd_block_dump_context_new( block_dump_ctx ) );
   } else {
     ctx->block_dump_ctx = NULL;
   }
+# endif
 
   ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
 

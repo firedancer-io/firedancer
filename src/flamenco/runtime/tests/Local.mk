@@ -1,7 +1,11 @@
 ifdef FD_HAS_SECP256K1
 
+ifdef FD_HAS_FLATCC
 $(call add-hdrs,fd_solfuzz.h)
 $(call add-objs,fd_solfuzz fd_solfuzz_exec,fd_flamenco_test)
+
+$(call add-hdrs,fd_dump_pb.h)
+$(call add-objs,fd_dump_pb,fd_flamenco)
 
 $(call add-hdrs,fd_instr_harness.h fd_txn_harness.h)
 $(call add-objs,fd_elf_harness fd_instr_harness fd_txn_harness fd_block_harness fd_harness_common fd_vm_harness,fd_flamenco_test)
@@ -18,6 +22,7 @@ $(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_fl
 $(call make-unit-test,test_sol_compat_so,test_sol_compat_so,fd_util)
 
 $(call make-unit-test,test_dump_block,test_dump_block,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(FLATCC_LIBS))
+endif
 
 run-runtime-backtest: $(OBJDIR)/bin/fd_ledger $(OBJDIR)/bin/firedancer-dev
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_backtest_ci.sh $(BACKTEST_ARGS)
