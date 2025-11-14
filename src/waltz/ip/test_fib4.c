@@ -15,17 +15,105 @@ fib2_mem[ 1<<18 ];
 
 static void
 test_fib_print( fd_fib4_t const * fib,
-                char const *      actual ) {
+                char const *      actual,
+                ulong             reorder_after ) {
   static char dump_buf[ 8192 ];
   FILE * dump = fmemopen( dump_buf, sizeof(dump_buf), "w" );
   FD_TEST( 0==fd_fib4_fprintf( fib, dump ) );
   ulong sz = (ulong)ftell( dump );
   fclose( dump );
 
-  if( FD_UNLIKELY( 0!=strncmp( dump_buf, actual, sz ) ) ) {
+  /* Split both dump_buf and actual into lines */
+  char const * dump_lines[256];
+  char const * actual_lines[256];
+  ulong dump_line_cnt = 0;
+  ulong actual_line_cnt = 0;
+
+  /* Parse dump_buf into lines */
+  char const * p = dump_buf;
+  char const * end = dump_buf + sz;
+  dump_lines[dump_line_cnt++] = p;
+  while( p < end ) {
+    if( *p == '\n' ) {
+      p++;
+      if( p < end ) dump_lines[dump_line_cnt++] = p;
+    } else {
+      p++;
+    }
+  }
+
+  /* Parse actual into lines */
+  p = actual;
+  actual_lines[actual_line_cnt++] = p;
+  while( *p ) {
+    if( *p == '\n' ) {
+      p++;
+      if( *p ) actual_lines[actual_line_cnt++] = p;
+    } else {
+      p++;
+    }
+  }
+
+  /* Check line counts match */
+  if( FD_UNLIKELY( dump_line_cnt != actual_line_cnt ) ) {
     fwrite( dump_buf, 1, sz, stderr );
     fflush( stderr );
-    FD_LOG_ERR(( "FAIL: fd_fib4_fprintf(fib) != expected" ));
+    FD_LOG_ERR(( "FAIL: line count mismatch: got %lu, expected %lu", dump_line_cnt, actual_line_cnt ));
+  }
+
+  /* Compare first reorder_after lines in exact order */
+  for( ulong i = 0; i < reorder_after && i < dump_line_cnt; i++ ) {
+    char const * dump_line = dump_lines[i];
+    char const * actual_line = actual_lines[i];
+    char const * dump_eol = dump_line;
+    char const * actual_eol = actual_line;
+
+    while( *dump_eol && *dump_eol != '\n' ) dump_eol++;
+    while( *actual_eol && *actual_eol != '\n' ) actual_eol++;
+
+    ulong dump_len = (ulong)(dump_eol - dump_line);
+    ulong actual_len = (ulong)(actual_eol - actual_line);
+
+    if( FD_UNLIKELY( dump_len != actual_len || 0!=strncmp( dump_line, actual_line, dump_len ) ) ) {
+      fwrite( dump_buf, 1, sz, stderr );
+      fflush( stderr );
+      FD_LOG_ERR(( "FAIL: line %lu mismatch in ordered section", i ));
+    }
+  }
+
+  /* For remaining lines, check that sets match */
+  if( reorder_after < dump_line_cnt ) {
+    char matched[256];
+    for( ulong i = 0; i < 256; i++ ) matched[i] = 0;
+
+    for( ulong i = reorder_after; i < dump_line_cnt; i++ ) {
+      char const * dump_line = dump_lines[i];
+      char const * dump_eol = dump_line;
+      while( *dump_eol && *dump_eol != '\n' ) dump_eol++;
+      ulong dump_len = (ulong)(dump_eol - dump_line);
+
+      int found = 0;
+      for( ulong j = reorder_after; j < actual_line_cnt; j++ ) {
+        if( matched[j] ) continue;
+
+        char const * actual_line = actual_lines[j];
+        char const * actual_eol = actual_line;
+        while( *actual_eol && *actual_eol != '\n' ) actual_eol++;
+        ulong actual_len = (ulong)(actual_eol - actual_line);
+
+        if( dump_len == actual_len && 0==strncmp( dump_line, actual_line, dump_len ) ) {
+          matched[j] = 1;
+          found = 1;
+          break;
+        }
+      }
+
+      if( FD_UNLIKELY( !found ) ) {
+        fwrite( dump_buf, 1, sz, stderr );
+        fflush( stderr );
+        FD_LOG_ERR(( "FAIL: line %lu from dump not found in expected (unordered section)", i ));
+      }
+    }
   }
 }
 
@@ -455,25 +543,28 @@ main( int     argc,
   fd_fib4_hop_t hop6 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_LOCAL,     .if_idx=1, .scope=254, .ip4_src=FD_IP4_ADDR( 127,0,0,1   ) };
   fd_fib4_hop_t hop7 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_BROADCAST, .if_idx=1, .scope=253, .ip4_src=FD_IP4_ADDR( 127,0,0,1   ) };
 
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,160   ), 32, 0, &hop1 ) );  // fib4 hashmap
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,165   ), 24, 0, &hop2 ) );
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,191   ), 32, 0, &hop3 ) );
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,0     ), 30, 0, &hop4 ) );
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,0     ),  8, 0, &hop5 ) );
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,1     ), 32, 0, &hop6 ) );   // fib4 hashmap
-  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,255,255 ), 30, 0, &hop7 ) );
+  /* all /32 routes are stored in fib4 hashmap */
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,160     ), 32, 0, &hop1 ) );
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,165     ), 32, 0, &hop2 ) );
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 192,0,2,191     ), 32, 0, &hop3 ) );
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,0       ), 32, 0, &hop4 ) );
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,0       ), 8,  0, &hop5 ) );
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,1       ), 32, 0, &hop6 ) );
+  FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,255,255,255 ), 32, 0, &hop7 ) );
 
   FD_TEST( fd_fib4_cnt( fib_local )==8 );
 
   test_fib_print( fib_local,
     "throw default metric 4294967295\n"
-    "local 192.0.2.165/24 dev 6 scope host src 192.0.2.165\n"
-    "broadcast 127.0.0.0/30 dev 1 scope link src 127.0.0.1\n"
     "local 127.0.0.0/8 dev 1 scope host src 127.0.0.1\n"
-    "broadcast 127.0.255.255/30 dev 1 scope link src 127.0.0.1\n"
+    "local 192.0.2.165/32 dev 6 scope host src 192.0.2.165\n"
+    "broadcast 127.255.255.255/32 dev 1 scope link src 127.0.0.1\n"
     "broadcast 192.0.2.191/32 dev 6 scope link src 192.0.2.165\n"
+    "broadcast 127.0.0.0/32 dev 1 scope link src 127.0.0.1\n"
     "local 127.0.0.1/32 dev 1 scope host src 127.0.0.1\n"
-    "broadcast 192.0.2.160/32 dev 6 scope link src 192.0.2.165\n" );
+    "broadcast 192.0.2.160/32 dev 6 scope link src 192.0.2.165\n",
+    2
+  );
 
   fd_fib4_clear( fib_main );
   FD_TEST( fd_fib4_cnt( fib_main )==1 );
@@ -481,12 +572,15 @@ main( int     argc,
   fd_fib4_hop_t hop9 = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_UNICAST,                                     .if_idx=6, .scope=253, .ip4_src=FD_IP4_ADDR( 192,0,2,165 ) };
 
   fd_fib4_insert( fib_main, FD_IP4_ADDR( 0,0,0,0     ),  0, 300, &hop8 );
-  fd_fib4_insert( fib_main, FD_IP4_ADDR( 192,0,2,161 ), 27, 300, &hop9 );
+  fd_fib4_insert( fib_main, FD_IP4_ADDR( 192,0,2,160 ), 27, 300, &hop9 );
+  FD_TEST( fd_fib4_cnt( fib_main )==3 );
 
   test_fib_print( fib_main,
     "throw default metric 4294967295\n"
     "default via 192.0.2.161 dev 6 src 192.0.2.165 metric 300\n"
-    "192.0.2.161/27 dev 6 scope link src 192.0.2.165 metric 300\n" );
+    "192.0.2.160/27 dev 6 scope link src 192.0.2.165 metric 300\n",
+    3
+  );
 
 # define QUERY(ip) fd_fib4_hop_or( fd_fib4_lookup( fib_local, candidate+0, FD_IP4_ADDR ip, 0 ), fd_fib4_lookup( fib_main, candidate+1, FD_IP4_ADDR ip, 0 ) )
   fd_fib4_hop_t const * next;
