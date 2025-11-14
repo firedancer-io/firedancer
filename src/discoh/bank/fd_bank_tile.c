@@ -46,8 +46,8 @@ typedef struct {
   fd_pack_rebate_sum_t rebater[ 1 ];
 
   struct {
-    ulong txn_load_address_lookup_tables[ 6 ];
-    ulong transaction_result[ 41 ];
+    ulong txn_load_address_lookup_tables[ FD_METRICS_COUNTER_BANK_TRANSACTION_LOAD_ADDRESS_TABLES_CNT ];
+    ulong transaction_result[ FD_METRICS_COUNTER_BANK_TRANSACTION_RESULT_CNT ];
     ulong processing_failed;
     ulong fee_only;
     ulong exec_failed;
