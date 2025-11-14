@@ -256,6 +256,11 @@ fd_poh_hashing_to_leader_slot( fd_poh_t const * poh ) {
   return hashing && poh->slot<poh->next_leader_slot;
 }
 
+int
+fd_poh_must_tick( fd_poh_t const * poh ) {
+  return poh->state==STATE_LEADER && (poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL);
+}
+
 void
 fd_poh_done_packing( fd_poh_t * poh,
                      ulong      microblocks_in_slot ) {
@@ -650,6 +655,7 @@ fd_poh1_mixin( fd_poh_t *          poh,
   if( FD_UNLIKELY( slot!=poh->next_leader_slot || slot!=poh->slot ) ) {
     FD_LOG_ERR(( "packed too early or late slot=%lu, current_slot=%lu", slot, poh->slot ));
   }
+  if( FD_UNLIKELY( (poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL) ) ) FD_LOG_CRIT(( "a tick will be skipped due to hashcnt %lu hashcnt_per_tick %lu", poh->hashcnt, poh->hashcnt_per_tick ));
 
   FD_TEST( poh->state==STATE_LEADER );
   FD_TEST( poh->microblocks_lower_bound<poh->max_microblocks_per_slot );
