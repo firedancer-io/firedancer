@@ -233,7 +233,9 @@ typedef struct {
     ulong invalid_block_id_cnt;
     ulong shred_rejected_unchained_cnt;
     ulong repair_rcv_cnt;
+    ulong repair_rcv_bytes;
     ulong turbine_rcv_cnt;
+    ulong turbine_rcv_bytes;
     fd_histf_t store_insert_wait[ 1 ];
     fd_histf_t store_insert_work[ 1 ];
   } metrics[ 1 ];
@@ -307,7 +309,9 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MHIST_COPY( SHRED, SHREDDING_DURATION_SECONDS, ctx->metrics->shredding_timing             );
   FD_MHIST_COPY( SHRED, ADD_SHRED_DURATION_SECONDS, ctx->metrics->add_shred_timing             );
   FD_MCNT_SET  ( SHRED, SHRED_OUT_RCV,              ctx->metrics->repair_rcv_cnt               );
+  FD_MCNT_SET  ( SHRED, SHRED_OUT_RCV_BYTES,        ctx->metrics->repair_rcv_bytes             );
   FD_MCNT_SET  ( SHRED, SHRED_TURBINE_RCV,          ctx->metrics->turbine_rcv_cnt              );
+  FD_MCNT_SET  ( SHRED, SHRED_TURBINE_RCV_BYTES,    ctx->metrics->turbine_rcv_bytes            );
 
   FD_MCNT_SET  ( SHRED, INVALID_BLOCK_ID,           ctx->metrics->invalid_block_id_cnt         );
   FD_MCNT_SET  ( SHRED, SHRED_REJECTED_UNCHAINED,   ctx->metrics->shred_rejected_unchained_cnt );
@@ -675,8 +679,13 @@ during_frag( fd_shred_ctx_t * ctx,
       return;
     };
 
-    if( FD_UNLIKELY( fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR ) ) ctx->metrics->repair_rcv_cnt++;
-    else                                                                    ctx->metrics->turbine_rcv_cnt++;
+    if( FD_UNLIKELY( fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR ) ) {
+      ctx->metrics->repair_rcv_cnt++;
+      ctx->metrics->repair_rcv_bytes += sz;
+    } else {
+      ctx->metrics->turbine_rcv_cnt++;
+      ctx->metrics->turbine_rcv_bytes += sz;
+    }
 
     /* Drop unchained merkle shreds (if feature is active) */
     int is_unchained = !fd_shred_is_chained( fd_shred_type( shred->variant ) );
@@ -1458,7 +1467,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->metrics->invalid_block_id_cnt         = 0UL;
   ctx->metrics->shred_rejected_unchained_cnt = 0UL;
   ctx->metrics->repair_rcv_cnt               = 0UL;
+  ctx->metrics->repair_rcv_bytes             = 0UL;
   ctx->metrics->turbine_rcv_cnt              = 0UL;
+  ctx->metrics->turbine_rcv_bytes            = 0UL;
 
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.txn_cnt        = 0UL;

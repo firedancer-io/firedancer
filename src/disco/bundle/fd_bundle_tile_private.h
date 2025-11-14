@@ -33,6 +33,7 @@ struct fd_bundle_metrics {
   ulong txn_received_cnt;
   ulong bundle_received_cnt;
   ulong packet_received_cnt;
+  ulong proto_received_bytes;
   ulong shredstream_heartbeat_cnt;
   ulong ping_ack_cnt;
 
