@@ -27,6 +27,8 @@ test_simple( fd_wksp_t * wksp ) {
   FD_TEST( pool.pool );
   FD_TEST( fd_store_map( store ) );
 
+  fd_store_exacq( store );
+
   fd_hash_t mr0 = { { 0 } };
   fd_hash_t mr1 = { { 1 } };
   fd_hash_t mr2 = { { 2 } };
@@ -80,6 +82,8 @@ test_simple( fd_wksp_t * wksp ) {
   FD_TEST( root->parent == fd_store_pool_idx_null() );
   FD_TEST( fd_store_parent( store, fec4 ) == fec2 );
 
+  fd_store_exrel( store );
+
   fd_store_clear( store );
   FD_TEST( fd_store_root( store ) == NULL );
 
@@ -112,6 +116,9 @@ test_mr( fd_wksp_t * wksp ) {
   fd_hash_t mr5a = { { 5, 0xa } };
   fd_hash_t mr5b = { { 5, 0xb } };
   fd_hash_t mr6a = { { 6, 0xa } };
+
+  fd_store_exacq( store );
+
   FD_TEST( fd_store_insert( store, 0, &mr0 ) );
   FD_TEST( fd_store_query_const( store, &mr0 ) );
 
@@ -175,6 +182,8 @@ test_mr( fd_wksp_t * wksp ) {
   fd_store_publish( store, &mr6a );
   FD_TEST( 0==memcmp( &fd_store_root( store )->key, &mr6a, sizeof(fd_hash_t) ) );
 
+  fd_store_exrel( store );
+
   fd_store_clear( store );
   FD_TEST( fd_store_root( store ) == NULL );
 
@@ -197,6 +206,8 @@ test_map_function( fd_wksp_t * wksp ) {
 
   FD_TEST( fd_store_map_key_eq( &key1, &key2 ) );
   FD_TEST( fd_store_map_key_hash( &key1, part_sz ) != fd_store_map_key_hash( &key2, part_sz ) );
+
+  fd_store_exacq( store );
   fd_store_insert( store, key1.part, &key1.mr );
   fd_store_insert( store, key2.part, &key2.mr ); /* will fail, mr already exists.*/
 
@@ -246,6 +257,8 @@ test_map_function( fd_wksp_t * wksp ) {
   FD_TEST( fec3->next == fd_store_pool_idx( &pool, fec2 ) );
   FD_TEST( fec2->next == fd_store_pool_idx( &pool, fec1 ) );
   FD_TEST( fec1->next == ULONG_MAX );
+
+  fd_store_exrel( store );
 }
 
 static ulong      tile_go;

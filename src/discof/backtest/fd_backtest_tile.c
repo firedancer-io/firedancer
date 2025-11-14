@@ -173,8 +173,11 @@ after_credit( fd_backt_tile_t *   ctx,
     fd_store_shrel ( ctx->store );
   }
 
+  fd_store_shacq( ctx->store );
   fd_store_fec_t * fec = fd_store_query( ctx->store, &mr );
+  fd_store_shrel( ctx->store );
   FD_TEST( fec );
+
   fd_store_exacq( ctx->store ); /* FIXME shacq after store changes */
   fd_memcpy( fec->data+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz += fd_shred_payload_sz( shred );

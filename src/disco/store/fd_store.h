@@ -353,6 +353,12 @@ struct fd_store_lock_ctx {
   long       * work_end;
 };
 
+/* Helpers to make Clang TSA understand that both the internal lock
+   alias and the original &(store->lock) expression are held. */
+static inline void fd_store_assert_shared( fd_rwlock_t * lock ) FD_ASSERT_SHARED_CAPABILITY( lock ) { (void)lock; }
+static inline void fd_store_assert_excl  ( fd_rwlock_t * lock ) FD_ASSERT_CAPABILITY       ( lock ) { (void)lock; }
+
+
 static inline void
 fd_store_shared_lock_cleanup( struct fd_store_lock_ctx * ctx ) FD_RELEASE_SHARED( ctx->store_->lock ) { *(ctx->work_end) = fd_tickcount(); fd_store_shrel( ctx->store_ ); }
 
@@ -361,6 +367,8 @@ fd_store_shared_lock_cleanup( struct fd_store_lock_ctx * ctx ) FD_RELEASE_SHARED
       { .store_ = (store), .work_end = &(shrel_end), .acq_start = &(shacq_start), .acq_end = &(shacq_end) }; \
   shacq_start = fd_tickcount();                                                                              \
   fd_store_shacq( lock_ctx.store_ );                                                                         \
+  fd_store_assert_shared( &lock_ctx.store_->lock );                                                          \
+  fd_store_assert_shared( &(store->lock) );                                                                  \
   shacq_end = fd_tickcount();                                                                                \
   do
 
@@ -374,6 +382,8 @@ fd_store_exclusive_lock_cleanup( struct fd_store_lock_ctx * ctx ) FD_RELEASE( ct
     { .store_ = (store), .work_end = &(exrel_end), .acq_start = &(exacq_start), .acq_end = &(exacq_end) }; \
   exacq_start = fd_tickcount();                                                                            \
   fd_store_exacq( lock_ctx.store_ );                                                                       \
+  fd_store_assert_excl  ( &lock_ctx.store_->lock );                                                        \
+  fd_store_assert_excl  ( &(store->lock) );                                                                \
   exacq_end = fd_tickcount();                                                                              \
   do
 #define FD_STORE_EXCLUSIVE_LOCK_END while(0); } while(0)
@@ -410,7 +420,7 @@ fd_store_histf( fd_store_histf_t * ctx ) {
    they no longer retain interest in the returned pointer. */
 
 FD_FN_PURE static inline fd_store_fec_t *
-fd_store_query( fd_store_t * store, fd_hash_t const * merkle_root ) {
+fd_store_query( fd_store_t * store, fd_hash_t const * merkle_root ) FD_REQUIRES_SHARED( &store->lock ) {
    fd_store_key_t  key  = { .mr = *merkle_root, .part = UINT_MAX };
    fd_store_pool_t pool = fd_store_pool( store );
    for( uint i = 0; i < store->part_cnt; i++ ) {
@@ -422,7 +432,7 @@ fd_store_query( fd_store_t * store, fd_hash_t const * merkle_root ) {
 }
 
 FD_FN_PURE static inline fd_store_fec_t const *
-fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
+fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) FD_REQUIRES_SHARED( &store->lock ) {
    fd_store_key_t key = { .mr = *merkle_root, .part = UINT_MAX };
    for( uint i = 0; i < store->part_cnt; i++ ) {
       key.part = i;
@@ -456,7 +466,7 @@ fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
                  ulong        part_idx,
-                 fd_hash_t  * merkle_root );
+                 fd_hash_t  * merkle_root ) FD_REQUIRES_SHARED( &store->lock );
 
 /* fd_store_link queries for and links the child keyed by merkle_root to
    parent keyed by chained_merkle_root.  Returns a pointer to the child.
@@ -471,7 +481,7 @@ fd_store_insert( fd_store_t * store,
 fd_store_fec_t *
 fd_store_link( fd_store_t * store,
                fd_hash_t  * merkle_root,
-               fd_hash_t  * chained_merkle_root );
+               fd_hash_t  * chained_merkle_root ) FD_REQUIRES_SHARED( &store->lock );
 
 /* fd_store_publish publishes merkle_root as the new store root, pruning
    all elements across branches that do not descend from the new root.
@@ -494,7 +504,7 @@ fd_store_link( fd_store_t * store,
 
 fd_store_fec_t *
 fd_store_publish( fd_store_t *      store,
-                  fd_hash_t const * merkle_root );
+                  fd_hash_t const * merkle_root ) FD_REQUIRES( &store->lock );
 
 /* fd_store_clear clears the store.  All elements are removed from the
    map and released back into the pool.  Does not zero-out fields.

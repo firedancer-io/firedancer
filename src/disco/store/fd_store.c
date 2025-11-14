@@ -146,7 +146,7 @@ fd_store_delete( void * shstore ) {
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
                  ulong        part_idx,
-                 fd_hash_t  * merkle_root ) {
+                 fd_hash_t  * merkle_root ) FD_REQUIRES_SHARED( &store->lock ) {
   if( FD_UNLIKELY( fd_store_query_const( store, merkle_root ) ) ) {
     FD_LOG_WARNING(( "Merkle root %s already in store.  Ignoring insert.", FD_BASE58_ENC_32_ALLOCA( merkle_root ) ));
     return NULL;
@@ -175,7 +175,7 @@ fd_store_insert( fd_store_t * store,
 }
 
 fd_store_fec_t *
-fd_store_link( fd_store_t * store, fd_hash_t * merkle_root, fd_hash_t * chained_merkle_root ) {
+fd_store_link( fd_store_t * store, fd_hash_t * merkle_root, fd_hash_t * chained_merkle_root ) FD_REQUIRES_SHARED( &store->lock ) {
 
 # if FD_STORE_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_store_query_const( store, merkle_root         ) ) ) { FD_LOG_WARNING(( "missing merkle root %s",         FD_BASE58_ENC_32_ALLOCA( merkle_root         ) ) ); return NULL; }
@@ -200,7 +200,7 @@ fd_store_link( fd_store_t * store, fd_hash_t * merkle_root, fd_hash_t * chained_
 
 fd_store_fec_t *
 fd_store_publish( fd_store_t *      store,
-                  fd_hash_t const * merkle_root ) {
+                  fd_hash_t const * merkle_root ) FD_REQUIRES( &store->lock ) {
 
 # if FD_STORE_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_store_query( store, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
