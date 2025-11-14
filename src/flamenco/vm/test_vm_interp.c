@@ -228,7 +228,8 @@ test_0cu_exit( void ) {
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_exec_txn_ctx_t   txn_ctx[1];
   fd_bank_t           bank[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank );
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank, txn_out );
 
   /* Ensure the VM exits with success if the CU count after the final
      exit instruction reaches zero. */
@@ -455,7 +456,8 @@ main( int     argc,
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_exec_txn_ctx_t   txn_ctx[1];
   fd_bank_t           bank[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank );
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank, txn_out );
 
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 

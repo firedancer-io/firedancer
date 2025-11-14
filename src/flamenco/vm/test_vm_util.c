@@ -7,7 +7,8 @@
 void
 test_vm_minimal_exec_instr_ctx( fd_exec_instr_ctx_t * instr_ctx,
                                 fd_exec_txn_ctx_t *   txn_ctx,
-                                fd_bank_t *           bank ) {
+                                fd_bank_t *           bank,
+                                fd_txn_out_t *        txn_out ) {
   memset( instr_ctx, 0, sizeof(fd_exec_instr_ctx_t) );
   memset( txn_ctx,   0, sizeof(fd_exec_txn_ctx_t)   );
 
@@ -20,6 +21,7 @@ test_vm_minimal_exec_instr_ctx( fd_exec_instr_ctx_t * instr_ctx,
   fd_bank_slot_set( bank, 1UL );
 
   instr_ctx->txn_ctx = txn_ctx;
+  instr_ctx->txn_out = txn_out;
 }
 
 void
