@@ -614,6 +614,7 @@ struct fd_gui {
     ulong slot_rooted;
     ulong slot_optimistically_confirmed;
     ulong slot_completed;
+    ulong startup_slot;
     ulong slot_estimated;
     ulong slot_caught_up;
     ulong slot_repair;
