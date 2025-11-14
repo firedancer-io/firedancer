@@ -167,7 +167,7 @@ check_fedora_pkgs () {
     protobuf-compiler  # Agave, solfuzz
   )
   if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_RPMS+=( autoconf automake bison cmake clang flex gettext-devel gmp-devel lcov )
+    REQUIRED_RPMS+=( autoconf automake bison cmake clang flex gettext-devel gmp-devel lcov liburing-devel )
     if [[ "${ID_LIKE:-}" == *rhel* ]]; then
       REQUIRED_RPMS+=( llvm-toolset )
     fi
@@ -209,7 +209,7 @@ check_debian_pkgs () {
     protobuf-compiler  # Agave
   )
   if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_DEBS+=( autoconf automake autopoint bison flex gcc-multilib gettext llvm lcov libgmp-dev perl )
+    REQUIRED_DEBS+=( autoconf automake autopoint bison flex gcc-multilib gettext llvm lcov libgmp-dev perl liburing-dev )
   fi
 
   echo "[~] Checking for required DEB packages"
@@ -244,7 +244,7 @@ check_alpine_pkgs () {
     gzip             # build system
   )
   if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_APKS+=( autoconf automake bison flex gettext perl protobuf-dev )
+    REQUIRED_APKS+=( autoconf automake bison flex gettext perl protobuf-dev liburing-dev )
   fi
 
   echo "[~] Checking for required APK packages"
@@ -269,7 +269,7 @@ check_alpine_pkgs () {
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf coreutils )
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf coreutils liburing )
 
   echo "[~] Checking for required brew formulae"
 
