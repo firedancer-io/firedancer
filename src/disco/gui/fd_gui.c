@@ -357,6 +357,11 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
 
       cur->out.bank_invalid +=
           bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ];
+
+      /* These branches are unused in Frankendancer */
+      cur->out.bank_nonce_already_advanced = 0UL;
+      cur->out.bank_nonce_advance_failed   = 0UL;
+      cur->out.bank_nonce_wrong_blockhash  = 0UL;
     } else {
       cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_SUCCESS ) ];
       cur->out.block_fail +=
@@ -386,8 +391,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
         + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_UNBALANCED_TRANSACTION ) ];
 
       cur->out.bank_nonce_already_advanced = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_ALREADY_ADVANCED ) ];
-      cur->out.bank_nonce_advance_failed = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_ADVANCE_FAILED ) ];
-      cur->out.bank_nonce_wrong_blockhash = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_WRONG_BLOCKHASH ) ];
+      cur->out.bank_nonce_advance_failed   = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_ADVANCE_FAILED ) ];
+      cur->out.bank_nonce_wrong_blockhash  = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_WRONG_BLOCKHASH ) ];
     }
   }
 
