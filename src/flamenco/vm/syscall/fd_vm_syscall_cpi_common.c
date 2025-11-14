@@ -866,7 +866,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
-  vm->instr_ctx->txn_ctx->details.compute_budget.compute_meter = vm->cu;
+  vm->instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
 
   /* Execute the CPI instruction in the runtime */
   int err_exec = fd_execute_instr( vm->instr_ctx->runtime, vm->instr_ctx->txn_out, vm->instr_ctx->txn_ctx, instruction_to_execute );
@@ -874,7 +874,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Set the CU meter to the instruction context's transaction context's compute meter,
      so that the caller can't use compute units that the callee has already used. */
-  vm->cu = vm->instr_ctx->txn_ctx->details.compute_budget.compute_meter;
+  vm->cu = vm->instr_ctx->txn_out->details.compute_budget.compute_meter;
 
   *_ret = instr_exec_res;
 

@@ -351,7 +351,7 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
      https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L549-L551 */
   ulong remaining_allowed_growth = fd_ulong_sat_sub(
     FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION,
-    vm->instr_ctx->txn_ctx->details.accounts_resize_delta );
+    vm->instr_ctx->txn_out->details.accounts_resize_delta );
 
   /* If the requested length is greater than the size of the region,
      resize the region
@@ -366,8 +366,8 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
     /* Resize the account and the region
        https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L569-L570 */
     if( FD_UNLIKELY( new_region_sz > region->region_sz ) ) {
-      vm->instr_ctx->txn_ctx->details.accounts_resize_delta = fd_ulong_sat_sub(
-        fd_ulong_sat_add( vm->instr_ctx->txn_ctx->details.accounts_resize_delta, new_region_sz ),
+      vm->instr_ctx->txn_out->details.accounts_resize_delta = fd_ulong_sat_sub(
+        fd_ulong_sat_add( vm->instr_ctx->txn_out->details.accounts_resize_delta, new_region_sz ),
         region->region_sz );
 
       fd_txn_account_resize( vm->acc_region_metas[ region->acc_region_meta_idx ].acct, new_region_sz );

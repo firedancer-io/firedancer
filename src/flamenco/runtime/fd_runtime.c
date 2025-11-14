@@ -648,14 +648,14 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   /* load_and_execute_sanitized_transactions() -> validate_fees() ->
      validate_transaction_fee_payer()
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
-  err = fd_executor_validate_transaction_fee_payer( runtime, txn_ctx );
+  err = fd_executor_validate_transaction_fee_payer( runtime, txn_out, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_out->err.is_committable = 0;
     return err;
   }
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
-  err = fd_executor_load_transaction_accounts( runtime, txn_ctx );
+  err = fd_executor_load_transaction_accounts( runtime, txn_out, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.
@@ -672,14 +672,14 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
         https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
 
         In any case, we should always add the dlen of the fee payer. */
-    txn_ctx->details.loaded_accounts_data_size = fd_txn_account_get_data_len( &txn_ctx->accounts.accounts[FD_FEE_PAYER_TXN_IDX] );
+    txn_out->details.loaded_accounts_data_size = fd_txn_account_get_data_len( &txn_ctx->accounts.accounts[FD_FEE_PAYER_TXN_IDX] );
 
     /* Special case handling for if a nonce account is present in the transaction. */
     if( txn_ctx->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
       /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
           be double counting the dlen of the fee payer. */
       if( txn_ctx->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
-        txn_ctx->details.loaded_accounts_data_size += fd_txn_account_get_data_len( txn_ctx->accounts.rollback_nonce );
+        txn_out->details.loaded_accounts_data_size += fd_txn_account_get_data_len( txn_ctx->accounts.rollback_nonce );
       }
     }
   }
@@ -893,8 +893,8 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
 
   /* Collect fees */
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ), 1UL );
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ), txn_ctx->details.execution_fee );
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ), txn_ctx->details.priority_fee );
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ), txn_out->details.execution_fee );
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ), txn_out->details.priority_fee );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), TXN( &txn_ctx->txn )->signature_cnt );
 
   if( FD_UNLIKELY( txn_out->err.exec_err ) ) {
@@ -975,8 +975,8 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
        cache since their programdata may have changed. ELF / sBPF
        metadata will need to be updated. */
       ulong current_slot = fd_bank_slot_get( bank );
-      for( uchar i=0; i<txn_ctx->details.programs_to_reverify_cnt; i++ ) {
-        fd_pubkey_t const * program_key = &txn_ctx->details.programs_to_reverify[i];
+      for( uchar i=0; i<txn_out->details.programs_to_reverify_cnt; i++ ) {
+        fd_pubkey_t const * program_key = &txn_out->details.programs_to_reverify[i];
         fd_progcache_invalidate( runtime->progcache, &xid, program_key, current_slot );
       }
   }
@@ -998,18 +998,18 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
   }
 
   ulong * total_compute_units_used = fd_bank_total_compute_units_used_modify( bank );
-  FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_ctx->details.compute_budget.compute_unit_limit - txn_ctx->details.compute_budget.compute_meter );
+  FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter );
 
   /* Update the cost tracker */
   fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-  int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
+  int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_out, txn_ctx );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
     FD_LOG_DEBUG(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
     txn_out->err.is_committable = 0;
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
-  txn_ctx->details.loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_ctx );
+  txn_out->details.loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_out );
 
   if( FD_LIKELY( runtime->status_cache && txn_ctx->accounts.nonce_idx_in_txn==ULONG_MAX ) ) {
     /* In Agave, durable nonce transactions are inserted to the status
@@ -1019,7 +1019,7 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
        entirely to simplify and improve performance of the txn cache. */
 
     fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
-    fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, blockhash->uc, txn_ctx->details.blake_txn_msg_hash.uc );
+    fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, blockhash->uc, txn_out->details.blake_txn_msg_hash.uc );
   }
 }
 
@@ -1042,13 +1042,13 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   txn_ctx->accounts.accounts_cnt   = 0UL;
   txn_ctx->accounts.executable_cnt = 0UL;
 
-  txn_ctx->details.programs_to_reverify_cnt       = 0UL;
-  txn_ctx->details.loaded_accounts_data_size      = 0UL;
-  txn_ctx->details.loaded_accounts_data_size_cost = 0UL;
-  txn_ctx->details.accounts_resize_delta          = 0UL;
-  txn_ctx->details.return_data.len                = 0UL;
-  memset( txn_ctx->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  fd_compute_budget_details_new( &txn_ctx->details.compute_budget );
+  txn_out->details.programs_to_reverify_cnt       = 0UL;
+  txn_out->details.loaded_accounts_data_size      = 0UL;
+  txn_out->details.loaded_accounts_data_size_cost = 0UL;
+  txn_out->details.accounts_resize_delta          = 0UL;
+  txn_out->details.return_data.len                = 0UL;
+  memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+  fd_compute_budget_details_new( &txn_out->details.compute_budget );
 
   txn_ctx->log.enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
   txn_ctx->log.dumping_mem       = dumping_mem;

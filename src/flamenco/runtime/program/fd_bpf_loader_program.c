@@ -184,8 +184,8 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   vm = fd_vm_init(
     /* vm                                   */ vm,
     /* instr_ctx                            */ instr_ctx,
-    /* heap_max                             */ instr_ctx->txn_ctx->details.compute_budget.heap_size,
-    /* entry_cu                             */ instr_ctx->txn_ctx->details.compute_budget.compute_meter,
+    /* heap_max                             */ instr_ctx->txn_out->details.compute_budget.heap_size,
+    /* entry_cu                             */ instr_ctx->txn_out->details.compute_budget.compute_meter,
     /* rodata                               */ prog->rodata,
     /* rodata_sz                            */ prog->rodata_sz,
     /* text                                 */ prog->text,
@@ -216,7 +216,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* Queue the program for reverification */
-  instr_ctx->txn_ctx->details.programs_to_reverify[instr_ctx->txn_ctx->details.programs_to_reverify_cnt++] = *program_key;
+  instr_ctx->txn_out->details.programs_to_reverify[instr_ctx->txn_out->details.programs_to_reverify_cnt++] = *program_key;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -417,12 +417,12 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   fd_vm_t _vm[1];
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
-  ulong pre_insn_cus = instr_ctx->txn_ctx->details.compute_budget.compute_meter;
-  ulong heap_size    = instr_ctx->txn_ctx->details.compute_budget.heap_size;
+  ulong pre_insn_cus = instr_ctx->txn_out->details.compute_budget.compute_meter;
+  ulong heap_size    = instr_ctx->txn_out->details.compute_budget.heap_size;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L275-L278 */
   ulong heap_cost = calculate_heap_cost( heap_size, FD_VM_HEAP_COST );
-  int heap_cost_result = fd_exec_consume_cus( instr_ctx->txn_ctx, heap_cost );
+  int heap_cost_result = fd_exec_consume_cus( instr_ctx->txn_out, heap_cost );
   if( FD_UNLIKELY( heap_cost_result ) ) {
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
@@ -437,7 +437,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     /* vm                                   */ vm,
     /* instr_ctx                            */ instr_ctx,
     /* heap_max                             */ heap_size,
-    /* entry_cu                             */ instr_ctx->txn_ctx->details.compute_budget.compute_meter,
+    /* entry_cu                             */ instr_ctx->txn_out->details.compute_budget.compute_meter,
     /* rodata                               */ fd_progcache_rec_rodata( cache_entry ),
     /* rodata_sz                            */ cache_entry->rodata_sz,
     /* text (note: text_off is byte offset) */ (ulong *)((ulong)fd_progcache_rec_rodata( cache_entry ) + (ulong)cache_entry->text_off),
@@ -472,7 +472,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   int exec_err = fd_vm_exec( vm );
-  instr_ctx->txn_ctx->details.compute_budget.compute_meter = vm->cu;
+  instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
 
   if( FD_UNLIKELY( vm->trace ) ) {
     err = fd_vm_trace_printf( vm->trace, vm->syscalls );
@@ -484,7 +484,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   /* Log consumed compute units and return data.
      https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/lib.rs#L1418-L1429 */
   fd_log_collector_program_consumed( instr_ctx, pre_insn_cus-vm->cu, pre_insn_cus );
-  if( FD_UNLIKELY( instr_ctx->txn_ctx->details.return_data.len ) ) {
+  if( FD_UNLIKELY( instr_ctx->txn_out->details.return_data.len ) ) {
     fd_log_collector_program_return( instr_ctx );
   }
 
@@ -507,7 +507,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
     if( FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, deplete_cu_meter_on_vm_failure ) &&
         exec_err!=FD_VM_ERR_EBPF_SYSCALL_ERROR ) {
-      instr_ctx->txn_ctx->details.compute_budget.compute_meter = 0UL;
+      instr_ctx->txn_out->details.compute_budget.compute_meter = 0UL;
     }
 
     /* Direct mapping access violation case
@@ -2626,24 +2626,24 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
   txn_ctx->log.enable_exec_recording = !!(bank->flags & FD_BANK_FLAGS_EXEC_RECORDING);
   txn_ctx->bank                      = bank;
 
-  fd_compute_budget_details_new( &txn_ctx->details.compute_budget );
+  fd_txn_out_t txn_out;
+  fd_compute_budget_details_new( &txn_out.details.compute_budget );
   txn_ctx->accounts.accounts_cnt     = 0UL;
   txn_ctx->accounts.executable_cnt   = 0UL;
 
-  txn_ctx->details.programs_to_reverify_cnt       = 0UL;
-  txn_ctx->details.loaded_accounts_data_size      = 0UL;
-  txn_ctx->details.loaded_accounts_data_size_cost = 0UL;
-  txn_ctx->details.accounts_resize_delta          = 0UL;
+  txn_out.details.programs_to_reverify_cnt       = 0UL;
+  txn_out.details.loaded_accounts_data_size      = 0UL;
+  txn_out.details.loaded_accounts_data_size_cost = 0UL;
+  txn_out.details.accounts_resize_delta          = 0UL;
 
-  memset( txn_ctx->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  txn_ctx->details.return_data.len = 0;
+  memset( txn_out.details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+  txn_out.details.return_data.len = 0;
 
   txn_ctx->log.capture_ctx   = NULL;
 
   txn_ctx->instr.info_cnt     = 0UL;
   txn_ctx->instr.trace_length = 0UL;
 
-  fd_txn_out_t txn_out;
   txn_out.err.exec_err          = 0;
   txn_out.err.exec_err_kind     = FD_EXECUTOR_ERR_KIND_NONE;
   txn_ctx->instr.current_idx = 0;

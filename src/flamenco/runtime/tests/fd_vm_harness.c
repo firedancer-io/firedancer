@@ -417,12 +417,12 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   }
 
   if( input->vm_ctx.return_data.program_id && input->vm_ctx.return_data.program_id->size == sizeof(fd_pubkey_t) ) {
-    fd_memcpy( ctx->txn_ctx->details.return_data.program_id.uc, input->vm_ctx.return_data.program_id->bytes, sizeof(fd_pubkey_t) );
+    fd_memcpy( ctx->txn_out->details.return_data.program_id.uc, input->vm_ctx.return_data.program_id->bytes, sizeof(fd_pubkey_t) );
   }
 
   if( input->vm_ctx.return_data.data && input->vm_ctx.return_data.data->size>0U ) {
-    ctx->txn_ctx->details.return_data.len = input->vm_ctx.return_data.data->size;
-    fd_memcpy( ctx->txn_ctx->details.return_data.data, input->vm_ctx.return_data.data->bytes, ctx->txn_ctx->details.return_data.len );
+    ctx->txn_out->details.return_data.len = input->vm_ctx.return_data.data->size;
+    fd_memcpy( ctx->txn_out->details.return_data.data, input->vm_ctx.return_data.data->bytes, ctx->txn_out->details.return_data.len );
   }
 
   *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
@@ -497,7 +497,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   fd_vm_init( vm,
               ctx,
               input->vm_ctx.heap_max,
-              ctx->txn_ctx->details.compute_budget.compute_meter,
+              ctx->txn_out->details.compute_budget.compute_meter,
               rodata,
               rodata_sz,
               NULL, // TODO

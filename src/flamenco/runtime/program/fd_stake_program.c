@@ -3146,9 +3146,9 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
    */
   case fd_stake_instruction_enum_get_minimum_delegation: {
     ulong minimum_delegation = get_minimum_delegation( ctx->txn_ctx );
-    fd_memcpy( &ctx->txn_ctx->details.return_data.program_id, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t));
-    fd_memcpy(ctx->txn_ctx->details.return_data.data, (uchar*)(&minimum_delegation), sizeof(ulong));
-    ctx->txn_ctx->details.return_data.len = sizeof(ulong);
+    fd_memcpy( &ctx->txn_out->details.return_data.program_id, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t));
+    fd_memcpy(ctx->txn_out->details.return_data.data, (uchar*)(&minimum_delegation), sizeof(ulong));
+    ctx->txn_out->details.return_data.len = sizeof(ulong);
     rc = 0;
     goto done;
   }

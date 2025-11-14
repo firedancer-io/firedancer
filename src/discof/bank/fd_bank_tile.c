@@ -239,7 +239,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.exec_err)<<24);
       fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
       uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
-      int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
+      int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_out, txn_ctx );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
                     "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
@@ -250,8 +250,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                     cost_tracker->account_cost_limit ));
     }
 
-    uint actual_execution_cus = (uint)(txn_ctx->details.compute_budget.compute_unit_limit - txn_ctx->details.compute_budget.compute_meter);
-    uint actual_acct_data_cus = (uint)(txn_ctx->details.loaded_accounts_data_size_cost);
+    uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
+    uint actual_acct_data_cus = (uint)(txn_out->details.loaded_accounts_data_size_cost);
 
     int is_simple_vote = 0;
     if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
@@ -407,7 +407,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.exec_err)<<24);
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-        int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
+        int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_out, txn_ctx );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
                       "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
@@ -418,8 +418,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
                       cost_tracker->account_cost_limit ));
       }
 
-      uint actual_execution_cus = (uint)(txn_ctx->details.compute_budget.compute_unit_limit - txn_ctx->details.compute_budget.compute_meter);
-      uint actual_acct_data_cus = (uint)(txn_ctx->details.loaded_accounts_data_size_cost);
+      uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
+      uint actual_acct_data_cus = (uint)(txn_out->details.loaded_accounts_data_size_cost);
       if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload ) ) ) {
         actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
         actual_acct_data_cus = 0U;

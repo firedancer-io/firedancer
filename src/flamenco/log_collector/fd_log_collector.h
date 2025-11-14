@@ -422,8 +422,8 @@ fd_log_collector_program_return( fd_exec_instr_ctx_t * ctx ) {
 
   /* ctx->txn_ctx->return_data is 1024 bytes max, so its base64 repr
      is at most (1024+2)/3*4 bytes, plus we use 1 byte for \0. */
-  char return_base64[ (sizeof(ctx->txn_ctx->details.return_data.data)+2)/3*4+1 ];
-  ulong sz = fd_base64_encode( return_base64, ctx->txn_ctx->details.return_data.data, ctx->txn_ctx->details.return_data.len );
+  char return_base64[ (sizeof(ctx->txn_out->details.return_data.data)+2)/3*4+1 ];
+  ulong sz = fd_base64_encode( return_base64, ctx->txn_out->details.return_data.data, ctx->txn_out->details.return_data.len );
   return_base64[ sz ] = 0;
   /* Max msg_sz: 21 - 4 + 44 + 1368 = 1429 < 1500 => we can use printf, but have to handle sz */
   ulong msg_sz = 17 + strlen(ctx->program_id_base58) + sz;

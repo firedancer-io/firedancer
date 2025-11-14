@@ -102,18 +102,18 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_ctx->log.enable_exec_recording = !!( runner->bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
   txn_ctx->bank                      = runner->bank;
 
-  fd_compute_budget_details_new( &txn_ctx->details.compute_budget );
+  fd_compute_budget_details_new( &txn_out->details.compute_budget );
   txn_ctx->instr.stack_sz            = 0;
   txn_ctx->accounts.accounts_cnt     = 0UL;
   txn_ctx->accounts.executable_cnt   = 0UL;
 
-  txn_ctx->details.programs_to_reverify_cnt       = 0UL;
-  txn_ctx->details.loaded_accounts_data_size      = 0UL;
-  txn_ctx->details.loaded_accounts_data_size_cost = 0UL;
-  txn_ctx->details.accounts_resize_delta          = 0UL;
+  txn_out->details.programs_to_reverify_cnt       = 0UL;
+  txn_out->details.loaded_accounts_data_size      = 0UL;
+  txn_out->details.loaded_accounts_data_size_cost = 0UL;
+  txn_out->details.accounts_resize_delta          = 0UL;
 
-  memset( txn_ctx->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  txn_ctx->details.return_data.len = 0;
+  memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+  txn_out->details.return_data.len = 0;
 
   txn_ctx->log.capture_ctx   = NULL;
 
@@ -125,8 +125,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_ctx->instr.current_idx  = 0;
 
   txn_ctx->txn                                               = *txn;
-  txn_ctx->details.compute_budget.compute_unit_limit = test_ctx->cu_avail;
-  txn_ctx->details.compute_budget.compute_meter      = test_ctx->cu_avail;
+  txn_out->details.compute_budget.compute_unit_limit = test_ctx->cu_avail;
+  txn_out->details.compute_budget.compute_meter      = test_ctx->cu_avail;
   txn_ctx->instr.info_cnt                                    = 1UL;
   txn_ctx->log.enable_vm_tracing                             = runner->enable_vm_tracing;
   txn_ctx->log.tracing_mem                                   = runner->enable_vm_tracing ?
@@ -415,7 +415,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   /* Capture error code */
 
   effects->result   = -exec_result;
-  effects->cu_avail = ctx->txn_ctx->details.compute_budget.compute_meter;
+  effects->cu_avail = ctx->txn_out->details.compute_budget.compute_meter;
 
   /* Don't capture custom error codes if the program is a precompile */
   if( FD_LIKELY( effects->result ) ) {
@@ -475,7 +475,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   }
 
   /* Capture return data */
-  fd_txn_return_data_t * return_data = &ctx->txn_ctx->details.return_data;
+  fd_txn_return_data_t * return_data = &ctx->txn_out->details.return_data;
   if( return_data->len>0UL ) {
     effects->return_data = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
                                 PB_BYTES_ARRAY_T_ALLOCSIZE( return_data->len ) );

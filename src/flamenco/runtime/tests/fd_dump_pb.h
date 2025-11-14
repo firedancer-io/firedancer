@@ -154,6 +154,7 @@ fd_block_dump_context_reset( fd_block_dump_ctx_t * ctx ) {
 
 void
 fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
+                           fd_txn_out_t *      txn_out,
                            fd_exec_txn_ctx_t * txn_ctx,
                            fd_instr_info_t *   instr,
                            ushort              instruction_idx );

@@ -327,7 +327,7 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1467 */
-  fd_txn_return_data_t const * return_data = &vm->instr_ctx->txn_ctx->details.return_data;
+  fd_txn_return_data_t const * return_data = &vm->instr_ctx->txn_out->details.return_data;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1468 */
   ulong length = fd_ulong_min( return_data->len, sz );
@@ -408,7 +408,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
     return err;
   }
 
-  fd_txn_return_data_t * return_data = &instr_ctx->txn_ctx->details.return_data;
+  fd_txn_return_data_t * return_data = &instr_ctx->txn_out->details.return_data;
 
   return_data->len = src_sz;
   if( FD_LIKELY( src_sz!=0UL ) ) {

@@ -105,7 +105,6 @@ struct fd_exec_txn_ctx {
        this would be !=ULONG_MAX. */
     ulong                           nonce_idx_in_txn;
     fd_txn_account_t                rollback_fee_payer[ 1 ];
-
   } accounts;
 
   struct {
@@ -137,8 +136,6 @@ struct fd_exec_txn_ctx {
     fd_exec_txn_ctx_t * prev_txn_ctxs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
     ulong               prev_txn_ctxs_cnt;
   } bundle;
-
-  fd_txn_details_t details;
 
   struct {
     int                enable_exec_recording;

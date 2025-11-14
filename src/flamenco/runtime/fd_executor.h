@@ -23,7 +23,7 @@
    and fails in case of error. */
 #define FD_EXEC_CU_UPDATE( ctx, cost ) do {               \
   fd_exec_instr_ctx_t * _ctx = (ctx);                     \
-  int err = fd_exec_consume_cus( _ctx->txn_ctx, (cost) ); \
+  int err = fd_exec_consume_cus( _ctx->txn_out, (cost) ); \
   if( FD_UNLIKELY( err ) ) return err;                    \
   } while(0)
 
@@ -82,6 +82,7 @@ fd_execute_txn( fd_runtime_t *      runtime,
 
 int
 fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
+                                            fd_txn_out_t *      txn_out,
                                             fd_exec_txn_ctx_t * txn_ctx );
 
 void
@@ -116,21 +117,22 @@ fd_executor_instr_strerror( int err );
 
 int
 fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
+                                       fd_txn_out_t *      txn_out,
                                        fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );
 
 static inline int
-fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,
-                     ulong               cus ) {
-  ulong new_cus   =  txn_ctx->details.compute_budget.compute_meter - cus;
-  int   underflow = (txn_ctx->details.compute_budget.compute_meter < cus);
+fd_exec_consume_cus( fd_txn_out_t * txn_out,
+                     ulong          cus ) {
+  ulong new_cus   =  txn_out->details.compute_budget.compute_meter - cus;
+  int   underflow = (txn_out->details.compute_budget.compute_meter < cus);
   if( FD_UNLIKELY( underflow ) ) {
-    txn_ctx->details.compute_budget.compute_meter = 0UL;
+    txn_out->details.compute_budget.compute_meter = 0UL;
     return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
   }
-  txn_ctx->details.compute_budget.compute_meter = new_cus;
+  txn_out->details.compute_budget.compute_meter = new_cus;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 

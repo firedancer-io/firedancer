@@ -71,9 +71,8 @@ sanitize_requested_heap_size( ulong bytes ) {
 }
 
 int
-fd_sanitize_compute_unit_limits( fd_txn_out_t *      txn_out,
-                                 fd_exec_txn_ctx_t * ctx ) {
-  fd_compute_budget_details_t * details = &ctx->details.compute_budget;
+fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out ) {
+  fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L106-L119 */
   if( details->has_requested_heap_size ) {
@@ -116,7 +115,7 @@ fd_sanitize_compute_unit_limits( fd_txn_out_t *      txn_out,
 int
 fd_executor_compute_budget_program_execute_instructions( fd_txn_out_t *      txn_out,
                                                          fd_exec_txn_ctx_t * ctx ) {
-  fd_compute_budget_details_t * details = &ctx->details.compute_budget;
+  fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
 
   for( ushort i=0; i<TXN( &ctx->txn )->instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &TXN( &ctx->txn )->instr[i];

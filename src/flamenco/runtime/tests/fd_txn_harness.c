@@ -426,14 +426,14 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     txn_result->instruction_error_index           = 0;
     txn_result->custom_error                      = 0;
     txn_result->has_fee_details                   = false;
-    txn_result->loaded_accounts_data_size         = txn_ctx->details.loaded_accounts_data_size;
+    txn_result->loaded_accounts_data_size         = txn_out.details.loaded_accounts_data_size;
 
     if( txn_result->sanitization_error ) {
       /* Collect fees for transactions that failed to load */
       if( txn_out.err.is_fees_only ) {
         txn_result->has_fee_details                = true;
-        txn_result->fee_details.prioritization_fee = txn_ctx->details.priority_fee;
-        txn_result->fee_details.transaction_fee    = txn_ctx->details.execution_fee;
+        txn_result->fee_details.prioritization_fee = txn_out.details.priority_fee;
+        txn_result->fee_details.transaction_fee    = txn_out.details.execution_fee;
       }
 
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
@@ -468,23 +468,23 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     txn_result->has_fee_details                = true;
-    txn_result->fee_details.transaction_fee    = txn_ctx->details.execution_fee;
-    txn_result->fee_details.prioritization_fee = txn_ctx->details.priority_fee;
-    txn_result->executed_units                 = txn_ctx->details.compute_budget.compute_unit_limit - txn_ctx->details.compute_budget.compute_meter;
+    txn_result->fee_details.transaction_fee    = txn_out.details.execution_fee;
+    txn_result->fee_details.prioritization_fee = txn_out.details.priority_fee;
+    txn_result->executed_units                 = txn_out.details.compute_budget.compute_unit_limit - txn_out.details.compute_budget.compute_meter;
 
 
     /* Rent is no longer collected */
     txn_result->rent                           = 0UL;
 
-    if( txn_ctx->details.return_data.len > 0 ) {
+    if( txn_out.details.return_data.len > 0 ) {
       txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                      PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->details.return_data.len ) );
+                                      PB_BYTES_ARRAY_T_ALLOCSIZE( txn_out.details.return_data.len ) );
       if( FD_UNLIKELY( _l > output_end ) ) {
         abort();
       }
 
-      txn_result->return_data->size = (pb_size_t)txn_ctx->details.return_data.len;
-      fd_memcpy( txn_result->return_data->bytes, txn_ctx->details.return_data.data, txn_ctx->details.return_data.len );
+      txn_result->return_data->size = (pb_size_t)txn_out.details.return_data.len;
+      fd_memcpy( txn_result->return_data->bytes, txn_out.details.return_data.data, txn_out.details.return_data.len );
     }
 
     /* Allocate space for captured accounts */
