@@ -87,6 +87,8 @@ main( int     argc,
       FD_LOG_ERR(( "io_uring_queue_init_params failed (%i-%s)", init_err, fd_io_strerror( -init_err ) ));
     }
 
+    FD_TEST( 0==io_uring_register_files( ring, &fd, 1 ) );
+
     ulong align = fd_vinyl_io_ur_align();
     FD_TEST( fd_ulong_is_pow2( align ) );
     ulong footprint = fd_vinyl_io_ur_footprint( spad_max );
