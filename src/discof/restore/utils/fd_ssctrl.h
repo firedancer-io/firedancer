@@ -72,7 +72,7 @@
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
 
 /* snapla -> snapls */
-#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD       (9UL) /* Hash result sent from snapla to snapls */
+#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD        (9UL) /* Hash result sent from snapla to snapls */
 
 /* snapin -> snapls */
 #define FD_SNAPSHOT_HASH_MSG_EXPECTED         (10UL) /* Hash result sent from snapin to snapls */
@@ -86,6 +86,7 @@
    download from a particular external peer. */
 typedef struct fd_ssctrl_init {
   int           file;
+  int           zstd;
   fd_ip4_port_t addr;
 } fd_ssctrl_init_t;
 

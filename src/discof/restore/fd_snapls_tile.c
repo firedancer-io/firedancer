@@ -245,7 +245,6 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
 
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-      metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       break;
     }
 

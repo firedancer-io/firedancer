@@ -116,10 +116,12 @@ struct fd_snapct_tile {
     ulong full_snapshot_slot;
     char  full_snapshot_path[ PATH_MAX ];
     ulong full_snapshot_size;
+    int   full_snapshot_zstd;
 
     ulong incremental_snapshot_slot;
     char  incremental_snapshot_path[ PATH_MAX ];
     ulong incremental_snapshot_size;
+    int   incremental_snapshot_zstd;
   } local_in;
 
   struct {
@@ -403,6 +405,7 @@ init_load( fd_snapct_tile_t *  ctx,
            int file ) {
   fd_ssctrl_init_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
   out->file = file;
+  out->zstd = !file || (full ? ctx->local_in.full_snapshot_zstd : ctx->local_in.incremental_snapshot_zstd);
   if( !file ) out->addr = ctx->addr;
   fd_stem_publish( stem, ctx->out_ld.idx, full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR, ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), 0UL, 0UL, 0UL );
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
@@ -620,7 +623,6 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
-      metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
 
@@ -642,7 +644,6 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
       rename_snapshots( ctx );
-      metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
 
@@ -661,7 +662,6 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       if( FD_LIKELY( !ctx->config.incremental_snapshots ) ) {
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
-        metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }
@@ -695,7 +695,6 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( !ctx->config.incremental_snapshots ) ) {
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
         rename_snapshots( ctx );
-        metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }
@@ -1171,6 +1170,8 @@ privileged_init( fd_topo_t *      topo,
 
   ulong full_slot = ULONG_MAX;
   ulong incremental_slot = ULONG_MAX;
+  int full_is_zstd = 0;
+  int incremental_is_zstd = 0;
   char full_path[ PATH_MAX ] = {0};
   char incremental_path[ PATH_MAX ] = {0};
   if( FD_UNLIKELY( -1==fd_ssarchive_latest_pair( tile->snapct.snapshots_path,
@@ -1178,7 +1179,9 @@ privileged_init( fd_topo_t *      topo,
                                                  &full_slot,
                                                  &incremental_slot,
                                                  full_path,
-                                                 incremental_path ) ) ) {
+                                                 incremental_path,
+                                                 &full_is_zstd,
+                                                 &incremental_is_zstd ) ) ) {
     if( FD_UNLIKELY( !download_enabled( tile ) ) ) {
       FD_LOG_ERR(( "No snapshots found in `%s` and no download sources are enabled. "
                    "Please enable downloading via [snapshots.sources] and restart.", tile->snapct.snapshots_path ));
@@ -1187,6 +1190,8 @@ privileged_init( fd_topo_t *      topo,
     ctx->local_in.incremental_snapshot_slot = ULONG_MAX;
     ctx->local_in.full_snapshot_size        = 0UL;
     ctx->local_in.incremental_snapshot_size = 0UL;
+    ctx->local_in.full_snapshot_zstd        = 0;
+    ctx->local_in.incremental_snapshot_zstd = 0;
     fd_cstr_fini( ctx->local_in.full_snapshot_path );
     fd_cstr_fini( ctx->local_in.incremental_snapshot_path );
   } else {
@@ -1194,6 +1199,8 @@ privileged_init( fd_topo_t *      topo,
 
     ctx->local_in.full_snapshot_slot        = full_slot;
     ctx->local_in.incremental_snapshot_slot = incremental_slot;
+    ctx->local_in.full_snapshot_zstd        = full_is_zstd;
+    ctx->local_in.incremental_snapshot_zstd = incremental_is_zstd;
 
     strncpy( ctx->local_in.full_snapshot_path, full_path, PATH_MAX );
     struct stat full_stat;

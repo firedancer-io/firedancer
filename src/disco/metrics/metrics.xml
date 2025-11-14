@@ -1045,9 +1045,9 @@ metric introduced.
 <tile name="snapdc">
     <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
     <gauge name="FullCompressedBytesRead" summary="Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="FullDecompressedBytesRead" summary="Number of bytes read so far from the decompressed file. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="FullDecompressedBytesWritten" summary="Number of bytes decompressed so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalCompressedBytesRead" summary="Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalDecompressedBytesRead" summary="Number of bytes read so far from the decompressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalDecompressedBytesWritten" summary="Number of bytes decompressed so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
 <tile name="snapin">

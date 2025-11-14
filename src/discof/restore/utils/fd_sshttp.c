@@ -223,11 +223,12 @@ follow_redirect( fd_sshttp_t *        http,
       fd_memcpy( snapshot_name, location+1UL, location_len-1UL );
       snapshot_name[ location_len-1UL ] = '\0';
 
+      int is_zstd;
       ulong full_entry_slot, incremental_entry_slot;
       uchar decoded_hash[ FD_HASH_FOOTPRINT ];
-      int err = fd_ssarchive_parse_filename( snapshot_name, &full_entry_slot, &incremental_entry_slot, decoded_hash );
+      int err = fd_ssarchive_parse_filename( snapshot_name, &full_entry_slot, &incremental_entry_slot, decoded_hash, &is_zstd );
 
-      if( FD_UNLIKELY( err ) ) {
+      if( FD_UNLIKELY( err || !is_zstd ) ) {
         FD_LOG_WARNING(( "unrecognized snapshot file `%s` in redirect location header", snapshot_name ));
         fd_sshttp_cancel( http );
         return FD_SSHTTP_ADVANCE_ERROR;

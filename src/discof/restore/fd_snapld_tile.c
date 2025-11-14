@@ -68,15 +68,19 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
 
+  /* FIXME: Allow incremental_snapshots=0 config */
   ulong full_slot = ULONG_MAX;
   ulong incr_slot = ULONG_MAX;
+  int full_is_zstd = 0;
+  int incr_is_zstd = 0;
   char full_path[ PATH_MAX ] = { 0 };
   char incr_path[ PATH_MAX ] = { 0 };
   ctx->local_full_fd = -1;
   ctx->local_incr_fd = -1;
   if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path, 1,
-                                               &full_slot, &incr_slot,
-                                               full_path, incr_path ) ) ) {
+                                               &full_slot,    &incr_slot,
+                                                full_path,     incr_path,
+                                               &full_is_zstd, &incr_is_zstd ) ) ) {
     FD_TEST( full_slot!=ULONG_MAX );
 
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
@@ -248,20 +252,24 @@ returnable_frag( fd_snapld_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
-      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
+      FD_TEST( sz==sizeof(fd_ssctrl_init_t) && sz<=ctx->out_dc.mtu );
+      fd_ssctrl_init_t const * msg_in = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
       ctx->load_full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->load_file = msg->file;
+      ctx->load_file = msg_in->file;
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->sent_meta = 0;
       if( ctx->load_file ) {
         if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
           FD_LOG_ERR(( "lseek(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       } else {
-        if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg->addr, "/snapshot.tar.bz2", 17UL, fd_log_wallclock() );
-        else                 fd_sshttp_init( ctx->sshttp, msg->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
+        if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg_in->addr, "/snapshot.tar.bz2", 17UL, fd_log_wallclock() );
+        else                 fd_sshttp_init( ctx->sshttp, msg_in->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
       }
-      break;
+      fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
+      fd_memcpy( msg_out, msg_in, sz );
+      fd_stem_publish( stem, 0UL, sig, ctx->out_dc.chunk, sz, 0UL, 0UL, 0UL );
+      ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, ctx->out_dc.mtu, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+      return 0;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -288,7 +296,6 @@ returnable_frag( fd_snapld_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-      metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       break;
 
     /* FD_SNAPSHOT_MSG_CTRL_ERROR and FD_SNAPSHOT_MSG_DATA are not possible */
