@@ -1055,10 +1055,10 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   txn_ctx->log.tracing_mem       = tracing_mem;
   txn_ctx->log.capture_ctx       = capture_ctx;
 
-  txn_ctx->instr.info_cnt     = 0UL;
-  txn_ctx->instr.trace_length = 0UL;
-  txn_ctx->instr.current_idx  = 0;
-  txn_ctx->instr.stack_sz     = 0;
+  runtime->instr.info_cnt     = 0UL;
+  runtime->instr.trace_length = 0UL;
+  runtime->instr.current_idx  = 0;
+  runtime->instr.stack_sz     = 0;
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;

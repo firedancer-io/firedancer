@@ -97,10 +97,10 @@ fd_precompile_get_instr_data( fd_exec_instr_ctx_t * ctx,
 
   } else {
 
-    if( FD_UNLIKELY( index>=ctx->txn_ctx->instr.info_cnt ) )
+    if( FD_UNLIKELY( index>=ctx->runtime->instr.info_cnt ) )
       return FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET;
 
-    fd_instr_info_t const * instr = &ctx->txn_ctx->instr.infos[ index ];
+    fd_instr_info_t const * instr = &ctx->runtime->instr.infos[ index ];
     data    = instr->data;
     data_sz = instr->data_sz;
 

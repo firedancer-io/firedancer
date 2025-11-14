@@ -467,7 +467,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   if( FD_UNLIKELY( instr_ctx->txn_ctx->log.enable_vm_tracing && instr_ctx->txn_ctx->log.tracing_mem ) ) {
-    vm->trace = fd_vm_trace_join( fd_vm_trace_new( instr_ctx->txn_ctx->log.tracing_mem + ((instr_ctx->txn_ctx->instr.stack_sz-1UL) * FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT), FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ));
+    vm->trace = fd_vm_trace_join( fd_vm_trace_new( instr_ctx->txn_ctx->log.tracing_mem + ((instr_ctx->runtime->instr.stack_sz-1UL) * FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT), FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ));
     if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
   }
 
@@ -2616,46 +2616,53 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
                                      ulong               elf_sz ) {
   FD_LOG_ERR(( "fd_directly_invoke_loader_v3_deploy is not implemented" ));
 
-  /* Set up a dummy instr and txn context.
-     FIXME: Memory for a txn context needs to be allocated */
-  fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( NULL ) );
+  (void)bank;
+  (void)funk;
+  (void)accdb_shfunk;
+  (void)program_key;
+  (void)elf;
+  (void)elf_sz;
 
-  if( FD_UNLIKELY( !fd_funk_join( funk, accdb_shfunk ) ) ) {
-    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
-  }
-  txn_ctx->bank_hash_cmp             = NULL;
-  txn_ctx->log.enable_exec_recording = !!(bank->flags & FD_BANK_FLAGS_EXEC_RECORDING);
-  txn_ctx->bank                      = bank;
+  // /* Set up a dummy instr and txn context.
+  //    FIXME: Memory for a txn context needs to be allocated */
+  // fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( NULL ) );
 
-  fd_txn_out_t txn_out;
-  fd_compute_budget_details_new( &txn_out.details.compute_budget );
-  txn_out.accounts.accounts_cnt     = 0UL;
-  txn_out.accounts.executable_cnt   = 0UL;
+  // if( FD_UNLIKELY( !fd_funk_join( funk, accdb_shfunk ) ) ) {
+  //   FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  // }
+  // txn_ctx->bank_hash_cmp             = NULL;
+  // txn_ctx->log.enable_exec_recording = !!(bank->flags & FD_BANK_FLAGS_EXEC_RECORDING);
+  // txn_ctx->bank                      = bank;
 
-  txn_out.details.programs_to_reverify_cnt       = 0UL;
-  txn_out.details.loaded_accounts_data_size      = 0UL;
-  txn_out.details.loaded_accounts_data_size_cost = 0UL;
-  txn_out.details.accounts_resize_delta          = 0UL;
+  // fd_txn_out_t txn_out;
+  // fd_compute_budget_details_new( &txn_out.details.compute_budget );
+  // txn_out.accounts.accounts_cnt     = 0UL;
+  // txn_out.accounts.executable_cnt   = 0UL;
 
-  memset( txn_out.details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  txn_out.details.return_data.len = 0;
+  // txn_out.details.programs_to_reverify_cnt       = 0UL;
+  // txn_out.details.loaded_accounts_data_size      = 0UL;
+  // txn_out.details.loaded_accounts_data_size_cost = 0UL;
+  // txn_out.details.accounts_resize_delta          = 0UL;
 
-  txn_ctx->log.capture_ctx   = NULL;
+  // memset( txn_out.details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+  // txn_out.details.return_data.len = 0;
 
-  txn_ctx->instr.info_cnt     = 0UL;
-  txn_ctx->instr.trace_length = 0UL;
+  // txn_ctx->log.capture_ctx   = NULL;
 
-  txn_out.err.exec_err          = 0;
-  txn_out.err.exec_err_kind     = FD_EXECUTOR_ERR_KIND_NONE;
-  txn_ctx->instr.current_idx = 0;
+  // txn_ctx->instr.info_cnt     = 0UL;
+  // txn_ctx->instr.trace_length = 0UL;
 
-  txn_ctx->instr.stack_sz = 1;
-  fd_exec_instr_ctx_t * instr_ctx = &txn_ctx->instr.stack[0];
-  *instr_ctx = (fd_exec_instr_ctx_t) {
-    .instr     = NULL,
-    .txn_ctx   = txn_ctx,
-    .txn_out   = &txn_out,
-  };
+  // txn_out.err.exec_err          = 0;
+  // txn_out.err.exec_err_kind     = FD_EXECUTOR_ERR_KIND_NONE;
+  // txn_ctx->instr.current_idx = 0;
+
+  // txn_ctx->instr.stack_sz = 1;
+  // fd_exec_instr_ctx_t * instr_ctx = &txn_ctx->instr.stack[0];
+  // *instr_ctx = (fd_exec_instr_ctx_t) {
+  //   .instr     = NULL,
+  //   .txn_ctx   = txn_ctx,
+  //   .txn_out   = &txn_out,
+  // };
 
   /* Important note: this function is called at the epoch boundary and
      does not do anything with the `programs_to_reverify` field in the
@@ -2665,5 +2672,5 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
      needed because the next time the program is invoked, the program
      cache updating logic will see that the cache entry is missing and
      will insert it then. */
-  return fd_deploy_program( instr_ctx, program_key, elf, elf_sz );
+  // return fd_deploy_program( instr_ctx, program_key, elf, elf_sz );
 }

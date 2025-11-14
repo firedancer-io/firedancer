@@ -309,7 +309,7 @@ fd_vm_syscall_sol_get_stack_height( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  *_ret = vm->instr_ctx->txn_ctx->instr.stack_sz;
+  *_ret = vm->instr_ctx->runtime->instr.stack_sz;
   return FD_VM_SUCCESS;
 }
 
@@ -455,11 +455,11 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
   /* Get the current instruction stack height.  This value is 1-indexed
      (top level instruction has a stack height of 1).
     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1517 */
-  ulong stack_height = vm->instr_ctx->txn_ctx->instr.stack_sz;
+  ulong stack_height = vm->instr_ctx->runtime->instr.stack_sz;
 
   /* Reverse iterate through the instruction trace, ignoring anything except instructions on the same level.
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1518-L1522 */
-  ulong instruction_trace_length = vm->instr_ctx->txn_ctx->instr.trace_length;
+  ulong instruction_trace_length = vm->instr_ctx->runtime->instr.trace_length;
   ulong reverse_index_at_stack_height = 0UL;
   fd_exec_instr_trace_entry_t * found_instruction_context = NULL;
   for( ulong index_in_trace=instruction_trace_length; index_in_trace>0UL; index_in_trace-- ) {
@@ -468,7 +468,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
        This error can never happen */
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1527-L1529 */
-    fd_exec_instr_trace_entry_t * instruction_context = &vm->instr_ctx->txn_ctx->instr.trace[ index_in_trace-1UL ];
+    fd_exec_instr_trace_entry_t * instruction_context = &vm->instr_ctx->runtime->instr.trace[ index_in_trace-1UL ];
     if( FD_LIKELY( instruction_context->stack_height<stack_height ) ) {
       break;
     }

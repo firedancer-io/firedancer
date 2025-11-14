@@ -22,9 +22,9 @@ struct fd_txn_return_data {
 typedef struct fd_txn_return_data fd_txn_return_data_t;
 
 struct fd_txn_err {
-  int is_committable;
-  int is_fees_only;
-  int txn_err;
+  int  is_committable;
+  int  is_fees_only;
+  int  txn_err;
   /* These are error fields produced by instruction execution
       when txn_err == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR (-9). */
   int  exec_err;
@@ -78,30 +78,6 @@ struct fd_exec_txn_ctx {
   fd_txn_p_t           txn;
   fd_exec_accounts_t * exec_accounts;
   fd_bank_hash_cmp_t * bank_hash_cmp;
-
-  struct {
-    uchar                       stack_sz;                              /* Current depth of the instruction execution stack. */
-    fd_exec_instr_ctx_t         stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
-    /* The memory for all of the instructions in the transaction
-       (including CPI instructions) are preallocated.  However, the order
-       in which the instructions are executed does not match the order in
-       which they are allocated.  The instr_trace will instead be used to
-       track the order in which the instructions are executed.  We leave
-       space for an extra instruction to account for the case where the
-       transaction has too many instructions leading to
-       FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED.
-       TODO: In reality, we should just be allocating instr_infos per
-       instruction and not up front.  The dependency on using instr_info
-       for the sysvar instruction setup is not needed and should be
-       removed.  At this point, instr_info snad instr_trace should be
-       combined. */
-    fd_instr_info_t             infos[FD_MAX_INSTRUCTION_TRACE_LENGTH * 2UL];
-    ulong                       info_cnt;
-    fd_exec_instr_trace_entry_t trace[FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
-    ulong                       trace_length;                           /* Number of instructions in the trace */
-    /* The current instruction index being executed */
-    int current_idx;
-  } instr;
 
   struct {
     int            is_bundle;

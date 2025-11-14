@@ -332,6 +332,7 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
 
 fd_exec_txn_ctx_t *
 fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
+                         fd_runtime_t *            runtime,
                          fd_txn_p_t *              txn,
                          int *                     exec_res,
                          fd_txn_out_t *            txn_out ) {
@@ -356,15 +357,13 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
     tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
   }
 
-  fd_runtime_t runtime = {
-    .funk         = runner->funk,
-    .progcache    = runner->progcache,
-    .status_cache = NULL,
-    .exec_stack   = runner->exec_stack,
-  };
+  runtime->funk         = runner->funk,
+  runtime->progcache    = runner->progcache,
+  runtime->status_cache = NULL,
+  runtime->exec_stack   = runner->exec_stack,
 
   *exec_res = fd_runtime_prepare_and_execute_txn(
-      &runtime,
+      runtime,
       runner->bank,
       txn_ctx,
       txn,
@@ -393,8 +392,9 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
 
     /* Execute the transaction against the runtime */
     int exec_res = 0;
-    fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
-    fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, txn, &exec_res, txn_out );
+    fd_runtime_t *      runtime = fd_spad_alloc( runner->spad, alignof(fd_runtime_t), sizeof(fd_runtime_t) );
+    fd_txn_out_t *      txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
+    fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, runtime, txn, &exec_res, txn_out );
 
     /* Start saving txn exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
@@ -454,7 +454,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
       /* Capture the instruction error code */
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
         int instr_err_idx                   = txn_out->err.exec_err_idx;
-        int program_id_idx                  = txn_ctx->instr.infos[instr_err_idx].program_id;
+        int program_id_idx                  = runtime->instr.infos[instr_err_idx].program_id;
 
         txn_result->instruction_error       = (uint32_t) -txn_out->err.exec_err;
         txn_result->instruction_error_index = (uint32_t) instr_err_idx;

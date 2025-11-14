@@ -1133,8 +1133,8 @@ FD_SPAD_FRAME_BEGIN( spad ) {
           vm->instr_ctx->txn_ctx->log.capture_ctx->dump_proto_output_dir,
           fn_name,
           encoded_signature,
-          vm->instr_ctx->txn_ctx->instr.current_idx,
-          vm->instr_ctx->txn_ctx->instr.stack_sz,
+          vm->instr_ctx->runtime->instr.current_idx,
+          vm->instr_ctx->runtime->instr.stack_sz,
           vm->cu );
 
   /* The generated filename should be unique for every call. Silently return otherwise. */

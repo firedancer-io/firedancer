@@ -103,7 +103,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_ctx->bank                      = runner->bank;
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
-  txn_ctx->instr.stack_sz            = 0;
+  runtime->instr.stack_sz            = 0;
   txn_out->accounts.accounts_cnt     = 0UL;
   txn_out->accounts.executable_cnt   = 0UL;
 
@@ -117,17 +117,17 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   txn_ctx->log.capture_ctx   = NULL;
 
-  txn_ctx->instr.info_cnt     = 0UL;
-  txn_ctx->instr.trace_length = 0UL;
+  runtime->instr.info_cnt     = 0UL;
+  runtime->instr.trace_length = 0UL;
 
   txn_out->err.exec_err       = 0;
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
-  txn_ctx->instr.current_idx  = 0;
+  runtime->instr.current_idx  = 0;
 
   txn_ctx->txn                                               = *txn;
   txn_out->details.compute_budget.compute_unit_limit = test_ctx->cu_avail;
   txn_out->details.compute_budget.compute_meter      = test_ctx->cu_avail;
-  txn_ctx->instr.info_cnt                                    = 1UL;
+  runtime->instr.info_cnt                                    = 1UL;
   txn_ctx->log.enable_vm_tracing                             = runner->enable_vm_tracing;
   txn_ctx->log.tracing_mem                                   = runner->enable_vm_tracing ?
                                                                fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH ) :
@@ -144,7 +144,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     info->data    = test_ctx->data->bytes;
   }
 
-  txn_ctx->instr.infos[ 0UL ] = *info;
+  runtime->instr.infos[ 0UL ] = *info;
 
   /* Prepare borrowed account table (correctly handles aliasing) */
 

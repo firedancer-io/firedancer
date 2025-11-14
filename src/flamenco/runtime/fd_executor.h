@@ -144,13 +144,14 @@ fd_exec_consume_cus( fd_txn_out_t * txn_out,
 /* We expose these only for the fuzzing harness.
    Normally you shouldn't be invoking these manually. */
 int
-fd_instr_stack_push( fd_txn_out_t *      txn_out,
+fd_instr_stack_push( fd_runtime_t *      runtime,
+                     fd_txn_out_t *      txn_out,
                      fd_exec_txn_ctx_t * txn_ctx,
                      fd_instr_info_t *   instr );
 
 int
-fd_instr_stack_pop( fd_txn_out_t *          txn_out,
-                    fd_exec_txn_ctx_t *     txn_ctx,
+fd_instr_stack_pop( fd_runtime_t *          runtime,
+                    fd_txn_out_t *          txn_out,
                     fd_instr_info_t const * instr );
 
 FD_PROTOTYPES_END

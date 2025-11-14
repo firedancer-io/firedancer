@@ -381,17 +381,18 @@ fd_executor_verify_transaction( fd_txn_out_t *      txn_out,
 }
 
 static void
-fd_executor_setup_instr_infos_from_txn_instrs( fd_txn_out_t *      txn_out,
+fd_executor_setup_instr_infos_from_txn_instrs( fd_runtime_t *      runtime,
+                                               fd_txn_out_t *      txn_out,
                                                fd_exec_txn_ctx_t * txn_ctx ) {
   ushort instr_cnt = TXN( &txn_ctx->txn )->instr_cnt;
 
   /* Set up the instr infos for the transaction */
   for( ushort i=0; i<instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &TXN( &txn_ctx->txn )->instr[i];
-    fd_instr_info_init_from_txn_instr( &txn_ctx->instr.infos[i], txn_out, txn_ctx, instr );
+    fd_instr_info_init_from_txn_instr( &runtime->instr.infos[i], txn_out, txn_ctx, instr );
   }
 
-  txn_ctx->instr.info_cnt = instr_cnt;
+  runtime->instr.info_cnt = instr_cnt;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L410-427 */
@@ -429,7 +430,8 @@ accumulate_and_check_loaded_account_data_size( ulong   acc_size,
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
 static ulong
-load_transaction_account( fd_txn_out_t *      txn_out,
+load_transaction_account( fd_runtime_t *      runtime,
+                          fd_txn_out_t *      txn_out,
                           fd_exec_txn_ctx_t * txn_ctx,
                           fd_txn_account_t *  acct,
                           uchar               is_writable,
@@ -443,7 +445,7 @@ load_transaction_account( fd_txn_out_t *      txn_out,
        constructed by the SVM and modified within each transaction's
        instruction execution only, so it incurs a loaded size cost
        of 0. */
-    fd_sysvar_instructions_serialize_account( txn_out, txn_ctx, (fd_instr_info_t const *)txn_ctx->instr.infos, TXN( &txn_ctx->txn )->instr_cnt, txn_idx );
+    fd_sysvar_instructions_serialize_account( txn_out, txn_ctx, (fd_instr_info_t const *)runtime->instr.infos, TXN( &txn_ctx->txn )->instr_cnt, txn_idx );
     return 0UL;
   }
 
@@ -519,7 +521,7 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L733-L740 */
-    ulong loaded_acc_size = load_transaction_account( txn_out, txn_ctx, acct, is_writable, unknown_acc, i );
+    ulong loaded_acc_size = load_transaction_account( runtime, txn_out, txn_ctx, acct, is_writable, unknown_acc, i );
     int err = accumulate_and_check_loaded_account_data_size( loaded_acc_size,
                                                              requested_loaded_accounts_data_size,
                                                              &txn_out->details.loaded_accounts_data_size );
@@ -793,7 +795,7 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
 
     /* Load and collect any remaining accounts
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
-    ulong loaded_acc_size = load_transaction_account( txn_out, txn_ctx, acct, is_writable, unknown_acc, i );
+    ulong loaded_acc_size = load_transaction_account( runtime, txn_out, txn_ctx, acct, is_writable, unknown_acc, i );
     int err = fd_collect_loaded_account(
       runtime,
       txn_out,
@@ -1089,7 +1091,8 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
 
 /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L319-L357 */
 static inline int
-fd_txn_ctx_push( fd_txn_out_t *      txn_out,
+fd_txn_ctx_push( fd_runtime_t *      runtime,
+                 fd_txn_out_t *      txn_out,
                  fd_exec_txn_ctx_t * txn_ctx,
                  fd_instr_info_t *   instr ) {
   /* Earlier checks in the permalink are redundant since Agave maintains instr stack and trace accounts separately
@@ -1108,9 +1111,9 @@ fd_txn_ctx_push( fd_txn_out_t *      txn_out,
 
   /* Check that the caller's lamport sum has not changed.
      https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L329-L340 */
-  if( txn_ctx->instr.stack_sz>0 ) {
+  if( runtime->instr.stack_sz>0 ) {
     /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L330 */
-    fd_exec_instr_ctx_t const * caller_instruction_context = &txn_ctx->instr.stack[ txn_ctx->instr.stack_sz-1 ];
+    fd_exec_instr_ctx_t const * caller_instruction_context = &runtime->instr.stack[ runtime->instr.stack_sz-1 ];
 
     /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L331-L332 */
     ulong original_caller_lamport_sum_h = caller_instruction_context->instr->starting_lamports_h;
@@ -1135,16 +1138,16 @@ fd_txn_ctx_push( fd_txn_out_t *      txn_out,
   }
 
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L347-L351 */
-  if( FD_UNLIKELY( txn_ctx->instr.trace_length>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+  if( FD_UNLIKELY( runtime->instr.trace_length>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
   }
-  txn_ctx->instr.trace_length++;
+  runtime->instr.trace_length++;
 
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L352-L356 */
-  if( FD_UNLIKELY( txn_ctx->instr.stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH ) ) {
+  if( FD_UNLIKELY( runtime->instr.stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH ) ) {
     return FD_EXECUTOR_INSTR_ERR_CALL_DEPTH;
   }
-  txn_ctx->instr.stack_sz++;
+  runtime->instr.stack_sz++;
 
   /* A beloved refactor moves sysvar instructions updating to the instruction level as of v2.2.12...
      https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L396-L407 */
@@ -1163,7 +1166,7 @@ fd_txn_ctx_push( fd_txn_out_t *      txn_out,
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L403-L406 */
-    fd_sysvar_instructions_update_current_instr_idx( sysvar_instructions_account, (ushort)txn_ctx->instr.current_idx );
+    fd_sysvar_instructions_update_current_instr_idx( sysvar_instructions_account, (ushort)runtime->instr.current_idx );
     fd_txn_account_drop( sysvar_instructions_account );
   }
 
@@ -1176,7 +1179,8 @@ fd_txn_ctx_push( fd_txn_out_t *      txn_out,
 
    https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L246-L290 */
 int
-fd_instr_stack_push( fd_txn_out_t *      txn_out,
+fd_instr_stack_push( fd_runtime_t *      runtime,
+                     fd_txn_out_t *      txn_out,
                      fd_exec_txn_ctx_t * txn_ctx,
                      fd_instr_info_t *   instr ) {
   /* Agave keeps a vector of vectors called program_indices that stores the program_id index for each instruction within the transaction.
@@ -1198,18 +1202,18 @@ fd_instr_stack_push( fd_txn_out_t *      txn_out,
   }
 
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L256-L286 */
-  if( txn_ctx->instr.stack_sz ) {
+  if( runtime->instr.stack_sz ) {
     /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L261-L285 */
     uchar contains = 0;
     uchar is_last  = 0;
 
     // Checks all previous instructions in the stack for reentrancy
-    for( uchar level=0; level<txn_ctx->instr.stack_sz; level++ ) {
-      fd_exec_instr_ctx_t * instr_ctx = &txn_ctx->instr.stack[level];
+    for( uchar level=0; level<runtime->instr.stack_sz; level++ ) {
+      fd_exec_instr_ctx_t * instr_ctx = &runtime->instr.stack[level];
       // Optimization: compare program id index instead of pubkey since account keys are unique
       if( instr->program_id == instr_ctx->instr->program_id ) {
         // Reentrancy not allowed unless caller is calling itself
-        if( level == txn_ctx->instr.stack_sz-1 ) {
+        if( level == runtime->instr.stack_sz-1 ) {
           is_last = 1;
         }
         contains = 1;
@@ -1222,7 +1226,7 @@ fd_instr_stack_push( fd_txn_out_t *      txn_out,
   }
   /* "Push" a new instruction onto the stack by simply incrementing the stack and trace size counters
      https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L289 */
-  return fd_txn_ctx_push( txn_out, txn_ctx, instr );
+  return fd_txn_ctx_push( runtime, txn_out, txn_ctx, instr );
 }
 
 /* Pops an instruction from the instruction stack. Agave's implementation performs instruction balancing checks every time pop is called,
@@ -1231,14 +1235,14 @@ fd_instr_stack_push( fd_txn_out_t *      txn_out,
 
    https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L293-L298 */
 int
-fd_instr_stack_pop( fd_txn_out_t *            txn_out,
-                    fd_exec_txn_ctx_t *       txn_ctx,
-                    fd_instr_info_t const *   instr ) {
+fd_instr_stack_pop( fd_runtime_t *          runtime,
+                    fd_txn_out_t *          txn_out,
+                    fd_instr_info_t const * instr ) {
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L362-L364 */
-  if( FD_UNLIKELY( txn_ctx->instr.stack_sz==0 ) ) {
+  if( FD_UNLIKELY( runtime->instr.stack_sz==0 ) ) {
     return FD_EXECUTOR_INSTR_ERR_CALL_DEPTH;
   }
-  txn_ctx->instr.stack_sz--;
+  runtime->instr.stack_sz--;
 
   /* Verify all executable accounts have no outstanding refs
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L367-L371 */
@@ -1276,7 +1280,7 @@ static inline int
 fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
                       fd_instr_info_t *     instr,
                       int                   instr_exec_result ) {
-  int stack_pop_err = fd_instr_stack_pop( instr_ctx->txn_out, instr_ctx->txn_ctx, instr );
+  int stack_pop_err = fd_instr_stack_pop( instr_ctx->runtime, instr_ctx->txn_out, instr );
 
   /* Only report the stack pop error on success */
   if( FD_UNLIKELY( instr_exec_result==FD_EXECUTOR_INSTR_SUCCESS && stack_pop_err ) ) {
@@ -1294,7 +1298,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
                   fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( txn_ctx->bank );
-  int instr_exec_result = fd_instr_stack_push( txn_out, txn_ctx, instr );
+  int instr_exec_result = fd_instr_stack_push( runtime, txn_out, txn_ctx, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {
     FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
     FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
@@ -1303,7 +1307,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
 
   /* `process_executable_chain()`
       https://github.com/anza-xyz/agave/blob/v2.2.12/program-runtime/src/invoke_context.rs#L512-L619 */
-  fd_exec_instr_ctx_t * ctx = &txn_ctx->instr.stack[ txn_ctx->instr.stack_sz - 1 ];
+  fd_exec_instr_ctx_t * ctx = &runtime->instr.stack[ runtime->instr.stack_sz - 1 ];
   *ctx = (fd_exec_instr_ctx_t) {
     .instr        = instr,
     .txn_ctx      = txn_ctx,
@@ -1313,9 +1317,9 @@ fd_execute_instr( fd_runtime_t *      runtime,
   };
   fd_base58_encode_32( txn_out->accounts.accounts[ instr->program_id ].pubkey->uc, NULL, ctx->program_id_base58 );
 
-  txn_ctx->instr.trace[ txn_ctx->instr.trace_length - 1 ] = (fd_exec_instr_trace_entry_t) {
+  runtime->instr.trace[ runtime->instr.trace_length - 1 ] = (fd_exec_instr_trace_entry_t) {
     .instr_info = instr,
-    .stack_height = txn_ctx->instr.stack_sz,
+    .stack_height = runtime->instr.stack_sz,
   };
 
   /* Look up the native program. We check for precompiles within the lookup function as well.
@@ -1557,7 +1561,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   txn_out->accounts.executable_cnt   = j;
 
   /* Set up instr infos from the txn descriptor. No Agave equivalent to this function. */
-  fd_executor_setup_instr_infos_from_txn_instrs( txn_out, txn_ctx );
+  fd_executor_setup_instr_infos_from_txn_instrs( runtime, txn_out, txn_ctx );
 }
 
 int
@@ -1589,13 +1593,13 @@ fd_execute_txn( fd_runtime_t *      runtime,
   fd_log_collector_init( &txn_ctx->log.log_collector, txn_ctx->log.enable_exec_recording );
 
   for( ushort i=0; i<TXN( &txn_ctx->txn )->instr_cnt; i++ ) {
-    txn_ctx->instr.current_idx = i;
+    runtime->instr.current_idx = i;
     if( FD_UNLIKELY( dump_insn ) ) {
       // Capture the input and convert it into a Protobuf message
-      fd_dump_instr_to_protobuf( runtime, txn_out, txn_ctx, &txn_ctx->instr.infos[i], i );
+      fd_dump_instr_to_protobuf( runtime, txn_out, txn_ctx, &runtime->instr.infos[i], i );
     }
 
-    int instr_exec_result = fd_execute_instr( runtime, txn_out, txn_ctx, &txn_ctx->instr.infos[i] );
+    int instr_exec_result = fd_execute_instr( runtime, txn_out, txn_ctx, &runtime->instr.infos[i] );
     if( FD_UNLIKELY( instr_exec_result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       if( txn_out->err.exec_err_idx==INT_MAX ) {
         txn_out->err.exec_err_idx = i;

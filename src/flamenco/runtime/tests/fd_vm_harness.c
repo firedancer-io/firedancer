@@ -161,7 +161,7 @@ do{
                                             ( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
-  int stack_push_err = fd_instr_stack_push( instr_ctx->txn_out, instr_ctx->txn_ctx, (fd_instr_info_t *)instr_ctx->instr );
+  int stack_push_err = fd_instr_stack_push( instr_ctx->runtime, instr_ctx->txn_out, instr_ctx->txn_ctx, (fd_instr_info_t *)instr_ctx->instr );
   if( FD_UNLIKELY( stack_push_err ) ) {
     FD_LOG_WARNING(( "instr stack push err" ));
     fd_solfuzz_pb_instr_ctx_destroy( runner, instr_ctx );
@@ -401,8 +401,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   if( !fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks ) )
     goto error;
 
-  ctx->txn_ctx->instr.trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
-  ctx->txn_ctx->instr.trace[0].stack_height = 1;
+  ctx->runtime->instr.trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
+  ctx->runtime->instr.trace[0].stack_height = 1;
   ctx->txn_out->err.exec_err = 0;
   ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
 
@@ -472,7 +472,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                                       ( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
-  int stack_push_err = fd_instr_stack_push( ctx->txn_out, ctx->txn_ctx, (fd_instr_info_t *)ctx->instr );
+  int stack_push_err = fd_instr_stack_push( ctx->runtime, ctx->txn_out, ctx->txn_ctx, (fd_instr_info_t *)ctx->instr );
   if( FD_UNLIKELY( stack_push_err ) ) {
       FD_LOG_WARNING(( "instr stack push err" ));
       goto error;
@@ -553,16 +553,17 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   }
 
   /* There's an instr ctx struct embedded in the txn ctx instr stack. */
-  fd_exec_instr_ctx_t * instr_ctx = &ctx->txn_ctx->instr.stack[ ctx->txn_ctx->instr.stack_sz - 1 ];
+  fd_exec_instr_ctx_t * instr_ctx = &ctx->runtime->instr.stack[ ctx->runtime->instr.stack_sz - 1 ];
   *instr_ctx = (fd_exec_instr_ctx_t) {
     .instr     = ctx->instr,
     .txn_ctx   = ctx->txn_ctx,
     .txn_out   = ctx->txn_out,
+    .runtime   = ctx->runtime,
   };
 
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
-  int stack_pop_err = fd_instr_stack_pop( ctx->txn_out, ctx->txn_ctx, ctx->instr );
+  int stack_pop_err = fd_instr_stack_pop( ctx->runtime, ctx->txn_out, ctx->instr );
   if( FD_UNLIKELY( stack_pop_err ) ) {
       FD_LOG_WARNING(( "instr stack pop err" ));
       goto error;
