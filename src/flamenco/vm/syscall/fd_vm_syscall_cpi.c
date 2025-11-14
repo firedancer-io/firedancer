@@ -105,8 +105,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     /* TODO: this code would maybe be easier to read if we inverted the branches */
     if( duplicate_index!=ULONG_MAX ) {
       if ( FD_UNLIKELY( duplicate_index >= deduplicated_instruction_accounts_cnt ) ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->err.exec_err_idx );
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->err.exec_err_idx );
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       duplicate_indices[duplicate_indicies_cnt++] = duplicate_index;
@@ -170,8 +170,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
       callee_instr->accounts[i].is_writable = !!(instruction_accounts[i].is_writable);
       callee_instr->accounts[i].is_signer   = !!(instruction_accounts[i].is_signer);
     } else {
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->err.exec_err_idx );
-      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->err.exec_err_idx );
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
   }
 

@@ -1116,7 +1116,7 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
     fd_txn_account_t * sysvar_instructions_account = NULL;
     err = fd_exec_txn_ctx_get_account_at_index( txn_ctx, (ushort)idx, &sysvar_instructions_account, NULL );
     if( FD_UNLIKELY( err ) ) {
-      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L401-L402 */
