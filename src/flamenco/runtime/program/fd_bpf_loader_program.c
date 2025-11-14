@@ -2517,7 +2517,8 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     fd_txn_account_t * program_data_account = NULL;
     fd_pubkey_t *      programdata_pubkey   = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
-    err = fd_exec_txn_ctx_get_executable_account( ctx->txn_ctx,
+    err = fd_exec_txn_ctx_get_executable_account( ctx->txn_out,
+                                                  ctx->txn_ctx,
                                                   programdata_pubkey,
                                                   &program_data_account,
                                                   fd_txn_account_check_exists );
@@ -2628,8 +2629,8 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
 
   fd_txn_out_t txn_out;
   fd_compute_budget_details_new( &txn_out.details.compute_budget );
-  txn_ctx->accounts.accounts_cnt     = 0UL;
-  txn_ctx->accounts.executable_cnt   = 0UL;
+  txn_out.accounts.accounts_cnt     = 0UL;
+  txn_out.accounts.executable_cnt   = 0UL;
 
   txn_out.details.programs_to_reverify_cnt       = 0UL;
   txn_out.details.loaded_accounts_data_size      = 0UL;

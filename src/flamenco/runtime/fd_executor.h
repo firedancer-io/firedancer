@@ -87,13 +87,16 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
 
 void
 fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
+                                    fd_txn_out_t *      txn_out,
                                     fd_exec_txn_ctx_t * txn_ctx );
 
 void
-fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_setup_txn_account_keys( fd_txn_out_t *      txn_out,
+                                    fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
+                                         fd_txn_out_t *      txn_out,
                                          fd_exec_txn_ctx_t * txn_ctx );
 
 /*
@@ -101,7 +104,8 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
  */
 
 int
-fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_txn_check( fd_txn_out_t *      txn_out,
+                       fd_exec_txn_ctx_t * txn_ctx );
 
 void
 fd_executor_reclaim_account( fd_exec_txn_ctx_t * txn_ctx,
@@ -121,7 +125,8 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
                                        fd_exec_txn_ctx_t * txn_ctx );
 
 int
-fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );
+fd_executor_validate_account_locks( fd_txn_out_t const *      txn_out,
+                                    fd_exec_txn_ctx_t const * txn_ctx );
 
 static inline int
 fd_exec_consume_cus( fd_txn_out_t * txn_out,
@@ -139,12 +144,14 @@ fd_exec_consume_cus( fd_txn_out_t * txn_out,
 /* We expose these only for the fuzzing harness.
    Normally you shouldn't be invoking these manually. */
 int
-fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
-                     fd_instr_info_t *       instr );
+fd_instr_stack_push( fd_txn_out_t *      txn_out,
+                     fd_exec_txn_ctx_t * txn_ctx,
+                     fd_instr_info_t *   instr );
 
 int
-fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
-                    fd_instr_info_t const *   instr );
+fd_instr_stack_pop( fd_txn_out_t *          txn_out,
+                    fd_exec_txn_ctx_t *     txn_ctx,
+                    fd_instr_info_t const * instr );
 
 FD_PROTOTYPES_END
 

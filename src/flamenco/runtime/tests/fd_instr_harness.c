@@ -104,8 +104,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
   txn_ctx->instr.stack_sz            = 0;
-  txn_ctx->accounts.accounts_cnt     = 0UL;
-  txn_ctx->accounts.executable_cnt   = 0UL;
+  txn_out->accounts.accounts_cnt     = 0UL;
+  txn_out->accounts.executable_cnt   = 0UL;
 
   txn_out->details.programs_to_reverify_cnt       = 0UL;
   txn_out->details.loaded_accounts_data_size      = 0UL;
@@ -155,16 +155,16 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Load accounts into database */
 
-  fd_txn_account_t * accts = txn_ctx->accounts.accounts;
+  fd_txn_account_t * accts = txn_out->accounts.accounts;
   fd_memset( accts, 0, test_ctx->accounts_count * sizeof(fd_txn_account_t) );
-  txn_ctx->accounts.accounts_cnt = test_ctx->accounts_count;
+  txn_out->accounts.accounts_cnt = test_ctx->accounts_count;
 
   int has_program_id = 0;
 
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
 
-    memcpy(  &(txn_ctx->accounts.account_keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
+    memcpy(  &(txn_out->accounts.account_keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
     if( !fd_solfuzz_pb_load_account( &accts[j], runner->accdb, xid, &test_ctx->accounts[j], 0 ) ) {
       return 0;
     }
@@ -182,7 +182,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
     if( !memcmp( accts[j].pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       has_program_id = 1;
-      info->program_id = (uchar)txn_ctx->accounts.accounts_cnt;
+      info->program_id = (uchar)txn_out->accounts.accounts_cnt;
     }
 
     /* Since the instructions sysvar is set as mutable at the txn level, we need to make it mutable here as well. */
@@ -194,7 +194,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* If the program id is not in the set of accounts it must be added to the set of accounts. */
   if( FD_UNLIKELY( !has_program_id ) ) {
     fd_txn_account_t * program_acc = &accts[ test_ctx->accounts_count ];
-    fd_pubkey_t *      program_key = &txn_ctx->accounts.account_keys[ txn_ctx->accounts.accounts_cnt ];
+    fd_pubkey_t *      program_key = &txn_out->accounts.account_keys[ txn_out->accounts.accounts_cnt ];
     memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
 
     fd_account_meta_t * meta = fd_spad_alloc( runner->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
@@ -208,12 +208,12 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       FD_LOG_CRIT(( "Failed to join and new a txn account" ));
     }
 
-    info->program_id = (uchar)txn_ctx->accounts.accounts_cnt;
-    txn_ctx->accounts.accounts_cnt++;
+    info->program_id = (uchar)txn_out->accounts.accounts_cnt;
+    txn_out->accounts.accounts_cnt++;
   }
 
   /* Load in executable accounts */
-  for( ulong i = 0; i < txn_ctx->accounts.accounts_cnt; i++ ) {
+  for( ulong i = 0; i < txn_out->accounts.accounts_cnt; i++ ) {
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[i].address;
 
     fd_txn_account_t * acc = &accts[i];
@@ -244,13 +244,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       }
 
       fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
-      if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->accounts.executable_accounts[txn_ctx->accounts.executable_cnt],
+      if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( &txn_out->accounts.executable_accounts[txn_out->accounts.executable_cnt],
                                                                programdata_acc,
                                                                runtime->funk,
                                                                xid ) ) ) {
         continue;
       }
-      txn_ctx->accounts.executable_cnt++;
+      txn_out->accounts.executable_cnt++;
     }
   }
 
@@ -364,7 +364,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_ctx->bank                      = runner->bank;
 
   fd_log_collector_init( &ctx->txn_ctx->log.log_collector, 1 );
-  fd_base58_encode_32( txn_ctx->accounts.account_keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
+  fd_base58_encode_32( txn_out->accounts.account_keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
 
   return 1;
 }
@@ -421,13 +421,13 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   if( FD_LIKELY( effects->result ) ) {
     int program_id_idx = ctx->instr[ 0UL ].program_id;
     if( exec_result==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-        fd_executor_lookup_native_precompile_program( &ctx->txn_ctx->accounts.accounts[ program_id_idx ] )==NULL ) {
+        fd_executor_lookup_native_precompile_program( &ctx->txn_out->accounts.accounts[ program_id_idx ] )==NULL ) {
       effects->custom_err = ctx->txn_out->err.custom_err;
     }
   }
 
   /* Allocate space for captured accounts */
-  ulong modified_acct_cnt = ctx->txn_ctx->accounts.accounts_cnt;
+  ulong modified_acct_cnt = ctx->txn_out->accounts.accounts_cnt;
 
   fd_exec_test_acct_state_t * modified_accts =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
@@ -441,8 +441,8 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
   /* Capture borrowed accounts */
 
-  for( ulong j=0UL; j < ctx->txn_ctx->accounts.accounts_cnt; j++ ) {
-    fd_txn_account_t * acc = &ctx->txn_ctx->accounts.accounts[j];
+  for( ulong j=0UL; j < ctx->txn_out->accounts.accounts_cnt; j++ ) {
+    fd_txn_account_t * acc = &ctx->txn_out->accounts.accounts[j];
     if( !fd_txn_account_get_meta( acc ) ) {
       continue;
     }

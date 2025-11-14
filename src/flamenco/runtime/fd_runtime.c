@@ -573,7 +573,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
      passed in via the serialized transaction, represented as an array.
      Note that this does not include additional keys referenced in
      address lookup tables. */
-  fd_executor_setup_txn_account_keys( txn_ctx );
+  fd_executor_setup_txn_account_keys( txn_out, txn_ctx );
 
   int err;
 
@@ -606,7 +606,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
                        fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot &&
                        txn_ctx->log.capture_ctx->dump_txn_to_pb );
   if( FD_UNLIKELY( dump_txn ) ) {
-    fd_dump_txn_to_protobuf( runtime, txn_ctx );
+    fd_dump_txn_to_protobuf( runtime, txn_out, txn_ctx );
   }
 
   /* Verify the transaction. For now, this step only involves processing
@@ -618,20 +618,20 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   }
 
   /* Resolve and verify ALUT-referenced account keys, if applicable */
-  err = fd_executor_setup_txn_alut_account_keys( runtime, txn_ctx );
+  err = fd_executor_setup_txn_alut_account_keys( runtime, txn_out, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_out->err.is_committable = 0;
     return err;
   }
 
   /* Set up the transaction accounts and other txn ctx metadata */
-  fd_executor_setup_accounts_for_txn( runtime, txn_ctx );
+  fd_executor_setup_accounts_for_txn( runtime, txn_out, txn_ctx );
 
   /* Post-sanitization checks. Called from prepare_sanitized_batch()
      which, for now, only is used to lock the accounts and perform a
      couple basic validations.
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
-  err = fd_executor_validate_account_locks( txn_ctx );
+  err = fd_executor_validate_account_locks( txn_out, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_out->err.is_committable = 0;
     return err;
@@ -672,14 +672,14 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
         https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
 
         In any case, we should always add the dlen of the fee payer. */
-    txn_out->details.loaded_accounts_data_size = fd_txn_account_get_data_len( &txn_ctx->accounts.accounts[FD_FEE_PAYER_TXN_IDX] );
+    txn_out->details.loaded_accounts_data_size = fd_txn_account_get_data_len( &txn_out->accounts.accounts[FD_FEE_PAYER_TXN_IDX] );
 
     /* Special case handling for if a nonce account is present in the transaction. */
-    if( txn_ctx->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+    if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
       /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
           be double counting the dlen of the fee payer. */
-      if( txn_ctx->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
-        txn_out->details.loaded_accounts_data_size += fd_txn_account_get_data_len( txn_ctx->accounts.rollback_nonce );
+      if( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
+        txn_out->details.loaded_accounts_data_size += fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce );
       }
     }
   }
@@ -912,13 +912,13 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
        3. Nonce account is not the fee payer
 
        We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
-    if( txn_ctx->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-      fd_runtime_save_account( runtime->funk, &xid, txn_ctx->accounts.rollback_nonce, bank, capture_ctx );
+    if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+      fd_runtime_save_account( runtime->funk, &xid, txn_out->accounts.rollback_nonce, bank, capture_ctx );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
-    if( FD_LIKELY( txn_ctx->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      fd_runtime_save_account( runtime->funk, &xid, txn_ctx->accounts.rollback_fee_payer, bank, capture_ctx );
+    if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
+      fd_runtime_save_account( runtime->funk, &xid, txn_out->accounts.rollback_fee_payer, bank, capture_ctx );
     }
   } else {
 
@@ -929,14 +929,14 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
       tip_accounts = MAINNET_TIP_ACCOUNTS;
     }
 
-    for( ushort i=0; i<txn_ctx->accounts.accounts_cnt; i++ ) {
+    for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
-      if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
+      if( !fd_exec_txn_ctx_account_is_writable_idx( txn_out, txn_ctx, i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
         continue;
       }
 
-      fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_ctx->accounts.accounts[i] );
+      fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_out->accounts.accounts[i] );
       if( FD_UNLIKELY( !acc_rec ) ) {
         FD_LOG_CRIT(( "fd_runtime_commit_txn: failed to join account at idx %u", i ));
       }
@@ -965,9 +965,9 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
 
       /* Reclaim any accounts that have 0-lamports, now that any related
          cache updates have been applied. */
-      fd_executor_reclaim_account( txn_ctx, &txn_ctx->accounts.accounts[i] );
+      fd_executor_reclaim_account( txn_ctx, &txn_out->accounts.accounts[i] );
 
-      fd_runtime_save_account( runtime->funk, &xid, &txn_ctx->accounts.accounts[i], bank, capture_ctx );
+      fd_runtime_save_account( runtime->funk, &xid, &txn_out->accounts.accounts[i], bank, capture_ctx );
     }
 
     /* We need to queue any existing program accounts that may have
@@ -1011,7 +1011,7 @@ fd_runtime_commit_txn( fd_runtime_t *            runtime,
 
   txn_out->details.loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_out );
 
-  if( FD_LIKELY( runtime->status_cache && txn_ctx->accounts.nonce_idx_in_txn==ULONG_MAX ) ) {
+  if( FD_LIKELY( runtime->status_cache && txn_out->accounts.nonce_idx_in_txn==ULONG_MAX ) ) {
     /* In Agave, durable nonce transactions are inserted to the status
        cache the same as any others, but this is only to serve RPC
        requests, they do not need to be in there for correctness as the
@@ -1039,8 +1039,8 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   txn_ctx->txn                   = *txn;
   txn_ctx->exec_accounts         = exec_accounts;
 
-  txn_ctx->accounts.accounts_cnt   = 0UL;
-  txn_ctx->accounts.executable_cnt = 0UL;
+  txn_out->accounts.accounts_cnt   = 0UL;
+  txn_out->accounts.executable_cnt = 0UL;
 
   txn_out->details.programs_to_reverify_cnt       = 0UL;
   txn_out->details.loaded_accounts_data_size      = 0UL;
@@ -1059,9 +1059,6 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   txn_ctx->instr.trace_length = 0UL;
   txn_ctx->instr.current_idx  = 0;
   txn_ctx->instr.stack_sz     = 0;
-
-  txn_ctx->accounts.accounts_cnt   = 0UL;
-  txn_ctx->accounts.executable_cnt = 0UL;
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;

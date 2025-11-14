@@ -283,7 +283,7 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
-  if( FD_UNLIKELY( txn_ctx->accounts.nonce_idx_in_txn!=ULONG_MAX ) ) {
+  if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) ) {
     /* In Agave, durable nonce transactions are inserted to the status
        cache the same as any others, but this is only to serve RPC
        requests, they do not need to be in there for correctness as the
@@ -317,7 +317,7 @@ fd_executor_check_transaction_age_and_compute_budget_limits( fd_runtime_t *     
      fail, then we return the transaction age error instead of the
      compute budget error.
      https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L128-L136 */
-  int err = fd_check_transaction_age( runtime, txn_ctx );
+  int err = fd_check_transaction_age( runtime, txn_out, txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
@@ -381,13 +381,14 @@ fd_executor_verify_transaction( fd_txn_out_t *      txn_out,
 }
 
 static void
-fd_executor_setup_instr_infos_from_txn_instrs( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_executor_setup_instr_infos_from_txn_instrs( fd_txn_out_t *      txn_out,
+                                               fd_exec_txn_ctx_t * txn_ctx ) {
   ushort instr_cnt = TXN( &txn_ctx->txn )->instr_cnt;
 
   /* Set up the instr infos for the transaction */
   for( ushort i=0; i<instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &TXN( &txn_ctx->txn )->instr[i];
-    fd_instr_info_init_from_txn_instr( &txn_ctx->instr.infos[i], txn_ctx, instr );
+    fd_instr_info_init_from_txn_instr( &txn_ctx->instr.infos[i], txn_out, txn_ctx, instr );
   }
 
   txn_ctx->instr.info_cnt = instr_cnt;
@@ -428,7 +429,8 @@ accumulate_and_check_loaded_account_data_size( ulong   acc_size,
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
 static ulong
-load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
+load_transaction_account( fd_txn_out_t *      txn_out,
+                          fd_exec_txn_ctx_t * txn_ctx,
                           fd_txn_account_t *  acct,
                           uchar               is_writable,
                           uchar               unknown_acc,
@@ -441,7 +443,7 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
        constructed by the SVM and modified within each transaction's
        instruction execution only, so it incurs a loaded size cost
        of 0. */
-    fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const *)txn_ctx->instr.infos, TXN( &txn_ctx->txn )->instr_cnt, txn_idx );
+    fd_sysvar_instructions_serialize_account( txn_out, txn_ctx, (fd_instr_info_t const *)txn_ctx->instr.infos, TXN( &txn_ctx->txn )->instr_cnt, txn_idx );
     return 0UL;
   }
 
@@ -491,11 +493,11 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
   ulong requested_loaded_accounts_data_size = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
-  for( ushort i=0; i<txn_ctx->accounts.accounts_cnt; i++ ) {
-    fd_txn_account_t * acct = &txn_ctx->accounts.accounts[i];
-    uchar unknown_acc = !!(fd_exec_txn_ctx_get_account_at_index( txn_ctx, i, &acct, fd_txn_account_check_exists ) ||
+  for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
+    fd_txn_account_t * acct = &txn_out->accounts.accounts[i];
+    uchar unknown_acc = !!(fd_exec_txn_ctx_get_account_at_index( txn_out, txn_ctx, i, &acct, fd_txn_account_check_exists ) ||
                             fd_txn_account_get_lamports( acct )==0UL);
-    uchar is_writable = !!(fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, i ));
+    uchar is_writable = !!(fd_exec_txn_ctx_account_is_writable_idx( txn_out, txn_ctx, i ));
 
     /* Collect the fee payer account separately (since it was already)
        loaded during fee payer validation.
@@ -517,7 +519,7 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L733-L740 */
-    ulong loaded_acc_size = load_transaction_account( txn_ctx, acct, is_writable, unknown_acc, i );
+    ulong loaded_acc_size = load_transaction_account( txn_out, txn_ctx, acct, is_writable, unknown_acc, i );
     int err = accumulate_and_check_loaded_account_data_size( loaded_acc_size,
                                                              requested_loaded_accounts_data_size,
                                                              &txn_out->details.loaded_accounts_data_size );
@@ -539,14 +541,15 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
     fd_txn_instr_t const * instr = &TXN( &txn_ctx->txn )->instr[i];
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L449-L451 */
-    if( FD_UNLIKELY( !memcmp( txn_ctx->accounts.account_keys[ instr->program_id ].key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( !memcmp( txn_out->accounts.account_keys[ instr->program_id ].key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) ) {
       continue;
     }
 
     /* Mimicking `load_account()` here with 0-lamport check as well.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L455-L462 */
     fd_txn_account_t * program_account = NULL;
-    int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+    int err = fd_exec_txn_ctx_get_account_at_index( txn_out,
+                                                    txn_ctx,
                                                     instr->program_id,
                                                     &program_account,
                                                     fd_txn_account_check_exists );
@@ -679,8 +682,8 @@ fd_collect_loaded_account( fd_runtime_t *           runtime,
   /* Iterate through the account keys and make sure the programdata
      account is not present so it doesn't get loaded twice.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L617 */
-  for( ushort i=0; i<txn_ctx->accounts.accounts_cnt; i++ ) {
-    if( FD_UNLIKELY( !memcmp( &txn_ctx->accounts.account_keys[i], &loader_state->inner.program.programdata_address, sizeof(fd_pubkey_t) ) ) ) {
+  for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
+    if( FD_UNLIKELY( !memcmp( &txn_out->accounts.account_keys[i], &loader_state->inner.program.programdata_address, sizeof(fd_pubkey_t) ) ) ) {
       return FD_RUNTIME_EXECUTE_SUCCESS;
     }
   }
@@ -756,11 +759,11 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L642-L660 */
-  for( ushort i=0; i<txn_ctx->accounts.accounts_cnt; i++ ) {
-    fd_txn_account_t * acct = &txn_ctx->accounts.accounts[i];
-    uchar unknown_acc = !!(fd_exec_txn_ctx_get_account_at_index( txn_ctx, i, &acct, fd_txn_account_check_exists ) ||
+  for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
+    fd_txn_account_t * acct = &txn_out->accounts.accounts[i];
+    uchar unknown_acc = !!(fd_exec_txn_ctx_get_account_at_index( txn_out, txn_ctx, i, &acct, fd_txn_account_check_exists ) ||
                             fd_txn_account_get_lamports( acct )==0UL);
-    uchar is_writable = !!(fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, i ));
+    uchar is_writable = !!(fd_exec_txn_ctx_account_is_writable_idx( txn_out, txn_ctx, i ));
 
     /* Collect the fee payer account separately (since it was already)
        loaded during fee payer validation.
@@ -790,7 +793,7 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
 
     /* Load and collect any remaining accounts
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
-    ulong loaded_acc_size = load_transaction_account( txn_ctx, acct, is_writable, unknown_acc, i );
+    ulong loaded_acc_size = load_transaction_account( txn_out, txn_ctx, acct, is_writable, unknown_acc, i );
     int err = fd_collect_loaded_account(
       runtime,
       txn_out,
@@ -812,7 +815,8 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
     /* Mimicking `load_account()` here with 0-lamport check as well.
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L663-L666 */
     fd_txn_account_t * program_account;
-    int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+    int err = fd_exec_txn_ctx_get_account_at_index( txn_out,
+                                                    txn_ctx,
                                                     instr->program_id,
                                                     &program_account,
                                                     fd_txn_account_check_exists );
@@ -851,19 +855,20 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
 
 /* https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
 int
-fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx ) {
+fd_executor_validate_account_locks( fd_txn_out_t const *      txn_out,
+                                    fd_exec_txn_ctx_t const * txn_ctx ) {
   /* Ensure the number of account keys does not exceed the transaction lock limit
      https://github.com/anza-xyz/agave/blob/v2.2.17/accounts-db/src/account_locks.rs#L121 */
   ulong tx_account_lock_limit = get_transaction_account_lock_limit( txn_ctx );
-  if( FD_UNLIKELY( txn_ctx->accounts.accounts_cnt>tx_account_lock_limit ) ) {
+  if( FD_UNLIKELY( txn_out->accounts.accounts_cnt>tx_account_lock_limit ) ) {
     return FD_RUNTIME_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS;
   }
 
   /* Duplicate account check
      https://github.com/anza-xyz/agave/blob/v2.2.17/accounts-db/src/account_locks.rs#L123 */
-  for( ushort i=0; i<txn_ctx->accounts.accounts_cnt; i++ ) {
-    for( ushort j=(ushort)(i+1U); j<txn_ctx->accounts.accounts_cnt; j++ ) {
-      if( FD_UNLIKELY( !memcmp( &txn_ctx->accounts.account_keys[i], &txn_ctx->accounts.account_keys[j], sizeof(fd_pubkey_t) ) ) ) {
+  for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
+    for( ushort j=(ushort)(i+1U); j<txn_out->accounts.accounts_cnt; j++ ) {
+      if( FD_UNLIKELY( !memcmp( &txn_out->accounts.account_keys[i], &txn_out->accounts.account_keys[j], sizeof(fd_pubkey_t) ) ) ) {
         return FD_RUNTIME_TXN_ERR_ACCOUNT_LOADED_TWICE;
       }
     }
@@ -896,7 +901,7 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
   ulong num_signatures = txn_descriptor->signature_cnt;
   for (ushort i=0; i<txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t const * txn_instr  = &txn_descriptor->instr[i];
-    fd_pubkey_t *          program_id = &txn_ctx->accounts.account_keys[txn_instr->program_id];
+    fd_pubkey_t *          program_id = &txn_out->accounts.account_keys[txn_instr->program_id];
     if( !memcmp(program_id->uc, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t)) ||
         !memcmp(program_id->uc, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t)) ||
         (!memcmp(program_id->uc, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t)) && FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, enable_secp256r1_precompile )) ) {
@@ -929,27 +934,29 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
    https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/rollback_accounts.rs#L34-L77 */
 static void
 fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
+                                               fd_txn_out_t *      txn_out,
                                                fd_exec_txn_ctx_t * txn_ctx,
                                                ulong               total_fee ) {
-  fd_pubkey_t *      fee_payer_key = &txn_ctx->accounts.account_keys[FD_FEE_PAYER_TXN_IDX];
+  fd_pubkey_t *      fee_payer_key = &txn_out->accounts.account_keys[FD_FEE_PAYER_TXN_IDX];
   fd_txn_account_t * rollback_fee_payer_acc;
 
   /* When setting the data of the rollback fee payer, there is an edge
      case where the fee payer is the nonce account.  In this case, we
      can just deduct fees from the nonce account and return, because
      we save the nonce account in the commit phase anyways. */
-  if( FD_UNLIKELY( txn_ctx->accounts.nonce_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
-    rollback_fee_payer_acc = txn_ctx->accounts.rollback_nonce;
+  if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
+    rollback_fee_payer_acc = txn_out->accounts.rollback_nonce;
   } else {
     fd_account_meta_t const * meta = NULL;
     if( FD_UNLIKELY( txn_ctx->bundle.is_bundle ) ) {
       int is_found = 0;
-      for( ulong i=txn_ctx->bundle.prev_txn_ctxs_cnt; i>0UL && !is_found; i-- ) {;
-        fd_exec_txn_ctx_t * prev_txn_ctx = txn_ctx->bundle.prev_txn_ctxs[ i-1 ];
-        for( ushort j=0UL; j<prev_txn_ctx->accounts.accounts_cnt; j++ ) {
-          if( !memcmp( &prev_txn_ctx->accounts.account_keys[ j ], fee_payer_key, sizeof(fd_pubkey_t) ) && fd_exec_txn_ctx_account_is_writable_idx( prev_txn_ctx, j ) ) {
+      for( ulong i=txn_ctx->bundle.prev_txn_outs_cnt; i>0UL && !is_found; i-- ) {;
+        fd_txn_out_t * prev_txn_out = txn_ctx->bundle.prev_txn_outs[ i-1 ];
+        for( ushort j=0UL; j<prev_txn_out->accounts.accounts_cnt; j++ ) {
+          if( !memcmp( &prev_txn_out->accounts.account_keys[ j ], fee_payer_key, sizeof(fd_pubkey_t) ) &&
+              fd_exec_txn_ctx_account_is_writable_idx( prev_txn_out, txn_ctx, j ) ) {
             /* Found the account in a previous transaction */
-            meta = prev_txn_ctx->accounts.accounts[ j ].meta;
+            meta = prev_txn_out->accounts.accounts[ j ].meta;
             is_found = 1;
             break;
           }
@@ -972,14 +979,14 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
     uchar * fee_payer_data = txn_ctx->exec_accounts->rollback_fee_payer_mem;
     fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
     if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
-          txn_ctx->accounts.rollback_fee_payer,
+          txn_out->accounts.rollback_fee_payer,
           fee_payer_key,
           (fd_account_meta_t *)fee_payer_data,
           1 ) ) ) ) {
       FD_LOG_CRIT(( "Failed to join txn account" ));
     }
 
-    rollback_fee_payer_acc = txn_ctx->accounts.rollback_fee_payer;
+    rollback_fee_payer_acc = txn_out->accounts.rollback_fee_payer;
   }
 
   /* Deduct the transaction fees from the rollback account. Because of prior checks, this should never fail. */
@@ -995,7 +1002,8 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
                                             fd_exec_txn_ctx_t * txn_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L574-L580 */
   fd_txn_account_t * fee_payer_rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+  int err = fd_exec_txn_ctx_get_account_at_index( txn_out,
+                                                  txn_ctx,
                                                   FD_FEE_PAYER_TXN_IDX,
                                                   &fee_payer_rec,
                                                   fd_txn_account_check_fee_payer_writable );
@@ -1024,7 +1032,7 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
 
   /* Create the rollback fee payer account
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L620-L626 */
-  fd_executor_create_rollback_fee_payer_account( runtime, txn_ctx, total_fee );
+  fd_executor_create_rollback_fee_payer_account( runtime, txn_out, txn_ctx, total_fee );
 
   /* Set the starting lamports (to avoid unbalanced lamports issues in instruction execution) */
   fee_payer_rec->starting_lamports = fd_txn_account_get_lamports( fee_payer_rec ); /* TODO: why do we do this everywhere? */
@@ -1037,13 +1045,14 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
 
 /* Simply unpacks the account keys from the serialized transaction and sets them in the txn_ctx. */
 void
-fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
-  txn_ctx->accounts.accounts_cnt = (uchar)TXN( &txn_ctx->txn )->acct_addr_cnt;
+fd_executor_setup_txn_account_keys( fd_txn_out_t *      txn_out,
+                                    fd_exec_txn_ctx_t * txn_ctx ) {
+  txn_out->accounts.accounts_cnt = (uchar)TXN( &txn_ctx->txn )->acct_addr_cnt;
   fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->acct_addr_off);
 
   // Set up accounts in the transaction body and perform checks
   for( ulong i = 0UL; i < TXN( &txn_ctx->txn )->acct_addr_cnt; i++ ) {
-    txn_ctx->accounts.account_keys[i] = tx_accs[i];
+    txn_out->accounts.account_keys[i] = tx_accs[i];
   }
 }
 
@@ -1052,6 +1061,7 @@ fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
    is a legacy transaction, and an FD_RUNTIME_TXN_ERR_* on failure. */
 int
 fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
+                                         fd_txn_out_t *      txn_out,
                                          fd_exec_txn_ctx_t * txn_ctx ) {
   if( TXN( &txn_ctx->txn )->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
@@ -1061,7 +1071,7 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
     fd_funk_txn_xid_t xid       = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
-    fd_acct_addr_t *  accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->accounts.account_keys[txn_ctx->accounts.accounts_cnt] );
+    fd_acct_addr_t *  accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_out->accounts.account_keys[txn_out->accounts.accounts_cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( &txn_ctx->txn ),
                                                          txn_ctx->txn.payload,
                                                          runtime->funk,
@@ -1070,7 +1080,7 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                                          slot_hashes,
                                                          accts_alt );
     fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
-    txn_ctx->accounts.accounts_cnt += TXN( &txn_ctx->txn )->addr_table_adtl_cnt;
+    txn_out->accounts.accounts_cnt += TXN( &txn_ctx->txn )->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
   }
@@ -1079,14 +1089,15 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
 
 /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L319-L357 */
 static inline int
-fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
+fd_txn_ctx_push( fd_txn_out_t *      txn_out,
+                 fd_exec_txn_ctx_t * txn_ctx,
                  fd_instr_info_t *   instr ) {
   /* Earlier checks in the permalink are redundant since Agave maintains instr stack and trace accounts separately
      https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L327-L328 */
   ulong starting_lamports_h = 0UL;
   ulong starting_lamports_l = 0UL;
   int err = fd_instr_info_sum_account_lamports( instr,
-                                                txn_ctx,
+                                                txn_out,
                                                 &starting_lamports_h,
                                                 &starting_lamports_l );
   if( FD_UNLIKELY( err ) ) {
@@ -1109,7 +1120,7 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
     ulong current_caller_lamport_sum_h = 0UL;
     ulong current_caller_lamport_sum_l = 0UL;
     int err = fd_instr_info_sum_account_lamports( caller_instruction_context->instr,
-                                                  caller_instruction_context->txn_ctx,
+                                                  caller_instruction_context->txn_out,
                                                   &current_caller_lamport_sum_h,
                                                   &current_caller_lamport_sum_l );
     if( FD_UNLIKELY( err ) ) {
@@ -1137,11 +1148,11 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
 
   /* A beloved refactor moves sysvar instructions updating to the instruction level as of v2.2.12...
      https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L396-L407 */
-  int idx = fd_exec_txn_ctx_find_index_of_account( txn_ctx, &fd_sysvar_instructions_id );
+  int idx = fd_exec_txn_ctx_find_index_of_account( txn_out, &fd_sysvar_instructions_id );
   if( FD_UNLIKELY( idx!=-1 ) ) {
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L397-L400 */
     fd_txn_account_t * sysvar_instructions_account = NULL;
-    err = fd_exec_txn_ctx_get_account_at_index( txn_ctx, (ushort)idx, &sysvar_instructions_account, NULL );
+    err = fd_exec_txn_ctx_get_account_at_index( txn_out, txn_ctx, (ushort)idx, &sysvar_instructions_account, NULL );
     if( FD_UNLIKELY( err ) ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
@@ -1165,8 +1176,9 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
 
    https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L246-L290 */
 int
-fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
-                     fd_instr_info_t *       instr ) {
+fd_instr_stack_push( fd_txn_out_t *      txn_out,
+                     fd_exec_txn_ctx_t * txn_ctx,
+                     fd_instr_info_t *   instr ) {
   /* Agave keeps a vector of vectors called program_indices that stores the program_id index for each instruction within the transaction.
      https://github.com/anza-xyz/agave/blob/v2.1.7/svm/src/account_loader.rs#L347-L402
      If and only if the program_id is the native loader, then the vector for respective specific instruction (account_indices) is empty.
@@ -1178,7 +1190,7 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/program-runtime/src/invoke_context.rs#L250-L252 */
   fd_pubkey_t const * program_id_pubkey = NULL;
-  int err = fd_exec_txn_ctx_get_key_of_account_at_index( txn_ctx,
+  int err = fd_exec_txn_ctx_get_key_of_account_at_index( txn_out,
                                                          instr->program_id,
                                                          &program_id_pubkey );
   if( FD_UNLIKELY( err ) ) {
@@ -1210,7 +1222,7 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
   }
   /* "Push" a new instruction onto the stack by simply incrementing the stack and trace size counters
      https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L289 */
-  return fd_txn_ctx_push( txn_ctx, instr );
+  return fd_txn_ctx_push( txn_out, txn_ctx, instr );
 }
 
 /* Pops an instruction from the instruction stack. Agave's implementation performs instruction balancing checks every time pop is called,
@@ -1219,7 +1231,8 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
 
    https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L293-L298 */
 int
-fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
+fd_instr_stack_pop( fd_txn_out_t *            txn_out,
+                    fd_exec_txn_ctx_t *       txn_ctx,
                     fd_instr_info_t const *   instr ) {
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L362-L364 */
   if( FD_UNLIKELY( txn_ctx->instr.stack_sz==0 ) ) {
@@ -1231,7 +1244,7 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L367-L371 */
   for( ushort i=0; i<instr->acct_cnt; i++ ) {
     ushort idx_in_txn = instr->accounts[i].index_in_transaction;
-    fd_txn_account_t * account = &txn_ctx->accounts.accounts[ idx_in_txn ];
+    fd_txn_account_t * account = &txn_out->accounts.accounts[ idx_in_txn ];
     if( FD_UNLIKELY( fd_txn_account_is_executable( account ) &&
                      fd_txn_account_is_borrowed( account ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING;
@@ -1243,7 +1256,7 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
   ulong ending_lamports_h = 0UL;
   ulong ending_lamports_l = 0UL;
   int err = fd_instr_info_sum_account_lamports( instr,
-                                                txn_ctx,
+                                                txn_out,
                                                 &ending_lamports_h,
                                                 &ending_lamports_l );
   if( FD_UNLIKELY( err ) ) {
@@ -1263,7 +1276,7 @@ static inline int
 fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
                       fd_instr_info_t *     instr,
                       int                   instr_exec_result ) {
-  int stack_pop_err = fd_instr_stack_pop( instr_ctx->txn_ctx, instr );
+  int stack_pop_err = fd_instr_stack_pop( instr_ctx->txn_out, instr_ctx->txn_ctx, instr );
 
   /* Only report the stack pop error on success */
   if( FD_UNLIKELY( instr_exec_result==FD_EXECUTOR_INSTR_SUCCESS && stack_pop_err ) ) {
@@ -1281,7 +1294,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
                   fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( txn_ctx->bank );
-  int instr_exec_result = fd_instr_stack_push( txn_ctx, instr );
+  int instr_exec_result = fd_instr_stack_push( txn_out, txn_ctx, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {
     FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
     FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
@@ -1298,7 +1311,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
     .runtime      = runtime,
     .txn_out      = txn_out,
   };
-  fd_base58_encode_32( txn_ctx->accounts.accounts[ instr->program_id ].pubkey->uc, NULL, ctx->program_id_base58 );
+  fd_base58_encode_32( txn_out->accounts.accounts[ instr->program_id ].pubkey->uc, NULL, ctx->program_id_base58 );
 
   txn_ctx->instr.trace[ txn_ctx->instr.trace_length - 1 ] = (fd_exec_instr_trace_entry_t) {
     .instr_info = instr,
@@ -1309,7 +1322,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
      https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/message_processor.rs#L88 */
   fd_exec_instr_fn_t native_prog_fn;
   uchar              is_precompile;
-  int                err = fd_executor_lookup_native_program( &txn_ctx->accounts.accounts[ instr->program_id ],
+  int                err = fd_executor_lookup_native_program( &txn_out->accounts.accounts[ instr->program_id ],
                                                               txn_ctx,
                                                               &native_prog_fn,
                                                               &is_precompile );
@@ -1379,13 +1392,14 @@ fd_executor_reclaim_account( fd_exec_txn_ctx_t * txn_ctx,
 
 fd_txn_account_t *
 fd_executor_setup_txn_account( fd_runtime_t *      runtime,
+                               fd_txn_out_t *      txn_out,
                                fd_exec_txn_ctx_t * txn_ctx,
                                ushort              idx ) {
 
   /* To setup a transaction account, we need to first retrieve a
      read-only handle to the account from the database. */
 
-  fd_pubkey_t * acc = &txn_ctx->accounts.account_keys[ idx ];
+  fd_pubkey_t * acc = &txn_out->accounts.account_keys[ idx ];
 
 
   fd_account_meta_t const * meta = NULL;
@@ -1403,12 +1417,13 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
        or updating when the account is writable. */
 
     int is_found = 0;
-    for( ulong i=txn_ctx->bundle.prev_txn_ctxs_cnt; i>0UL && !is_found; i-- ) {
-      fd_exec_txn_ctx_t * prev_txn_ctx = txn_ctx->bundle.prev_txn_ctxs[ i-1 ];
-      for( ushort j=0UL; j<prev_txn_ctx->accounts.accounts_cnt; j++ ) {
-        if( !memcmp( &prev_txn_ctx->accounts.account_keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_exec_txn_ctx_account_is_writable_idx( prev_txn_ctx, j ) ) {
+    for( ulong i=txn_ctx->bundle.prev_txn_outs_cnt; i>0UL && !is_found; i-- ) {
+      fd_txn_out_t * prev_txn_out = txn_ctx->bundle.prev_txn_outs[ i-1 ];
+      for( ushort j=0UL; j<prev_txn_out->accounts.accounts_cnt; j++ ) {
+        /* TODO:FIXME: WRONG TXN CTX LOOKUP!!!!!! */
+        if( !memcmp( &prev_txn_out->accounts.account_keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_exec_txn_ctx_account_is_writable_idx( prev_txn_out, txn_ctx, j ) ) {
           /* Found the account in a previous transaction */
-          meta = prev_txn_ctx->accounts.accounts[ j ].meta;
+          meta = prev_txn_out->accounts.accounts[ j ].meta;
           is_found = 1;
           break;
         }
@@ -1433,8 +1448,8 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
   }
 
-  fd_txn_account_t *  txn_account  = &txn_ctx->accounts.accounts[ idx ];
-  int                 is_writable  = fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
+  fd_txn_account_t *  txn_account  = &txn_out->accounts.accounts[ idx ];
+  int                 is_writable  = fd_exec_txn_ctx_account_is_writable_idx( txn_out, txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
   fd_account_meta_t * account_meta = NULL;
 
   if( is_writable ) {
@@ -1484,6 +1499,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
 static void
 fd_executor_setup_executable_account( fd_runtime_t *           runtime,
+                                      fd_txn_out_t *           txn_out,
                                       fd_exec_txn_ctx_t *      txn_ctx,
                                       fd_txn_account_t const * account,
                                       ushort *                 executable_idx ) {
@@ -1503,7 +1519,7 @@ fd_executor_setup_executable_account( fd_runtime_t *           runtime,
       account will not exist within the executable accounts list. */
   fd_pubkey_t *     programdata_acc = &program_loader_state->inner.program.programdata_address;
   fd_funk_txn_xid_t xid             = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
-  if( FD_LIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->accounts.executable_accounts[ *executable_idx ],
+  if( FD_LIKELY( fd_txn_account_init_from_funk_readonly( &txn_out->accounts.executable_accounts[ *executable_idx ],
                                                          programdata_acc,
                                                          runtime->funk,
                                                          &xid )==0 ) ) {
@@ -1513,16 +1529,17 @@ fd_executor_setup_executable_account( fd_runtime_t *           runtime,
 
 void
 fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
+                                    fd_txn_out_t *      txn_out,
                                     fd_exec_txn_ctx_t * txn_ctx ) {
   ushort j = 0UL;
-  fd_memset( txn_ctx->accounts.accounts, 0, sizeof(fd_txn_account_t) * txn_ctx->accounts.accounts_cnt );
+  fd_memset( txn_out->accounts.accounts, 0, sizeof(fd_txn_account_t) * txn_out->accounts.accounts_cnt );
 
-  for( ushort i=0; i<txn_ctx->accounts.accounts_cnt; i++ ) {
-    fd_txn_account_t * txn_account = fd_executor_setup_txn_account( runtime, txn_ctx, i );
+  for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
+    fd_txn_account_t * txn_account = fd_executor_setup_txn_account( runtime, txn_out, txn_ctx, i );
 
     if( FD_UNLIKELY( txn_account &&
                      memcmp( fd_txn_account_get_owner( txn_account ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
-      fd_executor_setup_executable_account( runtime, txn_ctx, txn_account, &j );
+      fd_executor_setup_executable_account( runtime, txn_out, txn_ctx, txn_account, &j );
     }
   }
 
@@ -1531,16 +1548,16 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                        fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot &&
                        txn_ctx->log.capture_ctx->dump_elf_to_pb;
   if( FD_UNLIKELY( dump_elf_to_pb ) ) {
-    for( ushort i=0; i<txn_ctx->accounts.accounts_cnt; i++ ) {
-      fd_dump_elf_to_protobuf( runtime, txn_ctx, &txn_ctx->accounts.accounts[i] );
+    for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
+      fd_dump_elf_to_protobuf( runtime, txn_ctx, &txn_out->accounts.accounts[i] );
     }
   }
 
-  txn_ctx->accounts.nonce_idx_in_txn = ULONG_MAX;
-  txn_ctx->accounts.executable_cnt   = j;
+  txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
+  txn_out->accounts.executable_cnt   = j;
 
   /* Set up instr infos from the txn descriptor. No Agave equivalent to this function. */
-  fd_executor_setup_instr_infos_from_txn_instrs( txn_ctx );
+  fd_executor_setup_instr_infos_from_txn_instrs( txn_out, txn_ctx );
 }
 
 int
@@ -1589,11 +1606,12 @@ fd_execute_txn( fd_runtime_t *      runtime,
 
   /* TODO: This function needs to be split out of fd_execute_txn and be placed
       into the replay tile once it is implemented. */
-  return fd_executor_txn_check( txn_ctx );
+  return fd_executor_txn_check( txn_out, txn_ctx );
 }
 
 int
-fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_executor_txn_check( fd_txn_out_t *      txn_out,
+                       fd_exec_txn_ctx_t * txn_ctx ) {
   fd_rent_t const * rent = fd_bank_rent_query( txn_ctx->bank );
 
   ulong starting_lamports_l = 0;
@@ -1603,8 +1621,8 @@ fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong ending_lamports_h = 0;
 
   /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
-  for( ulong idx = 0; idx < txn_ctx->accounts.accounts_cnt; idx++ ) {
-    fd_txn_account_t * b = &txn_ctx->accounts.accounts[idx];
+  for( ulong idx = 0; idx < txn_out->accounts.accounts_cnt; idx++ ) {
+    fd_txn_account_t * b = &txn_out->accounts.accounts[idx];
 
     // Was this account written to?
     /* TODO: Clean this logic up... lots of redundant checks with our newer account loading model.

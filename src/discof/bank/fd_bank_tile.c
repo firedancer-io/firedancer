@@ -273,7 +273,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        that first the non-alt accounts are laid out, then the writable
        alt accounts, and finally the read-only alt accounts. */
     fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
-    fd_acct_addr_t const * writable_alt = fd_type_pun_const( txn_ctx->accounts.account_keys+txn_descriptor->acct_addr_cnt );
+    fd_acct_addr_t const * writable_alt = fd_type_pun_const( txn_out->accounts.account_keys+txn_descriptor->acct_addr_cnt );
     fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
 
     /* The VM will stop executing and fail an instruction immediately if
@@ -387,7 +387,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       continue;
     }
 
-    writable_alt[i] = fd_type_pun_const( txn_ctx->accounts.account_keys+TXN( &txn_ctx->txn )->acct_addr_cnt );
+    writable_alt[i] = fd_type_pun_const( txn_out->accounts.account_keys+TXN( &txn_ctx->txn )->acct_addr_cnt );
   }
 
   /* If all of the transactions in the bundle executed successfully, we
@@ -559,9 +559,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( txncache );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
-    ctx->txn_ctx[ i ].bundle.prev_txn_ctxs_cnt = i;
+    ctx->txn_ctx[ i ].bundle.prev_txn_outs_cnt = i;
     for( ulong j=0UL; j<i; j++ ) {
-      ctx->txn_ctx[ i ].bundle.prev_txn_ctxs[ j ] = &ctx->txn_ctx[ j ];
+      ctx->txn_ctx[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
     }
     ctx->txn_ctx[ i ].bank_hash_cmp = NULL; /* TODO - do we need this? */
   }

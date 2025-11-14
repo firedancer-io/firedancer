@@ -534,7 +534,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1561-L1562 */
       fd_pubkey_t const * instr_ctx_program_id = NULL;
-      int err = fd_exec_txn_ctx_get_key_of_account_at_index( vm->instr_ctx->txn_ctx,
+      int err = fd_exec_txn_ctx_get_key_of_account_at_index( vm->instr_ctx->txn_out,
                                                              instr_info->program_id,
                                                              &instr_ctx_program_id );
       if( FD_UNLIKELY( err ) ) {
@@ -550,7 +550,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       for( ushort i=0; i<instr_info->acct_cnt; i++ ) {
         fd_pubkey_t const * account_key;
         ushort txn_idx = instr_info->accounts[ i ].index_in_transaction;
-        err            = fd_exec_txn_ctx_get_key_of_account_at_index( vm->instr_ctx->txn_ctx, txn_idx, &account_key );
+        err            = fd_exec_txn_ctx_get_key_of_account_at_index( vm->instr_ctx->txn_out, txn_idx, &account_key );
         if( FD_UNLIKELY( err ) ) {
           FD_VM_ERR_FOR_LOG_INSTR( vm, err );
           return err;

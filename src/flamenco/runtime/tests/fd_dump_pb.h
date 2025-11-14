@@ -161,6 +161,7 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
 
 void
 fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
+                         fd_txn_out_t *      txn_out,
                          fd_exec_txn_ctx_t * txn_ctx );
 
 /* Block dumping is a little bit different than the other harnesses due

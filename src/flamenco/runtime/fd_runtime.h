@@ -264,8 +264,34 @@ struct fd_txn_out {
   fd_exec_accounts_t * exec_accounts;
   fd_txn_err_t         err;
   fd_txn_details_t     details;
-  ulong                accounts_cnt;
-  fd_txn_account_t     accounts[ MAX_TX_ACCOUNT_LOCKS ];
+
+  /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139
+     Nonetheless, when Agave prepares a sanitized batch for execution and tries to lock accounts, a lower limit is enforced:
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
+     That is the limit we are going to use here. */
+  struct {
+    ulong                           accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
+    fd_pubkey_t                     account_keys[ MAX_TX_ACCOUNT_LOCKS ];        /* Array of account pubkeys accessed by this transaction. */
+    fd_txn_account_t                accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
+    ulong                           executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
+    fd_txn_account_t                executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
+  /* The next three fields describe Agave's "rollback" accounts, which
+     are copies of the fee payer and (if applicable) nonce account.  If
+     the transaction fails to load, the fee payer is still debited the
+     transaction fee, and the nonce account is advanced.  The fee payer
+     must also be rolled back to its state pre-transaction, plus
+     debited any transaction fees.
+     This is a bit of a misnomer but Agave calls it "rollback".
+     This is the account state that the nonce account should be in when
+     the txn fails. It will advance the nonce account, rather than "roll
+     back". */
+    fd_txn_account_t                rollback_nonce[ 1 ];
+    /* If the transaction has a nonce account that must be advanced,
+       this would be !=ULONG_MAX. */
+    ulong                           nonce_idx_in_txn;
+    fd_txn_account_t                rollback_fee_payer[ 1 ];
+  } accounts;
 };
 typedef struct fd_txn_out fd_txn_out_t;
 

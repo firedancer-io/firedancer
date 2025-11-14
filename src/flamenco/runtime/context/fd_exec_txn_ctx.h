@@ -79,34 +79,6 @@ struct fd_exec_txn_ctx {
   fd_exec_accounts_t * exec_accounts;
   fd_bank_hash_cmp_t * bank_hash_cmp;
 
-  /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
-     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139
-     Nonetheless, when Agave prepares a sanitized batch for execution and tries to lock accounts, a lower limit is enforced:
-     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
-     That is the limit we are going to use here. */
-  struct {
-    ulong                           accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
-    fd_pubkey_t                     account_keys[ MAX_TX_ACCOUNT_LOCKS ];        /* Array of account pubkeys accessed by this transaction. */
-    fd_txn_account_t                accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
-    ulong                           executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
-    fd_txn_account_t                executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
-  /* The next three fields describe Agave's "rollback" accounts, which
-     are copies of the fee payer and (if applicable) nonce account.  If
-     the transaction fails to load, the fee payer is still debited the
-     transaction fee, and the nonce account is advanced.  The fee payer
-     must also be rolled back to its state pre-transaction, plus
-     debited any transaction fees.
-     This is a bit of a misnomer but Agave calls it "rollback".
-     This is the account state that the nonce account should be in when
-     the txn fails. It will advance the nonce account, rather than "roll
-     back". */
-    fd_txn_account_t                rollback_nonce[ 1 ];
-    /* If the transaction has a nonce account that must be advanced,
-       this would be !=ULONG_MAX. */
-    ulong                           nonce_idx_in_txn;
-    fd_txn_account_t                rollback_fee_payer[ 1 ];
-  } accounts;
-
   struct {
     uchar                       stack_sz;                              /* Current depth of the instruction execution stack. */
     fd_exec_instr_ctx_t         stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
@@ -132,9 +104,9 @@ struct fd_exec_txn_ctx {
   } instr;
 
   struct {
-    int                 is_bundle;
-    fd_exec_txn_ctx_t * prev_txn_ctxs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
-    ulong               prev_txn_ctxs_cnt;
+    int            is_bundle;
+    fd_txn_out_t * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+    ulong          prev_txn_outs_cnt;
   } bundle;
 
   struct {
@@ -198,27 +170,14 @@ fd_exec_txn_ctx_leave( fd_exec_txn_ctx_t * ctx );
 void *
 fd_exec_txn_ctx_delete( void * mem );
 
-/* Mirrors Agave function solana_sdk::transaction_context::find_index_of_account
+int
+fd_exec_txn_ctx_find_index_of_account( fd_txn_out_t const * txn_out,
+                                       fd_pubkey_t const *  pubkey );
 
-   Backward scan over transaction accounts.
-   Returns -1 if not found.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L233-L238 */
-
-static inline int
-fd_exec_txn_ctx_find_index_of_account( fd_exec_txn_ctx_t const * ctx,
-                                       fd_pubkey_t const *       pubkey ) {
-  for( ulong i=ctx->accounts.accounts_cnt; i>0UL; i-- ) {
-    if( 0==memcmp( pubkey, &ctx->accounts.account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
-      return (int)(i-1UL);
-    }
-  }
-  return -1;
-}
-
-typedef int fd_txn_account_condition_fn_t ( fd_txn_account_t *        acc,
-                                            fd_exec_txn_ctx_t const * ctx,
-                                            ushort                    idx );
+typedef int fd_txn_account_condition_fn_t ( fd_txn_account_t *   acc,
+                                            fd_txn_out_t *       txn_out,
+                                            fd_exec_txn_ctx_t const *  txn_ctx,
+                                            ushort               idx );
 
 /* Mirrors Agave function solana_sdk::transaction_context::get_account_at_index
 
@@ -229,7 +188,8 @@ typedef int fd_txn_account_condition_fn_t ( fd_txn_account_t *        acc,
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L223-L230 */
 
 int
-fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *             ctx,
+fd_exec_txn_ctx_get_account_at_index( fd_txn_out_t *                  txn_out,
+                                      fd_exec_txn_ctx_t *             ctx,
                                       ushort                          idx,
                                       fd_txn_account_t * *            account,
                                       fd_txn_account_condition_fn_t * condition );
@@ -238,7 +198,8 @@ fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *             ctx,
    account from the transaction context by its pubkey. */
 
 int
-fd_exec_txn_ctx_get_account_with_key( fd_exec_txn_ctx_t *             ctx,
+fd_exec_txn_ctx_get_account_with_key( fd_txn_out_t *                  txn_out,
+                                      fd_exec_txn_ctx_t *             ctx,
                                       fd_pubkey_t const *             pubkey,
                                       fd_txn_account_t * *            account,
                                       fd_txn_account_condition_fn_t * condition );
@@ -246,7 +207,8 @@ fd_exec_txn_ctx_get_account_with_key( fd_exec_txn_ctx_t *             ctx,
 /* Gets an executable (program data) account via its pubkey. */
 
 int
-fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
+fd_exec_txn_ctx_get_executable_account( fd_txn_out_t *                  txn_out,
+                                        fd_exec_txn_ctx_t *             ctx,
                                         fd_pubkey_t const *             pubkey,
                                         fd_txn_account_t * *            account,
                                         fd_txn_account_condition_fn_t * condition );
@@ -256,8 +218,8 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L212 */
 
 int
-fd_exec_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t *  ctx,
-                                             ushort               idx,
+fd_exec_txn_ctx_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
+                                             ushort                idx,
                                              fd_pubkey_t const * * key );
 
 /* In agave, the writable accounts cache is populated by this below function.
@@ -274,7 +236,9 @@ fd_exec_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t *  ctx,
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L137-L150 */
 
 int
-fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, ushort idx );
+fd_exec_txn_ctx_account_is_writable_idx( fd_txn_out_t const *      txn_out,
+                                         fd_exec_txn_ctx_t const * txn_ctx,
+                                         ushort                    idx );
 
 /* This flat function does the same as the function above, but uses the
    exact arguments needed instead of the full fd_exec_txn_ctx_t */
@@ -301,11 +265,13 @@ fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
 
 int
 fd_txn_account_check_exists( fd_txn_account_t *        acc,
+                             fd_txn_out_t *            txn_out,
                              fd_exec_txn_ctx_t const * ctx,
                              ushort                    idx );
 
 int
 fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
+                                  fd_txn_out_t *            txn_out,
                                   fd_exec_txn_ctx_t const * ctx,
                                   ushort                    idx );
 
@@ -317,6 +283,7 @@ fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
 
 int
 fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
+                                         fd_txn_out_t *            txn_out,
                                          fd_exec_txn_ctx_t const * ctx,
                                          ushort                    idx );
 
@@ -333,6 +300,7 @@ fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
 
 int
 fd_txn_account_check_borrow_mut( fd_txn_account_t *        acc,
+                                 fd_txn_out_t *            txn_out,
                                  fd_exec_txn_ctx_t const * ctx,
                                  ushort                    idx );
 

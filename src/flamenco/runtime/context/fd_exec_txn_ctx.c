@@ -60,20 +60,39 @@ fd_exec_txn_ctx_delete( void * mem ) {
   return mem;
 }
 
+/* Mirrors Agave function solana_sdk::transaction_context::find_index_of_account
+
+   Backward scan over transaction accounts.
+   Returns -1 if not found.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L233-L238 */
+
 int
-fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *             ctx,
+fd_exec_txn_ctx_find_index_of_account( fd_txn_out_t const * txn_out,
+                                       fd_pubkey_t const *  pubkey ) {
+  for( ulong i=txn_out->accounts.accounts_cnt; i>0UL; i-- ) {
+    if( 0==memcmp( pubkey, &txn_out->accounts.account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
+      return (int)(i-1UL);
+    }
+  }
+  return -1;
+}
+
+int
+fd_exec_txn_ctx_get_account_at_index( fd_txn_out_t *                  txn_out,
+                                      fd_exec_txn_ctx_t *             txn_ctx,
                                       ushort                          idx,
                                       fd_txn_account_t * *            account,
                                       fd_txn_account_condition_fn_t * condition ) {
-  if( FD_UNLIKELY( idx>=ctx->accounts.accounts_cnt ) ) {
+  if( FD_UNLIKELY( idx>=txn_out->accounts.accounts_cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  fd_txn_account_t * txn_account = &ctx->accounts.accounts[idx];
+  fd_txn_account_t * txn_account = &txn_out->accounts.accounts[idx];
   *account = txn_account;
 
   if( FD_LIKELY( condition != NULL ) ) {
-    if( FD_UNLIKELY( !condition( *account, ctx, idx ) ) ) {
+    if( FD_UNLIKELY( !condition( *account, txn_out, txn_ctx, idx ) ) ) {
       return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
     }
   }
@@ -82,23 +101,26 @@ fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *             ctx,
 }
 
 int
-fd_exec_txn_ctx_get_account_with_key( fd_exec_txn_ctx_t *             ctx,
+fd_exec_txn_ctx_get_account_with_key( fd_txn_out_t *                  txn_out,
+                                      fd_exec_txn_ctx_t *             ctx,
                                       fd_pubkey_t const *             pubkey,
                                       fd_txn_account_t * *            account,
                                       fd_txn_account_condition_fn_t * condition ) {
-  int index = fd_exec_txn_ctx_find_index_of_account( ctx, pubkey );
+  int index = fd_exec_txn_ctx_find_index_of_account( txn_out, pubkey );
   if( FD_UNLIKELY( index==-1 ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  return fd_exec_txn_ctx_get_account_at_index( ctx,
+  return fd_exec_txn_ctx_get_account_at_index( txn_out,
+                                               ctx,
                                                (uchar)index,
                                                account,
                                                condition );
 }
 
 int
-fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
+fd_exec_txn_ctx_get_executable_account( fd_txn_out_t *                  txn_out,
+                                        fd_exec_txn_ctx_t *             ctx,
                                         fd_pubkey_t const *             pubkey,
                                         fd_txn_account_t * *            account,
                                         fd_txn_account_condition_fn_t * condition ) {
@@ -107,18 +129,22 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
      borrowed account since it reflects changes from prior instructions. Referencing the
      read-only executable accounts list is incorrect behavior when the program
      data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
-  int err = fd_exec_txn_ctx_get_account_with_key( ctx, pubkey, account, condition );
+  int err = fd_exec_txn_ctx_get_account_with_key( txn_out,
+                                                  ctx,
+                                                  pubkey,
+                                                  account,
+                                                  condition );
   if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
     return FD_ACC_MGR_SUCCESS;
   }
 
-  for( ushort i=0; i<ctx->accounts.executable_cnt; i++ ) {
-    if( memcmp( pubkey->uc, ctx->accounts.executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
-      fd_txn_account_t * txn_account = &ctx->accounts.executable_accounts[i];
+  for( ushort i=0; i<txn_out->accounts.executable_cnt; i++ ) {
+    if( memcmp( pubkey->uc, txn_out->accounts.executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
+      fd_txn_account_t * txn_account = &txn_out->accounts.executable_accounts[i];
       *account = txn_account;
 
       if( FD_LIKELY( condition != NULL ) ) {
-        if( FD_UNLIKELY( !condition( *account, ctx, i ) ) ) {
+        if( FD_UNLIKELY( !condition( *account, txn_out, ctx, i ) ) ) {
           return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
         }
       }
@@ -131,16 +157,16 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
 }
 
 int
-fd_exec_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t *  ctx,
-                                             ushort               idx,
+fd_exec_txn_ctx_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
+                                             ushort                idx,
                                              fd_pubkey_t const * * key ) {
   /* Return a NotEnoughAccountKeys error if idx is out of bounds.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L218 */
-  if( FD_UNLIKELY( idx>=ctx->accounts.accounts_cnt ) ) {
+  if( FD_UNLIKELY( idx>=txn_out->accounts.accounts_cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  *key = &ctx->accounts.account_keys[ idx ];
+  *key = &txn_out->accounts.account_keys[ idx ];
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -177,11 +203,11 @@ fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
 
    https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
 int
-fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, ushort idx ) {
-  uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_ctx->accounts.account_keys, txn_ctx->accounts.accounts_cnt );
+fd_exec_txn_ctx_account_is_writable_idx( fd_txn_out_t const * txn_out, fd_exec_txn_ctx_t const * txn_ctx, ushort idx ) {
+  uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.account_keys, txn_out->accounts.accounts_cnt );
   return fd_exec_txn_account_is_writable_idx_flat( fd_bank_slot_get( txn_ctx->bank ),
                                                    idx,
-                                                   &txn_ctx->accounts.account_keys[idx],
+                                                   &txn_out->accounts.account_keys[idx],
                                                    TXN( &txn_ctx->txn ),
                                                    fd_bank_features_query( txn_ctx->bank ),
                                                    bpf_upgradeable );
@@ -220,8 +246,10 @@ fd_exec_txn_account_is_writable_idx_flat( const ulong           slot,
 
 int
 fd_txn_account_check_exists( fd_txn_account_t *        acc,
+                             fd_txn_out_t *            txn_out,
                              fd_exec_txn_ctx_t const * ctx,
                              ushort                    idx ) {
+  (void) txn_out;
   (void) ctx;
   (void) idx;
   return fd_account_meta_exists( fd_txn_account_get_meta( acc ) );
@@ -229,24 +257,30 @@ fd_txn_account_check_exists( fd_txn_account_t *        acc,
 
 int
 fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
+                                  fd_txn_out_t *            txn_out,
                                   fd_exec_txn_ctx_t const * ctx,
                                   ushort                    idx ) {
+  (void) txn_out;
   (void) acc;
-  return fd_exec_txn_ctx_account_is_writable_idx( ctx, idx );
+  return fd_exec_txn_ctx_account_is_writable_idx( txn_out, ctx, idx );
 }
 
 int
 fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
+                                         fd_txn_out_t *            txn_out,
                                          fd_exec_txn_ctx_t const * ctx,
                                          ushort                    idx ) {
+  (void) txn_out;
   (void) acc;
   return fd_txn_is_writable( TXN( &ctx->txn ), idx );
 }
 
 int
 fd_txn_account_check_borrow_mut( fd_txn_account_t *        acc,
+                                 fd_txn_out_t *            txn_out,
                                  fd_exec_txn_ctx_t const * ctx,
                                  ushort                    idx ) {
+  (void) txn_out;
   (void) ctx;
   (void) idx;
   return fd_txn_account_is_mutable( acc ) && fd_txn_account_try_borrow_mut( acc );

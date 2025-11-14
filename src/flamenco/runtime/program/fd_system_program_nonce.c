@@ -876,6 +876,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
 fd_check_transaction_age( fd_runtime_t *      runtime,
+                          fd_txn_out_t *      txn_out,
                           fd_exec_txn_ctx_t * txn_ctx ) {
   fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( txn_ctx->bank );
   fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last( block_hash_queue );
@@ -937,7 +938,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      - statically included in the transaction account keys (if SIMD-242
        is active)
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L110-L111 */
-  if( FD_UNLIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, nonce_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_out,txn_ctx, nonce_idx ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, require_static_nonce_account ) &&
@@ -948,7 +949,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   fd_txn_account_t durable_nonce_rec[1];
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( txn_ctx->bank ), txn_ctx->bank->idx } };
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
-                                                    &txn_ctx->accounts.account_keys[ nonce_idx ],
+                                                    &txn_out->accounts.account_keys[ nonce_idx ],
                                                     runtime->funk,
                                                     &xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
@@ -992,13 +993,13 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      the nonce instruction are signers. This is a successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( TXN( &txn_ctx->txn ), (int)instr_accts[i] ) ) {
-      if( !memcmp( &txn_ctx->accounts.account_keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof(fd_pubkey_t) ) ) {
+      if( !memcmp( &txn_out->accounts.account_keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof(fd_pubkey_t) ) ) {
         /*
            Mark nonce account to make sure that we modify and hash the
            account even if the transaction failed to execute
            successfully.
          */
-        txn_ctx->accounts.nonce_idx_in_txn = instr_accts[ 0 ];
+        txn_out->accounts.nonce_idx_in_txn = instr_accts[ 0 ];
         /*
            Now figure out the state that the nonce account should
            advance to.
@@ -1006,7 +1007,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
         fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
             runtime->funk,
             &xid,
-            &txn_ctx->accounts.account_keys[ instr_accts[ 0UL ] ],
+            &txn_out->accounts.account_keys[ instr_accts[ 0UL ] ],
             NULL,
             &err,
             NULL );
@@ -1044,20 +1045,20 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
         fd_memcpy( borrowed_account_data, meta, sizeof(fd_account_meta_t)+acc_data_len );
 
         if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
-              txn_ctx->accounts.rollback_nonce,
-              &txn_ctx->accounts.account_keys[ instr_accts[ 0UL ] ],
+              txn_out->accounts.rollback_nonce,
+              &txn_out->accounts.account_keys[ instr_accts[ 0UL ] ],
               (fd_account_meta_t *)borrowed_account_data,
               1 ) ) ) ) {
           FD_LOG_CRIT(( "Failed to join txn account" ));
         }
 
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>fd_txn_account_get_data_len( txn_ctx->accounts.rollback_nonce ) ) ) {
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce ) ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
         do {
           fd_bincode_encode_ctx_t encode_ctx =
-            { .data    = fd_txn_account_get_data_mut( txn_ctx->accounts.rollback_nonce ),
-              .dataend = fd_txn_account_get_data_mut( txn_ctx->accounts.rollback_nonce ) + fd_txn_account_get_data_len( txn_ctx->accounts.rollback_nonce ) };
+            { .data    = fd_txn_account_get_data_mut( txn_out->accounts.rollback_nonce ),
+              .dataend = fd_txn_account_get_data_mut( txn_out->accounts.rollback_nonce ) + fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce ) };
           int err = fd_nonce_state_versions_encode( &new_state, &encode_ctx );
           if( FD_UNLIKELY( err ) ) {
             return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;

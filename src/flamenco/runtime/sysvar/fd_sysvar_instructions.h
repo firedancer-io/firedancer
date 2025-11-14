@@ -8,7 +8,8 @@
 FD_PROTOTYPES_BEGIN
 
 void
-fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
+fd_sysvar_instructions_serialize_account( fd_txn_out_t *           txn_out,
+                                          fd_exec_txn_ctx_t *      txn_ctx,
                                           fd_instr_info_t const *  instrs,
                                           ushort                   instrs_cnt,
                                           ulong                    txn_idx );
