@@ -56,6 +56,7 @@ vinyl_io_uring_params( struct io_uring_params * params,
   params->cq_entries  = uring_depth;
   params->flags      |= IORING_SETUP_COOP_TASKRUN;
   params->flags      |= IORING_SETUP_SINGLE_ISSUER;
+  params->flags      |= IORING_SETUP_R_DISABLED;
   params->features   |= IORING_SETUP_DEFER_TASKRUN;
   return params;
 }
@@ -175,6 +176,22 @@ vinyl_io_uring_init( fd_vinyl_tile_ctx_t * ctx,
 
   /* Setup io_uring file access */
   FD_TEST( 0==io_uring_register_files( ctx->ring, &dev_fd, 1 ) );
+
+  /* Register restrictions */
+  struct io_uring_restriction res[3] = {
+    { .opcode    = IORING_RESTRICTION_SQE_OP,
+      .sqe_op    = IORING_OP_READ },
+    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
+      .sqe_flags = IOSQE_FIXED_FILE },
+    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
+      .sqe_flags = IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS }
+  };
+  int res_err = io_uring_register_restrictions( ctx->ring, res, 3U );
+  if( FD_UNLIKELY( res_err<0 ) ) FD_LOG_ERR(( "io_uring_register_restrictions failed (%i-%s)", res_err, fd_io_strerror( -res_err ) ));
+
+  /* Enable rings */
+  int enable_err = io_uring_enable_rings( ctx->ring );
+  if( FD_UNLIKELY( enable_err<0 ) ) FD_LOG_ERR(( "io_uring_enable_rings failed (%i-%s)", enable_err, fd_io_strerror( -enable_err ) ));
 }
 
 #else /* no io_uring */

@@ -185,7 +185,6 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
 
   /* Map seq0 into the bstream store. */
 
-  int   dev_fd   = ur->dev_fd;
   ulong dev_base = ur->dev_base;
   ulong dev_sz   = ur->dev_sz;
 
@@ -199,7 +198,8 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
   rd->tsz  = (uint)rsz;
   struct io_uring_sqe * sqe = io_uring_get_sqe( ring );
   if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
-  io_uring_prep_read( sqe, dev_fd, rd->dst, (uint)rsz, dev_base+dev_off );
+  io_uring_prep_read( sqe, 0, rd->dst, (uint)rsz, dev_base+dev_off );
+  io_uring_sqe_set_flags( sqe, IOSQE_FIXED_FILE );
   io_uring_sqe_set_data( sqe, rd );
   ur->sq_prep_cnt++;
   if( FD_LIKELY( !sz ) ) return 1U; /* optimize for the unfragmented case */
@@ -210,7 +210,7 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
      the head read job also succeeded.  Also, set the low bit of the
      userdata to 1 (usually guaranteed to be 0 due to alignment), to
      indicate that this SQE is a head frag. */
-  io_uring_sqe_set_flags( sqe, IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS );
+  io_uring_sqe_set_flags( sqe, IOSQE_FIXED_FILE | IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS );
   io_uring_sqe_set_data64( sqe, (ulong)rd+1UL );
   ur->cq_cnt++;  /* Treat as already-completed in metrics */
 
@@ -218,7 +218,8 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
   rd->tsz  = (uint)sz;
   sqe = io_uring_get_sqe( ring );
   if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
-  io_uring_prep_read( sqe, dev_fd, (uchar *)rd->dst + rsz, (uint)sz, dev_base );
+  io_uring_prep_read( sqe, 0, (uchar *)rd->dst + rsz, (uint)sz, dev_base );
+  io_uring_sqe_set_flags( sqe, IOSQE_FIXED_FILE );
   io_uring_sqe_set_data( sqe, rd );
   ur->sq_prep_cnt++;
   return 2U;
