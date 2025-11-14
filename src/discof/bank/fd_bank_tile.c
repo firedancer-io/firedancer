@@ -176,7 +176,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx[ 0 ];
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ 0 ];
     fd_txn_out_t * txn_out = &ctx->txn_out[ 0 ];
-    ctx->txn_ctx->bundle.is_bundle = 0;
+    ctx->txn_in->bundle.is_bundle = 0;
 
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
@@ -373,7 +373,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx[ i ];
     fd_txn_in_t *       txn_in  = &ctx->txn_in[ i ];
     fd_txn_out_t *      txn_out = &ctx->txn_out[ i ];
-    txn_ctx->bundle.is_bundle = 1;
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
@@ -387,7 +386,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
-    txn_ctx->bundle.is_bundle = 1;
+    txn_in->bundle.is_bundle = 1;
     txn_out->err.exec_err = fd_runtime_prepare_and_execute_txn( &ctx->runtime, bank, txn_in, txn_ctx, txn_out, NULL, &ctx->exec_accounts[ i ], NULL, NULL );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.exec_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.exec_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -567,9 +566,10 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( txncache );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
-    ctx->txn_ctx[ i ].bundle.prev_txn_outs_cnt = i;
+    ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
     for( ulong j=0UL; j<i; j++ ) {
-      ctx->txn_ctx[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
+      ctx->txn_in[ i ].bundle.prev_txn_ins[ j ]  = &ctx->txn_in[ j ];
+      ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
     }
     ctx->txn_ctx[ i ].bank_hash_cmp = NULL; /* TODO - do we need this? */
   }

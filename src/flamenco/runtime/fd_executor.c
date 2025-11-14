@@ -969,14 +969,14 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
     rollback_fee_payer_acc = txn_out->accounts.rollback_nonce;
   } else {
     fd_account_meta_t const * meta = NULL;
-    if( FD_UNLIKELY( txn_ctx->bundle.is_bundle ) ) {
+    if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
       int is_found = 0;
-      for( ulong i=txn_ctx->bundle.prev_txn_outs_cnt; i>0UL && !is_found; i-- ) {;
-        fd_txn_out_t * prev_txn_out = txn_ctx->bundle.prev_txn_outs[ i-1 ];
+      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {;
+        fd_txn_in_t *  prev_txn_in  = txn_in->bundle.prev_txn_ins[ i-1 ];
+        fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.accounts_cnt; j++ ) {
-          /* TODO:FIXME: USES WRONG TXN IN AND TXN CTX FIX!!!!!!!!!! */
           if( !memcmp( &prev_txn_out->accounts.account_keys[ j ], fee_payer_key, sizeof(fd_pubkey_t) ) &&
-              fd_exec_txn_ctx_account_is_writable_idx( txn_in, prev_txn_out, bank, j ) ) {
+            fd_exec_txn_ctx_account_is_writable_idx( prev_txn_in, prev_txn_out, bank, j ) ) {
             /* Found the account in a previous transaction */
             meta = prev_txn_out->accounts.accounts[ j ].meta;
             is_found = 1;
@@ -1439,7 +1439,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
 
   fd_account_meta_t const * meta = NULL;
-  if( txn_ctx->bundle.is_bundle ) {
+  if( txn_in->bundle.is_bundle ) {
     /* If we are in a bundle, that means that the latest version of an
        account may be a transaction account from a previous transaction
        and not in the accounts database.  This means we have to
@@ -1453,11 +1453,11 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
        or updating when the account is writable. */
 
     int is_found = 0;
-    for( ulong i=txn_ctx->bundle.prev_txn_outs_cnt; i>0UL && !is_found; i-- ) {
-      fd_txn_out_t * prev_txn_out = txn_ctx->bundle.prev_txn_outs[ i-1 ];
+    for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
+      fd_txn_in_t *  prev_txn_in  = txn_in->bundle.prev_txn_ins[ i-1 ];
+      fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
       for( ushort j=0UL; j<prev_txn_out->accounts.accounts_cnt; j++ ) {
-        /* TODO:FIXME: WRONG TXN CTX/TXN IN LOOKUP!!!!!! */
-        if( !memcmp( &prev_txn_out->accounts.account_keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_exec_txn_ctx_account_is_writable_idx( txn_in, prev_txn_out, bank, j ) ) {
+        if( !memcmp( &prev_txn_out->accounts.account_keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_exec_txn_ctx_account_is_writable_idx( prev_txn_in, prev_txn_out, bank, j ) ) {
           /* Found the account in a previous transaction */
           meta = prev_txn_out->accounts.accounts[ j ].meta;
           is_found = 1;

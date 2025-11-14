@@ -20,6 +20,7 @@ test_vm_minimal_exec_instr_ctx( fd_exec_instr_ctx_t * instr_ctx,
 
   instr_ctx->txn_ctx = txn_ctx;
   instr_ctx->txn_out = txn_out;
+  instr_ctx->bank    = bank;
 }
 
 void

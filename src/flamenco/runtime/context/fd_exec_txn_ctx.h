@@ -78,12 +78,6 @@ struct fd_exec_txn_ctx {
   fd_bank_hash_cmp_t * bank_hash_cmp;
 
   struct {
-    int            is_bundle;
-    fd_txn_out_t * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
-    ulong          prev_txn_outs_cnt;
-  } bundle;
-
-  struct {
     int                enable_exec_recording;
     fd_log_collector_t log_collector; /* Log collector instance */
     fd_capture_ctx_t * capture_ctx;

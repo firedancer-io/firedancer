@@ -269,6 +269,13 @@ typedef struct fd_runtime fd_runtime_t;
 
 struct fd_txn_in {
   fd_txn_p_t txn;
+
+  struct {
+    int            is_bundle;
+    fd_txn_in_t *  prev_txn_ins[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+    fd_txn_out_t * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+    ulong          prev_txn_cnt;
+  } bundle;
 };
 typedef struct fd_txn_in fd_txn_in_t;
 
