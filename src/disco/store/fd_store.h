@@ -341,10 +341,10 @@ FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store
    FD_STORE_SHARED_LOCK and FD_STORE_EXCLUSIVE_LOCK macros to acquire
    and release the lock instead of calling these functions directly. */
 
-static inline void fd_store_shacq( fd_store_t * store ) { fd_rwlock_read   ( &store->lock ); }
-static inline void fd_store_shrel( fd_store_t * store ) { fd_rwlock_unread ( &store->lock ); }
-static inline void fd_store_exacq( fd_store_t * store ) { fd_rwlock_write  ( &store->lock ); }
-static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_unwrite( &store->lock ); }
+static inline void fd_store_shacq( fd_store_t * store ) FD_ACQUIRE_SHARED( &store->lock ) { fd_rwlock_read   ( &store->lock ); }
+static inline void fd_store_shrel( fd_store_t * store ) FD_RELEASE_SHARED( &store->lock ) { fd_rwlock_unread ( &store->lock ); }
+static inline void fd_store_exacq( fd_store_t * store ) FD_ACQUIRE( &store->lock )        { fd_rwlock_write  ( &store->lock ); }
+static inline void fd_store_exrel( fd_store_t * store ) FD_RELEASE( &store->lock )        { fd_rwlock_unwrite( &store->lock ); }
 
 struct fd_store_lock_ctx {
   fd_store_t * store_;
@@ -354,7 +354,7 @@ struct fd_store_lock_ctx {
 };
 
 static inline void
-fd_store_shared_lock_cleanup( struct fd_store_lock_ctx * ctx ) { *(ctx->work_end) = fd_tickcount(); fd_store_shrel( ctx->store_ ); }
+fd_store_shared_lock_cleanup( struct fd_store_lock_ctx * ctx ) FD_RELEASE_SHARED( ctx->store_->lock ) { *(ctx->work_end) = fd_tickcount(); fd_store_shrel( ctx->store_ ); }
 
 #define FD_STORE_SHARED_LOCK(store, shacq_start, shacq_end, shrel_end) do {                                  \
   struct fd_store_lock_ctx lock_ctx __attribute__((cleanup(fd_store_shared_lock_cleanup))) =                 \
@@ -367,7 +367,7 @@ fd_store_shared_lock_cleanup( struct fd_store_lock_ctx * ctx ) { *(ctx->work_end
 #define FD_STORE_SHARED_LOCK_END while(0); } while(0)
 
 static inline void
-fd_store_exclusive_lock_cleanup( struct fd_store_lock_ctx * ctx ) { *(ctx->work_end) = fd_tickcount(); fd_store_exrel( ctx->store_ ); }
+fd_store_exclusive_lock_cleanup( struct fd_store_lock_ctx * ctx ) FD_RELEASE( ctx->store_->lock ) { *(ctx->work_end) = fd_tickcount(); fd_store_exrel( ctx->store_ ); }
 
 #define FD_STORE_EXCLUSIVE_LOCK(store, exacq_start, exacq_end, exrel_end) do {                             \
   struct fd_store_lock_ctx lock_ctx __attribute__((cleanup(fd_store_exclusive_lock_cleanup))) =            \

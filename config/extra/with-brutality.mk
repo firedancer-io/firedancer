@@ -13,6 +13,13 @@ CPPFLAGS+=-Wimplicit-fallthrough
 # See with-clang.mk
 CPPFLAGS+=-Wno-address-of-packed-member -Wno-unused-command-line-argument -Wno-bitwise-instead-of-logical
 CPPFLAGS+=-Wno-gnu-zero-variadic-macro-arguments
+
+# older clang versions have with clean attributes
+ifneq ($(strip $(FD_COMPILER_MAJOR_VERSION)),)
+  ifeq ($(shell test $(FD_COMPILER_MAJOR_VERSION) -ge 18 && echo 1),1)
+    CPPFLAGS+=-Wthread-safety
+  endif
+endif
 endif
 
 ifdef FD_USING_GCC
