@@ -787,6 +787,13 @@ STEM_(run)( fd_topo_t *      topo,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
                ctx );
 
+#ifdef STEM_CALLBACK_METRICS_WRITE
+  /* Write final metrics state before shutting down */
+  FD_COMPILER_MFENCE();
+  STEM_CALLBACK_METRICS_WRITE( ctx );
+  FD_COMPILER_MFENCE();
+#endif
+
   if( FD_LIKELY( tile->allow_shutdown ) ) {
     for( ulong i=0UL; i<tile->in_cnt; i++ ) {
       if( FD_UNLIKELY( !tile->in_link_poll[ i ] || !tile->in_link_reliable[ i ] ) ) continue;

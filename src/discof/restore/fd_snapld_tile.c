@@ -68,15 +68,19 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
 
+  /* FIXME: Allow incremental_snapshots=0 config */
   ulong full_slot = ULONG_MAX;
   ulong incr_slot = ULONG_MAX;
+  int full_is_zstd = 0;
+  int incr_is_zstd = 0;
   char full_path[ PATH_MAX ] = { 0 };
   char incr_path[ PATH_MAX ] = { 0 };
   ctx->local_full_fd = -1;
   ctx->local_incr_fd = -1;
   if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path, 1,
-                                               &full_slot, &incr_slot,
-                                               full_path, incr_path ) ) ) {
+                                               &full_slot,    &incr_slot,
+                                                full_path,     incr_path,
+                                               &full_is_zstd, &incr_is_zstd ) ) ) {
     FD_TEST( full_slot!=ULONG_MAX );
 
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
@@ -239,7 +243,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               ctl,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
@@ -288,7 +292,6 @@ returnable_frag( fd_snapld_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-      metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       break;
 
     /* FD_SNAPSHOT_MSG_CTRL_ERROR and FD_SNAPSHOT_MSG_DATA are not possible */
@@ -296,7 +299,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, ctl, 0UL, 0UL );
 
   return 0;
 }

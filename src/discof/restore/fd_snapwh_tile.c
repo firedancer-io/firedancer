@@ -156,7 +156,6 @@ handle_control_frag( fd_snapwh_t * ctx,
     break;
   case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
     ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-    metrics_write( ctx );
     break;
   default:
     FD_LOG_CRIT(( "received unexpected ssctrl msg type %lu", meta_ctl ));
