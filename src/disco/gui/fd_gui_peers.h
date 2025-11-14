@@ -116,6 +116,7 @@ struct fd_gui_peers_node {
   int valid;
   long update_time_nanos;
   fd_contact_info_t contact_info;
+  char name[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ];
 
   fd_gui_peers_metric_rate_t gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
   fd_gui_peers_metric_rate_t gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
@@ -263,21 +264,23 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_MULTI 1
 #include "../../util/tmpl/fd_map_chain.c"
 
-static int live_table_col_pubkey_lt( void const * a, void const * b ) { return memcmp( ((fd_pubkey_t *)a)->uc, ((fd_pubkey_t *)b)->uc, 32UL ) < 0; }
-static int live_table_col_long_lt  ( void const * a, void const * b ) { return *(long *)a < *(long *)b;                                            }
-static int live_table_col_ipv4_lt  ( void const * a, void const * b ) { return fd_uint_bswap(*(uint *)a) < fd_uint_bswap(*(uint *)b);              }
+static int live_table_col_pubkey_lt( void const * a, void const * b ) { return memcmp( ((fd_pubkey_t *)a)->uc, ((fd_pubkey_t *)b)->uc, 32UL ) < 0;   }
+static int live_table_col_long_lt  ( void const * a, void const * b ) { return *(long *)a < *(long *)b;                                              }
+static int live_table_col_ipv4_lt  ( void const * a, void const * b ) { return fd_uint_bswap(*(uint *)a) < fd_uint_bswap(*(uint *)b);                }
+static int live_table_col_name_lt  ( void const * a, void const * b ) { return memcmp( (char *)a, (char *)b, FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ) < 0; }
 static int live_table_col_stake_lt ( void const * a, void const * b ) { return fd_long_if( *(ulong *)a>LONG_MAX, -1L, (long)*(ulong *)a ) < fd_long_if( *(ulong *)b>LONG_MAX, -1L, (long)*(ulong *)b ); }
 
 #define LIVE_TABLE_NAME fd_gui_peers_live_table
 #define LIVE_TABLE_TREAP treaps_live_table
 #define LIVE_TABLE_SORT_KEYS sort_keys_live_table
 #define LIVE_TABLE_DLIST dlist_live_table
-#define LIVE_TABLE_COLUMN_CNT (7UL)
+#define LIVE_TABLE_COLUMN_CNT (8UL)
 #define LIVE_TABLE_MAX_SORT_KEY_CNT FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
   LIVE_TABLE_COL_ENTRY( "Stake",        stake,                                                                    live_table_col_stake_lt  ), \
   LIVE_TABLE_COL_ENTRY( "Pubkey",       contact_info.pubkey,                                                      live_table_col_pubkey_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Name",         name,                                                                     live_table_col_name_lt   ), \
   LIVE_TABLE_COL_ENTRY( "IP Addr",      contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr,               live_table_col_ipv4_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Ingress Push", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Ingress Pull", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
@@ -285,7 +288,7 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
   LIVE_TABLE_COL_ENTRY( "Egress Pull",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), )
 #include "fd_gui_live_table_tmpl.c"
 
-#define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6 }, .dir = { -1, -1, -1, -1, -1, -1, -1 } })
+#define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6, 7 }, .dir = { -1, -1, -1, -1, -1, -1, -1, -1 } })
 
 #define LIVE_TABLE_NAME fd_gui_peers_bandwidth_tracking
 #define LIVE_TABLE_TREAP treaps_bandwidth_tracking
