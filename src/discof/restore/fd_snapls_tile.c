@@ -196,6 +196,7 @@ static void
 handle_control_frag( fd_snapls_tile_t *  ctx,
                      fd_stem_context_t *  stem,
                      ulong                sig,
+                     ulong                ctl,
                      ulong                in_idx ) {
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
@@ -245,7 +246,6 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
 
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-      metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       break;
     }
 
@@ -259,7 +259,7 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, ctl, 0UL, 0UL );
 }
 
 static void
@@ -298,7 +298,7 @@ returnable_frag( fd_snapls_tile_t *  ctx,
                  ulong                sig,
                  ulong                chunk,
                  ulong                sz,
-                 ulong                ctl    FD_PARAM_UNUSED,
+                 ulong                ctl,
                  ulong                tsorig FD_PARAM_UNUSED,
                  ulong                tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t *  stem ) {
@@ -309,7 +309,7 @@ returnable_frag( fd_snapls_tile_t *  ctx,
                  sig==FD_SNAPSHOT_HASH_MSG_SUB_DATA ) )        handle_data_frag( ctx, sig, chunk, sz );
   else if( FD_LIKELY( sig==FD_SNAPSHOT_HASH_MSG_RESULT_ADD ||
                       sig==FD_SNAPSHOT_HASH_MSG_EXPECTED ) )   handle_hash_frag( ctx, in_idx, sig, chunk, sz );
-  else                                                         handle_control_frag( ctx, stem, sig, in_idx );
+  else                                                         handle_control_frag( ctx, stem, sig, ctl, in_idx );
 
   return 0;
 }

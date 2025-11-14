@@ -60,6 +60,9 @@
 #define FD_SNAPSHOT_STATE_ERROR                (3UL) /* Some error occurred, will wait for a FAIL command to reset */
 #define FD_SNAPSHOT_STATE_SHUTDOWN             (4UL) /* All work finished, tile can perform final cleanup and exit */
 
+#define FD_SNAPSHOT_CTL_RAW                    (0UL) /* Indicates original snapshot is not compressed */
+#define FD_SNAPSHOT_CTL_ZSTD                   (1UL) /* Indicates original snapshot is ztsd compressed */
+
 #define FD_SNAPSHOT_MSG_DATA                   (0UL) /* Fragment represents some snapshot data */
 #define FD_SNAPSHOT_MSG_META                   (1UL) /* Fragment represents a fd_ssctrl_meta_t message */
 
@@ -72,7 +75,7 @@
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
 
 /* snapla -> snapls */
-#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD       (9UL) /* Hash result sent from snapla to snapls */
+#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD        (9UL) /* Hash result sent from snapla to snapls */
 
 /* snapin -> snapls */
 #define FD_SNAPSHOT_HASH_MSG_EXPECTED         (10UL) /* Hash result sent from snapin to snapls */
