@@ -958,10 +958,10 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 static void
 fd_gui_handle_gossip_update( fd_gui_t *    gui,
                              uchar const * msg ) {
-  if( FD_UNLIKELY( gui->gossip.peer_cnt == FD_GUI_MAX_PEER_CNT ) ) {
-    FD_LOG_DEBUG(("gossip peer cnt exceeds 40200 %lu, ignoring additional entries", gui->gossip.peer_cnt ));
-    return;
-  }
+  /* `gui->gossip.peer_cnt` is guaranteed to be in [0, FD_GUI_MAX_PEER_CNT], because
+  `peer_cnt` is FD_TEST-ed to be less than or equal FD_GUI_MAX_PEER_CNT.
+  For every new peer that is added an existing peer will be removed or was still free.
+  And adding a new peer is done at most `peer_cnt` times. */
   ulong const * header = (ulong const *)fd_type_pun_const( msg );
   ulong peer_cnt = header[ 0 ];
 
@@ -1029,7 +1029,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
         gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].port = *(ushort const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL);
       }
 
-      gui->gossip.peer_cnt = fd_ulong_min( gui->gossip.peer_cnt+1UL, FD_GUI_MAX_PEER_CNT-1UL );
+      gui->gossip.peer_cnt++;
     } else {
       int peer_updated = gui->gossip.peers[ found_idx ].shred_version!=*(ushort const *)(data+i*(58UL+12UL*6UL)+40UL) ||
                          // gui->gossip.peers[ found_idx ].wallclock!=*(ulong const *)(data+i*(58UL+12UL*6UL)+32UL) ||
@@ -1086,10 +1086,8 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
 static void
 fd_gui_handle_vote_account_update( fd_gui_t *    gui,
                                    uchar const * msg ) {
-  if( FD_UNLIKELY( gui->vote_account.vote_account_cnt==FD_GUI_MAX_PEER_CNT ) ) {
-    FD_LOG_DEBUG(("vote account cnt exceeds 40200 %lu, ignoring additional entries", gui->vote_account.vote_account_cnt ));
-    return;
-  }
+  /* See fd_gui_handle_gossip_update for why `gui->vote_account.vote_account_cnt`
+  is guaranteed to be in [0, FD_GUI_MAX_PEER_CNT]. */
   ulong const * header = (ulong const *)fd_type_pun_const( msg );
   ulong peer_cnt = header[ 0 ];
 
@@ -1147,7 +1145,7 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
       gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].commission = *(data+i*112UL+96UL);
       gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].delinquent = *(data+i*112UL+97UL);
 
-      gui->vote_account.vote_account_cnt = fd_ulong_min( gui->vote_account.vote_account_cnt+1UL, FD_GUI_MAX_PEER_CNT-1UL );
+      gui->vote_account.vote_account_cnt++;
     } else {
       int peer_updated =
         memcmp( gui->vote_account.vote_accounts[ found_idx ].pubkey->uc, data+i*112UL+32UL, 32UL ) ||
