@@ -9,26 +9,32 @@ endif
 src/disco/gui/dist_stable_cmp/%.zst: src/disco/gui/dist_stable/%
 	mkdir -p $(@D);
 	zstd -f -19 $< -o $@;
+	$(TOUCH) $@;
 
 src/disco/gui/dist_stable_cmp/%.gz: src/disco/gui/dist_stable/%
 	mkdir -p $(@D);
 	gzip -f -c -9 $< > $@;
+	$(TOUCH) $@;
 
 src/disco/gui/dist_alpha_cmp/%.zst: src/disco/gui/dist_alpha/%
 	mkdir -p $(@D);
 	zstd -f -19 $< -o $@;
+	$(TOUCH) $@;
 
 src/disco/gui/dist_alpha_cmp/%.gz: src/disco/gui/dist_alpha/%
 	mkdir -p $(@D);
 	gzip -f -c -9 $< > $@;
+	$(TOUCH) $@;
 
 src/disco/gui/dist_dev_cmp/%.zst: src/disco/gui/dist_dev/%
 	mkdir -p $(@D);
 	zstd -f -19 $< -o $@;
+	$(TOUCH) $@;
 
 src/disco/gui/dist_dev_cmp/%.gz: src/disco/gui/dist_dev/%
 	mkdir -p $(@D);
 	gzip -f -c -9 $< > $@;
+	$(TOUCH) $@;
 
 FD_GUI_FRONTEND_STABLE_FILES := $(shell $(FIND) src/disco/gui/dist_stable -type f)
 FD_GUI_FRONTEND_ALPHA_FILES := $(shell $(FIND) src/disco/gui/dist_alpha -type f)
