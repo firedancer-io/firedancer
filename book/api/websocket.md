@@ -2051,6 +2051,8 @@ explicitly mentioned, skipped slots are not included.
             "max_total_microblocks": 32768
         },
         "scheduler_stats": {
+            "end_slot_reason": "timeout",
+            "block_hash": "9cjSTpZ82xeHouc3sDEzsQ8yZHKjvc8o46EstxfrprD1",
             "slot_schedule_counts": [123, 123, 123, 123, 123, 123, 123],
             "end_slot_schedule_counts": [0, 10, 0, 0, 0, 0, 0],
             "pending_smallest_cost": 3000,
@@ -2190,6 +2192,8 @@ explicitly mentioned, skipped slots are not included.
 **`SlotScheduleStats`**
 | Field                        | Type              | Description |
 |------------------------------|-------------------|-------------|
+| block_hash                   | `string`          | The final POH hash in the block as a base58 encoded string |
+| end_slot_reason              | `string`          | The reason pack ended packing for this leader slot. One of `"timeout"`, `"microblock_limit"`, or `"leader_switch"` |
 | slot_schedule_counts         | `number[]`        | `slot_schedule_counts[i]` is the number of transactions across the leader slot that had `["success", "fail_taken", "fail_fast_path", "fail_byte_limit", "fail_write_cost", "fail_slow_path", "fail_defer_skip"][i]` as the outcome after being scheduled. "success" means the transaction was successfully scheduled to a bank. "fail_cu_limit" means Pack skipped the transaction because it would have exceeded the block CU limit. "fail_fast_path" means Pack skipped the transaction because of account conflicts using the fast bitvector check. "fail_byte_limit" means Pack skipped the transaction because it would have exceeded the block data size limit. "fail_write_cost" means Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit. "fail_slow_path" means Pack skipped the transaction because of account conflicts using the full slow check. "fail_defer_skip" means Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times |
 | end_slot_schedule_counts     | `number[]`        | `end_slot_schedule_counts` has the same meaning as `slot_schedule_counts` except only transactions that occur after the last successfully scheduled transaction in the slot are counted |
 | pending_smallest_cost        | `number`          | The cost in compute units of the smallest eligible non-vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |

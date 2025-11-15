@@ -417,7 +417,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_gui_peers_handle_vote_update( ctx->peers, ctx->peers->votes, vote_count, fd_clock_now( ctx->clock ), ctx->gui->ipinfo.country_code );
 
         /* update slot data */
-        fd_gui_handle_replay_update( ctx->gui, &slot_completed, fd_clock_now( ctx->clock ) );
+        fd_gui_handle_replay_update( ctx->gui, &slot_completed, &replay->block_hash, fd_clock_now( ctx->clock ) );
 
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
         fd_became_leader_t * became_leader = (fd_became_leader_t *)src;

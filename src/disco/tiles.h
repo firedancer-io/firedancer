@@ -149,6 +149,10 @@ struct fd_microblock_trailer {
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
+#define FD_PACK_END_SLOT_REASON_TIME          (1)
+#define FD_PACK_END_SLOT_REASON_MICROBLOCK    (2)
+#define FD_PACK_END_SLOT_REASON_LEADER_SWITCH (3)
+
 struct fd_done_packing {
   ulong microblocks_in_slot;
 
@@ -160,6 +164,8 @@ struct fd_done_packing {
 
   fd_pack_smallest_t pending_smallest[ 1 ];
   fd_pack_smallest_t pending_votes_smallest[ 1 ];
+
+  int end_slot_reason;
 };
 typedef struct fd_done_packing fd_done_packing_t;
 

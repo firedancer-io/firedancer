@@ -1552,6 +1552,25 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         jsonp_close_object( gui->http );
 
         jsonp_open_object( gui->http, "scheduler_stats" );
+          char block_hash_base58[ FD_BASE58_ENCODED_32_SZ ];
+          fd_base58_encode_32( lslot->block_hash.uc, NULL, block_hash_base58 );
+          jsonp_string( gui->http, "block_hash", block_hash_base58 );
+
+          switch( lslot->scheduler_stats->end_slot_reason ) {
+            case FD_PACK_END_SLOT_REASON_TIME: {
+              jsonp_string( gui->http, "end_slot_reason", "timeout" );
+              break;
+            }
+            case FD_PACK_END_SLOT_REASON_MICROBLOCK: {
+              jsonp_string( gui->http, "end_slot_reason", "microblock_limit" );
+              break;
+            }
+            case FD_PACK_END_SLOT_REASON_LEADER_SWITCH: {
+              jsonp_string( gui->http, "end_slot_reason", "leader_switch" );
+              break;
+            }
+            default: FD_LOG_ERR(( "unreachable" ));
+          }
           jsonp_open_array( gui->http, "slot_schedule_counts" );
             for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->block_results[ i ] );
           jsonp_close_array( gui->http );
