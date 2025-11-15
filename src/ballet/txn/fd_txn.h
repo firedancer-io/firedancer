@@ -107,6 +107,10 @@
    transaction, using fd_txn_parse() verification rules. */
 #define FD_TXN_MIN_SERIALIZED_SZ     (134UL)
 
+/* FD_TXN_MAX_BLOCK_HEIGHT: Max number of accepted blockhashes before a
+   transaction expires. */
+#define FD_TXN_MAX_BLOCK_HEIGHT 151UL
+
 /* BEGIN Agave limits */
 
 /* "Maximum number of accounts that a transaction may lock.

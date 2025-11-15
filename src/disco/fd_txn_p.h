@@ -15,7 +15,7 @@ struct __attribute__((aligned(64))) fd_txn_p {
      uint rebated_cus; /* requested_exec_plus_acct_data_cus-actual used CUs. Pack reads this for CU rebating. */
      uint actual_consumed_cus; /* non_execution_cus+real execution CUs+real account data cus. PoH reads this for block CU counting. */
    } bank_cu; /* Populated by bank. */
-   ulong blockhash_slot; /* Slot provided by resolv tile when txn arrives at the pack tile. Used when txn is in extra storage in pack. */
+   ulong reference_block_height; /* Block height provided by resolv tile when txn arrives at the pack tile. */
   };
   /* The time that the transaction arrived to the pack tile in ticks. Set by pack and intended to be read from a transaction on a pack->bank link. */
   long scheduler_arrival_time_nanos;
