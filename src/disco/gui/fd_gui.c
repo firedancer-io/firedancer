@@ -2557,6 +2557,7 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
 void
 fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_gui_slot_completed_t * slot_completed,
+                             ulong                     vote_slot,
                              long                      now ) {
   (void)now;
 
@@ -2600,6 +2601,7 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
   slot->tips                   = slot_completed->tips;
   slot->compute_units          = slot_completed->compute_units;
   slot->shred_cnt              = slot_completed->shred_cnt;
+  slot->vote_slot              = vote_slot;
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && slot->slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
     gui->epoch.epochs[ 0 ].end_time = slot->completed_time;

@@ -675,6 +675,7 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
                                  fd_gui_peers_vote_t * votes,
                                  ulong                 vote_cnt,
                                  long                  now,
+                                 fd_pubkey_t *         identity,
                                  char                  country_code_map[ static 512 ][ 3 ] ) {
   (void)now;
   fd_gui_peers_vote_t * votes_sorted  = votes;
@@ -717,6 +718,12 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
   ulong count = 0UL;
   for( ulong i=0UL; i<vote_cnt; i++ ) {
     if( FD_UNLIKELY( votes_sorted[ i ].stake==ULONG_MAX ) ) continue;
+
+    if( FD_UNLIKELY( !memcmp( &votes_sorted[ i ].node_account, identity->uc, sizeof(fd_pubkey_t) ) && peers->slot_voted!=votes_sorted[ i ].last_vote_slot ) ) {
+      peers->slot_voted = votes_sorted[ i ].last_vote_slot;
+      fd_gui_peers_printf_vote_slot( peers );
+      fd_http_server_ws_broadcast( peers->http );
+    }
 
     ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query( peers->node_pubkey_map, &votes_sorted[ i ].node_account, ULONG_MAX, peers->contact_info_table );
     if( FD_UNLIKELY( peer_idx==ULONG_MAX ) ) continue; /* peer not on gossip */
