@@ -135,21 +135,21 @@ static uint xdp_tx_flags     = 0;
 static uint xdp_fr_flags     = 0;
 static uint xdp_cr_flags     = 0;
 
-
 static void
 add_neighbor( fd_neigh4_hmap_t * join,
               uint               ip4_addr,
               uchar mac0, uchar mac1, uchar mac2,
               uchar mac3, uchar mac4, uchar mac5 ) {
-  fd_neigh4_hmap_query_t query[1];
-  int prepare_res = fd_neigh4_hmap_prepare( join, &ip4_addr, NULL, query, FD_MAP_FLAG_BLOCKING );
-  FD_TEST( prepare_res==FD_MAP_SUCCESS );
-  fd_neigh4_entry_t * ele = fd_neigh4_hmap_query_ele( query );
-  ele->state    = FD_NEIGH4_STATE_ACTIVE;
-  ele->ip4_addr = ip4_addr;
-  ele->mac_addr[0] = mac0; ele->mac_addr[1] = mac1; ele->mac_addr[2] = mac2;
-  ele->mac_addr[3] = mac3; ele->mac_addr[4] = mac4; ele->mac_addr[5] = mac5;
-  fd_neigh4_hmap_publish( query );
+  fd_neigh4_entry_t * e = fd_neigh4_hmap_upsert( join, &ip4_addr );
+  FD_TEST( e );
+  ulong suppress_until = e->probe_suppress_until;
+  fd_neigh4_entry_t to_insert = (fd_neigh4_entry_t) {
+    .ip4_addr             = ip4_addr,
+    .state                = FD_NEIGH4_STATE_ACTIVE,
+    .mac_addr             = { mac0, mac1, mac2, mac3, mac4, mac5 },
+    .probe_suppress_until = suppress_until&FD_NEIGH4_PROBE_SUPPRESS_MASK
+  };
+  fd_neigh4_entry_atomic_st( e, &to_insert );
 }
 
 static void

@@ -179,8 +179,7 @@ struct fd_topo_tile {
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
-      ulong neigh4_obj_id;         /* neigh4 hash map header */
-      ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
+      ulong neigh4_obj_id;         /* neigh4 hash map */
     } xdp;
 
     struct {
@@ -195,8 +194,7 @@ struct fd_topo_tile {
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
       char  neigh_if[ 16 ];        /* neigh4 interface name */
-      ulong neigh4_obj_id;         /* neigh4 hash map header */
-      ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
+      ulong neigh4_obj_id;         /* neigh4 hash map */
     } netlink;
 
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL

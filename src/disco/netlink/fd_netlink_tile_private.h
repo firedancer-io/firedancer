@@ -42,7 +42,7 @@ struct fd_netlink_tile_ctx {
   fd_fib4_t fib4_main[1];
 
   /* Neighbor table */
-  fd_neigh4_hmap_t neigh4[1];
+  fd_neigh4_hmap_t neigh4[1];   /* join to global map */
   uint             neigh4_ifidx;
   long             idle_cnt;
 
