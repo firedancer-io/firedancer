@@ -71,8 +71,7 @@ fd_fib4_footprint( ulong route_max,
 void *
 fd_fib4_new( void * mem,
              ulong  route_max,
-             ulong  route_peer_max,
-             ulong  route_peer_seed );
+             ulong  route_peer_max );
 
 fd_fib4_t *
 fd_fib4_join( void * mem );
@@ -106,7 +105,7 @@ fd_fib4_clear( fd_fib4_t * fib );
 
 int
 fd_fib4_insert( fd_fib4_t *     fib,
-                uint            ip4_dst,
+                uint            ip4_dst, /* big endian */
                 int             prefix,
                 uint            prio,
                 fd_fib4_hop_t * hop );
@@ -125,7 +124,7 @@ fd_fib4_insert( fd_fib4_t *     fib,
 fd_fib4_hop_t const *
 fd_fib4_lookup( fd_fib4_t const * fib,
                 fd_fib4_hop_t *   out,
-                uint              ip4_dst,
+                uint              ip4_dst, /* big endian */
                 ulong             flags );
 
 /* fd_fib4_hop_or is a helper to chain together multiple FIB lookups. */
