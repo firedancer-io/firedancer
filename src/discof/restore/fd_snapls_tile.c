@@ -281,7 +281,7 @@ handle_hash_frag( fd_snapls_tile_t * ctx,
       FD_TEST( sz==sizeof(fd_lthash_value_t) );
       FD_TEST( ctx->in_kind[ in_idx ]==IN_KIND_SNAPIN );
       fd_lthash_value_t const * result = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
-      fd_memcpy( &ctx->hash_accum.expected_lthash, result, sizeof(fd_lthash_value_t) );
+      ctx->hash_accum.expected_lthash = *result;
       break;
     }
     default:

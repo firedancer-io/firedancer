@@ -2702,7 +2702,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
       fd_pack_addr_use_t * writer = pack->written_list[ pack->written_list_cnt - 1UL - i ];
       /* build a small max heap with the top writer costs */
       if( FD_UNLIKELY( !fd_pack_unwritable_contains( &writer->key ) && !FD_PACK_TOP_WRITERS_SORT_BEFORE( pack->top_writers[ FD_PACK_TOP_WRITERS_CNT-1UL ], (*writer) ) ) ) {
-          fd_memcpy( &pack->top_writers[ FD_PACK_TOP_WRITERS_CNT-1UL ], writer, sizeof(fd_pack_addr_use_t) );
+          pack->top_writers[ FD_PACK_TOP_WRITERS_CNT-1UL ] = *writer;
           fd_pack_writer_cost_sort_insert( pack->top_writers, FD_PACK_TOP_WRITERS_CNT );
       }
 

@@ -824,7 +824,7 @@ fd_gui_peers_viewport_snap( fd_gui_peers_ctx_t * peers, ulong ws_conn_id ) {
     FD_TEST( viewport_idx<FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ );
     fd_gui_peers_node_t * ref = &peers->client_viewports[ ws_conn_id ].viewport[ viewport_idx ];
 
-    fd_memcpy( ref, cur, sizeof(fd_gui_peers_node_t) );
+    *ref = *cur;
   }
 }
 
@@ -897,7 +897,7 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
 
   if( FD_UNLIKELY( !fd_gui_peers_live_table_verify_sort_key( &sort_key ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  fd_memcpy( &peers->client_viewports[ ws_conn_id ].sort_key, &sort_key, sizeof(fd_gui_peers_live_table_sort_key_t) );
+  peers->client_viewports[ ws_conn_id ].sort_key = sort_key;
 
   fd_gui_printf_peers_viewport_request( peers, "query_sort", ws_conn_id, request_id );
   FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
