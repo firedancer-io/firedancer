@@ -225,7 +225,6 @@ fd_ssping_add( fd_ssping_t * ssping,
   if( FD_LIKELY( !peer ) ) {
     if( FD_UNLIKELY( !peer_pool_free( ssping->pool ) ) ) return;
     peer = peer_pool_ele_acquire( ssping->pool );
-    FD_TEST( peer );
     memset( peer, 0, sizeof(fd_ssping_peer_t) );
     peer->refcnt        = 0UL;
     peer->state         = PEER_STATE_UNPINGED;
