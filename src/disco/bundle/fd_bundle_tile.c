@@ -246,64 +246,19 @@ fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
 
 #if FD_HAS_OPENSSL
 
-/* OpenSSL allows us to specify custom memory allocation functions,
-   which we want to point to an fd_alloc_t, but it does not let us use a
-   context object.  Instead we stash it in this thread local, which is
-   OK because the parent workspace exists for the duration of the SSL
-   context, and the process only has one thread.
-
-   Currently fd_alloc doesn't support realloc, so it's implemented on
-   top of malloc and free, and then also it doesn't support getting the
-   size of an allocation from the pointer, which we need for realloc, so
-   we pad each alloc by 8 bytes and stuff the size into the first 8
-   bytes. */
 static FD_TL fd_alloc_t * fd_quic_ssl_mem_function_ctx = NULL;
 
-static void *
-crypto_malloc( ulong        num,
-               char const * file,
-               int          line ) {
-  (void)file; (void)line;
-  void * result = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 16UL, num + 8UL );
-  if( FD_UNLIKELY( !result ) ) {
-    FD_MCNT_INC( BUNDLE, ERRORS_SSL_ALLOC, 1UL );
-    return NULL;
-  }
-  *(ulong *)result = num;
-  return (uchar *)result + 8UL;
-}
-
 static void
-crypto_free( void *       addr,
-             char const * file,
-             int          line ) {
-  (void)file;
-  (void)line;
-
-  if( FD_UNLIKELY( !addr ) ) return;
-  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar *)addr - 8UL );
+fd_ossl_alloc_error_callback( ulong        num,
+                               char const * file,
+                               int          line ) {
+  (void)num; (void)file; (void)line;
+  FD_MCNT_INC( BUNDLE, ERRORS_SSL_ALLOC, 1UL );
 }
 
-static void *
-crypto_realloc( void *       addr,
-                ulong        num,
-                char const * file,
-                int          line ) {
-  if( FD_UNLIKELY( !addr ) ) return crypto_malloc( num, file, line );
-  if( FD_UNLIKELY( !num ) ) {
-    crypto_free( addr, file, line );
-    return NULL;
-  }
-
-  void * new = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 16UL, num + 8UL );
-  if( FD_UNLIKELY( !new ) ) return NULL;
-
-  ulong old_num = *(ulong *)( (uchar *)addr - 8UL );
-  fd_memcpy( (uchar*)new + 8, (uchar*)addr, fd_ulong_min( old_num, num ) );
-  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar *)addr - 8UL );
-  *(ulong *)new = num;
-  return (uchar*)new + 8UL;
-}
+#define OPENSSL_MEM_FUNCTION_CTX     fd_quic_ssl_mem_function_ctx
+#define OPENSSL_ALLOC_ERROR_CALLBACK fd_ossl_alloc_error_callback
+#include "../../waltz/openssl/fd_openssl_tile.c"
 
 static void
 fd_ossl_keylog_callback( SSL const *  ssl,
