@@ -380,6 +380,7 @@ metric introduced.
 <tile name="bundle">
     <counter name="TransactionReceived" summary="Total count of transactions received, including transactions within bundles" />
     <counter name="PacketReceived" summary="Total count of packets received" />
+    <counter name="ProtoReceivedBytes" summary="Total count of bytes from received grpc protobuf payloads" />
     <counter name="BundleReceived" summary="Total count of bundles received" />
     <counter name="Errors" enum="BundleError" summary="Number of gRPC errors encountered" />
     <gauge name="HeapSize" summary="Workspace heap size" />
@@ -759,7 +760,9 @@ metric introduced.
     <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
     <counter name="ShredOutRcv"          summary="The number of times we received a repair shred" />
+    <counter name="ShredOutRcvBytes"     summary="The number bytes received from network packets with repair shreds. Bytes include network headers." />
     <counter name="ShredTurbineRcv"      summary="The number of times we received a turbine shred" />
+    <counter name="ShredTurbineRcvBytes" summary="The number bytes received from network packets with turbine shreds. Bytes include network headers." />
     <histogram name="StoreInsertWait" min="0.00000001" max="0.0005" converter="seconds">
         <summary>Time in seconds spent waiting for the store to insert a new FEC set</summary>
     </histogram>
@@ -1086,6 +1089,10 @@ metric introduced.
 
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
+
+    <gauge name="ConnectionCount" summary="The number of active http connections to the Prometheus endpoint" />
+    <counter name="BytesWritten" summary="The total number of bytes written to all responses on the Prometheus endpoint" />
+    <counter name="BytesRead" summary="The total number of bytes read from all requests to the Prometheus endpoint" />
 </tile>
 
 <tile name="ipecho">
@@ -1131,7 +1138,7 @@ metric introduced.
 </tile>
 
 <tile name="gui">
-    <gauge name="ConnectionCount" summary="The number of active connections to the GUI service" />
+    <gauge name="ConnectionCount" summary="The number of active http connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection" />
     <gauge name="WebsocketConnectionCount" summary="The number of active websocket connections to the GUI service" />
 
     <counter name="WebsocketFramesSent" summary="The total number of websocket frames sent to all connections to the GUI service" />

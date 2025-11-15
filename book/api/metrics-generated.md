@@ -194,6 +194,7 @@
 |--------|------|-------------|
 | <span class="metrics-name">bundle_&#8203;transaction_&#8203;received</span> | counter | Total count of transactions received, including transactions within bundles |
 | <span class="metrics-name">bundle_&#8203;packet_&#8203;received</span> | counter | Total count of packets received |
+| <span class="metrics-name">bundle_&#8203;proto_&#8203;received_&#8203;bytes</span> | counter | Total count of bytes from received grpc protobuf payloads |
 | <span class="metrics-name">bundle_&#8203;bundle_&#8203;received</span> | counter | Total count of bundles received |
 | <span class="metrics-name">bundle_&#8203;errors</span><br/>{bundle_&#8203;error="<span class="metrics-enum">protobuf</span>"} | counter | Number of gRPC errors encountered (Protobuf decode/encode error) |
 | <span class="metrics-name">bundle_&#8203;errors</span><br/>{bundle_&#8203;error="<span class="metrics-enum">transport</span>"} | counter | Number of gRPC errors encountered (Transport error) |
@@ -450,7 +451,9 @@
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;failure</span> | counter | The number of times we failed to force complete a FEC set on request |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;success</span> | counter | The number of times we successfully forced completed a FEC set on request |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;out_&#8203;rcv</span> | counter | The number of times we received a repair shred |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;out_&#8203;rcv_&#8203;bytes</span> | counter | The number bytes received from network packets with repair shreds. Bytes include network headers. |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv</span> | counter | The number of times we received a turbine shred |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv_&#8203;bytes</span> | counter | The number bytes received from network packets with turbine shreds. Bytes include network headers. |
 | <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to insert a new FEC set |
 | <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;work</span> | histogram | Time in seconds spent on inserting a new FEC set |
 
@@ -483,6 +486,9 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">metric_&#8203;boot_&#8203;timestamp_&#8203;nanos</span> | gauge | Timestamp when validator was started (nanoseconds since epoch) |
+| <span class="metrics-name">metric_&#8203;connection_&#8203;count</span> | gauge | The number of active http connections to the Prometheus endpoint |
+| <span class="metrics-name">metric_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all responses on the Prometheus endpoint |
+| <span class="metrics-name">metric_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all requests to the Prometheus endpoint |
 
 </div>
 
@@ -492,7 +498,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">gui_&#8203;connection_&#8203;count</span> | gauge | The number of active connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;connection_&#8203;count</span> | gauge | The number of active http connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection |
 | <span class="metrics-name">gui_&#8203;websocket_&#8203;connection_&#8203;count</span> | gauge | The number of active websocket connections to the GUI service |
 | <span class="metrics-name">gui_&#8203;websocket_&#8203;frames_&#8203;sent</span> | counter | The total number of websocket frames sent to all connections to the GUI service |
 | <span class="metrics-name">gui_&#8203;websocket_&#8203;frames_&#8203;received</span> | counter | The total number of websocket frames received from all connections to the GUI service |

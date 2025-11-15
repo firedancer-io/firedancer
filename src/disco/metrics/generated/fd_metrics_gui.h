@@ -9,7 +9,7 @@
 #define FD_METRICS_GAUGE_GUI_CONNECTION_COUNT_OFF  (16UL)
 #define FD_METRICS_GAUGE_GUI_CONNECTION_COUNT_NAME "gui_connection_count"
 #define FD_METRICS_GAUGE_GUI_CONNECTION_COUNT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_GUI_CONNECTION_COUNT_DESC "The number of active connections to the GUI service"
+#define FD_METRICS_GAUGE_GUI_CONNECTION_COUNT_DESC "The number of active http connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection"
 #define FD_METRICS_GAUGE_GUI_CONNECTION_COUNT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_GUI_WEBSOCKET_CONNECTION_COUNT_OFF  (17UL)

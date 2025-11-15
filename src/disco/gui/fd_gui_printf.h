@@ -130,6 +130,10 @@ void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui );
 
 void
+fd_gui_printf_live_network_metrics( fd_gui_t *                     gui,
+                                    fd_gui_network_stats_t const * cur );
+
+void
 fd_gui_printf_live_txn_waterfall( fd_gui_t *                     gui,
                                   fd_gui_txn_waterfall_t const * prev,
                                   fd_gui_txn_waterfall_t const * cur,

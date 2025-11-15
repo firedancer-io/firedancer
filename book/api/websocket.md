@@ -748,6 +748,56 @@ transactions per second.
 }
 ```
 
+#### `summary.live_network_metrics`
+| frequency        | type             | example |
+|------------------|------------------|---------|
+| *Once* + *100ms* | `NetworkMetrics` | below   |
+
+Live network metrics provides a live view of network bandwidth
+utilization across the various protocols used in the client.
+
+The `protocols` list contains various different protocols the client
+uses to communicate with the internet.
+
+```json
+[
+    "turbine",
+    "gossip",
+    "tpu",
+    "repair",
+    "metrics"
+]
+```
+
+- turbine: the protocol used to disseminate blockchain data, which
+contains primarily executable transactions.
+- gossip: the protocol used to disseminate node metadata, including node
+IP addresses used to help nodes find each other on the network
+- tpu: "transaction processing unit", refers to the various subsystems
+in a client used to consume and forward incoming Solana transactions for
+their next leader slot.
+- repair: a client subsystem which requests any missing block data
+needed by the replay pipeline which may have been lost over the network
+- metrics: refers to the Firedancer metrics tile, which serves an http
+Prometheus metrics endpoint
+
+```json
+{
+    "topic": "summary",
+    "key": "live_network_metrics",
+    "value": {
+        "ingress": [12345432, 5431234, 92345, ...],
+        "egress": [12345432, 5431234, 92345, ...],
+    }
+}
+```
+
+**`NetworkMetrics`**
+| Field   | Type       | Description |
+|---------|------------|-------------|
+| ingress | `number[]` | `ingress[i]` is the total number of ingress network bytes for `protocols[i]` |
+| egress  | `number[]` | `egress[i]` is the total number of egress network bytes for `protocols[i]` |
+
 #### `summary.live_txn_waterfall`
 | frequency        | type               | example |
 |------------------|--------------------|---------|

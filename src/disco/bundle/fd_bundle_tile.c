@@ -49,6 +49,7 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MCNT_SET( BUNDLE, TRANSACTION_RECEIVED,   ctx->metrics.txn_received_cnt          );
   FD_MCNT_SET( BUNDLE, BUNDLE_RECEIVED,        ctx->metrics.bundle_received_cnt       );
   FD_MCNT_SET( BUNDLE, PACKET_RECEIVED,        ctx->metrics.packet_received_cnt       );
+  FD_MCNT_SET( BUNDLE, PROTO_RECEIVED_BYTES,   ctx->metrics.proto_received_bytes      );
   FD_MCNT_SET( BUNDLE, SHREDSTREAM_HEARTBEATS, ctx->metrics.shredstream_heartbeat_cnt );
   FD_MCNT_SET( BUNDLE, KEEPALIVES,             ctx->metrics.ping_ack_cnt              );
   FD_MCNT_SET( BUNDLE, ERRORS_PROTOBUF,        ctx->metrics.decode_fail_cnt           );
