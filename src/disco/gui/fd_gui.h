@@ -259,6 +259,7 @@ typedef struct fd_gui_scheduler_counts fd_gui_scheduler_counts_t;
 
 struct fd_gui_leader_slot {
   ulong slot;
+  fd_hash_t block_hash;
   long  leader_start_time; /* UNIX timestamp of when we first became leader in this slot */
   long  leader_end_time;   /* UNIX timestamp of when we stopped being leader in this slot */
 
@@ -856,6 +857,7 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
 void
 fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_gui_slot_completed_t * slot_completed,
+                             fd_hash_t const *         block_hash,
                              long                      now );
 
 void

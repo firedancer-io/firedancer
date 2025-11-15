@@ -397,8 +397,9 @@ log_end_block_metrics( fd_pack_ctx_t * ctx,
 }
 
 static inline void
-get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing ) {
+get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int reason ) {
     done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
+    done_packing->end_slot_reason = reason;
     fd_pack_get_block_limits( ctx->pack, done_packing->limits_usage, done_packing->limits );
 
 #define DELTA( mem, m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ] - ctx->mem->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
@@ -574,7 +575,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     *charge_busy = 1;
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
-    get_done_packing( ctx, done_packing ); /* needs to be called before fd_pack_end_block */
+    get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_TIME ); /* needs to be called before fd_pack_end_block */
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers ); /* needs to be called after fd_pack_end_block */
 
@@ -813,7 +814,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT, 1UL );
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
-    get_done_packing( ctx, done_packing );
+    get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_MICROBLOCK );
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
@@ -1027,7 +1028,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
       fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
-      get_done_packing( ctx, done_packing );
+      get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_LEADER_SWITCH );
       fd_pack_end_block( ctx->pack );
       fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
