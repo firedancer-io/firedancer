@@ -55,8 +55,8 @@ netconf_cmd_fn( args_t *   args,
   fd_fib4_leave( fib4_local );
 
   printf( "\nNEIGHBOR TABLE (%.16s)\n\n", tile->netlink.neigh_if );
-  fd_neigh4_hmap_t neigh4[1];
-  FD_TEST( fd_neigh4_hmap_join( neigh4, fd_topo_obj_laddr( topo, tile->netlink.neigh4_obj_id ), fd_topo_obj_laddr( topo, tile->netlink.neigh4_ele_obj_id ) ) );
+  fd_neigh4_hmap_t * neigh4 = fd_neigh4_hmap_join( fd_topo_obj_laddr( topo, tile->netlink.neigh4_obj_id ) );
+  FD_TEST( neigh4 );
   fd_neigh4_hmap_fprintf( neigh4, stdout );
   fd_neigh4_hmap_leave( neigh4 );
 

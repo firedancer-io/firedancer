@@ -49,6 +49,8 @@ fd_neigh4_prober_init( fd_neigh4_prober_t * prober,
     .local_rate_limited_cnt  = 0UL,
     .global_rate_limited_cnt = 0UL
   };
+
+  FD_TEST( prober->probe_delay >> FD_NEIGH4_PROBE_SUPPRESS_SHIFT );
 }
 
 void
@@ -75,7 +77,6 @@ fd_neigh4_probe( fd_neigh4_prober_t * prober,
     return errno;
   }
 
-  entry->probe_suppress_until = now + prober->probe_delay;
-
+  FD_NEIGH4_PROBE_SUPPRESS_UNTIL_SET( entry, now + prober->probe_delay );
   return 0;
 }
