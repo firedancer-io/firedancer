@@ -1498,6 +1498,7 @@ fd_gui_clear_slot( fd_gui_t *      gui,
     fd_gui_leader_slot_t * lslot = gui->leader_slots[ slot->leader_history_idx % FD_GUI_LEADER_CNT ];
 
     lslot->slot                        = _slot;
+    memset( lslot->block_hash.uc, 0, sizeof(fd_hash_t) );
     lslot->leader_start_time           = LONG_MAX;
     lslot->leader_end_time             = LONG_MAX;
     lslot->tile_timers_sample_cnt      = 0UL;
@@ -2557,6 +2558,7 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
 void
 fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_gui_slot_completed_t * slot_completed,
+                             fd_hash_t const *         block_hash,
                              long                      now ) {
   (void)now;
 
@@ -2572,6 +2574,11 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
        slot->parent_slot = slot_completed->parent_slot;
   } else {
     slot = fd_gui_clear_slot( gui, slot_completed->slot, slot_completed->parent_slot );
+  }
+
+  if( FD_UNLIKELY( slot->mine ) ) {
+    fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, slot->slot );
+    if( FD_LIKELY( lslot ) ) fd_memcpy( lslot->block_hash.uc, block_hash->uc, sizeof(fd_hash_t) );
   }
 
   slot->completed_time    = slot_completed->completed_time;
