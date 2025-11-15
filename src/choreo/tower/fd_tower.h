@@ -424,6 +424,7 @@
 #include "fd_tower_forks.h"
 #include "../ghost/fd_ghost.h"
 #include "../notar/fd_notar.h"
+#include "fd_epoch_stakes.h"
 #include "../../disco/pack/fd_microblock.h"
 
 /* FD_TOWER_PARANOID:  Define this to non-zero at compile time
@@ -493,11 +494,12 @@ typedef struct fd_tower_out fd_tower_out_t;
    implementation contains detailed documentation of the tower rules. */
 
 fd_tower_out_t
-fd_tower_vote_and_reset( fd_tower_t       * tower,
-                         fd_tower_accts_t * accts,
-                         fd_tower_forks_t * forks,
-                         fd_ghost_t       * ghost,
-                         fd_notar_t       * notar );
+fd_tower_vote_and_reset( fd_tower_t        * tower,
+                         fd_tower_accts_t  * accts,
+                         fd_epoch_stakes_t * epoch_stakes,
+                         fd_forks_t        * forks,
+                         fd_ghost_t        * ghost,
+                         fd_notar_t        * notar );
 
 /* Misc */
 
