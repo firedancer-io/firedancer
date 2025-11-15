@@ -572,7 +572,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
      the fact that those fields are laid out at the top of the bank
      struct. */
 
-  fd_memcpy( &child_bank->non_cow, &parent_bank->non_cow, sizeof(child_bank->non_cow) );
+  child_bank->non_cow = parent_bank->non_cow;
 
   #define HAS_COW_1(type, name, footprint) \
     child_bank->name##_dirty    = 0;       \
