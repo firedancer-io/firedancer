@@ -382,7 +382,7 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
       /* Inform user */
       printf( "        (%s) data:       %s/%s.0.bin\n"
               "        (%s) data:       %s/%s.1.bin\n"
-              "                        vimdiff <(xxd '%s/%s.bin') <(xxd '%s/%s.bin')\n",
+              "                        vimdiff <(xxd '%s/%s.0.bin') <(xxd '%s/%s.1.bin')\n",
               diff->file_paths[0], diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[0]->key ),
               diff->file_paths[1], diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[1]->key ),
               diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[0]->key ),
@@ -588,7 +588,11 @@ fd_solcap_diff_account_tbl( fd_solcap_differ_t * diff ) {
   ulong                     chunk_goff[2];
   for( ulong i=0UL; i<2UL; i++ ) {
     if( diff->preimage[i].account_table_coff == 0L ) {
-      FD_LOG_WARNING(( "Missing accounts table in capture" ));
+      /* An FD solcap will usually hit this case if the solcap was
+         recorded with an insufficiently-sized account table size.
+
+         Refer to FD_SOLCAP_ACC_TBL_CNT in fd_solcap_proto.h */
+      FD_LOG_WARNING(( "Missing accounts table in capture for %s", diff->file_paths[i] ));
       return 1;
     }
     chunk_goff[i] = (ulong)( (long)diff->iter[i].chunk_off + diff->preimage[i].account_table_coff );
