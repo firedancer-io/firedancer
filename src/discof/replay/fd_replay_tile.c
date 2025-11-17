@@ -629,6 +629,22 @@ replay_block_start( fd_replay_tile_t *  ctx,
 }
 
 static void
+cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
+  if( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) ) ) {
+    fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
+    slot_info->cost_tracker.block_cost                   = cost_tracker->block_cost;
+    slot_info->cost_tracker.vote_cost                    = cost_tracker->vote_cost;
+    slot_info->cost_tracker.allocated_accounts_data_size = cost_tracker->allocated_accounts_data_size;
+    slot_info->cost_tracker.block_cost_limit             = cost_tracker->block_cost_limit;
+    slot_info->cost_tracker.vote_cost_limit              = cost_tracker->vote_cost_limit;
+    slot_info->cost_tracker.account_cost_limit           = cost_tracker->account_cost_limit;
+    fd_bank_cost_tracker_end_locking_query( bank );
+  } else {
+    memset( &slot_info->cost_tracker, 0, sizeof(slot_info->cost_tracker) );
+  }
+}
+
+static void
 publish_slot_completed( fd_replay_tile_t *  ctx,
                         fd_stem_context_t * stem,
                         fd_bank_t *         bank,
@@ -691,19 +707,6 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->last_transaction_finished_nanos   = bank->last_transaction_finished_nanos;
   slot_info->completion_time_nanos             = fd_log_wallclock();
 
-  if( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) ) ) {
-    fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
-    slot_info->cost_tracker.block_cost                   = cost_tracker->block_cost;
-    slot_info->cost_tracker.vote_cost                    = cost_tracker->vote_cost;
-    slot_info->cost_tracker.allocated_accounts_data_size = cost_tracker->allocated_accounts_data_size;
-    slot_info->cost_tracker.block_cost_limit             = cost_tracker->block_cost_limit;
-    slot_info->cost_tracker.vote_cost_limit              = cost_tracker->vote_cost_limit;
-    slot_info->cost_tracker.account_cost_limit           = cost_tracker->account_cost_limit;
-    fd_bank_cost_tracker_end_locking_query( bank );
-  } else {
-    memset( &slot_info->cost_tracker, 0, sizeof(slot_info->cost_tracker) );
-  }
-
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
      they are done usin the bank. */
@@ -748,6 +751,12 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
 
+  /* Copy out cost tracker fields before freezing */
+  cost_tracker_snap( bank, fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ) );
+
+  /* Mark the bank as frozen. */
+  fd_banks_mark_bank_frozen( ctx->banks, bank );
+
   /**********************************************************************/
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
   /**********************************************************************/
@@ -788,9 +797,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
      though we could technically do this before the hash cmp and vote
      tower stuff. */
   publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */ );
-
-  /* Mark the bank as frozen. */
-  fd_banks_mark_bank_frozen( ctx->banks, bank );
 
 # if FD_HAS_FLATCC
   /* If enabled, dump the block to a file and reset the dumping
@@ -910,6 +916,10 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
 
+  cost_tracker_snap( ctx->leader_bank, fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ) );
+
+  fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
+
   fd_hash_t const * bank_hash  = fd_bank_bank_hash_query( ctx->leader_bank );
   FD_TEST( bank_hash );
 
@@ -943,8 +953,6 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   fd_bank_hash_cmp_unlock( bank_hash_cmp );
 
   publish_slot_completed( ctx, stem, ctx->leader_bank, 0, 1 /* is_leader */ );
-
-  fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
 
   /* The reference on the bank is finally no longer needed. */
   ctx->leader_bank->refcnt--;
