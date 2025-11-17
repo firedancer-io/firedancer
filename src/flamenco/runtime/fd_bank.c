@@ -935,26 +935,26 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
      refcnts to determine which bank is the highest advanceable. */
 
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
-  fd_rwlock_read( &banks->rwlock );
+  fd_rwlock_write( &banks->rwlock );
 
   fd_bank_t * root = fd_banks_root( banks );
   if( FD_UNLIKELY( !root ) ) {
     FD_LOG_WARNING(( "failed to get root bank" ));
-    fd_rwlock_unread( &banks->rwlock );
+    fd_rwlock_unwrite( &banks->rwlock );
     return 0;
   }
 
   /* Early exit if target is the same as the old root. */
   if( FD_UNLIKELY( root->idx==target_bank_idx ) ) {
     FD_LOG_WARNING(( "target bank_idx %lu is the same as the old root's bank index %lu", target_bank_idx, root->idx ));
-    fd_rwlock_unread( &banks->rwlock );
+    fd_rwlock_unwrite( &banks->rwlock );
     return 0;
   }
 
   /* Early exit if the root bank still has a reference to it, we can't
      advance from it unti it's released. */
   if( FD_UNLIKELY( root->refcnt!=0UL ) ) {
-    fd_rwlock_unread( &banks->rwlock );
+    fd_rwlock_unwrite( &banks->rwlock );
     return 0;
   }
 
@@ -1013,7 +1013,7 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
     fd_bank_t * child_bank = fd_banks_pool_ele( bank_pool, child_idx );
     if( child_idx!=advance_candidate_idx ) {
       if( !fd_banks_subtree_can_be_pruned( bank_pool, child_bank ) ) {
-        fd_rwlock_unread( &banks->rwlock );
+        fd_rwlock_unwrite( &banks->rwlock );
         return 0;
       }
     }
@@ -1021,7 +1021,7 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
   }
 
   *advanceable_bank_idx_out = advance_candidate_idx;
-  fd_rwlock_unread( &banks->rwlock );
+  fd_rwlock_unwrite( &banks->rwlock );
   return 1;
 }
 
