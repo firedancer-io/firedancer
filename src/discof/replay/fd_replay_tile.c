@@ -748,9 +748,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
 
-  /* Mark the bank as frozen. */
-  fd_banks_mark_bank_frozen( ctx->banks, bank );
-
   /**********************************************************************/
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
   /**********************************************************************/
@@ -791,6 +788,9 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
      though we could technically do this before the hash cmp and vote
      tower stuff. */
   publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */ );
+
+  /* Mark the bank as frozen. */
+  fd_banks_mark_bank_frozen( ctx->banks, bank );
 
 # if FD_HAS_FLATCC
   /* If enabled, dump the block to a file and reset the dumping
