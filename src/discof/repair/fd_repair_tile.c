@@ -99,11 +99,9 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/net/fd_net_tile.h"
-#include "../../disco/store/fd_store.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../tower/fd_tower_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
-#include "../../util/pod/fd_pod_format.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../tango/fd_tango_base.h"
 
@@ -254,7 +252,6 @@ struct ctx {
 
   fd_forest_t    * forest;
   fd_fec_sig_t   * fec_sigs;
-  fd_store_t     * store;
   fd_policy_t    * policy;
   fd_inflights_t * inflight;
   fd_repair_t    * protocol;
@@ -595,10 +592,10 @@ after_sign( ctx_t             * ctx,
   }
 
   sign_req_t * pending_ = fd_signs_map_query( ctx->signs_map, pending_key, NULL );
+  if( FD_UNLIKELY( !pending_ ) ) FD_LOG_CRIT(( "No pending request found for key %lu", pending_key ));
+
   sign_req_t   pending[1] = { *pending_ }; /* Make a copy of the pending request so we can sign_map_remove immediately. */
   sign_map_remove( ctx, pending_key );
-
-  if( FD_UNLIKELY( !pending_ ) ) FD_LOG_CRIT(( "No pending request found for key %lu", pending_key ));
 
   /* Thhis is a pong message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_PONG ) ) {
@@ -779,7 +776,7 @@ after_frag( ctx_t * ctx,
     if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ){
       after_contact( ctx, msg );
     } else {
-      fd_policy_peer_remove( ctx->policy, &msg->contact_info.contact_info->pubkey );
+      fd_policy_peer_remove( ctx->policy, (fd_pubkey_t const *)fd_type_pun_const( msg->origin_pubkey ) );
     }
     return;
   }
@@ -1093,13 +1090,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "repair pending signs tracking map is too small: %lu < %lu.  Increase the key_max", fd_signs_map_key_max( ctx->signs_map ), tile->repair.repair_sign_depth * tile->repair.repair_sign_cnt ));
   }
 # endif
-
-  ctx->store = NULL;
-  ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
-  if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) { /* firedancer-only */
-    ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
-    FD_TEST( ctx->store->magic == FD_STORE_MAGIC );
-  }
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->repair_intake_addr.port = fd_ushort_bswap( tile->repair.repair_intake_listen_port );
