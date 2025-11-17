@@ -62,6 +62,7 @@ const float VOTE_FRACTION = 0.75f; /* TODO: Is this the right value? */
 #define EFFECTIVE_TXN_PER_MICROBLOCK MAX_TXN_PER_MICROBLOCK
 #endif
 
+#if !SMALL_MICROBLOCKS
 /* There's overhead associated with each microblock the bank tile tries
    to execute it, so the optimal strategy is not to produce a microblock
    with a single transaction as soon as we receive it.  Basically, if we
@@ -75,6 +76,7 @@ const float VOTE_FRACTION = 0.75f; /* TODO: Is this the right value? */
    wait_duration[31] is 0.  wait_duration[0] is ULONG_MAX, so we'll
    always wait if we have 0 transactions. */
 FD_IMPORT( wait_duration, "src/disco/pack/pack_delay.bin", ulong, 6, "" );
+#endif
 
 
 
@@ -223,7 +225,9 @@ typedef struct {
   /* microblock_duration_ns, and wait_duration
      respectively scaled to be in ticks instead of nanoseconds */
   ulong microblock_duration_ticks;
+#if !SMALL_MICROBLOCKS
   ulong wait_duration_ticks[ MAX_TXN_PER_MICROBLOCK+1UL ];
+#endif
 
 #if FD_PACK_USE_EXTRA_STORAGE
   /* In addition to the available transactions that pack knows about, we
@@ -634,11 +638,13 @@ after_credit( fd_pack_ctx_t *     ctx,
   if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_max_microblocks ) ) return;
 
   /* Do I have enough transactions and/or have I waited enough time? */
+#if !SMALL_MICROBLOCKS
   if( FD_UNLIKELY( (ulong)(now-ctx->last_successful_insert) <
         ctx->wait_duration_ticks[ fd_ulong_min( fd_pack_avail_txn_cnt( ctx->pack ), MAX_TXN_PER_MICROBLOCK ) ] ) ) {
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, 0 );
     return;
   }
+#endif
 
   int any_ready     = 0;
   int any_scheduled = 0;
@@ -1317,10 +1323,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
   ctx->crank->enabled                = tile->pack.bundle.enabled;
 
+#if !SMALL_MICROBLOCKS
   ctx->wait_duration_ticks[ 0 ] = ULONG_MAX;
   for( ulong i=1UL; i<MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
     ctx->wait_duration_ticks[ i ]=(ulong)(fd_tempo_tick_per_ns( NULL )*(double)wait_duration[ i ] + 0.5);
   }
+#endif
 
   ctx->limits.slot_max_cost                = limits_lower->max_cost_per_block;
   ctx->limits.slot_max_vote_cost           = limits_lower->max_vote_cost_per_block;
