@@ -1,11 +1,10 @@
 #include "configure.h"
 
 #include <errno.h>
-#include <stdio.h>
 #include <unistd.h>
-#include <sys/stat.h>
 
 #include "fd_ethtool_ioctl.h"
+#include "../../../../disco/net/fd_linux_bond.h"
 
 #define NAME "ethtool-channels"
 
@@ -34,47 +33,6 @@ static void
 fini_perm( fd_cap_chk_t *      chk,
            fd_config_t const * config FD_PARAM_UNUSED ) {
   fd_cap_chk_root( chk, NAME, "modify network device configuration with ethtool" );
-}
-
-static int
-device_is_bonded( char const * device ) {
-  char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding", device ) );
-  struct stat st;
-  int err = stat( path, &st );
-  if( FD_UNLIKELY( err && errno != ENOENT ) )
-    FD_LOG_ERR(( "error checking if device `%s` is bonded, stat(%s) failed (%i-%s)",
-                 device, path, errno, fd_io_strerror( errno ) ));
-  return !err;
-}
-
-static void
-device_read_slaves( char const * device,
-                    char         output[ 4096 ],
-                    char const * devices[ 16 ] ) {
-  char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding/slaves", device ) );
-
-  FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) )
-    FD_LOG_ERR(( "error configuring network device, fopen(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( !fgets( output, 4096, fp ) ) )
-    FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( feof( fp ) ) ) FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (EOF)", path ));
-  if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (error)", path ));
-  if( FD_UNLIKELY( strlen( output ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
-  if( FD_UNLIKELY( strlen( output ) == 0 ) ) FD_LOG_ERR(( "line empty in `%s`", path ));
-  if( FD_UNLIKELY( fclose( fp ) ) )
-    FD_LOG_ERR(( "error configuring network device, fclose(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  output[ strlen( output ) - 1 ] = '\0';
-
-  ulong num = 0UL;
-  char * saveptr;
-  for( char * token=strtok_r( output, " \t", &saveptr ); token!=NULL && num<15; token=strtok_r( NULL, " \t", &saveptr ) ) {
-    devices[ num++ ] = token;
-  }
-  devices[ num ] = NULL;
-  FD_TEST( devices[ 0 ]!=NULL );
 }
 
 /* FIXME: Centrally define listen port list to avoid this configure
@@ -115,10 +73,15 @@ static int
 init_device( char const *        device,
              fd_config_t const * config,
              int                 dedicated_mode,
-             int                 strict ) {
+             int                 strict,
+             uint                device_cnt ) {
   FD_TEST( dedicated_mode || strict );
 
   uint const net_tile_cnt = config->layout.net_tile_count;
+  if( FD_UNLIKELY( net_tile_cnt%device_cnt!=0 ) ) {
+    FD_LOG_ERR(( "net tile count %u must be a multiple of the number of slave devices %u (incompatible settings [layout.net_tile_count] and [net.xdp.native_bond])", net_tile_cnt, device_cnt ));
+  }
+  uint const queue_cnt = net_tile_cnt / device_cnt;
 
   fd_ethtool_ioctl_t ioc __attribute__((cleanup(fd_ethtool_ioctl_fini)));
   if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
@@ -127,7 +90,7 @@ init_device( char const *        device,
   /* This should happen first, otherwise changing the number of channels may fail */
   FD_TEST( 0==fd_ethtool_ioctl_rxfh_set_default( &ioc ) );
 
-  uint const num_channels = !dedicated_mode ? net_tile_cnt : 0 /* maximum allowed */;
+  uint const num_channels = !dedicated_mode ? queue_cnt : 0 /* maximum allowed */;
   int ret = fd_ethtool_ioctl_channels_set_num( &ioc, num_channels );
   if( FD_UNLIKELY( 0!=ret ) ) {
     if( strict ) {
@@ -163,13 +126,13 @@ init_device( char const *        device,
     /* Remove a queue from the rxfh table for each net tile. */
     uint rxfh_queue_cnt;
     FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_queue_cnt( &ioc, &rxfh_queue_cnt ) );
-    if( FD_UNLIKELY( net_tile_cnt>=rxfh_queue_cnt ) ) {
+    if( FD_UNLIKELY( queue_cnt>=rxfh_queue_cnt ) ) {
       if( strict ) FD_LOG_ERR(( "error configuring network device (%s), too many net tiles %u for queue count %u.  "
                                 "Try `net.xdp.rss_queue_mode=\"simple\"` or reduce net tile count",
                                 device, net_tile_cnt, rxfh_queue_cnt ));
       else         return 1;
     }
-    if( FD_UNLIKELY( 0!=fd_ethtool_ioctl_rxfh_set_suffix( &ioc, net_tile_cnt ) ) ) {
+    if( FD_UNLIKELY( 0!=fd_ethtool_ioctl_rxfh_set_suffix( &ioc, queue_cnt ) ) ) {
       if( strict ) FD_LOG_ERR(( "error configuring network device (%s), failed to isolate queues. Try `net.xdp.rss_queue_mode=\"simple\"`", device ));
       else         return 1;
     }
@@ -180,10 +143,10 @@ init_device( char const *        device,
     ushort ports[ 32 ];
     uint port_cnt = get_ports( config, ports );
     uint rule_idx = 0;
-    uint const rule_group_cnt = fd_uint_pow2_up( net_tile_cnt );
+    uint const rule_group_cnt = fd_uint_pow2_up( queue_cnt );
     for( uint r=0U; !ntuple_error && r<rule_group_cnt; r++ ) {
       for( uint p=0U; !ntuple_error && p<port_cnt; p++ ) {
-        ntuple_error = 0!=fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, ports[ p ], r, rule_group_cnt, r%net_tile_cnt );
+        ntuple_error = 0!=fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, ports[ p ], r, rule_group_cnt, r%queue_cnt );
       }
     }
     if( FD_UNLIKELY( ntuple_error ) ) {
@@ -205,10 +168,11 @@ init( fd_config_t const * config ) {
 
   /* if using a bonded device, we need to set channels on the
      underlying devices. */
-  int is_bonded = device_is_bonded( config->net.interface );
-  char line[ 4096 ];
-  char const * bond_devices[ 16 ];
-  if( is_bonded ) device_read_slaves( config->net.interface, line, bond_devices );
+  int  is_bonded  = fd_bonding_is_master( config->net.interface );
+  uint device_cnt = 1U;
+  if( is_bonded && config->net.xdp.native_bond ) {
+    device_cnt = fd_bonding_slave_cnt( config->net.interface );
+  }
 
   /* If the mode was auto, we will try to init in dedicated mode but will
      not fail the stage if this is not successful.  If the mode was
@@ -216,28 +180,43 @@ init( fd_config_t const * config ) {
   if( try_dedicated ) {
     int failed = 0;
     if( is_bonded ) {
-      for( ulong i=0UL; !failed && bond_devices[ i ]!=NULL; i++ ) {
-        failed = init_device( bond_devices[ i ], config, 1, only_dedicated );
+      fd_bonding_slave_iter_t iter_[1];
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+      for( ; !failed && !fd_bonding_slave_iter_done( iter );
+          fd_bonding_slave_iter_next( iter ) ) {
+        failed = init_device( fd_bonding_slave_iter_ele( iter ), config, 1, only_dedicated, device_cnt );
       }
     } else {
-      failed = init_device( config->net.interface, config, 1, only_dedicated );
+      failed = init_device( config->net.interface, config, 1, only_dedicated, device_cnt );
     }
     if( !failed ) return;
     FD_TEST( !only_dedicated );
     FD_LOG_WARNING(( "error configuring network device (%s), rss_queue_mode \"auto\" attempted"
                      " \"dedicated\" configuration but falling back to \"simple\".", config->net.interface ));
     /* Wipe partial dedicated configuration before simple init */
-    if( is_bonded ) { for( ulong i=0UL; bond_devices[ i ]!=NULL; i++ ) fini_device( bond_devices[ i ] ); }
-    else            { fini_device( config->net.interface ); }
+    if( is_bonded ) {
+      fd_bonding_slave_iter_t iter_[1];
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+      for( ; !fd_bonding_slave_iter_done( iter );
+          fd_bonding_slave_iter_next( iter ) ) {
+        fini_device( fd_bonding_slave_iter_ele( iter ) );
+      }
+    }
+    else {
+      fini_device( config->net.interface );
+    }
   }
 
   /* Require success for simple mode, either configured or as fallback */
   if( is_bonded ) {
-    for( ulong i=0UL; bond_devices[ i ]!=NULL; i++ ) {
-      init_device( bond_devices[ i ], config, 0, 1 );
+    fd_bonding_slave_iter_t iter_[1];
+    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+    for( ; !fd_bonding_slave_iter_done( iter );
+        fd_bonding_slave_iter_next( iter ) ) {
+      init_device( fd_bonding_slave_iter_ele( iter ), config, 0, 1, device_cnt );
     }
   } else {
-    init_device( config->net.interface, config, 0, 1 );
+    init_device( config->net.interface, config, 0, 1, device_cnt );
   }
 }
 
@@ -273,8 +252,13 @@ check_device_is_modified( char const * device ) {
 static int
 check_device_is_configured( char const *        device,
                             fd_config_t const * config,
-                            int                 dedicated_mode ) {
+                            int                 dedicated_mode,
+                            uint                device_cnt ) {
   uint const net_tile_cnt = config->layout.net_tile_count;
+  if( FD_UNLIKELY( net_tile_cnt%device_cnt!=0 ) ) {
+    FD_LOG_ERR(( "net tile count %u must be a multiple of the number of slave devices %u (incompatible settings [layout.net_tile_count] and [net.xdp.native_bond])", net_tile_cnt, device_cnt ));
+  }
+  uint const queue_cnt = net_tile_cnt / device_cnt;
 
   fd_ethtool_ioctl_t ioc __attribute__((cleanup(fd_ethtool_ioctl_fini)));
   if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
@@ -282,7 +266,7 @@ check_device_is_configured( char const *        device,
 
   fd_ethtool_ioctl_channels_t channels;
   FD_TEST( 0==fd_ethtool_ioctl_channels_get_num( &ioc, &channels ) );
-  if( channels.current!=(dedicated_mode ? channels.max : net_tile_cnt) ) return 0;
+  if( channels.current!=(dedicated_mode ? channels.max : queue_cnt) ) return 0;
 
   uint rxfh_queue_cnt;
   FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_queue_cnt( &ioc, &rxfh_queue_cnt ) );
@@ -292,7 +276,7 @@ check_device_is_configured( char const *        device,
   uint rxfh_table_ele_cnt;
   FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table, &rxfh_table_ele_cnt ) );
   int rxfh_error = (dedicated_mode && 0U==rxfh_table_ele_cnt);
-  uint const start_queue = dedicated_mode ? net_tile_cnt : 0U;
+  uint const start_queue = dedicated_mode ? queue_cnt : 0U;
   for( uint j=0U, q=start_queue; !rxfh_error && j<rxfh_table_ele_cnt; j++) {
     rxfh_error = (rxfh_table[ j ]!=q++);
     if( FD_UNLIKELY( q>=rxfh_queue_cnt ) ) q = start_queue;
@@ -313,7 +297,7 @@ check_device_is_configured( char const *        device,
     int ports_valid;
     ushort ports[ 32 ];
     uint port_cnt = get_ports( config, ports );
-    FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, ports, port_cnt, net_tile_cnt, &ports_valid ));
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, ports, port_cnt, queue_cnt, &ports_valid ));
     if( !ports_valid ) return 0;
   }
 
@@ -328,19 +312,23 @@ check( fd_config_t const * config,
   int check_dedicated = only_dedicated ||
     (0==strcmp( config->net.xdp.rss_queue_mode, "auto" ));
 
-  int is_bonded = device_is_bonded( config->net.interface );
-  char line[ 4096 ];
-  char const * bond_devices[ 16 ];
-  if( is_bonded ) device_read_slaves( config->net.interface, line, bond_devices );
+  int  is_bonded  = fd_bonding_is_master( config->net.interface );
+  uint device_cnt = 1U;
+  if( is_bonded && config->net.xdp.native_bond ) {
+    device_cnt = fd_bonding_slave_cnt( config->net.interface );
+  }
 
   if( check_dedicated ) {
     int is_configured = 1;
     if( is_bonded ) {
-      for( ulong i=0UL; is_configured && bond_devices[ i ]!=NULL; i++ ) {
-        is_configured = check_device_is_configured( bond_devices[ i ], config, 1 );
+      fd_bonding_slave_iter_t iter_[1];
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+      for( ; is_configured && !fd_bonding_slave_iter_done( iter );
+          fd_bonding_slave_iter_next( iter ) ) {
+        is_configured = check_device_is_configured( fd_bonding_slave_iter_ele( iter ), config, 1, device_cnt );
       }
     } else {
-      is_configured = check_device_is_configured( config->net.interface, config, 1 );
+      is_configured = check_device_is_configured( config->net.interface, config, 1, device_cnt );
     }
     if( is_configured ) CONFIGURE_OK();
   }
@@ -348,19 +336,25 @@ check( fd_config_t const * config,
   if( !only_dedicated ) {
     int is_configured = 1;
     if( is_bonded ) {
-      for( ulong i=0UL; is_configured && bond_devices[ i ]!=NULL; i++ ) {
-        is_configured = check_device_is_configured( bond_devices[ i ], config, 0 );
+      fd_bonding_slave_iter_t iter_[1];
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+      for( ; is_configured && !fd_bonding_slave_iter_done( iter );
+          fd_bonding_slave_iter_next( iter ) ) {
+        is_configured = check_device_is_configured( fd_bonding_slave_iter_ele( iter ), config, 0, device_cnt );
       }
     } else {
-      is_configured = check_device_is_configured( config->net.interface, config, 0 );
+      is_configured = check_device_is_configured( config->net.interface, config, 0, device_cnt );
     }
     if( is_configured ) CONFIGURE_OK();
   }
 
   int is_modified = 0;
   if( is_bonded ) {
-    for( ulong i=0UL; !is_modified && bond_devices[ i ]!=NULL; i++ ) {
-      is_modified = check_device_is_modified( bond_devices[ i ] );
+    fd_bonding_slave_iter_t iter_[1];
+    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+    for( ; !is_modified && !fd_bonding_slave_iter_done( iter );
+        fd_bonding_slave_iter_next( iter ) ) {
+      is_modified = check_device_is_modified( fd_bonding_slave_iter_ele( iter ) );
     }
   } else {
     is_modified = check_device_is_modified( config->net.interface );
@@ -433,12 +427,12 @@ static int
 fini( fd_config_t const * config,
       int                 pre_init FD_PARAM_UNUSED ) {
   int done = 0;
-  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
-    char line[ 4096 ];
-    char const * bond_devices[ 16 ];
-    device_read_slaves( config->net.interface, line, bond_devices );
-    for( ulong i=0UL; bond_devices[ i ]!=NULL; i++ ) {
-      done |= fini_device( bond_devices[ i ] );
+  if( FD_UNLIKELY( fd_bonding_is_master( config->net.interface ) ) ) {
+    fd_bonding_slave_iter_t iter_[1];
+    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+    for( ; !fd_bonding_slave_iter_done( iter );
+         fd_bonding_slave_iter_next( iter ) ) {
+      done |= fini_device( fd_bonding_slave_iter_ele( iter ) );
     }
   } else {
     done = fini_device( config->net.interface );

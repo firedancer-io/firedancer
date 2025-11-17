@@ -277,32 +277,30 @@ mock_privileged_init( fd_topo_t      * topo,
   uint if_idx = IF_IDX_ETH0;
   fd_memcpy( ctx->src_mac_addr, eth0_src_mac_addr, 6 );
   ctx->default_address = default_src_ip;
+  ctx->if_virt = if_idx;
 
   void * const dcache_mem          = fd_topo_obj_laddr( topo, tile->net.umem_dcache_obj_id );
-  void * const umem_dcache         = fd_dcache_join( dcache_mem );
-  ulong  const umem_dcache_data_sz = fd_dcache_data_sz( umem_dcache );
+  void * const umem                = fd_dcache_join( dcache_mem );
+  ulong  const umem_dcache_data_sz = fd_dcache_data_sz( umem );
   ulong  const umem_frame_sz       = 2048UL;
 
   /* Left shrink UMEM region to be 4096 byte aligned */
 
-  void * const umem_frame0 = (void *)fd_ulong_align_up( (ulong)umem_dcache, 4096UL );
-  ulong        umem_sz     = umem_dcache_data_sz - ((ulong)umem_frame0 - (ulong)umem_dcache);
-  umem_sz = fd_ulong_align_dn( umem_sz, umem_frame_sz );
+  ulong umem_sz = fd_ulong_align_dn( umem_dcache_data_sz, umem_frame_sz );
 
   /* Derive chunk bounds */
 
   void * const umem_base   = fd_wksp_containing( dcache_mem );
-  ulong  const umem_chunk0 = ( (ulong)umem_frame0 - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
+  ulong  const umem_chunk0 = ( (ulong)umem - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
   ulong  const umem_wmark  = umem_chunk0 + ( ( umem_sz-umem_frame_sz )>>FD_CHUNK_LG_SZ );
 
   if( FD_UNLIKELY( umem_chunk0>UINT_MAX || umem_wmark>UINT_MAX || umem_chunk0>umem_wmark ) ) {
     FD_LOG_ERR(( "Calculated invalid UMEM bounds [%lu,%lu]", umem_chunk0, umem_wmark ));
   }
 
-  if( FD_UNLIKELY( !umem_base   ) ) FD_LOG_ERR(( "UMEM dcache is not in a workspace" ));
-  if( FD_UNLIKELY( !umem_dcache ) ) FD_LOG_ERR(( "Failed to join UMEM dcache" ));
+  if( FD_UNLIKELY( !umem_base ) ) FD_LOG_ERR(( "UMEM dcache is not in a workspace" ));
 
-  ctx->umem_frame0 = umem_frame0;
+  ctx->umem        = umem;
   ctx->umem_sz     = umem_sz;
   ctx->umem_chunk0 = (uint)umem_chunk0;
   ctx->umem_wmark  = (uint)umem_wmark;
@@ -326,7 +324,7 @@ mock_privileged_init( fd_topo_t      * topo,
     .cr_depth  = tile->xdp.xdp_tx_queue_size,
     .tx_depth  = tile->xdp.xdp_tx_queue_size,
 
-    .umem_addr = umem_frame0,
+    .umem_addr = umem,
     .frame_sz  = umem_frame_sz,
     .umem_sz   = umem_sz
   };
@@ -592,7 +590,7 @@ xsk_af_check( fd_tile_test_ctx_t * test_ctx,
               fd_net_ctx_t       * ctx  ) {
   fd_tile_test_locals_t * locals = test_ctx->locals;
   struct xdp_desc * tx_desc = &locals->xsk->ring_tx.packet_ring[ xdp_tx_ring_prod-1 ];
-  void * out_mem = (void *)((ulong)tx_desc->addr + (ulong)ctx->umem_frame0);
+  void * out_mem = (void *)((ulong)tx_desc->addr + (ulong)ctx->umem);
 
   if( tx_desc->len!=test_ctx->locals->tx_output_sz ||
       !fd_memeq( out_mem, locals->tx_output, locals->tx_output_sz ) ) {
@@ -704,7 +702,7 @@ xdp_reset( fd_tile_test_ctx_t * test_ctx,
            fd_net_ctx_t       * ctx ) {
   fd_xsk_t * xsk             = &ctx->xsk[ 0 ];
   test_ctx->locals->xsk      = &ctx->xsk[ 0 ];
-  test_ctx->locals->xsk_base = ctx->umem_frame0;
+  test_ctx->locals->xsk_base = ctx->umem;
 
   // TODO: change the tables for different tests
   setup_routing_table(  ctx );

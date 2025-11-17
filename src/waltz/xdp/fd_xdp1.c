@@ -321,7 +321,7 @@ fd_xdp_install( uint           if_idx,
                    "support at https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md#xdp",
                    if_indextoname( if_idx, if_name ), errno, fd_io_strerror( errno ) ));
     } else {
-      FD_LOG_ERR(( "BPF_LINK_CREATE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_ERR(( "BPF_LINK_CREATE(if_idx=%u) failed (%i-%s)", if_idx, errno, fd_io_strerror( errno ) ));
     }
   }
 

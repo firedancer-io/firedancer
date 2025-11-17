@@ -18,11 +18,8 @@
 
 #include "configure.h"
 
-#include <errno.h>
-#include <stdio.h>
-#include <sys/stat.h>
-
 #include "fd_ethtool_ioctl.h"
+#include "../../../../disco/net/fd_linux_bond.h"
 
 #define NAME "ethtool-offloads"
 
@@ -42,37 +39,6 @@ init_perm( fd_cap_chk_t *      chk,
   fd_cap_chk_root( chk, NAME, "disable network device features with `ethtool --offload INTF FEATURE off`" );
 }
 
-static int
-device_is_bonded( char const * device ) {
-  char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding", device ) );
-  struct stat st;
-  int err = stat( path, &st );
-  if( FD_UNLIKELY( err && errno != ENOENT ) )
-    FD_LOG_ERR(( "error checking if device `%s` is bonded, stat(%s) failed (%i-%s)",
-                 device, path, errno, fd_io_strerror( errno ) ));
-  return !err;
-}
-
-static void
-device_read_slaves( char const * device,
-                    char         output[ 4096 ] ) {
-  char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding/slaves", device ) );
-
-  FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) )
-    FD_LOG_ERR(( "error configuring network device, fopen(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( !fgets( output, 4096, fp ) ) )
-    FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( feof( fp ) ) ) FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (EOF)", path ));
-  if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error configuring network device, fgets(%s) failed (error)", path ));
-  if( FD_UNLIKELY( strlen( output ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
-  if( FD_UNLIKELY( strlen( output ) == 0 ) ) FD_LOG_ERR(( "line empty in `%s`", path ));
-  if( FD_UNLIKELY( fclose( fp ) ) )
-    FD_LOG_ERR(( "error configuring network device, fclose(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  output[ strlen( output ) - 1 ] = '\0';
-}
 
 static void
 init_device( char const * device,
@@ -100,12 +66,12 @@ init_device( char const * device,
 static void
 init( fd_config_t const * config ) {
   int const xdp = 0==strcmp( config->net.provider, "xdp" );
-  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
-    char line[ 4096 ];
-    device_read_slaves( config->net.interface, line );
-    char * saveptr;
-    for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      init_device( token, xdp );
+  if( FD_UNLIKELY( fd_bonding_is_master( config->net.interface ) ) ) {
+    fd_bonding_slave_iter_t iter_[1];
+    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+    for( ; !fd_bonding_slave_iter_done( iter );
+         fd_bonding_slave_iter_next( iter ) ) {
+      init_device( fd_bonding_slave_iter_ele( iter ), xdp );
     }
   } else {
     init_device( config->net.interface, xdp );
@@ -158,12 +124,12 @@ check( fd_config_t const * config,
                  check_type==FD_CONFIGURE_CHECK_TYPE_CHECK ||
                  check_type==FD_CONFIGURE_CHECK_TYPE_RUN;
   int const xdp = 0==strcmp( config->net.provider, "xdp" );
-  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
-    char line[ 4096 ];
-    device_read_slaves( config->net.interface, line );
-    char * saveptr;
-    for( char * token=strtok_r( line, " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      CHECK( check_device( token, xdp, warn_gro ) );
+  if( FD_UNLIKELY( fd_bonding_is_master( config->net.interface ) ) ) {
+    fd_bonding_slave_iter_t iter_[1];
+    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+    for( ; !fd_bonding_slave_iter_done( iter );
+         fd_bonding_slave_iter_next( iter ) ) {
+      CHECK( check_device( fd_bonding_slave_iter_ele( iter ), xdp, warn_gro ) );
     }
   } else {
     CHECK( check_device( config->net.interface, xdp, warn_gro ) );

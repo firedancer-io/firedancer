@@ -2,6 +2,8 @@
    traffic.  It is responsible for setting up the XDP and
    XSK socket configuration. */
 
+#include "../fd_net_tile.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <net/if.h>
@@ -162,10 +164,11 @@ typedef struct {
   uint     xsk_cnt;
   fd_xsk_t xsk[ 2 ];
   int      prog_link_fds[ 2 ];
+  uint     if_virt;
 
   /* UMEM frame region within dcache */
-  void *   umem_frame0; /* First UMEM frame */
-  ulong    umem_sz;     /* Usable UMEM size starting at frame0 */
+  void *   umem;    /* Start of UMEM */
+  ulong    umem_sz; /* Size  of UMEM */
 
   /* UMEM chunk region within workspace */
   uint     umem_chunk0; /* Lowest allowed chunk number */
@@ -198,8 +201,8 @@ typedef struct {
   fd_net_free_ring_t free_tx;
 
   uchar  src_mac_addr[6];
-
   uint   default_address;
+
   uint   bind_address;
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
@@ -586,7 +589,7 @@ net_tx_route( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) return 0; // drop
 
-  if( FD_UNLIKELY( if_idx!=ctx->xsk[ XSK_IDX_MAIN ].if_idx ) ) {
+  if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
     ctx->metrics.tx_no_xdp_cnt++;
     return 0;
   }
@@ -740,9 +743,9 @@ during_frag( fd_net_ctx_t * ctx,
     FD_LOG_ERR(( "packet too big %lu (in_idx=%lu)", sz, in_idx ));
 
   void * frame = ctx->tx_op.frame;
-  if( FD_UNLIKELY( (ulong)frame < (ulong)ctx->umem_frame0 ) )
-    FD_LOG_ERR(( "frame %p out of bounds (below %p)", frame, (void *)ctx->umem_frame0 ));
-  ulong umem_off = (ulong)frame - (ulong)ctx->umem_frame0;
+  if( FD_UNLIKELY( (ulong)frame < (ulong)ctx->umem ) )
+    FD_LOG_ERR(( "frame %p out of bounds (below %p)", frame, (void *)ctx->umem ));
+  ulong umem_off = (ulong)frame - (ulong)ctx->umem;
   if( FD_UNLIKELY( (ulong)umem_off > (ulong)ctx->umem_sz ) )
     FD_LOG_ERR(( "frame %p out of bounds (beyond %p)", frame, (void *)ctx->umem_sz ));
 
@@ -870,7 +873,7 @@ after_frag( fd_net_ctx_t *      ctx,
   uint            tx_seq  = FD_VOLATILE_CONST( *tx_ring->prod );
   uint            tx_mask = tx_ring->depth - 1U;
   xsk->ring_tx.packet_ring[ tx_seq&tx_mask ] = (struct xdp_desc) {
-    .addr    = (ulong)frame - (ulong)ctx->umem_frame0,
+    .addr    = (ulong)frame - (ulong)ctx->umem,
     .len     = (uint)sz,
     .options = 0
   };
@@ -902,7 +905,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
     return;
   }
 
-  uchar        * packet     = (uchar *)ctx->umem_frame0 + umem_off;
+  uchar        * packet     = (uchar *)ctx->umem + umem_off;
   uchar const  * packet_end = packet + sz;
   fd_ip4_hdr_t * iphdr      = (fd_ip4_hdr_t *)(packet + sizeof(fd_eth_hdr_t));
 
@@ -934,7 +937,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
     fd_memcpy( new_packet, packet, sizeof(fd_eth_hdr_t) );
     sz                 -= overhead;
     packet             = new_packet;
-    umem_off           = (ulong)( packet - (uchar *)ctx->umem_frame0 );
+    umem_off           = (ulong)( packet - (uchar *)ctx->umem );
     is_packet_gre      = 1;
   }
 
@@ -1049,7 +1052,7 @@ net_comp_event( fd_net_ctx_t * ctx,
   long free_cnt = fd_seq_diff( free_prod, free->cons );
   if( FD_UNLIKELY( free_cnt>=(long)free->depth ) ) return; /* blocked */
 
-  free->queue[ free_prod&free_mask ] = (ulong)ctx->umem_frame0 + (frame & (~frame_mask));
+  free->queue[ free_prod&free_mask ] = (ulong)ctx->umem + (frame & (~frame_mask));
   free->prod = fd_seq_inc( free_prod, 1UL );
 
   /* Wind up for next iteration */
@@ -1240,38 +1243,30 @@ privileged_init( fd_topo_t *      topo,
 
   fd_memset( ctx, 0, sizeof(fd_net_ctx_t) );
 
-  uint if_idx = if_nametoindex( tile->xdp.interface );
-  if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", tile->xdp.interface ));
-
-  interface_addrs( tile->xdp.interface, ctx->src_mac_addr, &ctx->default_address );
+  interface_addrs( tile->xdp.if_virt, ctx->src_mac_addr, &ctx->default_address );
+  ctx->if_virt = if_nametoindex( tile->xdp.if_virt ); FD_TEST( ctx->if_virt );
 
   /* Load up dcache containing UMEM */
 
   void * const dcache_mem          = fd_topo_obj_laddr( topo, tile->net.umem_dcache_obj_id );
-  void * const umem_dcache         = fd_dcache_join( dcache_mem );
-  ulong  const umem_dcache_data_sz = fd_dcache_data_sz( umem_dcache );
+  void * const umem                = fd_dcache_join( dcache_mem );
+  ulong  const umem_dcache_data_sz = fd_dcache_data_sz( umem );
   ulong  const umem_frame_sz       = 2048UL;
-
-  /* Left shrink UMEM region to be 4096 byte aligned */
-
-  void * const umem_frame0 = (void *)fd_ulong_align_up( (ulong)umem_dcache, 4096UL );
-  ulong        umem_sz     = umem_dcache_data_sz - ((ulong)umem_frame0 - (ulong)umem_dcache);
-  umem_sz = fd_ulong_align_dn( umem_sz, umem_frame_sz );
+  ulong  const umem_sz             = fd_ulong_align_dn( umem_dcache_data_sz, umem_frame_sz );
 
   /* Derive chunk bounds */
 
   void * const umem_base   = fd_wksp_containing( dcache_mem );
-  ulong  const umem_chunk0 = ( (ulong)umem_frame0 - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
+  ulong  const umem_chunk0 = ( (ulong)umem - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
   ulong  const umem_wmark  = umem_chunk0 + ( ( umem_sz-umem_frame_sz )>>FD_CHUNK_LG_SZ );
 
   if( FD_UNLIKELY( umem_chunk0>UINT_MAX || umem_wmark>UINT_MAX || umem_chunk0>umem_wmark ) ) {
     FD_LOG_ERR(( "Calculated invalid UMEM bounds [%lu,%lu]", umem_chunk0, umem_wmark ));
   }
 
-  if( FD_UNLIKELY( !umem_base   ) ) FD_LOG_ERR(( "UMEM dcache is not in a workspace" ));
-  if( FD_UNLIKELY( !umem_dcache ) ) FD_LOG_ERR(( "Failed to join UMEM dcache" ));
+  if( FD_UNLIKELY( !umem_base ) ) FD_LOG_ERR(( "UMEM dcache is not in a workspace" ));
 
-  ctx->umem_frame0 = umem_frame0;
+  ctx->umem        = umem;
   ctx->umem_sz     = umem_sz;
   ctx->umem_chunk0 = (uint)umem_chunk0;
   ctx->umem_wmark  = (uint)umem_wmark;
@@ -1281,9 +1276,12 @@ privileged_init( fd_topo_t *      topo,
 
   /* Create and install XSKs */
 
+  uint if_phys_if_idx = if_nametoindex( tile->xdp.if_phys );
+  if( FD_UNLIKELY( !if_phys_if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", tile->xdp.if_phys ));
+
   fd_xsk_params_t params0 = {
-    .if_idx      = if_idx,
-    .if_queue_id = (uint)tile->kind_id,
+    .if_idx      = if_phys_if_idx,
+    .if_queue_id = tile->xdp.if_queue,
 
     /* Some kernels produce EOPNOTSUP errors on sendto calls when
        starting up without either XDP_ZEROCOPY or XDP_COPY
@@ -1295,59 +1293,76 @@ privileged_init( fd_topo_t *      topo,
     .cr_depth  = tile->xdp.xdp_tx_queue_size,
     .tx_depth  = tile->xdp.xdp_tx_queue_size,
 
-    .umem_addr = umem_frame0,
+    .umem_addr = umem,
     .frame_sz  = umem_frame_sz,
     .umem_sz   = umem_sz
   };
 
-  int xsk_map_fd = 123462;
-  ctx->prog_link_fds[ 0 ] = 123463;
+  /* Re-derive XDP file descriptors */
+
+  fd_xdp_fds_t xdp_fds[ FD_TOPO_XDP_FDS_MAX ];
+  uint         xdp_fds_cnt = FD_TOPO_XDP_FDS_MAX;
+  fd_topo_install_xdp( topo, xdp_fds, &xdp_fds_cnt, 0U, /* dry_run */ 1 );
+
+  int xsk_map_fd = -1;
+  for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+    if( xdp_fds[ i ].if_idx==if_phys_if_idx ) {
+      xsk_map_fd              = xdp_fds[ i ].xsk_map_fd;
+      ctx->prog_link_fds[ 0 ] = xdp_fds[ i ].prog_link_fd;
+      xdp_fds[ i ].prog_link_fd = -1; /* mark as used */
+      break;
+    }
+  }
+  FD_TEST( xsk_map_fd>=0 );
+
   /* Init XSK */
   if( FD_UNLIKELY( !fd_xsk_init( &ctx->xsk[ 0 ], &params0 ) ) )       FD_LOG_ERR(( "failed to bind xsk for net tile %lu", tile->kind_id ));
   if( FD_UNLIKELY( !fd_xsk_activate( &ctx->xsk[ 0 ], xsk_map_fd ) ) ) FD_LOG_ERR(( "failed to activate xsk for net tile %lu", tile->kind_id ));
   ctx->xsk_cnt = 1;
 
-  if( FD_UNLIKELY( fd_sandbox_gettid()==fd_sandbox_getpid() ) ) {
-    /* Kind of gross.. in single threaded mode we don't want to close the xsk_map_fd
-       since it's shared with other net tiles.  Just check for that by seeing if we
-       are the only thread in the process. */
-    if( FD_UNLIKELY( -1==close( xsk_map_fd ) ) )                     FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
-  }
-
   /* Networking tile at index 0 also binds to loopback (only queue 0 available on lo) */
 
-  if( FD_UNLIKELY( strcmp( tile->xdp.interface, "lo" ) && !tile->kind_id ) ) {
+  if( FD_UNLIKELY( strcmp( tile->xdp.if_virt, "lo" ) && !tile->kind_id ) ) {
     ctx->xsk_cnt = 2;
-
-    ushort udp_port_candidates[] = {
-      (ushort)tile->xdp.net.legacy_transaction_listen_port,
-      (ushort)tile->xdp.net.quic_transaction_listen_port,
-      (ushort)tile->xdp.net.shred_listen_port,
-      (ushort)tile->xdp.net.gossip_listen_port,
-      (ushort)tile->xdp.net.repair_intake_listen_port,
-      (ushort)tile->xdp.net.repair_serve_listen_port,
-      (ushort)tile->xdp.net.send_src_port
-    };
 
     uint lo_idx = if_nametoindex( "lo" );
     if( FD_UNLIKELY( !lo_idx ) ) FD_LOG_ERR(( "if_nametoindex(lo) failed" ));
 
-    /* FIXME move this to fd_topo_run */
-    fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
-                                          tile->net.bind_address,
-                                          sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
-                                          udp_port_candidates,
-                                          "skb" );
+    int lo_xsk_map_fd = -1;
+    for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+      if( xdp_fds[ i ].if_idx==lo_idx ) {
+        lo_xsk_map_fd           = xdp_fds[ i ].xsk_map_fd;
+        ctx->prog_link_fds[ 1 ] = xdp_fds[ i ].prog_link_fd;
+        xdp_fds[ i ].prog_link_fd = -1; /* mark as used */
+        break;
+      }
+    }
+    FD_TEST( lo_xsk_map_fd>=0 );
 
-    ctx->prog_link_fds[ 1 ] = lo_fds.prog_link_fd;
     /* init xsk 1 */
     fd_xsk_params_t params1 = params0;
     params1.if_idx      = lo_idx; /* probably always 1 */
     params1.if_queue_id = 0;
     params1.bind_flags  = 0;
-    if( FD_UNLIKELY( !fd_xsk_init( &ctx->xsk[ 1 ], &params1 ) ) )              FD_LOG_ERR(( "failed to bind lo_xsk" ));
-    if( FD_UNLIKELY( !fd_xsk_activate( &ctx->xsk[ 1 ], lo_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "failed to activate lo_xsk" ));
-    if( FD_UNLIKELY( -1==close( lo_fds.xsk_map_fd ) ) )                        FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( !fd_xsk_init( &ctx->xsk[ 1 ], &params1 ) ) )          FD_LOG_ERR(( "failed to bind lo_xsk" ));
+    if( FD_UNLIKELY( !fd_xsk_activate( &ctx->xsk[ 1 ], lo_xsk_map_fd ) ) ) FD_LOG_ERR(( "failed to activate lo_xsk" ));
+  }
+
+  /* Close unused XDP fds */
+
+  if( FD_UNLIKELY( fd_sandbox_gettid()==fd_sandbox_getpid() ) ) {
+    /* Kind of gross.. in single threaded mode we don't want to close the xsk_map_fd
+       since it's shared with other net tiles.  Just check for that by seeing if we
+       are the only thread in the process. */
+    for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+      if( -1==close( xdp_fds[ i ].xsk_map_fd ) ) {
+        FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
+      }
+      if( xdp_fds[ i ].prog_link_fd>0 &&
+          -1==close( xdp_fds[ i ].prog_link_fd ) ) {
+        FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
+      }
+    }
   }
 
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
@@ -1507,7 +1522,7 @@ unprivileged_init( fd_topo_t *      topo,
   ulong       frame_off = 0UL;
   ulong const tx_depth  = ctx->free_tx.depth;
   for( ulong j=0; j<tx_depth; j++ ) {
-    ctx->free_tx.queue[ j ] = (ulong)ctx->umem_frame0 + frame_off;
+    ctx->free_tx.queue[ j ] = (ulong)ctx->umem + frame_off;
     frame_off += frame_sz;
   }
   ctx->free_tx.prod = tx_depth;

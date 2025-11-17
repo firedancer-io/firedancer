@@ -748,7 +748,7 @@ gossip_cmd_fn( args_t *   args,
   run_firedancer_init( config, 1, 1 );
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
+    fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_fill( &config->topo );

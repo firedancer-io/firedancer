@@ -163,7 +163,10 @@ struct fd_topo_tile {
 
     struct {
       fd_topo_net_tile_t net;
-      char interface[ 16 ];
+
+      char if_virt[ 16 ];  /* device name (virtual, for routing) */
+      char if_phys[ 16 ];  /* device name (physical, for RX/TX) */
+      uint if_queue;       /* device queue index */
 
       /* xdp specific options */
       ulong  xdp_rx_queue_size;
@@ -983,14 +986,6 @@ void *
 fd_topo_tile_stack_join( char const * app_name,
                          char const * tile_name,
                          ulong        tile_kind_id );
-
-/* Install the XDP program needed by the net tiles into the local device
-   and return the xsk_map_fd.  bind_addr is an optional IPv4 address to
-   used for filtering by dst IP. */
-
-fd_xdp_fds_t
-fd_topo_install_xdp( fd_topo_t const * topo,
-                     uint              bind_addr );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches

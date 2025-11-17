@@ -12,6 +12,7 @@
 #include "../../../platform/fd_sys_util.h"
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_net_util.h"
+#include "../../../../disco/net/fd_net_tile.h"
 
 #include "../configure/configure.h"
 
@@ -291,9 +292,10 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int need_xdp = 0==strcmp( config->net.provider, "xdp" );
-  fd_xdp_fds_t xdp_fds = {0};
+  fd_xdp_fds_t xdp_fds[ FD_TOPO_XDP_FDS_MAX ];
+  uint         xdp_fds_cnt = FD_TOPO_XDP_FDS_MAX;
   if( need_xdp ) {
-    xdp_fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
+    fd_topo_install_xdp( &config->topo, xdp_fds, &xdp_fds_cnt, config->net.bind_address_parsed, 0 );
   }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
@@ -302,12 +304,16 @@ main_pid_namespace( void * _args ) {
 
     if( need_xdp ) {
       if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
-        /* close XDP related file descriptors */
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+          /* close XDP related file descriptors */
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
       } else {
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
       }
     }
 
@@ -334,8 +340,10 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( need_xdp ) {
-    if( FD_UNLIKELY( close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+      if( FD_UNLIKELY( close( xdp_fds[i].xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( close( xdp_fds[i].prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];

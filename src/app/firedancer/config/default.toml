@@ -1011,6 +1011,24 @@ user = ""
         #   back to "simple" mode if necessary.
         rss_queue_mode = "auto"
 
+        # Enable native network bonding support.
+        #
+        # If native_bond is set to 'true' and [net.interface] is a 'bond'
+        # type network device, install XDP config at bond slave devices
+        # instead of the bond device itself.
+        #
+        # Requires net_tile_count to be divisble by the number of slave
+        # devices.  This causes outgoing traffic to be load balanced with
+        # an arbitrary/opaque hash policy.  Supports up to 16 slave devices.
+        #
+        # Assumes that bond memberships don't change, i.e. running
+        # `ip link set dev eth1 master bond0` will crash Firedancer.
+        # However, it is fine to bring individual bonded devices down,
+        # or unplug cables for maintenance.  In other words, executing
+        # `ip link set dev eth1 down` while Firedancer is running is
+        # just fine.
+        native_bond = false
+
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
         # Raises net.core.rmem_max accordingly
