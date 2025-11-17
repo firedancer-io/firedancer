@@ -830,16 +830,22 @@ after_frag( fd_net_ctx_t *      ctx,
   }
 
   /* Construct (inner) ip header */
-  uint   ihl         = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr );
-  uint   ver         = FD_IP4_GET_VERSION( *(fd_ip4_hdr_t *)iphdr );
-  uint   ip4_saddr   = FD_LOAD( uint, iphdr+12 );
-  ushort ethertype   = FD_LOAD( ushort, frame+12 );
-  if( ethertype==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) && ver!=0x4 ) {
+  uint   ihl       = FD_IP4_GET_LEN( *(fd_ip4_hdr_t *)iphdr );
+  uint   ver       = FD_IP4_GET_VERSION( *(fd_ip4_hdr_t *)iphdr );
+  uint   ip4_saddr = FD_LOAD( uint, iphdr+12 );
+  ushort ethertype = FD_LOAD( ushort, frame+12 );
+
+  if( FD_UNLIKELY( ethertype!=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) ) {
+    FD_LOG_CRIT(( "in link %lu attempted to send packet with invalid ethertype %04x",
+                  in_idx, fd_ushort_bswap( ethertype ) ));
+  }
+
+  if( ver!=0x4 ) {
     ctx->metrics.tx_route_fail_cnt++; // Not an IPv4 packet. drop
     return;
   }
 
-  if( ethertype==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) && ip4_saddr==0 ) {
+  if( ip4_saddr==0 ) {
     if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ||
                      ihl<sizeof(fd_ip4_hdr_t) ||
                      (sizeof(fd_eth_hdr_t)+ihl)>sz ) ) {
@@ -859,7 +865,6 @@ after_frag( fd_net_ctx_t *      ctx,
      Invariant for ring_tx: prod-cons<length
      (This invariant breaks if any other packet is sent over this ring
      between before_frag and this point, e.g. send_arp_probe.) */
-
 
   fd_xsk_t      * xsk     = &ctx->xsk[ xsk_idx ];
   fd_xdp_ring_t * tx_ring = &xsk->ring_tx;
