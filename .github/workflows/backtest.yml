@@ -11,6 +11,9 @@ on:
       script:
         type: string
         default: src/flamenco/runtime/tests/run_backtest_ci.sh
+      timeout:
+        type: number
+        default: 15
   workflow_dispatch:
     inputs:
       machine:
@@ -22,9 +25,12 @@ on:
       script:
         type: string
         default: src/flamenco/runtime/tests/run_backtest_ci.sh
+      timeout:
+        type: number
+        default: 15
 jobs:
   backtest-ledger-replay:
-    timeout-minutes: 15
+    timeout-minutes: ${{ fromJSON(inputs.timeout) }}
     runs-on:
       labels: [self-hosted, 512G]
       group: fd-public-repo
