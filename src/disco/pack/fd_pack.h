@@ -287,11 +287,12 @@ void fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits
 void fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_usage, fd_pack_limits_t * opt_limits );
 
 /* fd_pack_get_top_writers copies the top FD_PACK_TOP_WRITERS_CNT by
-   writer cost writers into top_writers.
+   writer cost writers into top_writers.  The copied elements will be
+   sorted by writer cost in descending order.
 
    This should be called at the end of the relevant leader slot right
    after fd_pack_end_block, otherwise the copied data will be stale. */
-void fd_pack_get_top_writers( fd_pack_t * pack, fd_pack_addr_use_t * top_writers );
+void fd_pack_get_top_writers( fd_pack_t const * pack, fd_pack_addr_use_t top_writers[static FD_PACK_TOP_WRITERS_CNT] );
 
 /* Copies the currently smallest pending,
    non-conflicting, non-vote transaction into opt_pending_smallest iff
