@@ -317,11 +317,12 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
 
   /* Second loop to computed Poseidon. This can return a soft error. */
   int big_endian = endianness==0;
+  int enforce_padding = FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->txn_ctx->bank, poseidon_enforce_padding );
   fd_poseidon_t pos[1];
   fd_poseidon_init( pos, big_endian );
 
   for( ulong i=0UL; i<vals_len; i++ ) {
-    if( FD_UNLIKELY( fd_poseidon_append( pos, inputs_haddr[ i ], input_vec_haddr[i].len )==NULL ) ) {
+    if( FD_UNLIKELY( fd_poseidon_append( pos, inputs_haddr[ i ], input_vec_haddr[i].len, enforce_padding )==NULL ) ) {
       goto soft_error;
     }
   }
