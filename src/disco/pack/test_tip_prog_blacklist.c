@@ -30,14 +30,14 @@ main( int     argc,
   test( "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL", 0, 1 );
   test( "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT", 0, 1 );
   /* testnet tip payment accounts */
-  test( "B1mrQSpdeMU9gCvkJ6VsXVVoYjRGkNA7TtjMyqxrhecH", 0, 1 );
-  test( "aTtUk2DHgLhKZRDjePq6eiHRKC1XXFMBiSUfQ2JNDbN",  0, 1 );
-  test( "E2eSqe33tuhAHKTrwky5uEjaVqnb2T9ns6nHHUrN8588", 0, 1 );
-  test( "4xgEmT58RwTNsF5xm2RMYCnR1EVukdK8a1i2qFjnJFu3", 0, 1 );
-  test( "EoW3SUQap7ZeynXQ2QJ847aerhxbPVr843uMeTfc9dxM", 0, 1 );
-  test( "ARTtviJkLLt6cHGQDydfo1Wyk6M4VGZdKZ2ZhdnJL336", 0, 1 );
-  test( "9n3d1K5YD2vECAbRFhFFGYNNjiXtHXJWn9F31t89vsAV", 0, 1 );
-  test( "9ttgPBBhRYFuQccdR1DSnb7hydsWANoDsV3P9kaGMCEh", 0, 1 );
+  test( "BkMx5bRzQeP6tUZgzEs3xeDWJfQiLYvNDqSgmGZKYJDq", 0, 1 );
+  test( "CwWZzvRgmxj9WLLhdoWUVrHZ1J8db3w2iptKuAitHqoC", 0, 1 );
+  test( "4uRnem4BfVpZBv7kShVxUYtcipscgZMSHi3B9CSL6gAA", 0, 1 );
+  test( "AzfhMPcx3qjbvCK3UUy868qmc5L451W341cpFqdL3EBe", 0, 1 );
+  test( "84DrGKhycCUGfLzw8hXsUYX9SnWdh2wW3ozsTPrC5xyg", 0, 1 );
+  test( "7aewvu8fMf1DK4fKoMXKfs3h3wpAQ7r7D8T1C71LmMF",  0, 1 );
+  test( "G2d63CEgKBdgtpYT2BuheYQ9HFuFCenuHLNyKVpqAuSD", 0, 1 );
+  test( "F7ThiQUBYiEcyaxpmMuUeACdoiSLKg4SZZ8JSfpFNwAf", 0, 1 );
   /* tip payment config account */
   test( "HgzT81VF1xZ3FT9Eq1pHhea7Wcfq2bv4tWTP3VvJ8Y9D", 0, 1 );
   test( "AXaHLTKzVyRUccE8bPskqsnc1YcTd648PjmMwKWS7R6N", 0, 1 );
