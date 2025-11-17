@@ -173,6 +173,7 @@ fd_gui_new( void *                shmem,
 
   gui->pack_txn_idx = 0UL;
 
+  gui->shreds.leader_shred_cnt      = 0UL;
   gui->shreds.staged_next_broadcast = 0UL;
   gui->shreds.staged_head           = 0UL;
   gui->shreds.staged_tail           = 0UL;
@@ -1787,6 +1788,24 @@ fd_gui_handle_shred( fd_gui_t * gui,
   recv_event->shred_idx = (ushort)shred_idx;
   recv_event->slot      = slot;
   recv_event->event     = fd_uchar_if( is_turbine, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR );
+}
+
+void
+fd_gui_handle_leader_fec( fd_gui_t * gui,
+                          ulong      slot,
+                          ulong      fec_shred_cnt,
+                          int        is_end_of_slot,
+                          long       tsorig ) {
+  for( ulong i=gui->shreds.leader_shred_cnt; i<gui->shreds.leader_shred_cnt+fec_shred_cnt; i++ ) {
+    fd_gui_slot_staged_shred_event_t * exec_end_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
+    gui->shreds.staged_tail++;
+    exec_end_event->timestamp = tsorig;
+    exec_end_event->shred_idx = (ushort)i;
+    exec_end_event->slot      = slot;
+    exec_end_event->event     = FD_GUI_SLOT_SHRED_SHRED_PUBLISHED;
+  }
+  gui->shreds.leader_shred_cnt += fec_shred_cnt;
+  if( FD_UNLIKELY( is_end_of_slot ) ) gui->shreds.leader_shred_cnt = 0UL;
 }
 
 void
