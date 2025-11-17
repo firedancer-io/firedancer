@@ -253,7 +253,10 @@ struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
       ushort num_non_compute_budget_instructions;
       ushort num_non_migratable_builtin_instructions;
       ushort num_non_builtin_instructions;
-      ushort migrating_builtin[1]; /* The stake program */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+      ushort migrating_builtin[0]; /* Empty array - no builtins currently migrating (Agave v3.1.0) */
+#pragma GCC diagnostic pop
     } compute_budget_instruction_details;
 
     uchar _message_hash[ 32 ]; /* with the same value as message_hash */
@@ -294,7 +297,6 @@ FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instr
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_compute_budget_instructions)==60, bank_abi );
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_migratable_builtin_instructions)==62, bank_abi );
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.num_non_builtin_instructions)==64, bank_abi );
-FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, compute_budget_instruction_details.migrating_builtin)==66, bank_abi );
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, is_simple_vote_tx)==0x180, bank_abi );
 FD_STATIC_ASSERT( offsetof( struct fd_bank_abi_txn_private, is_simple_vote_transaction)==0x8a, bank_abi );
 
@@ -409,7 +411,7 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
 
 #define CATEGORY_NON_BUILTIN   0
 #define CATEGORY_NON_MIGRATABLE 1
-#define CATEGORY_MIGRATING(x)  (2+(x))
+#define CATEGORY_MIGRATING(x)  (2+(x)) /* Unused in v3.1.0 - kept for future migrations */
 typedef struct {
   uchar b[FD_TXN_ACCT_ADDR_SZ];
   int   category;
@@ -441,7 +443,6 @@ typedef struct {
 #define MAP_PERFECT_7  ( BPF_LOADER_1_PROG_ID    ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_8  ( BPF_LOADER_2_PROG_ID    ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_9  ( LOADER_V4_PROG_ID       ), .category=CATEGORY_NON_MIGRATABLE
-#define MAP_PERFECT_10 ( STAKE_PROG_ID           ), .category=CATEGORY_MIGRATING(0)
 
 
 #include "../../util/tmpl/fd_map_perfect.c"
@@ -481,7 +482,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
 
 
   ulong sig_counters[4] = { 0UL };
-  ulong instr_cnt[3] = { 0UL }; /* non-builtin, non-migrating, stake program */
+  ulong instr_cnt[3] = { 0UL }; /* [0]=non-builtin, [1]=non-migratable, [2]=migrating (unused in v3.1.0) */
 
   fd_compute_budget_program_state_t cbp_state[1];
   fd_compute_budget_program_init( cbp_state );
@@ -516,7 +517,6 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
   out_txn->compute_budget_instruction_details.num_non_compute_budget_instructions     = (ushort)(txn->instr_cnt - cbp_state->compute_budget_instr_cnt);
   out_txn->compute_budget_instruction_details.num_non_migratable_builtin_instructions = (ushort)instr_cnt[ CATEGORY_NON_MIGRATABLE ];
   out_txn->compute_budget_instruction_details.num_non_builtin_instructions            = (ushort)instr_cnt[ CATEGORY_NON_BUILTIN   ];
-  out_txn->compute_budget_instruction_details.migrating_builtin[0]                    = (ushort)instr_cnt[ CATEGORY_MIGRATING(0)  ];
   /* The instruction index doesn't matter */
 #define CBP_TO_TUPLE_OPTION( out, flag, val0, val1 )                                                                      \
   do {                                                                                                                    \
