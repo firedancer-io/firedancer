@@ -2593,7 +2593,7 @@ fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_
 }
 
 void
-fd_pack_get_top_writers( fd_pack_t * pack, fd_pack_addr_use_t * top_writers ) {
+fd_pack_get_top_writers( fd_pack_t const * pack, fd_pack_addr_use_t top_writers[static FD_PACK_TOP_WRITERS_CNT] ) {
   fd_memcpy( top_writers, pack->top_writers, sizeof(pack->top_writers) );
 }
 
