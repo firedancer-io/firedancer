@@ -15,6 +15,16 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_exec_stack.h"
 
+struct fd_bank_out {
+  ulong       idx;
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+};
+
+typedef struct fd_bank_out fd_bank_out_t;
+
 typedef struct {
   ulong kind_id;
 
@@ -32,16 +42,11 @@ typedef struct {
   ulong       pack_in_chunk0;
   ulong       pack_in_wmark;
 
-  fd_wksp_t * out_mem;
-  ulong       out_chunk0;
-  ulong       out_wmark;
-  ulong       out_chunk;
+  fd_bank_out_t out_poh[1];
+  fd_bank_out_t out_pack[1];
 
-  fd_wksp_t * rebate_mem;
-  ulong       rebate_chunk0;
-  ulong       rebate_wmark;
-  ulong       rebate_chunk;
-  ulong       rebates_for_slot;
+  ulong rebates_for_slot;
+  int enable_rebates;
   fd_pack_rebate_sum_t rebater[ 1 ];
 
   fd_banks_t * banks;
@@ -112,9 +117,8 @@ during_frag( fd_bank_ctx_t * ctx,
              ulong           chunk,
              ulong           sz,
              ulong           ctl    FD_PARAM_UNUSED ) {
-
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->pack_in_mem, chunk );
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
@@ -155,7 +159,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                    ulong               sz,
                    ulong               begin_tspub,
                    fd_stem_context_t * stem ) {
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
@@ -198,7 +202,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
       FD_TEST( !txn_ctx->err.is_fees_only );
-      fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
+      if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
       ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_ctx->err.exec_err ) ]++;
       continue;
@@ -269,7 +273,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        alt accounts, and finally the read-only alt accounts. */
     fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
     fd_acct_addr_t const * writable_alt = fd_type_pun_const( txn_ctx->accounts.account_keys+txn_descriptor->acct_addr_cnt );
-    fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
+    if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
 
     /* The VM will stop executing and fail an instruction immediately if
        it exceeds its requested CUs.  A transaction which requests less
@@ -329,8 +333,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      transactions so the PoH tile can keep an accurate count of microblocks
      it has seen. */
   ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-  fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( tickcount ) );
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+  fd_stem_publish( stem, ctx->out_poh->idx, bank_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( tickcount ) );
+  ctx->out_poh->chunk = fd_dcache_compact_next( ctx->out_poh->chunk, new_sz, ctx->out_poh->chunk0, ctx->out_poh->wmark );
 }
 
 static inline void
@@ -341,7 +345,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
                ulong               begin_tspub,
                fd_stem_context_t * stem ) {
 
-  fd_txn_p_t * txns = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_txn_p_t * txns = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
@@ -432,7 +436,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     }
   }
 
-  fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
+  if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
 
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
@@ -447,7 +451,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   }
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
     fd_memcpy( dst, bundle_txn_temp+i, sizeof(fd_txn_p_t) );
 
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst+sizeof(fd_txn_p_t) );
@@ -472,8 +476,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
 
     ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-    fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( tickcount ) );
-    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+    fd_stem_publish( stem, ctx->out_poh->idx, bank_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( tickcount ) );
+    ctx->out_poh->chunk = fd_dcache_compact_next( ctx->out_poh->chunk, new_sz, ctx->out_poh->chunk0, ctx->out_poh->wmark );
   }
 
   metrics_write( ctx );
@@ -494,7 +498,7 @@ after_frag( fd_bank_ctx_t *     ctx,
   if( FD_UNLIKELY( slot!=ctx->rebates_for_slot ) ) {
     /* If pack has already moved on to a new slot, the rebates are no
        longer useful. */
-    fd_pack_rebate_sum_clear( ctx->rebater );
+    if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_clear( ctx->rebater );
     ctx->rebates_for_slot = slot;
   }
 
@@ -503,12 +507,37 @@ after_frag( fd_bank_ctx_t *     ctx,
 
   /* TODO: Use fancier logic to coalesce rebates e.g. and move this to
      after_credit */
-  ulong written_sz = 0UL;
-  while( 0UL!=(written_sz=fd_pack_rebate_sum_report( ctx->rebater, fd_chunk_to_laddr( ctx->rebate_mem, ctx->rebate_chunk ) )) ) {
-    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, 1UL, slot, ctx->rebate_chunk, written_sz, 0UL, tsorig, tspub );
-    ctx->rebate_chunk = fd_dcache_compact_next( ctx->rebate_chunk, written_sz, ctx->rebate_chunk0, ctx->rebate_wmark );
+  if( FD_LIKELY( ctx->enable_rebates ) ) {
+    ulong written_sz = 0UL;
+    while( 0UL!=(written_sz=fd_pack_rebate_sum_report( ctx->rebater, fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk ) )) ) {
+      ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+      fd_stem_publish( stem, ctx->out_pack->idx, slot, ctx->out_pack->chunk, written_sz, 0UL, tsorig, tspub );
+      ctx->out_pack->chunk = fd_dcache_compact_next( ctx->out_pack->chunk, written_sz, ctx->out_pack->chunk0, ctx->out_pack->wmark );
+    }
   }
+}
+
+static inline fd_bank_out_t
+out1( fd_topo_t const *      topo,
+      fd_topo_tile_t const * tile,
+      char const *           name ) {
+  ulong idx = ULONG_MAX;
+
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
+    if( !strcmp( link->name, name ) ) {
+      if( FD_UNLIKELY( idx!=ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had multiple output links named %s but expected one", tile->name, tile->kind_id, name ));
+      idx = i;
+    }
+  }
+
+  if( FD_UNLIKELY( idx==ULONG_MAX ) ) return (fd_bank_out_t){ .idx = ULONG_MAX, .mem = NULL, .chunk0 = 0, .wmark = 0, .chunk = 0 };
+
+  void * mem = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
+  ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
+  ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
+
+  return (fd_bank_out_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
 }
 
 static void
@@ -580,16 +609,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_in_chunk0 = fd_dcache_compact_chunk0( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache );
   ctx->pack_in_wmark  = fd_dcache_compact_wmark ( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache, topo->links[ tile->in_link_id[ 0UL ] ].mtu );
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
+  *ctx->out_poh = out1( topo, tile, "bank_poh" ); FD_TEST( ctx->out_poh->idx!=ULONG_MAX );
+  *ctx->out_pack = out1( topo, tile, "bank_pack" );
 
-
-  ctx->rebate_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->rebate_chunk0 = fd_dcache_compact_chunk0( ctx->rebate_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
-  ctx->rebate_wmark  = fd_dcache_compact_wmark ( ctx->rebate_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
-  ctx->rebate_chunk  = ctx->rebate_chunk0;
+  ctx->enable_rebates = ctx->out_pack->idx!=ULONG_MAX;
 }
 
 static ulong
