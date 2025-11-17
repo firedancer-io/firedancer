@@ -1069,7 +1069,7 @@ fd_banks_new_bank( fd_banks_t * banks,
     FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu does not exist", parent_bank_idx ));
   }
   if( FD_UNLIKELY( !(parent_bank->flags&FD_BANK_FLAGS_INIT) ) ) {
-    FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu is already initialized", child_bank_idx ));
+    FD_LOG_CRIT(( "Invariant violation: parent bank with index %lu is uninitialized", parent_bank_idx ));
   }
 
   /* Link node->parent */
