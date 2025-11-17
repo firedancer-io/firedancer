@@ -256,7 +256,9 @@ send_test_cmd_fn( args_t *   args ,
   run_firedancer_init( config, !args->dev.no_init_workspaces, 1 );
   fdctl_setup_netns( config, 1 );
 
-  if( 0==strcmp( config->net.provider, "xdp" ) ) fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+    fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
+  }
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );

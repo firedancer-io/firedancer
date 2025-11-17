@@ -6,6 +6,7 @@
 
 #include "../fd_disco_base.h"
 #include "../../tango/dcache/fd_dcache.h"
+#include "../../waltz/xdp/fd_xdp1.h"
 
 struct fd_topo;
 typedef struct fd_topo fd_topo_t;
@@ -19,6 +20,11 @@ struct fd_net_rx_bounds {
 };
 
 typedef struct fd_net_rx_bounds fd_net_rx_bounds_t;
+
+/* FD_NET_BOND_SLAVE_MAX is the hardcoded max number of slave devices
+   per network bonding setup. */
+
+#define FD_NET_BOND_SLAVE_MAX 16U
 
 FD_PROTOTYPES_BEGIN
 
@@ -106,6 +112,42 @@ fd_topos_tile_in_net( fd_topo_t *  topo,
 void
 fd_topos_net_tile_finish( fd_topo_t * topo,
                           ulong       net_kind_id );
+
+#if defined(__linux__)
+
+/* fd_topo_install_xdp installs XDP programs to all network devices used
+   by the topology.  This creates a number of file descriptors which
+   will be returned into the fds array.  On entry *fds_cnt is the array
+   size of fds.  On exit, *fds_cnt is the number of fd array entries
+   used.  Closing these fds will undo XDP program installation.
+   bind_addr is an optional IPv4 address to used for filtering by dst
+   IP.  If dry_run is set, does not actually install XDP config, but
+   just returns file descriptors where installs would have occurred. */
+
+void
+fd_topo_install_xdp( fd_topo_t const * topo,
+                     fd_xdp_fds_t *    fds,
+                     uint *            fds_cnt,
+                     uint              bind_addr,
+                     int               dry_run );
+
+/* FD_TOPO_XDP_FDS_MAX is the max length of the fd_xdp_fds_t array for
+   an arbitrary supported topology.  (Number of bond slave devices plus
+   loopback) */
+
+#define FD_TOPO_XDP_FDS_MAX (FD_NET_BOND_SLAVE_MAX+1)
+
+/* fd_topo_install_xdp_simple is a convenience wrapper of the above. */
+
+FD_FN_UNUSED static void
+fd_topo_install_xdp_simple( fd_topo_t const * topo,
+                            uint              bind_addr ) {
+  fd_xdp_fds_t fds[ FD_TOPO_XDP_FDS_MAX ];
+  uint         fds_cnt = FD_TOPO_XDP_FDS_MAX;
+  fd_topo_install_xdp( topo, fds, &fds_cnt, bind_addr, 0 );
+}
+
+#endif /* defined(__linux__) */
 
 FD_PROTOTYPES_END
 

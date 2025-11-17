@@ -302,18 +302,16 @@ main( int     argc,
   init_device_table( ctx, netdev_dbl_buf_mem );
 
   FD_TEST( fd_topo_obj_laddr( topo, topo_tile->net.umem_dcache_obj_id )==umem_dcache_mem );
-  void * const umem_dcache         = fd_dcache_join( umem_dcache_mem );
-  FD_TEST( umem_dcache );
-  ulong  const umem_frame_sz       = 2048UL;
+  void * const umem          = fd_dcache_join( umem_dcache_mem );
+  FD_TEST( umem );
+  ulong  const umem_frame_sz = 2048UL;
 
-  void * const umem_frame0 = (void *)fd_ulong_align_up( (ulong)umem_dcache, 4096UL );
-  ulong        umem_sz     = umem_dcache_data_sz - ( (ulong)umem_frame0 - (ulong)umem_dcache );
-  umem_sz                  = fd_ulong_align_dn( umem_sz, umem_frame_sz );
+  ulong umem_sz = fd_ulong_align_dn( umem_dcache_data_sz, umem_frame_sz );
 
-  ulong  const umem_chunk0    = ( (ulong)umem_frame0 - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
+  ulong  const umem_chunk0    = ( (ulong)umem - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
   ulong  const umem_wmark     = umem_chunk0 + ( ( umem_sz-umem_frame_sz )>>FD_CHUNK_LG_SZ );
 
-  ctx->umem_frame0 = umem_frame0;
+  ctx->umem        = umem;
   ctx->umem_chunk0 = (uint)umem_chunk0;
   ctx->umem_wmark  = (uint)umem_wmark;
   ctx->umem_sz     = umem_sz;
@@ -334,7 +332,7 @@ main( int     argc,
   /* Initialize the free_tx ring */
   ulong const tx_depth  = ctx->free_tx.depth;
   for( ulong j=0; j<tx_depth; j++ ) {
-    ctx->free_tx.queue[ j ] = (ulong)ctx->umem_frame0 + frame_off;
+    ctx->free_tx.queue[ j ] = (ulong)ctx->umem + frame_off;
     frame_off += frame_sz;
   }
   ctx->free_tx.prod = tx_depth;
@@ -668,7 +666,7 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre,     eth0_dst_mac_addr, 6 );
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth0_src_mac_addr, 6 );
 
-        xsk->if_idx = IF_IDX_ETH0;
+        xsk->if_idx = ctx->if_virt = IF_IDX_ETH0;
         before_credit_input       = &rx_pkt_gre;
         before_credit_input_sz    = sizeof(rx_pkt_gre);
         before_credit_expected    = &rx_pkt;
@@ -707,7 +705,7 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre,     eth1_dst_mac_addr, 6 );
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth1_src_mac_addr, 6 );
 
-        xsk->if_idx = IF_IDX_ETH1;
+        xsk->if_idx = ctx->if_virt = IF_IDX_ETH1;
 
         before_credit_input       = &rx_pkt_gre;
         before_credit_input_sz    = sizeof(rx_pkt_gre);
@@ -744,7 +742,7 @@ main( int     argc,
         break;
       }
       case 2: { // non-gre
-        xsk->if_idx               = IF_IDX_ETH1;
+        xsk->if_idx = ctx->if_virt = IF_IDX_ETH1;
 
         before_credit_input       = &rx_pkt;
         before_credit_input_sz    = sizeof(rx_pkt);
@@ -781,7 +779,7 @@ main( int     argc,
     xdp_fr_ring_cons++;
 
     /* Write packet into frame */
-    uchar * rx_ring_pkt = (uchar *)ctx->umem_frame0 + rx_frame_off;
+    uchar * rx_ring_pkt = (uchar *)ctx->umem + rx_frame_off;
     fd_memcpy( rx_ring_pkt, before_credit_input, before_credit_input_sz );
 
     /* Push frame into RX ring */
@@ -831,7 +829,7 @@ main( int     argc,
     FD_TEST( tx_metric_before+1==tx_metric_after ); /* assert that XDP tile published a TX frame */
     struct xdp_desc * tx_ring_entry = &xsk->ring_tx.packet_ring[xdp_tx_ring_prod-1];
     FD_TEST( tx_ring_entry->len==after_frag_expected_sz );
-    void * after_frag_output = (void *)((ulong)tx_ring_entry->addr + (ulong)ctx->umem_frame0);
+    void * after_frag_output = (void *)((ulong)tx_ring_entry->addr + (ulong)ctx->umem);
     FD_TEST( fd_memeq( after_frag_output, after_frag_expected, after_frag_expected_sz ) );
     tx_seq++;
     tx_chunk = fd_dcache_compact_next( tx_chunk, during_frag_expected_sz, tx_chunk0, tx_wmark );

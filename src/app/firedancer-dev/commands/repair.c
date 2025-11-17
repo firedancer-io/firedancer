@@ -683,8 +683,7 @@ repair_cmd_fn_profiler_mode( args_t *   args,
   }
   configure_cmd_fn( &configure_args, config );
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
-    (void)fds;
+    fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
   run_firedancer_init( config, 1, 0 );
