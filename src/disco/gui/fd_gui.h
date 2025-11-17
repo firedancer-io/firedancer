@@ -224,9 +224,10 @@ struct fd_gui_validator_info {
 #define FD_GUI_SLOT_SHRED_REPAIR_REQUEST          (0UL)
 #define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE  (1UL)
 #define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR   (2UL)
-/* #define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START (3UL) // UNUSED */
 #define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE  (3UL)
 #define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE     (4UL)
+/* #define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START (5UL) // UNUSED */
+#define FD_GUI_SLOT_SHRED_SHRED_PUBLISHED         (6UL)
 
 #define FD_GUI_SLOT_RANKINGS_SZ (100UL)
 #define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
@@ -727,6 +728,8 @@ struct fd_gui {
   fd_gui_peers_ctx_t * peers; /* full-client */
 
   struct {
+    ulong leader_shred_cnt;      /* A gauge counting the number of leader shreds seen on the SHRED_OUT link.  Resets at
+                                    the end of a leader slot.  This works because leader fecs are published in order. */
     ulong staged_next_broadcast; /* staged[ staged_next_broadcast % FD_GUI_SHREDS_STAGING_SZ ] is the first shred event
                                     that hasn't yet been broadcast to WebSocket clients */
     ulong staged_head;            /* staged_head % FD_GUI_SHREDS_STAGING_SZ is the first valid event in staged */
@@ -837,6 +840,13 @@ fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      shred_idx,
                      int        is_turbine,
                      long       tsorig );
+
+void
+fd_gui_handle_leader_fec( fd_gui_t * gui,
+                          ulong      slot,
+                          ulong      fec_shred_cnt,
+                          int        is_end_of_slot,
+                          long       tsorig );
 
 void
 fd_gui_handle_exec_txn_done( fd_gui_t * gui,
