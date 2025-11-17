@@ -375,7 +375,7 @@ get_voters( fd_tower_accts_t * tower_accts_deque,
             ulong              bank_idx ) {
   ulong voters_cnt = 0UL;
   fd_bank_t * bank = fd_banks_bank_query( banks, bank_idx );
-  if( FD_UNLIKELY( !bank || !(bank->flags & FD_BANK_FLAGS_FROZEN) ) ) FD_LOG_ERR(( "invariant violation: bank %lu is not frozen or missing", bank_idx ));
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invariant violation: bank %lu is missing", bank_idx ));
 
   fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
   fd_vote_states_iter_t iter_[1];
