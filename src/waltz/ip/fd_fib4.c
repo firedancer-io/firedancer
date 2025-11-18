@@ -209,12 +209,12 @@ fd_fib4_insert( fd_fib4_t *     fib,
   };
   fd_fib4_hop_t * entry = fd_fib4_hop_tbl( fib ) + idx;
 
+  FD_TEST( hop );
+  *entry = *hop;
+
   FD_COMPILER_MFENCE();
   fib->generation = generation+2UL;
   FD_COMPILER_MFENCE();
-
-  FD_TEST( hop );
-  *entry = *hop;
 
   return 1;
 }
@@ -256,6 +256,9 @@ fd_fib4_lookup( fd_fib4_t const * fib,
   fd_fib4_key_t const * keys = fd_fib4_key_tbl_const( fib );
 
   ulong generation = FD_VOLATILE_CONST( fib->generation );
+  if( FD_UNLIKELY( generation&0x1UL ) ) { /* writer is mid-update */
+    return &fd_fib4_hop_blackhole;
+  }
   FD_COMPILER_MFENCE();
 
   ulong best_idx  = 0UL; /* dead route */
