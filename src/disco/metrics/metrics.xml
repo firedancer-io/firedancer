@@ -796,6 +796,9 @@ metric introduced.
 
   <counter name="SlotsTotal" summary="Count of slots replayed successfully" />
   <counter name="TransactionsTotal" summary="Count of transactions processed overall on the current fork" />
+
+  <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
+  <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
 </tile>
 
 <tile name="storei">

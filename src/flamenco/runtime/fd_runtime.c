@@ -972,11 +972,11 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
        been deployed / upgraded for reverification in the program
        cache since their programdata may have changed. ELF / sBPF
        metadata will need to be updated. */
-      ulong current_slot = fd_bank_slot_get( bank );
-      for( uchar i=0; i<txn_ctx->details.programs_to_reverify_cnt; i++ ) {
-        fd_pubkey_t const * program_key = &txn_ctx->details.programs_to_reverify[i];
-        fd_progcache_invalidate( progcache, xid, program_key, current_slot );
-      }
+    ulong current_slot = fd_bank_slot_get( bank );
+    for( uchar i=0; i<txn_ctx->details.programs_to_reverify_cnt; i++ ) {
+      fd_pubkey_t const * program_key = &txn_ctx->details.programs_to_reverify[i];
+      fd_progcache_invalidate( progcache, xid, program_key, current_slot );
+    }
   }
 
   int is_vote = fd_txn_is_simple_vote_transaction( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
