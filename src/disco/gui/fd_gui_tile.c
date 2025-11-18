@@ -104,6 +104,9 @@ typedef struct {
   fd_gui_t * gui;
   fd_gui_peers_ctx_t * peers;
 
+  ulong in_cnt;
+  ulong idle_cnt;
+
   /* Most of the gui tile uses fd_clock for timing, but some stem
      timestamps still used tickcounts, so we keep separate timestamps
      here to handle those cases until fd_clock is more widely adopted. */
@@ -202,6 +205,10 @@ before_credit( fd_gui_ctx_t *      ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
+
+  ctx->idle_cnt++;
+  if( FD_LIKELY( ctx->idle_cnt<2UL*ctx->in_cnt ) ) return;
+  ctx->idle_cnt = 0UL;
 
   int charge_busy_server = 0;
   long now = fd_tickcount();
@@ -779,6 +786,9 @@ unprivileged_init( fd_topo_t *      topo,
   cJSON_alloc_install( alloc );
 
   ctx->next_poll_deadline = fd_tickcount();
+
+  ctx->idle_cnt = 0UL;
+  ctx->in_cnt = tile->in_cnt;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
 
