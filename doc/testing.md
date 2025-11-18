@@ -26,7 +26,10 @@ make -j
 make run-unit-test
 ```
 
-For large page and NUMA configuration, refer to `./test.sh --help`.
+For large page and NUMA configuration, refer to `src/util/shmem/fd_shmem_cfg --help`.
+
+Note: if your MEMLOCK limit is low, it can be increased with
+`sudo prlimit --pid $$ --memlock=$((2*1024*1024*1024))`.
 
 ## Test Configuration
 
