@@ -96,6 +96,7 @@ udpecho_cmd_fn( args_t *   args,
 
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_offloads, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_loopback, CONFIGURE_CMD_INIT, config );

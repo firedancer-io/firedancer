@@ -66,6 +66,7 @@ following stages to each configure command:
     configuration TOML file.
  - `sysctl` Set required kernel parameters.
  - `hyperthreads` Disables hyperthreaded pair for critical CPU cores.
+ - `bonding` Prepares bonded network devices for XDP networking.
  - `ethtool-channels` Configures the number of channels on the network
     device.
  - `ethtool-offloads` Modify offload feature flags on the network device.
