@@ -114,7 +114,7 @@ fd_fib4_insert( fd_fib4_t *     fib,
 /* Read APIs *************************************************************/
 
 /* fd_fib4_lookup resolves the next hop for an arbitrary IPv4 address.
-   If route was not found, retval->rtype is set to FD_FIB4_RTYPE_THROW.
+   If route was not found, retval.rtype is set to FD_FIB4_RTYPE_THROW.
 
    Thread safe: Multiple threads can use the read API concurrently without
    affecting each other.  If a write by one thread is in progress, all
@@ -122,9 +122,8 @@ fd_fib4_insert( fd_fib4_t *     fib,
    being returned.  (Until of the effects of the write become visible to
    all CPUs in the system) */
 
-fd_fib4_hop_t const *
+fd_fib4_hop_t
 fd_fib4_lookup( fd_fib4_t const * fib,
-                fd_fib4_hop_t *   out,
                 uint              ip4_dst,
                 ulong             flags );
 

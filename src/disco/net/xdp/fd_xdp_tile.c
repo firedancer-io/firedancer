@@ -539,8 +539,8 @@ net_tx_route( fd_net_ctx_t * ctx,
   /* Route lookup */
 
   fd_fib4_hop_t hop[2] = {0};
-  fd_fib4_lookup( ctx->fib_local, hop+0, dst_ip, 0UL );
-  fd_fib4_lookup( ctx->fib_main,  hop+1, dst_ip, 0UL );
+  hop[0] = fd_fib4_lookup( ctx->fib_local, dst_ip, 0UL );
+  hop[1] = fd_fib4_lookup( ctx->fib_main,  dst_ip, 0UL );
   fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
 
   uint rtype   = next_hop->rtype;

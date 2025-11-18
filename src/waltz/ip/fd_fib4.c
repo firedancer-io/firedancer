@@ -219,16 +219,13 @@ fd_fib4_insert( fd_fib4_t *     fib,
   return 1;
 }
 
-fd_fib4_hop_t const *
+fd_fib4_hop_t
 fd_fib4_lookup( fd_fib4_t const * fib,
-                fd_fib4_hop_t *   out,
                 uint              ip4_dst,
                 ulong             flags ) {
   if( FD_UNLIKELY( flags ) ) {
-    return fd_fib4_hop_tbl_const( fib ) + 0; /* dead route */
+    return fd_fib4_hop_tbl_const( fib )[0]; /* dead route */
   }
-
-  FD_TEST( out );
 
   if( fib->hmap_cnt>0 ) {
     fd_fib4_hmap_t hmap[1];
@@ -242,12 +239,11 @@ fd_fib4_lookup( fd_fib4_t const * fib,
       fd_fib4_hop_t next_hop           = ele->next_hop;                    // speculatively save the next hop
       find_err                         = fd_fib4_hmap_query_test( query ); // test again
       if( FD_UNLIKELY( find_err ) ) {
-        return &fd_fib4_hop_blackhole;
+        return fd_fib4_hop_blackhole;
       }
-      *out = next_hop;
-      return out;
+      return next_hop;
     } else if( FD_UNLIKELY( find_err!=FD_MAP_ERR_KEY ) ) {
-      return &fd_fib4_hop_blackhole;
+      return fd_fib4_hop_blackhole;
     }
     // Can't find a match in the fib4 hashmap. Look up in the routing table.
   }
@@ -276,11 +272,11 @@ fd_fib4_lookup( fd_fib4_t const * fib,
       best_mask = mask_bits;
     }
   }
-  *out = fd_fib4_hop_tbl_const( fib )[ best_idx ];
+  fd_fib4_hop_t out = fd_fib4_hop_tbl_const( fib )[ best_idx ];
 
   FD_COMPILER_MFENCE();
   if( FD_UNLIKELY( FD_VOLATILE_CONST( fib->generation )!=generation ) ) {
-    return &fd_fib4_hop_blackhole; /* torn read */
+    return fd_fib4_hop_blackhole; /* torn read */
   }
   return out;
 }
