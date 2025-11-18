@@ -22,7 +22,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <linux/unistd.h>
 #include <sys/socket.h>
 #include <linux/if_xdp.h>
 #include "generated/fd_shredcap_tile_seccomp.h"

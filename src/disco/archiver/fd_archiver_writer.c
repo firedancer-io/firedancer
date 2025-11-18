@@ -9,7 +9,6 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <unistd.h>
-#include <linux/unistd.h>
 #include <sys/socket.h>
 #include <linux/if_xdp.h>
 #include "generated/archiver_writer_seccomp.h"

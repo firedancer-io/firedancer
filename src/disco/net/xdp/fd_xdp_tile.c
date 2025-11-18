@@ -28,7 +28,6 @@
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
 #include <sys/ioctl.h>
-#include <linux/unistd.h>
 #include <linux/if_arp.h>
 
 #include "generated/fd_xdp_tile_seccomp.h"

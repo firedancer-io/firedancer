@@ -9,7 +9,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <linux/unistd.h>
 #include <sys/socket.h>
 #include <linux/if_xdp.h>
 #include "generated/archiver_playback_seccomp.h"

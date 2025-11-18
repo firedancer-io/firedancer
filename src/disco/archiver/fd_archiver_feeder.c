@@ -2,7 +2,6 @@
 
 #include "fd_archiver.h"
 #include <unistd.h>
-#include <linux/unistd.h>
 #include <sys/socket.h>
 #include <linux/if_xdp.h>
 #include "generated/archiver_feeder_seccomp.h"
