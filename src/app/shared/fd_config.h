@@ -9,7 +9,6 @@
 
 #define NAME_SZ                          (256UL)
 #define AFFINITY_SZ                      (256UL)
-#define CONFIGURE_STAGE_COUNT            ( 12UL)
 #define GOSSIP_TILE_ENTRYPOINTS_MAX      ( 16UL)
 #define IP4_PORT_STR_MAX                 ( 22UL)
 

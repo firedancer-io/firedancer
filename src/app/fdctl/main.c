@@ -32,6 +32,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   NULL,
 };
 
+/* TODO: Add irq-affinity stage later */
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,

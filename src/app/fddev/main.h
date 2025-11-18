@@ -37,6 +37,7 @@ extern configure_stage_t fd_cfg_stage_genesis;
 extern configure_stage_t fd_cfg_stage_keys;
 extern configure_stage_t fd_cfg_stage_blockstore;
 
+/* TODO: Add irq-affinity stage later */
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,
   &fd_cfg_stage_netns,
