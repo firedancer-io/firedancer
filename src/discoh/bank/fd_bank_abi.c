@@ -253,10 +253,6 @@ struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
       ushort num_non_compute_budget_instructions;
       ushort num_non_migratable_builtin_instructions;
       ushort num_non_builtin_instructions;
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
-      ushort migrating_builtin[0]; /* Empty array - no builtins currently migrating (Agave v3.1.0) */
-#pragma GCC diagnostic pop
     } compute_budget_instruction_details;
 
     uchar _message_hash[ 32 ]; /* with the same value as message_hash */
