@@ -4,11 +4,12 @@
 #include "fd_fib4.h"
 #include "../../util/fd_util.h"
 
-struct __attribute__((aligned(FD_FIB4_ALIGN))) fd_fib4_key {
+struct __attribute__((aligned(16))) fd_fib4_key {
   /* FIXME optimize this to 8 bytes? */
-  uint addr; /* prefix bits, little endian (low bits outside of mask are undefined) */
-  uint mask; /* bit pattern */
-  uint prio; /* lower is higher */
+  uint addr;       /* prefix bits, little endian (low bits outside of mask are undefined) */
+  uint mask;       /* bit pattern */
+  uint prio;       /* lower is higher */
+  int  mask_bits;  /* precompute mask bits for comparison */
 };
 
 typedef struct fd_fib4_key fd_fib4_key_t;
