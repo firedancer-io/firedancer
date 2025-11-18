@@ -759,7 +759,8 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
 static void
 fd_gui_peers_viewport_snap( fd_gui_peers_ctx_t * peers, ulong ws_conn_id ) {
   FD_TEST( peers->client_viewports[ ws_conn_id ].connected );
-  if( !(peers->client_viewports[ ws_conn_id ].row_cnt && peers->client_viewports[ ws_conn_id ].row_cnt<FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ) ) FD_LOG_ERR(("row_cnt=%lu", peers->client_viewports[ ws_conn_id ].row_cnt ));
+  if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt==0UL ) ) return; /* empty viewport */
+  if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt>FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ) ) FD_LOG_ERR(("row_cnt=%lu", peers->client_viewports[ ws_conn_id ].row_cnt ));
 
   if( FD_UNLIKELY( fd_gui_peers_live_table_active_sort_key_cnt( peers->live_table )==FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT ) ) {
     /* we're out of cached sort keys. disconnect the oldest client */
@@ -805,13 +806,13 @@ fd_gui_peers_request_scroll( fd_gui_peers_ctx_t * peers,
   if( FD_UNLIKELY( !cJSON_IsNumber( row_cnt_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   ulong _row_cnt = row_cnt_param->valueulong;
 
-  if( FD_UNLIKELY( _row_cnt==0 || _row_cnt > FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ || _start_row > fd_gui_peers_live_table_ele_cnt( peers->live_table )-_row_cnt ) ) {
+  if( FD_UNLIKELY( _row_cnt > FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ || _start_row > fd_gui_peers_live_table_ele_cnt( peers->live_table )-_row_cnt ) ) {
     fd_gui_printf_null_query_response( peers->http, "gossip", "query_scroll", request_id );
     FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
     return 0;
   }
 
-  if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].start_row==_start_row && peers->client_viewports[ ws_conn_id ].row_cnt==_row_cnt ) ) {
+  if( FD_UNLIKELY( (peers->client_viewports[ ws_conn_id ].start_row==_start_row || _row_cnt==0UL) && peers->client_viewports[ ws_conn_id ].row_cnt==_row_cnt ) ) {
     return 0; /* NOP, scroll window hasn't changed */
   }
 
@@ -928,7 +929,7 @@ static void
 fd_gui_peers_viewport_log( fd_gui_peers_ctx_t *  peers,
                            ulong                 ws_conn_id) {
 
-  FD_TEST( peers->client_viewports[ ws_conn_id ].row_cnt && peers->client_viewports[ ws_conn_id ].row_cnt < FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ );
+  FD_TEST( peers->client_viewports[ ws_conn_id ].row_cnt<=FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ );
 
   char out[ 1<<14 ];
   char * p = fd_cstr_init( out );
@@ -1020,7 +1021,6 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
     if( FD_LIKELY( peers->client_viewports[ peers->active_ws_conn_id ].row_cnt ) ) {
       /* broadcast the diff as cell updates */
       fd_gui_printf_peers_viewport_update( peers, peers->active_ws_conn_id );
-      FD_TEST( !fd_http_server_ws_send( peers->http, peers->active_ws_conn_id ) );
 
 #if LOGGING
       /* log the diff */
@@ -1030,6 +1030,11 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
 
       /* update client state to the latest viewport */
       fd_gui_peers_viewport_snap( peers, peers->active_ws_conn_id );
+
+      /* In rare cases, fd_http_server_ws_send can close the websocket
+      connection. Since fd_gui_peers_viewport_snap assumes the connected
+      peer has not disconnected, we call it before. */
+      FD_TEST( !fd_http_server_ws_send( peers->http, peers->active_ws_conn_id ) );
     }
 
     peers->next_client_nanos = now + ((FD_GUI_PEERS_WS_VIEWPORT_UPDATE_INTERVAL_MILLIS * 1000000L) / (long)peers->open_ws_conn_cnt);

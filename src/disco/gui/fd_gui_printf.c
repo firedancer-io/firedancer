@@ -2002,7 +2002,7 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
 
         /* loop over latest viewport */
         FD_TEST( peers->client_viewports[ ws_conn_id ].connected );
-        if( !(peers->client_viewports[ ws_conn_id ].row_cnt && peers->client_viewports[ ws_conn_id ].row_cnt<FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ) ) FD_LOG_ERR(("row_cnt=%lu ws_conn_id=%lu peers->active_ws_conn_id=%lu", peers->client_viewports[ ws_conn_id ].row_cnt, ws_conn_id, peers->active_ws_conn_id ));
+        if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt>FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ) ) FD_LOG_ERR(("row_cnt=%lu ws_conn_id=%lu peers->active_ws_conn_id=%lu", peers->client_viewports[ ws_conn_id ].row_cnt, ws_conn_id, peers->active_ws_conn_id ));
 
         for( fd_gui_peers_live_table_fwd_iter_t iter = fd_gui_peers_live_table_fwd_iter_init( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key, peers->contact_info_table ), j = 0;
              !fd_gui_peers_live_table_fwd_iter_done( iter ) && j<peers->client_viewports[ ws_conn_id ].start_row+peers->client_viewports[ ws_conn_id ].row_cnt;
@@ -2102,7 +2102,7 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
     jsonp_open_object( peers->http, "value" );
 
       FD_TEST( peers->client_viewports[ ws_conn_id ].connected );
-      if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt>=FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ) ) FD_LOG_ERR(("row_cnt=%lu ws_conn_id=%lu peers->active_ws_conn_id=%lu", peers->client_viewports[ ws_conn_id ].row_cnt, ws_conn_id, peers->active_ws_conn_id ));
+      if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt>FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ) ) FD_LOG_ERR(("row_cnt=%lu ws_conn_id=%lu peers->active_ws_conn_id=%lu", peers->client_viewports[ ws_conn_id ].row_cnt, ws_conn_id, peers->active_ws_conn_id ));
       for( fd_gui_peers_live_table_fwd_iter_t iter = fd_gui_peers_live_table_fwd_iter_init( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key, peers->contact_info_table ), j = 0;
            !fd_gui_peers_live_table_fwd_iter_done( iter ) && j<peers->client_viewports[ ws_conn_id ].start_row+peers->client_viewports[ ws_conn_id ].row_cnt;
            iter = fd_gui_peers_live_table_fwd_iter_next( iter, peers->contact_info_table ), j++ ) {
