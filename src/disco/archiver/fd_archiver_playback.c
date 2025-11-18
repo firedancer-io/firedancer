@@ -9,9 +9,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <linux/unistd.h>
 #include <sys/socket.h>
-#include <linux/if_xdp.h>
 #include "generated/archiver_playback_seccomp.h"
 #include "../../util/pod/fd_pod_format.h"
 /* The archiver playback tile consumes from the archive file, adds artificial delay

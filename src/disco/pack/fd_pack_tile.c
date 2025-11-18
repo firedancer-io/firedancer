@@ -13,7 +13,6 @@
 #include "../pack/fd_pack_cost.h"
 #include "../pack/fd_pack_pacing.h"
 
-#include <linux/unistd.h>
 #include <string.h>
 
 /* fd_pack is responsible for taking verified transactions, and

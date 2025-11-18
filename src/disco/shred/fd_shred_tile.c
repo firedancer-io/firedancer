@@ -17,8 +17,6 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
 
-#include <linux/unistd.h>
-
 /* The shred tile handles shreds from two data sources: shreds generated
    from microblocks from the banking tile, and shreds retransmitted from
    the network.

@@ -27,7 +27,6 @@
 
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <linux/unistd.h>
 #include <sys/random.h>
 #include <netdb.h>
 #include <netinet/in.h>
