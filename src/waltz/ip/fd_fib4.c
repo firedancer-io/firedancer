@@ -253,7 +253,7 @@ fd_fib4_lookup( fd_fib4_t const * fib,
 
   ulong generation = FD_VOLATILE_CONST( fib->generation );
   if( FD_UNLIKELY( generation&0x1UL ) ) { /* writer is mid-update */
-    return &fd_fib4_hop_blackhole;
+    return fd_fib4_hop_blackhole;
   }
   FD_COMPILER_MFENCE();
 
