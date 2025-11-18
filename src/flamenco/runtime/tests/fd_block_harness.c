@@ -191,6 +191,7 @@ fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *           
           vote_data_len,
           NULL );
       if( res==NULL ) continue;
+      if( res->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) continue;
 
       fd_vote_states_update_from_account( vote_states, &vote_address, vote_data, vote_data_len );
       fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &vote_address );
