@@ -6,12 +6,15 @@
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 
+#include "../../disco/extxn/fd_extxn.h"
+
 #if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"
 #endif
 
 #define FD_RESOLV_IN_KIND_FRAGMENT (0)
 #define FD_RESOLV_IN_KIND_BANK     (1)
+#define FD_RESOLV_IN_KIND_EXECUTED (2)
 
 struct blockhash {
   uchar b[ 32 ];
@@ -152,6 +155,15 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  /* cavey's nonce tcache */
+  ulong   tcache_depth;   /* == fd_tcache_depth( tcache ), depth of this dedups's tcache (const) */
+  ulong   tcache_map_cnt; /* == fd_tcache_map_cnt( tcache ), number of slots to use for tcache map (const) */
+  ulong * tcache_sync;    /* == fd_tcache_oldest_laddr( tcache ), local join to the oldest key in the tcache */
+  ulong * tcache_ring;
+  ulong * tcache_map;
+  uchar   msg[96];
+  ulong   nonce_filter_cnt;
 } fd_resolv_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -167,6 +179,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( 1UL<<16UL ) );
   l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    ) );
   l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint()                  );
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(),      fd_tcache_footprint( 262144UL, 0UL ) );  
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -195,7 +208,8 @@ before_frag( fd_resolv_ctx_t * ctx,
              ulong             sig ) {
   (void)sig;
 
-  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) return 0;
+  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK
+                || ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_EXECUTED ) ) return 0;
 
   return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
 }
@@ -220,6 +234,14 @@ during_frag( fd_resolv_ctx_t * ctx,
       uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
       uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       fd_memcpy( dst, src, sz );
+      break;
+    }
+    case FD_RESOLV_IN_KIND_EXECUTED: {
+      /* ignore messages that don't contain nonce */
+      if( sz!=160 ) return;
+      /* don't need signature, so skip first 64 bytes */
+      uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
+      fd_memcpy( ctx->msg, src+64UL, 96UL );
       break;
     }
     default:
@@ -351,6 +373,15 @@ after_frag( fd_resolv_ctx_t *   ctx,
         FD_LOG_ERR(( "unknown sig %lu", sig ));
     }
     return;
+  } else if ( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_EXECUTED ) {
+    /* cavey: sz==160 contains nonce entry. we copied the last 96 bytes to msg in during_frag */
+    if( sz==160 ) {
+      ulong nonce_tag = kv_nonce_hash_contiguous( ctx->msg );
+      int _is_dup;
+      FD_TCACHE_INSERT( _is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, nonce_tag );
+      (void)_is_dup;
+    }
+    return;
   }
 
   fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -452,6 +483,51 @@ after_frag( fd_resolv_ctx_t *   ctx,
     }
   }
 
+  /* cavey: we have to validate nonce again now... with alts */
+  int is_exec_nonce = 0;
+  int nonce_result = fd_validate_durable_nonce( txnm );
+  switch( nonce_result ) {
+    /* failure, mark as executed nonce */
+    case 0: is_exec_nonce = 1; break;
+    /* not durable nonce (and thus not an executed nonce) */
+    case 1:  is_exec_nonce = 0; break;
+    /* durable nonce. check tcache */
+    case 2: {
+      /* to get tag, we need a few things from the transaction (nonce, nonce_acct, nonce_auth) */
+      fd_txn_t const * txn = fd_txn_m_txn_t_const( txnm );
+      uchar const * payload = fd_txn_m_payload( txnm );
+      fd_acct_addr_t const * imms = fd_txn_get_acct_addrs( txn, payload );
+      fd_acct_addr_t const * alts = fd_txn_m_alut( txnm );
+      
+      /* get nonce from payload */
+      uchar const * nonce = payload+txn->recent_blockhash_off;
+
+      /* get accounts from payload */
+      ushort nonce_acct_idx = payload[ txn->instr[ 0 ].acct_off+0 ]; /* nonce account is first account */
+      ushort nonce_auth_idx = payload[ txn->instr[ 0 ].acct_off+2 ]; /* nonce auth is third account */
+      ushort num_imm        = txn->acct_addr_cnt;
+      /* adjust idx if in alts */
+      uchar const * nonce_auth = (uchar *)(fd_ptr_if( nonce_auth_idx<num_imm, imms, alts )+(nonce_auth_idx-(nonce_auth_idx>=num_imm)*num_imm));
+      uchar const * nonce_acct = (uchar *)(fd_ptr_if( nonce_acct_idx<num_imm, imms, alts )+(nonce_acct_idx-(nonce_acct_idx>=num_imm)*num_imm));
+
+      /* finally, calculate the nonce tag */
+      ulong nonce_tag = kv_nonce_hash( nonce, nonce_acct, nonce_auth );
+      FD_TCACHE_INSERT( is_exec_nonce, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, nonce_tag );
+      break;
+    }
+  }
+
+  /**
+   * do not publish to pack if this is an already-executed nonce.
+   * if this is in a bundle, then pack will remove the failed partial bundle.
+   * we also fail the bundle so anything after this is dropped
+   */
+  if( is_exec_nonce ) {
+    ctx->nonce_filter_cnt++;
+    ctx->bundle_failed = 1;
+    return;
+  }
+
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
@@ -501,6 +577,8 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) ) ctx->in[i].kind = FD_RESOLV_IN_KIND_BANK;
+    /* cavey was here */
+    else if( FD_LIKELY( !strcmp( link->name, "executed_txn" )  ) ) ctx->in[i].kind = FD_RESOLV_IN_KIND_EXECUTED;
     else                                                     ctx->in[i].kind = FD_RESOLV_IN_KIND_FRAGMENT;
 
     ctx->in[i].mem    = link_wksp->wksp;
@@ -513,6 +591,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
+
+  ulong nonce_tcache_depth = 262144;
+  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(), fd_tcache_footprint( nonce_tcache_depth, 0 ) ), nonce_tcache_depth, 0 ) );
+  if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_new failed" ));
+  ctx->tcache_depth    = fd_tcache_depth       ( tcache );
+  ctx->tcache_map_cnt  = fd_tcache_map_cnt     ( tcache );
+  ctx->tcache_sync     = fd_tcache_oldest_laddr( tcache );
+  ctx->tcache_ring     = fd_tcache_ring_laddr  ( tcache );
+  ctx->tcache_map      = fd_tcache_map_laddr   ( tcache );
+  fd_memset( ctx->msg, 0, 96UL );
+  ctx->nonce_filter_cnt = 0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

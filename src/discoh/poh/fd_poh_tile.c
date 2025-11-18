@@ -2149,7 +2149,7 @@ fd_ext_poh_publish_cluster_info( uchar * data,
 }
 
 void
-fd_ext_poh_publish_executed_txn( uchar const * data  ) {
+fd_ext_poh_publish_executed_txn( uchar const * data, ulong len  ) {
   static int lock = 0;
 
   /* Need to lock since the link publisher is not concurrent, and replay
@@ -2160,7 +2160,7 @@ fd_ext_poh_publish_executed_txn( uchar const * data  ) {
   }
 
   FD_COMPILER_MFENCE();
-  poh_link_publish( &executed_txn, 0UL, data, 64UL );
+  poh_link_publish( &executed_txn, 0UL, data, len );
   FD_COMPILER_MFENCE();
 
   FD_VOLATILE(lock) = 0;

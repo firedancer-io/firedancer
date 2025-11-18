@@ -119,7 +119,7 @@ during_frag( fd_dedup_ctx_t * ctx,
       FD_LOG_ERR(( "vote txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
     }
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECUTED_TXN ) ) {
-    if( FD_UNLIKELY( sz!=FD_TXN_SIGNATURE_SZ ) ) FD_LOG_ERR(( "received an executed transaction signature message with the wrong size %lu", sz ));
+    if( FD_UNLIKELY( sz!=FD_TXN_SIGNATURE_SZ && sz!=160 ) ) FD_LOG_ERR(( "received an executed transaction signature message with the wrong size %lu", sz ));
     /* Executed txns just have their signature inserted into the tcache
        so we can dedup them easily. */
     ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, src, FD_TXN_SIGNATURE_SZ );

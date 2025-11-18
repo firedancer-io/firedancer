@@ -968,8 +968,8 @@ during_frag( fd_pack_ctx_t * ctx,
     break;
   }
   case IN_KIND_EXECUTED_TXN: {
-    FD_TEST( sz==64UL );
-    fd_memcpy( ctx->executed_txn_sig, dcache_entry, sz );
+    FD_TEST( sz==64UL || sz==160UL );
+    fd_memcpy( ctx->executed_txn_sig, dcache_entry, 64 );
     break;
   }
   }
