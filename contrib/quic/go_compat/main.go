@@ -201,6 +201,7 @@ func clientTest(fdQuic *C.fd_quic_t) {
 
 		service := func(cond func() bool) bool {
 			for !cond() {
+				ts := C.fd_log_wallclock()
 				var seq int
 				select {
 				case pkt, ok := <-netGoToFd:
@@ -209,20 +210,20 @@ func clientTest(fdQuic *C.fd_quic_t) {
 					}
 					buf := wrapDatagram(pkt, addrGo, addrFd, &seq)
 					if C.fd_quic_test_pcap != nil {
-						C.fd_pcapng_fwrite_pkt(C.fd_log_wallclock(), unsafe.Pointer(unsafe.SliceData(buf)), C.ulong(len(buf)), unsafe.Pointer(C.fd_quic_test_pcap))
+						C.fd_pcapng_fwrite_pkt(ts, unsafe.Pointer(unsafe.SliceData(buf)), C.ulong(len(buf)), unsafe.Pointer(C.fd_quic_test_pcap))
 					}
-					C.fd_quic_process_packet(fdQuic, (*C.uchar)(unsafe.SliceData(buf)), C.ulong(len(buf)))
+					C.fd_quic_process_packet(fdQuic, (*C.uchar)(unsafe.SliceData(buf)), C.ulong(len(buf)), ts)
 				case <-ctx.Done():
 					return false
 				default:
 				}
 
-				C.fd_quic_service(fdQuic)
+				C.fd_quic_service(fdQuic, ts)
 			}
 			return true
 		}
 
-		quicConn := C.fd_quic_connect(fdQuic, 0x0100007f, C.ushort(addrGo.Port), 0x0100007f, C.ushort(addrFd.Port))
+		quicConn := C.fd_quic_connect(fdQuic, 0x0100007f, C.ushort(addrGo.Port), 0x0100007f, C.ushort(addrFd.Port), C.fd_log_wallclock())
 		if quicConn == nil {
 			log.Fatal("fd_quic_connect failed")
 		}
@@ -288,6 +289,7 @@ func serverTest(fdQuic *C.fd_quic_t) {
 		// Busy poll RX and TX
 		// FIXME this could be rewritten blocking style
 		for {
+			ts := C.fd_log_wallclock()
 			var seq int
 			select {
 			case pkt, ok := <-netGoToFd:
@@ -300,14 +302,14 @@ func serverTest(fdQuic *C.fd_quic_t) {
 				if C.fd_quic_test_pcap != nil {
 					C.fd_pcapng_fwrite_pkt(C.fd_log_wallclock(), unsafe.Pointer(unsafe.SliceData(buf)), C.ulong(len(buf)), unsafe.Pointer(C.fd_quic_test_pcap))
 				}
-				C.fd_quic_process_packet(fdQuic, (*C.uchar)(unsafe.SliceData(buf)), C.ulong(len(buf)))
+				C.fd_quic_process_packet(fdQuic, (*C.uchar)(unsafe.SliceData(buf)), C.ulong(len(buf)), ts)
 				pin.Unpin()
 			case <-ctx.Done():
 				return
 			default:
 			}
 
-			C.fd_quic_service(fdQuic)
+			C.fd_quic_service(fdQuic, ts)
 		}
 	}()
 

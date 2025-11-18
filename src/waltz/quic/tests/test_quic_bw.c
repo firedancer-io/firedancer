@@ -1,6 +1,5 @@
-#include "../fd_quic.h"
+#include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
-#include "../../../tango/tempo/fd_tempo.h"
 
 static fd_clock_t clock[1];
 static fd_clock_shmem_t clock_shmem[1];

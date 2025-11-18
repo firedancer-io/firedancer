@@ -1,6 +1,6 @@
 use crate::bindings::{
     fd_aio_pcapng_get_aio, fd_aio_pcapng_join, fd_aio_pcapng_start_l3, fd_aio_pcapng_t, fd_halt,
-    fd_pcapng_fwrite_tls_key_log, fd_quic_get_aio_net_rx, fd_quic_init,
+    fd_log_wallclock, fd_pcapng_fwrite_tls_key_log, fd_quic_get_aio_net_rx, fd_quic_init,
     fd_quic_new_anonymous_small, fd_quic_service, fd_quic_set_aio_net_tx, fd_quic_t, fd_rng_t,
     fd_udpsock_align, fd_udpsock_footprint, fd_udpsock_get_tx, fd_udpsock_join, fd_udpsock_new,
     fd_udpsock_service, fd_udpsock_set_layer, fd_udpsock_set_rx, fd_udpsock_t, FD_QUIC_ROLE_SERVER,
@@ -142,7 +142,7 @@ pub(crate) unsafe fn quinn_to_fdquic(crypto_provider: CryptoProvider) {
         let quic3: *mut fd_quic_t = quic2 as *mut fd_quic_t;
         while (*stop).load(Ordering::Relaxed) == 0 {
             fd_udpsock_service(udpsock3);
-            fd_quic_service(quic3);
+            fd_quic_service(quic3, fd_log_wallclock());
         }
         let metrics = &(*quic3).metrics.__bindgen_anon_1;
         // Limit packet counts to reasonable numbers
