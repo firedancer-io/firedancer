@@ -66,7 +66,7 @@ fd_ghost_new( void * shmem,
 
   ghost->pool    = pool_new( pool, blk_max );
   ghost->blk_map = blk_map_new( map, blk_max, seed );
-  ghost->vtr_map = vtr_map_new( vtr, lg_vtr_max );
+  ghost->vtr_map = vtr_map_new( vtr, lg_vtr_max, seed+1UL );
   ghost->root    = pool_idx_null( ghost->pool );
 
   return shmem;

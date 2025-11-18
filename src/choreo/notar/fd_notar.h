@@ -129,7 +129,7 @@ typedef struct fd_notar_blk fd_notar_blk_t;
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
+#define MAP_KEY_HASH(key,s)   ((MAP_HASH_T)( (key).ul[1] ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 /* TODO map key DOS */
@@ -158,7 +158,7 @@ typedef struct fd_notar_vtr fd_notar_vtr_t;
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
+#define MAP_KEY_HASH(key,s)   ((MAP_HASH_T)( (key).ul[1] ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_notar {
