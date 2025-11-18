@@ -1,6 +1,5 @@
 ifdef FD_HAS_SECP256K1
 
-ifdef FD_HAS_FLATCC
 $(call add-hdrs,fd_solfuzz.h)
 $(call add-objs,fd_solfuzz fd_solfuzz_exec,fd_flamenco_test)
 
@@ -26,5 +25,3 @@ endif
 
 run-runtime-backtest: $(OBJDIR)/bin/fd_ledger $(OBJDIR)/bin/firedancer-dev
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_backtest_ci.sh $(BACKTEST_ARGS)
-
-endif

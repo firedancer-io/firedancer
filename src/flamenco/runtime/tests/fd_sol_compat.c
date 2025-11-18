@@ -15,8 +15,10 @@
 #include "generated/txn.pb.h"
 #include "generated/type.pb.h"
 
+#if FD_HAS_FLATCC
 #include "flatbuffers/generated/elf_reader.h"
 #include "flatbuffers/generated/flatbuffers_common_reader.h"
+#endif
 
 #include <assert.h>
 #include <errno.h>
@@ -310,6 +312,8 @@ sol_compat_shred_parse_v1( uchar *       out,
    TODO: Make sol_compat_v2 APIs infallible???
  */
 
+#if FD_HAS_FLATCC
+
 int
 sol_compat_elf_loader_v2( uchar *            out,
                           ulong *            out_sz,
@@ -327,3 +331,5 @@ sol_compat_elf_loader_v2( uchar *            out,
 
   return SOL_COMPAT_V2_SUCCESS;
 }
+
+#endif /* FD_HAS_FLATCC */

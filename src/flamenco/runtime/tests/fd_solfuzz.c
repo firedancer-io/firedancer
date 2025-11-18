@@ -117,10 +117,12 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
 
+# if FD_HAS_FLATCC
   /* TODO: Consider implementing custom allocators and emitters.
      The default builder / emitter uses libc allocators */
   int builder_err = flatcc_builder_init( runner->fb_builder );
   if( FD_UNLIKELY( builder_err ) ) goto bail2;
+# endif
 
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
@@ -166,7 +168,9 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
   fd_progcache_admin_leave( runner->progcache_admin, &shpcache );
   if( shpcache ) fd_wksp_free_laddr( fd_funk_delete( shpcache ) );
 
+# if FD_HAS_FLATCC
   flatcc_builder_clear( runner->fb_builder );
+# endif
 
   if( runner->spad  ) fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
   if( runner->banks ) fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( runner->banks ) ) );

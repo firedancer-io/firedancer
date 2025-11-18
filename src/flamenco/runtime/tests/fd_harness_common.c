@@ -70,6 +70,8 @@ fd_solfuzz_pb_restore_features( fd_features_t *                    features,
   return 1;
 }
 
+#if FD_HAS_FLATCC
+
 void
 fd_solfuzz_fb_restore_features( fd_features_t *                    features,
                                 SOL_COMPAT_NS(FeatureSet_table_t)  feature_set ) {
@@ -88,3 +90,5 @@ fd_solfuzz_fb_restore_features( fd_features_t *                    features,
     fd_features_set( features, id, 0UL );
   }
 }
+
+#endif /* FD_HAS_FLATCC */
