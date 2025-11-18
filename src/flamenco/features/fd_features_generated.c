@@ -1691,6 +1691,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "poseidon_enforce_padding",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, vote_state_v4)>>3,
+    .id                        = {"\xec\xfa\x3a\xf2\xab\xa3\x21\x89\x19\xf4\xc3\x4c\x05\xdf\x88\xf0\x79\x57\x48\xf1\x3e\x35\x12\x0b\x7b\x56\xaa\xae\x3f\xe9\x98\x58"},
+                                 /* Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ */
+    .name                      = "vote_state_v4",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1944,6 +1950,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x520c5e674243fab5: return &ids[ 244 ];
   case 0xf08a42c3c040e908: return &ids[ 245 ];
   case 0x8c7bee4552d93e0c: return &ids[ 246 ];
+  case 0x8921a3abf23afaec: return &ids[ 247 ];
   default: break;
   }
   return NULL;
@@ -2196,4 +2203,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_abi_and_runtime_constraints 
 FD_STATIC_ASSERT( offsetof( fd_features_t, account_data_direct_mapping                             )>>3==244UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_pairing_length_check                      )>>3==245UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, poseidon_enforce_padding                                )>>3==246UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, vote_state_v4                                           )>>3==247UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
