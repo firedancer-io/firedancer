@@ -29,3 +29,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-stake-v3.0.0 -y 1 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-378539412 -y 5 -m 2000000 -e 378539445
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842 -y 1 -m 2000000 -e 422969848
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458 -y 1 -m 2000000 -e 385786458
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local -y 1 -m 3000 -e 1000

@@ -286,11 +286,19 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     last_vote_timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.v1_14_11.last_timestamp.slot;
     break;
-  case fd_vote_state_versioned_enum_current:
-    node_account        = vsv->inner.current.node_pubkey;
-    commission          = vsv->inner.current.commission;
-    last_vote_timestamp = vsv->inner.current.last_timestamp.timestamp;
-    last_vote_slot      = vsv->inner.current.last_timestamp.slot;
+  case fd_vote_state_versioned_enum_v3:
+    node_account        = vsv->inner.v3.node_pubkey;
+    commission          = vsv->inner.v3.commission;
+    last_vote_timestamp = vsv->inner.v3.last_timestamp.timestamp;
+    last_vote_slot      = vsv->inner.v3.last_timestamp.slot;
+    break;
+  case fd_vote_state_versioned_enum_v4:
+  /* Commission calculation is deliberate according to this:
+     https://github.com/anza-xyz/agave/blob/v3.1.1/vote/src/vote_state_view/field_frames.rs#L353 */
+    node_account        = vsv->inner.v4.node_pubkey;
+    commission          = (uchar)fd_ushort_min( vsv->inner.v4.inflation_rewards_commission_bps/100, UCHAR_MAX );
+    last_vote_timestamp = vsv->inner.v4.last_timestamp.timestamp;
+    last_vote_slot      = vsv->inner.v4.last_timestamp.slot;
     break;
   default:
     __builtin_unreachable();

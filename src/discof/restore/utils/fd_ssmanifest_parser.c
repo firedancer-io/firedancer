@@ -1085,7 +1085,7 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       break;
     }
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT: {
-      if( FD_UNLIKELY( parser->variant>2 ) ) {
+      if( FD_UNLIKELY( parser->variant>3 ) ) {
         FD_LOG_WARNING(( "invalid vote_accounts value data variant %u", parser->variant ));
         return -1;
       }

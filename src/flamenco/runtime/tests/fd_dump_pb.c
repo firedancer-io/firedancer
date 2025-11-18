@@ -468,9 +468,9 @@ create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vot
   /* Construct the vote account data. Fill in missing fields with
      arbitrary defaults (since they're not used anyways) */
   fd_vote_state_versioned_t vsv = {
-    .discriminant = fd_vote_state_versioned_enum_current,
+    .discriminant = fd_vote_state_versioned_enum_v3,
     .inner = {
-      .current = {
+      .v3 = {
         .node_pubkey           = vote_state->node_account,
         .authorized_withdrawer = vote_state->node_account,
         .commission            = vote_state->commission,
@@ -483,7 +483,7 @@ create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vot
       }
     }
   };
-  fd_vote_state_t * synthetic_vote_state = &vsv.inner.current;
+  fd_vote_state_v3_t * synthetic_vote_state = &vsv.inner.v3;
 
   /* Create synthetic landed votes */
   synthetic_vote_state->votes = deq_fd_landed_vote_t_join(

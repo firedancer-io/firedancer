@@ -121,9 +121,9 @@ genesis_create( void *                       buf,
 
   FD_SCRATCH_SCOPE_BEGIN {
     fd_vote_state_versioned_t vsv[1];
-    fd_vote_state_versioned_new_disc( vsv, fd_vote_state_versioned_enum_current );
+    fd_vote_state_versioned_new_disc( vsv, fd_vote_state_versioned_enum_v3 );
 
-    fd_vote_state_t * vs = &vsv->inner.current;
+    fd_vote_state_v3_t * vs = &vsv->inner.v3;
     vs->node_pubkey             = options->identity_pubkey;
     vs->authorized_withdrawer   = options->identity_pubkey;
     vs->commission              = 100;

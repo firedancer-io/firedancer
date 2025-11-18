@@ -101,6 +101,18 @@ fd_uint_sat_sub( uint x, uint y ) {
   return fd_uint_if( cf, 0U, res );
 }
 
+FD_FN_CONST static inline ushort
+fd_ushort_sat_add( ushort x, ushort y ) {
+  uint res = x+y;
+  return fd_ushort_if( res>USHORT_MAX, USHORT_MAX, (ushort)res );
+}
+
+FD_FN_CONST static inline ushort
+fd_ushort_sat_mul( ushort x, ushort y ) {
+  uint res = x*y;
+  return fd_ushort_if( res>USHORT_MAX, USHORT_MAX, (ushort)res );
+}
+
 FD_FN_CONST static inline double
 fd_double_sat_add( double x, double y ) {
   // What does rust do here?
