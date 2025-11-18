@@ -1,6 +1,12 @@
 #include "fd_fib4.h"
 #include "fd_fib4_private.h"
 #include "../../util/net/fd_ip4.h"  /* for printing ip4 addrs */
+#define SORT_NAME sort_fib4_key
+#define SORT_KEY_T fd_fib4_key_t
+#define SORT_BEFORE(a,b) ( ((a).mask_bits<(b).mask_bits) || \
+                         ( ((a).mask_bits==(b).mask_bits) && ((a).prio<(b).prio) ) || \
+                         ( ((a).mask_bits==(b).mask_bits) && ((a).prio==(b).prio) && ((a).addr<(b).addr) ) )
+#include "../../util/tmpl/fd_sort.c"
 
 static const fd_fib4_hop_t
 fd_fib4_hop_blackhole = {
@@ -182,6 +188,7 @@ fd_fib4_insert( fd_fib4_t *     fib,
                 uint            prio,
                 fd_fib4_hop_t * hop ) {
 
+  FD_TEST( hop );
   if( ip4_dst!=0 && prefix==32 ) {
     if( fd_fib4_hmap_insert( fib, ip4_dst, hop )==FD_MAP_SUCCESS ) return 1;
     FD_LOG_WARNING(( "Failed to insert /32 route " FD_IP4_ADDR_FMT " into fib4 hashmap", FD_IP4_ADDR_FMT_ARGS(ip4_dst) ));
@@ -199,22 +206,39 @@ fd_fib4_insert( fd_fib4_t *     fib,
   fib->generation = generation+1UL;
   FD_COMPILER_MFENCE();
 
-  ulong idx = fib->cnt;
-  fib->cnt = idx+1UL;
+  ulong old_cnt = fib->cnt;
+  fib->cnt      = old_cnt+1UL;
 
   uint mask = prefix>0 ? fd_uint_mask( 32-prefix, 31 ) : 0U;
 
-  fd_fib4_key_t * key = fd_fib4_key_tbl( fib ) + idx;
-  *key = (fd_fib4_key_t) {
-    .addr       = fd_uint_bswap( ip4_dst ) & mask,
-    .mask       = mask,
-    .prio       = prio,
-    .mask_bits  = fd_uint_find_lsb_w_default( mask, 32 )
+  fd_fib4_key_t new_key = (fd_fib4_key_t){
+    .addr      = fd_uint_bswap( ip4_dst ) & mask,
+    .mask      = mask,
+    .prio      = prio,
+    .mask_bits = fd_uint_find_lsb_w_default( mask, 32 )
   };
-  fd_fib4_hop_t * entry = fd_fib4_hop_tbl( fib ) + idx;
 
-  FD_TEST( hop );
-  *entry = *hop;
+  fd_fib4_key_t * key_tbl = fd_fib4_key_tbl( fib );
+  fd_fib4_hop_t * hop_tbl = fd_fib4_hop_tbl( fib );
+
+  /* Maintain sorted order for indices [1,cnt) by (mask_bits, prio) ascending.
+     Find the intended location and shift the rest down */
+  ulong n_sorted = fd_ulong_sat_sub( old_cnt, 1 ); /* number of existing sorted elems in [1,idx) */
+  ulong idx; /* loc to insert new entry */
+  if( FD_LIKELY( n_sorted>0UL ) ) {
+    ulong rnk = sort_fib4_key_split( key_tbl + 1UL, n_sorted, new_key );
+    ulong pos = 1UL + rnk;
+    for( ulong dst=old_cnt; dst>pos; dst-- ) { /* n_sorted>0 <> idx>0 */
+      key_tbl[ dst ] = key_tbl[ dst-1 ];
+      hop_tbl[ dst ] = hop_tbl[ dst-1 ];
+    }
+    idx = pos;
+  } else {
+    idx = old_cnt;
+  }
+
+  key_tbl[ idx ] = new_key;
+  hop_tbl[ idx ] = *hop;
 
   FD_COMPILER_MFENCE();
   fib->generation = generation+2UL;
@@ -261,22 +285,19 @@ fd_fib4_lookup( fd_fib4_t const * fib,
   }
   FD_COMPILER_MFENCE();
 
-  ulong best_idx  = 0UL; /* dead route */
-  int   best_mask = 32;  /* least specific mask (/0) */
-  ulong cnt       = fib->cnt;
-  for( ulong j=0UL; j<cnt; j++ ) {
-    /* FIXME consider branch variant? */
-    int match         = (ip4_dst & keys[j].mask)==keys[j].addr;
-    int mask_bits     = keys[j].mask_bits;
-    int more_specific = mask_bits< best_mask;
-    int less_costly   = mask_bits==best_mask && keys[j].prio<keys[best_idx].prio;
-    int better        = match && (more_specific || less_costly);
-    if( better ) {
-      best_idx  = j;
-      best_mask = mask_bits;
+  /* The table [1,cnt) is sorted by increasing mask_bits then prio.
+     Return the first match, which is guaranteed to be optimal. */
+  ulong cnt = fib->cnt;
+  ulong j   = 1UL;
+  while( j<cnt ) {
+    if( (ip4_dst & keys[j].mask)==keys[j].addr ) {
+      break;
     }
+    j++;
   }
-  fd_fib4_hop_t out = fd_fib4_hop_tbl_const( fib )[ best_idx ];
+
+  ulong         idx = j==cnt ? 0UL : j;
+  fd_fib4_hop_t out = fd_fib4_hop_tbl_const( fib )[ idx ];
 
   FD_COMPILER_MFENCE();
   if( FD_UNLIKELY( FD_VOLATILE_CONST( fib->generation )!=generation ) ) {

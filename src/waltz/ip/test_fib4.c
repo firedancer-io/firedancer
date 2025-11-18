@@ -470,8 +470,8 @@ main( int     argc,
   test_fib_print( fib_local,
     "throw default metric 4294967295\n"
     "broadcast 127.0.0.0/30 dev 1 scope link src 127.0.0.1\n"
+    "broadcast 127.0.255.252/30 dev 1 scope link src 127.0.0.1\n"
     "local 127.0.0.0/8 dev 1 scope host src 127.0.0.1\n"
-    "broadcast 127.0.255.255/30 dev 1 scope link src 127.0.0.1\n"
     "local 192.0.2.165/32 dev 6 scope host src 192.0.2.165\n"
     "broadcast 192.0.2.191/32 dev 6 scope link src 192.0.2.165\n"
     "local 127.0.0.1/32 dev 1 scope host src 127.0.0.1\n"
@@ -487,8 +487,9 @@ main( int     argc,
 
   test_fib_print( fib_main,
     "throw default metric 4294967295\n"
+    "192.0.2.160/27 dev 6 scope link src 192.0.2.165 metric 300\n"
     "default via 192.0.2.161 dev 6 src 192.0.2.165 metric 300\n"
-    "192.0.2.161/27 dev 6 scope link src 192.0.2.165 metric 300\n" );
+  );
 
 # define QUERY(ip) candidate[0] = fd_fib4_lookup( fib_local, FD_IP4_ADDR ip, 0 ); candidate[1] = fd_fib4_lookup( fib_main, FD_IP4_ADDR ip, 0 ); next = fd_fib4_hop_or( candidate+0, candidate+1 );
   fd_fib4_hop_t const * next;
