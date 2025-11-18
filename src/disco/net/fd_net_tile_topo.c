@@ -41,8 +41,7 @@ setup_xdp_tile( fd_topo_t *             topo,
   tile->xdp.xdp_rx_queue_size   = net_cfg->xdp.xdp_rx_queue_size;
   tile->xdp.xdp_tx_queue_size   = net_cfg->xdp.xdp_tx_queue_size;
   tile->xdp.zero_copy           = net_cfg->xdp.xdp_zero_copy;
-  fd_memset( tile->xdp.xdp_mode, 0, 4 );
-  fd_memcpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, strnlen( net_cfg->xdp.xdp_mode, 3 ) );  /* GCC complains about strncpy */
+  fd_cstr_ncpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, sizeof(tile->xdp.xdp_mode) );
 
   tile->xdp.net.umem_dcache_obj_id = umem_obj->id;
   tile->xdp.netdev_dbl_buf_obj_id  = netlink_tile->netlink.netdev_dbl_buf_obj_id;
