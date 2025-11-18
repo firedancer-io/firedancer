@@ -153,7 +153,7 @@ for c in range(1227063708-1, 1227063708+1):
         # break
 
 arr = [map_perfect_el(x) for x in fd_pack_tip_prog_blacklist]
-for c in range(75326048-1, 75326048+1):
+for c in range(240642447-1, 240642447+1):
     cur = len(set( map_perfect_5(x, c) for x in arr ))
     if cur == len(arr):
         print(f"fd_pack_tip_prog_blacklist: use MAP_PERFECT_HASH_C = {c}")

@@ -152,7 +152,7 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
                                                                    (FD_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
                                                                    sizeof(ulong)         /* instr data len */                                       + \
                                                                    FD_TXN_MTU            /* No instr data  */                                       + \
-                                                                   sizeof(fd_pubkey_t)), /* program id     */                                          \
+                                                                   sizeof(fd_pubkey_t)), /* program id     */                                         \
                                                                    FD_RUNTIME_EBPF_HOST_ALIGN ))
 
 

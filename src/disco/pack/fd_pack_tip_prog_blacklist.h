@@ -7,7 +7,7 @@
 #define MAP_PERFECT_NAME        fd_pack_tip_prog_blacklist
 #define MAP_PERFECT_LG_TBL_SZ   5
 #define MAP_PERFECT_T           fd_acct_addr_t
-#define MAP_PERFECT_HASH_C      75326048U
+#define MAP_PERFECT_HASH_C      240642447U
 #define MAP_PERFECT_KEY         b
 #define MAP_PERFECT_KEY_T       fd_acct_addr_t const *
 #define MAP_PERFECT_ZERO_KEY    (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
@@ -33,7 +33,7 @@
 /* Testnet tip payment config account */
 #define _AXaHLTKzVyRUccE8bPskqsnc1YcTd648PjmMwKWS7R6N 0x8dU,0x8eU,0x3dU,0x00U,0x46U,0x5aU,0x5cU,0xa3U,0x4eU,0x92U,0x0dU,0x79U,0x8eU,0xd8U,0x35U,0xecU, \
                                                       0x86U,0x45U,0x36U,0x7aU,0x12U,0x38U,0x74U,0x38U,0xb1U,0x6aU,0x85U,0x39U,0x80U,0x37U,0x2eU,0xb7U
-/* Mainnet tip accounts 0-7*/
+/* Mainnet tip accounts 0-7 */
 #define _96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5 0x78U,0x52U,0x1cU,0xb1U,0x79U,0xceU,0xbbU,0x85U,0x89U,0xb5U,0x56U,0xa2U,0xd5U,0xecU,0x94U,0xd2U, \
                                                       0x49U,0x86U,0x82U,0xfdU,0xf9U,0xbbU,0x2aU,0xf5U,0xadU,0x64U,0xe4U,0x91U,0xccU,0x41U,0x53U,0xdaU
 #define _HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe 0xf1U,0x87U,0xecU,0x87U,0xd1U,0xf7U,0x45U,0xcbU,0x3aU,0x03U,0x38U,0x4aU,0x26U,0xa6U,0x9eU,0xdaU, \
@@ -132,6 +132,17 @@ fd_pack_tip_prog_check_blacklist( fd_acct_addr_t const * acct ) {
   /* GCC inserts a branch in the more readable version:
      return fd_int_if( hash==UINT_MAX, 0, fd_int_if( hash<=1U, 3, 1 ) );
    */
+}
+
+/* fd_pack_tip_is_tip_account checks if an account address is a a tip
+   account or not.  If it is, it returns 1, otherwise it returns 0.  The
+   hash of the tip program accounts map to <=1 and the config accounts
+   map to >=30. */
+
+static inline int
+fd_pack_tip_is_tip_account( fd_acct_addr_t const * acct ) {
+  uint hash = fd_pack_tip_prog_blacklist_hash_or_default( acct );
+  return (hash!=UINT_MAX) && (hash>1U) && (hash<30U);
 }
 
 #undef  _T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt
