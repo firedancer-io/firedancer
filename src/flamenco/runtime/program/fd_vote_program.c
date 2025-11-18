@@ -333,15 +333,298 @@ authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorized_v
 }
 
 /**********************************************************************/
+/* impl VoteStateVersions                                             */
+/**********************************************************************/
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L66
+static fd_landed_vote_t *
+landed_votes_from_lockouts( fd_vote_lockout_t * lockouts,
+                            uchar *             mem ) {
+  if( !lockouts ) return NULL;
+
+  /* Allocate MAX_LOCKOUT_HISTORY (sane case) by default.  In case the
+     vote account is corrupt, allocate as many entries are needed. */
+
+  ulong cnt = deq_fd_vote_lockout_t_cnt( lockouts );
+        cnt = fd_ulong_max( cnt, MAX_LOCKOUT_HISTORY );
+
+  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( mem, cnt ) );
+  if( FD_UNLIKELY( !landed_votes ) ) {
+    FD_LOG_CRIT(( "failed to join landed votes" ));
+  }
+
+  for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( lockouts );
+       !deq_fd_vote_lockout_t_iter_done( lockouts, iter );
+       iter = deq_fd_vote_lockout_t_iter_next( lockouts, iter ) ) {
+    fd_vote_lockout_t const * ele = deq_fd_vote_lockout_t_iter_ele_const( lockouts, iter );
+
+    fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( landed_votes );
+    fd_landed_vote_new( elem );
+
+    elem->latency                    = 0;
+    elem->lockout.slot               = ele->slot;
+    elem->lockout.confirmation_count = ele->confirmation_count;
+  }
+
+  return landed_votes;
+}
+
+
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L176-L187 */
+static inline int
+is_uninitialized( fd_vote_state_versioned_t * self ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_v0_23_5: {
+      fd_pubkey_t pubkey_default = { 0 };
+      return !memcmp( &self->inner.v0_23_5.authorized_voter, &pubkey_default, sizeof( fd_pubkey_t ) );
+    }
+    case fd_vote_state_versioned_enum_v1_14_11:
+      return authorized_voters_is_empty( &self->inner.v1_14_11.authorized_voters );
+    case fd_vote_state_versioned_enum_current:
+      return authorized_voters_is_empty( &self->inner.current.authorized_voters );
+    case fd_vote_state_versioned_enum_v4:
+      return 0; // v4 vote states are always initialized
+    default:
+      __builtin_unreachable();
+  }
+}
+
+/* This function is essentially just a call to get_state, additionally
+   erroring out if the account is a v_0_23_5 account. Initializes
+   a fd_vote_state_versioned_t struct in the vote_state_mem.
+   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L195-L246 */
+static int
+vsv_deserialize( fd_borrowed_account_t const * vote_account,
+                 uchar *                       vote_state_mem ) {
+  /* To keep error codes conformant, we need to read the discriminant
+     from the account data first because if the discriminant matches
+     0_23_5, an uninitialized account error is thrown.
+
+     TODO: I have submitted a patch in Solana-SDK to coalesce the error
+     codes to simplify this handling. Remove this once merged. */
+  uchar const * data     = fd_borrowed_account_get_data( vote_account );
+  ulong         data_len = fd_borrowed_account_get_data_len( vote_account );
+  if( FD_UNLIKELY( data_len<sizeof(uint) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+  uint discriminant = FD_LOAD( uint, data );
+  if( FD_UNLIKELY( discriminant==fd_vote_state_versioned_enum_v0_23_5 ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+  }
+
+  int rc = get_state( vote_account->acct, vote_state_mem );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+/* Returns a const pointer to the authorized withdrawer for the
+   appropriate vote state version.*/
+static fd_pubkey_t const *
+vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_v0_23_5:
+      return &self->inner.v0_23_5.authorized_withdrawer;
+    case fd_vote_state_versioned_enum_v1_14_11:
+      return &self->inner.v1_14_11.authorized_withdrawer;
+    case fd_vote_state_versioned_enum_current:
+      return &self->inner.current.authorized_withdrawer;
+    case fd_vote_state_versioned_enum_v4:
+      return &self->inner.v4.authorized_withdrawer;
+    default:
+      __builtin_unreachable();
+  }
+}
+
+/* Sets the authorized withdrawer for the appropriate vote state
+   version. Only supported for v3 and v4 vote states. */
+static int
+vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *                      ctx,
+                              fd_vote_state_versioned_t *                self,
+                              fd_pubkey_t const *                        authorized_pubkey,
+                              ulong                                      current_epoch,
+                              ulong                                      target_epoch,
+                              /* "verify" closure */ int                 authorized_withdrawer_signer,
+                              /* "verify" closure */ fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      return v3_set_new_authorized_voter()
+      self->inner.current.authorized_withdrawer = *authorized_withdrawer;
+      break;
+    case fd_vote_state_versioned_enum_v4:
+      self->inner.v4.authorized_withdrawer = *authorized_withdrawer;
+      break;
+    default:
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+  }
+}
+
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L40-L98 */
+static int
+try_convert_to_v3( fd_vote_state_versioned_t * self,
+                   uchar *                     authorized_voters_mem,
+                   uchar *                     landed_votes_mem ) {
+  switch( self->discriminant ) {
+    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L47-L73 */
+    case fd_vote_state_versioned_enum_v0_23_5: {
+      fd_vote_state_0_23_5_t * state = &self->inner.v0_23_5;
+      // Check if uninitialized (authorized_voter is all zeros)
+      int is_uninitialized = 1;
+      for( ulong i = 0; i < sizeof(fd_pubkey_t); i++ ) {
+        if( state->authorized_voter.uc[i] != 0 ) {
+          is_uninitialized = 0;
+          break;
+        }
+      }
+
+      fd_vote_authorized_voters_t * authorized_voters;
+      if( is_uninitialized ) {
+        // Create empty AuthorizedVoters (default), initialized but with no entries
+        authorized_voters = authorized_voters_new_empty( authorized_voters_mem );
+      } else {
+        authorized_voters = authorized_voters_new(
+            state->authorized_voter_epoch, &state->authorized_voter, authorized_voters_mem );
+      }
+
+      /* Temporary to hold current */
+      /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L54-L72 */
+      fd_vote_state_t current = {
+        .node_pubkey           = state->node_pubkey,
+        .authorized_withdrawer = state->authorized_withdrawer,
+        .commission            = state->commission,
+        .votes                 = landed_votes_from_lockouts( state->votes, landed_votes_mem ),
+        .has_root_slot         = state->has_root_slot,
+        .root_slot             = state->root_slot,
+        .authorized_voters     = *authorized_voters,
+        .prior_voters = (fd_vote_prior_voters_t) {
+          .idx      = 31UL,
+          .is_empty = 1,
+        },
+        .epoch_credits  = state->epoch_credits,
+        .last_timestamp = state->last_timestamp,
+      };
+
+      /* Emplace new vote state into target */
+      self->discriminant = fd_vote_state_versioned_enum_current;
+      self->inner.current = current;
+
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    }
+    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L75-L91 */
+    case fd_vote_state_versioned_enum_v1_14_11: {
+      fd_vote_state_1_14_11_t * state = &self->inner.v1_14_11;
+
+      /* Temporary to hold current */
+      fd_vote_state_t current = {
+        .node_pubkey            = state->node_pubkey,
+        .authorized_withdrawer  = state->authorized_withdrawer,
+        .commission             = state->commission,
+        .votes                  = landed_votes_from_lockouts( state->votes, landed_votes_mem ),
+        .has_root_slot          = state->has_root_slot,
+        .root_slot              = state->root_slot,
+        .authorized_voters      = state->authorized_voters,
+        .prior_voters           = state->prior_voters,
+        .epoch_credits          = state->epoch_credits,
+        .last_timestamp         = state->last_timestamp
+      };
+
+      /* Emplace new vote state into target */
+      self->discriminant = fd_vote_state_versioned_enum_current;
+      self->inner.current = current;
+
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    }
+    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L93 */
+    case fd_vote_state_versioned_enum_current:
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L96 */
+    case fd_vote_state_versioned_enum_v4:
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    default:
+      __builtin_unreachable();
+  }
+}
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L966-L1007 */
+static int
+try_convert_to_v4( fd_vote_state_versioned_t * self,
+                   fd_pubkey_t const *         vote_pubkey,
+                   uchar *                     landed_votes_mem  ) {
+  switch( self->discriminant ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L971-L974 */
+    case fd_vote_state_versioned_enum_v0_23_5: {
+      return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+    }
+    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L975-L989 */
+    case fd_vote_state_versioned_enum_v1_14_11: {
+      fd_vote_state_1_14_11_t * state = &self->inner.v1_14_11;
+      fd_vote_state_v4_t v4 = {
+        .node_pubkey                      = state->node_pubkey,
+        .authorized_withdrawer            = state->authorized_withdrawer,
+        .inflation_rewards_collector      = *vote_pubkey,
+        .block_revenue_collector          = state->node_pubkey,
+        .inflation_rewards_commission_bps = fd_ushort_sat_mul( state->commission, 100 ),
+        .block_revenue_commission_bps     = DEFAULT_BLOCK_REVENUE_COMMISSION_BPS,
+        .pending_delegator_rewards        = 0,
+        .has_bls_pubkey_compressed        = 0,
+        .votes                            = landed_votes_from_lockouts( state->votes, landed_votes_mem ),
+        .has_root_slot                    = state->has_root_slot,
+        .root_slot                        = state->root_slot,
+        .authorized_voters                = state->authorized_voters,
+        .epoch_credits                    = state->epoch_credits,
+        .last_timestamp                   = state->last_timestamp
+      };
+
+      /* Emplace new vote state into target */
+      self->discriminant = fd_vote_state_versioned_enum_v4;
+      self->inner.v4     = v4;
+
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    }
+    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L990-L1004 */
+    case fd_vote_state_versioned_enum_current: {
+      fd_vote_state_t * state = &self->inner.current;
+      fd_vote_state_v4_t v4 = {
+        .node_pubkey                      = state->node_pubkey,
+        .authorized_withdrawer            = state->authorized_withdrawer,
+        .inflation_rewards_collector      = *vote_pubkey,
+        .block_revenue_collector          = state->node_pubkey,
+        .inflation_rewards_commission_bps = fd_ushort_sat_mul( state->commission, 100 ),
+        .block_revenue_commission_bps     = DEFAULT_BLOCK_REVENUE_COMMISSION_BPS,
+        .pending_delegator_rewards        = 0,
+        .has_bls_pubkey_compressed        = 0,
+        .votes                            = state->votes,
+        .has_root_slot                    = state->has_root_slot,
+        .root_slot                        = state->root_slot,
+        .authorized_voters                = state->authorized_voters,
+        .epoch_credits                    = state->epoch_credits,
+        .last_timestamp                   = state->last_timestamp
+      };
+
+      /* Emplace new vote state into target */
+      self->discriminant = fd_vote_state_versioned_enum_v4;
+      self->inner.v4     = v4;
+
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    }
+    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L1005 */
+    case fd_vote_state_versioned_enum_v4:
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    default:
+      __builtin_unreachable();
+  }
+}
+
+/**********************************************************************/
 /* VoteStateV3                                                        */
 /**********************************************************************/
 
 /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L65-L73 */
 static void
-vote_state_v3_new( fd_vote_init_t * const        vote_init,
-                   fd_sol_sysvar_clock_t const * clock,
-                   uchar *                       authorized_voters_mem,
-                   fd_vote_state_versioned_t *   versioned /* out */ ) {
+v3_new( fd_vote_init_t * const        vote_init,
+        fd_sol_sysvar_clock_t const * clock,
+        uchar *                       authorized_voters_mem,
+        fd_vote_state_versioned_t *   versioned /* out */ ) {
   versioned->discriminant = fd_vote_state_versioned_enum_current;
 
   fd_vote_state_t * vote_state      = &versioned->inner.current;
@@ -355,10 +638,10 @@ vote_state_v3_new( fd_vote_init_t * const        vote_init,
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L414-L434 */
 static int
-vote_state_v3_set_vote_account_state( fd_borrowed_account_t *     vote_account,
-                                      fd_vote_state_versioned_t * versioned,
-                                      fd_exec_instr_ctx_t const * ctx,
-                                      uchar *                     vote_lockout_mem ) {
+v3_set_vote_account_state( fd_borrowed_account_t *     vote_account,
+                           fd_vote_state_versioned_t * versioned,
+                           fd_exec_instr_ctx_t const * ctx,
+                           uchar *                     vote_lockout_mem ) {
   /* This is a horrible conditional expression in Agave.
      The terms were broken up into their own variables. */
   fd_vote_state_t * v3_vote_state = &versioned->inner.current;
@@ -395,8 +678,10 @@ vote_state_v3_set_vote_account_state( fd_borrowed_account_t *     vote_account,
    v4 account, where it fails automatically).
    https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L119-L124 */
 static int
-vote_state_v3_deserialize( fd_borrowed_account_t * vote_account,
-                           uchar *                 vote_state_mem ) {
+v3_deserialize( fd_borrowed_account_t const * vote_account,
+                uchar *                       vote_state_mem,
+                uchar *                       authorized_voters_mem,
+                uchar *                       landed_votes_mem ) {
   /* deserialize_into_ptr is essentially a call to get_state +
      try_convert_to_v3. It's written a little more verbosely in Agave
      as they try to optimize the decoding steps.
@@ -404,7 +689,99 @@ vote_state_v3_deserialize( fd_borrowed_account_t * vote_account,
   int rc = get_state( vote_account->acct, vote_state_mem );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  return try_convert_to_v3( )
+  fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
+  return try_convert_to_v3( versioned, authorized_voters_mem, landed_votes_mem );
+}
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L828
+static int
+get_and_update_authorized_voter( fd_vote_state_t *           self,
+                                 ulong                       current_epoch,
+                                 fd_pubkey_t **              pubkey /* out */ ) {
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L832
+  fd_vote_authorized_voter_t * authorized_voter =
+      authorized_voters_get_and_cache_authorized_voter_for_epoch( &self->authorized_voters,
+                                                                  current_epoch );
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L835
+  if( FD_UNLIKELY( !authorized_voter ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  *pubkey = &authorized_voter->pubkey;
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L837
+  authorized_voters_purge_authorized_voters( &self->authorized_voters, current_epoch );
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L263-L321 */
+static int
+v3_set_new_authorized_voter( fd_vote_state_t *                          self,
+                             fd_pubkey_t const *                        authorized_pubkey,
+                             ulong                                      current_epoch,
+                             ulong                                      target_epoch,
+                             /* "verify" closure */ int                 authorized_withdrawer_signer,
+                             /* "verify" closure */ fd_pubkey_t const * signers[static FD_TXN_SIG_MAX],
+                             fd_exec_instr_ctx_t const *                ctx ) {
+  int           rc;
+  fd_pubkey_t * epoch_authorized_voter = NULL;
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L778
+  rc = get_and_update_authorized_voter( self, current_epoch, &epoch_authorized_voter );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L779
+  rc = verify( epoch_authorized_voter, authorized_withdrawer_signer, signers );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L786
+  if( FD_UNLIKELY( authorized_voters_contains( &self->authorized_voters, target_epoch ) ) ) {
+    ctx->txn_ctx->err.custom_err = FD_VOTE_ERR_TOO_SOON_TO_REAUTHORIZE;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L791
+  fd_vote_authorized_voter_t * latest_authorized =
+      authorized_voters_last( &self->authorized_voters );
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L794
+  if( FD_UNLIKELY( ( !latest_authorized ) ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  ulong         latest_epoch             = latest_authorized->epoch;
+  fd_pubkey_t * latest_authorized_pubkey = &latest_authorized->pubkey;
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L799
+  if( 0 != memcmp( latest_authorized_pubkey, authorized_pubkey, sizeof( fd_pubkey_t ) ) ) {
+    fd_vote_prior_voters_t * prior_voters = &self->prior_voters;
+
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L801
+    ulong epoch_of_last_authorized_switch = 0UL;
+    if( (!prior_voters->is_empty) & (prior_voters->idx < 32) ) {
+      epoch_of_last_authorized_switch = prior_voters->buf[prior_voters->idx].epoch_end;
+    }
+
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L810
+    if( target_epoch <= latest_epoch )
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L815
+    prior_voters->idx += 1UL;
+    prior_voters->idx %= 32UL;
+    prior_voters->buf[prior_voters->idx] =
+        ( fd_vote_prior_voter_t ){ .pubkey      = *latest_authorized_pubkey,
+                                   .epoch_start = epoch_of_last_authorized_switch,
+                                   .epoch_end   = target_epoch };
+    prior_voters->is_empty = 0;
+  }
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L822
+  if( 0 == fd_vote_authorized_voters_pool_free( self->authorized_voters.pool) ) {
+    FD_LOG_ERR(( "Authorized_voter pool is empty" ));
+  }
+
+  fd_vote_authorized_voter_t * ele =
+      fd_vote_authorized_voters_pool_ele_acquire( self->authorized_voters.pool );
+  ele->epoch  = target_epoch;
+  ele->pubkey = *authorized_pubkey;
+  ele->prio   = (ulong)&ele->pubkey;
+  fd_vote_authorized_voters_treap_ele_insert(
+      self->authorized_voters.treap, ele, self->authorized_voters.pool );
+
+  return 0;
 }
 
 /**********************************************************************/
@@ -462,179 +839,8 @@ vote_state_v4_set_vote_account_state( fd_borrowed_account_t *     vote_account,
 }
 
 /**********************************************************************/
-/* impl VoteStateVersions                                             */
-/**********************************************************************/
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L66
-static fd_landed_vote_t *
-landed_votes_from_lockouts( fd_vote_lockout_t * lockouts,
-                            uchar *             mem ) {
-  if( !lockouts ) return NULL;
-
-  /* Allocate MAX_LOCKOUT_HISTORY (sane case) by default.  In case the
-     vote account is corrupt, allocate as many entries are needed. */
-
-  ulong cnt = deq_fd_vote_lockout_t_cnt( lockouts );
-        cnt = fd_ulong_max( cnt, MAX_LOCKOUT_HISTORY );
-
-  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( mem, cnt ) );
-  if( FD_UNLIKELY( !landed_votes ) ) {
-    FD_LOG_CRIT(( "failed to join landed votes" ));
-  }
-
-  for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( lockouts );
-       !deq_fd_vote_lockout_t_iter_done( lockouts, iter );
-       iter = deq_fd_vote_lockout_t_iter_next( lockouts, iter ) ) {
-    fd_vote_lockout_t const * ele = deq_fd_vote_lockout_t_iter_ele_const( lockouts, iter );
-
-    fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( landed_votes );
-    fd_landed_vote_new( elem );
-
-    elem->latency                    = 0;
-    elem->lockout.slot               = ele->slot;
-    elem->lockout.confirmation_count = ele->confirmation_count;
-  }
-
-  return landed_votes;
-}
-
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L70
-static inline int
-is_uninitialized( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
-  case fd_vote_state_versioned_enum_v0_23_5:;
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L73
-    fd_pubkey_t pubkey_default = { 0 };
-    return 0 ==
-           memcmp( &self->inner.v0_23_5.authorized_voter, &pubkey_default, sizeof( fd_pubkey_t ) );
-  case fd_vote_state_versioned_enum_v1_14_11:;
-    return authorized_voters_is_empty( &self->inner.v1_14_11.authorized_voters );
-  case fd_vote_state_versioned_enum_current:
-    return authorized_voters_is_empty( &self->inner.current.authorized_voters );
-  default:
-    FD_LOG_ERR(( "missing handler or invalid vote state version: %u", self->discriminant ));
-  }
-}
-
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L40-L98 */
-static int
-try_convert_to_v3( fd_vote_state_versioned_t * self,
-                   uchar *                     authorized_voters_mem,
-                   uchar *                     landed_votes_mem ) {
-  switch( self->discriminant ) {
-  /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L47-L73 */
-  case fd_vote_state_versioned_enum_v0_23_5: {
-    fd_vote_state_0_23_5_t * state = &self->inner.v0_23_5;
-    // Check if uninitialized (authorized_voter is all zeros)
-    int is_uninitialized = 1;
-    for( ulong i = 0; i < sizeof(fd_pubkey_t); i++ ) {
-      if( state->authorized_voter.uc[i] != 0 ) {
-        is_uninitialized = 0;
-        break;
-      }
-    }
-
-    fd_vote_authorized_voters_t * authorized_voters;
-    if( is_uninitialized ) {
-      // Create empty AuthorizedVoters (default), initialized but with no entries
-      authorized_voters = authorized_voters_new_empty( authorized_voters_mem );
-    } else {
-      authorized_voters = authorized_voters_new(
-          state->authorized_voter_epoch, &state->authorized_voter, authorized_voters_mem );
-    }
-
-    /* Temporary to hold current */
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L54-L72 */
-    fd_vote_state_t current = {
-      .node_pubkey           = state->node_pubkey,            /* copy */
-      .authorized_withdrawer = state->authorized_withdrawer,  /* copy */
-      .commission            = state->commission,             /* copy */
-      .votes                 = landed_votes_from_lockouts( state->votes, landed_votes_mem ),
-      .has_root_slot         = state->has_root_slot,  /* copy */
-      .root_slot             = state->root_slot,      /* copy */
-      .authorized_voters     = *authorized_voters,
-      .prior_voters = (fd_vote_prior_voters_t) {
-        .idx      = 31UL,
-        .is_empty = 1,
-      },
-      .epoch_credits  = state->epoch_credits,   /* move */
-      .last_timestamp = state->last_timestamp,  /* deep copy */
-    };
-
-    /* Move objects */
-    state->epoch_credits = NULL;
-
-    /* Emplace new vote state into target */
-    self->discriminant = fd_vote_state_versioned_enum_current;
-    self->inner.current = current;
-
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  }
-  /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L75-L91 */
-  case fd_vote_state_versioned_enum_v1_14_11: {
-    fd_vote_state_1_14_11_t * state = &self->inner.v1_14_11;
-
-    /* Temporary to hold current */
-    fd_vote_state_t current = {
-      .node_pubkey            = state->node_pubkey,            /* copy */
-      .authorized_withdrawer  = state->authorized_withdrawer,  /* copy */
-      .commission             = state->commission,             /* copy */
-      .votes                  = landed_votes_from_lockouts( state->votes, landed_votes_mem ),
-      .has_root_slot          = state->has_root_slot,          /* copy */
-      .root_slot              = state->root_slot,              /* copy */
-      .authorized_voters      = state->authorized_voters,      /* move */
-      .prior_voters           = state->prior_voters,           /* deep copy */
-      .epoch_credits          = state->epoch_credits,          /* move */
-      .last_timestamp         = state->last_timestamp          /* deep copy */
-    };
-
-    /* Move objects */
-    state->authorized_voters.treap = NULL;
-    state->authorized_voters.pool  = NULL;
-    state->epoch_credits           = NULL;
-
-    /* Emplace new vote state into target */
-    self->discriminant = fd_vote_state_versioned_enum_current;
-    self->inner.current = current;
-
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  }
-  /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L93 */
-  case fd_vote_state_versioned_enum_current:
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L96 */
-  case fd_vote_state_versioned_enum_v4:
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  default:
-    __builtin_unreachable();
-  }
-}
-
-/**********************************************************************/
 /* impl VoteState                                                     */
 /**********************************************************************/
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L985
-static inline int
-verify_authorized_signer( fd_pubkey_t const * authorized,
-                          fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] ) {
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L989
-  return fd_signers_contains( signers, authorized ) ?
-    FD_EXECUTOR_INSTR_SUCCESS :
-    FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-}
-
-// lambda function: https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L873
-static inline int
-verify( fd_pubkey_t *       epoch_authorized_voter,
-        int                 authorized_withdrawer_signer,
-        fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] ) {
-  if( authorized_withdrawer_signer )
-    return 0;
-  else
-    return verify_authorized_signer( epoch_authorized_voter, signers );
-}
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L845
 static void
@@ -799,97 +1005,6 @@ process_next_vote_slot( fd_vote_state_t * self,
   double_lockouts( self );
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L828
-static int
-get_and_update_authorized_voter( fd_vote_state_t *           self,
-                                 ulong                       current_epoch,
-                                 fd_pubkey_t **              pubkey /* out */ ) {
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L832
-  fd_vote_authorized_voter_t * authorized_voter =
-      authorized_voters_get_and_cache_authorized_voter_for_epoch( &self->authorized_voters,
-                                                                  current_epoch );
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L835
-  if( FD_UNLIKELY( !authorized_voter ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  *pubkey = &authorized_voter->pubkey;
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L837
-  authorized_voters_purge_authorized_voters( &self->authorized_voters, current_epoch );
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L768
-static int
-set_new_authorized_voter( fd_vote_state_t *                          self,
-                          fd_pubkey_t const *                        authorized_pubkey,
-                          ulong                                      current_epoch,
-                          ulong                                      target_epoch,
-                          /* "verify" closure */ int                 authorized_withdrawer_signer,
-                          /* "verify" closure */ fd_pubkey_t const * signers[static FD_TXN_SIG_MAX],
-                          fd_exec_instr_ctx_t const *                ctx ) {
-  int           rc;
-  fd_pubkey_t * epoch_authorized_voter = NULL;
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L778
-  rc = get_and_update_authorized_voter( self, current_epoch, &epoch_authorized_voter );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L779
-  rc = verify( epoch_authorized_voter, authorized_withdrawer_signer, signers );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L786
-  if( FD_UNLIKELY( authorized_voters_contains( &self->authorized_voters, target_epoch ) ) ) {
-    ctx->txn_ctx->err.custom_err = FD_VOTE_ERR_TOO_SOON_TO_REAUTHORIZE;
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-  }
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L791
-  fd_vote_authorized_voter_t * latest_authorized =
-      authorized_voters_last( &self->authorized_voters );
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L794
-  if( FD_UNLIKELY( ( !latest_authorized ) ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  ulong         latest_epoch             = latest_authorized->epoch;
-  fd_pubkey_t * latest_authorized_pubkey = &latest_authorized->pubkey;
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L799
-  if( 0 != memcmp( latest_authorized_pubkey, authorized_pubkey, sizeof( fd_pubkey_t ) ) ) {
-    fd_vote_prior_voters_t * prior_voters = &self->prior_voters;
-
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L801
-    ulong epoch_of_last_authorized_switch = 0UL;
-    if( (!prior_voters->is_empty) & (prior_voters->idx < 32) ) {
-      epoch_of_last_authorized_switch = prior_voters->buf[prior_voters->idx].epoch_end;
-    }
-
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L810
-    if( target_epoch <= latest_epoch )
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L815
-    prior_voters->idx += 1UL;
-    prior_voters->idx %= 32UL;
-    prior_voters->buf[prior_voters->idx] =
-        ( fd_vote_prior_voter_t ){ .pubkey      = *latest_authorized_pubkey,
-                                   .epoch_start = epoch_of_last_authorized_switch,
-                                   .epoch_end   = target_epoch };
-    prior_voters->is_empty = 0;
-  }
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L822
-  if( 0 == fd_vote_authorized_voters_pool_free( self->authorized_voters.pool) ) {
-    FD_LOG_ERR(( "Authorized_voter pool is empty" ));
-  }
-
-  fd_vote_authorized_voter_t * ele =
-      fd_vote_authorized_voters_pool_ele_acquire( self->authorized_voters.pool );
-  ele->epoch  = target_epoch;
-  ele->pubkey = *authorized_pubkey;
-  ele->prio   = (ulong)&ele->pubkey;
-  fd_vote_authorized_voters_treap_ele_insert(
-      self->authorized_voters.treap, ele, self->authorized_voters.pool );
-
-  return 0;
-}
-
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L869
 static int
 process_timestamp( fd_vote_state_t *           self,
@@ -916,25 +1031,47 @@ process_timestamp( fd_vote_state_t *           self,
 
 /* This is a temporary method in Agave (until the vote state v4 feature
    is cleaned up) to check the vote state and, in some cases, check
-   if the vote account is uninitialized or not.
+   if the vote account is uninitialized or not. Initializes a v3 or v4
+   vote account depending on the target version.
    https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L45-L77 */
 static int
 get_vote_state_handler_checked( fd_borrowed_account_t const * vote_account,
                                 int                           target_version,
                                 uchar                         check_initialized,
-                                uchar *                       vote_state_mem ) {
+                                uchar *                       vote_state_mem,
+                                uchar *                       authorized_voters_mem,
+                                uchar *                       landed_votes_mem ) {
+  int rc;
   switch( target_version ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L50-L62 */
     case VOTE_STATE_TARGET_VERSION_V3: {
-      /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L161-L202 */
-      if( check_initialized ) {
-        fd_vote_state_t *
-      }
-    }
-    case VOTE_STATE_TARGET_VERSION_V4: {
+      rc = v3_deserialize( vote_account, vote_state_mem, authorized_voters_mem, landed_votes_mem );
+      if( FD_UNLIKELY( rc ) ) return rc;
 
+      fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
+      if( FD_UNLIKELY( check_initialized && is_uninitialized( versioned ) ) ) {
+        return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+      }
+
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    }
+    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L63-L75 */
+    case VOTE_STATE_TARGET_VERSION_V4: {
+      rc = vsv_deserialize( vote_account, vote_state_mem );
+      if( FD_UNLIKELY( rc ) ) return rc;
+
+      fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
+      if( FD_UNLIKELY( is_uninitialized( versioned ) ) ) {
+        return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+      }
+
+      rc = try_convert_to_v4( versioned, vote_account->acct->pubkey, landed_votes_mem );
+      if( FD_UNLIKELY( rc ) ) return rc;
+
+      return FD_EXECUTOR_INSTR_SUCCESS;
     }
     default:
-    __builtin_unreachable();
+      __builtin_unreachable();
   }
 }
 
@@ -991,8 +1128,8 @@ init_vote_account_state( fd_exec_instr_ctx_t *         ctx,
 
   switch( target_version ) {
     case VOTE_STATE_TARGET_VERSION_V3:
-      vote_state_v3_new( vote_init, clock, ctx->txn_ctx->exec_stack->vote_program.init_account.authorized_voters_mem, versioned );
-      return vote_state_v3_set_vote_account_state( vote_account, versioned, ctx, ctx->txn_ctx->exec_stack->vote_program.init_account.vote_lockout_mem );
+      v3_new( vote_init, clock, ctx->txn_ctx->exec_stack->vote_program.init_account.authorized_voters_mem, versioned );
+      return v3_set_vote_account_state( vote_account, versioned, ctx, ctx->txn_ctx->exec_stack->vote_program.init_account.vote_lockout_mem );
     case VOTE_STATE_TARGET_VERSION_V4:
       vote_state_v4_new( &vote_init->node_pubkey, vote_init, clock, ctx->txn_ctx->exec_stack->vote_program.init_account.authorized_voters_mem, versioned );
       return vote_state_v4_set_vote_account_state( vote_account, versioned, ctx );
@@ -1004,6 +1141,28 @@ init_vote_account_state( fd_exec_instr_ctx_t *         ctx,
 /**********************************************************************/
 /* mod vote_state                                                    */
 /**********************************************************************/
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L985
+static inline int
+verify_authorized_signer( fd_pubkey_t const * authorized,
+                          fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] ) {
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L989
+  return fd_signers_contains( signers, authorized ) ?
+    FD_EXECUTOR_INSTR_SUCCESS :
+    FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+}
+
+// lambda function: https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L873
+static inline int
+verify( fd_pubkey_t *       epoch_authorized_voter,
+        int                 authorized_withdrawer_signer,
+        fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] ) {
+  if( authorized_withdrawer_signer )
+    return 0;
+  else
+    return verify_authorized_signer( epoch_authorized_voter, signers );
+}
+
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L727
 static inline fd_vote_lockout_t *
@@ -1610,25 +1769,25 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L716-L759 */
 static int
-authorize( fd_borrowed_account_t *       vote_account,
+authorize( fd_exec_instr_ctx_t *         ctx,
+           fd_borrowed_account_t *       vote_account,
            int                           target_version,
            fd_pubkey_t const *           authorized,
            fd_vote_authorize_t           vote_authorize,
            fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
-           fd_sol_sysvar_clock_t const * clock,
-           fd_exec_instr_ctx_t const *   ctx /* feature_set */ ) {
-  int rc = 0;
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L857
-
-  rc = get_state( vote_account->acct, ctx->txn_ctx->exec_stack->vote_program.authorize.vote_state_mem );
+           fd_sol_sysvar_clock_t const * clock ) {
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L724-L727 */
+  int rc = get_vote_state_handler_checked(
+      vote_account,
+      target_version,
+      0,
+      ctx->txn_ctx->exec_stack->vote_program.authorize.vote_state_mem,
+      ctx->txn_ctx->exec_stack->vote_program.authorize.authorized_voters_mem,
+      ctx->txn_ctx->exec_stack->vote_program.authorize.landed_votes_mem
+  );
   if( FD_UNLIKELY( rc ) ) return rc;
-  fd_vote_state_versioned_t * vote_state_versioned = (fd_vote_state_versioned_t *)ctx->txn_ctx->exec_stack->vote_program.authorize.vote_state_mem;
 
-  convert_to_current( vote_state_versioned,
-                      ctx->txn_ctx->exec_stack->vote_program.authorize.authorized_voters_mem,
-                      ctx->txn_ctx->exec_stack->vote_program.authorize.landed_votes_mem );
-  fd_vote_state_t * vote_state = &vote_state_versioned->inner.current;
+  fd_vote_state_versioned_t * vote_state_versioned = (fd_vote_state_versioned_t *)ctx->txn_ctx->exec_stack->vote_program.authorize.vote_state_mem;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L861
   switch( vote_authorize.discriminant ) {
@@ -1637,9 +1796,10 @@ authorize( fd_borrowed_account_t *       vote_account,
   case fd_vote_authorize_enum_voter:;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L863
-    int authorized_withdrawer_signer =
-        FD_EXECUTOR_INSTR_SUCCESS ==
-        verify_authorized_signer( &vote_state->authorized_withdrawer, signers );
+    int authorized_withdrawer_signer = !verify_authorized_signer(
+        vsv_get_authorized_withdrawer( vote_state_versioned ),
+        signers
+    );
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L869-L872
     ulong target_epoch;
@@ -1649,6 +1809,7 @@ authorize( fd_borrowed_account_t *       vote_account,
     }
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L866
+    rc = vsv_set_new_authorized_voter( ctx, vote_state_versiooned, authorized, clock->epoch, target_epoch, authorized_withdrawer_signer, signers )
     rc = set_new_authorized_voter( vote_state,
                                    authorized,
                                    clock->epoch,
@@ -2303,12 +2464,7 @@ process_authorize_with_seed_instruction(
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L43
-  return authorize( vote_account,
-                    new_authority,
-                    authorization_type,
-                    (fd_pubkey_t const **)expected_authority_keys,
-                    clock,
-                    ctx );
+  return authorize( ctx, vote_account, target_version, new_authority, authorization_type, (fd_pubkey_t const **)expected_authority_keys, clock );
 }
 
 /**********************************************************************/
@@ -2417,7 +2573,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_pubkey_t const * voter_pubkey   = &instruction->inner.authorize.pubkey;
     fd_vote_authorize_t vote_authorize = instruction->inner.authorize.vote_authorize;
 
-    rc = authorize( &me, target_version, voter_pubkey, vote_authorize, signers, clock, ctx );
+    rc = authorize( ctx, &me, target_version, voter_pubkey, vote_authorize, signers, clock );
 
     break;
   }
@@ -2825,12 +2981,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
     if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-    rc = authorize( &me,
-                    voter_pubkey,
-                    instruction->inner.authorize_checked,
-                    signers,
-                    clock,
-                    ctx );
+    rc = authorize( ctx, &me, target_version, voter_pubkey, instruction->inner.authorize_checked, signers, clock );
     break;
   }
 
