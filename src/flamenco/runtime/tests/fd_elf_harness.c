@@ -1,15 +1,17 @@
 #include "fd_solfuzz.h"
 #include "fd_solfuzz_private.h"
-#include "flatbuffers/generated/flatbuffers_common_builder.h"
-#include "flatbuffers/generated/flatbuffers_common_reader.h"
 #include "generated/elf.pb.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../program/fd_bpf_loader_program.h"
 #include "../../vm/fd_vm_base.h"
 #include "../../progcache/fd_prog_load.h"
 
+#if FD_HAS_FLATCC
+#include "flatbuffers/generated/flatbuffers_common_builder.h"
+#include "flatbuffers/generated/flatbuffers_common_reader.h"
 #include "flatbuffers/generated/elf_reader.h"
 #include "flatbuffers/generated/elf_builder.h"
+#endif
 
 #define SORT_NAME        sort_ulong
 #define SORT_KEY_T       ulong
@@ -140,6 +142,8 @@ fd_solfuzz_pb_elf_loader_run( fd_solfuzz_runner_t * runner,
   return actual_end - (ulong) output_buf;
 }
 
+#if FD_HAS_FLATCC
+
 void
 fd_solfuzz_fb_elf_loader_build_err_effects( fd_solfuzz_runner_t * runner, int err ) {
   FD_TEST( !SOL_COMPAT_NS(ELFLoaderEffects_start_as_root)( runner->fb_builder ) );
@@ -246,3 +250,5 @@ fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
 
   return SOL_COMPAT_V2_SUCCESS;
 }
+
+#endif /* FD_HAS_FLATCC */
