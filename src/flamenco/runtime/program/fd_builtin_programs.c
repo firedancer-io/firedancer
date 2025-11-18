@@ -149,8 +149,7 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 };
 #define MIGRATING_BUILTINS_COUNT (sizeof(migrating_builtins) / sizeof(fd_core_bpf_migration_config_t const *))
 
-/* Using MAP_PERFECT instead of a list for optimization
-   https://github.com/anza-xyz/agave/blob/v2.1.13/builtins-default-costs/src/lib.rs#L141-L193 */
+/* https://github.com/anza-xyz/agave/blob/v2.1.13/builtins-default-costs/src/lib.rs#L141-L193 */
 #define MAP_PERFECT_NAME fd_non_migrating_builtins_tbl
 #define MAP_PERFECT_LG_TBL_SZ 4
 #define MAP_PERFECT_T fd_pubkey_t
