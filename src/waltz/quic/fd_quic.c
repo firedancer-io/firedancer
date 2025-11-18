@@ -3767,7 +3767,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
     if( payload_ptr==frame_start ) {
       /* we have data to add, but none was added, presumably due
          so space in the datagram */
-      ulong free_bytes = (ulong)( payload_ptr - payload_end );
+      ulong free_bytes = (ulong)( payload_end - payload_ptr );
       /* sanity check */
       if( free_bytes > 64 ) {
         /* we should have been able to fit data into 64 bytes
