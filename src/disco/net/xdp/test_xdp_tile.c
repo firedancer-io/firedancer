@@ -827,7 +827,8 @@ main( int     argc,
     after_frag( ctx, 0, tx_seq, 0, during_frag_expected_sz, 0, 0, NULL );
     ulong tx_metric_after  = ctx->metrics.tx_submit_cnt;
     FD_TEST( tx_metric_before+1==tx_metric_after ); /* assert that XDP tile published a TX frame */
-    struct xdp_desc * tx_ring_entry = &xsk->ring_tx.packet_ring[xdp_tx_ring_prod-1];
+    ulong tx_prod = xsk->ring_tx.cached_prod;
+    struct xdp_desc * tx_ring_entry = &xsk->ring_tx.packet_ring[tx_prod-1];
     FD_TEST( tx_ring_entry->len==after_frag_expected_sz );
     void * after_frag_output = (void *)((ulong)tx_ring_entry->addr + (ulong)ctx->umem);
     FD_TEST( fd_memeq( after_frag_output, after_frag_expected, after_frag_expected_sz ) );
