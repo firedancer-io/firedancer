@@ -132,6 +132,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(( "prometheus metrics endpoint listening at http://" FD_IP4_ADDR_FMT ":%u/metrics", FD_IP4_ADDR_FMT_ARGS( tile->metric.prometheus_listen_addr ), tile->metric.prometheus_listen_port ));
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -164,6 +166,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+#endif /* defined(__linux__) */
+
 #define STEM_BURST (1UL)
 #define STEM_LAZY ((long)10e6) /* 10ms */
 
@@ -178,8 +182,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 fd_topo_run_tile_t fd_tile_metric = {
   .name                     = "metric",
   .rlimit_file_cnt          = FD_HTTP_SERVER_METRICS_MAX_CONNS+5UL, /* pipefd, socket, stderr, logfile, and one spare for new accept() connections */
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

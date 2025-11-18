@@ -547,8 +547,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->recal_next = fd_clock_recal_next( clock );
   ctx->now        = fd_clock_now( clock );
 
-  if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) ) {
-    FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !fd_rng_secure( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ ) ) ) {
+    FD_LOG_ERR(( "fd_rng_secure failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( ctx->sha512 ) );
   fd_ed25519_public_from_private( ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
@@ -625,6 +625,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                                     FD_MHIST_SECONDS_MAX( QUIC, RECEIVE_DURATION_SECONDS ) ) );
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -653,6 +655,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+#endif /* defined(__linux__) */
+
 #define STEM_BURST (1UL)
 #define STEM_LAZY  ((long)10e6) /* 10ms */
 
@@ -670,8 +674,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_quic = {
   .name                     = "quic",
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

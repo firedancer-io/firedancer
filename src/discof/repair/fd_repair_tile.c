@@ -1117,6 +1117,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pending_key_next = 0;
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile FD_PARAM_UNUSED,
@@ -1140,6 +1142,8 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
+
+#endif /* defined(__linux__) */
 
 static inline void
 metrics_write( ctx_t * ctx ) {
@@ -1178,8 +1182,10 @@ metrics_write( ctx_t * ctx ) {
 fd_topo_run_tile_t fd_tile_repair = {
   .name                     = "repair",
   .loose_footprint          = loose_footprint,
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,

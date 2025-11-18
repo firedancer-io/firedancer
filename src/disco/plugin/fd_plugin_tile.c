@@ -180,6 +180,8 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -209,6 +211,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+#endif /* defined(__linux__) */
+
 #define STEM_BURST (1UL)
 
 /* See explanation in fd_pack */
@@ -224,8 +228,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_plugin = {
   .name                     = "plugin",
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,

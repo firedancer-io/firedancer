@@ -18,8 +18,10 @@ endif
 
 $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
+ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128
 $(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_util)
+endif
 endif
 
 $(call add-hdrs,fd_pubkey_utils.h)

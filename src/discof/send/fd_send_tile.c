@@ -743,6 +743,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->now           = fd_clock_now( clock );
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t      const * topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile FD_PARAM_UNUSED,
@@ -766,6 +768,8 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
+
+#endif /* defined(__linux__) */
 
 static void
 metrics_write( fd_send_tile_ctx_t * ctx ) {
@@ -855,8 +859,10 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 
 fd_topo_run_tile_t fd_tile_send = {
   .name                     = "send",
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

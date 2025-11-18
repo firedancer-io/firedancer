@@ -1393,6 +1393,8 @@ unprivileged_init( fd_topo_t *      topo,
 
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -1422,6 +1424,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+#endif /* defined(__linux__) */
+
 #define STEM_BURST (1UL)
 
 /* We want lazy (measured in ns) to be small enough that the producer
@@ -1448,8 +1452,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_pack = {
   .name                     = "pack",
+#if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+#endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

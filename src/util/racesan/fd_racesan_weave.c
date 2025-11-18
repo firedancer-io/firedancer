@@ -1,3 +1,6 @@
+#if defined(__APPLE__)
+#define _XOPEN_SOURCE
+#endif
 #include "fd_racesan_weave.h"
 #include "../../util/fd_util.h"
 

@@ -23,7 +23,6 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/socket.h>
-#include <linux/if_xdp.h>
 #include "generated/fd_shredcap_tile_seccomp.h"
 
 
@@ -199,6 +198,7 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return fd_ulong_align_up( footprint, FD_SHMEM_GIGANTIC_PAGE_SZ );
 }
 
+#if defined(__linux__)
 
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
@@ -214,6 +214,34 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                                              (uint)tile->shredcap.peers_fd );
   return sock_filter_policy_fd_shredcap_tile_instr_cnt;
 }
+
+static ulong
+populate_allowed_fds( fd_topo_t const      * topo        FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt FD_PARAM_UNUSED,
+                      int *                  out_fds ) {
+  ulong out_cnt = 0UL;
+
+  out_fds[ out_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_LIKELY( -1!=tile->shredcap.shreds_fd ) )
+    out_fds[ out_cnt++ ] = tile->shredcap.shreds_fd; /* shred file */
+  if( FD_LIKELY( -1!=tile->shredcap.requests_fd ) )
+    out_fds[ out_cnt++ ] = tile->shredcap.requests_fd; /* request file */
+  if( FD_LIKELY( -1!=tile->shredcap.fecs_fd ) )
+    out_fds[ out_cnt++ ] = tile->shredcap.fecs_fd; /* fec complete file */
+  if( FD_LIKELY( -1!=tile->shredcap.peers_fd ) )
+    out_fds[ out_cnt++ ] = tile->shredcap.peers_fd; /* peers file */
+  if( FD_LIKELY( -1!=tile->shredcap.slices_fd ) )
+    out_fds[ out_cnt++ ] = tile->shredcap.slices_fd; /* slices file */
+  if( FD_LIKELY( -1!=tile->shredcap.bank_hashes_fd ) )
+    out_fds[ out_cnt++ ] = tile->shredcap.bank_hashes_fd; /* bank hashes file */
+
+  return out_cnt;
+}
+
+#endif /* defined(__linux__) */
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
@@ -610,32 +638,6 @@ after_frag( fd_capture_tile_ctx_t * ctx,
   }
 }
 
-static ulong
-populate_allowed_fds( fd_topo_t const      * topo        FD_PARAM_UNUSED,
-                      fd_topo_tile_t const * tile,
-                      ulong                  out_fds_cnt FD_PARAM_UNUSED,
-                      int *                  out_fds ) {
-  ulong out_cnt = 0UL;
-
-  out_fds[ out_cnt++ ] = 2; /* stderr */
-  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
-    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  if( FD_LIKELY( -1!=tile->shredcap.shreds_fd ) )
-    out_fds[ out_cnt++ ] = tile->shredcap.shreds_fd; /* shred file */
-  if( FD_LIKELY( -1!=tile->shredcap.requests_fd ) )
-    out_fds[ out_cnt++ ] = tile->shredcap.requests_fd; /* request file */
-  if( FD_LIKELY( -1!=tile->shredcap.fecs_fd ) )
-    out_fds[ out_cnt++ ] = tile->shredcap.fecs_fd; /* fec complete file */
-  if( FD_LIKELY( -1!=tile->shredcap.peers_fd ) )
-    out_fds[ out_cnt++ ] = tile->shredcap.peers_fd; /* peers file */
-  if( FD_LIKELY( -1!=tile->shredcap.slices_fd ) )
-    out_fds[ out_cnt++ ] = tile->shredcap.slices_fd; /* slices file */
-  if( FD_LIKELY( -1!=tile->shredcap.bank_hashes_fd ) )
-    out_fds[ out_cnt++ ] = tile->shredcap.bank_hashes_fd; /* bank hashes file */
-
-  return out_cnt;
-}
-
 static void
 privileged_init( fd_topo_t *      topo FD_PARAM_UNUSED,
                  fd_topo_tile_t * tile ) {
@@ -864,8 +866,10 @@ unprivileged_init( fd_topo_t *      topo,
 fd_topo_run_tile_t fd_tile_shredcap = {
   .name                     = "scap",
   .loose_footprint          = loose_footprint,
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

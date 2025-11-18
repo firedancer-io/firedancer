@@ -34,6 +34,8 @@
    This value is validated at startup. */
 #define REPAIR_SHRED_SOCKET_ID (4U)
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -72,6 +74,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   }
   return out_cnt;
 }
+
+#endif /* defined(__linux__) */
 
 FD_FN_CONST static inline ulong
 tx_scratch_footprint( void ) {
@@ -693,8 +697,10 @@ rlimit_file_cnt( fd_topo_t const *      topo,
 fd_topo_run_tile_t fd_tile_sock = {
   .name                     = "sock",
   .rlimit_file_cnt_fn       = rlimit_file_cnt,
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

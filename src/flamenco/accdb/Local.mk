@@ -13,7 +13,9 @@ ifdef FD_HAS_LZ4
 $(call make-bin,fd_accdb_ctl,fd_accdb_ctl,fd_vinyl fd_tango fd_ballet fd_util)
 endif
 
+ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ATOMIC
 $(call make-unit-test,test_accdb,test_accdb,fd_flamenco fd_funk fd_util)
 $(call run-unit-test,test_accdb)
+endif
 endif

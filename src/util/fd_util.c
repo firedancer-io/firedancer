@@ -26,7 +26,7 @@ _fd_tickcount( void const * _ ) {
   return fd_tickcount();
 }
 
-#if FD_HAS_HOSTED
+#if FD_HAS_HOSTED || defined(__APPLE__)
 
 #include <poll.h>
 #include <sched.h>

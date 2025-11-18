@@ -1,3 +1,7 @@
+#if defined(__APPLE__)
+#define _XOPEN_SOURCE
+#endif
+
 #include "fd_racesan.h"
 #include "fd_racesan_async.h"
 #include "fd_racesan_target.h"

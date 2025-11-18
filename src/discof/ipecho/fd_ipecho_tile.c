@@ -209,6 +209,8 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
          1024UL;                        /* for the server's connections */;
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -249,6 +251,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+#endif /* defined(__linux__) */
+
 #define STEM_BURST (1UL)
 #define STEM_LAZY  (50UL)
 
@@ -264,8 +268,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 fd_topo_run_tile_t fd_tile_ipecho = {
   .name                     = "ipecho",
   .rlimit_file_cnt_fn       = rlimit_file_cnt,
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

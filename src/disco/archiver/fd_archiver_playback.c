@@ -10,7 +10,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/socket.h>
-#include <linux/if_xdp.h>
 #include "generated/archiver_playback_seccomp.h"
 #include "../../util/pod/fd_pod_format.h"
 /* The archiver playback tile consumes from the archive file, adds artificial delay
@@ -78,6 +77,8 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -107,6 +108,8 @@ populate_allowed_fds( fd_topo_t const *      topo        FD_PARAM_UNUSED,
 
   return out_cnt;
 }
+
+#endif /* defined(__linux__) */
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
@@ -317,8 +320,10 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
 fd_topo_run_tile_t fd_tile_archiver_playback = {
   .name                     = "arch_p",
   .loose_footprint          = loose_footprint,
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

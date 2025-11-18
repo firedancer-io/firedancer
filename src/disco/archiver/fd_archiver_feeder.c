@@ -3,7 +3,6 @@
 #include "fd_archiver.h"
 #include <unistd.h>
 #include <sys/socket.h>
-#include <linux/if_xdp.h>
 #include "generated/archiver_feeder_seccomp.h"
 
 /* The archiver feeder tiles forward fragments that we want to capture from a subset of
@@ -43,6 +42,8 @@ scratch_align( void ) {
   return 4096UL;
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -72,6 +73,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
   return out_cnt;
 }
+
+#endif /* defined(__linux__) */
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
@@ -174,8 +177,10 @@ after_frag( fd_archiver_feeder_tile_ctx_t * ctx,
 
 fd_topo_run_tile_t fd_tile_archiver_feeder = {
   .name                     = "arch_f",
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,

@@ -423,6 +423,8 @@ after_credit( fd_exec_tile_ctx_t * ctx,
   }
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile FD_PARAM_UNUSED,
@@ -447,6 +449,8 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return out_cnt;
 }
 
+#endif /* defined(__linux__) */
+
 #define STEM_BURST (2UL)
 /* Right now, depth of the replay_exec link and depth of the exec_replay
    links is 16K.  At 1M TPS, that's ~16ms to fill.  But we also want to
@@ -465,8 +469,10 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 fd_topo_run_tile_t fd_tile_execor = {
   .name                     = "exec",
   .loose_footprint          = 0UL,
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,

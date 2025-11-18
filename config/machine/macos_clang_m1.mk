@@ -5,11 +5,18 @@ include config/extra/with-clang.mk
 include config/extra/with-debug.mk
 include config/extra/with-optimization.mk
 
-# brew install llvm
-# CC:=/opt/homebrew/opt/llvm/bin/clang
-# CXX:=/opt/homebrew/opt/llvm/bin/clang++
-# LD:=/opt/homebrew/opt/llvm/bin/clang++
+# macOS Homebrew build toolchain
 
+LLVM_PREFIX:=$(shell brew --prefix llvm)
+CC:=$(LLVM_PREFIX)/bin/clang
+CXX:=$(LLVM_PREFIX)/bin/clang++
+LD:=$(LLVM_PREFIX)/bin/clang++
+AR:=$(LLVM_PREFIX)/bin/llvm-ar
+RANLIB:=$(LLVM_PREFIX)/bin/llvm-ranlib
+AWK:=gawk
+GREP:=ggrep
+FIND:=gfind
+UNAME:=Linux
 CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1
 
 # Remove this when we support FD_HAS_HOSTED for macOS

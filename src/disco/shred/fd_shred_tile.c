@@ -1485,6 +1485,8 @@ unprivileged_init( fd_topo_t *      topo,
   memset( ctx->block_ids, 0, sizeof(ctx->block_ids) );
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -1513,6 +1515,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
+
+#endif /* defined(__linux__) */
 
 /* Excluding net_out (where the link is unreliable), STEM_BURST needs
    to guarantee enough credits for the worst case. There are 4 cases
@@ -1543,8 +1547,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_shred = {
   .name                     = "shred",
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

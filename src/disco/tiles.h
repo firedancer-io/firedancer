@@ -10,8 +10,6 @@
 #include "bundle/fd_bundle_crank.h"
 #include "../disco/metrics/generated/fd_metrics_pack.h"
 
-#include <linux/filter.h>
-
 /* fd_shred34 is a collection of up to 34 shreds batched in a way that's
    convenient for use in a dcache and for access from Rust. The limit of
    34 comes so that sizeof( fd_shred34_t ) < USHORT_MAX. */

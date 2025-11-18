@@ -615,6 +615,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->enable_rebates = ctx->out_pack->idx!=ULONG_MAX;
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -644,6 +646,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+#endif /* defined(__linux__) */
+
 /* For a bundle, one bundle might burst into at most 5 separate PoH mixins, since the
    microblocks cannot be conflicting. */
 
@@ -664,8 +668,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_bank = {
   .name                     = "bank",
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,

@@ -87,6 +87,8 @@ unprivileged_init( fd_topo_t *      topo,
   snapwh->last_fseq = fd_fseq_query( snapwh->up_fseq );
 }
 
+#if defined(__linux__)
+
 static ulong
 populate_allowed_fds( fd_topo_t      const * topo,
                       fd_topo_tile_t const * tile,
@@ -113,6 +115,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   populate_sock_filter_policy_fd_snapwh_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_fd_snapwh_tile_instr_cnt;
 }
+
+#endif /* defined(__linux__) */
 
 static int
 should_shutdown( fd_snapwh_t const * ctx ) {
@@ -312,8 +316,10 @@ run1( fd_topo_t *      topo,
 
 fd_topo_run_tile_t fd_tile_snapwh = {
   .name                     = NAME,
-  .populate_allowed_fds     = populate_allowed_fds,
+# if defined(__linux__)
   .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+# endif
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,

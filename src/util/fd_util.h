@@ -296,7 +296,7 @@ fd_boot( int *    pargc,
 void
 fd_halt( void );
 
-#if FD_HAS_HOSTED
+#if FD_HAS_HOSTED || defined(__APPLE__)
 
 /* Depending on the glibc version, the "poll" library function either calls
    "poll" or "ppoll".  fd_syscall_poll standardizes this behaviour by always

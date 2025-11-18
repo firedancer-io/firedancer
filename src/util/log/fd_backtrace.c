@@ -1,3 +1,5 @@
+#if defined(__linux__)
+
 #define _GNU_SOURCE
 #include "fd_backtrace.h"
 #include "../fd_util_base.h"
@@ -33,3 +35,15 @@ fd_backtrace_log( void ** addrs,
     }
   }
 }
+
+#else /* not Linux */
+
+#include "fd_backtrace.h"
+
+void
+fd_backtrace_log( void ** addrs,
+                  ulong   addrs_cnt ) {
+  (void)addrs; (void)addrs_cnt;
+}
+
+#endif /* defined(__linux__) */

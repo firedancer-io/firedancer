@@ -11,6 +11,8 @@
 
 #define TCACHE_DEPTH (128UL)
 
+#if defined(__linux__)
+
 static void
 test_seccomp( void ) {
   int   out_fds[2];
@@ -22,6 +24,8 @@ test_seccomp( void ) {
   struct sock_filter filter[ 32 ];
   populate_allowed_seccomp( NULL, NULL, 32UL, filter );
 }
+
+#endif /* defined(__linux__) */
 
 #define TEST_ALLOC_MAX (64UL)
 static void * test_allocs[ TEST_ALLOC_MAX ];
@@ -123,7 +127,9 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+# if defined(__linux__)
   test_seccomp();
+# endif
   test_load_balance();
   test_free_all();
   /* further tests here ... */
