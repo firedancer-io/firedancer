@@ -357,14 +357,13 @@ fd_accdb_modify_prepare( fd_accdb_user_t *         accdb,
     /* Record not found */
     if( !do_create ) return NULL;
     ulong  val_sz_min = sizeof(fd_account_meta_t)+data_min;
-    ulong  val_sz  = data_min;
     ulong  val_max = 0UL;
     void * val     = fd_alloc_malloc_at_least( accdb->funk->alloc, 16UL, val_sz_min, &val_max );
     if( FD_UNLIKELY( !val ) ) {
       FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", data_min ));
     }
     fd_memset( val, 0, val_sz_min );
-    return fd_accdb_prep_create( rw, accdb, xid, address, val, val_sz, val_max );
+    return fd_accdb_prep_create( rw, accdb, xid, address, val, val_sz_min, val_max );
 
   } else if( fd_funk_txn_xid_eq( peek->acc->rec->pair.xid, xid ) ) {
 
