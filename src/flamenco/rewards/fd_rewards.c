@@ -116,6 +116,9 @@ get_vote_credits( uchar const *               account_data,
   case fd_vote_state_versioned_enum_current:
     *credits = vsv->inner.current.epoch_credits;
     break;
+  case fd_vote_state_versioned_enum_v4:
+    *credits = vsv->inner.v4.epoch_credits;
+    break;
   default:
     __builtin_unreachable();
   }
