@@ -589,7 +589,8 @@ static int
 xsk_af_check( fd_tile_test_ctx_t * test_ctx,
               fd_net_ctx_t       * ctx  ) {
   fd_tile_test_locals_t * locals = test_ctx->locals;
-  struct xdp_desc * tx_desc = &locals->xsk->ring_tx.packet_ring[ xdp_tx_ring_prod-1 ];
+  uint tx_seq = ctx->xsk[0].ring_tx.cached_prod;
+  struct xdp_desc * tx_desc = &locals->xsk->ring_tx.packet_ring[ tx_seq-1 ];
   void * out_mem = (void *)((ulong)tx_desc->addr + (ulong)ctx->umem);
 
   if( tx_desc->len!=test_ctx->locals->tx_output_sz ||
