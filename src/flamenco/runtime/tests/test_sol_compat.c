@@ -21,8 +21,16 @@
 
 static int g_fail_fast;
 static int g_error_occurred;
+static int g_type_override;
 
 static uint shutdown_signal __attribute__((aligned(64)));
+
+#define FIXTURE_TYPE_PB_INSTR      0x01
+#define FIXTURE_TYPE_PB_TXN        0x02
+#define FIXTURE_TYPE_PB_ELF_LOADER 0x03
+#define FIXTURE_TYPE_PB_SYSCALL    0x04
+#define FIXTURE_TYPE_PB_VM_INTERP  0x05
+#define FIXTURE_TYPE_PB_BLOCK      0x06
 
 /* run_test runs a test.
    Return 1 on success, 0 on failure. */
@@ -52,20 +60,41 @@ run_test1( fd_solfuzz_runner_t * runner,
 
   FD_LOG_DEBUG(( "Running test %s", path ));
 
-  if( strstr( path, "/instr/" ) != NULL ) {
+  int type = g_type_override;
+  if( !type ) {
+    if(      strstr( path, "/instr/"      ) ) type = FIXTURE_TYPE_PB_INSTR;
+    else if( strstr( path, "/txn/"        ) ) type = FIXTURE_TYPE_PB_TXN;
+    else if( strstr( path, "/elf_loader/" ) ) type = FIXTURE_TYPE_PB_ELF_LOADER;
+    else if( strstr( path, "/syscall/"    ) ) type = FIXTURE_TYPE_PB_SYSCALL;
+    else if( strstr( path, "/vm_interp/"  ) ) type = FIXTURE_TYPE_PB_VM_INTERP;
+    else if( strstr( path, "/block/"      ) ) type = FIXTURE_TYPE_PB_BLOCK;
+    else {
+      FD_LOG_WARNING(( "Unknown test type: %s", path ));
+      return 0;
+    }
+  }
+
+  switch( type ) {
+  case FIXTURE_TYPE_PB_INSTR:
     ok = fd_solfuzz_pb_instr_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/txn/" ) != NULL ) {
+    break;
+  case FIXTURE_TYPE_PB_TXN:
     ok = fd_solfuzz_pb_txn_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/elf_loader/" ) != NULL ) {
+    break;
+  case FIXTURE_TYPE_PB_ELF_LOADER:
     ok = fd_solfuzz_pb_elf_loader_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/syscall/" ) != NULL ) {
+    break;
+  case FIXTURE_TYPE_PB_SYSCALL:
     ok = fd_solfuzz_pb_syscall_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/vm_interp/" ) != NULL ){
+    break;
+  case FIXTURE_TYPE_PB_VM_INTERP:
     ok = fd_solfuzz_pb_vm_interp_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/block/" ) != NULL ){
+    break;
+  case FIXTURE_TYPE_PB_BLOCK:
     ok = fd_solfuzz_pb_block_fixture( runner, buf, file_sz );
-  } else {
-    FD_LOG_WARNING(( "Unknown test type: %s", path ));
+    break;
+  default:
+    FD_LOG_CRIT(( "unreachable code entered" ));
   }
 
   if( ok ) FD_LOG_INFO   (( "OK   %s", path ));
@@ -405,6 +434,7 @@ main( int     argc,
         "  --wksp         [file path]               Reuse existing workspace\n"
         "  --wksp-tag     1                         Workspace allocation tag\n"
         "  --fail-fast    1                         Stop executing after first failure?\n"
+        "  --type         {fb,pb}_{instr,txn,elf_loader,syscall,vm_interp,block}\n"
         "\n",
         stderr );
     return 0;
@@ -418,6 +448,7 @@ main( int     argc,
   uint         wksp_seed = fd_env_strip_cmdline_uint ( &argc, &argv, "--wksp-seed", NULL,         0U );
   ulong        wksp_tag  = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,        1UL );
   int const    fail_fast = fd_env_strip_cmdline_int  ( &argc, &argv, "--fail-fast", NULL,        1   );
+  char const * type_str  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--type",      NULL,       NULL );
   g_fail_fast = !!fail_fast;
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
@@ -469,6 +500,19 @@ main( int     argc,
   uchar *          dcache = fd_dcache_join( fd_dcache_new( dcache_mem, DCACHE_DATA_SZ, 0UL    ) ); FD_TEST( dcache );
   for( ulong i=0UL; i<worker_cnt; i++ ) {
     fseqs[i] = fd_fseq_join( fd_fseq_new( fseqs_mem + i*FD_FSEQ_FOOTPRINT, 0UL ) ); FD_TEST( fseqs[i] );
+  }
+
+  /* Parse type */
+  if( type_str ) {
+    if(      0==strcmp( type_str, "pb_instr"      ) ) g_type_override = FIXTURE_TYPE_PB_INSTR;
+    else if( 0==strcmp( type_str, "pb_txn"        ) ) g_type_override = FIXTURE_TYPE_PB_TXN;
+    else if( 0==strcmp( type_str, "pb_elf_loader" ) ) g_type_override = FIXTURE_TYPE_PB_ELF_LOADER;
+    else if( 0==strcmp( type_str, "pb_syscall"    ) ) g_type_override = FIXTURE_TYPE_PB_SYSCALL;
+    else if( 0==strcmp( type_str, "pb_vm_interp"  ) ) g_type_override = FIXTURE_TYPE_PB_VM_INTERP;
+    else if( 0==strcmp( type_str, "pb_block"      ) ) g_type_override = FIXTURE_TYPE_PB_BLOCK;
+    else if( FD_UNLIKELY( type_str ) ) {
+      FD_LOG_ERR(( "Unsupported --type %s", type_str ));
+    }
   }
 
   /* Run strategy */
