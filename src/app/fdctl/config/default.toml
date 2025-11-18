@@ -953,9 +953,8 @@ dynamic_port_range = "8900-9000"
         #   Full list of network drivers supporting XDP:
         #   https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md#xdp
         #
-        # "generic"
-        #   Selects "skb" or "drv" automatically.  It is not recommended
-        #   to use this mode in production.
+        # "default"
+        #   Selects "skb" or "drv" automatically.
         #
         # If the kernel/hardware does not support driver mode, then
         # `fdctl run` will fail to start up with "operation not
