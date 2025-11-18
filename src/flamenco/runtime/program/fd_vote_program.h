@@ -78,6 +78,9 @@
 #define FD_VOTE_LOCKOUTS_ALIGN     (32UL)
 #define FD_VOTE_LOCKOUTS_FOOTPRINT (FD_VOTE_STATE_VERSIONED_FOOTPRINT)
 
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L597-L598 */
+#define DEFAULT_BLOCK_REVENUE_COMMISSION_BPS (10000UL)
+
 /* Vote program custom error codes */
 
 #define FD_VOTE_ERR_VOTE_TOO_OLD                    ( 0)
@@ -103,6 +106,12 @@
 
 #define FD_VOTE_STATE_V2_SZ (3731UL)
 #define FD_VOTE_STATE_V3_SZ (3762UL)
+#define FD_VOTE_STATE_V4_SZ (3762UL)
+
+/* Target vote state versions
+   https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L639-L645 */
+#define VOTE_STATE_TARGET_VERSION_V3 (0)
+#define VOTE_STATE_TARGET_VERSION_V4 (1)
 
 FD_PROTOTYPES_BEGIN
 
