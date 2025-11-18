@@ -253,7 +253,7 @@ fd_xdp_install( uint           if_idx,
   if(      !strcmp( xdp_mode, "skb"     ) ) uxdp_mode = XDP_FLAGS_SKB_MODE;
   else if( !strcmp( xdp_mode, "drv"     ) ) uxdp_mode = XDP_FLAGS_DRV_MODE;
   else if( !strcmp( xdp_mode, "hw"      ) ) uxdp_mode = XDP_FLAGS_HW_MODE;
-  else if( !strcmp( xdp_mode, "generic" ) ) uxdp_mode = 0U;
+  else if( !strcmp( xdp_mode, "default" ) ) uxdp_mode = 0U;
   else FD_LOG_ERR(( "unknown XDP mode `%s`", xdp_mode ));
 
   uint true_port_cnt = 0U;
