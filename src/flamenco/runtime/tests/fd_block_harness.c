@@ -6,7 +6,7 @@
 #include "../fd_txn_account.h"
 #include "../fd_runtime_stack.h"
 #include "../program/fd_stake_program.h"
-#include "../program/fd_vote_program.h"
+#include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
@@ -113,7 +113,7 @@ fd_solfuzz_block_register_vote_account( fd_funk_t  *              funk,
   }
 
   /* Account must be initialized correctly */
-  if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc ) ) ) {
+  if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( acc ) ) ) {
     return;
   }
 
@@ -214,8 +214,8 @@ fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *           
         case fd_vote_state_versioned_enum_v1_14_11:
           epoch_credits = res->inner.v1_14_11.epoch_credits;
           break;
-        case fd_vote_state_versioned_enum_current:
-          epoch_credits = res->inner.current.epoch_credits;
+        case fd_vote_state_versioned_enum_v3:
+          epoch_credits = res->inner.v3.epoch_credits;
           break;
         default:
           __builtin_unreachable();

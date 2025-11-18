@@ -247,5 +247,6 @@
   {"name":"fix_alt_bn128_pairing_length_check","pubkey":"bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm"},
   {"name":"poseidon_enforce_padding","pubkey":"poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb"},
   {"name":"relax_intrabatch_account_locks","pubkey":"ENTRYnPAoT5Swwx73YDGzMp3XnNH1kxacyvLosRHza1i"},
-  {"name":"provide_instruction_data_offset_in_vm_r2","pubkey":"5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL"}
+  {"name":"provide_instruction_data_offset_in_vm_r2","pubkey":"5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL"},
+  {"name":"vote_state_v4","pubkey":"Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ"}
 ]

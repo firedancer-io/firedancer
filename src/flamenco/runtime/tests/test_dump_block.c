@@ -10,7 +10,7 @@
 #include "../../stakes/fd_vote_states.h"
 #include "../../stakes/fd_stake_delegations.h"
 #include "../program/fd_stake_program.h"
-#include "../program/fd_vote_program.h"
+#include "../program/vote/fd_vote_state_versioned.h"
 #include "../../../ballet/nanopb/pb_decode.h"
 #include "../../accdb/fd_accdb_admin.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
@@ -238,7 +238,7 @@ register_vote_account_from_funk( fd_funk_t *               funk,
   }
 
   /* Account must be initialized correctly */
-  if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc ) ) ) {
+  if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( acc ) ) ) {
     return;
   }
 

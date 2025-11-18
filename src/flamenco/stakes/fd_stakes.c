@@ -1,7 +1,7 @@
 #include "fd_stakes.h"
 #include "../runtime/fd_bank.h"
 #include "../runtime/program/fd_stake_program.h"
-#include "../runtime/program/fd_vote_program.h"
+#include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "fd_stake_delegations.h"
 #include "../accdb/fd_accdb_impl_v1.h"
@@ -240,7 +240,7 @@ fd_stakes_update_vote_state( fd_txn_account_t * vote_account,
     return;
   }
 
-  if( !fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
+  if( !fd_vsv_is_correct_size_and_initialized( vote_account ) ) {
     fd_vote_states_remove( vote_states, vote_account->pubkey );
     fd_bank_vote_states_end_locking_modify( bank );
     return;

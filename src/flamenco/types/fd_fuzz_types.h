@@ -425,6 +425,14 @@ void *fd_landed_vote_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
+void *fd_bls_pubkey_compressed_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_bls_pubkey_compressed_t *self = (fd_bls_pubkey_compressed_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_bls_pubkey_compressed_t);
+  fd_bls_pubkey_compressed_new(mem);
+  LLVMFuzzerMutate( self->buf, 48, 48 );
+  return mem;
+}
+
 void *fd_vote_state_0_23_5_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_vote_state_0_23_5_t *self = (fd_vote_state_0_23_5_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_state_0_23_5_t);
@@ -513,10 +521,10 @@ void *fd_vote_state_1_14_11_generate( void *mem, void **alloc_mem, fd_rng_t * rn
   return mem;
 }
 
-void *fd_vote_state_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_vote_state_t *self = (fd_vote_state_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_state_t);
-  fd_vote_state_new(mem);
+void *fd_vote_state_v3_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_vote_state_v3_t *self = (fd_vote_state_v3_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_state_v3_t);
+  fd_vote_state_v3_new(mem);
   fd_pubkey_generate( &self->node_pubkey, alloc_mem, rng );
   fd_pubkey_generate( &self->authorized_withdrawer, alloc_mem, rng );
   self->commission = fd_rng_uchar( rng );
@@ -546,6 +554,48 @@ void *fd_vote_state_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
+void *fd_vote_state_v4_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_vote_state_v4_t *self = (fd_vote_state_v4_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_state_v4_t);
+  fd_vote_state_v4_new(mem);
+  fd_pubkey_generate( &self->node_pubkey, alloc_mem, rng );
+  fd_pubkey_generate( &self->authorized_withdrawer, alloc_mem, rng );
+  fd_pubkey_generate( &self->inflation_rewards_collector, alloc_mem, rng );
+  fd_pubkey_generate( &self->block_revenue_collector, alloc_mem, rng );
+  self->inflation_rewards_commission_bps = fd_rng_ushort( rng );
+  self->block_revenue_commission_bps = fd_rng_ushort( rng );
+  self->pending_delegator_rewards = fd_rng_ulong( rng );
+  {
+    self->has_bls_pubkey_compressed = fd_rng_uchar( rng ) % 2;
+    if( self->has_bls_pubkey_compressed ) {
+      fd_bls_pubkey_compressed_generate( &self->bls_pubkey_compressed, alloc_mem, rng );
+    }
+  }
+  ulong votes_len = fd_rng_ulong( rng ) % 8;
+  ulong votes_max = fd_ulong_max( votes_len, 32 );
+  self->votes = deq_fd_landed_vote_t_join_new( alloc_mem, votes_max );
+  for( ulong i=0; i < votes_len; i++ ) {
+    fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( self->votes );
+    fd_landed_vote_generate( elem, alloc_mem, rng );
+  }
+  {
+    self->has_root_slot = fd_rng_uchar( rng ) % 2;
+    if( self->has_root_slot ) {
+      LLVMFuzzerMutate( (uchar *)&(self->root_slot), sizeof(ulong), sizeof(ulong) );
+    }
+  }
+  fd_vote_authorized_voters_generate( &self->authorized_voters, alloc_mem, rng );
+  ulong epoch_credits_len = fd_rng_ulong( rng ) % 8;
+  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
+  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
+  for( ulong i=0; i < epoch_credits_len; i++ ) {
+    fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( self->epoch_credits );
+    fd_vote_epoch_credits_generate( elem, alloc_mem, rng );
+  }
+  fd_vote_block_timestamp_generate( &self->last_timestamp, alloc_mem, rng );
+  return mem;
+}
+
 void fd_vote_state_versioned_inner_generate( fd_vote_state_versioned_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
   switch (discriminant) {
   case 0: {
@@ -557,7 +607,11 @@ void fd_vote_state_versioned_inner_generate( fd_vote_state_versioned_inner_t * s
     break;
   }
   case 2: {
-    fd_vote_state_generate( &self->current, alloc_mem, rng );
+    fd_vote_state_v3_generate( &self->v3, alloc_mem, rng );
+    break;
+  }
+  case 3: {
+    fd_vote_state_v4_generate( &self->v4, alloc_mem, rng );
     break;
   }
   }
@@ -566,7 +620,7 @@ void *fd_vote_state_versioned_generate( void *mem, void **alloc_mem, fd_rng_t * 
   fd_vote_state_versioned_t *self = (fd_vote_state_versioned_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_state_versioned_t);
   fd_vote_state_versioned_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 3;
+  self->discriminant = fd_rng_uint( rng ) % 4;
   fd_vote_state_versioned_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
