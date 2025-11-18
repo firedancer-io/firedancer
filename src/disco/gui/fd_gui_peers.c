@@ -466,6 +466,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    char                               country_code_map[ static 512 ][ 3 ] ) {
     switch( update->tag ) {
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
+#ifdef FD_GUI_USE_HANDHOLDING
         /* origin_pubkey should be the same as the contact info pubkey */
         if( FD_UNLIKELY( memcmp( update->contact_info.contact_info->pubkey.uc, update->origin_pubkey, 32UL ) ) ) {
           char ci_pk[ FD_BASE58_ENCODED_32_SZ ];
@@ -476,14 +477,15 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           FD_LOG_ERR(( "invariant violation: update->contact_info.contact_info->pubkey.uc=%s != update->origin_pubkey=%s ", ci_pk, og_pk ));
         }
         if( FD_UNLIKELY( update->contact_info.idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected contact_info_idx %lu >= %lu", update->contact_info.idx, FD_CONTACT_INFO_TABLE_SIZE ));
+#endif
         fd_gui_peers_node_t * peer = &peers->contact_info_table[ update->contact_info.idx ];
-
         if( FD_LIKELY( peer->valid ) ) {
 #if LOGGING
           char _pk[ FD_BASE58_ENCODED_32_SZ ];
           fd_base58_encode_32( update->origin_pubkey, NULL, _pk );
           FD_LOG_WARNING(("UPDATE %lu pk=%s", update->contact_info.idx, _pk ));
 #endif
+#ifdef FD_GUI_USE_HANDHOLDING
           /* invariant checks */
           if( FD_UNLIKELY( memcmp( peer->contact_info.pubkey.uc, update->origin_pubkey, 32UL ) ) ) {
             char ci_pk[ FD_BASE58_ENCODED_32_SZ ];
@@ -504,7 +506,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
             }
           }
           FD_TEST( found );
-
+#endif
           /* update does nothing */
           if( FD_UNLIKELY( fd_gui_peers_contact_info_eq( &peer->contact_info, update->contact_info.contact_info ) ) ) {
             peer->contact_info.wallclock_nanos = update->contact_info.contact_info->wallclock_nanos;
@@ -582,6 +584,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
 
         fd_gui_peers_node_t * peer = &peers->contact_info_table[ update->contact_info_remove.idx ];
 
+#ifdef FD_GUI_USE_HANDHOLDING
         /* invariant checks */
         FD_TEST( peer->valid ); /* Should have already been in the table */
         FD_TEST( peer==fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, (fd_pubkey_t * )update->origin_pubkey, NULL, peers->contact_info_table ) );
@@ -594,7 +597,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           }
         }
         FD_TEST( found );
-
+#endif
         fd_gui_peers_live_table_idx_remove          ( peers->live_table,      update->contact_info_remove.idx, peers->contact_info_table );
         fd_gui_peers_bandwidth_tracking_idx_remove  ( peers->bw_tracking,     update->contact_info_remove.idx, peers->contact_info_table );
         fd_gui_peers_node_sock_map_idx_remove_fast  ( peers->node_sock_map,   update->contact_info_remove.idx, peers->contact_info_table );
@@ -1096,7 +1099,9 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
 
     peers->next_metric_rate_update_nanos = now + (FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS * 1000000L);
     did_work = 1;
-    fd_gui_peers_live_table_verify( peers->live_table, peers->contact_info_table ); /* todo ... remove */
+#ifdef FD_GUI_USE_HANDHOLDING
+    fd_gui_peers_live_table_verify( peers->live_table, peers->contact_info_table );
+#endif
   }
 
   if( FD_LIKELY( now >= peers->next_gossip_stats_update_nanos ) ) {
