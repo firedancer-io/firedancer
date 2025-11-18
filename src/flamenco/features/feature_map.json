@@ -164,7 +164,7 @@
   {"name":"enable_poseidon_syscall","pubkey": "FL9RsQA6TVUoh5xJQ9d936RHSebA1NLQqe3Zv9sXZRpr","hardcode_for_fuzzing":1},
   {"name":"timely_vote_credits","old": "2oXpeh141pPZCTCFHBsvCwG2BtaHZZAtrVhwaxSy6brS","pubkey":"tvcF6b1TRz353zKuhBjinZkKzjmihXmBAHJdjNYw1sQ","cleaned_up":[2,2,0],"hardcode_for_fuzzing":1},
   {"name":"remaining_compute_units_syscall_enabled","pubkey": "5TuppMutoyzhUSfuYdhgzD47F92GL1g89KpCZQKqedxP"},
-  {"name":"enable_loader_v4","pubkey": "2aQJYqER2aKyb3cZw22v4SL2xMX7vwXBRWfvS4pTrtED","hardcode_for_fuzzing":1},
+  {"name":"enable_loader_v4","pubkey": "2aQJYqER2aKyb3cZw22v4SL2xMX7vwXBRWfvS4pTrtED"},
   {"name":"require_rent_exempt_split_destination","pubkey": "D2aip4BBr8NPWtU9vLrwrBvbuaQ8w1zV38zFLxx4pfBV","cleaned_up":[2,0,0],"hardcode_for_fuzzing":1},
   {"name":"better_error_codes_for_tx_lamport_check","pubkey": "Ffswd3egL3tccB6Rv3XY6oqfdzn913vUcjCSnpvCKpfx","cleaned_up":[2,0,0],"hardcode_for_fuzzing":1},
   {"name":"enable_alt_bn128_compression_syscall","pubkey": "EJJewYSddEEtSZHiqugnvhQHiWyZKjkFDQASd7oKSagn","hardcode_for_fuzzing":1},

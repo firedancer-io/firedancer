@@ -1151,8 +1151,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x17\x6a\x33\xb1\x19\x20\x80\x12\xaa\xff\x40\xb3\x2e\xc5\x22\x69\xbd\x38\x2a\x54\x46\xc6\xdb\x97\xd7\x85\x0c\x5f\x30\x02\x2d\x12"},
                                  /* 2aQJYqER2aKyb3cZw22v4SL2xMX7vwXBRWfvS4pTrtED */
     .name                      = "enable_loader_v4",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
-    .hardcode_for_fuzzing = 1 },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, require_rent_exempt_split_destination)>>3,
     .id                        = {"\xb2\xb3\xf3\xc6\xb4\x1c\x24\x4b\xbf\x84\xd9\x21\x6e\x67\x6e\x0b\x45\x16\xb4\xd6\x0c\x48\xe9\x7a\x45\x26\x74\xbc\x9d\x61\x72\xe0"},
