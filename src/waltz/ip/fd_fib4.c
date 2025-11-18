@@ -86,6 +86,7 @@ fd_fib4_new( void * mem,
   fib4->hmap_cnt         = 0;
   keys[0].prio           = UINT_MAX;
   vals[0].rtype          = FD_FIB4_RTYPE_THROW;
+  keys[0].mask_bits      = 32;
 
   return fib4;
 }
@@ -201,11 +202,14 @@ fd_fib4_insert( fd_fib4_t *     fib,
   ulong idx = fib->cnt;
   fib->cnt = idx+1UL;
 
+  uint mask = prefix>0 ? fd_uint_mask( 32-prefix, 31 ) : 0U;
+
   fd_fib4_key_t * key = fd_fib4_key_tbl( fib ) + idx;
   *key = (fd_fib4_key_t) {
-    .addr = fd_uint_bswap( ip4_dst ),
-    .mask = prefix>0 ? fd_uint_mask( 32-prefix, 31 ) : 0U,
-    .prio = prio
+    .addr       = fd_uint_bswap( ip4_dst ) & mask,
+    .mask       = mask,
+    .prio       = prio,
+    .mask_bits  = fd_uint_find_lsb_w_default( mask, 32 )
   };
   fd_fib4_hop_t * entry = fd_fib4_hop_tbl( fib ) + idx;
 
@@ -263,7 +267,7 @@ fd_fib4_lookup( fd_fib4_t const * fib,
   for( ulong j=0UL; j<cnt; j++ ) {
     /* FIXME consider branch variant? */
     int match         = (ip4_dst & keys[j].mask)==keys[j].addr;
-    int mask_bits     = fd_uint_find_lsb_w_default( keys[j].mask, 32 );
+    int mask_bits     = keys[j].mask_bits;
     int more_specific = mask_bits< best_mask;
     int less_costly   = mask_bits==best_mask && keys[j].prio<keys[best_idx].prio;
     int better        = match && (more_specific || less_costly);
