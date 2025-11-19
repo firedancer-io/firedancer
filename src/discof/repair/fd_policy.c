@@ -180,7 +180,7 @@ fd_policy_peer_select( fd_policy_t * policy ) {
 fd_repair_msg_t const *
 fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy ) {
   fd_forest_blk_t *      pool     = fd_forest_pool( forest );
-  fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
+  fd_forest_subtlist_t * subtlist = fd_forest_subtlist( forest );
   *charge_busy = 0;
 
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return NULL;
@@ -189,18 +189,16 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
   fd_repair_msg_t * out = NULL;
   ulong now_ms = ts_ms( now );
 
-  if( FD_UNLIKELY( forest->subtree_cnt > 0 ) ) {
+  for( fd_forest_subtlist_iter_t iter = fd_forest_subtlist_iter_fwd_init( subtlist, pool );
+                                       !fd_forest_subtlist_iter_done    ( iter, subtlist, pool );
+                                 iter = fd_forest_subtlist_iter_fwd_next( iter, subtlist, pool ) ) {
     *charge_busy = 1;
-    for( fd_forest_subtrees_iter_t iter = fd_forest_subtrees_iter_init( subtrees, pool );
-          !fd_forest_subtrees_iter_done( iter, subtrees, pool );
-          iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
-      fd_forest_blk_t * orphan = fd_forest_subtrees_iter_ele( iter, subtrees, pool );
-      ulong key                = fd_policy_dedup_key( FD_REPAIR_KIND_ORPHAN, orphan->slot, UINT_MAX );
-      if( FD_UNLIKELY( !dedup_next( policy, key, now ) ) ) {
-        out = fd_repair_orphan( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, orphan->slot );
-        policy->nonce++;
-        return out;
-      }
+    fd_forest_blk_t * orphan = fd_forest_subtlist_iter_ele( iter, subtlist, pool );
+    ulong key                = fd_policy_dedup_key( FD_REPAIR_KIND_ORPHAN, orphan->slot, UINT_MAX );
+    if( FD_UNLIKELY( !dedup_next( policy, key, now ) ) ) {
+      out = fd_repair_orphan( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, orphan->slot );
+      policy->nonce++;
+      return out;
     }
   }
 

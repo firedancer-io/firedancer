@@ -156,7 +156,7 @@ typedef struct fd_policy_peers fd_policy_peers_t;
 
 /* Policy parameters start */
 #define FD_POLICY_LATENCY_THRESH 80e6L /* less than this is a BEST peer, otherwise a WORST peer */
-#define FD_POLICY_DEDUP_TIMEOUT  100e6L /* how long wait to request the same shred */
+#define FD_POLICY_DEDUP_TIMEOUT  60e6L /* how long wait to request the same shred */
 
 /* Round robins through ALL the worst peers once, then round robins
    through ALL the best peers once, then round robins through ALL the

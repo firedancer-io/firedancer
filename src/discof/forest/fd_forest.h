@@ -50,6 +50,9 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   ulong child;       /* pool idx of the left-child */
   ulong sibling;     /* pool idx of the right-sibling */
 
+  ulong head;        /* reserved by dlist. not all blks will be part of a dlist. */
+  ulong tail;        /* reserved by dlist */
+
   uint consumed_idx; /* highest contiguous fec-completed shred idx */
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
@@ -99,6 +102,12 @@ typedef struct fd_forest_blk fd_forest_blk_t;
 #define MAP_ELE_T fd_forest_blk_t
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME  fd_forest_subtlist  /* thread a dlist through the subtree elements for fast iteration */
+#define DLIST_ELE_T fd_forest_blk_t
+#define DLIST_NEXT  head
+#define DLIST_PREV  tail
+#include "../../util/tmpl/fd_dlist.c"
 
 /* A reference to a forest element
 
@@ -237,6 +246,8 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong subtrees_gaddr; /* head of orphaned trees */
   ulong orphaned_gaddr; /* map of parent_slot to singly-linked list of ele orphaned by that parent slot */
 
+  ulong subtlist_gaddr; /* wksp gaddr of fd_forest_subtlist - linkedlist of subtree elements*/
+
   /* Request trackers */
 
   ulong requests_gaddr; /* map of slot to pool idx of the completed repair frontier */
@@ -255,8 +266,6 @@ struct __attribute__((aligned(128UL))) fd_forest {
 
   ulong deque_gaddr;    /* wksp gaddr of fd_forest_deque. internal use only for BFSing */
   ulong magic;          /* ==FD_FOREST_MAGIC */
-
-  ulong subtree_cnt;    /* number of subtrees in the forest - useful for iterating over orphaned subtrees */
 };
 typedef struct fd_forest fd_forest_t;
 
@@ -292,6 +301,7 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_forest_t),       sizeof(fd_forest_t)                     ),
       fd_fseq_align(),            fd_fseq_footprint()                     ),
@@ -300,6 +310,7 @@ fd_forest_footprint( ulong ele_max ) {
       fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) ),
       fd_forest_subtrees_align(), fd_forest_subtrees_footprint( ele_max ) ),
       fd_forest_orphaned_align(), fd_forest_orphaned_footprint( ele_max ) ),
+      fd_forest_subtlist_align(), fd_forest_subtlist_footprint(         ) ),
 
       fd_forest_requests_align(), fd_forest_requests_footprint( ele_max ) ),
       fd_forest_reqslist_align(), fd_forest_reqslist_footprint(         ) ),
@@ -443,6 +454,19 @@ fd_forest_subtrees( fd_forest_t * forest ) {
 FD_FN_PURE static inline fd_forest_subtrees_t const *
 fd_forest_subtrees_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->subtrees_gaddr );
+}
+
+/* fd_forest_{subtlist, subtlist_const} returns a pointer in the caller's
+   address space to forest's subtlist. */
+
+FD_FN_PURE static inline fd_forest_subtlist_t *
+fd_forest_subtlist( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->subtlist_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_subtlist_t const *
+fd_forest_subtlist_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->subtlist_gaddr );
 }
 
 /* fd_forest_{orphaned, orphaned_const} returns a pointer in the caller's
