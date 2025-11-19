@@ -244,7 +244,8 @@ fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
 static fd_txn_p_t *
 fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                 fd_exec_test_block_context_t const * test_ctx,
-                                ulong *                              out_txn_cnt ) {
+                                ulong *                              out_txn_cnt,
+                                fd_hash_t *                          poh ) {
   fd_accdb_user_t * accdb = runner->accdb;
   fd_funk_t *       funk  = runner->accdb->funk;
   fd_bank_t *       bank  = runner->bank;
@@ -451,9 +452,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_sysvar_recent_hashes_update( bank, accdb, xid, NULL ); /* appends an entry */
   }
 
-  // Set the current poh from the input (we skip POH verification in this fuzzing target)
-  fd_hash_t * poh = fd_bank_poh_modify( bank );
-  fd_memcpy( poh->hash, test_ctx->slot_ctx.poh, sizeof(fd_hash_t) );
+  /* Set the poh from the input.  This is the blockhash that will get
+     inserted after. */
+  memcpy( poh, test_ctx->slot_ctx.poh, sizeof(fd_hash_t) );
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore_fuzz( bank, funk, xid );
@@ -488,8 +489,8 @@ static int
 fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
                            fd_funk_txn_xid_t const * xid,
                            fd_txn_p_t *              txn_ptrs,
-                           ulong                     txn_cnt ) {
-  int res = 0;
+                           ulong                     txn_cnt,
+                           fd_hash_t *               poh ) {
 
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
@@ -512,9 +513,9 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
     int is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->accdb, xid, capture_ctx, runner->runtime_stack, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_prepare( runner->bank, runner->accdb, xid, runner->runtime_stack, capture_ctx );
+    int res = fd_runtime_block_execute_prepare( runner->bank, runner->accdb, xid, runner->runtime_stack, capture_ctx );
     if( FD_UNLIKELY( res ) ) {
-      return res;
+      return 0;
     }
 
     /* Sequential transaction execution */
@@ -524,10 +525,9 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
       fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, xid, txn, &res );
-      txn_ctx->err.exec_err = res;
 
       if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
-        break;
+        return 0;
       }
 
       /* Finalize the transaction */
@@ -542,17 +542,19 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
           NULL );
 
       if( FD_UNLIKELY( !txn_ctx->err.is_committable ) ) {
-        break;
+        return 0;
       }
 
-      res = FD_RUNTIME_EXECUTE_SUCCESS;
     }
 
+    /* At this point we want to set the poh.  This is what will get
+       updated in the blockhash queue. */
+    fd_bank_poh_set( runner->bank, *poh );
     /* Finalize the block */
     fd_runtime_block_execute_finalize( runner->bank, runner->accdb, xid, capture_ctx, 1 );
-  } FD_SPAD_FRAME_END;
 
-  return res;
+    return 1;
+  } FD_SPAD_FRAME_END;
 }
 
 /* Canonical (Agave-aligned) schedule hash
@@ -747,7 +749,8 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     /* Set up the block execution context */
     ulong txn_cnt;
-    fd_txn_p_t * txn_ptrs = fd_solfuzz_pb_block_ctx_create( runner, input, &txn_cnt );
+    fd_hash_t poh;
+    fd_txn_p_t * txn_ptrs = fd_solfuzz_pb_block_ctx_create( runner, input, &txn_cnt, &poh );
     if( txn_ptrs==NULL ) {
       fd_solfuzz_pb_block_ctx_destroy( runner );
       return 0;
@@ -756,7 +759,7 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     fd_funk_txn_xid_t xid  = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
 
     /* Execute the constructed block against the runtime. */
-    int res = fd_solfuzz_block_ctx_exec( runner, &xid, txn_ptrs, txn_cnt );
+    int is_committable = fd_solfuzz_block_ctx_exec( runner, &xid, txn_ptrs, txn_cnt, &poh );
 
     /* Start saving block exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
@@ -771,13 +774,13 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     fd_memset( effects, 0, sizeof(fd_exec_test_block_effects_t) );
 
     /* Capture error status */
-    effects->has_error = !!( res );
+    effects->has_error = !is_committable;
 
     /* Capture capitalization */
-    effects->slot_capitalization = fd_bank_capitalization_get( runner->bank );
+    effects->slot_capitalization = !effects->has_error ? fd_bank_capitalization_get( runner->bank ) : 0UL;
 
     /* Capture hashes */
-    fd_hash_t bank_hash = fd_bank_bank_hash_get( runner->bank );
+    fd_hash_t bank_hash = !effects->has_error ? fd_bank_bank_hash_get( runner->bank ) : (fd_hash_t){0};
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     /* Capture cost tracker */
