@@ -1176,7 +1176,8 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
       dynamic_table[ dyn.d_tag ] = dyn.d_un.d_val;
     }
 
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L409 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L409
+       solana_sbpf::elf_parser::Elf64::parse_dynamic_relocations */
     do {
       ulong vaddr = dynamic_table[ FD_ELF_DT_REL ];
       if( FD_UNLIKELY( vaddr==0UL ) ) {
@@ -1193,45 +1194,52 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
       }
 
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L430-L444 */
-      ulong offset = ULONG_MAX;
-      for( ulong i=0; i<ehdr.e_phnum; i++ ) {
-        /* Again... */
-        fd_elf64_phdr phdr = FD_LOAD( fd_elf64_phdr, bin + phdr_start + i*sizeof(fd_elf64_phdr) );
-        if( FD_UNLIKELY( phdr.p_vaddr+phdr.p_memsz<phdr.p_vaddr ) ) {
+      _Bool         offset_found = 0;
+      ulong         offset;
+      fd_elf64_phdr phdr;
+      for( ulong i=0; i<ehdr.e_phnum; i++ ) {  /* program_header_for_vaddr */
+        phdr = FD_LOAD( fd_elf64_phdr, bin + phdr_start + i*sizeof(fd_elf64_phdr) );
+        ulong p_vaddr0 = phdr.p_vaddr;
+        ulong p_memsz  = phdr.p_memsz;
+        ulong p_vaddr1;
+        if( FD_UNLIKELY( __builtin_uaddl_overflow( p_vaddr0, p_memsz, &p_vaddr1 ) ) ) {
           return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
         }
-        if( phdr.p_vaddr<=vaddr && vaddr<phdr.p_vaddr+phdr.p_memsz ) {
-          /* vaddr - phdr.p_vaddr is guaranteed to be non-negative */
-          offset = vaddr-phdr.p_vaddr+phdr.p_offset;
-          if( FD_UNLIKELY( offset<phdr.p_offset ) ) {
-            return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
-          }
+        if( p_vaddr0 <= vaddr && vaddr < p_vaddr1 ) {
+          offset_found = 1;
           break;
         }
       }
-      if( FD_UNLIKELY( offset==ULONG_MAX ) ) {
-        for( ulong i=0; i<ehdr.e_shnum; i++ ) {
-          /* Again... */
+      if( offset_found ) {
+        if( FD_UNLIKELY( __builtin_usubl_overflow( vaddr, phdr.p_vaddr, &offset ) ) ) {
+          return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+        }
+        if( FD_UNLIKELY( __builtin_uaddl_overflow( offset, phdr.p_offset, &offset ) ) ) {
+          return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+        }
+      } else {
+        for( ulong i=0; i<ehdr.e_shnum; i++ ) {  /* section_header_table.iter().find(...) */
           fd_elf64_shdr shdr = FD_LOAD( fd_elf64_shdr, bin + shdr_start + i*sizeof(fd_elf64_shdr) );
           if( shdr.sh_addr == vaddr ) {
-            offset = shdr.sh_offset;
+            offset       = shdr.sh_offset;
+            offset_found = 1;
             break;
           }
         }
-      }
-      if( FD_UNLIKELY( offset==ULONG_MAX ) ) {
-        return FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE;
+        if( FD_UNLIKELY( !offset_found ) ) {
+          return FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE;
+        }
       }
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L446-L448 */
-      ulong _offset_plus_size;
-      if( FD_UNLIKELY( __builtin_uaddl_overflow( offset, size, &_offset_plus_size ) ) ) {
+      ulong offset_plus_size;
+      if( FD_UNLIKELY( __builtin_uaddl_overflow( offset, size, &offset_plus_size ) ) ) {
         return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
       }
 
       /* slice_from_bytes checks that size is a multiple of the type
          size and that the alignment of the bytes + offset is correct. */
       if( FD_UNLIKELY( ( size%sizeof(fd_elf64_rel)!=0UL ) ||
-                       ( offset+size>bin_sz ) ||
+                       ( offset_plus_size>bin_sz ) ||
                        ( !fd_ulong_is_aligned( offset, 8UL ) ) ) ) {
         return FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE;
       }
