@@ -1,7 +1,6 @@
 #include "fd_sbpf_loader.h"
 #include "fd_sbpf_instr.h"
 #include "fd_sbpf_opcodes.h"
-#include "../../util/fd_util.h"
 #include "../../util/bits/fd_sat.h"
 #include "../murmur3/fd_murmur3.h"
 
@@ -138,7 +137,7 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
   }
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
     alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
-    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( info->text_cnt ) ),  /* calldests bitmap */
+    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( info->calldests_max ) ),  /* calldests bitmap */
     alignof(fd_sbpf_program_t) );
 }
 
@@ -183,7 +182,7 @@ fd_sbpf_program_new( void *                     prog_mem,
   };
 
   /* If the text section is empty, then we do not need a calldests map. */
-  ulong pc_max = elf_info->text_cnt;
+  ulong pc_max = elf_info->calldests_max;
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version ) || pc_max==0UL ) ) {
     /* No calldests map in SBPF v3+ or if text_cnt is 0. */
     prog->calldests_shmem = NULL;
@@ -215,7 +214,7 @@ fd_sbpf_program_delete( fd_sbpf_program_t * mem ) {
 
 struct fd_sbpf_loader {
   /* External objects */
-  ulong *              calldests; /* owned by program. NULL if text_cnt = 0 or SBPF v3+ */
+  ulong *              calldests; /* owned by program. NULL if calldests_max = 0 or SBPF v3+ */
   fd_sbpf_syscalls_t * syscalls;  /* owned by caller */
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
@@ -357,13 +356,13 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
   }
 
   /* Insert the target PC into the calldests set if it's not the
-     entrypoint. Due to the nature of our calldests, we also want to
-     make sure that target_pc <= text_cnt, otherwise the insertion is
-     UB. It's fine to skip inserting these entries because the calldests
-     are write-only in the SBPF loader and only queried from the VM. */
+     entrypoint.  Due to the nature of our calldests, we also want to
+     make sure that target_pc <= calldests_max, the call destination is
+     guaranteed not a valid program counter (therefore does not need to
+     be registered). */
   if( FD_LIKELY( !is_entrypoint &&
-                  loader->calldests &&
-                  fd_sbpf_calldests_valid_idx( loader->calldests, target_pc ) ) ) {
+                 loader->calldests &&
+                 fd_sbpf_calldests_valid_idx( loader->calldests, target_pc ) ) ) {
     fd_sbpf_calldests_insert( loader->calldests, target_pc );
   }
 
@@ -1403,10 +1402,11 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
   fd_sbpf_range_t text_section_range;
   fd_shdr_get_file_range( text_shdr, &text_section_range );
 
-  info->text_off   = (uint)text_shdr->sh_addr;
-  info->text_sz    = text_section_range.hi-text_section_range.lo;
-  info->text_cnt   = (uint)( info->text_sz/8UL );
-  info->shndx_text = shndx_text;
+  info->text_off      = (uint)text_shdr->sh_addr;
+  info->text_sz       = text_section_range.hi-text_section_range.lo;
+  info->text_cnt      = (uint)( info->text_sz/8UL );
+  info->shndx_text    = shndx_text;
+  info->calldests_max = fd_ulong_min( text_shdr->sh_size, bin_sz )/8UL;
 
   return FD_SBPF_ELF_SUCCESS;
 }
