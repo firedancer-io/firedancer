@@ -557,10 +557,6 @@ after_snap( ctx_t * ctx,
   fd_forest_init( ctx->forest, manifest->slot );
   FD_TEST( fd_forest_root_slot( ctx->forest )!=ULONG_MAX );
 
-  if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
-    fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot - 1 );
-    fd_forest_code_shred_insert( ctx->forest, ctx->profiler.end_slot, 0 );
-  }
 }
 
 static inline void
@@ -851,6 +847,20 @@ after_frag( ctx_t * ctx,
 #   endif
     ctx->metrics->current_slot  = fd_ulong_max( shred->slot, ctx->metrics->current_slot );
     if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX ) ) {
+
+      if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
+        /* we wait until the first turbine shred arrives to kick off
+           the profiler.  This is to let gossip peers accumulate similar
+           to a regular Firedancer run. */
+        fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot - 1 );
+        fd_forest_code_shred_insert( ctx->forest, ctx->profiler.end_slot, 0 );
+
+        ctx->turbine_slot0 = ctx->profiler.end_slot;
+        fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, ctx->profiler.end_slot );
+        fd_policy_set_turbine_slot0( ctx->policy, ctx->profiler.end_slot );
+        return;
+      }
+
       ctx->turbine_slot0 = shred->slot;
       fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
       fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
@@ -1142,10 +1152,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->profiler.enabled  = tile->repair.end_slot != 0UL;
   ctx->profiler.end_slot = tile->repair.end_slot;
   if( ctx->profiler.enabled ) {
-    ctx->turbine_slot0         = tile->repair.end_slot;
-    fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, tile->repair.end_slot );
-    fd_policy_set_turbine_slot0( ctx->policy, tile->repair.end_slot );
-
     ctx->metrics->current_slot = tile->repair.end_slot + 1; /* +1 to allow the turbine slot 0 to be completed */
     ctx->profiler.complete     = 0;
   }
