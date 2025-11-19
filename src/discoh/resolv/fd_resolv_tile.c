@@ -163,6 +163,7 @@ typedef struct {
   ulong * tcache_sync;    /* == fd_tcache_oldest_laddr( tcache ), local join to the oldest key in the tcache */
   ulong * tcache_ring;
   ulong * tcache_map;
+  ulong   nonce_hash_seed;
   uchar   msg[96];
 } fd_resolv_ctx_t;
 
@@ -376,7 +377,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
   } else if ( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_EXECUTED ) {
     /* cavey: sz==160 contains nonce entry. we copied the last 96 bytes to msg in during_frag */
     if( sz==160 ) {
-      ulong nonce_tag = kv_nonce_hash_contiguous( ctx->msg );
+      fd_extxn_msg_t * extxn_msg = (fd_extxn_msg_t*)(ctx->msg);
+      ulong nonce_tag = kv_nonce_hash_contiguous( ctx->nonce_hash_seed, extxn_msg->sig_nonce );
       int _is_dup;
       FD_TCACHE_INSERT( _is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, nonce_tag );
       (void)_is_dup;
@@ -511,7 +513,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
       uchar const * nonce_acct = (uchar *)(fd_ptr_if( nonce_acct_idx<num_imm, imms, alts )+(nonce_acct_idx-(nonce_acct_idx>=num_imm)*num_imm));
 
       /* finally, calculate the nonce tag */
-      ulong nonce_tag = kv_nonce_hash( nonce, nonce_acct, nonce_auth );
+      ulong nonce_tag = kv_nonce_hash( ctx->nonce_hash_seed, nonce, nonce_acct, nonce_auth );
       FD_TCACHE_INSERT( is_exec_nonce, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, nonce_tag );
       break;
     }
@@ -600,6 +602,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tcache_sync     = fd_tcache_oldest_laddr( tcache );
   ctx->tcache_ring     = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache_map      = fd_tcache_map_laddr   ( tcache );
+  FD_TEST( fd_rng_secure( (void *)&ctx->nonce_hash_seed, 8 ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

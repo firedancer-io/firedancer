@@ -1,6 +1,7 @@
 #ifndef FD_CAVEY_DISCO_EXTXN_HEADER_H
 #define FD_CAVEY_DISCO_EXTXN_HEADER_H
 
+#include "../../disco/fd_txn_m.h"
 
 typedef struct {
   fd_signature_t signature;
@@ -10,8 +11,8 @@ typedef struct {
 } fd_sig_nonce_t;
 
 typedef union {
-  fd_signature_t signature;
-  fd_sig_nonce_t sig_nonce;
+  fd_signature_t signature[1];
+  fd_sig_nonce_t sig_nonce[1];
 } fd_extxn_msg_t;
 
 
