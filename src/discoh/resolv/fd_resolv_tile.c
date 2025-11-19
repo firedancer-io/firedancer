@@ -147,6 +147,7 @@ typedef struct {
     ulong blockhash_unknown;
     ulong bundle_peer_failure_cnt;
     ulong stash[ FD_METRICS_COUNTER_RESOLV_STASH_OPERATION_CNT ];
+    ulong   nonce_filter_cnt;
   } metrics;
 
   fd_resolv_in_ctx_t in[ 64UL ];
@@ -163,7 +164,6 @@ typedef struct {
   ulong * tcache_ring;
   ulong * tcache_map;
   uchar   msg[96];
-  ulong   nonce_filter_cnt;
 } fd_resolv_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -179,7 +179,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( 1UL<<16UL ) );
   l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    ) );
   l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint()                  );
-  l = FD_LAYOUT_APPEND( l, fd_tcache_align(),      fd_tcache_footprint( 262144UL, 0UL ) );  
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(),          fd_tcache_footprint( 262144UL, 0UL ) );  
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -523,7 +523,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
    * we also fail the bundle so anything after this is dropped
    */
   if( is_exec_nonce ) {
-    ctx->nonce_filter_cnt++;
+    ctx->metrics.nonce_filter_cnt++;
     ctx->bundle_failed = 1;
     return;
   }
@@ -600,8 +600,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tcache_sync     = fd_tcache_oldest_laddr( tcache );
   ctx->tcache_ring     = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache_map      = fd_tcache_map_laddr   ( tcache );
-  fd_memset( ctx->msg, 0, 96UL );
-  ctx->nonce_filter_cnt = 0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

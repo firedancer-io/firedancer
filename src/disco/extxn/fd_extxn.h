@@ -1,6 +1,20 @@
 #ifndef FD_CAVEY_DISCO_EXTXN_HEADER_H
 #define FD_CAVEY_DISCO_EXTXN_HEADER_H
 
+
+typedef struct {
+  fd_signature_t signature;
+  uchar          nonce[32];
+  uchar          nonce_acct[32];
+  uchar          nonce_auth[32];
+} fd_sig_nonce_t;
+
+typedef union {
+  fd_signature_t signature;
+  fd_sig_nonce_t sig_nonce;
+} fd_extxn_msg_t;
+
+
 /* Returns 0 on failure, 1 if not a durable nonce transaction, and 2 if
    it is.  FIXME: These return codes are set to harmonize with
    estimate_rewards_and_compute but -1/0/1 makes a lot more sense to me.
@@ -31,20 +45,18 @@ fd_validate_durable_nonce( fd_txn_m_t * txnm ) {
   return 2;
 }
 
-#define KV_SEED (0xbeefbabecafedeadUL)
+/* when parsing these directly from a transaction, they are not contiguous in memory */
 static inline ulong
-kv_nonce_hash( uchar const * nonce, uchar const * nonce_acct, uchar const * nonce_auth ) {
-  return fd_hash( KV_SEED, nonce,      32 ) 
-       ^ fd_hash( KV_SEED, nonce_acct, 32 ) 
-       ^ fd_hash( KV_SEED, nonce_auth, 32 );
+kv_nonce_hash( ulong seed, uchar const * nonce, uchar const * nonce_acct, uchar const * nonce_auth ) {
+  return fd_hash( seed, nonce,      32 ) 
+       ^ fd_hash( seed, nonce_acct, 32 ) 
+       ^ fd_hash( seed, nonce_auth, 32 );
 }
+
 /* useful when the 96 bytes consisting of [nonce, nonce_auth, nonce_acct] are contiguous */
 static inline ulong
-kv_nonce_hash_contiguous( uchar const * nonce_and_acct_and_auth ) {
-  uchar const * nonce      = nonce_and_acct_and_auth;
-  uchar const * nonce_acct = nonce_and_acct_and_auth+32UL;
-  uchar const * nonce_auth = nonce_and_acct_and_auth+64UL;
-  return kv_nonce_hash( nonce, nonce_auth, nonce_acct );
+kv_nonce_hash_contiguous( ulong seed, fd_sig_nonce_t const * sig_nonce ) {
+  return kv_nonce_hash( seed, sig_nonce->nonce, sig_nonce->nonce_auth, sig_nonce->nonce_acct );
 }
 
 #endif /* FD_CAVEY_DISCO_EXTXN_HEADER_H */

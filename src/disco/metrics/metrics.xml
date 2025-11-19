@@ -440,6 +440,7 @@ metric introduced.
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
     <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
+    <counter name="NonceFiltered" summary="Count of transactions that were dropped due to containing a nonce that has already been executed" />
 </tile>
 
 <enum name="PackTxnInsertReturn">
