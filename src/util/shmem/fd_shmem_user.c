@@ -121,7 +121,9 @@ fd_shmem_private_map_rand( ulong size,
     }
   }
 
-  FD_LOG_ERR(( "unable to find random address for memory map after 1000 attempts" ));
+  FD_LOG_WARNING(( "Failed 1000 attempts to find a virtual memory range suitable for an mmap() allocation of 0x%lx, retrying with kernel default ASLR ...", size ));
+
+  return mmap( NULL, size, prot, MAP_ANON|MAP_PRIVATE, -1, 0 );
 }
 
 static fd_shmem_join_info_t fd_shmem_private_map[ FD_SHMEM_PRIVATE_MAP_SLOT_CNT ]; /* Empty on thread group start */
