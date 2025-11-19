@@ -954,7 +954,7 @@ user = ""
         # If the kernel/hardware does not support driver mode, then
         # `firedancer run` will fail to start up with "operation not
         # supported".
-        xdp_mode = "default"
+        xdp_mode = "skb"
 
         # This option helps reduce CPU usage when receiving packets.
         # If enabled, the net tile instructs the network device to copy
