@@ -1230,8 +1230,8 @@ fd_gui_printf_peers_vote_account_update( fd_gui_t *          gui,
 
       jsonp_open_array( gui->http, "remove" );
       for( ulong i=0UL; i<removed_cnt; i++ ) {
-        int actually_removed = !fd_gui_gossip_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc ) &&
-                               !fd_gui_validator_info_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc );
+        int actually_removed = !fd_gui_gossip_contains( gui, removed[ i ].uc) &&
+                               !fd_gui_validator_info_contains( gui, removed[ i ].uc);
         if( FD_UNLIKELY( !actually_removed ) ) continue;
 
         jsonp_open_object( gui->http, NULL );
@@ -1280,8 +1280,8 @@ fd_gui_printf_peers_validator_info_update( fd_gui_t *          gui,
 
       jsonp_open_array( gui->http, "remove" );
       for( ulong i=0UL; i<removed_cnt; i++ ) {
-        int actually_removed = !fd_gui_gossip_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc ) &&
-                               !fd_gui_vote_acct_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc );
+        int actually_removed = !fd_gui_gossip_contains( gui, removed[ i ].uc ) &&
+                               !fd_gui_vote_acct_contains( gui, removed[ i ].uc );
         if( FD_UNLIKELY( !actually_removed ) ) continue;
 
         jsonp_open_object( gui->http, NULL );
