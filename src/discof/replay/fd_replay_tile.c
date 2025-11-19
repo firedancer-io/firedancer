@@ -165,6 +165,7 @@ struct fd_replay_tile {
   fd_vote_tracker_t *  vote_tracker;
 
   int   has_genesis_hash;
+  char  genesis_path[ PATH_MAX ];
   uchar genesis_hash[ 32UL ];
   ulong cluster_type;
 
@@ -1361,8 +1362,16 @@ maybe_verify_cluster_type( fd_replay_tile_t * ctx ) {
       cluster = FD_CLUSTER_UNKNOWN;
   }
 
-  if( cluster!=ctx->cluster_type ) {
-    FD_LOG_ERR(( "cluster type mismatch: (genesis) %s != (snapshot) %s", fd_genesis_cluster_name( cluster ), fd_genesis_cluster_name( ctx->cluster_type ) ));
+  if( FD_UNLIKELY( cluster!=ctx->cluster_type ) ) {
+    FD_LOG_ERR(( "Your genesis.bin file at `%s` has a genesis hash of `%s` which means the cluster is %s "
+                 "but the snapshot you loaded is for a different cluster %s. If you are trying to join the "
+                 "%s cluster, you can delete the genesis.bin file and restart the node to download the correct "
+                 "genesis file automatically.",
+                 ctx->genesis_path,
+                 hash_cstr,
+                 fd_genesis_cluster_name( cluster ),
+                 fd_genesis_cluster_name( ctx->cluster_type ),
+                 fd_genesis_cluster_name( cluster ) ));
   }
 }
 
@@ -2385,6 +2394,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->expected_shred_version = tile->replay.expected_shred_version;
   ctx->ipecho_shred_version = 0;
+  fd_memcpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
   ctx->has_genesis_hash = 0;
   ctx->cluster_type = FD_CLUSTER_UNKNOWN;
   ctx->hard_forks_cnt = ULONG_MAX;
