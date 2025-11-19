@@ -2026,7 +2026,7 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
         case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: jsonp_string( gui->http, "phase", "loading_incremental_snapshot" ); break;
         case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP:                  jsonp_string( gui->http, "phase", "catching_up" );           break;
         case FD_GUI_BOOT_PROGRESS_TYPE_RUNNING:                      jsonp_string( gui->http, "phase", "running" );               break;
-        default: FD_LOG_ERR(( "unknown phase %d", gui->summary.startup_progress.phase ));
+        default: FD_LOG_ERR(( "unknown phase %d", gui->summary.boot_progress.phase ));
       }
 
       jsonp_double( gui->http, "joining_gossip_elapsed_seconds", (double)(gui->summary.boot_progress.joining_gossip_time_nanos - gui->summary.startup_time_nanos) / 1e9 );
