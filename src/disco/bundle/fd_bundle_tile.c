@@ -348,6 +348,7 @@ fd_bundle_tile_load_certs( SSL_CTX * ssl_ctx ) {
       /* Not all files in /etc/ssl/certs are valid certs, so ignore errors */
       continue;
     }
+    errno = 0;
   }
 
   if( FD_UNLIKELY( errno && errno!=ENOENT ) ) {
