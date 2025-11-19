@@ -165,9 +165,10 @@ typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
 struct fd_sbpf_elf_info {
   ulong bin_sz;   /* size of ELF binary */
 
-  uint  text_off; /* File offset of .text section (overlaps rodata segment) */
-  uint  text_cnt; /* Instruction count */
-  ulong text_sz;  /* size of text segment. Guaranteed to be <= bin_sz. */
+  ulong calldests_max;  /* Size of calldests set */
+  uint  text_off;       /* File offset of .text section (overlaps rodata segment) */
+  uint  text_cnt;       /* Instruction count */
+  ulong text_sz;        /* size of text segment. Guaranteed to be <= bin_sz. */
 
   /* Known section indices
      In [-1,USHORT_MAX) where -1 means "not found" */
