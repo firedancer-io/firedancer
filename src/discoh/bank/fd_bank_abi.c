@@ -407,7 +407,7 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
   return FD_BANK_ABI_TXN_INIT_SUCCESS;
 }
 
-#define CATEGORY_NON_BUILTIN   0
+#define CATEGORY_NON_BUILTIN    0
 #define CATEGORY_NON_MIGRATABLE 1
 #define CATEGORY_MIGRATING(x)  (2+(x))
 typedef struct {
@@ -441,7 +441,6 @@ typedef struct {
 #define MAP_PERFECT_7  ( BPF_LOADER_1_PROG_ID    ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_8  ( BPF_LOADER_2_PROG_ID    ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_9  ( LOADER_V4_PROG_ID       ), .category=CATEGORY_NON_MIGRATABLE
-#define MAP_PERFECT_10 ( STAKE_PROG_ID           ), .category=CATEGORY_MIGRATING(0)
 
 
 #include "../../util/tmpl/fd_map_perfect.c"
@@ -479,9 +478,8 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
   out_txn->is_simple_vote_tx          = !!is_simple_vote;
   out_txn->is_simple_vote_transaction = !!is_simple_vote;
 
-
+  ulong    instr_cnt[3] = { 0UL }; /* non-builtin, non-migrating, migrating */
   ulong sig_counters[4] = { 0UL };
-  ulong instr_cnt[3] = { 0UL }; /* non-builtin, non-migrating, stake program */
 
   fd_compute_budget_program_state_t cbp_state[1];
   fd_compute_budget_program_init( cbp_state );
@@ -515,8 +513,8 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
 
   out_txn->compute_budget_instruction_details.num_non_compute_budget_instructions     = (ushort)(txn->instr_cnt - cbp_state->compute_budget_instr_cnt);
   out_txn->compute_budget_instruction_details.num_non_migratable_builtin_instructions = (ushort)instr_cnt[ CATEGORY_NON_MIGRATABLE ];
-  out_txn->compute_budget_instruction_details.num_non_builtin_instructions            = (ushort)instr_cnt[ CATEGORY_NON_BUILTIN   ];
-  out_txn->compute_budget_instruction_details.migrating_builtin[0]                    = (ushort)instr_cnt[ CATEGORY_MIGRATING(0)  ];
+  out_txn->compute_budget_instruction_details.num_non_builtin_instructions            = (ushort)instr_cnt[ CATEGORY_NON_BUILTIN    ];
+  out_txn->compute_budget_instruction_details.migrating_builtin[0]                    = (ushort)instr_cnt[ CATEGORY_MIGRATING(0)   ];
   /* The instruction index doesn't matter */
 #define CBP_TO_TUPLE_OPTION( out, flag, val0, val1 )                                                                      \
   do {                                                                                                                    \
