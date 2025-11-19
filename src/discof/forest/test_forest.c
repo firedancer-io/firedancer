@@ -913,7 +913,7 @@ test_orphan_requests( fd_wksp_t * wksp ) {
   fd_forest_init( forest, 0 );
 
   fd_forest_iter_next( &forest->iter, forest );
-  FD_TEST( forest->iter.ele_idx == slot_idx( forest, 0 ) );
+  FD_TEST( forest->iter.ele_idx == ULONG_MAX );
 
   fd_forest_blk_data_shred_insert( forest, 8, 7, 0, 0, 0, 0 );
   fd_forest_blk_data_shred_insert( forest, 7, 6, 0, 0, 0, 0 );
