@@ -952,7 +952,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
             switch( j ) {
               case  0: tag = "gossip";            break;
               case  1: tag = "rpc";               break;
-              case  2: tag = "rpb_pubsub";        break;
+              case  2: tag = "rpc_pubsub";        break;
               case  3: tag = "serve_repair";      break;
               case  4: tag = "serve_repair_quic"; break;
               case  5: tag = "tpu";               break;
