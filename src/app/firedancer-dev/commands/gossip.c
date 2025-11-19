@@ -25,6 +25,15 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 gossip_cmd_topo( config_t * config ) {
+
+  /* Disable non-gossip listen ports */
+  config->tiles.shred.shred_listen_port = 0U;
+  config->tiles.quic.quic_transaction_listen_port = 0U;
+  config->tiles.quic.regular_transaction_listen_port = 0U;
+  config->tiles.repair.repair_intake_listen_port = 0U;
+  config->tiles.repair.repair_serve_listen_port = 0U;
+  config->tiles.send.send_src_port = 0U;
+
   static ulong tile_to_cpu[ FD_TILE_MAX ] = {0}; /* TODO */
 
   ulong net_tile_cnt = config->layout.net_tile_count;
@@ -56,12 +65,6 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
     "gossip",
   };
   for( int i=0; i<3; ++i) FD_TEST( fd_topo_find_tile( topo, tiles_to_add[i], 0UL ) == ULONG_MAX );
-
-  ulong net_tile_id = fd_topo_find_tile( topo, "net", 0UL );
-  if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", 0UL );
-  if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
-  fd_topo_tile_t * net_tile = &topo->tiles[ net_tile_id ];
-  net_tile->net.gossip_listen_port = config->gossip.port;
 
   fd_topob_wksp( topo, "gossip" );
   fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 1 /* uses_keyswitch */ );
@@ -208,7 +211,7 @@ fmt_bytes( char buf[ static 64 ], ulong bytes ) {
 static char *
 fmt_pct( char buf[ static 64 ], double pct ) {
   char tmp[ 64 ];
-  FD_TEST( fd_cstr_printf_check( tmp, 64UL, NULL, "%.1f", pct ) );
+  FD_TEST( fd_cstr_printf_check( tmp, 64UL, NULL, "%.1f %%", 100.0*pct ) );
   FD_TEST( fd_cstr_printf_check( buf, 64UL, NULL, "%12s", tmp ) );
   return buf;
 }
@@ -748,9 +751,8 @@ gossip_cmd_fn( args_t *   args,
 
   run_firedancer_init( config, 1, 1 );
 
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
-  }
+  int const is_xdp = ( 0==strcmp( config->net.provider, "xdp" ) );
+  if( is_xdp ) fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_fill( &config->topo );
 
@@ -762,31 +764,39 @@ gossip_cmd_fn( args_t *   args,
   gossvf_tiles_t gossvf_tiles = collect_gossvf_tiles( &config->topo );
   printf("Found %lu gossvf tiles\n", gossvf_tiles.tile_count);
 
-  ulong net_tile_idx = fd_topo_find_tile( &config->topo, "net", 0UL );
-  if ( net_tile_idx==ULONG_MAX ) net_tile_idx = fd_topo_find_tile( &config->topo, "sock", 0UL );
-  FD_TEST( net_tile_idx!=ULONG_MAX );
-  fd_topo_tile_t * net_tile = &config->topo.tiles[ net_tile_idx ];
-
   volatile ulong * gossip_metrics = fd_metrics_tile( gossip_tile->metrics );
   FD_TEST( gossip_metrics );
 
-  volatile ulong * net_metrics = fd_metrics_tile( net_tile->metrics );
+  ulong const net_tile_cnt = config->layout.net_tile_count;
+  volatile ulong const ** net_metrics = aligned_alloc( 8UL, net_tile_cnt * sizeof(volatile ulong const *) );
   FD_TEST( net_metrics );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    ulong net_tile_idx = fd_topo_find_tile( &config->topo, is_xdp ? "net" : "sock", i );
+    FD_TEST( net_tile_idx!=ULONG_MAX );
+    fd_topo_tile_t * net_tile = &config->topo.tiles[ net_tile_idx ];
+    net_metrics[ i ] = fd_metrics_tile( net_tile->metrics );
+    FD_TEST( net_metrics[ i ] );
+  }
 
   /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
 
   /* Use the first gossvf tile's net link for overrun monitoring */
-  volatile ulong * net_link = gossvf_tiles.net_links[0];
-  FD_TEST( net_link );
+  volatile ulong * net0_link = gossvf_tiles.net_links[0];
+  FD_TEST( net0_link );
 
   ulong * gossip_prev = aligned_alloc( 8UL, FD_METRICS_TOTAL_SZ );
   FD_TEST( gossip_prev );
   memset( gossip_prev, 0, FD_METRICS_TOTAL_SZ );
 
-  ulong prev_net_tx1_bytes = 0UL;
-  ulong prev_net_rx1_bytes = 0UL;
-  ulong prev_net_rx_bytes = 0UL;
+  ulong * prev_net_tx1_bytes = aligned_alloc( 8UL, net_tile_cnt * sizeof(ulong) );
+  ulong * prev_net_rx1_bytes = aligned_alloc( 8UL, net_tile_cnt * sizeof(ulong) );
+  FD_TEST( prev_net_tx1_bytes );
+  FD_TEST( prev_net_rx1_bytes );
+  memset( prev_net_tx1_bytes, 0, net_tile_cnt * sizeof(ulong) );
+  memset( prev_net_rx1_bytes, 0, net_tile_cnt * sizeof(ulong) );
+
+  ulong prev_net0_rx_bytes = 0UL;
 
   for(;;) {
 #define DIFFC(buf, METRIC) fmt_count( buf, gossip_metrics[ MIDX( COUNTER, GOSSIP, METRIC ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, METRIC ) ] )
@@ -806,15 +816,26 @@ gossip_cmd_fn( args_t *   args,
   printf(" Total Overrun: %s\n", fmt_count( buf1, total_overrun ) );
   printf(" Total ping tracked: %lu\n", gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKED_COUNT ) ] );
 
-  printf(" Net RX bw %s, TX bw %s .. %s %s\n", fmt_bytes( buf1, net_metrics[ MIDX( COUNTER, NET, RX_BYTES_TOTAL ) ] - prev_net_rx1_bytes ),
-                                      fmt_bytes( buf2, net_metrics[ MIDX( COUNTER, NET, TX_BYTES_TOTAL ) ] - prev_net_tx1_bytes ),
-                                      fmt_count( buf3, net_metrics[ MIDX( COUNTER, NET, RX_FILL_BLOCKED_CNT ) ] ),
-                                      fmt_count( buf3, net_metrics[ MIDX( COUNTER, NET, RX_BACKPRESSURE_CNT ) ] ) );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    if( FD_LIKELY( is_xdp ) ) {
+      printf(" Net %lu RX bw %s, TX bw %s .. %s %s\n", i,
+               fmt_bytes( buf1, net_metrics[ i ][ MIDX( COUNTER, NET,  RX_BYTES_TOTAL ) ] - prev_net_rx1_bytes[ i ] ),
+               fmt_bytes( buf2, net_metrics[ i ][ MIDX( COUNTER, NET,  TX_BYTES_TOTAL ) ] - prev_net_tx1_bytes[ i ] ),
+               fmt_count( buf3, net_metrics[ i ][ MIDX( COUNTER, NET,  RX_FILL_BLOCKED_CNT ) ] ),
+               fmt_count( buf3, net_metrics[ i ][ MIDX( COUNTER, NET,  RX_BACKPRESSURE_CNT ) ] ) );
+      prev_net_rx1_bytes[ i ] = net_metrics[ i ][ MIDX( COUNTER, NET,  RX_BYTES_TOTAL ) ];
+      prev_net_tx1_bytes[ i ] = net_metrics[ i ][ MIDX( COUNTER, NET,  TX_BYTES_TOTAL ) ];
+    } else {
+      printf(" Net %lu RX bw %s, TX bw %s\n", i,
+               fmt_bytes( buf1, net_metrics[ i ][ MIDX( COUNTER, SOCK, RX_BYTES_TOTAL ) ] - prev_net_rx1_bytes[ i ] ),
+               fmt_bytes( buf2, net_metrics[ i ][ MIDX( COUNTER, SOCK, TX_BYTES_TOTAL ) ] - prev_net_tx1_bytes[ i ] ) );
+      prev_net_rx1_bytes[ i ] = net_metrics[ i ][ MIDX( COUNTER, SOCK, RX_BYTES_TOTAL ) ];
+      prev_net_tx1_bytes[ i ] = net_metrics[ i ][ MIDX( COUNTER, SOCK, TX_BYTES_TOTAL ) ];
+    }
+  }
 
-  printf(" Single Tile RX bw %s\n", fmt_bytes( buf1, net_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ] - prev_net_rx_bytes ) );
-  prev_net_rx_bytes = net_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ];
-  prev_net_rx1_bytes = net_metrics[ MIDX( COUNTER, NET, RX_BYTES_TOTAL ) ];
-  prev_net_tx1_bytes = net_metrics[ MIDX( COUNTER, NET, TX_BYTES_TOTAL ) ];
+  printf(" Single Tile RX bw %s\n", fmt_bytes( buf1, net0_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ] - prev_net0_rx_bytes ) );
+  prev_net0_rx_bytes = net0_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ];
 
   ulong pull_response_drops = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
   ulong pull_response_success = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PULL_RESPONSE ) );
