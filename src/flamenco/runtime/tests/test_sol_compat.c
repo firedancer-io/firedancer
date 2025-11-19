@@ -32,6 +32,8 @@ static uint shutdown_signal __attribute__((aligned(64)));
 #define FIXTURE_TYPE_PB_VM_INTERP  0x05
 #define FIXTURE_TYPE_PB_BLOCK      0x06
 
+#define FIXTURE_TYPE_FB_ELF_LOADER 0x07
+
 /* run_test runs a test.
    Return 1 on success, 0 on failure. */
 static int
@@ -62,12 +64,13 @@ run_test1( fd_solfuzz_runner_t * runner,
 
   int type = g_type_override;
   if( !type ) {
-    if(      strstr( path, "/instr/"      ) ) type = FIXTURE_TYPE_PB_INSTR;
-    else if( strstr( path, "/txn/"        ) ) type = FIXTURE_TYPE_PB_TXN;
-    else if( strstr( path, "/elf_loader/" ) ) type = FIXTURE_TYPE_PB_ELF_LOADER;
-    else if( strstr( path, "/syscall/"    ) ) type = FIXTURE_TYPE_PB_SYSCALL;
-    else if( strstr( path, "/vm_interp/"  ) ) type = FIXTURE_TYPE_PB_VM_INTERP;
-    else if( strstr( path, "/block/"      ) ) type = FIXTURE_TYPE_PB_BLOCK;
+    if(      strstr( path, "/instr/fixtures/"         ) ) type = FIXTURE_TYPE_PB_INSTR;
+    else if( strstr( path, "/txn/fixtures/"           ) ) type = FIXTURE_TYPE_PB_TXN;
+    else if( strstr( path, "/elf_loader/fixtures/"    ) ) type = FIXTURE_TYPE_PB_ELF_LOADER;
+    else if( strstr( path, "/syscall/fixtures/"       ) ) type = FIXTURE_TYPE_PB_SYSCALL;
+    else if( strstr( path, "/vm_interp/fixtures/"     ) ) type = FIXTURE_TYPE_PB_VM_INTERP;
+    else if( strstr( path, "/block/fixtures/"         ) ) type = FIXTURE_TYPE_PB_BLOCK;
+    else if( strstr( path, "/elf_loader/fixtures_fb/" ) ) type = FIXTURE_TYPE_FB_ELF_LOADER;
     else {
       FD_LOG_WARNING(( "Unknown test type: %s", path ));
       return 0;
@@ -92,6 +95,9 @@ run_test1( fd_solfuzz_runner_t * runner,
     break;
   case FIXTURE_TYPE_PB_BLOCK:
     ok = fd_solfuzz_pb_block_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_FB_ELF_LOADER:
+    ok = fd_solfuzz_fb_elf_loader_fixture( runner, buf );
     break;
   default:
     FD_LOG_CRIT(( "unreachable code entered" ));

@@ -213,6 +213,11 @@ fd_solfuzz_pb_vm_interp_fixture( fd_solfuzz_runner_t * runner,
                                  uchar const *         in,
                                  ulong                 in_sz );
 
+/* Flatbuffers */
+int
+fd_solfuzz_fb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
+                                  uchar const *         in );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_h */
