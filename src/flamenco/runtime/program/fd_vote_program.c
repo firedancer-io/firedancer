@@ -1759,21 +1759,20 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
 /* mod vote_processor                                                 */
 /**********************************************************************/
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L21
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L21-L51 */
 static int
-process_authorize_with_seed_instruction(
-    /* invoke_context */
-    fd_exec_instr_ctx_t const * ctx,
-    /* transaction_context */
-    fd_borrowed_account_t * vote_account,
-    fd_pubkey_t const *     new_authority,
-    fd_vote_authorize_t     authorization_type,
-    fd_pubkey_t const *     current_authority_derived_key_owner,
-    uchar const *           current_authority_derived_key_seed,
-    ulong                   current_authority_derived_key_seed_len ) {
+process_authorize_with_seed_instruction( /* invoke_context */
+                                         fd_exec_instr_ctx_t *   ctx,
+                                         int                     target_version,
+                                         fd_borrowed_account_t * vote_account,
+                                         fd_pubkey_t const *     new_authority,
+                                         fd_vote_authorize_t     authorization_type,
+                                         fd_pubkey_t const *     current_authority_derived_key_owner,
+                                         uchar const *           current_authority_derived_key_seed,
+                                         ulong                   current_authority_derived_key_seed_len ) {
   int rc = 0;
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L31
+  /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L31 */
   rc = fd_sysvar_instr_acct_check( ctx, 1, &fd_sysvar_clock_id );
   if( FD_UNLIKELY( rc ) ) return rc;
 
@@ -1939,13 +1938,16 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L100
     fd_vote_authorize_with_seed_args_t * args = &instruction->inner.authorize_with_seed;
 
-    rc = process_authorize_with_seed_instruction( ctx,
-                                                  &me,
-                                                  &args->new_authority,
-                                                  args->authorization_type,
-                                                  &args->current_authority_derived_key_owner,
-                                                  args->current_authority_derived_key_seed,
-                                                  args->current_authority_derived_key_seed_len );
+    rc = process_authorize_with_seed_instruction(
+        ctx,
+        &me,
+        target_version,
+        &args->new_authority,
+        args->authorization_type,
+        &args->current_authority_derived_key_owner,
+        args->current_authority_derived_key_seed,
+        args->current_authority_derived_key_seed_len
+    );
 
     break;
   }
