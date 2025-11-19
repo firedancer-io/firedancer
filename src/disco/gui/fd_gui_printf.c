@@ -1115,7 +1115,6 @@ peers_printf_node( fd_gui_peers_ctx_t * peers,
       jsonp_ulong( peers->http, "shred_version", peer->contact_info.shred_version );
       jsonp_open_object( peers->http, "sockets" );
         for( ulong j=0UL; j<FD_CONTACT_INFO_SOCKET_CNT; j++ ) {
-          if( FD_LIKELY( !peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr && !peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ) ) continue;
           char const * tag;
           switch( j ) {
             case FD_CONTACT_INFO_SOCKET_GOSSIP:            tag = "gossip";            break;
@@ -1132,9 +1131,10 @@ peers_printf_node( fd_gui_peers_ctx_t * peers,
             case FD_CONTACT_INFO_SOCKET_TVU_QUIC:          tag = "tvu_quic";          break;
             case FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC:     tag = "tpu_vote_quic";     break;
             case FD_CONTACT_INFO_SOCKET_ALPENGLOW:         tag = "alpenglow";         break;
+            default:                                       tag = "unknown";           break;
           }
           char line[ 64 ];
-          FD_TEST( fd_cstr_printf( line, sizeof( line ), NULL, FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ) ) );
+          FD_TEST( fd_cstr_printf( line, sizeof( line ), NULL, FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->contact_info.sockets[ j ].addr ), fd_ushort_bswap( peer->contact_info.sockets[ j ].port ) ) );
           jsonp_string( peers->http, tag, line );
         }
       jsonp_close_object( peers->http );
