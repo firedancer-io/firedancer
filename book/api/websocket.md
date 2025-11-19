@@ -746,6 +746,28 @@ producing) their slot. For example, if the last completed slot was
 `1001` and it has been 800 milliseconds since that slot, the estimated
 slot is likely to be `1003`.
 
+#### `summary.reset_slot`
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `275138349` |
+
+The slot corresponding to the head of the fork we've most recently
+chosen to vote for.  A fork choice is triggered by the completion of a
+replay slot, so the publish interval for this message is approximately
+one slot duration.
+
+#### `summary.storage_slot`
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `275138349` |
+
+The oldest active rooted slot across all banks in the bank pool.
+Active here means that the bank has a positive reference count, which
+means there is some consumer which is still using it. This slot is less
+than or equal to the current consensus root and is always on the
+canonical consensus fork. Banks for slots before this slot or slots on a
+non-canonical fork will have a reference count of zero.
+
 #### `summary.estimated_slot_duration_nanos`
 | frequency       | type     | example     |
 |-----------------|----------|-------------|

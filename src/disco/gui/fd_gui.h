@@ -630,6 +630,8 @@ struct fd_gui {
     ulong slot_caught_up;
     ulong slot_repair;
     ulong slot_turbine;
+    ulong slot_reset;
+    ulong slot_storage;
 
     fd_gui_ephemeral_slot_t slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL ];
     fd_gui_ephemeral_slot_t slots_max_repair [ FD_GUI_REPAIR_SLOT_HISTORY_SZ +1UL ];
@@ -872,6 +874,7 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_gui_slot_completed_t * slot_completed,
                              fd_hash_t const *         block_hash,
                              ulong                     vote_slot,
+                             ulong                     storage_slot,
                              long                      now );
 
 void

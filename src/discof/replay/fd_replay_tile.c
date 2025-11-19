@@ -680,6 +680,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_info->slot                  = slot;
   slot_info->root_slot             = ctx->consensus_root_slot;
+  slot_info->storage_slot          = ctx->published_root_slot;
   slot_info->epoch                 = epoch;
   slot_info->slot_in_epoch         = slot_idx;
   slot_info->block_height          = fd_bank_block_height_get( bank );

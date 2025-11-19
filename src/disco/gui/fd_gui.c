@@ -206,6 +206,8 @@ fd_gui_new( void *                shmem,
   gui->summary.slot_caught_up                = ULONG_MAX;
   gui->summary.slot_repair                   = ULONG_MAX;
   gui->summary.slot_turbine                  = ULONG_MAX;
+  gui->summary.slot_reset                    = ULONG_MAX;
+  gui->summary.slot_storage                  = ULONG_MAX;
 
   for( ulong i=0UL; i < (FD_GUI_REPAIR_SLOT_HISTORY_SZ+1UL); i++ )  gui->summary.slots_max_repair[ i ].slot  = ULONG_MAX;
   for( ulong i=0UL; i < (FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL); i++ ) gui->summary.slots_max_turbine[ i ].slot = ULONG_MAX;
@@ -2675,6 +2677,12 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
   slot->reset_slot = tower->reset_slot;
 
   try_publish_vote_status( gui, tower->replay_slot );
+
+  if( FD_LIKELY( gui->summary.slot_reset!=tower->reset_slot ) ) {
+    gui->summary.slot_reset = tower->reset_slot;
+    fd_gui_printf_reset_slot( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
 }
 
 void
@@ -2682,8 +2690,14 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_gui_slot_completed_t * slot_completed,
                              fd_hash_t const *         block_hash,
                              ulong                     vote_slot,
+                             ulong                     storage_slot,
                              long                      now ) {
   (void)now;
+  if( FD_LIKELY( gui->summary.slot_storage!=storage_slot ) ) {
+    gui->summary.slot_storage = storage_slot;
+    fd_gui_printf_storage_slot( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
 
   if( FD_UNLIKELY( gui->summary.boot_progress.catching_up_first_replay_slot==ULONG_MAX ) ) {
     gui->summary.boot_progress.catching_up_first_replay_slot = slot_completed->slot;
