@@ -494,8 +494,3 @@ fd_progcache_clear( fd_progcache_admin_t * cache ) {
   clear_txn_list( funk, fd_funk_txn_idx( funk->shmem->child_head_cidx ) );
   reset_rec_map( funk );
 }
-
-void
-fd_progcache_verify( fd_progcache_admin_t * cache ) {
-  FD_TEST( fd_funk_verify( cache->funk )==FD_FUNK_SUCCESS );
-}
