@@ -1,7 +1,7 @@
 #include "fd_vote_state_v4.h"
 #include "fd_authorized_voters.h"
 #include "fd_vote_state_versioned.h"
-#include "fd_vote_state_common.h"
+#include "fd_vote_common.h"
 #include "../fd_vote_program.h"
 
 /**********************************************************************/
@@ -58,11 +58,10 @@ fd_vote_state_v4_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
   return fd_vsv_set_state( vote_account, versioned );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L323-L334 */
-static int
-fd_vote_state_v4_get_and_update_authorized_voter( fd_vote_state_v4_t *        self,
-                                                  ulong                       current_epoch,
-                                                  fd_pubkey_t **              pubkey /* out */ ) {
+int
+fd_vote_state_v4_get_and_update_authorized_voter( fd_vote_state_v4_t * self,
+                                                  ulong                current_epoch,
+                                                  fd_pubkey_t **       pubkey /* out */ ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L327-L330 */
   fd_vote_authorized_voter_t * authorized_voter =
       fd_authorized_voters_get_and_cache_authorized_voter_for_epoch( &self->authorized_voters,
@@ -91,7 +90,7 @@ fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t *                
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L463 */
-  rc = fd_vote_state_verify( epoch_authorized_voter, authorized_withdrawer_signer, signers );
+  rc = fd_vote_signature_verify( epoch_authorized_voter, authorized_withdrawer_signer, signers );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L470-L472 */

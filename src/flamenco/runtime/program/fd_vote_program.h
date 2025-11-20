@@ -78,6 +78,15 @@
 #define FD_VOTE_LOCKOUTS_ALIGN     (32UL)
 #define FD_VOTE_LOCKOUTS_FOOTPRINT (FD_VOTE_STATE_VERSIONED_FOOTPRINT)
 
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L35
+#define MAX_LOCKOUT_HISTORY 31UL
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L48
+#define VOTE_CREDITS_MAXIMUM_PER_SLOT 16
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L45
+#define VOTE_CREDITS_GRACE_SLOTS 2
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L597-L598 */
 #define DEFAULT_BLOCK_REVENUE_COMMISSION_BPS (10000UL)
 

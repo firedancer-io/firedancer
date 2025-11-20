@@ -45,5 +45,11 @@ fd_vote_authorized_voter_t *
 fd_authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorized_voters_t * self,
                                                                ulong                         epoch );
 
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L707-L715 */
+int
+fd_authorized_voters_get_and_update_authorized_voter( fd_vote_state_versioned_t * self,
+                                                      ulong                       current_epoch,
+                                                      fd_pubkey_t **              pubkey /* out */ );
+
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_authorized_voters_h */
 

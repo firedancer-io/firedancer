@@ -33,9 +33,9 @@ fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L828
 int
-fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_t *           self,
-                                                  ulong                       current_epoch,
-                                                  fd_pubkey_t **              pubkey /* out */ );
+fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_t * self,
+                                                  ulong             current_epoch,
+                                                  fd_pubkey_t **    pubkey /* out */ );
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L263-L321 */
 int

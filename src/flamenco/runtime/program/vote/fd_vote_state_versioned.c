@@ -1,7 +1,61 @@
 #include "fd_vote_state_versioned.h"
+#include "fd_vote_common.h"
 #include "fd_vote_state_v3.h"
 #include "fd_vote_state_v4.h"
 #include "../fd_vote_program.h"
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L780-L785 */
+static inline fd_vote_lockout_t *
+last_lockout( fd_vote_state_versioned_t * self ) {
+  fd_landed_vote_t * votes = NULL;
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      votes = self->inner.current.votes;
+      break;
+    case fd_vote_state_versioned_enum_v4:
+      votes = self->inner.v4.votes;
+      break;
+    default:
+      __builtin_unreachable();
+  }
+
+  if( deq_fd_landed_vote_t_empty( votes ) ) return NULL;
+  fd_landed_vote_t * last_vote = deq_fd_landed_vote_t_peek_tail( votes );
+  return &last_vote->lockout;
+}
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L673
+static ulong
+credits_for_vote_at_index( fd_landed_vote_t * votes, ulong index ) {
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L679
+  fd_landed_vote_t * landed_vote = deq_fd_landed_vote_t_peek_index( votes, index );
+  ulong              latency     = landed_vote == NULL ? 0 : landed_vote->latency;
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L683
+  ulong              max_credits =  VOTE_CREDITS_MAXIMUM_PER_SLOT;
+
+  // If latency is 0, this means that the Lockout was created and stored from a software version
+  // that did not store vote latencies; in this case, 1 credit is awarded
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L691
+  if( FD_UNLIKELY( latency == 0 ) ) {
+    return 1;
+  }
+
+  ulong diff = 0;
+  int   cf   = fd_ulong_checked_sub( latency, VOTE_CREDITS_GRACE_SLOTS, &diff );
+  if( cf != 0 || diff == 0 ) {
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L697
+    return max_credits;
+  }
+
+  ulong credits = 0;
+  cf = fd_ulong_checked_sub( max_credits, diff, &credits );
+  if( cf != 0 || credits == 0 ) {
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L705
+    return 1;
+  }
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L707
+  return credits;
+}
 
 /**********************************************************************/
 /* impl VoteAccount                                                   */
@@ -58,6 +112,77 @@ fd_vsv_get_commission( fd_vote_state_versioned_t * self ) {
     default:
       __builtin_unreachable();
   }
+}
+
+ulong *
+fd_vsv_get_last_voted_slot( fd_vote_state_versioned_t * self ) {
+  fd_vote_lockout_t * last_lockout_ = last_lockout( self );
+  if( FD_UNLIKELY( !last_lockout_ ) ) return NULL;
+  return &last_lockout_->slot;
+}
+
+void
+fd_vsv_pop_expired_votes( fd_vote_state_versioned_t * self, ulong next_vote_slot ) {
+  fd_landed_vote_t * votes = NULL;
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      votes = self->inner.current.votes;
+      break;
+    case fd_vote_state_versioned_enum_v4:
+      votes = self->inner.v4.votes;
+      break;
+    default:
+      __builtin_unreachable();
+  }
+
+  while( !deq_fd_landed_vote_t_empty( votes ) ) {
+    fd_landed_vote_t * vote = deq_fd_landed_vote_t_peek_tail( votes );
+    if( !( is_locked_out_at_slot( &vote->lockout, next_vote_slot ) ) ) {
+      deq_fd_landed_vote_t_pop_tail( votes );
+    } else {
+      break;
+    }
+  }
+}
+
+void
+fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * versioned,
+                               ulong                       next_vote_slot,
+                               ulong                       epoch,
+                               ulong                       current_slot ) {
+  ulong * last_voted_slot_ = fd_vsv_get_last_voted_slot( versioned );
+  if( FD_UNLIKELY( last_voted_slot_ && next_vote_slot <= *last_voted_slot_ ) ) return;
+
+  fd_vsv_pop_expired_votes( versioned, next_vote_slot );
+
+  fd_landed_vote_t * votes = NULL;
+  switch( versioned->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      votes = versioned->inner.current.votes;
+      break;
+    case fd_vote_state_versioned_enum_v4:
+      votes = versioned->inner.v4.votes;
+      break;
+    default:
+      __builtin_unreachable();
+  }
+
+  fd_landed_vote_t landed_vote = {
+    .latency = fd_vote_compute_vote_latency( next_vote_slot, current_slot ), ( fd_vote_lockout_t ){ .slot = next_vote_slot }
+  };
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L623
+  if( FD_UNLIKELY( deq_fd_landed_vote_t_cnt( votes ) == MAX_LOCKOUT_HISTORY ) ) {
+    ulong            credits     = credits_for_vote_at_index( votes, 0 );
+    fd_landed_vote_t landed_vote = deq_fd_landed_vote_t_pop_head( votes );
+    fd_vsv_set_root_slot( versioned, &landed_vote.lockout.slot );
+
+    increment_credits( self, epoch, credits );
+  }
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L634
+  deq_fd_landed_vote_t_push_tail_wrap( self->votes, landed_vote );
+  double_lockouts( self );
 }
 
 int
@@ -174,6 +299,24 @@ fd_vsv_set_commission( fd_vote_state_versioned_t * self,
       break;
     default:
       __builtin_unreachable();
+  }
+}
+
+void
+fd_vsv_set_root_slot( fd_vote_state_versioned_t * self, ulong * root_slot ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      self->inner.current.has_root_slot = (root_slot!=NULL);
+      if( FD_LIKELY( root_slot ) ) {
+        self->inner.current.root_slot = *root_slot;
+      }
+      break;
+    case fd_vote_state_versioned_enum_v4:
+      self->inner.v4.has_root_slot = (root_slot!=NULL);
+      if( FD_LIKELY( root_slot ) ) {
+        self->inner.v4.root_slot = *root_slot;
+      }
+      break;
   }
 }
 

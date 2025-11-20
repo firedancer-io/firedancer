@@ -20,6 +20,12 @@ fd_vote_state_v4_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                          fd_borrowed_account_t *     vote_account,
                                          fd_vote_state_versioned_t * versioned );
 
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L323-L334 */
+int
+fd_vote_state_v4_get_and_update_authorized_voter( fd_vote_state_v4_t * self,
+                                                  ulong                current_epoch,
+                                                  fd_pubkey_t **       pubkey /* out */ );
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L450-L478 */
 int
 fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t *                      ctx,
