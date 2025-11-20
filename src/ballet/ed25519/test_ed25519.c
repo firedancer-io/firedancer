@@ -841,6 +841,41 @@ test_point_sub( fd_rng_t * rng FD_PARAM_UNUSED ) {
   }
 }
 
+static void
+test_point_mul( fd_rng_t * rng FD_PARAM_UNUSED ) {
+  uchar _bufa[32]; uchar * bufa = _bufa;
+  uchar _bufn[32]; uchar * bufn = _bufn;
+  uchar _bufr[32]; uchar * bufr = _bufr;
+  uchar _bufe[32]; uchar * bufe = _bufe;
+
+  fd_ed25519_point_t a[1];
+  fd_ed25519_point_t r[1];
+  fd_ed25519_point_t e[1];
+
+  {
+    fd_hex_decode( bufa, "0000000000000000003b0000e8e8e8000000000000000000000000000000ffff", 32 );
+    fd_hex_decode( bufn, "005d0000000000000000000000000000000000000000000015b6b6b6b6000000", 32 );
+    fd_hex_decode( bufe, "7b1e1037cbe6e84f922a9b0651ed50570530d6157853debba755d5904021740e", 32 );
+
+    FD_TEST( fd_ed25519_scalar_validate( bufn ) );
+    FD_TEST( fd_ed25519_point_frombytes( a, bufa ) );
+
+    FD_TEST( fd_ed25519_point_frombytes( e, bufe ) );
+    {
+      fd_ed25519_point_tobytes( bufr, a );
+      FD_TEST( fd_memeq( bufr, bufa, 32UL ) );
+    }
+
+    fd_ed25519_scalar_mul( r, bufn, a );
+    fd_ed25519_point_tobytes( bufr, r );
+
+    // FD_LOG_HEXDUMP_WARNING(( "bufr", bufr, 32 ));
+    // FD_LOG_HEXDUMP_WARNING(( "bufe", bufe, 32 ));
+
+    FD_TEST( fd_memeq( bufr, bufe, 32UL ) );
+  }
+}
+
 /**********************************************************************/
 
 void
@@ -1300,6 +1335,7 @@ main( int     argc,
   test_point_validate( rng );
   test_point_frombytes( rng );
   test_point_sub( rng );
+  test_point_mul( rng );
 
   test_sc_validate  ( rng );
   test_sc_reduce    ( rng );

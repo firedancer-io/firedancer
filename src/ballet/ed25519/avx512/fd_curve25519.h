@@ -135,7 +135,7 @@ fd_curve25519_into_precomputed( fd_ed25519_point_t * r ) {
   FD_R43X6_QUAD_PERMUTE      ( _ta, 1,0,2,3, r->P );            /* _ta = (Y1,   X1,   Z1,   T1   ), s61|s61|s61|s61 */
   FD_R43X6_QUAD_LANE_SUB_FAST( _ta, _ta, 1,0,0,0, _ta, r->P );  /* _ta = (Y1-X1,X1,   Z1,   T1   ), s62|s61|s61|s61 */
   FD_R43X6_QUAD_LANE_ADD_FAST( _ta, _ta, 0,1,0,0, _ta, r->P );  /* _ta = (Y1-X1,Y1+X1,Z1,   T1   ), s62|s62|s61|s61 */
-  FD_R43X6_QUAD_FOLD_UNSIGNED( r->P, _ta );                     /*   r = (Y1-X1,Y1+X1,Z1,   T1   ), u44|u44|u44|u44 */
+  FD_R43X6_QUAD_FOLD_SIGNED  ( r->P, _ta );                     /*   r = (Y1-X1,Y1+X1,Z1,   T1   ), u44|u44|u44|u44 */
 
   FD_R43X6_QUAD_DECL         ( _1112d );
   FD_R43X6_QUAD_1112d        ( _1112d );
