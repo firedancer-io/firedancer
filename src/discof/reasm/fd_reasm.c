@@ -88,7 +88,7 @@ fd_reasm_new( void * shmem,
   /*             */ subtreel_new ( reasm->_subtrlf         );
   reasm->bfs      = bfs_new      ( bfs,      fec_max       );
   reasm->out      = out_new      ( out,      fec_max       );
-  reasm->slot_mr  = slot_mr_new  ( slot_mr,  lgf_max       );
+  reasm->slot_mr  = slot_mr_new  ( slot_mr,  lgf_max, seed );
 
   return shmem;
 }

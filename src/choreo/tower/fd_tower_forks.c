@@ -40,7 +40,7 @@ fd_forks_new( void * shmem, ulong slot_max, ulong voter_max ) {
   void *       lockout_itrvl_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_lockout_intervals_pool_align(), fd_lockout_intervals_pool_footprint( interval_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_forks_align() ) == (ulong)shmem + footprint );
 
-  forks->tower_forks            = fd_tower_forks_join           ( fd_tower_forks_new           ( tower_forks, lg_slot_max ) );
+  forks->tower_forks            = fd_tower_forks_join           ( fd_tower_forks_new           ( tower_forks, lg_slot_max, 0UL ) ); /* FIXME seed */
   forks->tower_leaves_map       = fd_tower_leaves_map_join      ( fd_tower_leaves_map_new      ( leaves_map,  slot_max, 0 ) );
   forks->tower_leaves_pool      = fd_tower_leaves_pool_join     ( fd_tower_leaves_pool_new     ( leaves_pool, slot_max    ) );
   forks->tower_leaves_dlist     = fd_tower_leaves_dlist_join    ( fd_tower_leaves_dlist_new    ( leaves_dlist             ) );

@@ -21,15 +21,15 @@ struct blk {
 };
 typedef struct blk blk_t;
 
-#define MAP_NAME              blk_map
-#define MAP_T                 blk_t
-#define MAP_KEY               block_id
-#define MAP_KEY_T             fd_hash_t
-#define MAP_KEY_NULL          hash_null
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
+#define MAP_NAME               blk_map
+#define MAP_T                  blk_t
+#define MAP_KEY                block_id
+#define MAP_KEY_T              fd_hash_t
+#define MAP_KEY_NULL           hash_null
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_KEY_INVAL(k)       MAP_KEY_EQUAL((k),MAP_KEY_NULL)
+#define MAP_KEY_EQUAL(k0,k1)   (!memcmp( (k0).key, (k1).key, 32UL ))
+#define MAP_KEY_HASH(key,seed) ((MAP_HASH_T)( (key).ul[1] )) /* FIXME: use seed? */
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct vote {
@@ -51,15 +51,15 @@ struct vtr {
 };
 typedef struct vtr vtr_t;
 
-#define MAP_NAME              vtr_map
-#define MAP_T                 vtr_t
-#define MAP_KEY               vote_acc
-#define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          pubkey_null
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
+#define MAP_NAME               vtr_map
+#define MAP_T                  vtr_t
+#define MAP_KEY                vote_acc
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_KEY_NULL           pubkey_null
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_KEY_INVAL(k)       MAP_KEY_EQUAL((k),MAP_KEY_NULL)
+#define MAP_KEY_EQUAL(k0,k1)   (!memcmp( (k0).key, (k1).key, 32UL ))
+#define MAP_KEY_HASH(key,seed) ((MAP_HASH_T)( (key).ul[1] )) /* FIXME: use seed? */
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct candidate_key {
@@ -89,7 +89,7 @@ static const candidate_key_t candidate_key_null = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)   (fd_pubkey_eq( &((k0).block_id),  &((k1).block_id )   ) &\
                                 fd_pubkey_eq( &((k0).bank_hash), &((k1).bank_hash) ) )
 #define MAP_KEY_EQUAL_IS_SLOW  1
-#define MAP_KEY_HASH(key)      (fd_uint_load_4( (key).block_id.uc ) ^ fd_uint_load_4( (key).bank_hash.uc ) )
+#define MAP_KEY_HASH(key,seed) (fd_uint_load_4( (key).block_id.uc ) ^ fd_uint_load_4( (key).bank_hash.uc ) ) /* FIXME: use seed? */
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_hfork {

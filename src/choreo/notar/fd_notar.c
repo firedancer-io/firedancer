@@ -35,9 +35,9 @@ fd_notar_new( void * shmem,
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_notar_align() ) == (ulong)shmem + footprint );
 
   notar->slot_max = slot_max;
-  notar->slot_map = fd_notar_slot_new( slot_map, lg_slot_max );
-  notar->blk_map  = fd_notar_blk_new( blk_map, lg_blk_max );
-  notar->vtr_map  = fd_notar_vtr_new( vtr_map, lg_vtr_max );
+  notar->slot_map = fd_notar_slot_new( slot_map, lg_slot_max, 0UL );
+  notar->blk_map  = fd_notar_blk_new( blk_map, lg_blk_max, 0UL );
+  notar->vtr_map  = fd_notar_vtr_new( vtr_map, lg_vtr_max, 0UL );
 
   notar->epoch    = ULONG_MAX;
   notar->lo_wmark = ULONG_MAX;

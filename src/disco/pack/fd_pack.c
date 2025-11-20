@@ -344,7 +344,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
@@ -360,7 +360,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
@@ -422,7 +422,7 @@ typedef struct fd_pack_penalty_treap fd_pack_penalty_treap_t;
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 /* PENALTY_TREAP_THRESHOLD: How many references to an account do we
@@ -769,7 +769,7 @@ fd_pack_new( void                   * mem,
 
   (void)trp_pool_leave( pool );
 
-  penalty_map_new( _penalty_map, lg_penalty_trp );
+  penalty_map_new( _penalty_map, lg_penalty_trp, 0UL );
 
   /* These treaps can have at most pack_depth elements at any moment,
      but they come from a pool of size pack_depth+extra_depth. */
@@ -787,9 +787,9 @@ fd_pack_new( void                   * mem,
   FD_PACK_BITSET_CLEAR( pack->bitset_rw_in_use );
   FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
 
-  acct_uses_new( _uses,        lg_uses_tbl_sz );
-  acct_uses_new( _writer_cost, lg_max_writers );
-  acct_uses_new( _bundle_temp, lg_bundle_temp );
+  acct_uses_new( _uses,        lg_uses_tbl_sz, 0UL );
+  acct_uses_new( _writer_cost, lg_max_writers, 0UL );
+  acct_uses_new( _bundle_temp, lg_bundle_temp, 0UL );
 
   pack->written_list     = _written_lst;
   pack->written_list_cnt = 0UL;
@@ -833,7 +833,7 @@ fd_pack_new( void                   * mem,
   for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) pack->bitset_avail[ i+1UL ] = (ushort)i;
   pack->bitset_avail_cnt = FD_PACK_BITSET_MAX;
 
-  bitset_map_new( _acct_bitset, lg_acct_in_trp );
+  bitset_map_new( _acct_bitset, lg_acct_in_trp, 0UL );
 
   fd_chkdup_new( pack->chkdup, rng );
 
