@@ -2057,6 +2057,9 @@ process_fec_complete( fd_replay_tile_t * ctx,
   if( FD_UNLIKELY( shred->slot - shred->data.parent_off == fd_reasm_slot0( ctx->reasm ) && shred->fec_set_idx == 0) ) {
     chained_merkle_root = &fd_reasm_root( ctx->reasm )->key;
   }
+
+  FD_TEST( fd_reasm_free( ctx->reasm ) );
+
   FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec ) );
 }
 
