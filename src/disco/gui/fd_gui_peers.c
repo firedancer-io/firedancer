@@ -513,18 +513,18 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
             break;
           }
 
+          fd_gui_peers_node_sock_map_idx_remove_fast( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
+          fd_gui_peers_live_table_idx_remove        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
+
+          fd_memcpy( &peer->contact_info, update->contact_info.contact_info, sizeof(peer->contact_info) );
+
+          peer->update_time_nanos = now;
           /* fetch and set country code */
 #if FD_HAS_ZSTD
           peer->country_code_idx = ipinfo_lookup( ipinfo_nodes, peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr );
 #else
           peer->country_code_idx = UCHAR_MAX;
 #endif
-
-          fd_gui_peers_node_sock_map_idx_remove_fast( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
-          fd_gui_peers_live_table_idx_remove        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
-
-          fd_memcpy( &peer->contact_info, update->contact_info.contact_info, sizeof(peer->contact_info) );
-          peer->update_time_nanos = now;
 
           fd_gui_peers_live_table_idx_insert        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
           fd_gui_peers_node_sock_map_idx_insert     ( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
