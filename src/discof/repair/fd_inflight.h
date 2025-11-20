@@ -110,4 +110,7 @@ fd_inflights_should_drain( fd_inflights_t * table, long now ) {
 fd_inflight_t *
 fd_inflights_request_query ( fd_inflights_t * table, ulong nonce );
 
+void
+fd_inflights_print( fd_inflight_map_t * map, fd_inflight_t * pool );
+
 #endif /* HEADER_fd_src_discof_repair_fd_inflight_h */
