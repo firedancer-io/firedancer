@@ -23,9 +23,9 @@
 struct fd_netdev {
   ushort mtu;            /* Largest layer-3 payload that fits in a packet */
   uchar  mac_addr[6];    /* MAC address */
-  ushort if_idx;         /* Interface index */
+  uint   if_idx;         /* Interface index */
   short  slave_tbl_idx;  /* index to bond slave table, -1 if not a bond master */
-  short  master_idx;     /* index of bond master, -1 if not a bond slave */
+  int    master_idx;     /* index of bond master, -1 if not a bond slave */
   char   name[16];       /* cstr interface name (max 15 length) */
   uchar  oper_status;    /* one of FD_OPER_STATUS_{...} */
   ushort dev_type;       /* one of ARPHRD_ETHER/_LOOPBACK_/IPGRE*/
@@ -127,6 +127,10 @@ fd_netdev_tbl_delete( void * shtbl );
 
 void
 fd_netdev_tbl_reset( fd_netdev_tbl_join_t * tbl );
+
+FD_FN_PURE fd_netdev_t *
+fd_netdev_tbl_query( fd_netdev_tbl_join_t * tbl,
+                     uint                  if_idx );
 
 #if FD_HAS_HOSTED
 
