@@ -1030,7 +1030,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   }
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
-
   FD_LOG_CRIT(("ASDF"));
 }
 

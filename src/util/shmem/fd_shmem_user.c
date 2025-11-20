@@ -245,11 +245,15 @@ fd_shmem_join( char const *               name,
                     path, sz>>10, errno, fd_io_strerror( errno ) ));
 
   if( !dumpable ) {
+    FD_LOG_NOTICE(("NON-DUMPABLE %s", path));
     if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
       FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
                        path, sz>>10, errno, fd_io_strerror( errno ) ));
   } else {
     FD_LOG_WARNING(("DUMPABLE %s", path));
+    if( FD_UNLIKELY( madvise( shmem, sz, MADV_DODUMP ) ) )
+      FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
+                       path, sz>>10, errno, fd_io_strerror( errno ) ));
   }
 
   /* We have mapped the region.  Try to complete the join.  Note:
