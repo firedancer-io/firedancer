@@ -66,20 +66,15 @@
                                  ulong    cnt,
                                  ulong    rnk );
 
-     // Binary search for element greater or equal to key in a sorted
-     // list.  Return value is an index into sorted in [0,cnt].  If
-     // return value > 0 then it is the largest index where
-     // SORT_BEFORE(sorted[index-1],query)==1.   Returns 0 if
-     // SORT_BEFORE(query,elem)==1 for all elements in sorted.  Assumes
-     // SORT_BEFORE defines a total order over sorted, and each element
-     // in sorted is less-or-equal than its successor.  (Returns
-     // incorrect result otherwise!)   Robust if cnt==0 (in that case,
-     // returns 0 and ignores pointer to sorted).
+     // Given a sorted array sorted indexed [0,cnt),
+     // sort_double_descend_split returns an index i in [0,cnt] such all
+     // entries in [0,i) are BEFORE query and all entries [i,cnt) are
+     // NOT BEFORE query.
 
      ulong
-     sort_double_descend_search_geq( double const * sorted,
-                                     ulong          cnt,
-                                     double         query );
+     sort_double_descend_split( double const * sorted,
+                                ulong          cnt,
+                                double         query );
 
      // sort_double_descend_{stable_fast,stable,inplace}_para is the
      // same as // above is adaptively parallelized over the caller
@@ -302,20 +297,36 @@ SORT_(select)( SORT_KEY_T * key,
 }
 
 static inline SORT_IDX_T
-SORT_(search_geq)( SORT_KEY_T const * sorted,
-                   SORT_IDX_T         cnt,
-                   SORT_KEY_T         query ) {
+SORT_(split)( SORT_KEY_T const * sorted,
+              SORT_IDX_T         cnt,
+              SORT_KEY_T         query ) {
   SORT_IDX_T j = (SORT_IDX_T)0;
-  SORT_IDX_T n = (SORT_IDX_T)cnt;
-  while( n>((SORT_IDX_T)1) ) {
-    /* At this point the j corresponding to k is in [j,j+n) */
-    SORT_IDX_T j_left  = j;          SORT_IDX_T n_left  = n >> 1;
-    SORT_IDX_T j_right = j + n_left; SORT_IDX_T n_right = n - n_left;
-    int  go_left = SORT_BEFORE( query, sorted[ j_right ] );
-    j = go_left ? j_left : j_right; /* branchless */
-    n = go_left ? n_left : n_right; /* branchless */
+  SORT_IDX_T k = (SORT_IDX_T)cnt;
+  for(;;) {
+    SORT_IDX_T n = k-j;
+    if( FD_UNLIKELY( n<(SORT_IDX_T)1 ) ) break;
+
+    /* At this point, entries [0,j) are known "lt"  query (i.e. before),
+                      entries [j,k) are unknown (this range is non-empty and sorted),
+                      entries [k,n) are known "geq" query (i.e. not before)
+       Test the entry in the middle of the unknown range. */
+
+    SORT_IDX_T m = j + (n>>1);
+
+    int c = SORT_BEFORE( sorted[ m ], query );
+
+    /* At this point:
+        If c is 1, entry m is     before query.  As such, entries [0,m] are all known "lt"  query and range (m,k) is unknown now.
+        If c is 0, entry m is not before query.  As such, entries [m,n) are all known "geq" query and range [j,m) is unknown now. */
+
+    j = c ? (m+(SORT_IDX_T)1) : j; /* cmov */
+    k = c ?  k                : m; /* cmov */
   }
-  return j;
+
+  /* At this point, [0,j) are known "lt" query and [k,n) are known
+     "geq" query and j==k such that [j,k) is an empty range. */
+
+  return k;
 }
 
 #if SORT_PARALLEL
