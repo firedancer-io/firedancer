@@ -1545,6 +1545,14 @@ user = ""
     # enabled during routine running of the validator.
     core_dump = true
 
+    # By default, if core_dump is set to true, the workspace memory is
+    # not included in the dump.  This is done via a call to
+    # madvise( shmem, sz, MADV_DONTDUMP ) which effectively sets it so
+    # the shared memory region that corresponds to the wksp's memory is
+    # not included in the dump.  If dump_wksp_mem is true, core runtime
+    # wksp's memory will be included in the dump.
+    dump_wksp_mem = false
+
     # A hard fork occurs when our validator has some implementation
     # difference in consensus rules and gets a different blockhash for
     # a given slot than the rest of the cluster.

@@ -43,7 +43,7 @@ main( int     argc,
     FD_LOG_NOTICE(( "Joining to --name %s", name ));
 
     fd_shmem_join_info_t info[1];
-    volume     = (fd_groove_volume_t *)fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info ); /* logs details */
+    volume     = (fd_groove_volume_t *)fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info, 0 ); /* logs details */
     if( FD_UNLIKELY( !volume ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
     page_sz    = info->page_sz;
     page_cnt   = info->page_cnt;

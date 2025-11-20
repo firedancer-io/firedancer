@@ -132,7 +132,10 @@ fd_shmem_join( char const *               name,
                int                        mode,
                fd_shmem_joinleave_func_t  join_func,
                void *                     context,
-               fd_shmem_join_info_t *     opt_info ) {
+               fd_shmem_join_info_t *     opt_info,
+               int                        dumpable ) {
+
+  (void)dumpable;
 
   /* Check input args */
 
@@ -241,9 +244,13 @@ fd_shmem_join( char const *               name,
     FD_LOG_WARNING(( "fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
                     path, sz>>10, errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
-    FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
-                     path, sz>>10, errno, fd_io_strerror( errno ) ));
+  if( !dumpable ) {
+    if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
+      FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
+                       path, sz>>10, errno, fd_io_strerror( errno ) ));
+  } else {
+    FD_LOG_WARNING(("DUMPABLE %s", path));
+  }
 
   /* We have mapped the region.  Try to complete the join.  Note:
      map_query above and map_insert could be combined to improve

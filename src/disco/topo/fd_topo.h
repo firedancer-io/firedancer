@@ -42,6 +42,8 @@ typedef struct {
   ulong min_part_max; /* Artificially raise part_max */
   ulong min_loose_sz; /* Artificially raise loose footprint */
 
+  int   dumpable;     /* If the workspace's memory should be included in coredumps. */
+
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     ulong page_sz;  /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */

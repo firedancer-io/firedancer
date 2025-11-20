@@ -156,6 +156,10 @@ FD_PROTOTYPES_BEGIN
    IT will log extensive details if there is any wonkiness under the
    hood.  The caller may wish to proceed even if it fails.
 
+   If dumpable is set to a non-zero value, the shared memory region's
+   memory will be dumped along with a coredump.  This is a debugging
+   feature and should not be used in a production environment.
+
    IMPORTANT!  It is safe to have join/leave functions themselves call
    fd_shmem_join/fd_shmem_leave to join additional regions as necessary.
    This allows very complex interdependent shared memory topologies to
@@ -172,7 +176,8 @@ fd_shmem_join( char const *               name,
                int                        mode,
                fd_shmem_joinleave_func_t  join_func,
                void *                     context,
-               fd_shmem_join_info_t *     opt_info );
+               fd_shmem_join_info_t *     opt_info,
+               int                        dumpable );
 
 int
 fd_shmem_leave( void *                    join,

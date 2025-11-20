@@ -937,7 +937,7 @@ mock_privileged_init( fd_topo_t      * topo,
   FD_TEST( CRANK_WKSP_SIZE > fd_wksp_footprint( part_max, 1UL ) );
   fd_wksp_t * crank_wksp = fd_wksp_join( fd_wksp_new( (void *)crank_scratch, "crank_wksp", 1234U, part_max, data_max ) );
   fd_shmem_join_anonymous( "crank_wksp", FD_SHMEM_JOIN_MODE_READ_WRITE, crank_wksp, crank_scratch, FD_SHMEM_NORMAL_PAGE_SZ, sizeof(crank_scratch)>>FD_SHMEM_NORMAL_LG_PAGE_SZ );
-  fd_topob_wksp( topo, "crank_wksp" );
+  fd_topob_wksp( topo, "crank_wksp", 0 );
 
   /* Sign in link */
   fd_topo_link_t * sign_in_link       = fd_topob_link( topo, "sign_pack", "crank_wksp", 128, 0, 1UL );

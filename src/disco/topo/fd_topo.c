@@ -28,7 +28,7 @@ fd_topo_join_workspace( fd_topo_t *      topo,
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
-  wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, NULL, NULL, NULL ) );
+  wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, NULL, NULL, NULL, wksp->dumpable ) );
   if( FD_UNLIKELY( !wksp->wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
 }
 
@@ -101,7 +101,7 @@ fd_topo_create_workspace( fd_topo_t *      topo,
   if( FD_UNLIKELY( err && errno==ENOMEM ) ) return -1;
   else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
 
-  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
+  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL, 0 ); /* logs details */
 
   void * wkspmem = fd_wksp_new( shmem, name, 0U, wksp->part_max, wksp->total_footprint ); /* logs details */
   if( FD_UNLIKELY( !wkspmem ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));

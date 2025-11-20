@@ -278,6 +278,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );
   CFG_POP      ( bool,   development.core_dump                            );
+  CFG_POP      ( bool,   development.dump_wksp_mem                        );
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
 

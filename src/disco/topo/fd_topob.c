@@ -33,7 +33,8 @@ fd_topob_new( void * mem,
 
 fd_topo_wksp_t *
 fd_topob_wksp( fd_topo_t *  topo,
-               char const * name ) {
+               char const * name,
+               int          dumpable ) {
   if( FD_UNLIKELY( !topo || !name || !strlen( name ) ) ) FD_LOG_ERR(( "NULL args" ));
   if( FD_UNLIKELY( strlen( name )>=sizeof(topo->workspaces[ topo->wksp_cnt ].name ) ) ) FD_LOG_ERR(( "wksp name too long: %s", name ));
   if( FD_UNLIKELY( topo->wksp_cnt>=FD_TOPO_MAX_WKSPS ) ) FD_LOG_ERR(( "too many workspaces" ));
@@ -41,6 +42,7 @@ fd_topob_wksp( fd_topo_t *  topo,
   fd_topo_wksp_t * wksp = &topo->workspaces[ topo->wksp_cnt ];
   strncpy( wksp->name, name, sizeof(wksp->name) );
   wksp->id = topo->wksp_cnt;
+  wksp->dumpable = dumpable;
   topo->wksp_cnt++;
   return wksp;
 }

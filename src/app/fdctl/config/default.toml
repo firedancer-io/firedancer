@@ -1494,6 +1494,14 @@ dynamic_port_range = "8900-9000"
     # enabled during routine running of the validator.
     core_dump = false
 
+    # By default, if core_dump is set to true, the workspace memory is
+    # not included in the dump.  This is done via a call to
+    # madvise( shmem, sz, MADV_DONTDUMP ) which effectively sets it so
+    # the shared memory region that corresponds to the wksp's memory is
+    # not included in the dump.  This flag is currently a no-op in the
+    # Frankedancer validator.
+    dump_wksp_mem = false
+
     # Firedancer currently hosts a Agave client as a child process
     # when it starts up, to provide functionality that has not yet been
     # implemented. For development sometimes it is desirable to not

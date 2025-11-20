@@ -156,7 +156,7 @@ setup_topo_txncache( fd_topo_t *  topo,
 void
 setup_topo_vinyl_meta( fd_topo_t *    topo,
                        fd_configf_t * config ) {
-  fd_topob_wksp( topo, "vinyl_meta" );
+  fd_topob_wksp( topo, "vinyl_meta", 0 );
 
   fd_topo_obj_t * map_obj = fd_topob_obj( topo, "vinyl_meta", "vinyl_meta" );
   ulong const meta_max  = fd_ulong_pow2_up( config->vinyl.max_account_records );
@@ -177,7 +177,7 @@ setup_topo_vinyl_meta( fd_topo_t *    topo,
 fd_topo_obj_t *
 setup_topo_vinyl_cache( fd_topo_t *    topo,
                         fd_configf_t * config ) {
-  fd_topob_wksp( topo, "vinyl_data" );
+  fd_topob_wksp( topo, "vinyl_data", 0 );
   fd_topo_obj_t * line_obj = fd_topob_obj( topo, "vinyl_data", "vinyl_data" );
   ulong const heap_max = config->vinyl.cache_size_gib<<30;
   fd_pod_insertf_ulong( topo->props, heap_max, "obj.%lu.data_sz", line_obj->id );
@@ -285,121 +285,109 @@ fd_topo_initialize( config_t * config ) {
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
+  int runtime_wksp_dumpable = config->development.dump_wksp_mem;
+
   /*             topo, name */
-  fd_topob_wksp( topo, "metric"       );
-  fd_topob_wksp( topo, "genesi"       );
-  fd_topob_wksp( topo, "ipecho"       );
-  fd_topob_wksp( topo, "gossvf"       );
-  fd_topob_wksp( topo, "gossip"       );
-  fd_topob_wksp( topo, "shred"        );
-  fd_topob_wksp( topo, "repair"       );
-  fd_topob_wksp( topo, "replay"       );
-  fd_topob_wksp( topo, "exec"         );
-  fd_topob_wksp( topo, "tower"        );
-  fd_topob_wksp( topo, "send"         );
-
-  fd_topob_wksp( topo, "quic"         );
-  fd_topob_wksp( topo, "verify"       );
-  fd_topob_wksp( topo, "dedup"        );
-  fd_topob_wksp( topo, "resolv"       );
-  fd_topob_wksp( topo, "pack"         );
-  fd_topob_wksp( topo, "bank"         );
-  fd_topob_wksp( topo, "poh"          );
-  fd_topob_wksp( topo, "sign"         );
-
-  fd_topob_wksp( topo, "metric_in"    );
-
-  fd_topob_wksp( topo, "net_gossip"   );
-  fd_topob_wksp( topo, "net_shred"    );
-  fd_topob_wksp( topo, "net_repair"   );
-  fd_topob_wksp( topo, "net_send"     );
-  fd_topob_wksp( topo, "net_quic"     );
-
-  fd_topob_wksp( topo, "genesi_out"   );
-  fd_topob_wksp( topo, "ipecho_out"   );
-  fd_topob_wksp( topo, "gossvf_gossi" );
-  fd_topob_wksp( topo, "gossip_gossv" );
-  fd_topob_wksp( topo, "gossip_out"   );
-
-  fd_topob_wksp( topo, "shred_out"    );
-  fd_topob_wksp( topo, "replay_stake" );
-  fd_topob_wksp( topo, "replay_exec"  );
-  fd_topob_wksp( topo, "replay_out"   );
-  fd_topob_wksp( topo, "tower_out"    );
-  fd_topob_wksp( topo, "send_out"     );
-
-  fd_topob_wksp( topo, "quic_verify"  );
-  fd_topob_wksp( topo, "verify_dedup" );
-  fd_topob_wksp( topo, "dedup_resolv" );
-  fd_topob_wksp( topo, "resolv_pack"  );
-  fd_topob_wksp( topo, "pack_poh"     );
-  fd_topob_wksp( topo, "pack_bank"    );
-  fd_topob_wksp( topo, "resolv_repla" );
+  fd_topob_wksp( topo, "metric",       0 );
+  fd_topob_wksp( topo, "genesi",       0 );
+  fd_topob_wksp( topo, "ipecho",       0 );
+  fd_topob_wksp( topo, "gossvf",       0 );
+  fd_topob_wksp( topo, "gossip",       0 );
+  fd_topob_wksp( topo, "shred",        0 );
+  fd_topob_wksp( topo, "repair",       0 );
+  fd_topob_wksp( topo, "replay",       runtime_wksp_dumpable );
+  fd_topob_wksp( topo, "exec",         0 );
+  fd_topob_wksp( topo, "tower",        runtime_wksp_dumpable );
+  fd_topob_wksp( topo, "send",         0 );
+  fd_topob_wksp( topo, "quic",         0 );
+  fd_topob_wksp( topo, "verify",       0 );
+  fd_topob_wksp( topo, "dedup",        0 );
+  fd_topob_wksp( topo, "resolv",       0 );
+  fd_topob_wksp( topo, "pack",         0 );
+  fd_topob_wksp( topo, "bank",         0 );
+  fd_topob_wksp( topo, "poh",          0 );
+  fd_topob_wksp( topo, "sign",         0 );
+  fd_topob_wksp( topo, "metric_in",    0 );
+  fd_topob_wksp( topo, "net_gossip",   0 );
+  fd_topob_wksp( topo, "net_shred",    0 );
+  fd_topob_wksp( topo, "net_repair",   0 );
+  fd_topob_wksp( topo, "net_send",     0 );
+  fd_topob_wksp( topo, "net_quic",     0 );
+  fd_topob_wksp( topo, "genesi_out",   0 );
+  fd_topob_wksp( topo, "ipecho_out",   0 );
+  fd_topob_wksp( topo, "gossvf_gossi", 0 );
+  fd_topob_wksp( topo, "gossip_gossv", 0 );
+  fd_topob_wksp( topo, "gossip_out",   0 );
+  fd_topob_wksp( topo, "shred_out",    0 );
+  fd_topob_wksp( topo, "replay_stake", 0 );
+  fd_topob_wksp( topo, "replay_exec",  0 );
+  fd_topob_wksp( topo, "replay_out",   0 );
+  fd_topob_wksp( topo, "tower_out",    0 );
+  fd_topob_wksp( topo, "send_out",     0 );
+  fd_topob_wksp( topo, "quic_verify",  0 );
+  fd_topob_wksp( topo, "verify_dedup", 0 );
+  fd_topob_wksp( topo, "dedup_resolv", 0 );
+  fd_topob_wksp( topo, "resolv_pack",  0 );
+  fd_topob_wksp( topo, "pack_poh",     0 );
+  fd_topob_wksp( topo, "pack_bank",    0 );
+  fd_topob_wksp( topo, "resolv_repla", 0 );
   if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
-    fd_topob_wksp( topo, "bank_pack"  );
+    fd_topob_wksp( topo, "bank_pack", 0 );
   }
-  fd_topob_wksp( topo, "bank_poh"     );
-  fd_topob_wksp( topo, "bank_busy"    );
-  fd_topob_wksp( topo, "poh_shred"    );
-  fd_topob_wksp( topo, "poh_replay"   );
-
-  fd_topob_wksp( topo, "funk"         );
-  fd_topob_wksp( topo, "progcache"    );
-  fd_topob_wksp( topo, "fec_sets"     );
-  fd_topob_wksp( topo, "txncache"     );
-  fd_topob_wksp( topo, "banks"        );
-  fd_topob_wksp( topo, "store"        );
-  fd_topob_wksp( topo, "executed_txn" );
-
-  fd_topob_wksp( topo, "gossip_sign"  );
-  fd_topob_wksp( topo, "sign_gossip"  );
-
-  fd_topob_wksp( topo, "shred_sign"   );
-  fd_topob_wksp( topo, "sign_shred"   );
-
-  fd_topob_wksp( topo, "repair_sign"  );
-  fd_topob_wksp( topo, "sign_repair"  );
-
-  fd_topob_wksp( topo, "send_sign"    );
-  fd_topob_wksp( topo, "sign_send"    );
-
-  fd_topob_wksp( topo, "exec_sig"     );
-
-  fd_topob_wksp( topo, "cswtch"       );
-
-  fd_topob_wksp( topo, "exec_replay"  );
+  fd_topob_wksp( topo, "bank_poh",     0 );
+  fd_topob_wksp( topo, "bank_busy",    0 );
+  fd_topob_wksp( topo, "poh_shred",    0 );
+  fd_topob_wksp( topo, "poh_replay",   0 );
+  fd_topob_wksp( topo, "funk",         0 );
+  fd_topob_wksp( topo, "progcache",    0 );
+  fd_topob_wksp( topo, "fec_sets",     0 );
+  fd_topob_wksp( topo, "txncache",     0 );
+  fd_topob_wksp( topo, "banks",        0 );
+  fd_topob_wksp( topo, "store",        0 );
+  fd_topob_wksp( topo, "executed_txn", 0 );
+  fd_topob_wksp( topo, "gossip_sign",  0 );
+  fd_topob_wksp( topo, "sign_gossip",  0 );
+  fd_topob_wksp( topo, "shred_sign",   0 );
+  fd_topob_wksp( topo, "sign_shred",   0 );
+  fd_topob_wksp( topo, "repair_sign",  0 );
+  fd_topob_wksp( topo, "sign_repair",  0 );
+  fd_topob_wksp( topo, "send_sign",    0 );
+  fd_topob_wksp( topo, "sign_send",    0 );
+  fd_topob_wksp( topo, "exec_sig",     0 );
+  fd_topob_wksp( topo, "cswtch",       0 );
+  fd_topob_wksp( topo, "exec_replay",  0 );
 
   if( FD_LIKELY( snapshots_enabled ) ) {
-    fd_topob_wksp( topo, "snapct"      );
-    fd_topob_wksp( topo, "snapld"      );
-    fd_topob_wksp( topo, "snapdc"      );
-    fd_topob_wksp( topo, "snapin"      );
+    fd_topob_wksp( topo, "snapct",     0 );
+    fd_topob_wksp( topo, "snapld",     0 );
+    fd_topob_wksp( topo, "snapdc",     0 );
+    fd_topob_wksp( topo, "snapin",     0 );
     if( vinyl_enabled ) {
-      fd_topob_wksp( topo, "snapwh" );
-      fd_topob_wksp( topo, "snapwr" );
+      fd_topob_wksp( topo, "snapwh", 0 );
+      fd_topob_wksp( topo, "snapwr", 0 );
     }
 
-    fd_topob_wksp( topo, "snapct_ld"   );
-    fd_topob_wksp( topo, "snapld_dc"   );
-    fd_topob_wksp( topo, "snapdc_in"   );
-    if( vinyl_enabled ) fd_topob_wksp( topo, "snapin_wr" );
+    fd_topob_wksp( topo, "snapct_ld",  0 );
+    fd_topob_wksp( topo, "snapld_dc",  0 );
+    fd_topob_wksp( topo, "snapdc_in",  0 );
+    if( vinyl_enabled ) fd_topob_wksp( topo, "snapin_wr", 0 );
 
     if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
-      fd_topob_wksp( topo, "snapin_ct" );
+      fd_topob_wksp( topo, "snapin_ct", 0 );
     } else {
-      fd_topob_wksp( topo, "snapls_ct" );
+      fd_topob_wksp( topo, "snapls_ct", 0 );
     }
 
-    if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapct_gui"  );
-    if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapin_gui"  );
-    fd_topob_wksp( topo, "snapin_manif" );
-    fd_topob_wksp( topo, "snapct_repr"  );
+    if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapct_gui", 0 );
+    if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapin_gui", 0 );
+    fd_topob_wksp( topo, "snapin_manif", 0 );
+    fd_topob_wksp( topo, "snapct_repr",  0 );
 
     if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
-      fd_topob_wksp( topo, "snapla"    );
-      fd_topob_wksp( topo, "snapls"    );
-      fd_topob_wksp( topo, "snapla_ls" );
-      fd_topob_wksp( topo, "snapin_ls" );
+      fd_topob_wksp( topo, "snapla",    0 );
+      fd_topob_wksp( topo, "snapls",    0 );
+      fd_topob_wksp( topo, "snapla_ls", 0 );
+      fd_topob_wksp( topo, "snapin_ls", 0 );
     }
   }
 
@@ -729,12 +717,12 @@ fd_topo_initialize( config_t * config ) {
 
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-    fd_topob_wksp( topo, "bundle_verif" );
-    fd_topob_wksp( topo, "bundle_sign"  );
-    fd_topob_wksp( topo, "sign_bundle"  );
-    fd_topob_wksp( topo, "pack_sign"    );
-    fd_topob_wksp( topo, "sign_pack"    );
-    fd_topob_wksp( topo, "bundle"       );
+    fd_topob_wksp( topo, "bundle_verif", 0 );
+    fd_topob_wksp( topo, "bundle_sign",  0 );
+    fd_topob_wksp( topo, "sign_bundle",  0 );
+    fd_topob_wksp( topo, "pack_sign",    0 );
+    fd_topob_wksp( topo, "sign_pack",    0 );
+    fd_topob_wksp( topo, "bundle",       0 );
 
     /**/                 fd_topob_link( topo, "bundle_verif", "bundle_verif", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,         1UL );
     /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  65536UL,                                  9UL,                       1UL );
@@ -790,10 +778,10 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_send",    0UL                                                  );
 
   if( FD_UNLIKELY( config->tiles.archiver.enabled ) ) {
-    fd_topob_wksp( topo, "arch_f" );
-    fd_topob_wksp( topo, "arch_w" );
-    fd_topob_wksp( topo, "feeder" );
-    fd_topob_wksp( topo, "arch_f2w" );
+    fd_topob_wksp( topo, "arch_f",   0 );
+    fd_topob_wksp( topo, "arch_w",   0 );
+    fd_topob_wksp( topo, "feeder",   0 );
+    fd_topob_wksp( topo, "arch_f2w", 0 );
 
     fd_topob_link( topo, "feeder", "feeder", 65536UL, 4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
     fd_topob_link( topo, "arch_f2w", "arch_f2w", 128UL, 4UL*FD_SHRED_STORE_MTU, 1UL );
@@ -809,7 +797,7 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( FD_UNLIKELY( config->tiles.shredcap.enabled ) ) {
-    fd_topob_wksp( topo, "scap" );
+    fd_topob_wksp( topo, "scap", 0 );
 
     fd_topob_tile( topo, "scap", "scap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
@@ -829,8 +817,8 @@ fd_topo_initialize( config_t * config ) {
 
   int rpc_enabled = config->tiles.rpc.enabled;
   if( FD_UNLIKELY( rpc_enabled ) ) {
-    fd_topob_wksp( topo, "rpc" );
-    fd_topob_wksp( topo, "rpc_replay" );
+    fd_topob_wksp( topo, "rpc", 0 );
+    fd_topob_wksp( topo, "rpc_replay", 0 );
     fd_topob_link( topo, "rpc_replay", "rpc_replay", 4UL, 0UL, 1UL );
     fd_topob_tile( topo, "rpc",  "rpc",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
     fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
@@ -898,7 +886,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
-    fd_topob_wksp( topo, "gui" );
+    fd_topob_wksp( topo, "gui", 0 );
 
     /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
 
