@@ -1167,6 +1167,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.larger_max_cost_per_block = config->development.bench.larger_max_cost_per_block;
 
+    strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
+
     /* not specified by [tiles.replay] */
 
     strncpy( tile->replay.identity_key_path, config->paths.identity_key, sizeof(tile->replay.identity_key_path) );
