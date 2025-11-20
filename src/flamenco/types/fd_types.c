@@ -2566,6 +2566,35 @@ void fd_landed_vote_walk( void * w, fd_landed_vote_t const * self, fd_types_walk
   fd_vote_lockout_walk( w, &self->lockout, fun, "lockout", level, 0 );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_landed_vote", level--, 0 );
 }
+int fd_bls_pubkey_compressed_encode( fd_bls_pubkey_compressed_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_bytes_encode( self->buf, 48, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+static inline int fd_bls_pubkey_compressed_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( (ulong)ctx->data + 48UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = (void *)( (ulong)ctx->data + 48UL );
+  return 0;
+}
+static void fd_bls_pubkey_compressed_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bls_pubkey_compressed_t * self = (fd_bls_pubkey_compressed_t *)struct_mem;
+  fd_bincode_bytes_decode_unsafe( self->buf, 48, ctx );
+}
+void * fd_bls_pubkey_compressed_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bls_pubkey_compressed_t * self = (fd_bls_pubkey_compressed_t *)mem;
+  fd_bls_pubkey_compressed_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_bls_pubkey_compressed_t);
+  void * * alloc_mem = &alloc_region;
+  fd_bls_pubkey_compressed_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_bls_pubkey_compressed_walk( void * w, fd_bls_pubkey_compressed_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
+  (void) varint;
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_bls_pubkey_compressed", level++, 0 );
+  fun(w, self->buf, "buf", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_bls_pubkey_compressed", level--, 0 );
+}
 int fd_vote_state_0_23_5_encode( fd_vote_state_0_23_5_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_pubkey_encode( &self->node_pubkey, ctx );
@@ -3363,6 +3392,291 @@ ulong fd_vote_state_size( fd_vote_state_t const * self ) {
   return size;
 }
 
+int fd_vote_state_v4_encode( fd_vote_state_v4_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->node_pubkey, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_encode( &self->authorized_withdrawer, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_encode( &self->inflation_rewards_collector, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_encode( &self->block_revenue_collector, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( self->inflation_rewards_commission_bps, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( self->block_revenue_commission_bps, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->pending_delegator_rewards, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_bool_encode( self->has_bls_pubkey_compressed, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_bls_pubkey_compressed ) {
+    err = fd_bls_pubkey_compressed_encode( &self->bls_pubkey_compressed, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  if( self->votes ) {
+    ulong votes_len = deq_fd_landed_vote_t_cnt( self->votes );
+    err = fd_bincode_uint64_encode( votes_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( self->votes ); !deq_fd_landed_vote_t_iter_done( self->votes, iter ); iter = deq_fd_landed_vote_t_iter_next( self->votes, iter ) ) {
+      fd_landed_vote_t const * ele = deq_fd_landed_vote_t_iter_ele_const( self->votes, iter );
+      err = fd_landed_vote_encode( ele, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  } else {
+    ulong votes_len = 0;
+    err = fd_bincode_uint64_encode( votes_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_bincode_bool_encode( self->has_root_slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_root_slot ) {
+    err = fd_bincode_uint64_encode( self->root_slot, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_vote_authorized_voters_encode( &self->authorized_voters, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->epoch_credits ) {
+    ulong epoch_credits_len = deq_fd_vote_epoch_credits_t_cnt( self->epoch_credits );
+    err = fd_bincode_uint64_encode( epoch_credits_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
+      fd_vote_epoch_credits_t const * ele = deq_fd_vote_epoch_credits_t_iter_ele_const( self->epoch_credits, iter );
+      err = fd_vote_epoch_credits_encode( ele, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  } else {
+    ulong epoch_credits_len = 0;
+    err = fd_bincode_uint64_encode( epoch_credits_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_vote_block_timestamp_encode( &self->last_timestamp, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+static int fd_vote_state_v4_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  int err = 0;
+  err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint16_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bls_pubkey_compressed_decode_footprint_inner( ctx, total_sz );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  ulong votes_len;
+  err = fd_bincode_uint64_decode( &votes_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  ulong votes_max = fd_ulong_max( votes_len, 32 );
+  *total_sz += deq_fd_landed_vote_t_align() + deq_fd_landed_vote_t_footprint( votes_max );
+  ulong votes_sz;
+  if( FD_UNLIKELY( __builtin_umull_overflow( votes_len, 13, &votes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  err = fd_bincode_bytes_decode_footprint( votes_sz, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_footprint( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  err = fd_vote_authorized_voters_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  ulong epoch_credits_len;
+  err = fd_bincode_uint64_decode( &epoch_credits_len, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
+  *total_sz += deq_fd_vote_epoch_credits_t_align() + deq_fd_vote_epoch_credits_t_footprint( epoch_credits_max );
+  ulong epoch_credits_sz;
+  if( FD_UNLIKELY( __builtin_umull_overflow( epoch_credits_len, 24, &epoch_credits_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  err = fd_bincode_bytes_decode_footprint( epoch_credits_sz, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_vote_block_timestamp_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  return 0;
+}
+int fd_vote_state_v4_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_vote_state_v4_t);
+  void const * start_data = ctx->data;
+  int err = fd_vote_state_v4_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = start_data;
+  return err;
+}
+static void fd_vote_state_v4_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_vote_state_v4_t * self = (fd_vote_state_v4_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->node_pubkey, alloc_mem, ctx );
+  fd_pubkey_decode_inner( &self->authorized_withdrawer, alloc_mem, ctx );
+  fd_pubkey_decode_inner( &self->inflation_rewards_collector, alloc_mem, ctx );
+  fd_pubkey_decode_inner( &self->block_revenue_collector, alloc_mem, ctx );
+  fd_bincode_uint16_decode_unsafe( &self->inflation_rewards_commission_bps, ctx );
+  fd_bincode_uint16_decode_unsafe( &self->block_revenue_commission_bps, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->pending_delegator_rewards, ctx );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_bls_pubkey_compressed = !!o;
+    if( o ) {
+      fd_bls_pubkey_compressed_new( &self->bls_pubkey_compressed );
+      fd_bls_pubkey_compressed_decode_inner( &self->bls_pubkey_compressed, alloc_mem, ctx );
+    }
+  }
+  ulong votes_len;
+  fd_bincode_uint64_decode_unsafe( &votes_len, ctx );
+  ulong votes_max = fd_ulong_max( votes_len, 32 );
+  self->votes = deq_fd_landed_vote_t_join_new( alloc_mem, votes_max );
+  for( ulong i=0; i < votes_len; i++ ) {
+    fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( self->votes );
+    fd_landed_vote_new( elem );
+    fd_landed_vote_decode_inner( elem, alloc_mem, ctx );
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root_slot = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root_slot, ctx );
+    }
+  }
+  fd_vote_authorized_voters_decode_inner( &self->authorized_voters, alloc_mem, ctx );
+  ulong epoch_credits_len;
+  fd_bincode_uint64_decode_unsafe( &epoch_credits_len, ctx );
+  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
+  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
+  for( ulong i=0; i < epoch_credits_len; i++ ) {
+    fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( self->epoch_credits );
+    fd_vote_epoch_credits_new( elem );
+    fd_vote_epoch_credits_decode_inner( elem, alloc_mem, ctx );
+  }
+  fd_vote_block_timestamp_decode_inner( &self->last_timestamp, alloc_mem, ctx );
+}
+void * fd_vote_state_v4_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_vote_state_v4_t * self = (fd_vote_state_v4_t *)mem;
+  fd_vote_state_v4_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_vote_state_v4_t);
+  void * * alloc_mem = &alloc_region;
+  fd_vote_state_v4_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_vote_state_v4_new(fd_vote_state_v4_t * self) {
+  fd_memset( self, 0, sizeof(fd_vote_state_v4_t) );
+  fd_pubkey_new( &self->node_pubkey );
+  fd_pubkey_new( &self->authorized_withdrawer );
+  fd_pubkey_new( &self->inflation_rewards_collector );
+  fd_pubkey_new( &self->block_revenue_collector );
+  fd_vote_authorized_voters_new( &self->authorized_voters );
+  fd_vote_block_timestamp_new( &self->last_timestamp );
+}
+void fd_vote_state_v4_walk( void * w, fd_vote_state_v4_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
+  (void) varint;
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_state_v4", level++, 0 );
+  fd_pubkey_walk( w, &self->node_pubkey, fun, "node_pubkey", level, 0 );
+  fd_pubkey_walk( w, &self->authorized_withdrawer, fun, "authorized_withdrawer", level, 0 );
+  fd_pubkey_walk( w, &self->inflation_rewards_collector, fun, "inflation_rewards_collector", level, 0 );
+  fd_pubkey_walk( w, &self->block_revenue_collector, fun, "block_revenue_collector", level, 0 );
+  fun( w, &self->inflation_rewards_commission_bps, "inflation_rewards_commission_bps", FD_FLAMENCO_TYPE_USHORT, "ushort", level, 0  );
+  fun( w, &self->block_revenue_commission_bps, "block_revenue_commission_bps", FD_FLAMENCO_TYPE_USHORT, "ushort", level, 0  );
+  fun( w, &self->pending_delegator_rewards, "pending_delegator_rewards", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
+  if( !self->has_bls_pubkey_compressed ) {
+    fun( w, NULL, "bls_pubkey_compressed", FD_FLAMENCO_TYPE_NULL, "bls_pubkey_compressed", level, 0 );
+  } else {
+    fd_bls_pubkey_compressed_walk( w, &self->bls_pubkey_compressed, fun, "bls_pubkey_compressed", level, 0 );
+  }
+
+  /* Walk deque */
+  fun( w, self->votes, "votes", FD_FLAMENCO_TYPE_ARR, "votes", level++, 0 );
+  if( self->votes ) {
+    for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( self->votes );
+         !deq_fd_landed_vote_t_iter_done( self->votes, iter );
+         iter = deq_fd_landed_vote_t_iter_next( self->votes, iter ) ) {
+      fd_landed_vote_t * ele = deq_fd_landed_vote_t_iter_ele( self->votes, iter );
+      fd_landed_vote_walk(w, ele, fun, "votes", level, 0 );
+    }
+  }
+  fun( w, self->votes, "votes", FD_FLAMENCO_TYPE_ARR_END, "votes", level--, 0 );
+  /* Done walking deque */
+
+  if( !self->has_root_slot ) {
+    fun( w, NULL, "root_slot", FD_FLAMENCO_TYPE_NULL, "ulong", level, 0 );
+  } else {
+    fun( w, &self->root_slot, "root_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0 );
+  }
+  fd_vote_authorized_voters_walk( w, &self->authorized_voters, fun, "authorized_voters", level, 0 );
+
+  /* Walk deque */
+  fun( w, self->epoch_credits, "epoch_credits", FD_FLAMENCO_TYPE_ARR, "epoch_credits", level++, 0 );
+  if( self->epoch_credits ) {
+    for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits );
+         !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter );
+         iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
+      fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
+      fd_vote_epoch_credits_walk(w, ele, fun, "epoch_credits", level, 0 );
+    }
+  }
+  fun( w, self->epoch_credits, "epoch_credits", FD_FLAMENCO_TYPE_ARR_END, "epoch_credits", level--, 0 );
+  /* Done walking deque */
+
+  fd_vote_block_timestamp_walk( w, &self->last_timestamp, fun, "last_timestamp", level, 0 );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_state_v4", level--, 0 );
+}
+ulong fd_vote_state_v4_size( fd_vote_state_v4_t const * self ) {
+  ulong size = 0;
+  size += fd_pubkey_size( &self->node_pubkey );
+  size += fd_pubkey_size( &self->authorized_withdrawer );
+  size += fd_pubkey_size( &self->inflation_rewards_collector );
+  size += fd_pubkey_size( &self->block_revenue_collector );
+  size += sizeof(ushort);
+  size += sizeof(ushort);
+  size += sizeof(ulong);
+  size += sizeof(char);
+  if( self->has_bls_pubkey_compressed ) {
+    size += fd_bls_pubkey_compressed_size( &self->bls_pubkey_compressed );
+  }
+  if( self->votes ) {
+    size += sizeof(ulong);
+    for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( self->votes ); !deq_fd_landed_vote_t_iter_done( self->votes, iter ); iter = deq_fd_landed_vote_t_iter_next( self->votes, iter ) ) {
+      fd_landed_vote_t * ele = deq_fd_landed_vote_t_iter_ele( self->votes, iter );
+      size += fd_landed_vote_size( ele );
+    }
+  } else {
+    size += sizeof(ulong);
+  }
+  size += sizeof(char);
+  if( self->has_root_slot ) {
+    size += sizeof(ulong);
+  }
+  size += fd_vote_authorized_voters_size( &self->authorized_voters );
+  if( self->epoch_credits ) {
+    size += sizeof(ulong);
+    for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
+      fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
+      size += fd_vote_epoch_credits_size( ele );
+    }
+  } else {
+    size += sizeof(ulong);
+  }
+  size += fd_vote_block_timestamp_size( &self->last_timestamp );
+  return size;
+}
+
 FD_FN_PURE uchar fd_vote_state_versioned_is_v0_23_5(fd_vote_state_versioned_t const * self) {
   return self->discriminant == 0;
 }
@@ -3371,6 +3685,9 @@ FD_FN_PURE uchar fd_vote_state_versioned_is_v1_14_11(fd_vote_state_versioned_t c
 }
 FD_FN_PURE uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t const * self) {
   return self->discriminant == 2;
+}
+FD_FN_PURE uchar fd_vote_state_versioned_is_v4(fd_vote_state_versioned_t const * self) {
+  return self->discriminant == 3;
 }
 void fd_vote_state_versioned_inner_new( fd_vote_state_versioned_inner_t * self, uint discriminant );
 int fd_vote_state_versioned_inner_decode_footprint( uint discriminant, fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
@@ -3388,6 +3705,11 @@ int fd_vote_state_versioned_inner_decode_footprint( uint discriminant, fd_bincod
   }
   case 2: {
     err = fd_vote_state_decode_footprint_inner( ctx, total_sz );
+    if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 3: {
+    err = fd_vote_state_v4_decode_footprint_inner( ctx, total_sz );
     if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
@@ -3423,6 +3745,10 @@ static void fd_vote_state_versioned_inner_decode_inner( fd_vote_state_versioned_
     fd_vote_state_decode_inner( &self->current, alloc_mem, ctx );
     break;
   }
+  case 3: {
+    fd_vote_state_v4_decode_inner( &self->v4, alloc_mem, ctx );
+    break;
+  }
   }
 }
 static void fd_vote_state_versioned_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -3450,6 +3776,10 @@ void fd_vote_state_versioned_inner_new( fd_vote_state_versioned_inner_t * self, 
   }
   case 2: {
     fd_vote_state_new( &self->current );
+    break;
+  }
+  case 3: {
+    fd_vote_state_v4_new( &self->v4 );
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -3483,6 +3813,11 @@ void fd_vote_state_versioned_walk( void * w, fd_vote_state_versioned_t const * s
     fd_vote_state_walk( w, &self->inner.current, fun, "current", level, 0 );
     break;
   }
+  case 3: {
+    fun( w, self, "v4", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level, 0 );
+    fd_vote_state_v4_walk( w, &self->inner.v4, fun, "v4", level, 0 );
+    break;
+  }
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_vote_state_versioned", level--, 0 );
 }
@@ -3500,6 +3835,10 @@ ulong fd_vote_state_versioned_size( fd_vote_state_versioned_t const * self ) {
   }
   case 2: {
     size += fd_vote_state_size( &self->inner.current );
+    break;
+  }
+  case 3: {
+    size += fd_vote_state_v4_size( &self->inner.v4 );
     break;
   }
   }
@@ -3521,6 +3860,11 @@ int fd_vote_state_versioned_inner_encode( fd_vote_state_versioned_inner_t const 
   }
   case 2: {
     err = fd_vote_state_encode( &self->current, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 3: {
+    err = fd_vote_state_v4_encode( &self->v4, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
