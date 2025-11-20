@@ -2632,9 +2632,11 @@ try_publish_vote_status( fd_gui_t * gui, ulong _slot ) {
   if( FD_UNLIKELY( !slot || slot->vote_slot==ULONG_MAX || slot->reset_slot==ULONG_MAX ) ) return;
 
   ulong vote_distance = slot->reset_slot-slot->vote_slot;
-  for( ulong s=slot->vote_slot; s<slot->reset_slot; s++ ) {
-    fd_gui_slot_t * cur = fd_gui_get_slot( gui, s );
-    if( FD_UNLIKELY( cur && cur->skipped ) ) vote_distance--;
+  if( FD_LIKELY( vote_distance<FD_GUI_SLOTS_CNT ) ) {
+    for( ulong s=slot->vote_slot; s<slot->reset_slot; s++ ) {
+      fd_gui_slot_t * cur = fd_gui_get_slot( gui, s );
+      if( FD_UNLIKELY( cur && cur->skipped ) ) vote_distance--;
+    }
   }
 
   if( FD_UNLIKELY( gui->summary.vote_distance!=vote_distance ) ) {
