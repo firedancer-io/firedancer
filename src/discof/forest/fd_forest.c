@@ -787,7 +787,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
   fd_forest_blk_t * new_root_ele = query( forest, new_root_slot );
 
 # if FD_FOREST_USE_HANDHOLDING
-  if( FD_UNLIKELY( new_root_ele->slot <= old_root_ele->slot ) ) {
+  if( FD_UNLIKELY( new_root_ele && new_root_ele->slot <= old_root_ele->slot ) ) {
     FD_LOG_WARNING(( "tower sent us a root %lu older than forest root %lu", new_root_ele->slot, old_root_ele->slot ));
     return NULL;
   }
