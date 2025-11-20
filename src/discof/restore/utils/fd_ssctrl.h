@@ -81,6 +81,9 @@
 #define FD_SNAPSHOT_HASH_MSG_SUB              (11UL) /* Duplicate account sent from snapin to snapls, includes account header and data */
 #define FD_SNAPSHOT_HASH_MSG_SUB_HDR          (12UL) /* Duplicate account sent from snapin to snapls, only the account header, no data */
 #define FD_SNAPSHOT_HASH_MSG_SUB_DATA         (13UL) /* Duplicate account sent from snapin to snapls, only the account data, no header */
+#define FD_SNAPSHOT_HASH_MSG_SUB_VINYL_HDR    (14UL) /* Duplicate account sent from snapin to snapls, only the account header */
+#define FD_SNAPSHOT_HASH_MSG_SUB_VINYL_LTHASH (15UL) /* Duplicate account sent from snapin to snapls, only the lthash of the account */
+
 
 /* Sent by snapct to tell snapld whether to load a local file or
    download from a particular external peer. */

@@ -183,6 +183,9 @@ fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
     FD_LOG_ERR(( "fd_vinyl_io_wd_init failed" ));
   }
 
+  ctx->vinyl_op.duplicate_acc_hdr_cnt = 0;
+  ctx->vinyl_op.duplicate_acc_lthash_cnt = 0;
+  ctx->vinyl_op.duplicate_acc_to_drop = 0;
   /* Start by using io_mm */
 
   ctx->vinyl.io = ctx->vinyl.io_mm;
@@ -317,8 +320,11 @@ fd_snapin_vinyl_txn_commit( fd_snapin_tile_t * ctx ) {
         ulong exist_slot = ele->phdr.info.ul[ 1 ];
         ulong cur_slot   =      phdr.info.ul[ 1 ];
         if( exist_slot > cur_slot ) {
+          fd_snapin_send_duplicate_account_vinyl( ctx, &phdr, 0, NULL, (uchar const *)block );
           fd_memset( block, 0, block_sz );
           goto next;
+        } else {
+          fd_snapin_send_duplicate_account_vinyl( ctx, &ele->phdr, ele->seq, NULL, NULL );
         }
       }
 
@@ -421,6 +427,19 @@ bstream_push_account( fd_snapin_tile_t * ctx ) {
   uchar * pair    = ctx->vinyl_op.pair;
   ulong   pair_sz = ctx->vinyl_op.pair_sz;
 
+  if( FD_UNLIKELY( !!ctx->vinyl_op.duplicate_acc_to_drop ) ) {
+    fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)pair;
+    phdr->ctl = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_DEAD, FD_VINYL_BSTREAM_CTL_STYLE_RAW, pair_sz );
+
+    fd_snapin_send_duplicate_account_vinyl( ctx, phdr, 0, NULL, (uchar const *)pair );
+    ctx->vinyl_op.pair     = NULL;
+    ctx->vinyl_op.pair_sz  = 0UL;
+    ctx->vinyl_op.dst      = NULL;
+    ctx->vinyl_op.dst_rem  = 0UL;
+    ctx->vinyl_op.duplicate_acc_to_drop = 0;
+    return;
+  }
+
   ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
   if( ctx->full ) ctx->vinyl_op.meta_ele->seq = seq_after;
 
@@ -489,6 +508,8 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
   dst     += sizeof(fd_account_meta_t);
   dst_rem -= sizeof(fd_account_meta_t);
 
+  ctx->vinyl_op.duplicate_acc_to_drop = 0;
+
   FD_CRIT( dst_rem >= result->account_header.data_len, "corruption detected" );
   if( ctx->full ) {  /* update index immediately */
     ulong                 memo = fd_vinyl_key_memo( map->seed, &phdr->key );
@@ -499,18 +520,27 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
       /* Drop current value if existing is newer */
       ulong exist_slot = ele->phdr.info.ul[ 1 ];
       if( exist_slot > result->account_header.slot ) {
-        ctx->vinyl_op.pair = NULL;
-        return;
+        if( FD_UNLIKELY( !!ctx->lthash_disabled ) ) {
+          ctx->vinyl_op.pair = NULL;
+          return;
+        } else {
+          ele = NULL;
+        }
+      } else {
+        fd_snapin_send_duplicate_account_vinyl( ctx, &ele->phdr, ele->seq, NULL, NULL );
       }
     }
 
-    ele->memo      = memo;
-    ele->phdr.ctl  = phdr->ctl;
-    ele->phdr.key  = phdr->key;
-    ele->phdr.info = phdr->info;
-    ele->seq       = ULONG_MAX; /* later init */
-    ele->line_idx  = ULONG_MAX;
+    if( !!ele ) {
+      ele->memo      = memo;
+      ele->phdr.ctl  = phdr->ctl;
+      ele->phdr.key  = phdr->key;
+      ele->phdr.info = phdr->info;
+      ele->seq       = ULONG_MAX; /* later init */
+      ele->line_idx  = ULONG_MAX;
+    }
     ctx->vinyl_op.meta_ele = ele;
+    ctx->vinyl_op.duplicate_acc_to_drop = !ele;
   }
 
   ctx->vinyl_op.pair     = pair;
@@ -577,7 +607,8 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
   /* Insert map entries */
 
-  fd_vinyl_meta_ele_t * batch_ele[ FD_SSPARSE_ACC_BATCH_MAX ];
+  fd_vinyl_meta_ele_t *   batch_ele[ FD_SSPARSE_ACC_BATCH_MAX ];
+  fd_vinyl_bstream_phdr_t batch_phdr[ FD_SSPARSE_ACC_BATCH_MAX ];
   for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
     uchar const *  frame    = result->account_batch.batch[ i ];
     ulong const    data_len = fd_ulong_load_8_fast( frame+0x08UL );
@@ -593,18 +624,21 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
       ulong exist_slot = ele->phdr.info.ul[ 1 ];
       if( exist_slot > result->account_batch.slot ) {
         batch_ele[ i ] = NULL;
-        continue;
+      } else {
+        fd_snapin_send_duplicate_account_vinyl( ctx, &ele->phdr, ele->seq, NULL, NULL );
       }
     }
 
     ulong val_sz = sizeof(fd_account_meta_t) + data_len;
     FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
-    fd_vinyl_bstream_phdr_t * phdr = &ele->phdr;
+    fd_vinyl_bstream_phdr_t * phdr = &batch_phdr[ i ];
     phdr->ctl = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
     phdr->key = *key;
     phdr->info.val_sz = (uint)val_sz;
     phdr->info.ul[1]  = result->account_batch.slot;
+
+    if( !batch_ele[ i ] ) continue;
 
     ele->memo      = memo[ i ];
     ele->phdr.ctl  = phdr->ctl;
@@ -619,7 +653,8 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
   fd_vinyl_io_t * io = ctx->vinyl.io;
   for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
     fd_vinyl_meta_ele_t * ele = batch_ele[ i ];
-    if( FD_UNLIKELY( !ele ) ) continue;
+
+    if( FD_UNLIKELY( ( !ele ) && ( !!ctx->lthash_disabled ) ) ) continue;
 
     uchar const *  frame      = result->account_batch.batch[ i ];
     ulong const    data_len   = fd_ulong_load_8_fast( frame+0x08UL );
@@ -641,7 +676,7 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
     FD_CRIT( dst_rem >= sizeof(fd_vinyl_bstream_phdr_t), "corruption detected" );
     fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)dst;
-    *phdr = ele->phdr;
+    *phdr = batch_phdr[ i ];
 
     dst     += sizeof(fd_vinyl_bstream_phdr_t);
     dst_rem -= sizeof(fd_vinyl_bstream_phdr_t);
@@ -664,6 +699,13 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     dst     += data_len;
     dst_rem -= data_len;
 
+    /* with lthash verification, if !ele send duplicate and continue */
+    if( FD_UNLIKELY( !ele ) ) {
+      phdr->ctl = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_DEAD, FD_VINYL_BSTREAM_CTL_STYLE_RAW, pair_sz );
+      if( !ctx->lthash_disabled ) fd_snapin_send_duplicate_account_vinyl( ctx, phdr, 0, NULL, (uchar const *)pair );
+      continue;
+    }
+
     ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
     ele->seq = seq_after;
 
@@ -673,6 +715,10 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
 void
 fd_snapin_vinyl_shutdown( fd_snapin_tile_t * ctx ) {
+
+  FD_LOG_NOTICE(( "ctx->vinyl_op.duplicate_acc_hdr_cnt    %lu", ctx->vinyl_op.duplicate_acc_hdr_cnt ));
+  FD_LOG_NOTICE(( "ctx->vinyl_op.duplicate_acc_lthash_cnt %lu", ctx->vinyl_op.duplicate_acc_lthash_cnt ));
+
   int commit_err = fd_vinyl_io_commit( ctx->vinyl.io, FD_VINYL_IO_FLAG_BLOCKING );
   if( FD_UNLIKELY( commit_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_commit(io) failed (%i-%s)", commit_err, fd_vinyl_strerror( commit_err ) ));
   int sync_err = fd_vinyl_io_sync( ctx->vinyl.io_mm, FD_VINYL_IO_FLAG_BLOCKING );

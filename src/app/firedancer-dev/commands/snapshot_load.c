@@ -145,7 +145,11 @@ snapshot_load_topo( config_t * config,
 
   if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
     FOR(lta_tile_cnt) fd_topob_link( topo, "snapla_ls",  "snapla_ls",   128UL,  sizeof(fd_lthash_value_t),          1UL );
+    if(vinyl_enabled) {
+    /**/              fd_topob_link( topo, "snapin_ls",  "snapin_ls",   1UL<<25, 64UL/*sizeof(ulong)+sizeof(fd_vinyl_bstream_phdr_t)*/, 1UL );
+    } else {
     /**/              fd_topob_link( topo, "snapin_ls",  "snapin_ls",   256UL,  sizeof(fd_snapshot_full_account_t), 1UL );
+    }
     /**/              fd_topob_link( topo, "snapls_ct",  "snapls_ct",   128UL,  0UL,                                1UL );
   }
 

@@ -7,6 +7,13 @@
 
 #include "generated/fd_snapls_tile_seccomp.h"
 
+#include "../../vinyl/io/fd_vinyl_io.h"
+#include "../../vinyl/bstream/fd_vinyl_bstream.h"
+
+#include <errno.h>
+#include <fcntl.h> /* open */
+#include <unistd.h> /* close */
+
 #define NAME "snapls"
 
 #define IN_KIND_SNAPIN (0)
@@ -45,6 +52,11 @@ struct fd_snapls_tile {
     ulong data_len;
     int   executable;
   } account_hdr;
+
+  struct {
+    fd_vinyl_io_t * io;
+    fd_vinyl_io_t * io_mm;
+  } vinyl;
 
   struct {
     struct {
@@ -153,6 +165,65 @@ handle_data_frag( fd_snapls_tile_t *  ctx,
       ctx->acc_data_sz += sz;
       break;
     }
+    case FD_SNAPSHOT_HASH_MSG_SUB_VINYL_HDR: {
+      uchar const * indata = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      ulong seq;
+      fd_vinyl_bstream_phdr_t acc_hdr;
+      memcpy( &seq,     indata, sizeof(ulong) );
+      memcpy( &acc_hdr, indata + sizeof(ulong), sizeof(fd_vinyl_bstream_phdr_t) );
+
+      uchar const * const mmio = fd_vinyl_mmio ( ctx->vinyl.io );
+      ulong mmio_sz = fd_vinyl_mmio_sz( ctx->vinyl.io );
+      ulong dev_sz  = mmio_sz;
+      ulong mm_off  = seq % dev_sz;
+      FD_TEST( mm_off+FD_VINYL_BSTREAM_BLOCK_SZ <= mmio_sz );
+      fd_vinyl_bstream_block_t * block = (fd_vinyl_bstream_block_t *)(mmio+mm_off);
+
+      fd_vinyl_bstream_phdr_t phdr = {0};
+      for(;;) {
+        phdr = FD_VOLATILE_CONST( block->phdr );
+        if( FD_LIKELY( !memcmp( &phdr, &acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) ) ) {
+          break;
+        }
+        FD_SPIN_PAUSE();
+
+        /* FIXME */
+        FD_LOG_WARNING(( "phdr not found - resync?" ));
+      }
+
+      uchar * pair = (uchar*)block;
+      pair += sizeof(fd_vinyl_bstream_phdr_t);
+      fd_account_meta_t const * meta       = (fd_account_meta_t *)pair;
+      void const *              data       = (void const *)( meta+1 );
+      void const *              pubkey     = block->phdr.key.uc;
+      ulong                     data_sz    = meta->dlen;
+      ulong                     lamports   = meta->lamports;
+      _Bool                     executable = !!meta->executable;
+      void const *              owner      = meta->owner;
+
+      fd_lthash_value_t prev_lthash[1];
+      fd_hashes_account_lthash_simple( pubkey,
+                                       owner,
+                                       lamports,
+                                       executable,
+                                       data,
+                                       data_sz,
+                                       prev_lthash );
+      if( !!lamports ) fd_lthash_add( &ctx->running_lthash, prev_lthash );
+
+      if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
+      else                         ctx->metrics.incremental.accounts_hashed++;
+
+      break;
+    }
+
+    case FD_SNAPSHOT_HASH_MSG_SUB_VINYL_LTHASH: {
+      fd_lthash_value_t prev_lthash;
+      fd_memcpy( &prev_lthash, (fd_lthash_value_t *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ), sizeof(fd_lthash_value_t) );
+      fd_lthash_add( &ctx->running_lthash, &prev_lthash );
+      break;
+    }
+
     default:
       FD_LOG_ERR(( "unexpected sig %lu in handle_data_frag", sig ));
       return;
@@ -305,7 +376,9 @@ returnable_frag( fd_snapls_tile_t *  ctx,
 
   if( FD_LIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB ||
                  sig==FD_SNAPSHOT_HASH_MSG_SUB_HDR ||
-                 sig==FD_SNAPSHOT_HASH_MSG_SUB_DATA ) )        handle_data_frag( ctx, sig, chunk, sz );
+                 sig==FD_SNAPSHOT_HASH_MSG_SUB_DATA ||
+                 sig==FD_SNAPSHOT_HASH_MSG_SUB_VINYL_HDR ||
+                 sig==FD_SNAPSHOT_HASH_MSG_SUB_VINYL_LTHASH ) )       handle_data_frag( ctx, sig, chunk, sz );
   else if( FD_LIKELY( sig==FD_SNAPSHOT_HASH_MSG_RESULT_ADD ||
                       sig==FD_SNAPSHOT_HASH_MSG_EXPECTED ) )   handle_hash_frag( ctx, in_idx, sig, chunk, sz );
   else                                                         handle_control_frag( ctx, stem, sig, in_idx );
@@ -365,6 +438,41 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
   populate_sock_filter_policy_fd_snapls_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_fd_snapls_tile_instr_cnt;
 }
+
+static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_snapls_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapls_tile_t), sizeof(fd_snapls_tile_t) );
+
+  /* Set up io_mm dependencies */
+
+  char const * bstream_path = tile->snapls.vinyl_path;
+  int dev_fd = open( bstream_path, O_RDONLY|O_CLOEXEC );
+  if( FD_UNLIKELY( dev_fd<0 ) ) {
+    FD_LOG_ERR(( "open(%s,O_RDONLY|O_CLOEXEC) failed (%i-%s)",
+                 bstream_path, errno, fd_io_strerror( errno ) ));
+  }
+  void * mmio    = NULL;
+  ulong  mmio_sz = 0UL;
+  int map_err = fd_io_mmio_init( dev_fd, FD_IO_MMIO_MODE_READ_ONLY, &mmio, &mmio_sz );
+  if( FD_UNLIKELY( map_err ) ) {
+    FD_LOG_ERR(( "fd_io_mmio_init(%s,rw) failed (%i-%s)",
+                 bstream_path, map_err, fd_io_strerror( map_err ) ));
+  }
+  FD_TEST( 0==close( dev_fd ) );
+  ulong  io_spad_max = 1UL<<20;
+  void * io_mm       = aligned_alloc( fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( io_spad_max ) );
+  FD_TEST( io_mm );
+  fd_vinyl_io_t * io = fd_vinyl_io_mm_init( io_mm, io_spad_max, mmio, mmio_sz, 0, NULL, 0UL, 0UL );
+  FD_TEST( io );
+
+  ctx->vinyl.io_mm   = io_mm;
+  ctx->vinyl.io      = io;
+}
+
 
 static void
 unprivileged_init( fd_topo_t *      topo,
@@ -444,9 +552,9 @@ fd_topo_run_tile_t fd_tile_snapls = {
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
 
 #undef NAME
-
