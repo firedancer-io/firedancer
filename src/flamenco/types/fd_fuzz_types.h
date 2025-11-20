@@ -817,14 +817,6 @@ void *fd_slot_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
     self->next_slot = NULL;
   }
   self->is_connected = fd_rng_uchar( rng );
-  self->entry_end_indexes_len = fd_rng_ulong( rng ) % 8;
-  if( self->entry_end_indexes_len ) {
-    self->entry_end_indexes = (uint *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + sizeof(uint)*self->entry_end_indexes_len;
-    LLVMFuzzerMutate( (uchar *) self->entry_end_indexes, sizeof(uint)*self->entry_end_indexes_len, sizeof(uint)*self->entry_end_indexes_len );
-  } else {
-    self->entry_end_indexes = NULL;
-  }
   return mem;
 }
 

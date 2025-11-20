@@ -595,8 +595,7 @@
           { "name": "last_index", "type": "ulong" },
           { "name": "parent_slot", "type": "ulong" },
           { "name": "next_slot", "type": "vector", "element": "ulong"},
-          { "name": "is_connected", "type": "uchar" },
-          { "name": "entry_end_indexes", "type": "vector", "element": "uint" }
+          { "name": "is_connected", "type": "uchar" }
       ]
     },
     {
