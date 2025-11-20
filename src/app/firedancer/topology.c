@@ -1202,6 +1202,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapla" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapls" ) ) )  {
+    strcpy( tile->snapls.vinyl_path, config->paths.accounts );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;

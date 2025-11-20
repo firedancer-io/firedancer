@@ -575,6 +575,10 @@ struct fd_topo_tile {
     } snapwr;
 
     struct {
+      char  vinyl_path[ PATH_MAX ];
+    } snapls;
+
+    struct {
 
       uint   bind_address;
       ushort bind_port;
