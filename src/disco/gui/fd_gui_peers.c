@@ -81,6 +81,8 @@ fd_gui_peers_new( void *             shmem,
     ctx->open_ws_conn_cnt  = 0UL;
     ctx->active_ws_conn_id = ULONG_MAX;
 
+    ctx->slot_voted = ULONG_MAX;
+
     ctx->next_client_nanos              = now;
     ctx->next_metric_rate_update_nanos  = now;
     ctx->next_gossip_stats_update_nanos = now;
