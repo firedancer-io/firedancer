@@ -4752,13 +4752,6 @@ int fd_slot_meta_encode( fd_slot_meta_t const * self, fd_bincode_encode_ctx_t * 
   }
   err = fd_bincode_uint8_encode( (uchar)(self->is_connected), ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->entry_end_indexes_len, ctx );
-  if( FD_UNLIKELY(err) ) return err;
-  if( self->entry_end_indexes_len ) {
-    for( ulong i=0; i < self->entry_end_indexes_len; i++ ) {
-      err = fd_bincode_uint32_encode( self->entry_end_indexes[i], ctx );
-    }
-  }
   return FD_BINCODE_SUCCESS;
 }
 static int fd_slot_meta_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
@@ -4788,16 +4781,6 @@ static int fd_slot_meta_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, u
   }
   err = fd_bincode_uint8_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  ulong entry_end_indexes_len;
-  err = fd_bincode_uint64_decode( &entry_end_indexes_len, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  if( entry_end_indexes_len ) {
-    *total_sz += 8UL + sizeof(uint)*entry_end_indexes_len;
-    for( ulong i=0; i < entry_end_indexes_len; i++ ) {
-      err = fd_bincode_uint32_decode_footprint( ctx );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
   return 0;
 }
 int fd_slot_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
@@ -4827,16 +4810,6 @@ static void fd_slot_meta_decode_inner( void * struct_mem, void * * alloc_mem, fd
   } else
     self->next_slot = NULL;
   fd_bincode_uint8_decode_unsafe( &self->is_connected, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->entry_end_indexes_len, ctx );
-  if( self->entry_end_indexes_len ) {
-    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );
-    self->entry_end_indexes = *alloc_mem;
-    *alloc_mem = (uchar *)(*alloc_mem) + sizeof(uint)*self->entry_end_indexes_len;
-    for( ulong i=0; i < self->entry_end_indexes_len; i++ ) {
-      fd_bincode_uint32_decode_unsafe( self->entry_end_indexes + i, ctx );
-    }
-  } else
-    self->entry_end_indexes = NULL;
 }
 void * fd_slot_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_slot_meta_t * self = (fd_slot_meta_t *)mem;
@@ -4865,12 +4838,6 @@ void fd_slot_meta_walk( void * w, fd_slot_meta_t const * self, fd_types_walk_fn_
     fun( w, NULL, "next_slot", FD_FLAMENCO_TYPE_ARR_END, "array", level--, 0 );
   }
   fun( w, &self->is_connected, "is_connected", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0  );
-  if( self->entry_end_indexes_len ) {
-    fun( w, NULL, "entry_end_indexes", FD_FLAMENCO_TYPE_ARR, "array", level++, 0 );
-    for( ulong i=0; i < self->entry_end_indexes_len; i++ )
-      fun( w, self->entry_end_indexes + i, "entry_end_indexes", FD_FLAMENCO_TYPE_UINT,    "uint",    level, 0 );
-    fun( w, NULL, "entry_end_indexes", FD_FLAMENCO_TYPE_ARR_END, "array", level--, 0 );
-  }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_meta", level--, 0 );
 }
 ulong fd_slot_meta_size( fd_slot_meta_t const * self ) {
@@ -4886,10 +4853,6 @@ ulong fd_slot_meta_size( fd_slot_meta_t const * self ) {
     size += self->next_slot_len * sizeof(ulong);
   } while(0);
   size += sizeof(char);
-  do {
-    size += sizeof(ulong);
-    size += self->entry_end_indexes_len * sizeof(uint);
-  } while(0);
   return size;
 }
 

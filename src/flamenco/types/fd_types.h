@@ -823,8 +823,6 @@ struct fd_slot_meta {
   ulong next_slot_len;
   ulong* next_slot;
   uchar is_connected;
-  ulong entry_end_indexes_len;
-  uint* entry_end_indexes;
 };
 typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_ALIGN alignof(fd_slot_meta_t)
