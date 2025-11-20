@@ -17,9 +17,7 @@
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
 total( fd_inflation_t const * inflation, double year ) {
-  if ( FD_UNLIKELY( year == 0.0 ) ) {
-    FD_LOG_ERR(( "inflation year 0" ));
-  }
+  if( FD_UNLIKELY( year < DBL_EPSILON ) ) FD_LOG_ERR(( "invalid inflation year parameter (corrupt genesis config?)" ));
   double tapered = inflation->initial * pow( (1.0 - inflation->taper), year );
   return (tapered > inflation->terminal) ? tapered : inflation->terminal;
 }
@@ -88,6 +86,11 @@ static double
 slot_in_year_for_inflation( fd_bank_t const * bank ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong num_slots = get_inflation_num_slots( bank, epoch_schedule, fd_bank_slot_get( bank ) );
+  FD_LOG_DEBUG(( "slot_in_year_for_inflation:"
+                 " num_slots=%lu"
+                 " slots_per_year=%g",
+                 num_slots,
+                 fd_bank_slots_per_year_get( bank ) ));
   return (double)num_slots / (double)fd_bank_slots_per_year_get( bank );
 }
 
@@ -441,7 +444,17 @@ calculate_previous_epoch_inflation_rewards( fd_bank_t const *                   
   rewards->foundation_rate              = foundation( fd_bank_inflation_query( bank ), slot_in_year );
   rewards->prev_epoch_duration_in_years = epoch_duration_in_years( bank, prev_epoch );
   rewards->validator_rewards            = (ulong)(rewards->validator_rate * (double)prev_epoch_capitalization * rewards->prev_epoch_duration_in_years);
-  FD_LOG_DEBUG(( "Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year ));
+  FD_LOG_DEBUG(( "calculate_previous_epoch_inflation_rewards:"
+                 " slot_in_year=%g"
+                 " valdiator_rewards=%lu"
+                 " validator_rate=%g"
+                 " prev_epoch_duration_in_years=%g"
+                 " prev_epoch_capitalization=%lu",
+                 slot_in_year,
+                 rewards->validator_rewards,
+                 rewards->validator_rate,
+                 rewards->prev_epoch_duration_in_years,
+                 prev_epoch_capitalization ));
 }
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/lib.rs#L29 */
@@ -997,6 +1010,11 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
   ulong block_height = fd_bank_block_height_get( bank );
   ulong distribution_starting_block_height = epoch_rewards->starting_block_height;
   ulong distribution_end_exclusive         = fd_epoch_rewards_get_exclusive_ending_block_height( epoch_rewards );
+
+  if( block_height < distribution_starting_block_height ) {
+    fd_bank_epoch_rewards_end_locking_query( bank );
+    return;
+  }
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong                       epoch          = fd_bank_epoch_get( bank );

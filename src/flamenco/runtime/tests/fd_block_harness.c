@@ -238,6 +238,13 @@ fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_progcache_clear( runner->progcache_admin );
 }
 
+static double
+years_as_slots( double years,
+                ulong  tick_duration_ns,
+                ulong  ticks_per_slot ) {
+  return years * SECONDS_PER_YEAR * (1e9 / (double)tick_duration_ns) / (double)ticks_per_slot;
+}
+
 /* Sets up block execution context from an input test case to execute
    against the runtime.  Returns block_info on success and NULL on
    failure. */
@@ -296,7 +303,15 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_bank_genesis_creation_time_set( bank, test_ctx->epoch_ctx.genesis_creation_time );
 
-  fd_bank_slots_per_year_set( bank, test_ctx->epoch_ctx.slots_per_year );
+  double slots_per_year = years_as_slots( 1.0, 6250000, test_ctx->epoch_ctx.ticks_per_slot );
+  if( FD_UNLIKELY( test_ctx->epoch_ctx.ticks_per_slot <    1 ||
+                   test_ctx->epoch_ctx.ticks_per_slot > 1000 ||
+                   slots_per_year<1000. ||
+                   slots_per_year>10e9 ) ) {
+    FD_LOG_ERR(( "invalid ticks_per_slot value: %lu", test_ctx->epoch_ctx.ticks_per_slot ));
+  }
+
+  fd_bank_slots_per_year_set( bank, slots_per_year );
 
   fd_bank_parent_signature_cnt_set( bank, test_ctx->slot_ctx.parent_signature_count );
 
