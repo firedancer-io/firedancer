@@ -294,7 +294,7 @@ struct MAP_(private) {
   ulong seed;        /* Hash seed, arbitrary */
   ulong slot_mask;   /* == key_max == 2^lg_slot_cnt - 1 */
   int   lg_slot_cnt; /* non-negative */
-  MAP_T slot[1];     /* Actually 2^lg_slot_cnt in size */
+  MAP_T slot[];     /* Actually 2^lg_slot_cnt in size */
 };
 
 typedef struct MAP_(private) MAP_(private_t);
@@ -332,7 +332,7 @@ FD_FN_CONST static inline ulong MAP_(align)( void ) { return alignof(MAP_(privat
 FD_FN_CONST static inline ulong
 MAP_(footprint)( int lg_slot_cnt ) {
   ulong slot_cnt = 1UL << lg_slot_cnt;
-  return fd_ulong_align_up( fd_ulong_align_up( 24UL, alignof(MAP_T) ) + sizeof(MAP_T)*slot_cnt, alignof(MAP_(private_t)) );
+  return fd_ulong_align_up( fd_ulong_align_up( sizeof(MAP_(private_t)), alignof(MAP_T) ) + sizeof(MAP_T)*slot_cnt, alignof(MAP_(private_t)) );
 }
 
 static inline void *

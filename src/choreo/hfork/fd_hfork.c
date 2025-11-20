@@ -104,9 +104,9 @@ fd_hfork_new( void * shmem,
   void *       candidate_map  = FD_SCRATCH_ALLOC_APPEND( l, candidate_map_align(),  candidate_map_footprint( lg_blk_max )       );
   void *       bank_hash_pool = FD_SCRATCH_ALLOC_APPEND( l, bank_hash_pool_align(), bank_hash_pool_footprint( fork_max )        );
 
-  hfork->blk_map        = blk_map_new( blk_map, lg_blk_max );
-  hfork->vtr_map        = vtr_map_new( vtr_map, lg_vtr_max );
-  hfork->candidate_map  = candidate_map_new( candidate_map, lg_blk_max );
+  hfork->blk_map        = blk_map_new( blk_map, lg_blk_max, 0UL );             /* FIXME seed */
+  hfork->vtr_map        = vtr_map_new( vtr_map, lg_vtr_max, 0UL );             /* FIXME seed */
+  hfork->candidate_map  = candidate_map_new( candidate_map, lg_blk_max, 0UL ); /* FIXME seed */
   hfork->bank_hash_pool = bank_hash_pool_new( bank_hash_pool, fork_max );
   for( ulong i = 0UL; i < fd_ulong_pow2( lg_vtr_max ); i++ ) {
     void *  votes = FD_SCRATCH_ALLOC_APPEND( l, votes_align(), votes_footprint( max_live_slots ) );

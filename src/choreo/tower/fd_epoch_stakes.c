@@ -35,7 +35,7 @@ fd_epoch_stakes_new( void * shmem,
 
   epoch_stakes->voter_stake_map  = fd_voter_stake_map_join      ( fd_voter_stake_map_new      ( voter_stake_map,  FD_VOTER_MAX * slot_max, 0 ) );
   epoch_stakes->voter_stake_pool = fd_voter_stake_pool_join     ( fd_voter_stake_pool_new     ( voter_stake_pool, FD_VOTER_MAX * slot_max ) );
-  epoch_stakes->slot_stakes_map  = fd_epoch_stakes_slot_map_join( fd_epoch_stakes_slot_map_new( epoch_stakes_slot_map, lg_slot_cnt ) );
+  epoch_stakes->slot_stakes_map  = fd_epoch_stakes_slot_map_join( fd_epoch_stakes_slot_map_new( epoch_stakes_slot_map, lg_slot_cnt, 0UL ) );      /* FIXME seed? */
   epoch_stakes->used_acc_scratch = fd_used_acc_scratch_join     ( fd_used_acc_scratch_new     ( used_acc_scratch, FD_VOTER_MAX * slot_max ) );
   return shmem;
 }
