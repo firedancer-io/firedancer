@@ -9,6 +9,13 @@ int
 fd_vsv_get_state( fd_txn_account_t const * self,
                   uchar *                  res );
 
+fd_pubkey_t const *
+fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L717-L722 */
+uchar
+fd_vsv_get_commission( fd_vote_state_versioned_t * self );
+
 int
 fd_vsv_set_state( fd_borrowed_account_t *     self,
                   fd_vote_state_versioned_t * state );
@@ -29,6 +36,28 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *                      ctx,
                                  /* "verify" closure */ int                 authorized_withdrawer_signer,
                                  /* "verify" closure */ fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] );
 
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L738-L743 */
+void
+fd_vsv_set_node_pubkey( fd_vote_state_versioned_t * self,
+                        fd_pubkey_t const *         node_pubkey );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L745-L750 */
+void
+fd_vsv_set_block_revenue_collector( fd_vote_state_versioned_t * self,
+                                    fd_pubkey_t const *         block_revenue_collector );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L724-L729 */
+void
+fd_vsv_set_commission( fd_vote_state_versioned_t * self,
+                        uchar                      commission );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L843-L851 */
+int
+fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
+                               fd_borrowed_account_t *     vote_account,
+                               fd_vote_state_versioned_t * versioned,
+                               uchar *                     vote_lockout_mem );
+
 /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L40-L98 */
 int
 fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
@@ -40,13 +69,6 @@ int
 fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
                           fd_pubkey_t const *         vote_pubkey,
                           uchar *                     landed_votes_mem );
-
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L843-L851 */
-int
-fd_vsv_set_vote_account_state( fd_borrowed_account_t *     vote_account,
-                               fd_vote_state_versioned_t * versioned,
-                               fd_exec_instr_ctx_t const * ctx,
-                               uchar *                     vote_lockout_mem );
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_state_versioned_h */
 

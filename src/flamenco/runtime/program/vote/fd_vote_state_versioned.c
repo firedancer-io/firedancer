@@ -28,7 +28,36 @@ fd_vsv_get_state( fd_txn_account_t const * self,
   fd_vote_state_versioned_decode( res, &decode );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
+}
 
+/* Returns a const pointer to the authorized withdrawer for the
+   appropriate vote state version.*/
+fd_pubkey_t const *
+fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_v0_23_5:
+      return &self->inner.v0_23_5.authorized_withdrawer;
+    case fd_vote_state_versioned_enum_v1_14_11:
+      return &self->inner.v1_14_11.authorized_withdrawer;
+    case fd_vote_state_versioned_enum_current:
+      return &self->inner.current.authorized_withdrawer;
+    case fd_vote_state_versioned_enum_v4:
+      return &self->inner.v4.authorized_withdrawer;
+    default:
+      __builtin_unreachable();
+  }
+}
+
+uchar
+fd_vsv_get_commission( fd_vote_state_versioned_t * self ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      return self->inner.current.commission;
+    case fd_vote_state_versioned_enum_v4:
+      return (uchar)(self->inner.v4.inflation_rewards_commission_bps/100);
+    default:
+      __builtin_unreachable();
+  }
 }
 
 int
@@ -107,6 +136,59 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *                      ctx,
       );
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+  }
+}
+
+void
+fd_vsv_set_node_pubkey( fd_vote_state_versioned_t * self,
+                        fd_pubkey_t const *         node_pubkey ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      self->inner.current.node_pubkey = *node_pubkey;
+      break;
+    case fd_vote_state_versioned_enum_v4:
+      self->inner.v4.node_pubkey = *node_pubkey;
+      break;
+  }
+}
+
+void
+fd_vsv_set_block_revenue_collector( fd_vote_state_versioned_t * self,
+                                    fd_pubkey_t const *         block_revenue_collector ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_v4:
+      self->inner.v4.block_revenue_collector = *block_revenue_collector;
+      break;
+  }
+}
+
+void
+fd_vsv_set_commission( fd_vote_state_versioned_t * self,
+                       uchar                       commission ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      self->inner.current.commission = commission;
+      break;
+    case fd_vote_state_versioned_enum_v4:
+      self->inner.v4.inflation_rewards_commission_bps = commission*100;
+      break;
+    default:
+      __builtin_unreachable();
+  }
+}
+
+int
+fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
+                               fd_borrowed_account_t *     vote_account,
+                               fd_vote_state_versioned_t * versioned,
+                               uchar *                     vote_lockout_mem ) {
+  switch( versioned->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      return fd_vote_state_v3_set_vote_account_state( ctx, vote_account, versioned, vote_lockout_mem );
+    case fd_vote_state_versioned_enum_v4:
+      return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
+    default:
+      __builtin_unreachable();
   }
 }
 
@@ -264,18 +346,4 @@ fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
   }
 }
 
-int
-fd_vsv_set_vote_account_state( fd_borrowed_account_t *     vote_account,
-                               fd_vote_state_versioned_t * versioned,
-                               fd_exec_instr_ctx_t const * ctx,
-                               uchar *                     vote_lockout_mem ) {
-  switch( versioned->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      return fd_vote_state_v3_set_vote_account_state( vote_account, versioned, ctx, vote_lockout_mem );
-    case fd_vote_state_versioned_enum_v4:
-      return fd_vote_state_v4_set_vote_account_state( vote_account, versioned, ctx );
-    default:
-      __builtin_unreachable();
-  }
-}
 

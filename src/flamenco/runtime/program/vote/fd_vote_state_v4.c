@@ -29,9 +29,9 @@ fd_vote_state_v4_create_new( fd_pubkey_t const *           vote_pubkey,
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L576-L595 */
 int
-fd_vote_state_v4_set_vote_account_state( fd_borrowed_account_t *     vote_account,
-                                      fd_vote_state_versioned_t * versioned,
-                                      fd_exec_instr_ctx_t const * ctx ) {
+fd_vote_state_v4_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
+                                         fd_borrowed_account_t *     vote_account,
+                                         fd_vote_state_versioned_t * versioned ) {
   /* This is a horrible conditional expression in Agave.
      The terms were broken up into their own variables. */
 

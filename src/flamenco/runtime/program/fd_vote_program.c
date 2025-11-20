@@ -177,24 +177,6 @@ vsv_deserialize( fd_borrowed_account_t const * vote_account,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* Returns a const pointer to the authorized withdrawer for the
-   appropriate vote state version.*/
-static fd_pubkey_t const *
-vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_v0_23_5:
-      return &self->inner.v0_23_5.authorized_withdrawer;
-    case fd_vote_state_versioned_enum_v1_14_11:
-      return &self->inner.v1_14_11.authorized_withdrawer;
-    case fd_vote_state_versioned_enum_current:
-      return &self->inner.current.authorized_withdrawer;
-    case fd_vote_state_versioned_enum_v4:
-      return &self->inner.v4.authorized_withdrawer;
-    default:
-      __builtin_unreachable();
-  }
-}
-
 /**********************************************************************/
 /* impl VoteState                                                     */
 /**********************************************************************/
@@ -1131,7 +1113,7 @@ authorize( fd_exec_instr_ctx_t *         ctx,
 
       /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L731-L732 */
       int authorized_withdrawer_signer = !fd_vote_state_verify_authorized_signer(
-          vsv_get_authorized_withdrawer( vote_state_versioned ),
+          fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
           signers
       );
 
@@ -1159,8 +1141,8 @@ authorize( fd_exec_instr_ctx_t *         ctx,
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L751-L756 */
     case fd_vote_authorize_enum_withdrawer: {
       rc = fd_vote_state_verify_authorized_signer(
-        vsv_get_authorized_withdrawer( vote_state_versioned ),
-        signers
+          fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
+          signers
       );
       if( FD_UNLIKELY( rc ) ) return rc;
       fd_vsv_set_authorized_withdrawer( vote_state_versioned, authorized );
@@ -1172,43 +1154,57 @@ authorize( fd_exec_instr_ctx_t *         ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L758 */
   return fd_vsv_set_vote_account_state(
+      ctx,
       vote_account,
       vote_state_versioned,
-      ctx,
       ctx->txn_ctx->exec_stack->vote_program.authorize.vote_lockout_mem
   );
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L894
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L761-L785 */
 static int
-update_validator_identity( fd_borrowed_account_t *     vote_account,
-                           fd_pubkey_t const *         node_pubkey,
-                           fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX],
-                           fd_exec_instr_ctx_t const * ctx /* feature_set */ ) {
-  int rc = 0;
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L900
-   rc = fd_vsv_get_state( vote_account->acct, ctx->txn_ctx->exec_stack->vote_program.update_validator_identity.vote_state_mem );
+update_validator_identity( fd_exec_instr_ctx_t *   ctx,
+                           int                     target_version,
+                           fd_borrowed_account_t * vote_account,
+                           fd_pubkey_t const *     node_pubkey,
+                           fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX] ) {
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L768-L771 */
+  int rc = get_vote_state_handler_checked(
+      vote_account,
+      target_version,
+      0,
+      ctx->txn_ctx->exec_stack->vote_program.update_validator_identity.vote_state_mem,
+      ctx->txn_ctx->exec_stack->vote_program.update_validator_identity.authorized_voters_mem,
+      ctx->txn_ctx->exec_stack->vote_program.update_validator_identity.landed_votes_mem
+  );
   if( FD_UNLIKELY( rc ) ) return rc;
+
   fd_vote_state_versioned_t * vote_state_versioned = (fd_vote_state_versioned_t *)ctx->txn_ctx->exec_stack->vote_program.update_validator_identity.vote_state_mem;
-  convert_to_current( vote_state_versioned,
-                      ctx->txn_ctx->exec_stack->vote_program.update_validator_identity.authorized_voters_mem,
-                      ctx->txn_ctx->exec_stack->vote_program.update_validator_identity.landed_votes_mem );
-  fd_vote_state_t * vote_state = &vote_state_versioned->inner.current;
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L905
-  rc = fd_vote_state_verify_authorized_signer( &vote_state->authorized_withdrawer, signers );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L774 */
+  rc = fd_vote_state_verify_authorized_signer(
+      fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
+      signers
+  );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L908
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L777 */
   rc = fd_vote_state_verify_authorized_signer( node_pubkey, signers );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L910
-  vote_state->node_pubkey = *node_pubkey;
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L779 */
+  fd_vsv_set_node_pubkey( vote_state_versioned, node_pubkey );
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L912
-  return set_vote_account_state( vote_account, vote_state, ctx, ctx->txn_ctx->exec_stack->vote_program.update_validator_identity.vote_lockout_mem );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L782 */
+  fd_vsv_set_block_revenue_collector( vote_state_versioned, node_pubkey );
+
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L784 */
+  return fd_vsv_set_vote_account_state(
+      ctx,
+      vote_account,
+      vote_state_versioned,
+      ctx->txn_ctx->exec_stack->vote_program.update_validator_identity.vote_lockout_mem
+  );
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L971
@@ -1224,60 +1220,60 @@ is_commission_update_allowed( ulong slot, fd_epoch_schedule_t const * epoch_sche
   }
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L916
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L787-L818 */
 static int
-update_commission( fd_borrowed_account_t *     vote_account,
-                   uchar                       commission,
-                   fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX],
-                   fd_epoch_schedule_t const * epoch_schedule,
-                   fd_sol_sysvar_clock_t const * clock,
-                   fd_exec_instr_ctx_t const * ctx /* feature_set */ ) {
-  int rc = 0;
+update_commission( fd_exec_instr_ctx_t *         ctx,
+                   int                           target_version,
+                   fd_borrowed_account_t *       vote_account,
+                   uchar                         commission,
+                   fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                   fd_epoch_schedule_t const *   epoch_schedule,
+                   fd_sol_sysvar_clock_t const * clock ) {
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L796-L799 */
+  int rc         = 0;
+  int get_vsv_rc = get_vote_state_handler_checked(
+      vote_account,
+      target_version,
+      false,
+      ctx->txn_ctx->exec_stack->vote_program.update_commission.vote_state_mem,
+      ctx->txn_ctx->exec_stack->vote_program.update_commission.authorized_voters_mem,
+      ctx->txn_ctx->exec_stack->vote_program.update_commission.landed_votes_mem
+  );
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L925
-  fd_vote_state_versioned_t * vote_state_versioned = NULL;
-  fd_vote_state_t *           vote_state           = NULL;
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L927
-  int enforce_commission_update_rule = 1;
-  rc = fd_vsv_get_state( vote_account->acct, ctx->txn_ctx->exec_stack->vote_program.update_commission.vote_state_mem );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L800-L804 */
+  fd_vote_state_versioned_t * vote_state_versioned           = NULL;
+  int                         enforce_commission_update_rule = 1;
   if( FD_LIKELY( rc==FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    vote_state_versioned = (fd_vote_state_versioned_t *)ctx->txn_ctx->exec_stack->vote_program.update_commission.vote_state_mem;
-    convert_to_current( vote_state_versioned,
-                        ctx->txn_ctx->exec_stack->vote_program.update_commission.authorized_voters_mem,
-                        ctx->txn_ctx->exec_stack->vote_program.update_commission.landed_votes_mem );
-    vote_state = &vote_state_versioned->inner.current;
-    enforce_commission_update_rule = commission > vote_state->commission;
+    vote_state_versioned           = (fd_vote_state_versioned_t *)ctx->txn_ctx->exec_stack->vote_program.update_commission.vote_state_mem;
+    enforce_commission_update_rule = (commission>fd_vsv_get_commission( vote_state_versioned ));
   }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L940
-  if( FD_LIKELY( enforce_commission_update_rule ) ) {
-    if( FD_UNLIKELY( !is_commission_update_allowed( clock->slot, epoch_schedule ) ) ) {
-      ctx->txn_ctx->err.custom_err = FD_VOTE_ERR_COMMISSION_UPDATE_TOO_LATE;
-      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-    }
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L806-L808 */
+  if( FD_UNLIKELY( enforce_commission_update_rule && !is_commission_update_allowed( clock->slot, epoch_schedule ) ) ) {
+    ctx->txn_ctx->err.custom_err = FD_VOTE_ERR_COMMISSION_UPDATE_TOO_LATE;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L949
-  if( !vote_state ) {
-    rc = fd_vsv_get_state( vote_account->acct, ctx->txn_ctx->exec_stack->vote_program.update_commission.vote_state_mem );
-    if( FD_UNLIKELY( rc ) ) return rc;
-    vote_state_versioned = (fd_vote_state_versioned_t *)ctx->txn_ctx->exec_stack->vote_program.update_commission.vote_state_mem;
-    convert_to_current( vote_state_versioned,
-                        ctx->txn_ctx->exec_stack->vote_program.update_commission.authorized_voters_mem,
-                        ctx->txn_ctx->exec_stack->vote_program.update_commission.landed_votes_mem );
-    vote_state = &vote_state_versioned->inner.current;
-  }
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L810 */
+  if( FD_UNLIKELY( get_vsv_rc ) ) return get_vsv_rc;
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L957
-  rc = fd_vote_state_verify_authorized_signer( &vote_state->authorized_withdrawer, signers );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L813 */
+  rc = fd_vote_state_verify_authorized_signer(
+      fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
+      signers
+  );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L959
-  vote_state->commission = commission;
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L815 */
+  fd_vsv_set_commission( vote_state_versioned, commission );
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L961
-  return set_vote_account_state( vote_account, vote_state, ctx, ctx->txn_ctx->exec_stack->vote_program.update_commission.vote_lockout_mem );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L817 */
+  return fd_vsv_set_vote_account_state(
+      ctx,
+      vote_account,
+      vote_state_versioned,
+      ctx->txn_ctx->exec_stack->vote_program.update_commission.vote_lockout_mem
+  );
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L997
@@ -1945,8 +1941,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     rc = process_authorize_with_seed_instruction(
         ctx,
-        &me,
         target_version,
+        &me,
         &args->new_authority,
         args->authorization_type,
         &args->current_authority_derived_key_owner,
@@ -1990,13 +1986,15 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L119
-    rc = process_authorize_with_seed_instruction( ctx,
-                                                  &me,
-                                                  new_authority,
-                                                  args->authorization_type,
-                                                  &args->current_authority_derived_key_owner,
-                                                  args->current_authority_derived_key_seed,
-                                                  args->current_authority_derived_key_seed_len );
+    rc = process_authorize_with_seed_instruction(
+        ctx,
+        target_version,
+        &me,
+        new_authority,
+        args->authorization_type,
+        &args->current_authority_derived_key_owner,
+        args->current_authority_derived_key_seed,
+        args->current_authority_derived_key_seed_len );
 
     break;
   }
@@ -2022,7 +2020,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L135
-    rc = update_validator_identity( &me, node_pubkey, signers, ctx );
+    rc = update_validator_identity( ctx, target_version, &me, node_pubkey, signers );
 
     break;
   }
@@ -2045,12 +2043,15 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L145
-    rc = update_commission( &me,
-                            instruction->inner.update_commission,
-                            signers,
-                            epoch_schedule,
-                            clock,
-                            ctx );
+    rc = update_commission(
+        ctx,
+        target_version,
+        &me,
+        instruction->inner.update_commission,
+        signers,
+        epoch_schedule,
+        clock
+    );
 
     break;
   }

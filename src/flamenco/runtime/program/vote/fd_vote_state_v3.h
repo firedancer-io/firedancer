@@ -11,13 +11,13 @@ void
 fd_vote_program_v3_create_new( fd_vote_init_t * const        vote_init,
                                fd_sol_sysvar_clock_t const * clock,
                                uchar *                       authorized_voters_mem,
-                              fd_vote_state_versioned_t *   versioned /* out */ );
+                              fd_vote_state_versioned_t *    versioned /* out */ );
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L414-L434 */
 int
-fd_vote_state_v3_set_vote_account_state( fd_borrowed_account_t *     vote_account,
+fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
+                                         fd_borrowed_account_t *     vote_account,
                                          fd_vote_state_versioned_t * versioned,
-                                         fd_exec_instr_ctx_t const * ctx,
                                          uchar *                     vote_lockout_mem );
 
 /* This is more than just a deserialization - this function attempts
@@ -28,7 +28,7 @@ fd_vote_state_v3_set_vote_account_state( fd_borrowed_account_t *     vote_accoun
 int
 fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
                               uchar *                       vote_state_mem,
-                              uchar *                         authorized_voters_mem,
+                              uchar *                       authorized_voters_mem,
                               uchar *                       landed_votes_mem );
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L828
