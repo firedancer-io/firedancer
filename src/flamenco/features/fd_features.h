@@ -26,6 +26,7 @@
 #define FD_FEATURE_JUST_ACTIVATED_OFFSET(_bank, _offset)                  FD_FEATURE_JUST_ACTIVATED_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
 #define FD_FEATURE_ACTIVE(_slot, _features, _feature_name)                FD_FEATURE_ACTIVE_( _slot, _features, _feature_name )
 #define FD_FEATURE_ACTIVE_BANK(_bank, _feature_name)                      FD_FEATURE_ACTIVE_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _feature_name )
+#define FD_FEATURE_ACTIVE_BANK_OFFSET(_bank, _offset)                     FD_FEATURE_ACTIVE_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
 
 
 /* fd_features_t is the current set of enabled feature flags.

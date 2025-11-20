@@ -42,6 +42,7 @@ struct fd_native_prog_info {
   fd_pubkey_t key;
   fd_exec_instr_fn_t fn;
   uchar is_bpf_loader;
+  ulong feature_enable_offset; /* offset to the feature that enables this program, if any */
 };
 typedef struct fd_native_prog_info fd_native_prog_info_t;
 
@@ -62,17 +63,17 @@ typedef struct fd_native_prog_info fd_native_prog_info_t;
                                           PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
 #define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr + 8UL ) )
 
-#define MAP_PERFECT_0       ( VOTE_PROG_ID            ), .fn = fd_vote_program_execute,                      .is_bpf_loader = 0
-#define MAP_PERFECT_1       ( SYS_PROG_ID             ), .fn = fd_system_program_execute,                    .is_bpf_loader = 0
-#define MAP_PERFECT_2       ( CONFIG_PROG_ID          ), .fn = fd_config_program_execute,                    .is_bpf_loader = 0
-#define MAP_PERFECT_3       ( STAKE_PROG_ID           ), .fn = fd_stake_program_execute,                     .is_bpf_loader = 0
-#define MAP_PERFECT_4       ( COMPUTE_BUDGET_PROG_ID  ), .fn = fd_compute_budget_program_execute,            .is_bpf_loader = 0
-#define MAP_PERFECT_5       ( ADDR_LUT_PROG_ID        ), .fn = fd_address_lookup_table_program_execute,      .is_bpf_loader = 0
-#define MAP_PERFECT_6       ( ZK_EL_GAMAL_PROG_ID     ), .fn = fd_executor_zk_elgamal_proof_program_execute, .is_bpf_loader = 0
-#define MAP_PERFECT_7       ( BPF_LOADER_1_PROG_ID    ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1
-#define MAP_PERFECT_8       ( BPF_LOADER_2_PROG_ID    ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1
-#define MAP_PERFECT_9       ( BPF_UPGRADEABLE_PROG_ID ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1
-#define MAP_PERFECT_10      ( LOADER_V4_PROG_ID       ), .fn = fd_loader_v4_program_execute,                 .is_bpf_loader = 1
+#define MAP_PERFECT_0       ( VOTE_PROG_ID            ), .fn = fd_vote_program_execute,                      .is_bpf_loader = 0, .feature_enable_offset = ULONG_MAX
+#define MAP_PERFECT_1       ( SYS_PROG_ID             ), .fn = fd_system_program_execute,                    .is_bpf_loader = 0, .feature_enable_offset = ULONG_MAX
+#define MAP_PERFECT_2       ( CONFIG_PROG_ID          ), .fn = fd_config_program_execute,                    .is_bpf_loader = 0, .feature_enable_offset = ULONG_MAX
+#define MAP_PERFECT_3       ( STAKE_PROG_ID           ), .fn = fd_stake_program_execute,                     .is_bpf_loader = 0, .feature_enable_offset = ULONG_MAX
+#define MAP_PERFECT_4       ( COMPUTE_BUDGET_PROG_ID  ), .fn = fd_compute_budget_program_execute,            .is_bpf_loader = 0, .feature_enable_offset = ULONG_MAX
+#define MAP_PERFECT_5       ( ADDR_LUT_PROG_ID        ), .fn = fd_address_lookup_table_program_execute,      .is_bpf_loader = 0, .feature_enable_offset = ULONG_MAX
+#define MAP_PERFECT_6       ( ZK_EL_GAMAL_PROG_ID     ), .fn = fd_executor_zk_elgamal_proof_program_execute, .is_bpf_loader = 0, .feature_enable_offset = ULONG_MAX
+#define MAP_PERFECT_7       ( BPF_LOADER_1_PROG_ID    ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
+#define MAP_PERFECT_8       ( BPF_LOADER_2_PROG_ID    ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
+#define MAP_PERFECT_9       ( BPF_UPGRADEABLE_PROG_ID ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
+#define MAP_PERFECT_10      ( LOADER_V4_PROG_ID       ), .fn = fd_loader_v4_program_execute,                 .is_bpf_loader = 1, .feature_enable_offset = offsetof( fd_features_t, enable_loader_v4 )
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
@@ -114,6 +115,16 @@ fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey ) {
   return fd_native_program_fn_lookup_tbl_query( pubkey, &null_function )->is_bpf_loader;
 }
 
+uchar
+fd_executor_program_is_active( fd_exec_txn_ctx_t const * txn_ctx,
+                               fd_pubkey_t const *       pubkey ) {
+  fd_native_prog_info_t const null_function = {0};
+  ulong feature_offset = fd_native_program_fn_lookup_tbl_query( pubkey, &null_function )->feature_enable_offset;
+
+  return feature_offset==ULONG_MAX ||
+         FD_FEATURE_ACTIVE_BANK_OFFSET( txn_ctx->bank, feature_offset );
+}
+
 /* fd_executor_lookup_native_program returns the appropriate instruction processor for the given
    native program ID. Returns NULL if given ID is not a recognized native program.
    https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L520-L544 */
@@ -151,6 +162,16 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
      fuzzers. */
   uchar has_migrated;
   if( FD_UNLIKELY( fd_is_migrating_builtin_program( txn_ctx, lookup_pubkey, &has_migrated ) && has_migrated ) ) {
+    *native_prog_fn = NULL;
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+  }
+
+  /* We perform feature gate checks here to emulate the absence of
+     a native program in Agave's ProgramCache when the program's feature
+     gate is not activated.
+     https://github.com/anza-xyz/agave/blob/v3.0.3/program-runtime/src/invoke_context.rs#L546-L549 */
+
+  if( FD_UNLIKELY( !fd_executor_program_is_active( txn_ctx, lookup_pubkey ) ) ) {
     *native_prog_fn = NULL;
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }

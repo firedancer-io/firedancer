@@ -801,9 +801,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L487-L549 */
 int
 fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
-  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, enable_loader_v4 ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
-  }
+  FD_TEST( FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, enable_loader_v4 ) );
 
   int rc = FD_EXECUTOR_INSTR_SUCCESS;
 
