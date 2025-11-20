@@ -1783,18 +1783,15 @@ process_authorize_with_seed_instruction( /* invoke_context */
   fd_pubkey_t * expected_authority_keys[FD_TXN_SIG_MAX] = { 0 };
   fd_pubkey_t   single_signer                        = { 0 };
 
-  if( ctx->instr->acct_cnt < 3 )
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L33
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_processor.rs#L30-L42 */
   if( fd_instr_acc_is_signer_idx( ctx->instr, 2, &rc ) ) {
 
-    // https://github.com/anza-xyz/agave/blob/v2.1.14/programs/vote/src/vote_processor.rs#L34
+    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_processor.rs#L31 */
     fd_pubkey_t const * base_pubkey = NULL;
     rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 2UL, &base_pubkey );
     if( FD_UNLIKELY( rc ) ) return rc;
 
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L37
+    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_processor.rs#L34-L40 */
     expected_authority_keys[0] = &single_signer;
     rc = fd_pubkey_create_with_seed( ctx,
                                      base_pubkey->uc,
@@ -1805,8 +1802,16 @@ process_authorize_with_seed_instruction( /* invoke_context */
     if( FD_UNLIKELY( rc ) ) return rc;
   }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L43
-  return authorize( ctx, vote_account, target_version, new_authority, authorization_type, (fd_pubkey_t const **)expected_authority_keys, clock );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_processor.rs#L43-L50 */
+  return authorize(
+      ctx,
+      vote_account,
+      target_version,
+      new_authority,
+      authorization_type,
+      (fd_pubkey_t const **)expected_authority_keys,
+      clock
+  );
 }
 
 /**********************************************************************/
