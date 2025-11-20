@@ -6,6 +6,9 @@
 #include "generated/txn.pb.h"
 #include "generated/vm.pb.h"
 #include "generated/elf.pb.h"
+
+#include "flatbuffers/generated/elf_reader.h"
+
 #include "../fd_executor_err.h"
 #include <assert.h>
 
@@ -387,4 +390,97 @@ fd_solfuzz_pb_vm_interp_fixture( fd_solfuzz_runner_t * runner,
   // Cleanup
   pb_release( &fd_exec_test_syscall_fixture_t_msg, fixture );
   return ok;
+}
+
+/* Flatbuffers */
+static int
+sol_compat_fb_cmp_elf_loader( SOL_COMPAT_NS(ELFLoaderEffects_table_t) expected,
+                              SOL_COMPAT_NS(ELFLoaderEffects_table_t) actual ) {
+  /* Compare err_code */
+  if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_err_code( expected ))!=SOL_COMPAT_NS(ELFLoaderEffects_err_code( actual )) ) ) {
+    FD_LOG_WARNING(( "Err code mismatch: expected=%u actual=%u", SOL_COMPAT_NS(ELFLoaderEffects_err_code( expected )), SOL_COMPAT_NS(ELFLoaderEffects_err_code( actual )) ));
+    return 0;
+  }
+
+  /* Compare rodata_hash */
+  SOL_COMPAT_NS(XXHash_struct_t) exp_rodata_hash = SOL_COMPAT_NS(ELFLoaderEffects_rodata_hash( expected ));
+  SOL_COMPAT_NS(XXHash_struct_t) act_rodata_hash = SOL_COMPAT_NS(ELFLoaderEffects_rodata_hash( actual ));
+
+  if( (!exp_rodata_hash && !act_rodata_hash) ) {
+    // Both are NULL, considered matching
+  } else if( FD_UNLIKELY( (exp_rodata_hash && !act_rodata_hash) || (!exp_rodata_hash && act_rodata_hash) ) ) {
+    FD_LOG_WARNING(( "Rodata hash presence mismatch: expected=%p actual=%p", (void*)exp_rodata_hash, (void*)act_rodata_hash ));
+    return 0;
+  } else if( FD_UNLIKELY( memcmp( &exp_rodata_hash->hash, &act_rodata_hash->hash, sizeof(exp_rodata_hash->hash) ) ) ) {
+    FD_LOG_WARNING(( "Rodata hash mismatch: expected=%lu actual=%lu", *((ulong*)exp_rodata_hash->hash), *((ulong*)act_rodata_hash->hash) ));
+    return 0;
+  }
+
+  /* Compare text_cnt */
+  if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( expected ))!=SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( actual )) ) ) {
+    FD_LOG_WARNING(( "Text cnt mismatch: expected=%lu actual=%lu",
+        SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( expected )),
+        SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( actual )) ));
+    return 0;
+  }
+
+  /* Compare text_off */
+  if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_text_off( expected ))!=SOL_COMPAT_NS(ELFLoaderEffects_text_off( actual )) ) ) {
+    FD_LOG_WARNING(( "Text off mismatch: expected=%lu actual=%lu",
+        SOL_COMPAT_NS(ELFLoaderEffects_text_off( expected )),
+        SOL_COMPAT_NS(ELFLoaderEffects_text_off( actual )) ));
+    return 0;
+  }
+
+  /* Compare entry_pc */
+  if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( expected )) != SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( actual )) ) ) {
+    FD_LOG_WARNING(( "Entry pc mismatch: expected=%lu actual=%lu",
+        SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( expected )),
+        SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( actual )) ));
+    return 0;
+  }
+
+  /* Compare calldests_hash */
+  SOL_COMPAT_NS(XXHash_struct_t) exp_calldests_hash = SOL_COMPAT_NS(ELFLoaderEffects_calldests_hash( expected ));
+  SOL_COMPAT_NS(XXHash_struct_t) act_calldests_hash = SOL_COMPAT_NS(ELFLoaderEffects_calldests_hash( actual ));
+
+  if( (!exp_calldests_hash && !act_calldests_hash) ) {
+    // Both are NULL, considered matching
+  } else if( FD_UNLIKELY( (exp_calldests_hash && !act_calldests_hash) || (!exp_calldests_hash && act_calldests_hash) ) ) {
+    FD_LOG_WARNING(( "Calldests hash presence mismatch: expected=%p actual=%p", (void*)exp_calldests_hash, (void*)act_calldests_hash ));
+    return 0;
+  } else if( FD_UNLIKELY( memcmp( &exp_calldests_hash->hash, &act_calldests_hash->hash, sizeof(exp_calldests_hash->hash) ) ) ) {
+    FD_LOG_WARNING(( "Calldests hash mismatch: expected=%lu actual=%lu", *((ulong*)exp_calldests_hash->hash), *((ulong*)act_calldests_hash->hash) ));
+    return 0;
+  }
+
+  return 1;
+}
+
+int
+fd_solfuzz_fb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
+                                  uchar const *         in ) {
+  /* Decode */
+  SOL_COMPAT_NS(ELFLoaderFixture_table_t) fixture = SOL_COMPAT_NS(ELFLoaderFixture_as_root( in ));
+  if( FD_UNLIKELY( !fixture ) ) return 0;
+
+  /* Execute */
+  SOL_COMPAT_NS(ELFLoaderCtx_table_t) input = SOL_COMPAT_NS(ELFLoaderFixture_input( fixture ));
+  if( FD_UNLIKELY( !input ) ) return 0;
+
+  int err = fd_solfuzz_fb_execute_wrapper( runner, input, fd_solfuzz_fb_elf_loader_run );
+  if( FD_UNLIKELY( err==SOL_COMPAT_V2_FAILURE ) ) return err;
+
+  /* Compare */
+  FD_SPAD_FRAME_BEGIN( runner->spad ) {
+    ulong   buffer_sz  = flatcc_builder_get_buffer_size( runner->fb_builder );
+    uchar * actual_buf = fd_spad_alloc( runner->spad, 1UL, buffer_sz );
+    flatcc_builder_copy_buffer( runner->fb_builder, actual_buf, buffer_sz );
+
+    SOL_COMPAT_NS(ELFLoaderEffects_table_t) expected = SOL_COMPAT_NS(ELFLoaderEffects_as_root( actual_buf ));
+    SOL_COMPAT_NS(ELFLoaderEffects_table_t) actual   = SOL_COMPAT_NS(ELFLoaderFixture_output( fixture ));
+    if( FD_UNLIKELY( !expected || !actual ) ) return 0;
+
+    return sol_compat_fb_cmp_elf_loader( expected, actual );
+  } FD_SPAD_FRAME_END;
 }
