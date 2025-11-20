@@ -191,7 +191,7 @@ struct fd_solcap_buf_msg_stake_rewards_begin {
    ulong   payout_epoch;
    ulong   reward_epoch;
    ulong   inflation_lamports;
-   uint128 total_points;
+   ulong total_points;
  };
  typedef struct fd_solcap_buf_msg_stake_rewards_begin fd_solcap_buf_msg_stake_rewards_begin_t;
 

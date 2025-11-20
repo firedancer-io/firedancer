@@ -22,7 +22,7 @@ struct fd_exec_txn_exec_msg {
   ulong      txn_idx;
   fd_txn_p_t txn;
 
-  /* Used currently by solcap to maintain ordering of messages 
+  /* Used currently by solcap to maintain ordering of messages
      this is a hack for v2.0, will change to using txn sigs eventually */
   ulong      capture_txn_idx;
 };
