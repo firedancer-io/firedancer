@@ -77,12 +77,16 @@ union fdctl_args {
   } flame;
 
   struct {
-    char  manifest_path[ 256UL ];
-    char  iptable_path[ 256UL ];
-    int   metrics_only;
-    int   forest_only;
-    int   sorted;
-    ulong end_slot;
+    char const * pos_arg;
+    int          help;
+
+    /* options */
+
+    char         manifest_path[256UL];
+    char         iptable_path[256UL];
+    ulong        end_slot;
+    ulong        slot;
+    int          sort_by_slot;
   } repair;
 
   struct {

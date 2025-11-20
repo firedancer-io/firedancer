@@ -27,7 +27,7 @@ fd_repair_metrics_set_turbine_slot0( fd_repair_metrics_t * repair_metrics, ulong
 void
 fd_repair_metrics_add_slot( fd_repair_metrics_t * repair_metrics,
                      ulong          slot,
-                     long           first_ts,
+                     long           first_shred_ts,
                      long           slot_complete_ts,
                      uint           repair_cnt,
                      uint           turbine_cnt ) {
@@ -36,7 +36,7 @@ fd_repair_metrics_add_slot( fd_repair_metrics_t * repair_metrics,
     repair_metrics->st = (repair_metrics->st + 1) % FD_CATCHUP_METRICS_MAX;
   }
   repair_metrics->slots[ next_en ].slot             = slot;
-  repair_metrics->slots[ next_en ].first_ts         = first_ts;
+  repair_metrics->slots[ next_en ].first_shred_ts   = first_shred_ts;
   repair_metrics->slots[ next_en ].slot_complete_ts = slot_complete_ts;
   repair_metrics->slots[ next_en ].repair_cnt       = repair_cnt;
   repair_metrics->slots[ next_en ].turbine_cnt      = turbine_cnt;
@@ -53,13 +53,13 @@ fd_repair_metrics_add_slot( fd_repair_metrics_t * repair_metrics,
 static char dashes[MAX_WIDTH + 1] = "========================================================================================================================";
 static char spaces[MAX_WIDTH + 1] = "                                                                                                                        ";
 
-#define print_slot_interval_bar( slot_metrics, tick_sz, min_ts, verbose )     \
-  long duration = slot_metrics->slot_complete_ts - slot_metrics->first_ts;    \
-  int  width    = (int)((double)(duration) / tick_sz);                        \
-  int  start    = (int)((double)(slot_metrics->first_ts - min_ts) / tick_sz); \
-  if( FD_UNLIKELY( verbose ) ) {                                              \
-    printf( "%lu [repaired: %u/%u]%.*s|%.*s| (%.2f ms)",                      \
-            slot_metrics->slot,                                               \
+#define print_slot_interval_bar( slot_metrics, tick_sz, min_ts, verbose )           \
+  long duration = slot_metrics->slot_complete_ts - slot_metrics->first_shred_ts;    \
+  int  width    = (int)((double)(duration) / tick_sz);                              \
+  int  start    = (int)((double)(slot_metrics->first_shred_ts - min_ts) / tick_sz); \
+  if( FD_UNLIKELY( verbose ) ) {                                                    \
+    printf( "%lu [repaired: %u/%u]%.*s|%.*s| (%.2f ms)",                            \
+            slot_metrics->slot,                                                     \
             slot_metrics->repair_cnt, slot_metrics->turbine_cnt + slot_metrics->repair_cnt, \
             start, spaces, width, dashes,                                                   \
             (double)fd_metrics_convert_ticks_to_nanoseconds((ulong)duration) / 1e6 );       \
@@ -92,7 +92,7 @@ fd_repair_metrics_print_sorted( fd_repair_metrics_t * repair_metrics, int verbos
   if( repair_metrics->st == UINT_MAX ) return; // no data to sort
 
   uint temp_idx          = 0;
-  long min_ts            = repair_metrics->slots[ repair_metrics->st ].first_ts;
+  long min_ts            = repair_metrics->slots[ repair_metrics->st ].first_shred_ts;
   long max_ts            = repair_metrics->slots[ repair_metrics->en ].slot_complete_ts;
   long repair_kickoff_ts = 0;  /* When we receive the first turbine shred, is when we begin orphans. */
   long finish_catchup_ts = 0;  /* the max of all slot < turbine slot0 completion times */
@@ -106,12 +106,12 @@ fd_repair_metrics_print_sorted( fd_repair_metrics_t * repair_metrics, int verbos
     fd_slot_metrics_t * slot_data = &repair_metrics->slots[ i ];
     temp_slots[ temp_idx++ ] = *slot_data;
     total_slots++;
-    min_ts = fd_min( min_ts, slot_data->first_ts );
+    min_ts = fd_min( min_ts, slot_data->first_shred_ts );
     max_ts = fd_max( max_ts, slot_data->slot_complete_ts );
-    if( FD_UNLIKELY( slot_data->slot == repair_metrics->turbine_slot0 ) ) repair_kickoff_ts = slot_data->first_ts;
+    if( FD_UNLIKELY( slot_data->slot == repair_metrics->turbine_slot0 ) ) repair_kickoff_ts = slot_data->first_shred_ts;
     if( FD_UNLIKELY( slot_data->slot <= repair_metrics->turbine_slot0 ) ) finish_catchup_ts = fd_max( finish_catchup_ts, slot_data->slot_complete_ts );
     if( FD_UNLIKELY( slot_data->slot <= repair_metrics->turbine_slot0 ) ) num_catchup_slots++;
-    slot_durations_sum += slot_data->slot_complete_ts - slot_data->first_ts;
+    slot_durations_sum += slot_data->slot_complete_ts - slot_data->first_shred_ts;
 
     incremental_cmpl_sum += slot_data->slot_complete_ts - prev_slot_ts;
     prev_slot_ts          = slot_data->slot_complete_ts;
@@ -128,7 +128,7 @@ fd_repair_metrics_print_sorted( fd_repair_metrics_t * repair_metrics, int verbos
     etc. */
 
   double tick_sz          = (double)(max_ts - min_ts) / (double)MAX_WIDTH;
-  long   orphan_cmpl_ts   = temp_slots[0].first_ts; /* When we make the request for the snapshot slot, this is about when the full tree is connected. */
+  long   orphan_cmpl_ts   = temp_slots[0].first_shred_ts; /* When we make the request for the snapshot slot, this is about when the full tree is connected. */
   int    orphans_cmpl_cnt = 0;                      /* Count of slots completed by the time orphan requests are done */
   for( uint i = 0; i < total_slots; i++ ) {
     fd_slot_metrics_t * slot_metrics = &temp_slots[ i ];
@@ -166,7 +166,7 @@ fd_repair_metrics_print_sorted( fd_repair_metrics_t * repair_metrics, int verbos
 
 void
 fd_repair_metrics_print( fd_repair_metrics_t * repair_metrics, int verbose ) {
-  long min_ts            = repair_metrics->slots[ repair_metrics->st ].first_ts;
+  long min_ts            = repair_metrics->slots[ repair_metrics->st ].first_shred_ts;
   long max_ts            = repair_metrics->slots[ repair_metrics->en ].slot_complete_ts;
   uint total_slots       = 0;
   long prev_slot_ts         = repair_metrics->slots[ repair_metrics->st ].slot_complete_ts;
@@ -175,9 +175,9 @@ fd_repair_metrics_print( fd_repair_metrics_t * repair_metrics, int verbose ) {
   long slot_durations_sum = 0;
   for( uint i = repair_metrics->st;; i = (i + 1) % FD_CATCHUP_METRICS_MAX ) {
     fd_slot_metrics_t * slot_data = &repair_metrics->slots[ i ];
-    slot_durations_sum += (slot_data->slot_complete_ts - slot_data->first_ts);
+    slot_durations_sum += (slot_data->slot_complete_ts - slot_data->first_shred_ts);
     total_slots++;
-    min_ts = fd_min( min_ts, slot_data->first_ts );
+    min_ts = fd_min( min_ts, slot_data->first_shred_ts );
     max_ts = fd_max( max_ts, slot_data->slot_complete_ts );
 
     /* st -> en are already ordered by completion time. so this-prev
@@ -217,4 +217,3 @@ fd_repair_metrics_print( fd_repair_metrics_t * repair_metrics, int verbose ) {
 }
 
 #undef MAX_WIDTH
-
