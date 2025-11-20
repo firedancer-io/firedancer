@@ -676,6 +676,9 @@ fd_topo_initialize( config_t * config ) {
       /**/            fd_topob_tile_out(    topo, "snapwh",  0UL,                       "snapwh_wr",    0UL                                                );
       /**/            fd_topob_tile_in (    topo, "snapwr",  0UL,          "metric_in", "snapwh_wr",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", 0UL ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapin_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+      if( !snapshot_lthash_disabled ) {
+        fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapls", 0UL ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapwh_wr", 0UL ) ].mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+      }
     }
 
     /**/              fd_topob_tile_in (    topo, "snapld",  0UL,          "metric_in", "snapct_ld",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -1202,6 +1205,17 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapla" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapls" ) ) )  {
+
+    if( !!config->firedancer.vinyl.enabled ) {
+      ulong wh_wr_link_id = fd_topo_find_link( &config->topo, "snapwh_wr", 0UL );
+      FD_TEST( wh_wr_link_id!=ULONG_MAX );
+      fd_topo_link_t * wh_wr_link = &config->topo.links[ wh_wr_link_id ];
+      tile->snapls.bstream_seq_mcache_obj_id = wh_wr_link->mcache_obj_id;
+    } else {
+      tile->snapls.bstream_seq_mcache_obj_id = ULONG_MAX;
+    }
+    tile->snapls.use_vinyl = !!config->firedancer.vinyl.enabled;
+    strcpy( tile->snapls.vinyl_path, config->paths.accounts );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;

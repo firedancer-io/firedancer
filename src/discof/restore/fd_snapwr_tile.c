@@ -68,9 +68,11 @@ struct fd_snapwr {
   uint         state;
   int          dev_fd;
   ulong        dev_sz;
+  ulong        dev_base;
   void const * base;
   ulong *      seq_sync;  /* fseq->seq[0] */
   uint         idle_cnt;
+  ulong *      bstream_seq; /* fseq->seq[1] */
 
   struct {
     ulong last_off;
@@ -87,7 +89,10 @@ scratch_align( void ) {
 static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  return sizeof(fd_snapwr_t);
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapwr_t), sizeof(fd_snapwr_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),       sizeof(ulong)       );
+  return FD_LAYOUT_FINI( l, alignof(fd_snapwr_t) );
 }
 
 static void
@@ -120,10 +125,16 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->in_link_reliable[ 0 ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link 0 must be reliable" ));
   FD_TEST( tile->snapwr.dcache_obj_id!=ULONG_MAX );
 
+  snapwr->dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
+
   uchar const * in_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snapwr.dcache_obj_id ) );
   FD_TEST( in_dcache );
   snapwr->base     = in_dcache;
   snapwr->seq_sync = tile->in_link_fseq[ 0 ];
+
+  fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
+  snapwr->bstream_seq = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, in_link->mcache_obj_id ) ) ) + (FD_MCACHE_SEQ_CNT-1);
+  fd_mcache_seq_update( snapwr->bstream_seq, 0UL );
 
   snapwr->state = FD_SNAPSHOT_STATE_IDLE;
 }
@@ -224,6 +235,9 @@ handle_data_frag( fd_snapwr_t * ctx,
   if( FD_UNLIKELY( write_sz<0 ) ) {
     FD_LOG_ERR(( "pwrite(off=%lu,sz=%lu) failed (%i-%s)", dev_off, src_sz, errno, strerror( errno ) ));
   }
+
+  fd_mcache_seq_update( ctx->bstream_seq, dev_off+src_sz-ctx->dev_base );
+
   ctx->metrics.last_off = dev_off+src_sz;
 }
 

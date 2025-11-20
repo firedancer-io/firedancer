@@ -124,9 +124,10 @@ snapshot_load_topo( config_t * config,
 
 #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
+  fd_topo_tile_t * snapls_tile = NULL;
   if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
     FOR(lta_tile_cnt)  fd_topob_tile( topo, "snapla", "snapla", "metric_in", ULONG_MAX, 0, 0 )->allow_shutdown = 1;
-    /**/               fd_topob_tile( topo, "snapls", "snapls", "metric_in", ULONG_MAX, 0, 0 )->allow_shutdown = 1;
+    snapls_tile =      fd_topob_tile( topo, "snapls", "snapls", "metric_in", ULONG_MAX, 0, 0 ); snapls_tile->allow_shutdown = 1;
   }
 
   fd_topob_link( topo, "snapct_ld",   "snapct_ld",     128UL,   sizeof(fd_ssctrl_init_t),       1UL );
@@ -145,7 +146,11 @@ snapshot_load_topo( config_t * config,
 
   if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
     FOR(lta_tile_cnt) fd_topob_link( topo, "snapla_ls",  "snapla_ls",   128UL,  sizeof(fd_lthash_value_t),          1UL );
+    if(vinyl_enabled) {
+    /**/              fd_topob_link( topo, "snapin_ls",  "snapin_ls",   1UL<<25, 64UL/*sizeof(ulong)+sizeof(fd_vinyl_bstream_phdr_t)*/, 1UL );
+    } else {
     /**/              fd_topob_link( topo, "snapin_ls",  "snapin_ls",   256UL,  sizeof(fd_snapshot_full_account_t), 1UL );
+    }
     /**/              fd_topob_link( topo, "snapls_ct",  "snapls_ct",   128UL,  0UL,                                1UL );
   }
 
@@ -174,6 +179,9 @@ snapshot_load_topo( config_t * config,
     fd_topob_tile_out( topo, "snapwh", 0UL,              "snapwh_wr", 0UL );
     fd_topob_tile_in ( topo, "snapwr", 0UL, "metric_in", "snapwh_wr", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_uses( topo, snapwr_tile, &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapin_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+    if( !snapshot_lthash_disabled ) {
+      fd_topob_tile_uses( topo, snapls_tile, &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapwh_wr", 0UL ) ].mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+    }
   }
   if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
     FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapla", i,   "metric_in", "snapdc_in",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );

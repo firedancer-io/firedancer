@@ -16,6 +16,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 
 struct blockhash_group {
   uchar blockhash[ 32UL ];
@@ -129,6 +130,10 @@ struct fd_snapin_tile {
     ulong   data_rem;
 
     fd_vinyl_meta_ele_t * meta_ele;
+
+    ulong   duplicate_acc_hdr_cnt;
+    ulong   duplicate_acc_lthash_cnt;
+    int     duplicate_acc_to_drop;
   } vinyl_op;
 };
 
@@ -301,6 +306,53 @@ fd_snapin_read_account( fd_snapin_tile_t *  ctx,
   } else {
     fd_snapin_read_account_funk( ctx, acct_addr, meta, data, data_max );
   }
+}
+
+/* fd_snapin_send_duplicate_account_vinyl sends a duplicate account
+   message with the signature FD_SNAPSHOT_HASH_MSG_SUB_VINYL_HDR or
+   FD_SNAPSHOT_HASH_MSG_SUB_LTHASH.  The message is only sent if
+   lthash verification is enabled in the snapshot loader.
+
+   _phdr is the header of the duplicate account that needs to be
+   looked up in vinyl.  _seq is the btream offset (in bytes) where the
+   existing account is located.  _early_exit is an optional pointer to
+   an int flag that is set to 1 if the caller should yield to stem
+   following this call.  _block is the full bstream account block that
+   needs to be lthash-ed first (it is an outdated duplicate account
+   for a slot older than the existing one). */
+static inline void
+fd_snapin_send_duplicate_account_vinyl( fd_snapin_tile_t *        ctx,
+                                        fd_vinyl_bstream_phdr_t * _phdr,
+                                        ulong                     _seq,
+                                        int *                     _early_exit,
+                                        uchar const *             _block  ) {
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return;
+
+  if( !_block ) {
+    ulong seq = _seq % ctx->vinyl.bstream_sz;
+    uchar * data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+    memcpy( data, &seq, sizeof(ulong) );
+    memcpy( data + sizeof(ulong), _phdr, sizeof(fd_vinyl_bstream_phdr_t) );
+    ulong data_sz = sizeof(ulong)+sizeof(fd_vinyl_bstream_phdr_t);
+    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_SUB_VINYL_HDR, ctx->hash_out.chunk, data_sz, 0UL, 0UL, 0UL );
+    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, data_sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    ctx->vinyl_op.duplicate_acc_hdr_cnt++;
+  } else {
+    uchar * pair = (uchar*)_block;
+    fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)pair;
+    pair += sizeof(fd_vinyl_bstream_phdr_t);
+    fd_account_meta_t * meta = (fd_account_meta_t *)pair;
+    pair += sizeof(fd_account_meta_t);
+    uchar * data = pair;
+
+    fd_lthash_value_t * prev_hash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+    fd_pubkey_t * account_pubkey = (fd_pubkey_t*)(phdr->key.c);
+    fd_hashes_account_lthash( account_pubkey, meta, data, prev_hash );
+    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_SUB_VINYL_LTHASH, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
+    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_lthash_value_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    ctx->vinyl_op.duplicate_acc_lthash_cnt++;
+  }
+  if( FD_LIKELY( _early_exit ) ) *_early_exit = 1;
 }
 
 /* fd_snapin_send_duplicate_account sends a duplicate account message

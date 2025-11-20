@@ -570,7 +570,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
-      fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+      fd_ssparse_batch_enable( ctx->ssparse, ( ( ctx->use_vinyl ) && ( ctx->lthash_disabled ) ) || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
@@ -757,8 +757,8 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
 
   if( tile->snapin.use_vinyl && !tile->snapin.lthash_disabled ) {
-    FD_LOG_WARNING(( "lthash verficiation for vinyl not yet implemented" ));
-    tile->snapin.lthash_disabled = 1;
+    FD_LOG_WARNING(( "lthash verficiation for vinyl is currently experimental" ));
+    tile->snapin.lthash_disabled = 0;
   }
 
   if( tile->snapin.use_vinyl ) {
