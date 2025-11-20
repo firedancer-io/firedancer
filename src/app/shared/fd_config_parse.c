@@ -33,7 +33,6 @@ fd_config_extract_podh( uchar *        pod,
   CFG_POP_ARRAY( cstr,   ledger.account_index_exclude_keys                );
   CFG_POP      ( cstr,   ledger.accounts_index_path                       );
   CFG_POP      ( cstr,   ledger.accounts_hash_cache_path                  );
-  CFG_POP      ( bool,   ledger.enable_accounts_disk_index                );
   CFG_POP      ( bool,   ledger.require_tower                             );
   CFG_POP      ( cstr,   ledger.snapshot_archive_format                   );
 

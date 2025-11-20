@@ -249,13 +249,6 @@ dynamic_port_range = "8900-9000"
     # `--accounts-hash-cache-path` argument.
     accounts_hash_cache_path = ""
 
-    # If account indexes are enabled, they are flushed to disk
-    # periodically.  Otherwise, the entire index is kept in memory.
-    # Setting this to false may reduce disk I/O strain.  This option is
-    # passed to the Agave client inverted with the
-    # `--disable-accounts-disk-index` argument.
-    enable_accounts_disk_index = true
-
     # Whether to use compression when storing snapshots.  This option is
     # passed to the Agave client with the
     # `--snapshot-archive-format` argument.
