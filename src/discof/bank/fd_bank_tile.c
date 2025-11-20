@@ -360,6 +360,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
   int execution_success = 1;
 
+  /* TODO: this is a temporary hack to get bundles split out in the gui
+     while timestamps are properly plumbed through. */
+  long out_timestamp[ FD_PACK_MAX_TXN_PER_BUNDLE ] = { 0 };
+
   /* Every transaction in the bundle should be executed in order against
      different transaciton contexts. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -378,6 +382,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
     txn_ctx->bundle.is_bundle = 1;
+    out_timestamp[ i ] = fd_tickcount();
     txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( bank, txn_ctx, txn, NULL, &ctx->exec_stack, &ctx->exec_accounts[ i ], NULL, NULL );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->err.exec_err)<<24);
     if( FD_UNLIKELY( !txn_ctx->err.is_committable || txn_ctx->err.exec_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -465,10 +470,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
     long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
 
-    long tx_start_ticks       = microblock_start_ticks; // (long)out_timestamps[ 4*i + 0 ];
-    long tx_load_end_ticks    = microblock_start_ticks; // (long)out_timestamps[ 4*i + 1 ];
-    long tx_end_ticks         = microblock_start_ticks; // (long)out_timestamps[ 4*i + 2 ];
-    long tx_preload_end_ticks = microblock_start_ticks; // (long)out_timestamps[ 4*i + 3 ];
+    long tx_start_ticks       = out_timestamp[ i ]; // (long)out_timestamps[ 4*i + 0 ];
+    long tx_load_end_ticks    = out_timestamp[ i ]; // (long)out_timestamps[ 4*i + 1 ];
+    long tx_end_ticks         = out_timestamp[ i ]; // (long)out_timestamps[ 4*i + 2 ];
+    long tx_preload_end_ticks = out_timestamp[ i ]; // (long)out_timestamps[ 4*i + 3 ];
 
     trailer->txn_start_pct       = (uchar)(((double)(tx_start_ticks       - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
     trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
