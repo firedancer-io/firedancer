@@ -200,15 +200,16 @@ main( int     argc,
   }
 
   do {
-    FD_TEST( sort_up_search_geq( NULL, 0UL, 3.0f )==0UL );
-    float sorted[1024];
-    for( ulong j=0UL; j<1024UL; j++ ) sorted[j] = (float)j;
-    FD_TEST( sort_up_search_geq( sorted, 1024.0f, -9999.0f )==0UL );
-    for( ulong j=0UL; j<2048UL; j++ ) {
-      float query = sorted[j/2] + (((float)(j&1UL))/2.0f);
-      FD_TEST( sort_up_search_geq( sorted, 1024.0f, query )==j/2 );
+    FD_TEST( sort_up_split( NULL, 0UL, 3.0f )==0UL );
+    float sorted[32];
+    for( ulong idx=0UL; idx<32UL; idx++ ) sorted[ idx ] = (float)idx;
+    for( ulong cnt=0UL; cnt<33UL; cnt++ ) {
+      FD_TEST( sort_up_split( sorted, cnt, -0.5f )==0UL );
+      for( ulong idx=0UL; idx<cnt; idx++ ) {
+        FD_TEST( sort_up_split( sorted, cnt, (float)idx      )== idx      );
+        FD_TEST( sort_up_split( sorted, cnt, (float)idx+0.5f )==(idx+1UL) );
+      }
     }
-    FD_TEST( sort_up_search_geq( sorted, 1024.0f, 9999.0f )==1023UL );
   } while(0);
 
   fd_rng_delete( fd_rng_leave( rng ) );
