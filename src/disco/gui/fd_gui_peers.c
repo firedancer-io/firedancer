@@ -579,7 +579,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
 #if LOGGING
         char _pk[ FD_BASE58_ENCODED_32_SZ ];
         fd_base58_encode_32( update->origin_pubkey, NULL, _pk );
-        FD_LOG_WARNING(( "REMOVE %lu pk=%s",update->contact_info.idx, _pk ));
+        FD_LOG_WARNING(( "REMOVE %lu pk=%s",update->contact_info_remove.idx, _pk ));
 #endif
 
         fd_gui_peers_node_t * peer = &peers->contact_info_table[ update->contact_info_remove.idx ];
@@ -608,7 +608,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
         fd_http_server_ws_broadcast( peers->http );
 
         /* broadcast update to WebSocket clients */
-        fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_DELETE }, (ulong[]){ update->contact_info.idx }, 1UL, country_code_map );
+        fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_DELETE }, (ulong[]){ update->contact_info_remove.idx }, 1UL, country_code_map );
         fd_http_server_ws_broadcast( peers->http );
         break;
       }
