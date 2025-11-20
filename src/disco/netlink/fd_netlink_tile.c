@@ -50,6 +50,8 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_peer_routes,      "obj.%lu.route_peer_max",      fib4_local_obj->id ) );
   ulong fib4_seed;
   FD_TEST( 8UL==getrandom( &fib4_seed, sizeof(ulong), 0 ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fib4_seed, "obj.%lu.route_peer_seed", fib4_local_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fib4_seed, "obj.%lu.route_peer_seed", fib4_main_obj->id  ) );
 
   /* Configure neighbor hashmap: Open addressed hashmap with 3.0 sparsity
      factor and 16 long probe chain */
