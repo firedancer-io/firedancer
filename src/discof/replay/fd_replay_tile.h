@@ -53,6 +53,7 @@ struct fd_replay_slot_completed {
   long completion_time_nanos;             /* timestamp when replay completed finalizing the slot and notified tower */
 
   int is_leader; /* whether we were leader for this slot */
+  ulong identity_balance;
 
   struct {
     ulong block_cost;

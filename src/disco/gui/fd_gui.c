@@ -2622,11 +2622,19 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_hash_t const *         block_hash,
                              ulong                     vote_slot,
                              ulong                     storage_slot,
+                             ulong                     identity_balance,
                              long                      now ) {
   (void)now;
   if( FD_LIKELY( gui->summary.slot_storage!=storage_slot ) ) {
     gui->summary.slot_storage = storage_slot;
     fd_gui_printf_storage_slot( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
+  if( FD_UNLIKELY( identity_balance!=ULONG_MAX && gui->summary.identity_account_balance!=identity_balance ) ) {
+    gui->summary.identity_account_balance = identity_balance;
+
+    fd_gui_printf_identity_balance( gui );
     fd_http_server_ws_broadcast( gui->http );
   }
 
