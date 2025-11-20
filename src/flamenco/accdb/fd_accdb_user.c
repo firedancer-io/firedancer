@@ -321,6 +321,136 @@ fd_accdb_prep_inplace( fd_accdb_rw_t *   rw,
   return rw;
 }
 
+static fd_accdb_ro_t *
+fd_accdb_read_open_vinyl( fd_accdb_user_t *         accdb,
+                          fd_accdb_ro_t *           ro,
+                          void const *              address ) {
+
+  /* Query vinyl tile
+     FIXME preflight check the vinyl meta index before sending out request */
+
+  fd_wksp_t *       req_wksp      = accdb->vinyl_req_wksp;
+  fd_vinyl_key_t *  req_key       = &accdb->vinyl_req->key      [0];
+  ulong *           req_val_gaddr = &accdb->vinyl_req->val_gaddr[0];
+  schar *           req_err       = &accdb->vinyl_req->err      [0];
+  fd_vinyl_comp_t * comp          = &accdb->vinyl_req->comp     [0];
+
+  /* Send an ACQUIRE request */
+
+  fd_vinyl_key_init( req_key, address, 32UL );
+  memset( &accdb->vinyl_req->comp[0], 0, sizeof(fd_vinyl_comp_t) );
+
+  fd_vinyl_rq_send(
+      accdb->vinyl_rq,
+      accdb->vinyl_req_id++,
+      accdb->vinyl_link_id,
+      FD_VINYL_REQ_TYPE_ACQUIRE,
+      0UL,
+      1UL,
+      0UL,
+      fd_wksp_gaddr_fast( req_wksp, req_key       ),
+      fd_wksp_gaddr_fast( req_wksp, req_val_gaddr ),
+      fd_wksp_gaddr_fast( req_wksp, req_err       ),
+      fd_wksp_gaddr_fast( req_wksp, comp          )
+  );
+
+  /* Poll for completion */
+
+  while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
+  int comp_err = FD_VOLATILE_CONST( comp->err );
+  if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
+    FD_LOG_CRIT(( "vinyl tile rejected my ACQUIRE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
+  }
+
+  /* Return result */
+
+  int err = FD_VOLATILE_CONST( req_err[0] );
+  if( err==FD_VINYL_ERR_KEY ) return NULL;  /* not found */
+  if( FD_UNLIKELY( err!=FD_VINYL_SUCCESS ) ) {
+    FD_LOG_CRIT(( "vinyl tile ACQUIRE request failed: %i-%s", err, fd_vinyl_strerror( err ) ));
+  }
+
+  ulong                     val_gaddr = FD_VOLATILE_CONST( req_val_gaddr[0] );
+  fd_account_meta_t const * meta      = fd_wksp_laddr_fast( accdb->vinyl_data_wksp, val_gaddr );
+
+  *ro = (fd_accdb_ro_t) {
+    .meta = meta
+  };
+  return ro;
+}
+
+static void
+fd_accdb_read_close_vinyl( fd_accdb_user_t * accdb,
+                           fd_accdb_ro_t *   ro ) {
+
+  fd_wksp_t *       req_wksp      = accdb->vinyl_req_wksp;
+  fd_vinyl_key_t *  req_key       = &accdb->vinyl_req->key      [0];
+  ulong *           req_val_gaddr = &accdb->vinyl_req->val_gaddr[0];
+  schar *           req_err       = &accdb->vinyl_req->err      [0];
+  fd_vinyl_comp_t * comp          = &accdb->vinyl_req->comp     [0];
+
+  /* Send a RELEASE request */
+
+  /* FIXME fd_vinyl_key_init */
+  memset( req_key->uc, 0, sizeof(req_key->uc) );
+  req_val_gaddr[0] = fd_wksp_gaddr_fast( accdb->vinyl_data_wksp, (void *)ro->meta );
+
+  fd_vinyl_rq_send(
+      accdb->vinyl_rq,
+      accdb->vinyl_req_id++,
+      accdb->vinyl_link_id,
+      FD_VINYL_REQ_TYPE_RELEASE,
+      0UL,
+      1UL,
+      0UL,
+      fd_wksp_gaddr_fast( req_wksp, req_key       ),
+      fd_wksp_gaddr_fast( req_wksp, req_val_gaddr ),
+      fd_wksp_gaddr_fast( req_wksp, req_err       ),
+      fd_wksp_gaddr_fast( req_wksp, comp          )
+  );
+
+  /* Poll for completion */
+
+  while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
+  int comp_err = FD_VOLATILE_CONST( comp->err );
+  if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
+    FD_LOG_CRIT(( "vinyl tile rejected my ACQUIRE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
+  }
+  /* Return result */
+
+  int err = FD_VOLATILE_CONST( req_err[0] );
+  if( FD_UNLIKELY( err!=FD_VINYL_SUCCESS ) ) {
+    FD_LOG_CRIT(( "vinyl tile RELEASE request failed: %i-%s", err, fd_vinyl_strerror( err ) ));
+  }
+}
+
+fd_accdb_ro_t *
+fd_accdb_read_open( fd_accdb_user_t *         accdb,
+                    fd_accdb_ro_t *           ro,
+                    fd_funk_txn_xid_t const * xid,
+                    void const *              address ) {
+  fd_accdb_load_fork( accdb, xid );
+
+  /* Query funk index */
+  fd_accdb_peek_t peek[1];
+  if( fd_accdb_peek1( accdb, peek, xid, address ) ) {
+    return NULL;
+  }
+  /* FIXME what about tombstones */
+
+  return fd_accdb_read_open_vinyl( accdb, ro, address );
+}
+
+void
+fd_accdb_read_close( fd_accdb_user_t * accdb,
+                     fd_accdb_ro_t *   ro ) {
+  if( !ro->rec ) {
+    fd_accdb_read_close_vinyl( accdb, ro );
+  }
+}
+
 fd_accdb_rw_t *
 fd_accdb_modify_prepare( fd_accdb_user_t *         accdb,
                          fd_accdb_rw_t *           rw,

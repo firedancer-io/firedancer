@@ -64,6 +64,18 @@ fd_accdb_peek_drop( fd_accdb_peek_t * peek ) {
 
 FD_PROTOTYPES_END
 
+/* In-place read APIs *************************************************/
+
+fd_accdb_ro_t *
+fd_accdb_read_open( fd_accdb_user_t *         accdb,
+                    fd_accdb_ro_t *           ro,
+                    fd_funk_txn_xid_t const * txn_id,
+                    void const *              address );
+
+void
+fd_accdb_read_close( fd_accdb_user_t * accdb,
+                     fd_accdb_ro_t *   ro );
+
 /* In-place transactional write APIs **********************************/
 
 FD_PROTOTYPES_BEGIN
