@@ -694,7 +694,7 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
        bank, even if that slot didn't have landed votes for some of
        those accounts. */
     if( FD_UNLIKELY( !memcmp( &votes_sorted[ i ].node_account, identity->uc, sizeof(fd_pubkey_t) ) && peers->slot_voted!=votes_sorted[ i ].last_vote_slot ) ) {
-      peers->slot_voted = votes_sorted[ i ].last_vote_slot;
+      peers->slot_voted = fd_ulong_if( votes_sorted[ i ].last_vote_slot==0UL, ULONG_MAX, votes_sorted[ i ].last_vote_slot );
       fd_gui_peers_printf_vote_slot( peers );
       fd_http_server_ws_broadcast( peers->http );
     }

@@ -257,8 +257,10 @@ or more slots behind that fork.
 
 A number showing the distance between the highest slot the validator has
 landed a vote for, and the current highest replayed slot on the
-validators fork choice. A distance of more than 150 means the validator
-is considered delinquent.
+validators fork choice. This value excludes skipped slots, unless the
+distance is larger than 2 epochs worth of slots (NOTE: skipped slots are
+not excluded on Frankendancer). A distance of more than 150 means the
+validator is considered delinquent.
 
 #### `summary.turbine_slot`
 | frequency       | type           | example |
