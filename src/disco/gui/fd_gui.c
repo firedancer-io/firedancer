@@ -2627,6 +2627,8 @@ fd_gui_handle_notarization_update( fd_gui_t *                        gui,
 static inline void
 try_publish_vote_status( fd_gui_t * gui, ulong _slot ) {
   fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+
+  /* For unstaked nodes, slot->vote_slot will always be ULONG_MAX */
   if( FD_UNLIKELY( !slot || slot->vote_slot==ULONG_MAX || slot->reset_slot==ULONG_MAX ) ) return;
 
   ulong vote_distance = slot->reset_slot-slot->vote_slot;
