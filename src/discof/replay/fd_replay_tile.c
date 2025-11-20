@@ -645,6 +645,19 @@ cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
   }
 }
 
+static ulong
+get_identity_balance( fd_replay_tile_t * ctx, fd_funk_txn_xid_t xid ) {
+  ulong identity_balance = ULONG_MAX;
+  fd_txn_account_t identity_acc[1];
+  int err = fd_txn_account_init_from_funk_readonly( identity_acc,
+                                                    ctx->identity_pubkey,
+                                                    ctx->accdb->funk,
+                                                    &xid );
+  if( FD_LIKELY( !err && identity_acc->meta ) ) identity_balance = identity_acc->meta->lamports;
+
+  return identity_balance;
+}
+
 static void
 publish_slot_completed( fd_replay_tile_t *  ctx,
                         fd_stem_context_t * stem,
@@ -754,7 +767,11 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_runtime_block_execute_finalize( bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
 
   /* Copy out cost tracker fields before freezing */
-  cost_tracker_snap( bank, fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ) );
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  cost_tracker_snap( bank, slot_info );
+
+  /* fetch identity / vote balance updates infrequently */
+  slot_info->identity_balance = FD_UNLIKELY( slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
   /* Mark the bank as frozen. */
   fd_banks_mark_bank_frozen( ctx->banks, bank );
@@ -889,7 +906,9 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
 
-  cost_tracker_snap( ctx->leader_bank, fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ) );
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  cost_tracker_snap( ctx->leader_bank, slot_info );
+  slot_info->identity_balance = FD_UNLIKELY( curr_slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
   fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
 
@@ -1319,6 +1338,9 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  slot_info->identity_balance = get_identity_balance( ctx, xid );
+
   publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
   publish_root_advanced( ctx, stem );
   publish_reset( ctx, stem, bank );
@@ -1418,6 +1440,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
     init_after_snapshot( ctx );
+
+    fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+    slot_info->identity_balance = get_identity_balance( ctx, xid );
 
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
     publish_root_advanced( ctx, stem );

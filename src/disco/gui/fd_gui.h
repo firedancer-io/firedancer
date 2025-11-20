@@ -875,6 +875,7 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_hash_t const *         block_hash,
                              ulong                     vote_slot,
                              ulong                     storage_slot,
+                             ulong                     identity_balance,
                              long                      now );
 
 void
