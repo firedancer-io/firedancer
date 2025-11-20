@@ -60,7 +60,7 @@
    recent_slots_per_file configuration. The default is 128 slots per
    file. The files are named recent_0.solcap, recent_1.solcap,. The
    files are rotated when the current file reaches the number of slots
-   per file. 
+   per file.
 */
 
 struct fd_capture_tile_ctx {
@@ -122,10 +122,10 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_capture_tile_ctx_t const * ctx = (fd_capture_tile_ctx_t const *)scratch;
-  
+
   uint solcap_fd_0 = ctx->recent_only ? (uint)ctx->recent_fds[0] : (uint)ctx->fd;
   uint solcap_fd_1 = ctx->recent_only ? (uint)ctx->recent_fds[1] : (uint)ctx->fd;
-  
+
   populate_sock_filter_policy_fd_capture_tile( out_cnt,
                                                out,
                                                (uint)fd_log_private_logfile_fd(),
@@ -141,13 +141,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_capture_tile_ctx_t const * ctx = (fd_capture_tile_ctx_t const *)scratch;
-  
+
   ulong out_cnt = 0UL;
 
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
-  
+
   if( ctx->recent_only ) {
     /* In recent_only mode, allow both flip-flop file descriptors */
     if( FD_LIKELY( -1!=ctx->recent_fds[0] ) )
@@ -226,7 +226,7 @@ fd_capctx_buf_process_msg(fd_capture_tile_ctx_t * ctx,
    - SOM (Start of Message): Set on the first fragment of a message
    - EOM (End of Message):   Set on the last fragment of a message
 
-   For a single-fragment message: 
+   For a single-fragment message:
      Single Fragment:       SOM=1, EOM=1
    For a multi-fragment message:
      First fragment:        SOM=1, EOM=0
@@ -310,8 +310,8 @@ returnable_frag( fd_capture_tile_ctx_t * ctx,
         int next_fd = ctx->recent_fds[next_idx];
 
         /* The following is a series of checks to ensure the file is
-            synced and truncated correctly. This occurs via: 
-            1. Syncing the current file 
+            synced and truncated correctly. This occurs via:
+            1. Syncing the current file
             2. Syncing the next file
             3. Truncating the next file
             4. Resetting the file descriptor position to 0
@@ -321,7 +321,7 @@ returnable_frag( fd_capture_tile_ctx_t * ctx,
         FD_TEST( fsync( next_fd ) == 0 );
         FD_TEST( ftruncate( next_fd, 0L ) == 0 );
         FD_TEST( lseek( next_fd, 0L, SEEK_SET ) == 0L );
-        
+
         fd_solcap_writer_init( ctx->capture_ctx->capture, next_fd );
         ctx->recent_current_idx = next_idx;
         ctx->recent_file_start_slot = msg_hdr->slot;
@@ -386,41 +386,41 @@ privileged_init( fd_topo_t *      topo,
     /* recent_only=1: Ensure path is a directory, create if not exists */
     if( stat_result != 0 ) {
       if( FD_UNLIKELY( mkdir(tile->capctx.solcap_capture, 0755) != 0 ) ) {
-        FD_LOG_ERR(( "solcap_recent_only=1 but could not create directory: %s (%i-%s)", 
+        FD_LOG_ERR(( "solcap_recent_only=1 but could not create directory: %s (%i-%s)",
                    tile->capctx.solcap_capture, errno, strerror(errno) ));
       }
     } else if( FD_UNLIKELY( !S_ISDIR(path_stat.st_mode) ) ) {
       FD_LOG_ERR(( "solcap_recent_only=1 but path is not a directory: %s", tile->capctx.solcap_capture ));
     }
-    
+
     ctx->recent_current_idx = 0;
     ctx->recent_file_start_slot = 0UL;  /* Will be set on first fragment */
-    
+
     for( ulong i = 0; i < 2; i++ ) {
       char filepath[PATH_MAX];
       int ret = snprintf( filepath, PATH_MAX, "%s/recent_%lu.solcap", tile->capctx.solcap_capture, i );
       if( FD_UNLIKELY( ret<0 || ret>=PATH_MAX ) ) {
         FD_LOG_ERR(( "snprintf failed or path too long for recent file %lu", i ));
       }
-      
+
       ctx->recent_fds[i] = open( filepath, O_RDWR | O_CREAT | O_TRUNC, 0644 );
       if( FD_UNLIKELY( ctx->recent_fds[i] == -1 ) ) {
-        FD_LOG_ERR(( "failed to open or create solcap recent file %s (%i-%s)", 
+        FD_LOG_ERR(( "failed to open or create solcap recent file %s (%i-%s)",
                      filepath, errno, strerror(errno) ));
       }
     }
-    
+
     ctx->fd = ctx->recent_fds[0];
-    
+
   } else {
     /* recent_only=0: Validate that path is a file*/
     if( FD_UNLIKELY( stat_result == 0 && S_ISDIR(path_stat.st_mode) ) ) {
       FD_LOG_ERR(( "solcap_recent_only=0 but path is a directory: %s (should be a file path)", tile->capctx.solcap_capture ));
     }
-    
+
     ctx->fd = open( tile->capctx.solcap_capture, O_RDWR | O_CREAT | O_TRUNC, 0644 );
     if( FD_UNLIKELY( ctx->fd == -1 ) ) {
-      FD_LOG_ERR(( "failed to open or create solcap capture file %s (%i-%s)", 
+      FD_LOG_ERR(( "failed to open or create solcap capture file %s (%i-%s)",
                    tile->capctx.solcap_capture, errno, strerror(errno) ));
     }
   }

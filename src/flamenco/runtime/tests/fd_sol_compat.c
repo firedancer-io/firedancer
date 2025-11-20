@@ -45,9 +45,9 @@ sol_compat_setup_runner( fd_solfuzz_runner_options_t const * options ) {
     FD_LOG_NOTICE(( "Logging to solcap file %s", solcap_path ));
 
     void * solcap_mem = fd_wksp_alloc_laddr( runner->wksp, fd_solcap_writer_align(), fd_solcap_writer_footprint(), 1UL );
-    runner->solcap = fd_solcap_writer_new( solcap_mem );
+    runner->solcap = (fd_solcap_writer_t *)solcap_mem;
     FD_TEST( runner->solcap );
-    FD_TEST( fd_solcap_writer_init( solcap_mem, fd ) );
+    FD_TEST( fd_solcap_writer_init( runner->solcap, fd ) );
   }
 
   return runner;
@@ -57,7 +57,7 @@ static void
 sol_compat_cleanup_runner( fd_solfuzz_runner_t * runner ) {
   /* Cleanup test runner */
   if( runner->solcap ) {
-    fd_wksp_free_laddr( fd_solcap_writer_delete( runner->solcap ) );
+    fd_wksp_free_laddr( runner->solcap );
     runner->solcap = NULL;
     if( runner->solcap_file ) {
       close( (int)(ulong)runner->solcap_file );

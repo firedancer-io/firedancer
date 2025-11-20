@@ -1411,7 +1411,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "vinyl" ) ) ) {
-  
+
   } else if( FD_UNLIKELY( !strcmp( tile->name, "captur" ) ) ) {
 
     tile->capctx.capture_start_slot = config->capture.capture_start_slot;
