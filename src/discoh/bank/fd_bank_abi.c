@@ -516,8 +516,8 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
   out_txn->compute_budget_instruction_details.num_non_builtin_instructions            = (ushort)instr_cnt[ CATEGORY_NON_BUILTIN    ];
   out_txn->compute_budget_instruction_details.migrating_builtin[0]                    = (ushort)instr_cnt[ CATEGORY_MIGRATING(0)   ];
   /* The instruction index doesn't matter */
-#define CBP_TO_TUPLE_OPTION( out, flag, val0, val1 )                                                                      \
-  do {                                                                                                                    \
+#define CBP_TO_TUPLE_OPTION( out, flag, val0, val1 )                                                                        \
+  do {                                                                                                                      \
     out_txn->compute_budget_instruction_details.out.discr = !!(cbp_state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_ ## flag); \
     out_txn->compute_budget_instruction_details.out._0    = (val0);                                                         \
     out_txn->compute_budget_instruction_details.out._1    = (val1);                                                         \
