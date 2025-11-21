@@ -32,10 +32,7 @@ fd_txn_account_new( void *              mem,
 
   fd_memcpy( txn_account->pubkey, pubkey, sizeof(fd_pubkey_t) );
 
-  txn_account->magic             = FD_TXN_ACCOUNT_MAGIC;
-
-  txn_account->starting_dlen     = meta->dlen;
-  txn_account->starting_lamports = meta->lamports;
+  txn_account->magic = FD_TXN_ACCOUNT_MAGIC;
 
   uchar * data = (uchar *)meta + sizeof(fd_account_meta_t);
 

@@ -471,7 +471,7 @@ load_transaction_account( fd_runtime_t *      runtime,
        constructed by the SVM and modified within each transaction's
        instruction execution only, so it incurs a loaded size cost
        of 0. */
-    fd_sysvar_instructions_serialize_account( txn_in, txn_out, (fd_instr_info_t const *)runtime->instr.infos, TXN( txn_in->txn )->instr_cnt, txn_idx );
+    fd_sysvar_instructions_serialize_account( runtime, txn_in, txn_out, (fd_instr_info_t const *)runtime->instr.infos, TXN( txn_in->txn )->instr_cnt, txn_idx );
     return 0UL;
   }
 
@@ -490,7 +490,8 @@ load_transaction_account( fd_runtime_t *      runtime,
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L828-L835 */
     if( is_writable ) {
-      acct->starting_lamports = fd_txn_account_get_lamports( acct ); /* TODO: why do we do this everywhere? */
+      /* TODO:FIXME: DO WE REALLY NEED THIS */
+      runtime->accounts.starting_lamports[txn_idx] = fd_txn_account_get_lamports( acct );
     }
     return fd_ulong_sat_add( base_account_size, fd_txn_account_get_data_len( acct ) );
   }
@@ -1068,8 +1069,7 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
   fd_executor_create_rollback_fee_payer_account( runtime, bank, txn_in, txn_out, total_fee );
 
   /* Set the starting lamports (to avoid unbalanced lamports issues in instruction execution) */
-  fee_payer_rec->starting_lamports = fd_txn_account_get_lamports( fee_payer_rec ); /* TODO: why do we do this everywhere? */
-  runtime->accounts.starting_lamports[FD_FEE_PAYER_TXN_IDX] = fee_payer_rec->starting_lamports;
+  runtime->accounts.starting_lamports[FD_FEE_PAYER_TXN_IDX] = fd_txn_account_get_lamports( fee_payer_rec );
 
   txn_out->details.execution_fee = execution_fee;
   txn_out->details.priority_fee  = priority_fee;

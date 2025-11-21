@@ -321,8 +321,6 @@ load_accounts_from_proto( fd_accdb_user_t * accdb,
     }
 
     /* Set account metadata */
-    acc->starting_lamports = state->lamports;
-    acc->starting_dlen = size;
     fd_txn_account_set_lamports( acc, state->lamports );
     fd_txn_account_set_executable( acc, state->executable );
     fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );

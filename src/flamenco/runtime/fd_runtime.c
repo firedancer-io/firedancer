@@ -1233,7 +1233,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
          bundle must include a instruction that transfers lamports to
          a specific tip account.  Tips accumulated through the slot. */
       if( fd_pack_tip_is_tip_account( fd_type_pun( acc_rec->pubkey->uc ) ) ) {
-        txn_out->details.tips += fd_ulong_sat_sub( acc_rec->meta->lamports, acc_rec->starting_lamports );
+        txn_out->details.tips += fd_ulong_sat_sub( acc_rec->meta->lamports, runtime->accounts.starting_lamports[i] );
         FD_ATOMIC_FETCH_AND_ADD( fd_bank_tips_modify( bank ), txn_out->details.tips );
       }
 
