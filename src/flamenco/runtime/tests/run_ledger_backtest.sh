@@ -18,7 +18,6 @@ INGEST_MODE="rocksdb"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
-HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
 REDOWNLOAD=1
 SKIP_CHECKSUM=1
@@ -89,11 +88,6 @@ while [[ $# -gt 0 ]]; do
         ;;
     --tile-cpus)
         TILE_CPUS="--tile-cpus $2"
-        shift
-        shift
-        ;;
-    -h|--hugetlbfs-mount-path)
-        HUGE_TLBFS_MOUNT_PATH="$2"
         shift
         shift
         ;;
@@ -252,9 +246,6 @@ echo "
     path = \"$LOG\"
 [paths]
     snapshots = \"$DUMP/$LEDGER\"
-[hugetlbfs]
-    mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
-    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
 [development]
     [development.snapshots]
         disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION" > $DUMP_DIR/${LEDGER}_backtest.toml
