@@ -1715,7 +1715,7 @@ fd_gui_try_insert_ephemeral_slot( fd_gui_ephemeral_slot_t * slots, ulong slots_s
 }
 
 static inline void
-fd_gui_try_insert_catch_up_slot( ulong * slots, ulong * slots_sz, ulong slot ) {
+fd_gui_try_insert_catch_up_slot( ulong * slots, ulong capacity, ulong * slots_sz, ulong slot ) {
   /* catch up history is run-length encoded */
   int inserted = 0;
   for( ulong i=0UL; i<*slots_sz; i++ ) {
@@ -1742,6 +1742,12 @@ fd_gui_try_insert_catch_up_slot( ulong * slots, ulong * slots_sz, ulong slot ) {
       slots[ i+1UL ] = ULONG_MAX;
       removed += 2;
     }
+  }
+
+  if( FD_UNLIKELY( (*slots_sz)>removed+capacity-2UL ) ) {
+    /* We are at capacity, start coalescing earlier intervals. */
+    slots[ 1 ] = ULONG_MAX;
+    slots[ 2 ] = ULONG_MAX;
   }
 
   fd_sort_up_ulong_insert( slots, (*slots_sz) );
@@ -1772,7 +1778,7 @@ fd_gui_handle_shred( fd_gui_t * gui,
     fd_gui_printf_turbine_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
 
-    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_turbine, &gui->summary.catch_up_turbine_sz, slot );
+    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_turbine, FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_turbine_sz, slot );
   }
 
   fd_gui_slot_staged_shred_event_t * recv_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
@@ -1824,7 +1830,7 @@ fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now ) {
     fd_gui_printf_repair_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
 
-    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_repair, &gui->summary.catch_up_repair_sz, slot );
+    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_repair, FD_GUI_REPAIR_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_repair_sz, slot );
   }
 }
 
