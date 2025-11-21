@@ -6,9 +6,10 @@
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
-#include "../runtime/context/fd_exec_txn_ctx.h"
 #include "../runtime/fd_runtime_const.h"
+#include "../runtime/fd_runtime.h"
 #include "../features/fd_features.h"
+#include "../runtime/context/fd_exec_instr_ctx.h"
 #include "fd_vm_base.h"
 
 /* FD_VM_ALIGN_RUST_{} define the alignments for relevant rust types.
@@ -124,20 +125,20 @@ FD_PROTOTYPES_BEGIN
 #ifdef FD_RUNTIME_ERR_HANDHOLDING
 /* Asserts that the error and error kind are populated (non-zero) */
 #define FD_VM_TEST_ERR_EXISTS( vm )                                       \
-    FD_TEST( vm->instr_ctx->txn_ctx->err.exec_err );                      \
-    FD_TEST( vm->instr_ctx->txn_ctx->err.exec_err_kind )
+    FD_TEST( vm->instr_ctx->txn_out->err.exec_err );                      \
+    FD_TEST( vm->instr_ctx->txn_out->err.exec_err_kind )
 
 /* Used prior to a FD_VM_ERR_FOR_LOG_INSTR call to deliberately
    bypass overwrite handholding checks.
    Only use this if you know what you're doing. */
 #define FD_VM_PREPARE_ERR_OVERWRITE( vm )                                 \
-   vm->instr_ctx->txn_ctx->err.exec_err = 0;                              \
-   vm->instr_ctx->txn_ctx->err.exec_err_kind = 0
+   vm->instr_ctx->txn_out->err.exec_err = 0;                              \
+   vm->instr_ctx->txn_out->err.exec_err_kind = 0
 
 /* Asserts that the error and error kind are not populated (zero) */
 #define FD_VM_TEST_ERR_OVERWRITE( vm )                                    \
-    FD_TEST( !vm->instr_ctx->txn_ctx->err.exec_err );                     \
-    FD_TEST( !vm->instr_ctx->txn_ctx->err.exec_err_kind )
+    FD_TEST( !vm->instr_ctx->txn_out->err.exec_err );                     \
+    FD_TEST( !vm->instr_ctx->txn_out->err.exec_err_kind )
 #else
 #define FD_VM_TEST_ERR_EXISTS( vm ) ( ( void )0 )
 #define FD_VM_PREPARE_ERR_OVERWRITE( vm ) ( ( void )0 )
@@ -148,20 +149,20 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_VM_ERR_FOR_LOG_EBPF( vm, err_ ) (__extension__({                \
     FD_VM_TEST_ERR_OVERWRITE( vm );                                        \
-    vm->instr_ctx->txn_ctx->err.exec_err = err_;                           \
-    vm->instr_ctx->txn_ctx->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF; \
+    vm->instr_ctx->txn_out->err.exec_err = err_;                           \
+    vm->instr_ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF; \
   }))
 
 #define FD_VM_ERR_FOR_LOG_SYSCALL( vm, err_ ) (__extension__({                \
     FD_VM_TEST_ERR_OVERWRITE( vm );                                           \
-    vm->instr_ctx->txn_ctx->err.exec_err = err_;                              \
-    vm->instr_ctx->txn_ctx->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL; \
+    vm->instr_ctx->txn_out->err.exec_err = err_;                              \
+    vm->instr_ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL; \
   }))
 
 #define FD_VM_ERR_FOR_LOG_INSTR( vm, err_ ) (__extension__({                \
     FD_VM_TEST_ERR_OVERWRITE( vm );                                         \
-    vm->instr_ctx->txn_ctx->err.exec_err = err_;                            \
-    vm->instr_ctx->txn_ctx->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR; \
+    vm->instr_ctx->txn_out->err.exec_err = err_;                            \
+    vm->instr_ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR; \
   }))
 
 #define FD_VADDR_TO_REGION( _vaddr ) fd_ulong_min( (_vaddr) >> FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS, FD_VM_HIGH_REGION )
@@ -350,7 +351,7 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
      https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L549-L551 */
   ulong remaining_allowed_growth = fd_ulong_sat_sub(
     FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION,
-    vm->instr_ctx->txn_ctx->details.accounts_resize_delta );
+    vm->instr_ctx->txn_out->details.accounts_resize_delta );
 
   /* If the requested length is greater than the size of the region,
      resize the region
@@ -365,8 +366,8 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
     /* Resize the account and the region
        https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L569-L570 */
     if( FD_UNLIKELY( new_region_sz > region->region_sz ) ) {
-      vm->instr_ctx->txn_ctx->details.accounts_resize_delta = fd_ulong_sat_sub(
-        fd_ulong_sat_add( vm->instr_ctx->txn_ctx->details.accounts_resize_delta, new_region_sz ),
+      vm->instr_ctx->txn_out->details.accounts_resize_delta = fd_ulong_sat_sub(
+        fd_ulong_sat_add( vm->instr_ctx->txn_out->details.accounts_resize_delta, new_region_sz ),
         region->region_sz );
 
       fd_txn_account_resize( vm->acc_region_metas[ region->acc_region_meta_idx ].acct, new_region_sz );

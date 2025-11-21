@@ -26,7 +26,7 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_3_handles_validity(
   uchar const                              handle1_hi [ 32 ],
   uchar const                              handle2_hi [ 32 ],
   uchar const                              handle3_hi [ 32 ],
-  bool const                               batched,
+  int   const                              batched,
   fd_zksdk_transcript_t *                  transcript ) {
   /*
     When batched==false, C, h1, h2 are given and C_hi, h1_hi, h2_hi, h3_hi are NULL.
@@ -195,7 +195,7 @@ fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_3_handles_validity( void 
     context->grouped_ciphertext_hi.handles[0].handle,
     context->grouped_ciphertext_hi.handles[1].handle,
     context->grouped_ciphertext_hi.handles[2].handle,
-    true,
+    1,
     transcript
   );
 }

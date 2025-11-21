@@ -1,6 +1,7 @@
 #include "fd_zksdk_private.h"
 #include "../../fd_borrowed_account.h"
 #include "../../fd_system_ids.h"
+#include "../../../log_collector/fd_log_collector.h"
 
 /* fd_zksdk_process_close_context_state is equivalent to process_close_proof_context()
    https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L127 */

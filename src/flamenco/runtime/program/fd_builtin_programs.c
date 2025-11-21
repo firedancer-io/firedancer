@@ -336,16 +336,16 @@ fd_num_precompiles( void ) {
 }
 
 uchar
-fd_is_migrating_builtin_program( fd_exec_txn_ctx_t const * txn_ctx,
-                                 fd_pubkey_t const *       pubkey,
-                                 uchar *                   migrated_yet ) {
+fd_is_migrating_builtin_program( fd_bank_t *         bank,
+                                 fd_pubkey_t const * pubkey,
+                                 uchar *             migrated_yet ) {
   *migrated_yet = 0;
 
   for( ulong i=0; i<MIGRATING_BUILTINS_COUNT; i++ ) {
     fd_core_bpf_migration_config_t const * config = migrating_builtins[i];
     if( !memcmp( pubkey->uc, config->builtin_program_id->key, sizeof(fd_pubkey_t) ) ) {
       if( config->enable_feature_offset!=NO_ENABLE_FEATURE_ID &&
-        FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( txn_ctx->bank ), fd_bank_features_query( txn_ctx->bank ), config->enable_feature_offset ) ) {
+        FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), config->enable_feature_offset ) ) {
         /* The program has been migrated to BPF. */
         *migrated_yet = 1;
       }

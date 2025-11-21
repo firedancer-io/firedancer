@@ -20,7 +20,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
 
   /* fd_vm_prepare_instruction will handle missing/invalid account case */
   instr_info->program_id = UCHAR_MAX;
-  int program_id = fd_exec_txn_ctx_find_index_of_account( ctx->txn_ctx, native_program_id );
+  int program_id = fd_runtime_find_index_of_account( ctx->txn_out, native_program_id );
   if( FD_LIKELY( program_id!=-1 ) ) {
     instr_info->program_id = (uchar)program_id;
   }
@@ -35,7 +35,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
     fd_pubkey_t const *               acct_key      = fd_type_pun_const( acct_meta->pubkey );
     instr_acct_keys[j] = *acct_key;
 
-    int idx_in_txn    = fd_exec_txn_ctx_find_index_of_account( ctx->txn_ctx, acct_key );
+    int idx_in_txn    = fd_runtime_find_index_of_account( ctx->txn_out, acct_key );
     int idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( ctx, acct_key );
 
     fd_instr_info_setup_instr_account( instr_info,
@@ -64,7 +64,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L315-L321 */
-  return fd_execute_instr( ctx->txn_ctx, instr_info );
+  return fd_execute_instr( ctx->runtime, ctx->bank, ctx->txn_in, ctx->txn_out, instr_info );
 }
 
 void

@@ -67,9 +67,6 @@ typedef struct fd_bank fd_bank_t;
 struct fd_banks;
 typedef struct fd_banks fd_banks_t;
 
-struct fd_exec_txn_ctx;
-typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
-
 struct fd_exec_instr_ctx;
 typedef struct fd_exec_instr_ctx fd_exec_instr_ctx_t;
 
@@ -97,8 +94,17 @@ typedef struct fd_progcache fd_progcache_t;
 union fd_runtime_stack;
 typedef union fd_runtime_stack fd_runtime_stack_t;
 
-struct fd_exec_stack;
-typedef struct fd_exec_stack fd_exec_stack_t;
+struct fd_runtime;
+typedef struct fd_runtime fd_runtime_t;
+
+struct fd_txn_in;
+typedef struct fd_txn_in fd_txn_in_t;
+
+struct fd_txn_out;
+typedef struct fd_txn_out fd_txn_out_t;
+
+struct fd_log_collector;
+typedef struct fd_log_collector fd_log_collector_t;
 
 struct fd_account_meta {
   uchar owner[32];
@@ -109,15 +115,6 @@ struct fd_account_meta {
   uchar padding[3];
 };
 typedef struct fd_account_meta fd_account_meta_t;
-
-/* fd_rawtxn_b_t is a convenience type to store a pointer to a
-   serialized transaction.  Should probably be removed in the future. */
-
-struct fd_rawtxn_b {
-  void * raw;
-  ushort txn_sz;
-};
-typedef struct fd_rawtxn_b fd_rawtxn_b_t;
 
 FD_PROTOTYPES_BEGIN
 

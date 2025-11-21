@@ -6,7 +6,6 @@
 #include "fd_executor_err.h"
 #include "fd_hashes.h"
 #include "fd_runtime_err.h"
-#include "fd_runtime_init.h"
 #include "fd_runtime_stack.h"
 
 #include "fd_executor.h"
@@ -20,7 +19,7 @@
 #include "../rewards/fd_rewards.h"
 #include "../progcache/fd_progcache_user.h"
 
-#include "context/fd_exec_txn_ctx.h"
+#include "../fd_flamenco.h"
 
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
@@ -49,7 +48,39 @@
 /* Public Runtime Helpers                                                     */
 /******************************************************************************/
 
+
+/*
+   https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1254-L1258
+   https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1749
+ */
 int
+fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
+                                    ulong   slot,
+                                    ulong * out_max_tick_height /* out */ ) {
+  ulong max_tick_height = 0UL;
+  if( FD_LIKELY( ticks_per_slot > 0UL ) ) {
+    ulong next_slot = fd_ulong_sat_add( slot, 1UL );
+    if( FD_UNLIKELY( next_slot == slot ) ) {
+      FD_LOG_WARNING(( "max tick height addition overflowed slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
+      return -1;
+    }
+    if( FD_UNLIKELY( ULONG_MAX / ticks_per_slot < next_slot ) ) {
+      FD_LOG_WARNING(( "max tick height multiplication overflowed slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
+      return -1;
+    }
+    max_tick_height = fd_ulong_sat_mul( next_slot, ticks_per_slot );
+  }
+  *out_max_tick_height = max_tick_height;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+/* Returns whether the specified epoch should use the new vote account
+   keyed leader schedule (returns 1) or the old validator identity keyed
+   leader schedule (returns 0). See SIMD-0180.  This is the analogous to
+   Agave's Bank::should_use_vote_keyed_leader_schedule():
+   https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6148 */
+
+static int
 fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
   /* Agave uses an option type for their effective_epoch value. We
      represent None as ULONG_MAX and Some(value) as the value.
@@ -78,31 +109,6 @@ fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
   /* ...The rest of the logic in this function either returns None or
      Some(false) so we will just return 0 by default. */
   return 0;
-}
-
-/*
-   https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1254-L1258
-   https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1749
- */
-int
-fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
-                                    ulong   slot,
-                                    ulong * out_max_tick_height /* out */ ) {
-  ulong max_tick_height = 0UL;
-  if( FD_LIKELY( ticks_per_slot > 0UL ) ) {
-    ulong next_slot = fd_ulong_sat_add( slot, 1UL );
-    if( FD_UNLIKELY( next_slot == slot ) ) {
-      FD_LOG_WARNING(( "max tick height addition overflowed slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
-      return -1;
-    }
-    if( FD_UNLIKELY( ULONG_MAX / ticks_per_slot < next_slot ) ) {
-      FD_LOG_WARNING(( "max tick height multiplication overflowed slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
-      return -1;
-    }
-    max_tick_height = fd_ulong_sat_mul( next_slot, ticks_per_slot );
-  }
-  *out_max_tick_height = max_tick_height;
-  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 void
@@ -238,16 +244,17 @@ fd_runtime_run_incinerator( fd_bank_t *               bank,
 }
 
 static void
-fd_runtime_freeze( fd_bank_t *               bank,
-                   fd_accdb_user_t *         accdb,
-                   fd_funk_txn_xid_t const * xid,
-                   fd_capture_ctx_t *        capture_ctx ) {
+fd_runtime_freeze( fd_bank_t *         bank,
+                   fd_accdb_user_t *   accdb,
+                   fd_capture_ctx_t *  capture_ctx ) {
+
+  fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
 
   if( FD_LIKELY( fd_bank_slot_get( bank ) != 0UL ) ) {
-    fd_sysvar_recent_hashes_update( bank, accdb, xid, capture_ctx );
+    fd_sysvar_recent_hashes_update( bank, accdb, &xid, capture_ctx );
   }
 
-  fd_sysvar_slot_history_update( bank, accdb, xid, capture_ctx );
+  fd_sysvar_slot_history_update( bank, accdb, &xid, capture_ctx );
 
   ulong execution_fees = fd_bank_execution_fees_get( bank );
   ulong priority_fees  = fd_bank_priority_fees_get( bank );
@@ -282,7 +289,7 @@ fd_runtime_freeze( fd_bank_t *               bank,
           rec,
           leader,
           accdb,
-          xid,
+          &xid,
           1,
           0UL,
           &prepare );
@@ -328,7 +335,7 @@ fd_runtime_freeze( fd_bank_t *               bank,
      distribution time. */
   fd_bank_tips_set( bank, (fd_bank_tips_get( bank ) * 6UL / 100UL) );
 
-  fd_runtime_run_incinerator( bank, accdb, xid, capture_ctx );
+  fd_runtime_run_incinerator( bank, accdb, &xid, capture_ctx );
 
 }
 
@@ -387,726 +394,6 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
   fd_bank_fee_rate_governor_set( bank, me );
   fd_bank_rbh_lamports_per_sig_set( bank, new_lamports_per_signature );
 }
-
-static int
-fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
-                                            fd_accdb_user_t *         accdb,
-                                            fd_funk_txn_xid_t const * xid,
-                                            fd_runtime_stack_t *      runtime_stack,
-                                            fd_capture_ctx_t *        capture_ctx ) {
-  // let (fee_rate_governor, fee_components_time_us) = measure_us!(
-  //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
-  // );
-  /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
-
-  fd_runtime_new_fee_rate_governor_derived( bank, fd_bank_parent_signature_cnt_get( bank ) );
-
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       parent_epoch   = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
-  fd_sysvar_clock_update( bank, accdb, xid, capture_ctx, runtime_stack, &parent_epoch );
-
-  // It has to go into the current txn previous info but is not in slot 0
-  if( fd_bank_slot_get( bank ) != 0 ) {
-    fd_sysvar_slot_hashes_update( bank, accdb, xid, capture_ctx );
-  }
-  fd_sysvar_last_restart_slot_update( bank, accdb, xid, capture_ctx, fd_bank_last_restart_slot_get( bank ).slot );
-
-  return 0;
-}
-
-int
-fd_runtime_load_txn_address_lookup_tables(
-    fd_txn_t const *          txn,
-    uchar const *             payload,
-    fd_funk_t *               funk,
-    fd_funk_txn_xid_t const * xid,
-    ulong                     slot,
-    fd_slot_hash_t const *    hashes, /* deque */
-    fd_acct_addr_t *          out_accts_alt ) {
-
-  if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
-
-  fd_alut_interp_t interp[1];
-  fd_alut_interp_new(
-      interp,
-      out_accts_alt,
-      txn,
-      payload,
-      hashes,
-      slot );
-
-  fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn );
-  for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
-    fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
-    fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, payload+addr_lut->addr_off );
-
-    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
-    fd_txn_account_t addr_lut_rec[1];
-    int db_err = fd_txn_account_init_from_funk_readonly(
-        addr_lut_rec, &addr_lut_acc, funk,  xid );
-    if( FD_UNLIKELY( db_err!=FD_ACC_MGR_SUCCESS ) ) {
-      return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
-    }
-
-    int err = fd_alut_interp_next(
-        interp,
-        &addr_lut_acc,
-        fd_txn_account_get_owner   ( addr_lut_rec ),
-        fd_txn_account_get_data    ( addr_lut_rec ),
-        fd_txn_account_get_data_len( addr_lut_rec ) );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-
-  fd_alut_interp_delete( interp );
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
-int
-fd_runtime_block_execute_prepare( fd_bank_t *               bank,
-                                  fd_accdb_user_t  *        accdb,
-                                  fd_funk_txn_xid_t const * xid,
-                                  fd_runtime_stack_t *      runtime_stack,
-                                  fd_capture_ctx_t *        capture_ctx ) {
-  fd_bank_execution_fees_set( bank, 0UL );
-  fd_bank_priority_fees_set( bank, 0UL );
-  fd_bank_signature_count_set( bank, 0UL );
-  fd_bank_total_compute_units_used_set( bank, 0UL );
-
-  if( FD_LIKELY( fd_bank_slot_get( bank ) ) ) {
-    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-    FD_TEST( cost_tracker );
-    fd_cost_tracker_init( cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ) );
-    fd_bank_cost_tracker_end_locking_modify( bank );
-  }
-
-  int result = fd_runtime_block_sysvar_update_pre_execute( bank, accdb, xid, runtime_stack, capture_ctx );
-  if( FD_UNLIKELY( result != 0 ) ) {
-    FD_LOG_WARNING(("updating sysvars failed"));
-    return result;
-  }
-
-  if( FD_UNLIKELY( !fd_sysvar_cache_restore( bank, accdb->funk, xid ) ) ) {
-    FD_LOG_ERR(( "Failed to restore sysvar cache" ));
-  }
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
-static void
-fd_runtime_update_bank_hash( fd_bank_t *        bank,
-                             fd_capture_ctx_t * capture_ctx,
-                             int                silent ) {
-  /* Save the previous bank hash, and the parents signature count */
-  fd_hash_t const * prev_bank_hash = NULL;
-  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
-    prev_bank_hash = fd_bank_bank_hash_query( bank );
-    fd_bank_prev_bank_hash_set( bank, *prev_bank_hash );
-  } else {
-    prev_bank_hash = fd_bank_prev_bank_hash_query( bank );
-  }
-
-  fd_bank_parent_signature_cnt_set( bank, fd_bank_signature_count_get( bank ) );
-
-  /* Compute the new bank hash */
-  fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
-  fd_hash_t new_bank_hash[1] = { 0 };
-  fd_hashes_hash_bank(
-      lthash,
-      prev_bank_hash,
-      (fd_hash_t *)fd_bank_poh_query( bank )->hash,
-      fd_bank_signature_count_get( bank ),
-      new_bank_hash );
-
-  /* Update the bank hash */
-  fd_bank_bank_hash_set( bank, *new_bank_hash );
-
-  if( !silent ) {
-    FD_LOG_NOTICE(( "\n\n[Runtime]\n"
-                    "slot:             %lu\n"
-                    "bank hash:        %s\n"
-                    "parent bank hash: %s\n"
-                    "lthash:           %s\n"
-                    "signature_count:  %lu\n"
-                    "last_blockhash:   %s\n",
-                    fd_bank_slot_get( bank ),
-                    FD_BASE58_ENC_32_ALLOCA( new_bank_hash->hash ),
-                    FD_BASE58_ENC_32_ALLOCA( fd_bank_prev_bank_hash_query( bank ) ),
-                    FD_LTHASH_ENC_32_ALLOCA( lthash->bytes ),
-                    fd_bank_signature_count_get( bank ),
-                    FD_BASE58_ENC_32_ALLOCA( fd_bank_poh_query( bank )->hash ) ));
-  }
-
-  if( capture_ctx != NULL && capture_ctx->capture != NULL &&
-    fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
-
-    uchar lthash_hash[FD_HASH_FOOTPRINT];
-    fd_blake3_hash(lthash->bytes, FD_LTHASH_LEN_BYTES, lthash_hash );
-
-    fd_solcap_write_bank_preimage(
-          capture_ctx->capture,
-          new_bank_hash->hash,
-          fd_bank_prev_bank_hash_query( bank ),
-          NULL,
-          lthash_hash,
-          fd_bank_poh_query( bank )->hash,
-          fd_bank_signature_count_get( bank ) );
-  }
-
-  fd_bank_lthash_end_locking_query( bank );
-}
-
-/******************************************************************************/
-/* Transaction Level Execution Management                                     */
-/******************************************************************************/
-
-/* fd_runtime_pre_execute_check is responsible for conducting many of the
-   transaction sanitization checks. */
-
-int
-fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx ) {
-
-  /* Set up the core account keys. These are the account keys directly
-     passed in via the serialized transaction, represented as an array.
-     Note that this does not include additional keys referenced in
-     address lookup tables. */
-  fd_executor_setup_txn_account_keys( txn_ctx );
-
-  int err;
-
-  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275
-     TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
-     be moved in the future. The Agave call heirarchy looks something like this:
-            process_single_slot
-                   v
-            confirm_full_slot
-                   v
-            confirm_slot_entries --------------------------------------------------->
-                   v                               v                                v
-            verify_transaction    ComputeBudget::process_instruction         process_entries
-                   v                                                                v
-            verify_precompiles                                                process_batches
-                                                                                    v
-                                                                                   ...
-                                                                                    v
-                                                                        load_and_execute_transactions
-                                                                                    v
-                                                                                   ...
-                                                                                    v
-                                                                              load_accounts --> load_transaction_accounts
-                                                                                    v
-                                                                       general transaction execution
-
-  */
-
-# if FD_HAS_FLATCC
-  uchar dump_txn = !!( txn_ctx->log.capture_ctx &&
-                       fd_bank_slot_get( txn_ctx->bank ) >= txn_ctx->log.capture_ctx->dump_proto_start_slot &&
-                       txn_ctx->log.capture_ctx->dump_txn_to_pb );
-  if( FD_UNLIKELY( dump_txn ) ) {
-    fd_dump_txn_to_protobuf( txn_ctx );
-  }
-# endif
-
-  /* Verify the transaction. For now, this step only involves processing
-     the compute budget instructions. */
-  err = fd_executor_verify_transaction( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_ctx->err.is_committable = 0;
-    return err;
-  }
-
-  /* Resolve and verify ALUT-referenced account keys, if applicable */
-  err = fd_executor_setup_txn_alut_account_keys( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_ctx->err.is_committable = 0;
-    return err;
-  }
-
-  /* Set up the transaction accounts and other txn ctx metadata */
-  fd_executor_setup_accounts_for_txn( txn_ctx );
-
-  /* Post-sanitization checks. Called from prepare_sanitized_batch()
-     which, for now, only is used to lock the accounts and perform a
-     couple basic validations.
-     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
-  err = fd_executor_validate_account_locks( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_ctx->err.is_committable = 0;
-    return err;
-  }
-
-  /* load_and_execute_transactions() -> check_transactions()
-     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
-  err = fd_executor_check_transactions( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_ctx->err.is_committable = 0;
-    return err;
-  }
-
-  /* load_and_execute_sanitized_transactions() -> validate_fees() ->
-     validate_transaction_fee_payer()
-     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
-  err = fd_executor_validate_transaction_fee_payer( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_ctx->err.is_committable = 0;
-    return err;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
-  err = fd_executor_load_transaction_accounts( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    /* Regardless of whether transaction accounts were loaded successfully, the transaction is
-       included in the block and transaction fees are collected.
-       https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
-    txn_ctx->err.is_fees_only = 1;
-
-    /* If the transaction fails to load, the "rollback" accounts will include one of the following:
-        1. Nonce account only
-        2. Fee payer only
-        3. Nonce account + fee payer
-
-        Because the cost tracker uses the loaded account data size in block cost calculations, we need to
-        make sure our calculated loaded accounts data size is conformant with Agave's.
-        https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
-
-        In any case, we should always add the dlen of the fee payer. */
-    txn_ctx->details.loaded_accounts_data_size = fd_txn_account_get_data_len( &txn_ctx->accounts.accounts[FD_FEE_PAYER_TXN_IDX] );
-
-    /* Special case handling for if a nonce account is present in the transaction. */
-    if( txn_ctx->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-      /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
-          be double counting the dlen of the fee payer. */
-      if( txn_ctx->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
-        txn_ctx->details.loaded_accounts_data_size += fd_txn_account_get_data_len( txn_ctx->accounts.rollback_nonce );
-      }
-    }
-  }
-
-  /*
-     The fee payer and the nonce account will be stored and hashed so
-     long as the transaction landed on chain, or, in Agave terminology,
-     the transaction was processed.
-     https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/account_saver.rs#L72
-
-     A transaction lands on chain in one of two ways:
-     (1) Passed fee validation and loaded accounts.
-     (2) Passed fee validation and failed to load accounts and the enable_transaction_loading_failure_fees feature is enabled as per
-         SIMD-0082 https://github.com/anza-xyz/feature-gate-tracker/issues/52
-
-     So, at this point, the transaction is committable.
-   */
-
-  return err;
-}
-
-/* fd_runtime_finalize_account is a helper used to commit the data from
-   a writable transaction account back into the accountsdb. */
-
-static void
-fd_runtime_finalize_account( fd_funk_t *               funk,
-                             fd_funk_txn_xid_t const * xid,
-                             fd_txn_account_t *        acc,
-                             fd_funk_rec_t *           prev_rec ) {
-  if( FD_UNLIKELY( !fd_txn_account_is_mutable( acc ) ) ) {
-    FD_LOG_CRIT(( "fd_runtime_finalize_account: account is not mutable" ));
-  }
-
-  fd_pubkey_t const * key         = acc->pubkey;
-  uchar       const * record_data = (uchar *)fd_txn_account_get_meta( acc );
-  ulong               record_sz   = fd_account_meta_get_record_sz( acc->meta );
-
-  int err = FD_FUNK_SUCCESS;
-
-  if( !prev_rec || !fd_funk_txn_xid_eq( prev_rec->pair.xid, xid ) ) {
-
-    fd_funk_rec_key_t     funk_key = fd_funk_acc_key( key );
-    fd_funk_rec_prepare_t prepare[1];
-    fd_funk_rec_t *       rec = fd_funk_rec_prepare( funk, xid, &funk_key, prepare, &err );
-    if( FD_UNLIKELY( !rec || err!=FD_FUNK_SUCCESS ) ) {
-      FD_LOG_ERR(( "fd_runtime_finalize_account: failed to prepare record (%i-%s)", err, fd_funk_strerror( err ) ));
-    }
-
-    if( FD_UNLIKELY( !fd_funk_val_truncate(
-        rec,
-        fd_funk_alloc( funk ),
-        fd_funk_wksp( funk ),
-        0UL,
-        record_sz,
-        &err ) ) ) {
-      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
-    }
-
-    fd_memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), record_data, record_sz );
-
-    fd_funk_rec_publish( funk, prepare );
-
-  } else {
-
-    if( FD_UNLIKELY( !fd_funk_val_truncate(
-        prev_rec,
-        fd_funk_alloc( funk ),
-        fd_funk_wksp( funk ),
-        0UL,
-        record_sz,
-        &err ) ) ) {
-      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
-    }
-
-    fd_memcpy( fd_funk_val( prev_rec, fd_funk_wksp( funk ) ), record_data, record_sz );
-
-  }
-
-}
-
-/* fd_runtime_buffer_solcap_account_update buffers an account
-   update event message in the capture context, which will be
-   sent to the replay tile via the exec_replay link.
-   This buffering is done to avoid passing stem down into the runtime.
-
-   TODO: remove this when solcap v2 is here. */
-static void
-fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
-                                         fd_bank_t *               bank,
-                                         fd_capture_ctx_t *        capture_ctx ) {
-
-  /* Check if we should publish the update */
-  if( FD_UNLIKELY( !capture_ctx || fd_bank_slot_get( bank )<capture_ctx->solcap_start_slot ) ) {
-    return;
-  }
-
-  /* Get account data */
-  fd_account_meta_t const * meta = fd_txn_account_get_meta( account );
-  void const * data              = fd_txn_account_get_data( account );
-
-  /* Calculate account hash using lthash */
-  fd_lthash_value_t lthash[1];
-  fd_hashes_account_lthash( account->pubkey, meta, data, lthash );
-
-  /* Calculate message size */
-  if( FD_UNLIKELY( capture_ctx->account_updates_len >= FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES ) ) {
-    FD_LOG_CRIT(( "cannot buffer solcap account update. this should never happen" ));
-    return;
-  }
-
-  /* Write the message to the buffer */
-  fd_capture_ctx_account_update_msg_t * account_update_msg = (fd_capture_ctx_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
-  account_update_msg->pubkey               = *account->pubkey;
-  fd_solana_account_meta_init(
-      &account_update_msg->info,
-      fd_txn_account_get_lamports ( account ),
-      fd_txn_account_get_owner    ( account ),
-      fd_txn_account_is_executable( account )
-  );
-  account_update_msg->data_sz              = meta->dlen;
-  account_update_msg->bank_idx             = bank->idx;
-  memcpy( account_update_msg->hash.uc, lthash->bytes, sizeof(fd_hash_t) );
-  capture_ctx->account_updates_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
-
-  /* Write the account data to the buffer */
-  memcpy( capture_ctx->account_updates_buffer_ptr, data, meta->dlen );
-  capture_ctx->account_updates_buffer_ptr += meta->dlen;
-
-  capture_ctx->account_updates_len++;
-}
-
-/* fd_runtime_save_account is a convenience wrapper that looks
-   up the previous account state from funk before updating the lthash
-   and saving the new version of the account to funk.
-
-   TODO: We have to make a read request to the DB, so that we can calculate
-   the previous version of the accounts hash, to mix-out from the accumulated
-   lthash.  In future we should likely cache the previous version of the account
-   in transaction setup, so that we don't have to issue a read request here.
-
-   funk is the funk database handle.  funk_txn is the transaction
-   context to query (NULL for root context).  account is the modified
-   account.  bank and capture_ctx are passed to fd_hashes_update_lthash.
-
-   This function:
-   - Queries funk for the previous account version
-   - Computes the hash of the previous version (or uses zero for new)
-   - Calls fd_hashes_update_lthash with the computed previous hash
-   - Saves the new version of the account to Funk
-   - Notifies the replay tile that an account update has occurred, so it
-     can write the account to the solcap file.
-
-   The function handles FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT gracefully (uses
-   zero hash).  On other funk errors, the function will FD_LOG_ERR.
-   All non-optional pointers must be valid. */
-
-static void
-fd_runtime_save_account( fd_funk_t *               funk,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_txn_account_t *        account,
-                         fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx ) {
-  /* Join the transaction account */
-  if( FD_UNLIKELY( !fd_txn_account_join( account ) ) ) {
-    FD_LOG_CRIT(( "fd_runtime_save_account: failed to join account" ));
-  }
-
-  /* Look up the previous version of the account from Funk */
-  int err = FD_ACC_MGR_SUCCESS;
-  fd_funk_rec_t * funk_prev_rec = NULL;
-  fd_account_meta_t const * prev_meta = fd_funk_get_acc_meta_readonly(
-      funk,
-      xid,
-      account->pubkey,
-      fd_type_pun( &funk_prev_rec ),
-      &err,
-      NULL );
-  uchar const * prev_data = (void const *)( prev_meta+1 );
-
-  /* Hash the old version of the account */
-  fd_lthash_value_t prev_hash[1];
-  fd_lthash_zero( prev_hash );
-  if( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    fd_hashes_account_lthash(
-      account->pubkey,
-      prev_meta,
-      prev_data,
-      prev_hash );
-  }
-
-  /* Mix in the account hash into the bank hash */
-  fd_hashes_update_lthash( account, prev_hash, bank, NULL );
-
-  /* Publish account update to replay tile for solcap writing
-     TODO: write in the exec tile with solcap v2 */
-  fd_runtime_buffer_solcap_account_update( account, bank, capture_ctx );
-
-  /* Save the new version of the account to Funk */
-  fd_runtime_finalize_account( funk, xid, account, funk_prev_rec );
-}
-
-/* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
-   executor to finalize borrowed account changes back into funk. It also
-   handles txncache insertion and updates to the vote/stake cache.
-   TODO: This function should probably be moved to fd_executor.c. */
-
-void
-fd_runtime_finalize_txn( fd_funk_t *               funk,
-                         fd_progcache_t *          progcache,
-                         fd_txncache_t *           txncache,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_exec_txn_ctx_t *       txn_ctx,
-                         fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx,
-                         ulong *                   tips_out_opt ) {
-
-  /* Collect fees */
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ), 1UL );
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ), txn_ctx->details.execution_fee );
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ), txn_ctx->details.priority_fee );
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), TXN( &txn_ctx->txn )->signature_cnt );
-
-  if( FD_UNLIKELY( txn_ctx->err.exec_err ) ) {
-
-    /* Save the fee_payer. Everything but the fee balance should be reset.
-       TODO: an optimization here could be to use a dirty flag in the
-       borrowed account. If the borrowed account data has been changed in
-       any way, then the full account can be rolled back as it is done now.
-       However, most of the time the account data is not changed, and only
-       the lamport balance has to change. */
-
-    /* With nonce account rollbacks, there are three cases:
-       1. No nonce account in the transaction
-       2. Nonce account is the fee payer
-       3. Nonce account is not the fee payer
-
-       We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
-    if( txn_ctx->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-      fd_runtime_save_account( funk, xid, txn_ctx->accounts.rollback_nonce, bank, capture_ctx );
-    }
-
-    /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
-    if( FD_LIKELY( txn_ctx->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      fd_runtime_save_account( funk, xid, txn_ctx->accounts.rollback_fee_payer, bank, capture_ctx );
-    }
-  } else {
-
-    for( ushort i=0; i<txn_ctx->accounts.accounts_cnt; i++ ) {
-      /* We are only interested in saving writable accounts and the fee
-         payer account. */
-      if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
-        continue;
-      }
-
-      fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_ctx->accounts.accounts[i] );
-      if( FD_UNLIKELY( !acc_rec ) ) {
-        FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join account at idx %u", i ));
-      }
-
-      /* Tips for bundles are collected in the bank: a user submitting a
-         bundle must include a instruction that transfers lamports to
-         a specific tip account.  Tips accumulated through the slot. */
-      if( fd_pack_tip_is_tip_account( fd_type_pun( acc_rec->pubkey->uc ) ) ) {
-        ulong tip = fd_ulong_sat_sub( acc_rec->meta->lamports, acc_rec->starting_lamports );
-        if( !!tips_out_opt ) *tips_out_opt += tip;
-        FD_ATOMIC_FETCH_AND_ADD( fd_bank_tips_modify( bank ), tip );
-      }
-
-      if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-        fd_stakes_update_vote_state( acc_rec, bank );
-      }
-
-      if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
-        fd_stakes_update_stake_delegation( acc_rec, bank );
-      }
-
-      /* Reclaim any accounts that have 0-lamports, now that any related
-         cache updates have been applied. */
-      fd_executor_reclaim_account( txn_ctx, &txn_ctx->accounts.accounts[i] );
-
-      fd_runtime_save_account( funk, xid, &txn_ctx->accounts.accounts[i], bank, capture_ctx );
-    }
-
-    /* We need to queue any existing program accounts that may have
-       been deployed / upgraded for reverification in the program
-       cache since their programdata may have changed. ELF / sBPF
-       metadata will need to be updated. */
-    ulong current_slot = fd_bank_slot_get( bank );
-    for( uchar i=0; i<txn_ctx->details.programs_to_reverify_cnt; i++ ) {
-      fd_pubkey_t const * program_key = &txn_ctx->details.programs_to_reverify[i];
-      fd_progcache_invalidate( progcache, xid, program_key, current_slot );
-    }
-  }
-
-  int is_vote = fd_txn_is_simple_vote_transaction( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
-  if( !is_vote ){
-    ulong * nonvote_txn_count = fd_bank_nonvote_txn_count_modify( bank );
-    FD_ATOMIC_FETCH_AND_ADD(nonvote_txn_count, 1);
-
-    if( FD_UNLIKELY( txn_ctx->err.exec_err ) ) {
-      ulong * nonvote_failed_txn_count = fd_bank_nonvote_failed_txn_count_modify( bank );
-      FD_ATOMIC_FETCH_AND_ADD( nonvote_failed_txn_count, 1 );
-    }
-  }
-
-  if( FD_UNLIKELY( txn_ctx->err.exec_err ) ) {
-    ulong * failed_txn_count = fd_bank_failed_txn_count_modify( bank );
-    FD_ATOMIC_FETCH_AND_ADD( failed_txn_count, 1 );
-  }
-
-  ulong * total_compute_units_used = fd_bank_total_compute_units_used_modify( bank );
-  FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_ctx->details.compute_budget.compute_unit_limit - txn_ctx->details.compute_budget.compute_meter );
-
-  /* Update the cost tracker */
-  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-  int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
-  if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
-    FD_LOG_DEBUG(( "fd_runtime_finalize_txn: transaction failed to fit into block %d", res ));
-    txn_ctx->err.is_committable = 0;
-  }
-  fd_bank_cost_tracker_end_locking_modify( bank );
-
-  txn_ctx->details.loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_ctx );
-
-  if( FD_LIKELY( txncache && txn_ctx->accounts.nonce_idx_in_txn==ULONG_MAX ) ) {
-    /* In Agave, durable nonce transactions are inserted to the status
-       cache the same as any others, but this is only to serve RPC
-       requests, they do not need to be in there for correctness as the
-       nonce mechanism itself prevents double spend.  We skip this logic
-       entirely to simplify and improve performance of the txn cache. */
-
-    fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
-    fd_txncache_insert( txncache, bank->txncache_fork_id, blockhash->uc, txn_ctx->details.blake_txn_msg_hash.uc );
-  }
-}
-
-int
-fd_runtime_prepare_and_execute_txn( fd_bank_t *          bank,
-                                    fd_exec_txn_ctx_t *  txn_ctx,
-                                    fd_txn_p_t *         txn,
-                                    fd_capture_ctx_t *   capture_ctx,
-                                    fd_exec_stack_t *    exec_stack,
-                                    fd_exec_accounts_t * exec_accounts,
-                                    uchar *              dumping_mem,
-                                    uchar *              tracing_mem ) {
-
-  txn_ctx->bank                  = bank;
-  txn_ctx->xid[0]                = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), bank->idx } };
-  txn_ctx->txn                   = *txn;
-  txn_ctx->exec_stack            = exec_stack;
-  txn_ctx->exec_accounts         = exec_accounts;
-
-  txn_ctx->accounts.accounts_cnt   = 0UL;
-  txn_ctx->accounts.executable_cnt = 0UL;
-
-  txn_ctx->details.programs_to_reverify_cnt       = 0UL;
-  txn_ctx->details.loaded_accounts_data_size      = 0UL;
-  txn_ctx->details.loaded_accounts_data_size_cost = 0UL;
-  txn_ctx->details.accounts_resize_delta          = 0UL;
-  txn_ctx->details.return_data.len                = 0UL;
-  memset( txn_ctx->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  fd_compute_budget_details_new( &txn_ctx->details.compute_budget );
-
-  txn_ctx->log.enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
-  txn_ctx->log.dumping_mem       = dumping_mem;
-  txn_ctx->log.tracing_mem       = tracing_mem;
-  txn_ctx->log.capture_ctx       = capture_ctx;
-
-  txn_ctx->instr.info_cnt     = 0UL;
-  txn_ctx->instr.trace_length = 0UL;
-  txn_ctx->instr.current_idx  = 0;
-  txn_ctx->instr.stack_sz     = 0;
-
-  txn_ctx->accounts.accounts_cnt   = 0UL;
-  txn_ctx->accounts.executable_cnt = 0UL;
-
-  txn_ctx->err.is_committable = 1;
-  txn_ctx->err.is_fees_only   = 0;
-  txn_ctx->err.txn_err        = FD_RUNTIME_EXECUTE_SUCCESS;
-  txn_ctx->err.exec_err       = FD_EXECUTOR_INSTR_SUCCESS;
-  txn_ctx->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
-  txn_ctx->err.exec_err_idx   = INT_MAX;
-  txn_ctx->err.custom_err     = 0;
-
-  /* Transaction sanitization.  If a transaction can't be commited or is
-     fees-only, we return early. */
-  txn_ctx->err.txn_err = fd_runtime_pre_execute_check( txn_ctx );
-
-  /* Execute the transaction. */
-  if( FD_LIKELY( txn_ctx->err.is_committable && !txn_ctx->err.is_fees_only ) ) {
-    txn_ctx->err.txn_err = fd_execute_txn( txn_ctx );
-  }
-
-  return txn_ctx->err.txn_err;
-}
-
-/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
-   for the bulk of the pre-transaction execution checks in the runtime.
-   They aim to preserve the ordering present in the Agave client to match
-   parity in terms of error codes. Sigverify is kept separate from the rest
-   of the transaction checks for fuzzing convenience.
-
-   For reference this is the general code path which contains all relevant
-   pre-transactions checks in the v2.0.x Agave client from upstream
-   to downstream is as follows:
-
-   confirm_slot_entries() which calls verify_ticks() and
-   verify_transaction(). verify_transaction() calls verify_and_hash_message()
-   and verify_precompiles() which parallels fd_executor_txn_verify() and
-   fd_executor_verify_transaction().
-
-   process_entries() contains a duplicate account check which is part of
-   agave account lock acquiring. This is checked inline in
-   fd_runtime_pre_execute_check().
-
-   load_and_execute_transactions() contains the function check_transactions().
-   This contains check_age() and check_status_cache() which is paralleled by
-   fd_executor_check_transaction_age_and_compute_budget_limits() and
-   fd_executor_check_status_cache() respectively.
-
-   load_and_execute_sanitized_transactions() contains validate_fees()
-   which is responsible for executing the compute budget instructions,
-   validating the fee payer and collecting the fee. This is mirrored in
-   firedancer with fd_executor_compute_budget_program_execute_instructions()
-   and fd_executor_collect_fees(). load_and_execute_sanitized_transactions()
-   also checks the total data size of the accounts in load_accounts() and
-   validates the program accounts in load_transaction_accounts(). This
-   is paralled by fd_executor_load_transaction_accounts(). */
 
 /******************************************************************************/
 /* Epoch Boundary                                                             */
@@ -1383,6 +670,722 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
 }
 
+static void
+fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
+                                                fd_bank_t *               bank,
+                                                fd_accdb_user_t *         accdb,
+                                                fd_funk_txn_xid_t const * xid,
+                                                fd_capture_ctx_t *        capture_ctx,
+                                                fd_runtime_stack_t *      runtime_stack,
+                                                int *                     is_epoch_boundary ) {
+
+  ulong const slot = fd_bank_slot_get( bank );
+  if( slot != 0UL ) {
+    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+
+    ulong prev_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
+    ulong slot_idx;
+    ulong new_epoch  = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
+    if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) {
+      /* The block after genesis has a height of 1. */
+      fd_bank_block_height_set( bank, 1UL );
+    }
+
+    if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
+      FD_LOG_DEBUG(( "Epoch boundary starting" ));
+      fd_runtime_process_new_epoch( banks, bank, accdb, xid, capture_ctx, prev_epoch, runtime_stack );
+      *is_epoch_boundary = 1;
+    }
+  } else {
+    *is_epoch_boundary = 0;
+  }
+
+  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
+    fd_distribute_partitioned_epoch_rewards( bank, accdb, xid, capture_ctx );
+  }
+}
+
+
+static void
+fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
+                                            fd_accdb_user_t *         accdb,
+                                            fd_funk_txn_xid_t const * xid,
+                                            fd_runtime_stack_t *      runtime_stack,
+                                            fd_capture_ctx_t *        capture_ctx ) {
+  // let (fee_rate_governor, fee_components_time_us) = measure_us!(
+  //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
+  // );
+  /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
+
+  fd_runtime_new_fee_rate_governor_derived( bank, fd_bank_parent_signature_cnt_get( bank ) );
+
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  ulong                       parent_epoch   = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
+  fd_sysvar_clock_update( bank, accdb, xid, capture_ctx, runtime_stack, &parent_epoch );
+
+  // It has to go into the current txn previous info but is not in slot 0
+  if( fd_bank_slot_get( bank ) != 0 ) {
+    fd_sysvar_slot_hashes_update( bank, accdb, xid, capture_ctx );
+  }
+  fd_sysvar_last_restart_slot_update( bank, accdb, xid, capture_ctx, fd_bank_last_restart_slot_get( bank ).slot );
+}
+
+int
+fd_runtime_load_txn_address_lookup_tables(
+    fd_txn_t const *          txn,
+    uchar const *             payload,
+    fd_funk_t *               funk,
+    fd_funk_txn_xid_t const * xid,
+    ulong                     slot,
+    fd_slot_hash_t const *    hashes, /* deque */
+    fd_acct_addr_t *          out_accts_alt ) {
+
+  if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+
+  fd_alut_interp_t interp[1];
+  fd_alut_interp_new(
+      interp,
+      out_accts_alt,
+      txn,
+      payload,
+      hashes,
+      slot );
+
+  fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn );
+  for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
+    fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
+    fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, payload+addr_lut->addr_off );
+
+    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
+    fd_txn_account_t addr_lut_rec[1];
+    int db_err = fd_txn_account_init_from_funk_readonly(
+        addr_lut_rec, &addr_lut_acc, funk,  xid );
+    if( FD_UNLIKELY( db_err!=FD_ACC_MGR_SUCCESS ) ) {
+      return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+    }
+
+    int err = fd_alut_interp_next(
+        interp,
+        &addr_lut_acc,
+        fd_txn_account_get_owner   ( addr_lut_rec ),
+        fd_txn_account_get_data    ( addr_lut_rec ),
+        fd_txn_account_get_data_len( addr_lut_rec ) );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+
+  fd_alut_interp_delete( interp );
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+void
+fd_runtime_block_execute_prepare( fd_banks_t *              banks,
+                                  fd_bank_t *               bank,
+                                  fd_accdb_user_t  *        accdb,
+                                  fd_runtime_stack_t *      runtime_stack,
+                                  fd_capture_ctx_t *        capture_ctx,
+                                  int *                     is_epoch_boundary ) {
+
+  fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+
+  fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
+
+  fd_bank_execution_fees_set( bank, 0UL );
+  fd_bank_priority_fees_set( bank, 0UL );
+  fd_bank_signature_count_set( bank, 0UL );
+  fd_bank_total_compute_units_used_set( bank, 0UL );
+
+  if( FD_LIKELY( fd_bank_slot_get( bank ) ) ) {
+    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+    FD_TEST( cost_tracker );
+    fd_cost_tracker_init( cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ) );
+    fd_bank_cost_tracker_end_locking_modify( bank );
+  }
+
+  fd_runtime_block_sysvar_update_pre_execute( bank, accdb, &xid, runtime_stack, capture_ctx );
+
+  if( FD_UNLIKELY( !fd_sysvar_cache_restore( bank, accdb->funk, &xid ) ) ) {
+    FD_LOG_ERR(( "Failed to restore sysvar cache" ));
+  }
+}
+
+static void
+fd_runtime_update_bank_hash( fd_bank_t *        bank,
+                             fd_capture_ctx_t * capture_ctx ) {
+  /* Save the previous bank hash, and the parents signature count */
+  fd_hash_t const * prev_bank_hash = NULL;
+  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
+    prev_bank_hash = fd_bank_bank_hash_query( bank );
+    fd_bank_prev_bank_hash_set( bank, *prev_bank_hash );
+  } else {
+    prev_bank_hash = fd_bank_prev_bank_hash_query( bank );
+  }
+
+  fd_bank_parent_signature_cnt_set( bank, fd_bank_signature_count_get( bank ) );
+
+  /* Compute the new bank hash */
+  fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
+  fd_hash_t new_bank_hash[1] = { 0 };
+  fd_hashes_hash_bank(
+      lthash,
+      prev_bank_hash,
+      (fd_hash_t *)fd_bank_poh_query( bank )->hash,
+      fd_bank_signature_count_get( bank ),
+      new_bank_hash );
+
+  /* Update the bank hash */
+  fd_bank_bank_hash_set( bank, *new_bank_hash );
+
+  if( capture_ctx != NULL && capture_ctx->capture != NULL &&
+    fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
+
+    uchar lthash_hash[FD_HASH_FOOTPRINT];
+    fd_blake3_hash(lthash->bytes, FD_LTHASH_LEN_BYTES, lthash_hash );
+
+    fd_solcap_write_bank_preimage(
+          capture_ctx->capture,
+          new_bank_hash->hash,
+          fd_bank_prev_bank_hash_query( bank ),
+          NULL,
+          lthash_hash,
+          fd_bank_poh_query( bank )->hash,
+          fd_bank_signature_count_get( bank ) );
+  }
+
+  fd_bank_lthash_end_locking_query( bank );
+}
+
+/******************************************************************************/
+/* Transaction Level Execution Management                                     */
+/******************************************************************************/
+
+/* fd_runtime_pre_execute_check is responsible for conducting many of the
+   transaction sanitization checks. */
+
+static inline int
+fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
+                              fd_bank_t *         bank,
+                              fd_txn_in_t const * txn_in,
+                              fd_txn_out_t *      txn_out ) {
+
+  /* Set up the core account keys. These are the account keys directly
+     passed in via the serialized transaction, represented as an array.
+     Note that this does not include additional keys referenced in
+     address lookup tables. */
+  fd_executor_setup_txn_account_keys( txn_in, txn_out );
+
+  int err;
+
+  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275
+     TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
+     be moved in the future. The Agave call heirarchy looks something like this:
+            process_single_slot
+                   v
+            confirm_full_slot
+                   v
+            confirm_slot_entries --------------------------------------------------->
+                   v                               v                                v
+            verify_transaction    ComputeBudget::process_instruction         process_entries
+                   v                                                                v
+            verify_precompiles                                                process_batches
+                                                                                    v
+                                                                                   ...
+                                                                                    v
+                                                                        load_and_execute_transactions
+                                                                                    v
+                                                                                   ...
+                                                                                    v
+                                                                              load_accounts --> load_transaction_accounts
+                                                                                    v
+                                                                       general transaction execution
+
+  */
+
+# if FD_HAS_FLATCC
+  uchar dump_txn = !!( runtime->log.capture_ctx &&
+                       fd_bank_slot_get( bank ) >= runtime->log.capture_ctx->dump_proto_start_slot &&
+                       runtime->log.capture_ctx->dump_txn_to_pb );
+  if( FD_UNLIKELY( dump_txn ) ) {
+    fd_dump_txn_to_protobuf( runtime, bank, txn_in, txn_out );
+  }
+# endif
+
+  /* Verify the transaction. For now, this step only involves processing
+     the compute budget instructions. */
+  err = fd_executor_verify_transaction( bank, txn_in, txn_out );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    txn_out->err.is_committable = 0;
+    return err;
+  }
+
+  /* Resolve and verify ALUT-referenced account keys, if applicable */
+  err = fd_executor_setup_txn_alut_account_keys( runtime, bank, txn_in, txn_out );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    txn_out->err.is_committable = 0;
+    return err;
+  }
+
+  /* Set up the transaction accounts and other txn ctx metadata */
+  fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
+
+  /* Post-sanitization checks. Called from prepare_sanitized_batch()
+     which, for now, only is used to lock the accounts and perform a
+     couple basic validations.
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
+  err = fd_executor_validate_account_locks( bank, txn_out );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    txn_out->err.is_committable = 0;
+    return err;
+  }
+
+  /* load_and_execute_transactions() -> check_transactions()
+     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
+  err = fd_executor_check_transactions( runtime, bank, txn_in, txn_out );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    txn_out->err.is_committable = 0;
+    return err;
+  }
+
+  /* load_and_execute_sanitized_transactions() -> validate_fees() ->
+     validate_transaction_fee_payer()
+     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
+  err = fd_executor_validate_transaction_fee_payer( runtime, bank, txn_in, txn_out );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    txn_out->err.is_committable = 0;
+    return err;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
+  err = fd_executor_load_transaction_accounts( runtime, bank, txn_in, txn_out );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    /* Regardless of whether transaction accounts were loaded successfully, the transaction is
+       included in the block and transaction fees are collected.
+       https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
+    txn_out->err.is_fees_only = 1;
+
+    /* If the transaction fails to load, the "rollback" accounts will include one of the following:
+        1. Nonce account only
+        2. Fee payer only
+        3. Nonce account + fee payer
+
+        Because the cost tracker uses the loaded account data size in block cost calculations, we need to
+        make sure our calculated loaded accounts data size is conformant with Agave's.
+        https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
+
+        In any case, we should always add the dlen of the fee payer. */
+    txn_out->details.loaded_accounts_data_size = fd_txn_account_get_data_len( &txn_out->accounts.accounts[FD_FEE_PAYER_TXN_IDX] );
+
+    /* Special case handling for if a nonce account is present in the transaction. */
+    if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+      /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
+          be double counting the dlen of the fee payer. */
+      if( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
+        txn_out->details.loaded_accounts_data_size += fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce );
+      }
+    }
+  }
+
+  /*
+     The fee payer and the nonce account will be stored and hashed so
+     long as the transaction landed on chain, or, in Agave terminology,
+     the transaction was processed.
+     https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/account_saver.rs#L72
+
+     A transaction lands on chain in one of two ways:
+     (1) Passed fee validation and loaded accounts.
+     (2) Passed fee validation and failed to load accounts and the enable_transaction_loading_failure_fees feature is enabled as per
+         SIMD-0082 https://github.com/anza-xyz/feature-gate-tracker/issues/52
+
+     So, at this point, the transaction is committable.
+   */
+
+  return err;
+}
+
+/* fd_runtime_finalize_account is a helper used to commit the data from
+   a writable transaction account back into the accountsdb. */
+
+static void
+fd_runtime_finalize_account( fd_funk_t *               funk,
+                             fd_funk_txn_xid_t const * xid,
+                             fd_txn_account_t *        acc,
+                             fd_funk_rec_t *           prev_rec ) {
+  if( FD_UNLIKELY( !fd_txn_account_is_mutable( acc ) ) ) {
+    FD_LOG_CRIT(( "fd_runtime_finalize_account: account is not mutable" ));
+  }
+
+  fd_pubkey_t const * key         = acc->pubkey;
+  uchar       const * record_data = (uchar *)fd_txn_account_get_meta( acc );
+  ulong               record_sz   = fd_account_meta_get_record_sz( acc->meta );
+
+  int err = FD_FUNK_SUCCESS;
+
+  if( !prev_rec || !fd_funk_txn_xid_eq( prev_rec->pair.xid, xid ) ) {
+
+    fd_funk_rec_key_t     funk_key = fd_funk_acc_key( key );
+    fd_funk_rec_prepare_t prepare[1];
+    fd_funk_rec_t *       rec = fd_funk_rec_prepare( funk, xid, &funk_key, prepare, &err );
+    if( FD_UNLIKELY( !rec || err!=FD_FUNK_SUCCESS ) ) {
+      FD_LOG_ERR(( "fd_runtime_finalize_account: failed to prepare record (%i-%s)", err, fd_funk_strerror( err ) ));
+    }
+
+    if( FD_UNLIKELY( !fd_funk_val_truncate(
+        rec,
+        fd_funk_alloc( funk ),
+        fd_funk_wksp( funk ),
+        0UL,
+        record_sz,
+        &err ) ) ) {
+      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
+    }
+
+    fd_memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), record_data, record_sz );
+
+    fd_funk_rec_publish( funk, prepare );
+
+  } else {
+
+    if( FD_UNLIKELY( !fd_funk_val_truncate(
+        prev_rec,
+        fd_funk_alloc( funk ),
+        fd_funk_wksp( funk ),
+        0UL,
+        record_sz,
+        &err ) ) ) {
+      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
+    }
+
+    fd_memcpy( fd_funk_val( prev_rec, fd_funk_wksp( funk ) ), record_data, record_sz );
+
+  }
+
+}
+
+/* fd_runtime_buffer_solcap_account_update buffers an account
+   update event message in the capture context, which will be
+   sent to the replay tile via the exec_replay link.
+   This buffering is done to avoid passing stem down into the runtime.
+
+   TODO: remove this when solcap v2 is here. */
+static void
+fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
+                                         fd_bank_t *               bank,
+                                         fd_capture_ctx_t *        capture_ctx ) {
+
+  /* Check if we should publish the update */
+  if( FD_UNLIKELY( !capture_ctx || fd_bank_slot_get( bank )<capture_ctx->solcap_start_slot ) ) {
+    return;
+  }
+
+  /* Get account data */
+  fd_account_meta_t const * meta = fd_txn_account_get_meta( account );
+  void const * data              = fd_txn_account_get_data( account );
+
+  /* Calculate account hash using lthash */
+  fd_lthash_value_t lthash[1];
+  fd_hashes_account_lthash( account->pubkey, meta, data, lthash );
+
+  /* Calculate message size */
+  if( FD_UNLIKELY( capture_ctx->account_updates_len >= FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES ) ) {
+    FD_LOG_CRIT(( "cannot buffer solcap account update. this should never happen" ));
+    return;
+  }
+
+  /* Write the message to the buffer */
+  fd_capture_ctx_account_update_msg_t * account_update_msg = (fd_capture_ctx_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
+  account_update_msg->pubkey   = *account->pubkey;
+  account_update_msg->data_sz  = meta->dlen;
+  account_update_msg->bank_idx = bank->idx;
+  fd_solana_account_meta_init(
+      &account_update_msg->info,
+      fd_txn_account_get_lamports ( account ),
+      fd_txn_account_get_owner    ( account ),
+      fd_txn_account_is_executable( account )
+  );
+  memcpy( account_update_msg->hash.uc, lthash->bytes, sizeof(fd_hash_t) );
+  capture_ctx->account_updates_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
+
+  /* Write the account data to the buffer */
+  memcpy( capture_ctx->account_updates_buffer_ptr, data, meta->dlen );
+  capture_ctx->account_updates_buffer_ptr += meta->dlen;
+
+  capture_ctx->account_updates_len++;
+}
+
+/* fd_runtime_save_account is a convenience wrapper that looks
+   up the previous account state from funk before updating the lthash
+   and saving the new version of the account to funk.
+
+   TODO: We have to make a read request to the DB, so that we can calculate
+   the previous version of the accounts hash, to mix-out from the accumulated
+   lthash.  In future we should likely cache the previous version of the account
+   in transaction setup, so that we don't have to issue a read request here.
+
+   funk is the funk database handle.  funk_txn is the transaction
+   context to query (NULL for root context).  account is the modified
+   account.  bank and capture_ctx are passed to fd_hashes_update_lthash.
+
+   This function:
+   - Queries funk for the previous account version
+   - Computes the hash of the previous version (or uses zero for new)
+   - Calls fd_hashes_update_lthash with the computed previous hash
+   - Saves the new version of the account to Funk
+   - Notifies the replay tile that an account update has occurred, so it
+     can write the account to the solcap file.
+
+   The function handles FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT gracefully (uses
+   zero hash).  On other funk errors, the function will FD_LOG_ERR.
+   All non-optional pointers must be valid. */
+
+static void
+fd_runtime_save_account( fd_funk_t *               funk,
+                         fd_funk_txn_xid_t const * xid,
+                         fd_txn_account_t *        account,
+                         fd_bank_t *               bank,
+                         fd_capture_ctx_t *        capture_ctx ) {
+  /* Look up the previous version of the account from Funk */
+  int err = FD_ACC_MGR_SUCCESS;
+  fd_funk_rec_t * funk_prev_rec = NULL;
+  fd_account_meta_t const * prev_meta = fd_funk_get_acc_meta_readonly(
+      funk,
+      xid,
+      account->pubkey,
+      fd_type_pun( &funk_prev_rec ),
+      &err,
+      NULL );
+  uchar const * prev_data = (void const *)( prev_meta+1 );
+
+  /* Hash the old version of the account */
+  fd_lthash_value_t prev_hash[1];
+  fd_lthash_zero( prev_hash );
+  if( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+    fd_hashes_account_lthash(
+      account->pubkey,
+      prev_meta,
+      prev_data,
+      prev_hash );
+  }
+
+  /* Mix in the account hash into the bank hash */
+  fd_hashes_update_lthash( account, prev_hash, bank, NULL );
+
+  /* Publish account update to replay tile for solcap writing
+     TODO: write in the exec tile with solcap v2 */
+  fd_runtime_buffer_solcap_account_update( account, bank, capture_ctx );
+
+  /* Save the new version of the account to Funk */
+  fd_runtime_finalize_account( funk, xid, account, funk_prev_rec );
+}
+
+/* fd_runtime_commit_txn is a helper used by the non-tpool transaction
+   executor to finalize borrowed account changes back into funk. It also
+   handles txncache insertion and updates to the vote/stake cache.
+   TODO: This function should probably be moved to fd_executor.c. */
+
+void
+fd_runtime_commit_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out ) {
+
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+
+  if( FD_UNLIKELY( txn_out->err.txn_err ) ) {
+
+    /* Save the fee_payer. Everything but the fee balance should be reset.
+       TODO: an optimization here could be to use a dirty flag in the
+       borrowed account. If the borrowed account data has been changed in
+       any way, then the full account can be rolled back as it is done now.
+       However, most of the time the account data is not changed, and only
+       the lamport balance has to change. */
+
+    /* With nonce account rollbacks, there are three cases:
+       1. No nonce account in the transaction
+       2. Nonce account is the fee payer
+       3. Nonce account is not the fee payer
+
+       We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
+    if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+      fd_runtime_save_account( runtime->funk, &xid, txn_out->accounts.rollback_nonce, bank, runtime->log.capture_ctx );
+    }
+
+    /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
+    if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
+      fd_runtime_save_account( runtime->funk, &xid, txn_out->accounts.rollback_fee_payer, bank, runtime->log.capture_ctx );
+    }
+  } else {
+
+    for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
+      /* We are only interested in saving writable accounts and the fee
+         payer account. */
+      if( !fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
+        continue;
+      }
+
+      fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_out->accounts.accounts[i] );
+      if( FD_UNLIKELY( !acc_rec ) ) {
+        FD_LOG_CRIT(( "fd_runtime_commit_txn: failed to join account at idx %u", i ));
+      }
+
+      /* Tips for bundles are collected in the bank: a user submitting a
+         bundle must include a instruction that transfers lamports to
+         a specific tip account.  Tips accumulated through the slot. */
+      if( fd_pack_tip_is_tip_account( fd_type_pun( acc_rec->pubkey->uc ) ) ) {
+        txn_out->details.tips += fd_ulong_sat_sub( acc_rec->meta->lamports, acc_rec->starting_lamports );
+        FD_ATOMIC_FETCH_AND_ADD( fd_bank_tips_modify( bank ), txn_out->details.tips );
+      }
+
+      if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+        fd_stakes_update_vote_state( acc_rec, bank );
+      }
+
+      if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
+        fd_stakes_update_stake_delegation( acc_rec, bank );
+      }
+
+      /* Reclaim any accounts that have 0-lamports, now that any related
+         cache updates have been applied. */
+      fd_executor_reclaim_account( &txn_out->accounts.accounts[i], fd_bank_slot_get( bank ) );
+
+      fd_runtime_save_account( runtime->funk, &xid, &txn_out->accounts.accounts[i], bank, runtime->log.capture_ctx );
+    }
+
+    /* We need to queue any existing program accounts that may have
+       been deployed / upgraded for reverification in the program
+       cache since their programdata may have changed. ELF / sBPF
+       metadata will need to be updated. */
+    ulong current_slot = fd_bank_slot_get( bank );
+    for( uchar i=0; i<txn_out->details.programs_to_reverify_cnt; i++ ) {
+      fd_pubkey_t const * program_key = &txn_out->details.programs_to_reverify[i];
+      fd_progcache_invalidate( runtime->progcache, &xid, program_key, current_slot );
+    }
+  }
+
+  /* Accumulate block-level information to the bank. */
+
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ),       1UL );
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ),  txn_out->details.execution_fee );
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ),   txn_out->details.priority_fee );
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), txn_out->details.signature_count );
+
+  int is_vote = fd_txn_is_simple_vote_transaction( TXN( txn_in->txn ), txn_in->txn->payload );
+  if( !is_vote ){
+    FD_ATOMIC_FETCH_AND_ADD( fd_bank_nonvote_txn_count_modify( bank ), 1 );
+    if( FD_UNLIKELY( txn_out->err.exec_err ) ) {
+      FD_ATOMIC_FETCH_AND_ADD( fd_bank_nonvote_failed_txn_count_modify( bank ), 1 );
+    }
+  }
+
+  if( FD_UNLIKELY( txn_out->err.exec_err ) ) {
+    FD_ATOMIC_FETCH_AND_ADD( fd_bank_failed_txn_count_modify( bank ), 1 );
+  }
+
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_total_compute_units_used_modify( bank ), txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter );
+
+  /* Update the cost tracker. */
+
+  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+  int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, bank, txn_in, txn_out );
+  if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
+    FD_LOG_DEBUG(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
+    txn_out->err.is_committable = 0;
+  }
+  fd_bank_cost_tracker_end_locking_modify( bank );
+
+  txn_out->details.loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_out );
+
+  /* Finally, update the status cache. */
+
+  if( FD_LIKELY( runtime->status_cache && txn_out->accounts.nonce_idx_in_txn==ULONG_MAX ) ) {
+    /* In Agave, durable nonce transactions are inserted to the status
+       cache the same as any others, but this is only to serve RPC
+       requests, they do not need to be in there for correctness as the
+       nonce mechanism itself prevents double spend.  We skip this logic
+       entirely to simplify and improve performance of the txn cache. */
+
+    fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
+    fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, blockhash->uc, txn_out->details.blake_txn_msg_hash.uc );
+  }
+}
+
+void
+fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
+                                    fd_bank_t *          bank,
+                                    fd_txn_in_t const *  txn_in,
+                                    fd_txn_out_t *       txn_out ) {
+
+  txn_out->accounts.accounts_cnt   = 0UL;
+
+  txn_out->details.programs_to_reverify_cnt       = 0UL;
+  txn_out->details.loaded_accounts_data_size      = 0UL;
+  txn_out->details.loaded_accounts_data_size_cost = 0UL;
+  txn_out->details.accounts_resize_delta          = 0UL;
+  txn_out->details.return_data.len                = 0UL;
+  txn_out->details.tips                           = 0UL;
+  txn_out->details.execution_fee                  = 0UL;
+  txn_out->details.priority_fee                   = 0UL;
+  txn_out->details.signature_count                = TXN( txn_in->txn )->signature_cnt;
+  memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+  fd_compute_budget_details_new( &txn_out->details.compute_budget );
+
+  runtime->executable.cnt = 0UL;
+  runtime->log.enable_log_collector = 0;
+  runtime->instr.info_cnt     = 0UL;
+  runtime->instr.trace_length = 0UL;
+  runtime->instr.current_idx  = 0;
+  runtime->instr.stack_sz     = 0;
+
+  txn_out->err.is_committable = 1;
+  txn_out->err.is_fees_only   = 0;
+  txn_out->err.txn_err        = FD_RUNTIME_EXECUTE_SUCCESS;
+  txn_out->err.exec_err       = FD_EXECUTOR_INSTR_SUCCESS;
+  txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
+  txn_out->err.exec_err_idx   = INT_MAX;
+
+  /* Transaction sanitization.  If a transaction can't be commited or is
+     fees-only, we return early. */
+  txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
+
+  /* Execute the transaction. */
+  if( FD_LIKELY( txn_out->err.is_committable && !txn_out->err.is_fees_only ) ) {
+    txn_out->err.txn_err = fd_execute_txn( runtime, bank, txn_in, txn_out );
+  }
+}
+
+/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
+   for the bulk of the pre-transaction execution checks in the runtime.
+   They aim to preserve the ordering present in the Agave client to match
+   parity in terms of error codes. Sigverify is kept separate from the rest
+   of the transaction checks for fuzzing convenience.
+
+   For reference this is the general code path which contains all relevant
+   pre-transactions checks in the v2.0.x Agave client from upstream
+   to downstream is as follows:
+
+   confirm_slot_entries() which calls verify_ticks() and
+   verify_transaction(). verify_transaction() calls verify_and_hash_message()
+   and verify_precompiles() which parallels fd_executor_txn_verify() and
+   fd_executor_verify_transaction().
+
+   process_entries() contains a duplicate account check which is part of
+   agave account lock acquiring. This is checked inline in
+   fd_runtime_pre_execute_check().
+
+   load_and_execute_transactions() contains the function check_transactions().
+   This contains check_age() and check_status_cache() which is paralleled by
+   fd_executor_check_transaction_age_and_compute_budget_limits() and
+   fd_executor_check_status_cache() respectively.
+
+   load_and_execute_sanitized_transactions() contains validate_fees()
+   which is responsible for executing the compute budget instructions,
+   validating the fee payer and collecting the fee. This is mirrored in
+   firedancer with fd_executor_compute_budget_program_execute_instructions()
+   and fd_executor_collect_fees(). load_and_execute_sanitized_transactions()
+   also checks the total data size of the accounts in load_accounts() and
+   validates the program accounts in load_transaction_accounts(). This
+   is paralled by fd_executor_load_transaction_accounts(). */
+
+
 /******************************************************************************/
 /* Genesis                                                                    */
 /*******************************************************************************/
@@ -1629,7 +1632,7 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
 
   fd_runtime_update_leaders( bank, runtime_stack );
 
-  fd_runtime_freeze( bank, accdb, xid, capture_ctx );
+  fd_runtime_freeze( bank, accdb, capture_ctx );
 
   fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
 
@@ -1692,58 +1695,224 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
   if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "genesis slot 0 execute failed with error %d", err ));
 }
 
-/******************************************************************************/
-/* Offline Replay                                                             */
-/******************************************************************************/
-
-/* As a note, currently offline and live replay of transactions has differences
-   with regards to how the execution environment is setup. These are helpers
-   used to emulate this behavior */
-
 void
-fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
-                                                fd_bank_t *               bank,
-                                                fd_accdb_user_t *         accdb,
-                                                fd_funk_txn_xid_t const * xid,
-                                                fd_capture_ctx_t *        capture_ctx,
-                                                fd_runtime_stack_t *      runtime_stack,
-                                                int *                     is_epoch_boundary ) {
-
-  ulong const slot = fd_bank_slot_get( bank );
-  if( slot != 0UL ) {
-    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-
-    ulong prev_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
-    ulong slot_idx;
-    ulong new_epoch  = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
-    if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) {
-      /* The block after genesis has a height of 1. */
-      fd_bank_block_height_set( bank, 1UL );
-    }
-
-    if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
-      FD_LOG_DEBUG(( "Epoch boundary starting" ));
-      fd_runtime_process_new_epoch( banks, bank, accdb, xid, capture_ctx, prev_epoch, runtime_stack );
-      *is_epoch_boundary = 1;
-    }
-  } else {
-    *is_epoch_boundary = 0;
-  }
-
-  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
-    fd_distribute_partitioned_epoch_rewards( bank, accdb, xid, capture_ctx );
-  }
-}
-
-void
-fd_runtime_block_execute_finalize( fd_bank_t *               bank,
-                                   fd_accdb_user_t *         accdb,
-                                   fd_funk_txn_xid_t const * xid,
-                                   fd_capture_ctx_t *        capture_ctx,
-                                   int                       silent ) {
+fd_runtime_block_execute_finalize( fd_bank_t *        bank,
+                                   fd_accdb_user_t *  accdb,
+                                   fd_capture_ctx_t * capture_ctx ) {
 
   /* This slot is now "frozen" and can't be changed anymore. */
-  fd_runtime_freeze( bank, accdb, xid, capture_ctx );
+  fd_runtime_freeze( bank, accdb, capture_ctx );
 
-  fd_runtime_update_bank_hash( bank, capture_ctx, silent );
+  fd_runtime_update_bank_hash( bank, capture_ctx );
+}
+
+
+/* Mirrors Agave function solana_sdk::transaction_context::find_index_of_account
+
+   Backward scan over transaction accounts.
+   Returns -1 if not found.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L233-L238 */
+
+int
+fd_runtime_find_index_of_account( fd_txn_out_t const * txn_out,
+                                  fd_pubkey_t const *  pubkey ) {
+  for( ulong i=txn_out->accounts.accounts_cnt; i>0UL; i-- ) {
+    if( 0==memcmp( pubkey, &txn_out->accounts.account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
+      return (int)(i-1UL);
+    }
+  }
+  return -1;
+}
+
+int
+fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
+                                 fd_txn_out_t *                  txn_out,
+                                 ushort                          idx,
+                                 fd_txn_account_t * *            account,
+                                 fd_txn_account_condition_fn_t * condition ) {
+  if( FD_UNLIKELY( idx>=txn_out->accounts.accounts_cnt ) ) {
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
+  fd_txn_account_t * txn_account = &txn_out->accounts.accounts[idx];
+  *account = txn_account;
+
+  if( FD_LIKELY( condition != NULL ) ) {
+    if( FD_UNLIKELY( !condition( *account, txn_in, txn_out, idx ) ) ) {
+      return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+    }
+  }
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
+int
+fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
+                                 fd_txn_out_t *                  txn_out,
+                                 fd_pubkey_t const *             pubkey,
+                                 fd_txn_account_t * *            account,
+                                 fd_txn_account_condition_fn_t * condition ) {
+  int index = fd_runtime_find_index_of_account( txn_out, pubkey );
+  if( FD_UNLIKELY( index==-1 ) ) {
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
+  return fd_runtime_get_account_at_index( txn_in,
+                                          txn_out,
+                                          (uchar)index,
+                                          account,
+                                          condition );
+}
+
+int
+fd_runtime_get_executable_account( fd_runtime_t *                  runtime,
+                                   fd_txn_in_t const *             txn_in,
+                                   fd_txn_out_t *                  txn_out,
+                                   fd_pubkey_t const *             pubkey,
+                                   fd_txn_account_t * *            account,
+                                   fd_txn_account_condition_fn_t * condition ) {
+  /* First try to fetch the executable account from the existing borrowed accounts.
+     If the pubkey is in the account keys, then we want to re-use that
+     borrowed account since it reflects changes from prior instructions. Referencing the
+     read-only executable accounts list is incorrect behavior when the program
+     data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
+  int err = fd_runtime_get_account_with_key( txn_in,
+                                             txn_out,
+                                             pubkey,
+                                             account,
+                                             condition );
+  if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
+    return FD_ACC_MGR_SUCCESS;
+  }
+
+  for( ushort i=0; i<runtime->executable.cnt; i++ ) {
+    if( memcmp( pubkey->uc, runtime->executable.accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
+      fd_txn_account_t * txn_account = &runtime->executable.accounts[i];
+      *account = txn_account;
+
+      if( FD_LIKELY( condition != NULL ) ) {
+        if( FD_UNLIKELY( !condition( *account, txn_in, txn_out, i ) ) ) {
+          return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+        }
+      }
+
+      return FD_ACC_MGR_SUCCESS;
+    }
+  }
+
+  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+}
+
+int
+fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
+                                             ushort                idx,
+                                             fd_pubkey_t const * * key ) {
+  /* Return a NotEnoughAccountKeys error if idx is out of bounds.
+     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L218 */
+  if( FD_UNLIKELY( idx>=txn_out->accounts.accounts_cnt ) ) {
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+  }
+
+  *key = &txn_out->accounts.account_keys[ idx ];
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+/* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L162 */
+int
+fd_txn_account_is_demotion( const int        idx,
+                            const fd_txn_t * txn_descriptor,
+                            const uint       bpf_upgradeable_in_txn ) {
+  uint is_program = 0U;
+  for( ulong j=0UL; j<txn_descriptor->instr_cnt; j++ ) {
+    if( txn_descriptor->instr[j].program_id == idx ) {
+      is_program = 1U;
+      break;
+    }
+  }
+
+  return (is_program && !bpf_upgradeable_in_txn);
+}
+
+uint
+fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
+                                           const ulong         accounts_cnt ) {
+  for( ulong j=0; j<accounts_cnt; j++ ) {
+    const fd_pubkey_t * acc = &account_keys[j];
+    if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
+      return 1U;
+    }
+  }
+  return 0U;
+}
+
+static inline int
+fd_runtime_account_is_writable_idx_flat( const ulong           slot,
+                                         const ushort          idx,
+                                         const fd_pubkey_t *   addr_at_idx,
+                                         const fd_txn_t *      txn_descriptor,
+                                         const fd_features_t * features,
+                                         const uint            bpf_upgradeable_in_txn ) {
+  /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L43 */
+  if( !fd_txn_is_writable( txn_descriptor, idx ) ) {
+    return 0;
+  }
+
+  /* See comments in fd_system_ids.h.
+     https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L44 */
+  if( fd_pubkey_is_active_reserved_key( addr_at_idx ) ||
+      fd_pubkey_is_pending_reserved_key( addr_at_idx ) ||
+      ( FD_FEATURE_ACTIVE( slot, features, enable_secp256r1_precompile ) &&
+                           fd_pubkey_is_secp256r1_key( addr_at_idx ) ) ) {
+
+    return 0;
+  }
+
+  if( fd_txn_account_is_demotion( idx, txn_descriptor, bpf_upgradeable_in_txn ) ) {
+    return 0;
+  }
+
+  return 1;
+}
+
+
+/* This function aims to mimic the writable accounts check to populate the writable accounts cache, used
+   to determine if accounts are writable or not.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
+int
+fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
+                                    fd_txn_out_t const * txn_out,
+                                    fd_bank_t *          bank,
+                                    ushort               idx ) {
+  uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.account_keys, txn_out->accounts.accounts_cnt );
+  return fd_runtime_account_is_writable_idx_flat( fd_bank_slot_get( bank ),
+                                                   idx,
+                                                   &txn_out->accounts.account_keys[idx],
+                                                   TXN( txn_in->txn ),
+                                                   fd_bank_features_query( bank ),
+                                                   bpf_upgradeable );
+}
+
+/* Account pre-condition filtering functions */
+
+int
+fd_runtime_account_check_exists( fd_txn_account_t *  acc,
+                                 fd_txn_in_t const * txn_in,
+                                 fd_txn_out_t *      txn_out,
+                                 ushort              idx ) {
+  (void) txn_in;
+  (void) txn_out;
+  (void) idx;
+  return fd_account_meta_exists( fd_txn_account_get_meta( acc ) );
+}
+
+int
+fd_runtime_account_check_fee_payer_writable( fd_txn_account_t *  acc,
+                                             fd_txn_in_t const * txn_in,
+                                             fd_txn_out_t *      txn_out,
+                                             ushort              idx ) {
+  (void) txn_out;
+  (void) acc;
+  return fd_txn_is_writable( TXN( txn_in->txn ), idx );
 }

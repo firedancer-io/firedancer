@@ -4,6 +4,7 @@
 #include "../info/fd_instr_info.h"
 #include "../fd_executor_err.h"
 #include "../sysvar/fd_sysvar_cache.h"
+#include "../../fd_flamenco_base.h"
 #include "../../../ballet/txn/fd_txn.h"
 
 /* Avoid circular include dependency with forward declaration */
@@ -15,8 +16,11 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 
 struct fd_exec_instr_ctx {
   fd_instr_info_t const *   instr;   /* The instruction info for this instruction */
-  fd_exec_txn_ctx_t *       txn_ctx; /* The transaction context for this instruction */
+  fd_runtime_t *            runtime; /* The runtime for this instruction */
+  fd_txn_in_t const *       txn_in;  /* The input for this instruction */
+  fd_txn_out_t *            txn_out; /* The output for this instruction */
   fd_sysvar_cache_t const * sysvar_cache;
+  fd_bank_t *               bank;
 
   /* Most instructions log the base58 program id multiple times, so it's
      convenient to compute it once and reuse it. */

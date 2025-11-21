@@ -3,6 +3,7 @@
 
 #include "fd_bank.h"
 #include "fd_executor_err.h"
+#include "context/fd_exec_instr_ctx.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "program/fd_program_util.h"
 
@@ -268,7 +269,7 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
 
   /* TODO: Add an is_exempt rent API to better match Agave and clean up code
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L990 */
-  fd_rent_t const * rent        = fd_bank_rent_query( borrowed_acct->instr_ctx->txn_ctx->bank );
+  fd_rent_t const * rent        = fd_bank_rent_query( borrowed_acct->instr_ctx->bank );
   ulong             min_balance = fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( acct ) );
   return fd_txn_account_get_lamports( acct )>=min_balance;
 }
@@ -295,7 +296,7 @@ fd_borrowed_account_is_executable( fd_borrowed_account_t const * borrowed_acct )
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_executable_internal( fd_borrowed_account_t const * borrowed_acct ) {
-  return !FD_FEATURE_ACTIVE_BANK( borrowed_acct->instr_ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) &&
+  return !FD_FEATURE_ACTIVE_BANK( borrowed_acct->instr_ctx->bank, remove_accounts_executable_flag_checks ) &&
           fd_borrowed_account_is_executable( borrowed_acct );
 }
 
@@ -399,39 +400,10 @@ fd_borrowed_account_can_data_be_changed( fd_borrowed_account_t const * borrowed_
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1092 */
 
-static inline int
+int
 fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_acct,
                                          ulong                         new_length,
-                                         int *                         err ) {
-  fd_txn_account_t * acct = borrowed_acct->acct;
-
-  /* Only the owner can change the length of the data
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1095 */
-  if( FD_UNLIKELY( (fd_txn_account_get_data_len( acct )!=new_length) &
-                   (!fd_borrowed_account_is_owned_by_current_program( borrowed_acct )) ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
-    return 0;
-  }
-
-  /* The new length can not exceed the maximum permitted length
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1099 */
-  if( FD_UNLIKELY( new_length>MAX_PERMITTED_DATA_LENGTH ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
-    return 0;
-  }
-
-  /* The resize can not exceed the per-transaction maximum
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1104-L1108 */
-  ulong length_delta              = fd_ulong_sat_sub( new_length, fd_txn_account_get_data_len( acct ) );
-  ulong new_accounts_resize_delta = fd_ulong_sat_add( borrowed_acct->instr_ctx->txn_ctx->details.accounts_resize_delta, length_delta );
-  if( FD_UNLIKELY( new_accounts_resize_delta > MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
-    return 0;
-  }
-
-  *err = FD_EXECUTOR_INSTR_SUCCESS;
-  return 1;
-}
+                                         int *                         err );
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {

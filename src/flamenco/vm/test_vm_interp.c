@@ -54,8 +54,8 @@ test_program_success( char *                test_case_name,
       /* mem_regions_cnt                      */ 0UL,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );
@@ -209,7 +209,7 @@ generate_random_alu64_instrs( fd_rng_t * rng,
    the CU count after the final exit instruction reaches zero. */
 
 static void
-test_0cu_exit( void ) {
+test_0cu_exit( fd_runtime_t * runtime ) {
 
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
@@ -226,9 +226,9 @@ test_0cu_exit( void ) {
   ulong text_cnt = 3UL;
 
   fd_exec_instr_ctx_t instr_ctx[1];
-  fd_exec_txn_ctx_t   txn_ctx[1];
   fd_bank_t           bank[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank );
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 
   /* Ensure the VM exits with success if the CU count after the final
      exit instruction reaches zero. */
@@ -254,8 +254,8 @@ test_0cu_exit( void ) {
       /* mem_regions_cnt                      */ 0UL,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );
@@ -287,8 +287,8 @@ test_0cu_exit( void ) {
       /* mem_regions_cnt                      */ 0UL,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );
@@ -448,14 +448,33 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 5UL             );
+  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
+  ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
+
+  fd_wksp_t * wksp;
+  if( name ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
+    wksp = fd_wksp_attach( name );
+  } else {
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace, --page-sz %s, --page-cnt %lu, --near-cpu %lu",
+                    _page_sz, page_cnt, near_cpu ));
+    wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
+  }
+
+  fd_runtime_t * runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
+  FD_TEST( runtime );
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) ); FD_TEST( syscalls );
 
   fd_exec_instr_ctx_t instr_ctx[1];
-  fd_exec_txn_ctx_t   txn_ctx[1];
   fd_bank_t           bank[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx, bank );
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 
@@ -1105,7 +1124,7 @@ main( int     argc,
   generate_random_alu64_instrs( rng, text, text_cnt );
   test_program_success( "alu64_bench_short", 0x0, text, text_cnt, syscalls, instr_ctx );
 
-  test_0cu_exit();
+  test_0cu_exit( runtime );
 
   free( text );
 

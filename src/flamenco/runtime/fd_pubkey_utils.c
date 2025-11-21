@@ -14,12 +14,12 @@ fd_pubkey_create_with_seed( fd_exec_instr_ctx_t const * ctx,
   static char const pda_marker[] = {"ProgramDerivedAddress"};
 
   if( seed_sz>MAX_SEED_LEN ) {
-    ctx->txn_ctx->err.custom_err = FD_PUBKEY_ERR_MAX_SEED_LEN_EXCEEDED;
+    ctx->txn_out->err.custom_err = FD_PUBKEY_ERR_MAX_SEED_LEN_EXCEEDED;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   if( 0==memcmp( owner+11UL, pda_marker, 21UL ) ) {
-    ctx->txn_ctx->err.custom_err = FD_PUBKEY_ERR_ILLEGAL_OWNER;
+    ctx->txn_out->err.custom_err = FD_PUBKEY_ERR_ILLEGAL_OWNER;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 

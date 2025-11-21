@@ -1,6 +1,7 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../fd_hashes.h"
+#include "../fd_runtime.h"
 
 #include "fd_sysvar_rent.h"
 
@@ -66,7 +67,7 @@ fd_sysvar_instr_acct_check( fd_exec_instr_ctx_t const * ctx,
   }
 
   ushort idx_in_txn = ctx->instr->accounts[idx].index_in_transaction;
-  fd_pubkey_t const * addr_have = &ctx->txn_ctx->accounts.account_keys[ idx_in_txn ];
+  fd_pubkey_t const * addr_have = &ctx->txn_out->accounts.account_keys[ idx_in_txn ];
   if( FD_UNLIKELY( 0!=memcmp( addr_have, addr_want, sizeof(fd_pubkey_t) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }

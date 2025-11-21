@@ -8,6 +8,8 @@
    dead. */
 
 #include "fd_executor.h"
+#include "fd_runtime_err.h"
+#include "../vm/fd_vm_base.h"
 #include "../../disco/pack/fd_pack.h" /* TODO: Layering violation */
 #include "../../disco/pack/fd_pack_cost.h"
 
@@ -126,14 +128,8 @@ fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
                       ulong                 slot );
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
-FD_FN_PURE static inline ulong
-fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
-  ulong cost = fd_ulong_sat_sub( fd_ulong_sat_add( txn_ctx->details.loaded_accounts_data_size,
-                                                   FD_ACCOUNT_DATA_COST_PAGE_SIZE ),
-                                 1UL );
-  cost /= FD_ACCOUNT_DATA_COST_PAGE_SIZE;
-  return fd_ulong_sat_mul( cost, FD_VM_HEAP_COST );
-}
+FD_FN_PURE ulong
+fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_txn_out_t const * txn_out );
 
 /* fd_cost_tracker_calculate_cost_and_add takes a transaction,
    calculates the cost of the transaction in terms of various block
@@ -154,8 +150,10 @@ fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_exec_txn_ctx_t cons
     https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
 
 int
-fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
-                                        fd_exec_txn_ctx_t const * txn_ctx );
+fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t * cost_tracker,
+                                        fd_bank_t *         bank,
+                                        fd_txn_in_t const * txn_in,
+                                        fd_txn_out_t *      txn_out );
 
 FD_PROTOTYPES_END
 

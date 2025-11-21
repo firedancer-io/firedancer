@@ -2,6 +2,7 @@
 #include "../runtime/program/fd_bpf_loader_program.h"
 #include "../runtime/program/fd_loader_v4_program.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../runtime/fd_acc_mgr.h"
 
 /* Similar to the below function, but gets the executable program content for the v4 loader.
    Unlike the v3 loader, the programdata is stored in a single program account. The program must

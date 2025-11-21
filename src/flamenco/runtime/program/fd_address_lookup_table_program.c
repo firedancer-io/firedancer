@@ -215,7 +215,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   lut_owner    = fd_borrowed_account_get_owner( &lut_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L63-L70 */
-  if( !FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
+  if( !FD_FEATURE_ACTIVE_BANK( ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
       && fd_borrowed_account_get_data_len( &lut_acct ) != 0UL ) {
     fd_log_collector_msg_literal( ctx, "Table account must not be allocated" );
     return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
@@ -235,7 +235,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   authority_key = authority_acct.acct->pubkey;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L76-L83 */
-  if( !FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
+  if( !FD_FEATURE_ACTIVE_BANK( ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
       && !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY, NULL ) ) {
     fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -289,7 +289,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   seeds[0] = (uchar const *)authority_key;
   seeds[1] = (uchar const *)&derivation_slot;
   err = fd_pubkey_derive_pda( &fd_solana_address_lookup_table_program_id, 2UL, seeds,
-                                  seed_szs, (uchar*)&create->bump_seed, derived_tbl_key, &ctx->txn_ctx->err.custom_err );
+                                  seed_szs, (uchar*)&create->bump_seed, derived_tbl_key, &ctx->txn_out->err.custom_err );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -304,7 +304,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L129-L135 */
-  if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
+  if( FD_FEATURE_ACTIVE_BANK( ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
       && 0==memcmp( lut_owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
@@ -1064,7 +1064,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Prevent execution of migrated native programs */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, migrate_address_lookup_table_program_to_core_bpf ) ) ) {
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->bank, migrate_address_lookup_table_program_to_core_bpf ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 

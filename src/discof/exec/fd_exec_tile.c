@@ -3,10 +3,12 @@
 
 #include "../../util/pod/fd_pod_format.h"
 #include "../../discof/replay/fd_exec.h"
+#include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/runtime/fd_exec_stack.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/progcache/fd_progcache_user.h"
+#include "../../flamenco/log_collector/fd_log_collector.h"
 #include "../../disco/metrics/fd_metrics.h"
 
 #include "../../funk/fd_funk.h"
@@ -38,14 +40,6 @@ typedef struct fd_exec_tile_ctx {
   fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
   fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
 
-  /* Data structures related to managing and executing the transaction.
-     The fd_txn_p_t is refreshed with every transaction and is sent
-     from the dispatch/replay tile.  The fd_exec_txn_ctx_t * is a valid
-     local join that lives in the top-most frame of the spad that is
-     setup when the exec tile is booted; its members are refreshed on
-     the slot/epoch boundary. */
-  fd_exec_txn_ctx_t     txn_ctx[1];
-
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
   uchar *               solcap_publish_buffer_ptr;
@@ -67,8 +61,13 @@ typedef struct fd_exec_tile_ctx {
   ulong                 slot;
   ulong                 dispatch_time_comp;
 
-  fd_exec_stack_t       exec_stack;
   fd_exec_accounts_t    exec_accounts;
+  fd_log_collector_t    log_collector;
+
+  fd_bank_t *           bank;
+
+  fd_txn_in_t           txn_in;
+  fd_txn_out_t          txn_out;
 
   /* tracing_mem is staging memory to dump instructions/transactions
      into protobuf files.  tracing_mem is staging memory to output vm
@@ -76,6 +75,8 @@ typedef struct fd_exec_tile_ctx {
      TODO: This should not be compiled in prod. */
   uchar                 dumping_mem[ FD_SPAD_FOOTPRINT( 1UL<<28UL ) ] __attribute__((aligned(FD_SPAD_ALIGN)));
   uchar                 tracing_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_VM_TRACE_STATIC_ALIGN)));
+
+  fd_runtime_t runtime;
 
 } fd_exec_tile_ctx_t;
 
@@ -127,37 +128,32 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
       case FD_EXEC_TT_TXN_EXEC: {
         /* Execute. */
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
-        FD_TEST( bank );
-        ctx->txn_ctx->err.exec_err = fd_runtime_prepare_and_execute_txn( bank,
-                                                                         ctx->txn_ctx,
-                                                                         &msg->txn,
-                                                                         ctx->capture_ctx,
-                                                                         &ctx->exec_stack,
-                                                                         &ctx->exec_accounts,
-                                                                         ctx->dumping_mem,
-                                                                         &ctx->tracing_mem[0][0] );
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
+        ctx->txn_in.txn           = &msg->txn;
+        ctx->txn_in.exec_accounts = &ctx->exec_accounts;
+
+        fd_runtime_prepare_and_execute_txn( &ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
         /* Commit. */
-        if( FD_LIKELY( ctx->txn_ctx->err.is_committable ) ) {
-          fd_funk_txn_xid_t xid = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), bank->idx } };
-          fd_runtime_finalize_txn( ctx->funk, ctx->progcache, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx, NULL );
+        if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
+          fd_runtime_commit_txn( &ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
         }
 
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
           /* Copy the txn signature to the signature out link so the
              dedup/pack tiles can drop already executed transactions. */
           memcpy( fd_chunk_to_laddr( ctx->exec_sig_out->mem, ctx->exec_sig_out->chunk ),
-                  (uchar *)ctx->txn_ctx->txn.payload + TXN( &ctx->txn_ctx->txn )->signature_off,
+                  (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off,
                   64UL );
           fd_stem_publish( stem, ctx->exec_sig_out->idx, 0UL, ctx->exec_sig_out->chunk, 64UL, 0UL, 0UL, 0UL );
           ctx->exec_sig_out->chunk = fd_dcache_compact_next( ctx->exec_sig_out->chunk, 64UL, ctx->exec_sig_out->chunk0, ctx->exec_sig_out->wmark );
         }
 
         /* Notify replay. */
-        ctx->txn_idx = msg->txn_idx;
-        ctx->dispatch_time_comp = tspub;
-        ctx->slot = fd_bank_slot_get( bank );
+        ctx->txn_idx                   = msg->txn_idx;
+        ctx->dispatch_time_comp        = tspub;
+        ctx->slot                      = fd_bank_slot_get( ctx->bank );
         ctx->pending_txn_finalized_msg = 1;
 
         break;
@@ -274,21 +270,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( ctx->txncache );
 
-  /********************************************************************/
-  /* setup txn ctx                                                    */
-  /********************************************************************/
-
-  FD_TEST( fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( ctx->txn_ctx ) ) );
-
-  if( FD_UNLIKELY( !fd_funk_join( ctx->txn_ctx->funk, shfunk ) ) ) {
-    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
-  }
-  ctx->txn_ctx->progcache = fd_progcache_join( ctx->txn_ctx->_progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  if( FD_UNLIKELY( !ctx->txn_ctx->progcache ) ) {
-    FD_LOG_CRIT(( "fd_progcache_join() failed" ));
-  }
-  ctx->txn_ctx->status_cache     = ctx->txncache;
-  ctx->txn_ctx->bundle.is_bundle = 0;
+  ctx->txn_in.bundle.is_bundle = 0;
 
   /********************************************************************/
   /* Capture context                                                 */
@@ -318,6 +300,22 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->pending_txn_finalized_msg = 0;
+
+  /********************************************************************/
+  /* Runtime                                                          */
+  /********************************************************************/
+
+  ctx->runtime = (fd_runtime_t) {
+    .funk         = ctx->funk,
+    .status_cache = ctx->txncache,
+    .progcache    = ctx->progcache,
+    .log          = {
+      .dumping_mem   = ctx->dumping_mem,
+      .tracing_mem   = &ctx->tracing_mem[0][0],
+      .log_collector = &ctx->log_collector,
+      .capture_ctx   = ctx->capture_ctx,
+    }
+  };
 }
 
 /* Publish the next account update event buffered in the capture tile to the replay tile
@@ -370,14 +368,14 @@ static void
 publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
                            fd_stem_context_t *  stem ) {
   fd_exec_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
-  msg->bank_idx                  = ctx->txn_ctx->bank->idx;
+  msg->bank_idx                  = ctx->bank->idx;
   msg->txn_exec->txn_idx         = ctx->txn_idx;
-  msg->txn_exec->err             = !ctx->txn_ctx->err.is_committable;
+  msg->txn_exec->err             = !ctx->txn_out.err.is_committable;
   msg->txn_exec->slot            = ctx->slot;
-  msg->txn_exec->start_shred_idx = ctx->txn_ctx->txn.start_shred_idx;
-  msg->txn_exec->end_shred_idx   = ctx->txn_ctx->txn.end_shred_idx;
+  msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
+  msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
   if( FD_UNLIKELY( msg->txn_exec->err ) ) {
-    FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d", ctx->txn_ctx->err.txn_err ));
+    FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d", ctx->txn_out.err.txn_err ));
   }
 
   fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( fd_tickcount() ) );

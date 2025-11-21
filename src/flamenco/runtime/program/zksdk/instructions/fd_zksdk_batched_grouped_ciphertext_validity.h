@@ -99,7 +99,7 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
   uchar const                              comm_hi    [ 32 ],
   uchar const                              handle1_hi [ 32 ],
   uchar const                              handle2_hi [ 32 ],
-  bool const                               batched,
+  int   const                              batched,
   fd_zksdk_transcript_t *                  transcript );
 
 int
@@ -116,7 +116,7 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_3_handles_validity(
   uchar const                              handle1_hi [ 32 ],
   uchar const                              handle2_hi [ 32 ],
   uchar const                              handle3_hi [ 32 ],
-  bool const                               batched,
+  int  const                               batched,
   fd_zksdk_transcript_t *                  transcript );
 
 #endif /* HEADER_fd_zksdk_batched_grouped_ciphertext_validity_h */
