@@ -1,4 +1,6 @@
 #include "fd_loader_v4_program.h"
+#include "../../progcache/fd_progcache_user.h"
+#include "../../log_collector/fd_log_collector.h"
 
 /* The loader v4 program instruction can correspond to one of three
    instruction types: write, copy, set_program_length.  Only the write
@@ -801,7 +803,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L487-L549 */
 int
 fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
-  FD_TEST( FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, enable_loader_v4 ) );
+  FD_TEST( FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, enable_loader_v4 ) );
 
   int rc = FD_EXECUTOR_INSTR_SUCCESS;
 
@@ -900,19 +902,19 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     /* Handle `DelayedVisibility` case */
-    if( FD_UNLIKELY( state->slot>=fd_bank_slot_get( instr_ctx->txn_ctx->bank ) ) ) {
+    if( FD_UNLIKELY( state->slot>=fd_bank_slot_get( instr_ctx->bank ) ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
-    fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, instr_ctx->txn_ctx->bank );
-    fd_progcache_rec_t const * cache_entry =
-        fd_progcache_pull( instr_ctx->txn_ctx->progcache,
-                            instr_ctx->txn_ctx->funk,
-                            instr_ctx->txn_ctx->xid,
-                            program_id,
-                            load_env );
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( instr_ctx->bank ), instr_ctx->bank->idx } };
+    fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, instr_ctx->bank );
+    fd_progcache_rec_t const * cache_entry = fd_progcache_pull( instr_ctx->runtime->progcache,
+                                                                instr_ctx->runtime->funk,
+                                                                &xid,
+                                                                program_id,
+                                                                load_env );
     if( FD_UNLIKELY( !cache_entry ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

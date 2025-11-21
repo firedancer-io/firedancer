@@ -2,8 +2,10 @@
 #define HEADER_fd_src_flamenco_features_fd_features_h
 
 #include "../fd_flamenco_base.h"
-#include "fd_features_generated.h"
 #include "../types/fd_types.h"
+#include "fd_features_generated.h"
+#include "../../funk/fd_funk_base.h"
+
 /* Macro FEATURE_ID_CNT expands to the number of features in
    fd_features_t. */
 
@@ -144,6 +146,15 @@ fd_features_get( fd_features_t const *   features,
 
 FD_FN_CONST fd_feature_id_t const *
 fd_feature_id_query( ulong prefix );
+
+/* fd_features_restore loads all known feature accounts from the
+   accounts database.  This is used when initializing bank from a
+   snapshot. */
+
+void
+fd_features_restore( fd_bank_t *               bank,
+                     fd_funk_t *               funk,
+                     fd_funk_txn_xid_t const * xid );
 
 FD_PROTOTYPES_END
 

@@ -3,6 +3,7 @@
 #include "../fd_executor.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_instr_ctx.h"
+#include "../../log_collector/fd_log_collector.h"
 
 /* Useful links:
 
@@ -244,7 +245,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Prevent execution of migrated native programs */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, migrate_config_program_to_core_bpf ) ) ) {
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->bank, migrate_config_program_to_core_bpf ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 

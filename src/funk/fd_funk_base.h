@@ -346,7 +346,7 @@ fd_funk_xid_key_pair_hash( fd_funk_xid_key_pair_t const * p,
 
 FD_FN_UNUSED FD_FN_PURE static int /* Work around -Winline */
 fd_funk_xid_key_pair_eq( fd_funk_xid_key_pair_t const * pa,
-                            fd_funk_xid_key_pair_t const * pb ) {
+                         fd_funk_xid_key_pair_t const * pb ) {
   return fd_funk_txn_xid_eq( pa->xid, pb->xid ) & fd_funk_rec_key_eq( pa->key, pb->key );
 }
 
@@ -356,7 +356,7 @@ fd_funk_xid_key_pair_eq( fd_funk_xid_key_pair_t const * pa,
 
 static inline fd_funk_xid_key_pair_t *
 fd_funk_xid_key_pair_copy( fd_funk_xid_key_pair_t *       pd,
-                              fd_funk_xid_key_pair_t const * ps ) {
+                           fd_funk_xid_key_pair_t const * ps ) {
   fd_funk_txn_xid_copy( pd->xid, ps->xid );
   fd_funk_rec_key_copy( pd->key, ps->key );
   return pd;
@@ -369,8 +369,8 @@ fd_funk_xid_key_pair_copy( fd_funk_xid_key_pair_t *       pd,
 
 static inline fd_funk_xid_key_pair_t *
 fd_funk_xid_key_pair_init( fd_funk_xid_key_pair_t *  p,
-                              fd_funk_txn_xid_t const * x,
-                              fd_funk_rec_key_t const * k ) {
+                           fd_funk_txn_xid_t const * x,
+                           fd_funk_rec_key_t const * k ) {
   fd_funk_txn_xid_copy( p->xid, x );
   fd_funk_rec_key_copy( p->key, k );
   return p;

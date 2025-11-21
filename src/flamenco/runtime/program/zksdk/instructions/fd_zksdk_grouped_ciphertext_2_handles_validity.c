@@ -28,7 +28,7 @@ fd_zksdk_instr_verify_proof_grouped_ciphertext_2_handles_validity( void const * 
     NULL,
     NULL,
     NULL,
-    false,
+    0,
     transcript
   );
 }

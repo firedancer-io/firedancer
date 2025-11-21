@@ -3,6 +3,7 @@
 #include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 #include "../fd_pubkey_utils.h"
+#include "../../log_collector/fd_log_collector.h"
 
 /* The dynamically sized portion of the system program instruction only
    comes from the seed.  This means in the worst case assuming that the
@@ -45,7 +46,7 @@ verify_seed_address( fd_exec_instr_ctx_t * ctx,
       "Create: address %s does not match derived address %s",
       FD_BASE58_ENC_32_ALLOCA( expected ),
       FD_BASE58_ENC_32_ALLOCA( actual ) );
-    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -81,7 +82,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
   if( transfer_amount > fd_borrowed_account_get_lamports( &from ) ) {
     /* Max msg_sz: 45 - 6 + 20 + 20 = 79 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx, "Transfer: insufficient lamports %lu, need %lu", fd_borrowed_account_get_lamports( &from ), transfer_amount );
-    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_RESULT_WITH_NEGATIVE_LAMPORTS;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_RESULT_WITH_NEGATIVE_LAMPORTS;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -127,7 +128,7 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_acct_idx ].index_in_transaction;
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Transfer: `from` account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_ctx->accounts.account_keys[ idx_in_txn ] ) );
+      "Transfer: `from` account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_out->accounts.account_keys[ idx_in_txn ] ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -171,7 +172,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
       "Allocate: account (account %s, base %s) already in use",
       FD_BASE58_ENC_32_ALLOCA( &account->acct->pubkey ),
       base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
-    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -181,7 +182,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
     /* Max msg_sz: 48 - 6 + 2*20 = 82 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Allocate: requested %lu, max allowed %lu", space, FD_RUNTIME_ACC_SZ_MAX );
-    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_INVALID_ACCT_DATA_LEN;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_INVALID_ACCT_DATA_LEN;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -280,7 +281,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
         "Allocate: 'to' (account %s, base %s) already in use",
         FD_BASE58_ENC_32_ALLOCA( &to.acct->pubkey ),
         base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
-      ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
+      ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -575,7 +576,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_base_idx ].index_in_transaction;
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Transfer: 'from' account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_ctx->accounts.account_keys[ idx_in_txn ] ) );
+      "Transfer: 'from' account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_out->accounts.account_keys[ idx_in_txn ] ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -610,7 +611,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
       "Transfer: 'from' address %s does not match derived address %s",
       FD_BASE58_ENC_32_ALLOCA( from_key ),
       FD_BASE58_ENC_32_ALLOCA( address_from_seed ) );
-    ctx->txn_ctx->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 

@@ -3,6 +3,7 @@
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../fd_bank.h"
+#include "../../log_collector/fd_log_collector.h"
 
 /*
  * ZK ElGamal Proof Program
@@ -11,13 +12,13 @@
 int
 fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Feature-gate program activation */
-  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, zk_elgamal_proof_program_enabled ) ) ) {
+  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->bank, zk_elgamal_proof_program_enabled ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.16/programs/zk-elgamal-proof/src/lib.rs#L175-L187 */
-  if( FD_LIKELY(  FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, disable_zk_elgamal_proof_program )
-              && !FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, reenable_zk_elgamal_proof_program ) ) ) {
+  if( FD_LIKELY(  FD_FEATURE_ACTIVE_BANK( ctx->bank, disable_zk_elgamal_proof_program )
+              && !FD_FEATURE_ACTIVE_BANK( ctx->bank, reenable_zk_elgamal_proof_program ) ) ) {
     fd_log_collector_msg_literal( ctx, "zk-elgamal-proof program is temporarily disabled" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

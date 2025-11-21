@@ -3,6 +3,7 @@
 
 #include "../fd_txn_account.h"
 #include "../fd_executor_err.h"
+#include "../fd_runtime_const.h"
 #include "../../../ballet/txn/fd_txn.h"
 
 /* While the maximum number of instruction accounts allowed for instruction
@@ -20,7 +21,6 @@
    any extra accounts should (ideally) have literally 0 impact on program execution, whether
    or not they are present in the instr info. This keeps the transaction context size from
    blowing up to around 3MB in size. */
-#define FD_INSTR_ACCT_MAX               (256)
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01U)
 #define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02U)
 
@@ -99,14 +99,16 @@ fd_instr_info_setup_instr_account( fd_instr_info_t * instr,
    beforehand. */
 
 void
-fd_instr_info_accumulate_starting_lamports( fd_instr_info_t *         instr,
-                                            fd_exec_txn_ctx_t const * txn_ctx,
-                                            ushort                    idx_in_callee,
-                                            ushort                    idx_in_txn );
+fd_instr_info_accumulate_starting_lamports( fd_instr_info_t * instr,
+                                            fd_txn_out_t *    txn_out,
+                                            ushort            idx_in_callee,
+                                            ushort            idx_in_txn );
 
 void
 fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
-                                   fd_exec_txn_ctx_t *    txn_ctx,
+                                   fd_bank_t *            bank,
+                                   fd_txn_in_t const *    txn_in,
+                                   fd_txn_out_t *         txn_out,
                                    fd_txn_instr_t const * txn_instr );
 
 /* https://github.com/anza-xyz/solana-sdk/blob/589e6237f203c2719c300dc044f4e00f48e66a8f/message/src/versions/v0/loaded.rs#L152-L157 */
@@ -151,7 +153,7 @@ fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
 
 int
 fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
-                                    fd_exec_txn_ctx_t *     txn_ctx,
+                                    fd_txn_out_t *          txn_out,
                                     ulong *                 total_lamports_h,
                                     ulong *                 total_lamports_l );
 

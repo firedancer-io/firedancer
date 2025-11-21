@@ -11,6 +11,7 @@
 #include "fd_blockhashes.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "fd_txncache_shmem.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -331,7 +332,6 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 #define FD_BANK_FLAGS_FROZEN            (0x00000004UL) /* Frozen.  We finished replaying or because it was a snapshot/genesis loaded bank. */
 #define FD_BANK_FLAGS_DEAD              (0x00000008UL) /* Dead.  We stopped replaying it before we could finish it (e.g. invalid block or pruned minority fork). */
 #define FD_BANK_FLAGS_ROOTED            (0x00000010UL) /* Rooted.  Part of the consnensus root fork.  */
-#define FD_BANK_FLAGS_EXEC_RECORDING    (0x00000100UL) /* Enable execution recording. */
 
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management

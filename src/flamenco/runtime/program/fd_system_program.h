@@ -53,7 +53,10 @@ int fd_system_program_exec_upgrade_nonce_account   ( fd_exec_instr_ctx_t * ctx  
    the nonce provided in the transaction. */
 
 int
-fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx );
+fd_check_transaction_age( fd_runtime_t *      runtime,
+                          fd_bank_t *         bank,
+                          fd_txn_in_t const * txn_in,
+                          fd_txn_out_t *      txn_out );
 
 /* `fd_get_system_account_kind()` determines whether an account is
    a normal system program account or a nonce account. Returns:

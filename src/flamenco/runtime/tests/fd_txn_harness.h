@@ -3,6 +3,7 @@
 
 #include "fd_solfuzz.h"
 #include "../../../disco/pack/fd_microblock.h"
+#include "../fd_runtime.h"
 #include "generated/txn.pb.h"
 
 FD_PROTOTYPES_BEGIN
@@ -19,11 +20,12 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
 /* Takes in a parsed txn descriptor to be executed against the runtime.
    Returns the spad-allocated transaction context. Writes the execution
    result to the exec_res pointer (assumed to be pre-allocated). */
-fd_exec_txn_ctx_t *
-fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_txn_p_t *              txn,
-                         int *                     exec_res );
+void
+fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
+                         fd_runtime_t *        runtime,
+                         fd_txn_in_t const *   txn_in,
+                         int *                 exec_res,
+                         fd_txn_out_t *        txn_out );
 
 FD_PROTOTYPES_END
 

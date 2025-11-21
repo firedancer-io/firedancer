@@ -35,6 +35,7 @@
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 
 #include <errno.h>
+#include <stdio.h>
 
 /* Replay concepts:
 
@@ -615,17 +616,9 @@ replay_block_start( fd_replay_tile_t *  ctx,
   }
 
   int is_epoch_boundary = 0;
-  fd_runtime_block_pre_execute_process_new_epoch(
-      ctx->banks,
-      bank,
-      ctx->accdb,
-      &xid,
-      ctx->capture_ctx,
-      &ctx->runtime_stack,
-      &is_epoch_boundary );
+  fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
 
-  FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->accdb, &xid, &ctx->runtime_stack, ctx->capture_ctx ) );
   return bank;
 }
 
@@ -753,9 +746,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
 
-  ulong             slot = fd_bank_slot_get( bank );
-  fd_funk_txn_xid_t xid  = { .ul = { slot, bank->idx } };
-
   /* Set poh hash in bank. */
   fd_hash_t * poh = fd_sched_get_poh( ctx->sched, bank->idx );
   fd_bank_poh_set( bank, *poh );
@@ -764,13 +754,15 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, bank->idx ) );
 
   /* Do hashing and other end-of-block processing. */
-  fd_runtime_block_execute_finalize( bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
+  fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
 
   /* Copy out cost tracker fields before freezing */
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( bank, slot_info );
 
   /* fetch identity / vote balance updates infrequently */
+  ulong slot = fd_bank_slot_get( bank );
+  fd_funk_txn_xid_t xid = { .ul = { slot, bank->idx } };
   slot_info->identity_balance = FD_UNLIKELY( slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
   /* Mark the bank as frozen. */
@@ -863,17 +855,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   }
 
   int is_epoch_boundary = 0;
-  fd_runtime_block_pre_execute_process_new_epoch(
-      ctx->banks,
-      ctx->leader_bank,
-      ctx->accdb,
-      &xid,
-      ctx->capture_ctx,
-      &ctx->runtime_stack,
-      &is_epoch_boundary );
+  fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->leader_bank, 1 );
-
-  FD_TEST( !fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->accdb, &xid, &ctx->runtime_stack, ctx->capture_ctx ) );
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
@@ -902,12 +885,12 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !txn_map->map ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
   }
-  fd_funk_txn_xid_t xid = { .ul = { curr_slot, ctx->leader_bank->idx } };
 
-  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
+  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx );
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
+  fd_funk_txn_xid_t xid = { .ul = { curr_slot, ctx->leader_bank->idx } };
   slot_info->identity_balance = FD_UNLIKELY( curr_slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
   fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
@@ -1043,8 +1026,10 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->accdb, &xid, &ctx->runtime_stack, ctx->capture_ctx ) );
-    fd_runtime_block_execute_finalize( bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
+    int is_epoch_boundary = 0;
+    fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
+    FD_TEST( !is_epoch_boundary );
+    fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
 
     snapshot_slot = 0UL;
   }

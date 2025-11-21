@@ -1,6 +1,5 @@
 #include "fd_vm_syscall.h"
 #include "../../runtime/program/fd_vote_program.h"
-#include "../../runtime/context/fd_exec_txn_ctx.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../runtime/fd_system_ids.h"
 #include "fd_vm_syscall_macros.h"
@@ -79,7 +78,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
 
   fd_epoch_schedule_t schedule;
   if( FD_UNLIKELY( !fd_sysvar_cache_epoch_schedule_read( instr_ctx->sysvar_cache, &schedule ) ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
   memcpy( var_query.haddr, &schedule, sizeof(fd_epoch_schedule_t) );
@@ -159,7 +158,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
 
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
   if( FD_UNLIKELY( !fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache, &last_restart_slot ) ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
 
@@ -274,7 +273,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
-    *_ret = fd_bank_total_epoch_stake_get( vm->instr_ctx->txn_ctx->bank );
+    *_ret = fd_bank_total_epoch_stake_get( vm->instr_ctx->bank );
     return FD_VM_SUCCESS;
   }
 
@@ -288,10 +287,10 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   const fd_pubkey_t * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
-  fd_vote_states_t const *    vote_states    = fd_bank_vote_states_prev_locking_query( vm->instr_ctx->txn_ctx->bank );
+  fd_vote_states_t const *    vote_states    = fd_bank_vote_states_prev_locking_query( vm->instr_ctx->bank );
   fd_vote_state_ele_t const * vote_state_ele = fd_vote_states_query_const( vote_states, vote_address );
   *_ret = vote_state_ele ? vote_state_ele->stake : 0UL;
-  fd_bank_vote_states_prev_end_locking_query( vm->instr_ctx->txn_ctx->bank );
+  fd_bank_vote_states_prev_end_locking_query( vm->instr_ctx->bank );
 
   return FD_VM_SUCCESS;
 }
@@ -309,7 +308,7 @@ fd_vm_syscall_sol_get_stack_height( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  *_ret = vm->instr_ctx->txn_ctx->instr.stack_sz;
+  *_ret = vm->instr_ctx->runtime->instr.stack_sz;
   return FD_VM_SUCCESS;
 }
 
@@ -327,7 +326,7 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1467 */
-  fd_txn_return_data_t const * return_data = &vm->instr_ctx->txn_ctx->details.return_data;
+  fd_txn_return_data_t const * return_data = &vm->instr_ctx->txn_out->details.return_data;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1468 */
   ulong length = fd_ulong_min( return_data->len, sz );
@@ -408,7 +407,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
     return err;
   }
 
-  fd_txn_return_data_t * return_data = &instr_ctx->txn_ctx->details.return_data;
+  fd_txn_return_data_t * return_data = &instr_ctx->txn_out->details.return_data;
 
   return_data->len = src_sz;
   if( FD_LIKELY( src_sz!=0UL ) ) {
@@ -455,11 +454,11 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
   /* Get the current instruction stack height.  This value is 1-indexed
      (top level instruction has a stack height of 1).
     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1517 */
-  ulong stack_height = vm->instr_ctx->txn_ctx->instr.stack_sz;
+  ulong stack_height = vm->instr_ctx->runtime->instr.stack_sz;
 
   /* Reverse iterate through the instruction trace, ignoring anything except instructions on the same level.
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1518-L1522 */
-  ulong instruction_trace_length = vm->instr_ctx->txn_ctx->instr.trace_length;
+  ulong instruction_trace_length = vm->instr_ctx->runtime->instr.trace_length;
   ulong reverse_index_at_stack_height = 0UL;
   fd_exec_instr_trace_entry_t * found_instruction_context = NULL;
   for( ulong index_in_trace=instruction_trace_length; index_in_trace>0UL; index_in_trace-- ) {
@@ -468,7 +467,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
        This error can never happen */
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1527-L1529 */
-    fd_exec_instr_trace_entry_t * instruction_context = &vm->instr_ctx->txn_ctx->instr.trace[ index_in_trace-1UL ];
+    fd_exec_instr_trace_entry_t * instruction_context = &vm->instr_ctx->runtime->instr.trace[ index_in_trace-1UL ];
     if( FD_LIKELY( instruction_context->stack_height<stack_height ) ) {
       break;
     }
@@ -534,9 +533,9 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1561-L1562 */
       fd_pubkey_t const * instr_ctx_program_id = NULL;
-      int err = fd_exec_txn_ctx_get_key_of_account_at_index( vm->instr_ctx->txn_ctx,
-                                                             instr_info->program_id,
-                                                             &instr_ctx_program_id );
+      int err = fd_runtime_get_key_of_account_at_index( vm->instr_ctx->txn_out,
+                                                        instr_info->program_id,
+                                                        &instr_ctx_program_id );
       if( FD_UNLIKELY( err ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, err );
         return err;
@@ -550,7 +549,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       for( ushort i=0; i<instr_info->acct_cnt; i++ ) {
         fd_pubkey_t const * account_key;
         ushort txn_idx = instr_info->accounts[ i ].index_in_transaction;
-        err            = fd_exec_txn_ctx_get_key_of_account_at_index( vm->instr_ctx->txn_ctx, txn_idx, &account_key );
+        err            = fd_runtime_get_key_of_account_at_index( vm->instr_ctx->txn_out, txn_idx, &account_key );
         if( FD_UNLIKELY( err ) ) {
           FD_VM_ERR_FOR_LOG_INSTR( vm, err );
           return err;
@@ -603,7 +602,7 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
 
   fd_sysvar_epoch_rewards_t epoch_rewards;
   if( FD_UNLIKELY( !fd_sysvar_cache_epoch_rewards_read( instr_ctx->sysvar_cache, &epoch_rewards ) ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->err.exec_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
   memcpy( out, &epoch_rewards, sizeof(fd_sysvar_epoch_rewards_t) );

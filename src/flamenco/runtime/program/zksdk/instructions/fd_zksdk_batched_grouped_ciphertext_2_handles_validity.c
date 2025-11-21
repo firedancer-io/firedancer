@@ -22,7 +22,7 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
   uchar const                              comm_hi    [ 32 ],
   uchar const                              handle1_hi [ 32 ],
   uchar const                              handle2_hi [ 32 ],
-  bool const                               batched,
+  int   const                              batched,
   fd_zksdk_transcript_t *                  transcript ) {
   /*
     We need to verify the 3 following equivalences.
@@ -63,9 +63,9 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
 
   /* pubkey2 extra check: if pubkey2 is 0, then handle2,
      handle2_hi (when set) and proof->y2 must all be 0. */
-  bool pubkey2_not_zero = true;
+  int pubkey2_not_zero = 1;
   if ( fd_memeq( pubkey2, fd_ristretto255_compressed_zero, 32 ) ) {
-    pubkey2_not_zero = false;
+    pubkey2_not_zero = 0;
     if (
       !fd_memeq( handle2, fd_ristretto255_compressed_zero, 32 )
       || !fd_memeq( proof->y2, fd_ristretto255_compressed_zero, 32 )
@@ -207,7 +207,7 @@ fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_2_handles_validity( void 
     context->grouped_ciphertext_hi.commitment,
     context->grouped_ciphertext_hi.handles[0].handle,
     context->grouped_ciphertext_hi.handles[1].handle,
-    true,
+    1,
     transcript
   );
 }

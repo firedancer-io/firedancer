@@ -4,6 +4,8 @@
 #include "fd_runtime_stack.h"
 #include "fd_pubkey_utils.h"
 #include "fd_system_ids.h"
+#include "fd_acc_mgr.h"
+#include "fd_hashes.h"
 #include <assert.h>
 
 static fd_pubkey_t
@@ -370,8 +372,8 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   assert( new_target_program_data->data_sz>=PROGRAMDATA_METADATA_SIZE );
   if( FD_UNLIKELY( !fd_directly_invoke_loader_v3_deploy(
       bank,
+      accdb->funk,
       accdb->funk->shmem,
-      xid,
       &target->program_account->addr,
       new_target_program_data->data   +PROGRAMDATA_METADATA_SIZE,
       new_target_program_data->data_sz-PROGRAMDATA_METADATA_SIZE ) ) ) {

@@ -12,6 +12,7 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
 #include "../sysvar/fd_sysvar_stake_history.h"
+#include "../../log_collector/fd_log_collector.h"
 #include "../../../disco/pack/fd_pack.h"
 #include <assert.h>
 
@@ -51,7 +52,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
   /* Set up the funk transaction */
-  fd_funk_txn_xid_t xid = { .ul = { slot, 0UL } };
+  fd_funk_txn_xid_t xid = { .ul = { slot, runner->bank->idx } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, &xid );
   fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, &xid );
@@ -330,43 +331,38 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
   return (ulong)(txn_raw_cur_ptr - txn_raw_begin);
 }
 
-fd_exec_txn_ctx_t *
-fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_txn_p_t *              txn,
-                         int *                     exec_res ) {
+void
+fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
+                         fd_runtime_t *        runtime,
+                         fd_txn_in_t const *   txn_in,
+                         int *                 exec_res,
+                         fd_txn_out_t *        txn_out ) {
 
-  /* Setup the spad for account allocation */
-  uchar *             txn_ctx_mem = fd_spad_alloc_check( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
-  fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ) );
-  txn_ctx->err.is_committable     = 1;
-  if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, runner->accdb->funk->shmem ) ) ) {
+  txn_out->err.is_committable     = 1;
+  if( FD_UNLIKELY( !fd_funk_join( runner->funk, runner->accdb->funk->shmem ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
+
   uchar * pc_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  txn_ctx->progcache = fd_progcache_join( txn_ctx->_progcache, runner->progcache->funk->shmem, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
+  if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
     FD_LOG_CRIT(( "fd_progcache_join failed" ));
   }
-  txn_ctx->xid[0]        = *xid;
 
-  txn_ctx->log.enable_vm_tracing = runner->enable_vm_tracing;
+  runtime->log.enable_vm_tracing = runner->enable_vm_tracing;
   uchar * tracing_mem = NULL;
   if( runner->enable_vm_tracing ) {
     tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
   }
 
-  *exec_res = fd_runtime_prepare_and_execute_txn(
-      runner->bank,
-      txn_ctx,
-      txn,
-      NULL,
-      runner->exec_stack,
-      runner->exec_accounts,
-      NULL,
-      tracing_mem );
+  runtime->funk            = runner->funk,
+  runtime->progcache       = runner->progcache,
+  runtime->status_cache    = NULL,
+  runtime->log.tracing_mem = tracing_mem;
+  runtime->log.dumping_mem = NULL;
+  runtime->log.capture_ctx = NULL;
 
-  return txn_ctx;
+  fd_runtime_prepare_and_execute_txn( runtime, runner->bank, txn_in, txn_out );
+  *exec_res = txn_out->err.txn_err;
 }
 
 ulong
@@ -383,15 +379,17 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     /* Setup the transaction context */
     fd_txn_p_t * txn = fd_solfuzz_pb_txn_ctx_create( runner, input );
 
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
-    if( FD_UNLIKELY( txn==NULL ) ) {
-      fd_solfuzz_txn_ctx_destroy( runner );
-      return 0;
-    }
-
     /* Execute the transaction against the runtime */
     int exec_res = 0;
-    fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, &xid, txn, &exec_res );
+    fd_runtime_t *       runtime = runner->runtime;
+    fd_txn_in_t *        txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
+    fd_txn_out_t *       txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
+    fd_log_collector_t * log     = fd_spad_alloc( runner->spad, alignof(fd_log_collector_t), sizeof(fd_log_collector_t) );
+    runtime->log.log_collector = log;
+    txn_in->txn = txn;
+    txn_in->exec_accounts = runner->exec_accounts;
+    txn_in->bundle.is_bundle = 0;
+    fd_solfuzz_txn_ctx_exec( runner, runtime, txn_in, &exec_res, txn_out );
 
     /* Start saving txn exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
@@ -413,8 +411,8 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     /* Capture basic results fields */
-    txn_result->executed                          = txn_ctx->err.is_committable;
-    txn_result->sanitization_error                = !txn_ctx->err.is_committable;
+    txn_result->executed                          = txn_out->err.is_committable;
+    txn_result->sanitization_error                = !txn_out->err.is_committable;
     txn_result->has_resulting_state               = false;
     txn_result->resulting_state.acct_states_count = 0;
     txn_result->is_ok                             = !exec_res;
@@ -423,21 +421,21 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     txn_result->instruction_error_index           = 0;
     txn_result->custom_error                      = 0;
     txn_result->has_fee_details                   = false;
-    txn_result->loaded_accounts_data_size         = txn_ctx->details.loaded_accounts_data_size;
+    txn_result->loaded_accounts_data_size         = txn_out->details.loaded_accounts_data_size;
 
     if( txn_result->sanitization_error ) {
       /* Collect fees for transactions that failed to load */
-      if( txn_ctx->err.is_fees_only ) {
+      if( txn_out->err.is_fees_only ) {
         txn_result->has_fee_details                = true;
-        txn_result->fee_details.prioritization_fee = txn_ctx->details.priority_fee;
-        txn_result->fee_details.transaction_fee    = txn_ctx->details.execution_fee;
+        txn_result->fee_details.prioritization_fee = txn_out->details.priority_fee;
+        txn_result->fee_details.transaction_fee    = txn_out->details.execution_fee;
       }
 
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
-        txn_result->instruction_error       = (uint32_t) -txn_ctx->err.exec_err;
-        txn_result->instruction_error_index = (uint32_t) txn_ctx->err.exec_err_idx;
-        if( txn_ctx->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
-          txn_result->custom_error = txn_ctx->err.custom_err;
+        txn_result->instruction_error       = (uint32_t) -txn_out->err.exec_err;
+        txn_result->instruction_error_index = (uint32_t) txn_out->err.exec_err_idx;
+        if( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+          txn_result->custom_error = txn_out->err.custom_err;
         }
       }
 
@@ -450,42 +448,42 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     } else {
       /* Capture the instruction error code */
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
-        int instr_err_idx                   = txn_ctx->err.exec_err_idx;
-        int program_id_idx                  = txn_ctx->instr.infos[instr_err_idx].program_id;
+        int instr_err_idx                   = txn_out->err.exec_err_idx;
+        int program_id_idx                  = runtime->instr.infos[instr_err_idx].program_id;
 
-        txn_result->instruction_error       = (uint32_t) -txn_ctx->err.exec_err;
+        txn_result->instruction_error       = (uint32_t) -txn_out->err.exec_err;
         txn_result->instruction_error_index = (uint32_t) instr_err_idx;
 
         /* If the exec err was a custom instr error and came from a precompile instruction, don't capture the custom error code. */
-        if( txn_ctx->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-            fd_executor_lookup_native_precompile_program( &txn_ctx->accounts.accounts[ program_id_idx ] )==NULL ) {
-          txn_result->custom_error = txn_ctx->err.custom_err;
+        if( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
+            fd_executor_lookup_native_precompile_program( &txn_out->accounts.accounts[ program_id_idx ] )==NULL ) {
+          txn_result->custom_error = txn_out->err.custom_err;
         }
       }
     }
 
     txn_result->has_fee_details                = true;
-    txn_result->fee_details.transaction_fee    = txn_ctx->details.execution_fee;
-    txn_result->fee_details.prioritization_fee = txn_ctx->details.priority_fee;
-    txn_result->executed_units                 = txn_ctx->details.compute_budget.compute_unit_limit - txn_ctx->details.compute_budget.compute_meter;
+    txn_result->fee_details.transaction_fee    = txn_out->details.execution_fee;
+    txn_result->fee_details.prioritization_fee = txn_out->details.priority_fee;
+    txn_result->executed_units                 = txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter;
 
 
     /* Rent is no longer collected */
     txn_result->rent                           = 0UL;
 
-    if( txn_ctx->details.return_data.len > 0 ) {
+    if( txn_out->details.return_data.len > 0 ) {
       txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                      PB_BYTES_ARRAY_T_ALLOCSIZE( txn_ctx->details.return_data.len ) );
+                                      PB_BYTES_ARRAY_T_ALLOCSIZE( txn_out->details.return_data.len ) );
       if( FD_UNLIKELY( _l > output_end ) ) {
         abort();
       }
 
-      txn_result->return_data->size = (pb_size_t)txn_ctx->details.return_data.len;
-      fd_memcpy( txn_result->return_data->bytes, txn_ctx->details.return_data.data, txn_ctx->details.return_data.len );
+      txn_result->return_data->size = (pb_size_t)txn_out->details.return_data.len;
+      fd_memcpy( txn_result->return_data->bytes, txn_out->details.return_data.data, txn_out->details.return_data.len );
     }
 
     /* Allocate space for captured accounts */
-    ulong modified_acct_cnt = txn_ctx->accounts.accounts_cnt;
+    ulong modified_acct_cnt = txn_out->accounts.accounts_cnt;
 
     txn_result->has_resulting_state         = true;
     txn_result->resulting_state.acct_states =
@@ -496,18 +494,18 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     /* If the transaction is a fees-only transaction, we have to create rollback accounts to iterate over and save. */
-    fd_txn_account_t * accounts_to_save = txn_ctx->accounts.accounts;
-    ulong              accounts_cnt     = txn_ctx->accounts.accounts_cnt;
-    if( txn_ctx->err.is_fees_only ) {
+    fd_txn_account_t * accounts_to_save = txn_out->accounts.accounts;
+    ulong              accounts_cnt     = txn_out->accounts.accounts_cnt;
+    if( txn_out->err.is_fees_only ) {
       accounts_to_save = fd_spad_alloc( runner->spad, alignof(fd_txn_account_t), sizeof(fd_txn_account_t) * 2 );
       accounts_cnt     = 0UL;
 
-      if( FD_LIKELY( txn_ctx->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-        accounts_to_save[accounts_cnt++] = *txn_ctx->accounts.rollback_fee_payer;
+      if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
+        accounts_to_save[accounts_cnt++] = *txn_out->accounts.rollback_fee_payer;
       }
 
-      if( txn_ctx->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-        accounts_to_save[accounts_cnt++] = *txn_ctx->accounts.rollback_nonce;
+      if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+        accounts_to_save[accounts_cnt++] = *txn_out->accounts.rollback_nonce;
       }
     }
 
@@ -515,7 +513,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     for( ulong j=0UL; j<accounts_cnt; j++ ) {
       fd_txn_account_t * acc = &accounts_to_save[j];
 
-      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
+      if( !( fd_runtime_account_is_writable_idx( txn_in, txn_out, runner->bank, (ushort)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
       assert( fd_txn_account_is_mutable( acc ) );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;
