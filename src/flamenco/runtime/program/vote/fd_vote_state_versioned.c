@@ -1,8 +1,9 @@
+#include "../fd_vote_program.h"
 #include "fd_vote_state_versioned.h"
 #include "fd_vote_common.h"
+#include "fd_vote_lockout.h"
 #include "fd_vote_state_v3.h"
 #include "fd_vote_state_v4.h"
-#include "../fd_vote_program.h"
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L780-L785 */
 static inline fd_vote_lockout_t *
@@ -61,6 +62,10 @@ credits_for_vote_at_index( fd_landed_vote_t * votes, ulong index ) {
 /* impl VoteAccount                                                   */
 /**********************************************************************/
 
+/**********************************************************************/
+/* Getters                                                           */
+/**********************************************************************/
+
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1074 */
 int
 fd_vsv_get_state( fd_txn_account_t const * self,
@@ -114,6 +119,30 @@ fd_vsv_get_commission( fd_vote_state_versioned_t * self ) {
   }
 }
 
+fd_landed_vote_t *
+fd_vsv_get_votes( fd_vote_state_versioned_t * self ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      return self->inner.current.votes;
+    case fd_vote_state_versioned_enum_v4:
+      return self->inner.v4.votes;
+    default:
+      __builtin_unreachable();
+  }
+}
+
+fd_vote_epoch_credits_t *
+fd_vsv_get_epoch_credits( fd_vote_state_versioned_t * self ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_current:
+      return self->inner.current.epoch_credits;
+    case fd_vote_state_versioned_enum_v4:
+      return self->inner.v4.epoch_credits;
+    default:
+      __builtin_unreachable();
+  }
+}
+
 ulong *
 fd_vsv_get_last_voted_slot( fd_vote_state_versioned_t * self ) {
   fd_vote_lockout_t * last_lockout_ = last_lockout( self );
@@ -121,69 +150,9 @@ fd_vsv_get_last_voted_slot( fd_vote_state_versioned_t * self ) {
   return &last_lockout_->slot;
 }
 
-void
-fd_vsv_pop_expired_votes( fd_vote_state_versioned_t * self, ulong next_vote_slot ) {
-  fd_landed_vote_t * votes = NULL;
-  switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      votes = self->inner.current.votes;
-      break;
-    case fd_vote_state_versioned_enum_v4:
-      votes = self->inner.v4.votes;
-      break;
-    default:
-      __builtin_unreachable();
-  }
-
-  while( !deq_fd_landed_vote_t_empty( votes ) ) {
-    fd_landed_vote_t * vote = deq_fd_landed_vote_t_peek_tail( votes );
-    if( !( is_locked_out_at_slot( &vote->lockout, next_vote_slot ) ) ) {
-      deq_fd_landed_vote_t_pop_tail( votes );
-    } else {
-      break;
-    }
-  }
-}
-
-void
-fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * versioned,
-                               ulong                       next_vote_slot,
-                               ulong                       epoch,
-                               ulong                       current_slot ) {
-  ulong * last_voted_slot_ = fd_vsv_get_last_voted_slot( versioned );
-  if( FD_UNLIKELY( last_voted_slot_ && next_vote_slot <= *last_voted_slot_ ) ) return;
-
-  fd_vsv_pop_expired_votes( versioned, next_vote_slot );
-
-  fd_landed_vote_t * votes = NULL;
-  switch( versioned->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      votes = versioned->inner.current.votes;
-      break;
-    case fd_vote_state_versioned_enum_v4:
-      votes = versioned->inner.v4.votes;
-      break;
-    default:
-      __builtin_unreachable();
-  }
-
-  fd_landed_vote_t landed_vote = {
-    .latency = fd_vote_compute_vote_latency( next_vote_slot, current_slot ), ( fd_vote_lockout_t ){ .slot = next_vote_slot }
-  };
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L623
-  if( FD_UNLIKELY( deq_fd_landed_vote_t_cnt( votes ) == MAX_LOCKOUT_HISTORY ) ) {
-    ulong            credits     = credits_for_vote_at_index( votes, 0 );
-    fd_landed_vote_t landed_vote = deq_fd_landed_vote_t_pop_head( votes );
-    fd_vsv_set_root_slot( versioned, &landed_vote.lockout.slot );
-
-    increment_credits( self, epoch, credits );
-  }
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L634
-  deq_fd_landed_vote_t_push_tail_wrap( self->votes, landed_vote );
-  double_lockouts( self );
-}
+/**********************************************************************/
+/* Setters                                                           */
+/**********************************************************************/
 
 int
 fd_vsv_set_state( fd_borrowed_account_t *     self,
@@ -333,6 +302,138 @@ fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
     default:
       __builtin_unreachable();
   }
+}
+
+/**********************************************************************/
+/* General functions                                                  */
+/**********************************************************************/
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L855
+static void
+double_lockouts( fd_vote_state_versioned_t * self ) {
+  fd_landed_vote_t * votes = fd_vsv_get_votes( self );
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L856
+  ulong stack_depth = deq_fd_landed_vote_t_cnt( votes );
+  ulong i           = 0;
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L857
+  for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( votes );
+       !deq_fd_landed_vote_t_iter_done( votes, iter );
+       iter = deq_fd_landed_vote_t_iter_next( votes, iter ) ) {
+    fd_landed_vote_t * v = deq_fd_landed_vote_t_iter_ele( votes, iter );
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L860
+    if( stack_depth >
+        fd_ulong_checked_add_expect(
+            i,
+            (ulong)v->lockout.confirmation_count,
+            "`confirmation_count` and tower_size should be bounded by `MAX_LOCKOUT_HISTORY`" ) )
+      {
+        // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L864
+        fd_vote_lockout_increase_confirmation_count( &v->lockout, 1 );
+      }
+    i++;
+  }
+}
+
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L282-L309 */
+static void
+increment_credits( fd_vote_state_versioned_t * self, ulong epoch, ulong credits ) {
+  fd_vote_epoch_credits_t * epoch_credits = fd_vsv_get_epoch_credits( self );
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L286-L305 */
+  if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_empty( epoch_credits ) ) ) {
+    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L286-L288 */
+    deq_fd_vote_epoch_credits_t_push_tail_wrap(
+        epoch_credits,
+        ( fd_vote_epoch_credits_t ){ .epoch = epoch, .credits = 0, .prev_credits = 0 } );
+  } else if( FD_LIKELY( epoch !=
+                        deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits )->epoch ) ) {
+    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L290 */
+    fd_vote_epoch_credits_t * last = deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits );
+
+    ulong credits      = last->credits;
+    ulong prev_credits = last->prev_credits;
+
+    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L292-L299 */
+    if( FD_LIKELY( credits!=prev_credits ) ) {
+      if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_cnt( epoch_credits )>=MAX_EPOCH_CREDITS_HISTORY ) ) {
+        /* Although Agave performs a `.remove(0)` AFTER the call to
+          `.push()`, there is an edge case where the epoch credits is
+          full, making the call to `_push_tail()` unsafe. Since Agave's
+          structures are dynamically allocated, it is safe for them to
+          simply call `.push()` and then popping afterwards. We have to
+          reverse the order of operations to maintain correct behavior
+          and avoid overflowing the deque.
+          https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L303 */
+        deq_fd_vote_epoch_credits_t_pop_head( epoch_credits );
+      }
+
+      /* This will not fail because we already popped if we're at
+         capacity, since the epoch_credits deque is allocated with a
+         minimum capacity of MAX_EPOCH_CREDITS_HISTORY. */
+      deq_fd_vote_epoch_credits_t_push_tail(
+          epoch_credits,
+          ( fd_vote_epoch_credits_t ){
+              .epoch = epoch, .credits = credits, .prev_credits = credits } );
+    } else {
+      /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L297-L298 */
+      deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits )->epoch = epoch;
+
+      /* Here we can perform the same deque size check and pop if
+         we're beyond the maximum epoch credits len. */
+      if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_cnt( epoch_credits )>MAX_EPOCH_CREDITS_HISTORY ) ) {
+        deq_fd_vote_epoch_credits_t_pop_head( epoch_credits );
+      }
+    }
+  }
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L663
+  deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits )->credits = fd_ulong_sat_add(
+      deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits )->credits, credits );
+}
+
+void
+fd_vsv_pop_expired_votes( fd_vote_state_versioned_t * self, ulong next_vote_slot ) {
+  fd_landed_vote_t * votes = fd_vsv_get_votes( self );
+
+  while( !deq_fd_landed_vote_t_empty( votes ) ) {
+    fd_landed_vote_t * vote = deq_fd_landed_vote_t_peek_tail( votes );
+    if( !( fd_vote_lockout_is_locked_out_at_slot( &vote->lockout, next_vote_slot ) ) ) {
+      deq_fd_landed_vote_t_pop_tail( votes );
+    } else {
+      break;
+    }
+  }
+}
+
+void
+fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
+                               ulong                       next_vote_slot,
+                               ulong                       epoch,
+                               ulong                       current_slot ) {
+  ulong * last_voted_slot_ = fd_vsv_get_last_voted_slot( self );
+  if( FD_UNLIKELY( last_voted_slot_ && next_vote_slot <= *last_voted_slot_ ) ) return;
+
+  fd_vsv_pop_expired_votes( self, next_vote_slot );
+
+  fd_landed_vote_t * votes = fd_vsv_get_votes( self );
+
+  fd_landed_vote_t landed_vote = {
+    .latency = fd_vote_compute_vote_latency( next_vote_slot, current_slot ), ( fd_vote_lockout_t ){ .slot = next_vote_slot }
+  };
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L623
+  if( FD_UNLIKELY( deq_fd_landed_vote_t_cnt( votes ) == MAX_LOCKOUT_HISTORY ) ) {
+    ulong            credits     = credits_for_vote_at_index( votes, 0 );
+    fd_landed_vote_t landed_vote = deq_fd_landed_vote_t_pop_head( votes );
+    fd_vsv_set_root_slot( self, &landed_vote.lockout.slot );
+
+    increment_credits( self, epoch, credits );
+  }
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L634
+  deq_fd_landed_vote_t_push_tail_wrap( votes, landed_vote );
+  double_lockouts( self );
 }
 
 int

@@ -81,6 +81,9 @@
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L35
 #define MAX_LOCKOUT_HISTORY 31UL
 
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L36
+#define MAX_EPOCH_CREDITS_HISTORY 64UL
+
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L48
 #define VOTE_CREDITS_MAXIMUM_PER_SLOT 16
 

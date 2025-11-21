@@ -16,6 +16,14 @@ fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self );
 uchar
 fd_vsv_get_commission( fd_vote_state_versioned_t * self );
 
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L752-L757 */
+fd_landed_vote_t *
+fd_vsv_get_votes( fd_vote_state_versioned_t * self );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L815-L820 */
+fd_vote_epoch_credits_t *
+fd_vsv_get_epoch_credits( fd_vote_state_versioned_t * self );
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L787-L792 */
 ulong *
 fd_vsv_get_last_voted_slot( fd_vote_state_versioned_t * self );
@@ -26,7 +34,7 @@ fd_vsv_pop_expired_votes( fd_vote_state_versioned_t * self, ulong next_vote_slot
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L638-L651 */
 void
-fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * versioned,
+fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
                                ulong                       next_vote_slot,
                                ulong                       epoch,
                                ulong                       current_slot );

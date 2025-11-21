@@ -8,6 +8,7 @@
 #include "../fd_system_ids.h"
 #include "vote/fd_authorized_voters.h"
 #include "vote/fd_vote_common.h"
+#include "vote/fd_vote_lockout.h"
 #include "vote/fd_vote_state_versioned.h"
 #include "vote/fd_vote_state_v3.h"
 #include "vote/fd_vote_state_v4.h"
@@ -19,9 +20,6 @@
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L36
 #define INITIAL_LOCKOUT 2UL
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L36
-#define MAX_EPOCH_CREDITS_HISTORY 64UL
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42
 #define DEFAULT_PRIOR_VOTERS_OFFSET 114
@@ -50,37 +48,6 @@
 #define ACCOUNTS_MAX 4 /* Vote instructions take in at most 4 accounts */
 
 #define DEFAULT_COMPUTE_UNITS 2100UL
-
-/**********************************************************************/
-/* impl Lockout                                                       */
-/**********************************************************************/
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L104
-static inline ulong
-lockout( fd_vote_lockout_t * self ) {
-  /* Confirmation count can never be greater than MAX_LOCKOUT_HISTORY, preventing overflow.
-     Although Agave does not consider overflow, we do for fuzzing conformance. */
-  ulong confirmation_count = fd_ulong_min( self->confirmation_count, MAX_LOCKOUT_HISTORY );
-  return 1UL<<confirmation_count;
-}
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L110
-static inline ulong
-last_locked_out_slot( fd_vote_lockout_t * self ) {
-  return fd_ulong_sat_add( self->slot, lockout( self ) );
-}
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L114
-static inline ulong
-is_locked_out_at_slot( fd_vote_lockout_t * self, ulong slot ) {
-  return last_locked_out_slot( self ) >= slot;
-}
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L122
-static void
-increase_confirmation_count( fd_vote_lockout_t * self, uint by ) {
-  self->confirmation_count = fd_uint_sat_add( self->confirmation_count, by );
-}
 
 /**********************************************************************/
 /* impl VoteStateVersions                                             */
@@ -171,86 +138,6 @@ vsv_deserialize( fd_borrowed_account_t const * vote_account,
 /**********************************************************************/
 /* impl VoteState                                                     */
 /**********************************************************************/
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L855
-static void
-double_lockouts( fd_vote_state_t * self ) {
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L856
-  ulong stack_depth = deq_fd_landed_vote_t_cnt( self->votes );
-  ulong i           = 0;
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L857
-  for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( self->votes );
-       !deq_fd_landed_vote_t_iter_done( self->votes, iter );
-       iter = deq_fd_landed_vote_t_iter_next( self->votes, iter ) ) {
-    fd_landed_vote_t * v = deq_fd_landed_vote_t_iter_ele( self->votes, iter );
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L860
-    if( stack_depth >
-        fd_ulong_checked_add_expect(
-            i,
-            (ulong)v->lockout.confirmation_count,
-            "`confirmation_count` and tower_size should be bounded by `MAX_LOCKOUT_HISTORY`" ) )
-      {
-        // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L864
-        increase_confirmation_count( &v->lockout, 1 );
-      }
-    i++;
-  }
-}
-
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L282-L309 */
-static void
-increment_credits( fd_vote_state_t * self, ulong epoch, ulong credits ) {
-  /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L286-L305 */
-  if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_empty( self->epoch_credits ) ) ) {
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L286-L288 */
-    deq_fd_vote_epoch_credits_t_push_tail_wrap(
-        self->epoch_credits,
-        ( fd_vote_epoch_credits_t ){ .epoch = epoch, .credits = 0, .prev_credits = 0 } );
-  } else if( FD_LIKELY( epoch !=
-                        deq_fd_vote_epoch_credits_t_peek_tail( self->epoch_credits )->epoch ) ) {
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L290 */
-    fd_vote_epoch_credits_t * last = deq_fd_vote_epoch_credits_t_peek_tail( self->epoch_credits );
-
-    ulong credits      = last->credits;
-    ulong prev_credits = last->prev_credits;
-
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L292-L299 */
-    if( FD_LIKELY( credits!=prev_credits ) ) {
-      if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_cnt( self->epoch_credits )>=MAX_EPOCH_CREDITS_HISTORY ) ) {
-        /* Although Agave performs a `.remove(0)` AFTER the call to
-          `.push()`, there is an edge case where the epoch credits is
-          full, making the call to `_push_tail()` unsafe. Since Agave's
-          structures are dynamically allocated, it is safe for them to
-          simply call `.push()` and then popping afterwards. We have to
-          reverse the order of operations to maintain correct behavior
-          and avoid overflowing the deque.
-          https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L303 */
-        deq_fd_vote_epoch_credits_t_pop_head( self->epoch_credits );
-      }
-
-      /* This will not fail because we already popped if we're at
-         capacity, since the epoch_credits deque is allocated with a
-         minimum capacity of MAX_EPOCH_CREDITS_HISTORY. */
-      deq_fd_vote_epoch_credits_t_push_tail(
-          self->epoch_credits,
-          ( fd_vote_epoch_credits_t ){
-              .epoch = epoch, .credits = credits, .prev_credits = credits } );
-    } else {
-      /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L297-L298 */
-      deq_fd_vote_epoch_credits_t_peek_tail( self->epoch_credits )->epoch = epoch;
-
-      /* Here we can perform the same deque size check and pop if
-         we're beyond the maximum epoch credits len. */
-      if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_cnt( self->epoch_credits )>MAX_EPOCH_CREDITS_HISTORY ) ) {
-        deq_fd_vote_epoch_credits_t_pop_head( self->epoch_credits );
-      }
-    }
-  }
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L663
-  deq_fd_vote_epoch_credits_t_peek_tail( self->epoch_credits )->credits = fd_ulong_sat_add(
-      deq_fd_vote_epoch_credits_t_peek_tail( self->epoch_credits )->credits, credits );
-}
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L869
 static int
@@ -800,7 +687,7 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
         ctx->txn_ctx->err.custom_err = FD_VOTE_ERR_CONFIRMATIONS_NOT_ORDERED;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       } else if( FD_UNLIKELY( vote->lockout.slot >
-                              last_locked_out_slot( &previous_vote->lockout ) ) ) {
+                              fd_vote_lockout_last_locked_out_slot( &previous_vote->lockout ) ) ) {
         ctx->txn_ctx->err.custom_err = FD_VOTE_ERR_NEW_VOTE_STATE_LOCKOUT_MISMATCH;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
@@ -1448,7 +1335,9 @@ process_vote_with_account( fd_exec_instr_ctx_t *         ctx,
   rc = fd_authorized_voters_get_and_update_authorized_voter( versioned, clock->epoch, &authorized_voter );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  process_vote(  )
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L944 */
+  rc = process_vote( ctx, versioned, vote, slot_hashes, clock->epoch, clock->slot );
+  if( FD_UNLIKELY( rc ) ) return rc;
 
 
 
