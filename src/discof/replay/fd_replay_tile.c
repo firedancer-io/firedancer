@@ -1591,6 +1591,24 @@ can_process_fec( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched, 1UL ) ) ) return 0;
   if( FD_UNLIKELY( (fec = fd_reasm_peek( ctx->reasm ))==NULL ) ) return 0;
 
+  if( FD_UNLIKELY( ctx->is_leader && fec->fec_set_idx==0U && fd_reasm_parent( ctx->reasm, fec )->bank_idx==ctx->leader_bank->idx ) ) {
+    /* There's a race that's exceedingly rare, where we receive the
+       FEC set for the slot right after our leader rotation before we
+       freeze the bank for the last slot in our leader rotation.
+       Leader slot freezing happens only after if we've received the
+       final PoH hash from the poh tile as well as the final FEC set
+       for the leader slot.  So the race happens when FEC sets are
+       delivered and processed sooner than the PoH hash, aka when the
+       poh=>shred=>replay path for the block id somehow beats the
+       poh=>replay path for the poh hash.  To mitigate this race,
+       we must block on ingesting the FEC set for the ensuing slot
+       before the leader bank freezes, because that would violate
+       ordering invariants in banks and sched. */
+    FD_TEST( ctx->recv_block_id );
+    FD_TEST( !ctx->recv_poh );
+    return 0;
+  }
+
   /* If fec_set_idx is 0, we need a new bank for a new slot.  Banks must
      not be full in this case. */
   if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && fec->fec_set_idx==0 ) ) return 0;
@@ -1821,24 +1839,6 @@ after_credit( fd_replay_tile_t *  ctx,
      equivocation more robustly. */
   if( FD_LIKELY( can_process_fec( ctx ) ) ) {
     fd_reasm_fec_t * fec = fd_reasm_peek( ctx->reasm );
-
-    if( FD_UNLIKELY( ctx->is_leader && fd_reasm_parent( ctx->reasm, fec )->bank_idx==ctx->leader_bank->idx ) ) {
-      /* There's a race that's exceedingly rare, where we receive the
-         FEC set for the slot right after our leader rotation before we
-         freeze the bank for the last slot in our leader rotation.
-         Leader slot freezing happens only after if we've received the
-         final PoH hash from the poh tile as well as the final FEC set
-         for the leader slot.  So the race happens when FEC sets are
-         delivered and processed sooner than the PoH hash, aka when the
-         poh=>shred=>replay path for the block id somehow beats the
-         poh=>replay path for the poh hash.  We should not process any
-         FEC set for the ensuing slot before the leader bank freezes,
-         because that would violate ordering invariants in banks and
-         sched. */
-      FD_TEST( ctx->recv_block_id );
-      FD_TEST( !ctx->recv_poh );
-      return;
-    }
 
     /* If fec->eqvoc is set that means that equivocation mid-block was
        detected in fd_reasm_t.  We need to replay up to and including
