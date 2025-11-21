@@ -65,13 +65,21 @@
     ENTIRE repair_sign -> sign tile -> sign_repair work queue, else
     there is always a possibility of an overrun in the sign_repair link.
 
-    To lose a frag to overrun isn't necessarily critical, but in general
-    the repair tile relies on the fact that a signing task published to
-    sign tile will always come back.  If we lose a frag to overrun, then
-    there will be an entry in the pending signs structure that is never
-    removed, and theoretically the map could fill up. Conceptually, with
-    a reliable sign->repair->sign structure, there should be no eviction
-    needed in this pending signs structure.
+    Furthermore, we can forever avoid sign backpressuring repair by
+    making sure that repair_sign has depth > sign_repair. If there are
+    always max depth(sign_repair) items in the the repair_sign -> sign
+    tile -> sign_repair work queue, and depth(repair_sign) >
+    depth(sign_repair), then there is no way for sign to backpressurize
+    repair ( no matter how brief ).  In other words, repair can continue
+    polling from all links.
+
+    To lose a sign frag to overrun isn't necessarily critical, but in
+    general the repair tile relies on the fact that a signing task
+    published to sign tile will always come back.  If we lose a frag to
+    overrun, then there will be an entry in the pending signs structure
+    that is never removed, and theoretically the map could fill up.
+    Conceptually, with a reliable sign->repair->sign structure, there
+    should be no eviction needed in this pending signs structure.
 
     Message types handled asynchronously:
     - WINDOW_INDEX (exact shred): Requests for a specific shred at a
