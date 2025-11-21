@@ -1045,7 +1045,6 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 
-
   /* Calculate transaction fees
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L597-L606 */
   ulong execution_fee = 0UL;
@@ -1070,6 +1069,7 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
 
   /* Set the starting lamports (to avoid unbalanced lamports issues in instruction execution) */
   fee_payer_rec->starting_lamports = fd_txn_account_get_lamports( fee_payer_rec ); /* TODO: why do we do this everywhere? */
+  runtime->accounts.starting_lamports[FD_FEE_PAYER_TXN_IDX] = fee_payer_rec->starting_lamports;
 
   txn_out->details.execution_fee = execution_fee;
   txn_out->details.priority_fee  = priority_fee;
@@ -1535,6 +1535,8 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 
+  runtime->accounts.starting_lamports[idx] = fd_txn_account_get_lamports( txn_account );
+  runtime->accounts.starting_dlen[idx]     = fd_txn_account_get_data_len( txn_account );
   memcpy( &txn_out->accounts.pubkeys[idx], acc, sizeof(fd_pubkey_t) );
   txn_out->accounts.metas[ idx ] = account_meta;
 
@@ -1625,6 +1627,79 @@ fd_executor_txn_verify( fd_txn_p_t *  txn_p,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+static int
+fd_executor_txn_check( fd_runtime_t * runtime,
+                       fd_bank_t *    bank,
+                       fd_txn_out_t * txn_out ) {
+  fd_rent_t const * rent = fd_bank_rent_query( bank );
+
+  ulong starting_lamports_l = 0;
+  ulong starting_lamports_h = 0;
+
+  ulong ending_lamports_l = 0;
+  ulong ending_lamports_h = 0;
+
+  /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
+  for( ulong idx = 0; idx < txn_out->accounts.accounts_cnt; idx++ ) {
+    fd_txn_account_t * b = &txn_out->accounts.accounts[idx];
+    ulong starting_lamports = runtime->accounts.starting_lamports[idx];
+    ulong starting_dlen     = runtime->accounts.starting_dlen[idx];
+
+    // Was this account written to?
+    /* TODO: Clean this logic up... lots of redundant checks with our newer account loading model.
+       We should be using the rent transition checking logic instead, along with a small refactor
+       to keep check ordering consistent. */
+    if( fd_txn_account_get_meta( b )!=NULL ) {
+      fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, fd_txn_account_get_lamports( b ) );
+
+      /* Rent states are defined as followed:
+         - lamports == 0                      -> Uninitialized
+         - 0 < lamports < rent_exempt_minimum -> RentPaying
+         - lamports >= rent_exempt_minimum    -> RentExempt
+         In Agave, 'self' refers to our 'after' state. */
+      uchar after_uninitialized  = fd_txn_account_get_lamports( b ) == 0;
+      uchar after_rent_exempt    = fd_txn_account_get_lamports( b ) >= fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( b ) );
+
+      /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L96 */
+      if( FD_LIKELY( memcmp( b->pubkey->key, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) != 0 ) ) {
+        /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L44 */
+        if( after_uninitialized || after_rent_exempt ) {
+          // no-op
+        } else {
+          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
+          uchar before_uninitialized = starting_dlen == ULONG_MAX || starting_lamports == 0;
+          uchar before_rent_exempt   = starting_dlen != ULONG_MAX && starting_lamports >= fd_rent_exempt_minimum_balance( rent, starting_dlen );
+
+          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L50 */
+          if( before_uninitialized || before_rent_exempt ) {
+            /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
+            return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
+          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
+          } else if( (fd_txn_account_get_data_len( b ) == starting_dlen) && fd_txn_account_get_lamports( b ) <= starting_lamports ) {
+            // no-op
+          } else {
+            /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
+            return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
+          }
+        }
+      }
+
+      if( starting_lamports != ULONG_MAX ) {
+        fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, starting_lamports );
+      }
+    }
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/transaction_processor.rs#L839-L845 */
+  if( FD_UNLIKELY( ending_lamports_l!=starting_lamports_l || ending_lamports_h!=starting_lamports_h ) ) {
+    FD_LOG_DEBUG(( "Lamport sum mismatch: starting %lx%lx ending %lx%lx", starting_lamports_h, starting_lamports_l, ending_lamports_h, ending_lamports_l ));
+    return FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION;
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+
 int
 fd_execute_txn( fd_runtime_t *      runtime,
                 fd_bank_t *         bank,
@@ -1657,92 +1732,7 @@ fd_execute_txn( fd_runtime_t *      runtime,
 
   /* TODO: This function needs to be split out of fd_execute_txn and be placed
       into the replay tile once it is implemented. */
-  return fd_executor_txn_check( bank, txn_out );
-}
-
-int
-fd_executor_txn_check( fd_bank_t *    bank,
-                       fd_txn_out_t * txn_out ) {
-  fd_rent_t const * rent = fd_bank_rent_query( bank );
-
-  ulong starting_lamports_l = 0;
-  ulong starting_lamports_h = 0;
-
-  ulong ending_lamports_l = 0;
-  ulong ending_lamports_h = 0;
-
-  /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
-  for( ulong idx = 0; idx < txn_out->accounts.accounts_cnt; idx++ ) {
-    fd_txn_account_t * b = &txn_out->accounts.accounts[idx];
-
-    // Was this account written to?
-    /* TODO: Clean this logic up... lots of redundant checks with our newer account loading model.
-       We should be using the rent transition checking logic instead, along with a small refactor
-       to keep check ordering consistent. */
-    if( fd_txn_account_get_meta( b )!=NULL ) {
-      fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, fd_txn_account_get_lamports( b ) );
-
-      /* Rent states are defined as followed:
-         - lamports == 0                      -> Uninitialized
-         - 0 < lamports < rent_exempt_minimum -> RentPaying
-         - lamports >= rent_exempt_minimum    -> RentExempt
-         In Agave, 'self' refers to our 'after' state. */
-      uchar after_uninitialized  = fd_txn_account_get_lamports( b ) == 0;
-      uchar after_rent_exempt    = fd_txn_account_get_lamports( b ) >= fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( b ) );
-
-      /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L96 */
-      if( FD_LIKELY( memcmp( b->pubkey->key, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) != 0 ) ) {
-        /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L44 */
-        if( after_uninitialized || after_rent_exempt ) {
-          // no-op
-        } else {
-          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
-          uchar before_uninitialized = b->starting_dlen == ULONG_MAX || b->starting_lamports == 0;
-          uchar before_rent_exempt   = b->starting_dlen != ULONG_MAX && b->starting_lamports >= fd_rent_exempt_minimum_balance( rent, b->starting_dlen );
-
-          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L50 */
-          if( before_uninitialized || before_rent_exempt ) {
-            FD_LOG_DEBUG(( "Rent exempt error for %s Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu",
-                           FD_BASE58_ENC_32_ALLOCA( b->pubkey->uc ),
-                           fd_txn_account_get_data_len( b ),
-                           b->starting_dlen,
-                           fd_txn_account_get_lamports( b ),
-                           b->starting_lamports,
-                           fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( b ) ),
-                           fd_rent_exempt_minimum_balance( rent, b->starting_dlen ) ));
-            /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
-            return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
-          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
-          } else if( (fd_txn_account_get_data_len( b ) == b->starting_dlen) && fd_txn_account_get_lamports( b ) <= b->starting_lamports ) {
-            // no-op
-          } else {
-            FD_LOG_DEBUG(( "Rent exempt error for %s Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu",
-                           FD_BASE58_ENC_32_ALLOCA( b->pubkey->uc ),
-                           fd_txn_account_get_data_len( b ),
-                           b->starting_dlen,
-                           fd_txn_account_get_lamports( b ),
-                           b->starting_lamports,
-                           fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( b ) ),
-                           fd_rent_exempt_minimum_balance( rent, b->starting_dlen ) ));
-            /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
-            return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
-          }
-        }
-      }
-
-      if( b->starting_lamports != ULONG_MAX ) {
-        fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, b->starting_lamports );
-      }
-    }
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/transaction_processor.rs#L839-L845 */
-  if( FD_UNLIKELY( ending_lamports_l!=starting_lamports_l || ending_lamports_h!=starting_lamports_h ) ) {
-    FD_LOG_DEBUG(( "Lamport sum mismatch: starting %lx%lx ending %lx%lx", starting_lamports_h, starting_lamports_l, ending_lamports_h, ending_lamports_l ));
-    return FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION;
-  }
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
+  return fd_executor_txn_check( runtime, bank, txn_out );
 }
 
 int
