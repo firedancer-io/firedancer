@@ -99,11 +99,17 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
   if( capture_ctx && capture_ctx->capture &&
       fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot &&
       memcmp( prev_account_hash->bytes, new_hash->bytes, sizeof(fd_lthash_value_t))!=0 ) {
-    fd_solana_account_meta_t meta = fd_txn_account_get_solana_meta( account );
+    fd_solana_account_meta_t meta[1];
+    fd_solana_account_meta_init(
+        meta,
+        fd_txn_account_get_lamports ( account ),
+        fd_txn_account_get_owner    ( account ),
+        fd_txn_account_is_executable( account )
+    );
     int err = fd_solcap_write_account(
       capture_ctx->capture,
       account->pubkey,
-      &meta,
+      meta,
       fd_txn_account_get_data( account ),
       fd_txn_account_get_data_len( account ) );
     if( FD_UNLIKELY( err ) ) {

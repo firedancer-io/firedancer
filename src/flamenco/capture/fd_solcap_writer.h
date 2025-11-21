@@ -3,7 +3,7 @@
 
 #include "fd_solcap_proto.h"
 #include "fd_solcap.pb.h"
-#include "../types/fd_types.h"
+#include "../types/fd_types_custom.h"
 
 /* fd_solcap_writer_t is an opaque handle to a capture writer object.
    Currently, it implements writing SOLCAP_V1_BANK files.  See below
@@ -13,6 +13,25 @@ struct fd_solcap_writer;
 typedef struct fd_solcap_writer fd_solcap_writer_t;
 
 FD_PROTOTYPES_BEGIN
+
+struct __attribute__((packed)) fd_solana_account_meta {
+  ulong lamports;
+  uchar owner[32];
+  uchar executable;
+  uchar padding[3];
+};
+typedef struct fd_solana_account_meta fd_solana_account_meta_t;
+
+static inline fd_solana_account_meta_t *
+fd_solana_account_meta_init( fd_solana_account_meta_t * meta,
+                             ulong                      lamports,
+                             void const *               owner,
+                             int                        exec_bit ) {
+  meta->lamports = lamports;
+  fd_memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
+  meta->executable = !!exec_bit;
+  return meta;
+}
 
 /* fd_solcap_writer_t object lifecycle API ****************************/
 
