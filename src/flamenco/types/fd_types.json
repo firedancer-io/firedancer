@@ -173,7 +173,6 @@
       "type": "struct",
       "fields": [
         { "name": "lamports", "type": "ulong" },
-        { "name": "rent_epoch", "type": "ulong" },
         { "name": "owner", "type": "uchar[32]" },
         { "name": "executable", "type": "bool" },
         { "name": "padding", "type": "array", "element": "uchar", "length": 3 }
