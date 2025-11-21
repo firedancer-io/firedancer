@@ -1188,6 +1188,8 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
                        fd_txn_in_t const * txn_in,
                        fd_txn_out_t *      txn_out ) {
 
+  txn_out->details.commit_start_timestamp = fd_tickcount();
+
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
 
   if( FD_UNLIKELY( txn_out->err.txn_err ) ) {
@@ -1314,6 +1316,10 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
                                     fd_txn_in_t const *  txn_in,
                                     fd_txn_out_t *       txn_out ) {
 
+  txn_out->details.prep_start_timestamp   = fd_tickcount();
+  txn_out->details.exec_start_timestamp   = LONG_MAX;
+  txn_out->details.commit_start_timestamp = LONG_MAX;
+
   txn_out->accounts.accounts_cnt   = 0UL;
 
   txn_out->details.programs_to_reverify_cnt       = 0UL;
@@ -1345,6 +1351,8 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   /* Transaction sanitization.  If a transaction can't be commited or is
      fees-only, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
+
+  txn_out->details.exec_start_timestamp = fd_tickcount();
 
   /* Execute the transaction. */
   if( FD_LIKELY( txn_out->err.is_committable && !txn_out->err.is_fees_only ) ) {

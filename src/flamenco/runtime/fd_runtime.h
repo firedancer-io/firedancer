@@ -174,6 +174,9 @@ struct fd_txn_out {
     ulong                       priority_fee;                   /* Priority fee paid by the fee payer in the transaction */
     ulong                       tips;                           /* Jito tips paid during execution */
     ulong                       signature_count;                /* Number of signatures in the transaction */
+    long                        prep_start_timestamp;
+    long                        exec_start_timestamp;
+    long                        commit_start_timestamp;
     /* When a program is deployed or upgraded, we must queue it to be
         updated in the program cache (if it exists already) so that
         the cache entry's ELF / sBPF information can be updated for
