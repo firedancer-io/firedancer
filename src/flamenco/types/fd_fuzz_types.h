@@ -198,29 +198,6 @@ void *fd_solana_account_stored_meta_generate( void *mem, void **alloc_mem, fd_rn
   return mem;
 }
 
-void *fd_solana_account_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_solana_account_meta_t *self = (fd_solana_account_meta_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_solana_account_meta_t);
-  fd_solana_account_meta_new(mem);
-  self->lamports = fd_rng_ulong( rng );
-  self->rent_epoch = fd_rng_ulong( rng );
-  LLVMFuzzerMutate( &self->owner[0], sizeof(self->owner), sizeof(self->owner) );
-  self->executable = fd_rng_uchar( rng );
-  LLVMFuzzerMutate( self->padding, 3, 3 );
-  return mem;
-}
-
-void *fd_solana_account_hdr_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_solana_account_hdr_t *self = (fd_solana_account_hdr_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_solana_account_hdr_t);
-  fd_solana_account_hdr_new(mem);
-  fd_solana_account_stored_meta_generate( &self->meta, alloc_mem, rng );
-  fd_solana_account_meta_generate( &self->info, alloc_mem, rng );
-  LLVMFuzzerMutate( self->padding, 4, 4 );
-  fd_hash_generate( &self->hash, alloc_mem, rng );
-  return mem;
-}
-
 void *fd_delegation_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_delegation_t *self = (fd_delegation_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_delegation_t);

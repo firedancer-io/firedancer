@@ -220,9 +220,6 @@ fd_txn_account_set_readonly( fd_txn_account_t * acct );
 void
 fd_txn_account_set_mutable( fd_txn_account_t * acct );
 
-fd_solana_account_meta_t
-fd_txn_account_get_solana_meta( fd_txn_account_t const * acct );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_txn_account_h */

@@ -3,7 +3,7 @@
 #include "fd_types_custom.h"
 #include "fd_types_reflect_private.h"
 #pragma GCC diagnostic ignored "-Wpedantic"
-ulong fd_types_vt_list_cnt = 151;
+ulong fd_types_vt_list_cnt = 149;
 fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_hash", .name_len=7, .align=FD_HASH_ALIGN, .new_=(void *)fd_hash_new, .decode=(void *)fd_hash_decode, .size=(void *)fd_hash_size, .walk=(void *)fd_hash_walk, .decode_footprint=(void *)fd_hash_decode_footprint, .encode=(void *)fd_hash_encode  },
   { .name="fd_pubkey", .name_len=9, .align=FD_PUBKEY_ALIGN, .new_=(void *)fd_pubkey_new, .decode=(void *)fd_pubkey_decode, .size=(void *)fd_pubkey_size, .walk=(void *)fd_pubkey_walk, .decode_footprint=(void *)fd_pubkey_decode_footprint, .encode=(void *)fd_pubkey_encode  },
@@ -22,8 +22,6 @@ fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_stake_history", .name_len=16, .align=FD_STAKE_HISTORY_ALIGN, .new_=(void *)fd_stake_history_new, .decode=(void *)fd_stake_history_decode, .size=(void *)fd_stake_history_size, .walk=(void *)fd_stake_history_walk, .decode_footprint=(void *)fd_stake_history_decode_footprint, .encode=(void *)fd_stake_history_encode  },
   { .name="fd_solana_account", .name_len=17, .align=FD_SOLANA_ACCOUNT_ALIGN, .new_=(void *)fd_solana_account_new, .decode=(void *)fd_solana_account_decode, .size=(void *)fd_solana_account_size, .walk=(void *)fd_solana_account_walk, .decode_footprint=(void *)fd_solana_account_decode_footprint, .encode=(void *)fd_solana_account_encode  },
   { .name="fd_solana_account_stored_meta", .name_len=29, .align=FD_SOLANA_ACCOUNT_STORED_META_ALIGN, .new_=(void *)fd_solana_account_stored_meta_new, .decode=(void *)fd_solana_account_stored_meta_decode, .size=(void *)fd_solana_account_stored_meta_size, .walk=(void *)fd_solana_account_stored_meta_walk, .decode_footprint=(void *)fd_solana_account_stored_meta_decode_footprint, .encode=(void *)fd_solana_account_stored_meta_encode  },
-  { .name="fd_solana_account_meta", .name_len=22, .align=FD_SOLANA_ACCOUNT_META_ALIGN, .new_=(void *)fd_solana_account_meta_new, .decode=(void *)fd_solana_account_meta_decode, .size=(void *)fd_solana_account_meta_size, .walk=(void *)fd_solana_account_meta_walk, .decode_footprint=(void *)fd_solana_account_meta_decode_footprint, .encode=(void *)fd_solana_account_meta_encode  },
-  { .name="fd_solana_account_hdr", .name_len=21, .align=FD_SOLANA_ACCOUNT_HDR_ALIGN, .new_=(void *)fd_solana_account_hdr_new, .decode=(void *)fd_solana_account_hdr_decode, .size=(void *)fd_solana_account_hdr_size, .walk=(void *)fd_solana_account_hdr_walk, .decode_footprint=(void *)fd_solana_account_hdr_decode_footprint, .encode=(void *)fd_solana_account_hdr_encode  },
   { .name="fd_delegation", .name_len=13, .align=FD_DELEGATION_ALIGN, .new_=(void *)fd_delegation_new, .decode=(void *)fd_delegation_decode, .size=(void *)fd_delegation_size, .walk=(void *)fd_delegation_walk, .decode_footprint=(void *)fd_delegation_decode_footprint, .encode=(void *)fd_delegation_encode  },
   { .name="fd_stake", .name_len=8, .align=FD_STAKE_ALIGN, .new_=(void *)fd_stake_new, .decode=(void *)fd_stake_decode, .size=(void *)fd_stake_size, .walk=(void *)fd_stake_walk, .decode_footprint=(void *)fd_stake_decode_footprint, .encode=(void *)fd_stake_encode  },
   { .name="fd_reward_type", .name_len=14, .align=FD_REWARD_TYPE_ALIGN, .new_=(void *)fd_reward_type_new, .decode=(void *)fd_reward_type_decode, .size=(void *)fd_reward_type_size, .walk=(void *)fd_reward_type_walk, .decode_footprint=(void *)fd_reward_type_decode_footprint, .encode=(void *)fd_reward_type_encode  },
