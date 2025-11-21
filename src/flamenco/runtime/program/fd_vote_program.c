@@ -1426,7 +1426,8 @@ process_vote_state_update( fd_exec_instr_ctx_t *         ctx,
       slot_hashes,
       clock->epoch,
       clock->slot,
-      vote_state_update );
+      vote_state_update
+  );
   if( FD_UNLIKELY( rc ) ) {
     return rc;
   }
@@ -2033,7 +2034,15 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L187
     fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( ctx->sysvar_cache ); /* guaranteed to succeed */
-    rc = process_vote_state_update( &me, slot_hashes, clock, &vote_update, signers, ctx );
+    rc = process_vote_state_update(
+        ctx,
+        &me,
+        target_version,
+        slot_hashes,
+        clock,
+        &vote_update,
+        signers
+    );
     fd_sysvar_cache_slot_hashes_leave_const( ctx->sysvar_cache, slot_hashes );
 
     break;
