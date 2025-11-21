@@ -559,8 +559,8 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
 
           FD_LOG_ERR(( "invariant violation: update->contact_info.contact_info->pubkey.uc=%s != update->origin_pubkey=%s ", ci_pk, og_pk ));
         }
-        if( FD_UNLIKELY( update->contact_info.idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected contact_info_idx %lu >= %lu", update->contact_info.idx, FD_CONTACT_INFO_TABLE_SIZE ));
 #endif
+        if( FD_UNLIKELY( update->contact_info.idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected contact_info_idx %lu >= %lu", update->contact_info.idx, FD_CONTACT_INFO_TABLE_SIZE ));
         fd_gui_peers_node_t * peer = &peers->contact_info_table[ update->contact_info.idx ];
         if( FD_LIKELY( peer->valid ) ) {
 #if LOGGING
