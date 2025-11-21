@@ -66,7 +66,7 @@ fd_gui_config_parse_validator_info_check( uchar const * data,
 
   CHECK_LEFT( sizeof(ulong) ); ulong json_str_sz = FD_LOAD( ulong, data+i ); i += sizeof(ulong);
 
-  CHECK_LEFT( json_str_sz );
+  CHECK_LEFT( json_str_sz+1UL ); /* cJSON_ParseWithLengthOpts requires having byte after the JSON payload */
   cJSON * json = cJSON_ParseWithLengthOpts( (char *)(data+i), json_str_sz, NULL, 0 );
   if( FD_UNLIKELY( !json ) ) return 0;
 
