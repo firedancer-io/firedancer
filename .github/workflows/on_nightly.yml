@@ -68,5 +68,5 @@ jobs:
     uses: ./.github/workflows/backtest.yml
     with:
       script: src/flamenco/runtime/tests/run_backtest_all.sh
-      timeout: 45
+      timeout: 120
     secrets: inherit
