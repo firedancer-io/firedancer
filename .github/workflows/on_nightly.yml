@@ -67,6 +67,6 @@ jobs:
   backtest:
     uses: ./.github/workflows/backtest.yml
     with:
-      script: src/flamenco/runtime/tests/run_backtest_all.sh
+      script: DUMP_DIR=../dump src/flamenco/runtime/tests/run_backtest_all.sh
       timeout: 120
     secrets: inherit
