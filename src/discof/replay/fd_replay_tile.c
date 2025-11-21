@@ -1797,6 +1797,23 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  /* If we are leader, we can only unbecome the leader iff we have
+     received the poh hash from the poh tile and block id from reasm. */
+  if( FD_UNLIKELY( ctx->is_leader && ctx->recv_block_id && ctx->recv_poh ) ) {
+    fini_leader_bank( ctx, stem );
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  /* If the published_root is not caught up to the consensus root, then
+     we should try to advance the published root. */
+  if( FD_UNLIKELY( ctx->consensus_root_bank_idx!=ctx->published_root_bank_idx && advance_published_root( ctx ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
 
@@ -1804,6 +1821,24 @@ after_credit( fd_replay_tile_t *  ctx,
      equivocation more robustly. */
   if( FD_LIKELY( can_process_fec( ctx ) ) ) {
     fd_reasm_fec_t * fec = fd_reasm_peek( ctx->reasm );
+
+    if( FD_UNLIKELY( ctx->is_leader && fd_reasm_parent( ctx->reasm, fec )->bank_idx==ctx->leader_bank->idx ) ) {
+      /* There's a race that's exceedingly rare, where we receive the
+         FEC set for the slot right after our leader rotation before we
+         freeze the bank for the last slot in our leader rotation.
+         Leader slot freezing happens only after if we've received the
+         final PoH hash from the poh tile as well as the final FEC set
+         for the leader slot.  So the race happens when FEC sets are
+         delivered and processed sooner than the PoH hash, aka when the
+         poh=>shred=>replay path for the block id somehow beats the
+         poh=>replay path for the poh hash.  We should not process any
+         FEC set for the ensuing slot before the leader bank freezes,
+         because that would violate ordering invariants in banks and
+         sched. */
+      FD_TEST( ctx->recv_block_id );
+      FD_TEST( !ctx->recv_poh );
+      return;
+    }
 
     /* If fec->eqvoc is set that means that equivocation mid-block was
        detected in fd_reasm_t.  We need to replay up to and including
@@ -1844,23 +1879,6 @@ after_credit( fd_replay_tile_t *  ctx,
       process_fec_set( ctx, fec );
     }
 
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
-
-  /* If we are leader, we can only unbecome the leader iff we have
-     received the poh hash from the poh tile and block id from reasm. */
-  if( FD_UNLIKELY( ctx->is_leader && ctx->recv_block_id && ctx->recv_poh ) ) {
-    fini_leader_bank( ctx, stem );
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
-
-  /* If the published_root is not caught up to the consensus root, then
-     we should try to advance the published root. */
-  if( FD_UNLIKELY( ctx->consensus_root_bank_idx!=ctx->published_root_bank_idx && advance_published_root( ctx ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
