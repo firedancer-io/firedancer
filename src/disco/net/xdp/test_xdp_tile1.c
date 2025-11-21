@@ -717,15 +717,17 @@ xdp_reset( fd_tile_test_ctx_t * test_ctx,
   fd_memset( xsk->ring_fr.frame_ring,  0, xsk->ring_fr.depth * sizeof(ulong)           );
   fd_memset( xsk->ring_cr.frame_ring,  0, xsk->ring_cr.depth * sizeof(ulong)           );
 
+  xdp_fr_ring_prod = xsk->ring_fr.depth/2;
+  xdp_fr_ring_cons = 0;
   xdp_rx_ring_prod = xdp_rx_ring_cons = 0;
   xdp_tx_ring_prod = xdp_tx_ring_cons = 0;
-  xdp_fr_ring_prod = xdp_fr_ring_cons = 0;
   xdp_cr_ring_prod = xdp_cr_ring_cons = 0;
   xdp_rx_flags = xdp_tx_flags = xdp_fr_flags = xdp_cr_flags = 0;
 
+  xsk->ring_fr.cached_cons = 0;
+  xsk->ring_fr.cached_prod = xdp_fr_ring_prod;
   xsk->ring_rx.cached_cons = xsk->ring_rx.cached_prod = 0;
   xsk->ring_tx.cached_cons = xsk->ring_tx.cached_prod = 0;
-  xsk->ring_fr.cached_cons = xsk->ring_fr.cached_prod = 0;
   xsk->ring_cr.cached_cons = xsk->ring_cr.cached_prod = 0;
 
   /* Avoid calling poll_xdp_statistics since we don't have a real xsk */
