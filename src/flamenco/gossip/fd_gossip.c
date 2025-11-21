@@ -492,6 +492,10 @@ rx_pull_response( fd_gossip_t *                          gossip,
   for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
     fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
 
+    FD_TEST( value->tag<FD_METRICS_ENUM_CRDS_VALUE_CNT );
+    gossip->metrics->crds_rx_pull_response_count[ value->tag ]++;
+    gossip->metrics->crds_rx_pull_response_bytes[ value->tag ] += value->length;
+
     int checks_res = fd_crds_checks_fast( gossip->crds, value, payload, 0 /* from_push_msg m*/ );
     if( FD_UNLIKELY( !!checks_res ) ) {
       checks_res < 0 ? gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_STALE_IDX ]++
@@ -552,6 +556,10 @@ process_push_crds( fd_gossip_t *                       gossip,
                    long                                now,
                    fd_stem_context_t *                 stem ) {
   /* overrides_fast here, either count duplicates or purge if older (how!?) */
+
+  FD_TEST( value->tag<FD_METRICS_ENUM_CRDS_VALUE_CNT );
+  gossip->metrics->crds_rx_push_count[ value->tag ]++;
+  gossip->metrics->crds_rx_push_bytes[ value->tag ] += value->length;
 
   /* return values in both fd_crds_checks_fast and fd_crds_inserted need
      to be propagated since they both work the same (error>0 holds duplicate

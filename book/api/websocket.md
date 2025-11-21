@@ -1370,6 +1370,8 @@ which is specified below.
         "expired_total": 1234,
         "evicted_total": 0,
         "count": [0, 10608, 95, ...],
+        "count_rx": [0, 10608, 95, ...],
+        "bytes_rx": [0, 9827342, 9723, ...],
         "count_tx": [0, 10608, 95, ...],
         "bytes_tx": [0, 9827342, 9723, ...],
     },
@@ -1421,6 +1423,8 @@ which is specified below.
 | expired_total | `number`   | The cumulative number of Gossip Table entries that have expired and been removed |
 | evicted_total | `number`   | The cumulative number of Gossip Table entries that have been evicted due to insufficient space |
 | count         | `number[]` | `count[i]` is the number of currently active `table_entries[i]` entries currently in the Gossip Table |
+| count_rx      | `number[]` | `count_rx[i]` is the number of successful and failed ingress `table_entries[i]` entries received until now |
+| bytes_rx      | `number[]` | `bytes_rx[i]` is the number of successful and failed ingress `table_entries[i]` bytes received until now |
 | count_tx      | `number[]` | `count_tx[i]` is the number of egress `table_entries[i]` entries transmitted until now |
 | bytes_tx      | `number[]` | `bytes_tx[i]` is the number of egress `table_entries[i]` bytes transmitted until now |
 

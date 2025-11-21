@@ -73,6 +73,10 @@ typedef void (*fd_gossip_sign_fn)( void *         ctx,
 
 struct fd_gossip_metrics {
   ulong crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_CNT ];
+  ulong crds_rx_push_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong crds_rx_push_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong crds_rx_pull_response_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong crds_rx_pull_response_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
 
   ulong message_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
   ulong message_tx_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
