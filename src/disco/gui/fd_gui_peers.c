@@ -949,11 +949,15 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
     for( c = _col->child, i=0UL; c; c = c->next, i++ ) {
       if( FD_UNLIKELY( i >= fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
       sort_key.col[ i ] = fd_gui_peers_live_table_col_name_to_idx( peers->live_table, c->valuestring );
+      if( FD_UNLIKELY( sort_key.col[ i ]==ULONG_MAX ) ) {
+        FD_LOG_WARNING(( "unexpected column name %s", c->valuestring ));
+        return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+      }
     }
   } while( 0 );
 
   const cJSON * _dir = cJSON_GetObjectItemCaseSensitive( params, "dir" );
-  if( FD_UNLIKELY( !cJSON_IsArray( _dir ) ) ) { FD_LOG_WARNING(("NOT ARRAY 2")); return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST; }
+  if( FD_UNLIKELY( !cJSON_IsArray( _dir ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
   do {
     cJSON * c;
