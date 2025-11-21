@@ -955,6 +955,8 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     return err;
   }
 
+  txn_out->details.exec_start_timestamp = fd_tickcount();
+
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
   err = fd_executor_load_transaction_accounts( runtime, bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1317,6 +1319,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
                                     fd_txn_out_t *       txn_out ) {
 
   txn_out->details.prep_start_timestamp   = fd_tickcount();
+  txn_out->details.load_start_timestamp   = LONG_MAX;
   txn_out->details.exec_start_timestamp   = LONG_MAX;
   txn_out->details.commit_start_timestamp = LONG_MAX;
 
