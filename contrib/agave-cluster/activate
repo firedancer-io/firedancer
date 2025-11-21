@@ -1,0 +1,117 @@
+#!/bin/bash
+
+# Agave Cluster Environment Activation Script
+# Usage: source activate <AGAVE_RELEASE_PATH>
+
+# Check if an argument is provided
+if [ $# -eq 0 ]; then
+    echo "Error: Please provide AGAVE_RELEASE_PATH as an argument"
+    echo "Usage: source activate <AGAVE_RELEASE_PATH>"
+    return 1 2>/dev/null || exit 1
+fi
+
+# Get the absolute path of AGAVE_RELEASE_PATH
+AGAVE_RELEASE_PATH=$(readlink -f "$1")
+
+# Check if the provided path exists
+if [ ! -d "$AGAVE_RELEASE_PATH" ]; then
+    echo "Error: Directory '$AGAVE_RELEASE_PATH' does not exist"
+    return 1 2>/dev/null || exit 1
+fi
+
+# Get the directory where this script is located
+AGAVE_CLUSTER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Set up virtual environment path
+VENV_PATH="$AGAVE_CLUSTER_DIR/.venv"
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "$VENV_PATH" ]; then
+    echo "Creating Python virtual environment..."
+    python3 -m venv "$VENV_PATH"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to create virtual environment"
+        return 1 2>/dev/null || exit 1
+    fi
+fi
+
+# Function to deactivate the environment
+deactivate_agave_cluster() {
+    # Restore original PATH if it was saved
+    if [ -n "$_OLD_AGAVE_CLUSTER_PATH" ]; then
+        export PATH="$_OLD_AGAVE_CLUSTER_PATH"
+        unset _OLD_AGAVE_CLUSTER_PATH
+    fi
+
+    # Unset environment variables
+    unset AGAVE_RELEASE_PATH
+    unset AGAVE_LEDGER_PATH
+    unset AGAVE_CLUSTER_ACTIVE
+
+    # Restore original PS1 if it was saved
+    if [ -n "$_OLD_AGAVE_CLUSTER_PS1" ]; then
+        export PS1="$_OLD_AGAVE_CLUSTER_PS1"
+        unset _OLD_AGAVE_CLUSTER_PS1
+    fi
+
+    # Deactivate Python virtual environment
+    if [ -n "$VIRTUAL_ENV" ]; then
+        deactivate 2>/dev/null || true
+    fi
+
+    # Remove the deactivate function
+    unset -f deactivate_agave_cluster
+
+    echo "Agave cluster environment deactivated"
+}
+
+# Check if already activated
+if [ -n "$AGAVE_CLUSTER_ACTIVE" ]; then
+    echo "Agave cluster environment is already active. Deactivating first..."
+    deactivate_agave_cluster
+fi
+
+# Activate Python virtual environment
+source "$VENV_PATH/bin/activate"
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to activate virtual environment"
+    return 1 2>/dev/null || exit 1
+fi
+
+# Install/upgrade the package in development mode
+echo "Installing agave-cluster package in development mode..."
+pip install -e "$AGAVE_CLUSTER_DIR" > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo "Warning: Failed to install agave-cluster package"
+fi
+
+# Save original PATH and PS1
+export _OLD_AGAVE_CLUSTER_PATH="$PATH"
+if [ -n "$PS1" ]; then
+    export _OLD_AGAVE_CLUSTER_PS1="$PS1"
+fi
+
+# Set environment variables
+export AGAVE_RELEASE_PATH="$AGAVE_RELEASE_PATH"
+export AGAVE_LEDGER_PATH="/data/ledgers/agave-cluster"
+export AGAVE_CLUSTER_ACTIVE=1
+
+# Update PS1 to show the active environment
+if [ -n "$PS1" ]; then
+    export PS1="(agave-cluster) $PS1"
+fi
+
+# Success message
+echo "✅ Agave cluster environment activated!"
+echo "   AGAVE_RELEASE_PATH: $AGAVE_RELEASE_PATH"
+echo "   Available commands:"
+echo "     agave-cluster --help"
+echo "     agave-cluster set-ledger-dir [path]"
+echo "     agave-cluster start-cluster"
+echo "     agave-cluster stop-cluster"
+echo "     agave-cluster add-node"
+echo "     agave-cluster remove-node"
+echo "     agave-cluster status"
+echo "     agave-cluster logs"
+echo ""
+echo "   To deactivate: deactivate_agave_cluster"
