@@ -1334,7 +1334,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
 
-  runtime->executable.cnt = 0UL;
+  runtime->accounts.executable_cnt = 0UL;
   runtime->log.enable_log_collector = 0;
   runtime->instr.info_cnt     = 0UL;
   runtime->instr.trace_length = 0UL;
@@ -1794,9 +1794,9 @@ fd_runtime_get_executable_account( fd_runtime_t *                  runtime,
     return FD_ACC_MGR_SUCCESS;
   }
 
-  for( ushort i=0; i<runtime->executable.cnt; i++ ) {
-    if( memcmp( pubkey->uc, runtime->executable.accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
-      fd_txn_account_t * txn_account = &runtime->executable.accounts[i];
+  for( ushort i=0; i<runtime->accounts.executable_cnt; i++ ) {
+    if( memcmp( pubkey->uc, runtime->accounts.executables[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
+      fd_txn_account_t * txn_account = &runtime->accounts.executables[i];
       *account = txn_account;
 
       if( FD_LIKELY( condition != NULL ) ) {

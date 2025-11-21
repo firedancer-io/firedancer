@@ -127,9 +127,9 @@ struct fd_runtime {
   } stake_program;
 
   struct {
-    ulong            cnt;                              /* Number of BPF upgradeable loader accounts. */
-    fd_txn_account_t accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
-  } executable;
+    ulong            executable_cnt;                      /* Number of BPF upgradeable loader accounts. */
+    fd_txn_account_t executables[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
+  } accounts;
 };
 typedef struct fd_runtime fd_runtime_t;
 

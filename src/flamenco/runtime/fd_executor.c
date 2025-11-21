@@ -1562,7 +1562,7 @@ fd_executor_setup_executable_account( fd_runtime_t *           runtime,
       account will not exist within the executable accounts list. */
   fd_pubkey_t *     programdata_acc = &program_loader_state->inner.program.programdata_address;
   fd_funk_txn_xid_t xid             = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-  if( FD_LIKELY( fd_txn_account_init_from_funk_readonly( &runtime->executable.accounts[ *executable_idx ],
+  if( FD_LIKELY( fd_txn_account_init_from_funk_readonly( &runtime->accounts.executables[ *executable_idx ],
                                                          programdata_acc,
                                                          runtime->funk,
                                                          &xid )==0 ) ) {
@@ -1601,7 +1601,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 # endif
 
   txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
-  runtime->executable.cnt            = executable_idx;
+  runtime->accounts.executable_cnt   = executable_idx;
 
   /* Set up instr infos from the txn descriptor. No Agave equivalent to this function. */
   fd_executor_setup_instr_infos_from_txn_instrs( runtime, bank, txn_in, txn_out );

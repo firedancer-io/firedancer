@@ -901,7 +901,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_out->accounts.accounts_cnt;
-  instr_context->accounts = fd_spad_alloc( spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + runtime->executable.cnt) * sizeof(fd_exec_test_acct_state_t));
+  instr_context->accounts = fd_spad_alloc( spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + runtime->accounts.executable_cnt) * sizeof(fd_exec_test_acct_state_t));
   for( ulong i = 0; i < txn_out->accounts.accounts_cnt; i++ ) {
     // Copy account information over
     fd_txn_account_t const *    txn_account    = &txn_out->accounts.accounts[i];
@@ -933,16 +933,16 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   }
 
   /* Add executable accounts */
-  for( ulong i = 0; i < runtime->executable.cnt; i++ ) {
+  for( ulong i = 0; i < runtime->accounts.executable_cnt; i++ ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, runtime->executable.accounts[i].pubkey, runtime->funk, &xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, runtime->accounts.executables[i].pubkey, runtime->funk, &xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
     // Make sure the account doesn't exist in the output accounts yet
     bool account_exists = false;
     for( ulong j = 0; j < instr_context->accounts_count; j++ ) {
-      if( 0 == memcmp( instr_context->accounts[j].address, runtime->executable.accounts[i].pubkey->uc, sizeof(fd_pubkey_t) ) ) {
+      if( 0 == memcmp( instr_context->accounts[j].address, runtime->accounts.executables[i].pubkey->uc, sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }
