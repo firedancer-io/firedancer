@@ -8,7 +8,7 @@ jobs:
     timeout-minutes: 20
     name: Doxygen
     runs-on:
-      labels: rocky810
+      labels: rocky9
       group: fd-public-repo
     environment:
       name: doxygen

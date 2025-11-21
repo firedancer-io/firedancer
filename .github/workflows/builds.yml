@@ -92,7 +92,7 @@ concurrency:
 jobs:
   build_gcc:
     runs-on:
-      labels: rocky8
+      labels: rocky9
       group: fd-public-repo
     if: ${{ inputs.gcc != 'none' }}
     steps:
