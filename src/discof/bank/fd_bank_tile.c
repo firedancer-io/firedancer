@@ -306,16 +306,15 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
   long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
 
-  // TODO: Execution timestamps
-  long tx_start_ticks       = microblock_start_ticks; //(long)out_timestamps[ 0 ];
-  long tx_load_end_ticks    = microblock_start_ticks; //(long)out_timestamps[ 1 ];
-  long tx_end_ticks         = microblock_start_ticks; //(long)out_timestamps[ 2 ];
-  long tx_preload_end_ticks = microblock_start_ticks; //(long)out_timestamps[ 3 ];
+  long tx_preload_end_ticks = fd_long_if( ctx->txn_out[ 0 ].details.prep_start_timestamp!=LONG_MAX,   ctx->txn_out[ 0 ].details.prep_start_timestamp,   microblock_start_ticks );
+  long tx_start_ticks       = fd_long_if( ctx->txn_out[ 0 ].details.load_start_timestamp!=LONG_MAX,   ctx->txn_out[ 0 ].details.load_start_timestamp,   tx_preload_end_ticks   );
+  long tx_load_end_ticks    = fd_long_if( ctx->txn_out[ 0 ].details.exec_start_timestamp!=LONG_MAX,   ctx->txn_out[ 0 ].details.exec_start_timestamp,   tx_start_ticks         );
+  long tx_end_ticks         = fd_long_if( ctx->txn_out[ 0 ].details.commit_start_timestamp!=LONG_MAX, ctx->txn_out[ 0 ].details.commit_start_timestamp, tx_load_end_ticks      );
 
+  trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
   trailer->txn_start_pct       = (uchar)(((double)(tx_start_ticks       - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
   trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
   trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-  trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
@@ -361,10 +360,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
   int execution_success = 1;
 
-  /* TODO: this is a temporary hack to get bundles split out in the gui
-     while timestamps are properly plumbed through. */
-  long out_timestamp[ FD_PACK_MAX_TXN_PER_BUNDLE ] = { 0 };
-
   /* Every transaction in the bundle should be executed in order against
      different transaciton contexts. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -387,7 +382,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
     txn_in->bundle.is_bundle = 1;
-    out_timestamp[ i ] = fd_tickcount();
     fd_runtime_prepare_and_execute_txn( &ctx->runtime, bank, txn_in, txn_out );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -478,15 +472,15 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
     long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
 
-    long tx_start_ticks       = out_timestamp[ i ]; // (long)out_timestamps[ 4*i + 0 ];
-    long tx_load_end_ticks    = out_timestamp[ i ]; // (long)out_timestamps[ 4*i + 1 ];
-    long tx_end_ticks         = out_timestamp[ i ]; // (long)out_timestamps[ 4*i + 2 ];
-    long tx_preload_end_ticks = out_timestamp[ i ]; // (long)out_timestamps[ 4*i + 3 ];
+    long tx_preload_end_ticks = fd_long_if( ctx->txn_out[ i ].details.prep_start_timestamp!=LONG_MAX,   ctx->txn_out[ i ].details.prep_start_timestamp,   microblock_start_ticks );
+    long tx_start_ticks       = fd_long_if( ctx->txn_out[ i ].details.load_start_timestamp!=LONG_MAX,   ctx->txn_out[ i ].details.load_start_timestamp,   tx_preload_end_ticks   );
+    long tx_load_end_ticks    = fd_long_if( ctx->txn_out[ i ].details.exec_start_timestamp!=LONG_MAX,   ctx->txn_out[ i ].details.exec_start_timestamp,   tx_start_ticks         );
+    long tx_end_ticks         = fd_long_if( ctx->txn_out[ i ].details.commit_start_timestamp!=LONG_MAX, ctx->txn_out[ i ].details.commit_start_timestamp, tx_load_end_ticks      );
 
+    trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
     trailer->txn_start_pct       = (uchar)(((double)(tx_start_ticks       - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
     trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
     trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-    trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
 
     ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
     fd_stem_publish( stem, ctx->out_poh->idx, bank_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( tickcount ) );

@@ -175,6 +175,7 @@ struct fd_txn_out {
     ulong                       tips;                           /* Jito tips paid during execution */
     ulong                       signature_count;                /* Number of signatures in the transaction */
     long                        prep_start_timestamp;
+    long                        load_start_timestamp;
     long                        exec_start_timestamp;
     long                        commit_start_timestamp;
     /* When a program is deployed or upgraded, we must queue it to be
