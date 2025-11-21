@@ -100,3 +100,27 @@ fd_inflight_t *
 fd_inflights_request_query( fd_inflights_t * table, ulong nonce ) {
   return fd_inflight_map_ele_query( table->map, &nonce, NULL, table->pool );
 }
+
+#include <stdio.h>
+
+void
+fd_inflights_print( fd_inflight_map_t * map, fd_inflight_t * pool ) {
+  printf("%-15s %-8s %-15s %-44s\n", "Slot", "Idx", "Timestamp", "Peer");
+  printf("%-15s %-8s %-15s %-44s\n",
+          "---------------", "--------", "------------",
+          "--------------------------------------------");
+
+  for( fd_inflight_map_iter_t iter = fd_inflight_map_iter_init( map, pool );
+       !fd_inflight_map_iter_done( iter, map, pool );
+       iter = fd_inflight_map_iter_next( iter, map, pool ) ) {
+    fd_inflight_t * inflight_req = fd_inflight_map_iter_ele( iter, map, pool );
+    FD_BASE58_ENCODE_32_BYTES( inflight_req->pubkey.uc, peer );
+
+    printf("%-15lu %-8lu %-15lu %-44.44s\n",
+            inflight_req->slot,
+            inflight_req->shred_idx,
+            (ulong)inflight_req->timestamp_ns / (ulong)1e6,
+            peer);
+  }
+  printf("\n");
+}

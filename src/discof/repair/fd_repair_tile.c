@@ -1,94 +1,18 @@
-/*  REQUEST HANDLING ARCHITECTURE
-    =========================================
+/* The repair tile is responsible for repairing missing shreds that were
+   not received via Turbine.
 
-    The repair tile implements two distinct request handling patterns
-    based on the nature of the operation and its latency requirements:
+   Generally there are two distinct traffic patterns:
 
-    1. SYNCHRONOUS REQUEST HANDLING
-    -----------------------------------------
-    Used for lightweight protocol messages that require immediate
-    signing and response. These operations use the keyguard client for
-    direct signing, which requires blocking.
+   1. Firedancer boots up and fires off a large number of repairs to
+      recover all the blocks between the snapshot on which it is booting
+      and the head of the chain.  In this mode, repair tile utilization
+      is very high along with net and sign utilization.
 
-    Message types handled synchronously:
-    - PINGs & PONGs: Handles peer connectivity and liveness with simple
-      round-trip messages.
-
-    - PEER WARM UPs: On receiving peer information in
-      handle_new_cluster_contact_info, we prepay the RTT cost by sending
-      a placeholder Repair request immediately.
-
-    2. ASYNCHRONOUS REQUEST HANDLING
-    --------------------------------
-    Used strictly for repair requests. These requests are sent to the
-    sign tile, and the repair tile continues handling other operations
-    without blocking. Once the sign tile has signed the request, the
-    repair tile will complete the request from its pending sign request
-    deque and send the response.
-
-    Note we do MANUAL credit tracking for these asynchronous sign links
-    (see out_ctx_t definition).  In particular, credits tracks the
-    RETURN sign_repair link.  This is because repair_sign is reliable,
-    and sign_repair is unreliable.  If both links were reliable, and the
-    links filled completely, stem would get into a deadlock. Neither
-    repair or sign would have credits, which would prevent frags from
-    getting polled in repair or sign, which would prevent any credits
-    from getting returned back to the tiles.
-
-    Thus the sign_repair link must be unreliable. This is mostly ok,
-    because repair_sign is still reliable, so in theory repair_tile
-    would never publish enough frags such that sign_repair would get
-    overrun.
-
-    However, there is a fairly common case that breaks this.  Consider
-    the scenario
-
-            repair_sign (depth 128)        sign_repair (depth 128)
-    repair  ---------------------->  sign ------------------------> repair
-            [rest free, r130, r129]       [r128, r127, ... , r1] (full)
-
-    This would happen because repair is publishing too many requests too
-    fast(common in catchup), and not polling enough frags from sign.
-    Nothing is stopping repair from publishing more requests, because
-    sign is functioning fast enough to handle the requests. However,
-    nothing is stopping sign from polling the next request and signing
-    it, and PUBLISHING it on the sign_repair link that is already full,
-    because the sign_repair link is unreliable.
-
-    In fact the only time we could stop repair from publishing more
-    requests is if repair_sign was full, and repair would get
-    backpressured, but sign would still be able to poll requests and
-    overrun the sign_repair link.
-
-    This is why we need to manually track credits for the sign_repair
-    link. We must ensure that there are never more than 128 items in the
-    ENTIRE repair_sign -> sign tile -> sign_repair work queue, else
-    there is always a possibility of an overrun in the sign_repair link.
-
-    To lose a frag to overrun isn't necessarily critical, but in general
-    the repair tile relies on the fact that a signing task published to
-    sign tile will always come back.  If we lose a frag to overrun, then
-    there will be an entry in the pending signs structure that is never
-    removed, and theoretically the map could fill up. Conceptually, with
-    a reliable sign->repair->sign structure, there should be no eviction
-    needed in this pending signs structure.
-
-    Message types handled asynchronously:
-    - WINDOW_INDEX (exact shred): Requests for a specific shred at a
-      known slot and index. Used when the repair tile knows exactly
-      which shred is missing from a FEC set.
-
-    - HIGHEST_WINDOW_INDEX: Requests for the highest shred in a slot.
-      Used to determine the end boundary of a slot when the exact count
-      is unknown.
-
-    - ORPHAN: Requests for the highest shred in the parent slot of an
-      orphaned slot. Used to establish the chain of slot ancestry when a
-      slot's parent is missing.
-
-    Async requests can be distributed across multiple sign tiles using
-    round-robin based on the request nonce. This provides load balancing
-    and prevents any single sign tile from becoming a bottleneck. */
+   2. Firedancer catches up to the head of the chain and enters steady
+      state where most shred traffic is delivered over turbine.  In this
+      state, repairs are only occasionally needed to recover shreds lost
+      due to anomalies like packet loss, transmitter (leader) never sent
+      them or even a malicious leader etc. */
 
 #define _GNU_SOURCE
 
@@ -162,13 +86,59 @@ struct out_ctx {
   ulong         wmark;
   ulong         chunk;
 
-  ulong         in_idx;       /* index of the incoming link */
-  ulong         credits;      /* available credits for link */
-  ulong         max_credits;  /* maximum credits (depth) */
+  /* Repair tile directly tracks credit outside of stem for these
+     asynchronous sign links.  In particular, credits tracks the RETURN
+     sign_repair link.  This is because repair_sign is reliable, and
+     sign_repair is unreliable.  If both links were reliable, and the
+     links filled completely, stem would get into a deadlock. Neither
+     repair or sign would have credits, which would prevent frags from
+     getting polled in repair or sign, which would prevent any credits
+     from getting returned back to the tiles.  credits / max_credits are
+     used by the repair_sign link.  In particular, credits manages the
+     RETURN sign_repair link.
 
-  /* credits / max_credits are used by the repair_sign link.  In
-     particular, credits manages the RETURN sign_repair link.  See top
-     of file for more details. */
+     Thus the sign_repair link must be unreliable. This is mostly ok,
+     because repair_sign is still reliable, so in theory repair_tile
+     would never publish enough frags such that sign_repair would get
+     overrun.
+
+     However, there is a fairly common case that breaks this.  Consider
+     the scenario
+
+             repair_sign (depth 128)        sign_repair (depth 128)
+     repair  ---------------------->  sign ------------------------> repair
+             [rest free, r130, r129]       [r128, r127, ... , r1] (full)
+
+     This would happen because repair is publishing too many requests
+     too fast(common in catchup), and not polling enough frags from
+     sign. Nothing is stopping repair from publishing more requests,
+     because sign is functioning fast enough to handle the requests.
+     However, nothing is stopping sign from polling the next request and
+     signing it, and PUBLISHING it on the sign_repair link that is
+     already full, because the sign_repair link is unreliable.
+
+     In fact the only time we could stop repair from publishing more
+     requests is if repair_sign was full, and repair would get
+     backpressured, but sign would still be able to poll requests and
+     overrun the sign_repair link.
+
+     This is why we need to manually track credits for the sign_repair
+     link. We must ensure that there are never more than 128 items in
+     the ENTIRE repair_sign -> sign tile -> sign_repair work queue, else
+     there is always a possibility of an overrun in the sign_repair
+     link.
+
+     To lose a frag to overrun isn't necessarily critical, but in
+     general the repair tile relies on the fact that a signing task
+     published to sign tile will always come back.  If we lose a frag to
+     overrun, then there will be an entry in the pending signs structure
+     that is never removed, and theoretically the map could fill up.
+     Conceptually, with a reliable sign->repair->sign structure, there
+     should be no eviction needed in this pending signs structure. */
+
+  ulong in_idx;      /* index of the incoming link */
+  ulong credits;     /* available credits for link */
+  ulong max_credits; /* maximum credits (depth) */
 };
 typedef struct out_ctx out_ctx_t;
 
@@ -185,6 +155,7 @@ typedef struct fd_fec_sig fd_fec_sig_t;
 
 /* Data needed to sign and send a pong that is not contained in the
    pong msg itself. */
+
 struct pong_data {
   fd_ip4_port_t  peer_addr;
   fd_hash_t      hash;
@@ -253,7 +224,7 @@ struct ctx {
   fd_forest_t    * forest;
   fd_fec_sig_t   * fec_sigs;
   fd_policy_t    * policy;
-  fd_inflights_t * inflight;
+  fd_inflights_t * inflights;
   fd_repair_t    * protocol;
 
   fd_pubkey_t identity_public_key;
@@ -279,19 +250,20 @@ struct ctx {
   out_ctx_t shred_out_ctx[ MAX_SHRED_TILE_CNT ];
 
   /* repair_sign links (to sign tiles 1+) - for round-robin distribution */
+
   ulong     repair_sign_cnt;
   out_ctx_t repair_sign_out_ctx[ MAX_SIGN_TILE_CNT ];
 
   ulong     sign_rrobin_idx;
 
   /* Pending sign requests for async operations */
+
   uint             pending_key_next;
   sign_req_t     * signs_map;  /* contains any request currently in the repair->sign or sign->repair dcache */
   sign_pending_t * sign_queue; /* contains any request waiting to be dispatched to repair->sign */
 
   ushort net_id;
-  /* Includes Ethernet, IP, UDP headers */
-  uchar buffer[ MAX_BUFFER_SIZE ];
+  uchar buffer[ MAX_BUFFER_SIZE ]; /* includes Ethernet, IP, UDP headers */
   fd_ip4_udp_hdrs_t intake_hdr[1];
   fd_ip4_udp_hdrs_t serve_hdr [1];
 
@@ -309,6 +281,7 @@ struct ctx {
   } metrics[ 1 ];
 
   /* Slot-level metrics */
+
   fd_repair_metrics_t * slot_metrics;
   ulong turbine_slot0;  // catchup considered complete after this slot
   struct {
@@ -652,13 +625,13 @@ after_sign( ctx_t             * ctx,
          peers. The only thing we can do is to add this artificially to
          the inflights table, pretend we've sent it and let the inflight
          timeout request it down the line. */
-      fd_inflights_request_insert( ctx->inflight, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
+      fd_inflights_request_insert( ctx->inflights, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
     }
     return;
   }
   /* Happy path - all is well, our peer didn't drop out from beneath us. */
   if( FD_LIKELY( is_regular_req ) ) {
-    fd_inflights_request_insert( ctx->inflight, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
+    fd_inflights_request_insert( ctx->inflights, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
     fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
   }
   send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -676,7 +649,7 @@ after_shred( ctx_t      * ctx,
   if( FD_LIKELY( !is_code ) ) {
     long rtt = 0;
     fd_pubkey_t peer;
-    if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_remove( ctx->inflight, nonce, &peer ) ) > 0 ) ) {
+    if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_remove( ctx->inflights, nonce, &peer ) ) > 0 ) ) {
       fd_policy_peer_response_update( ctx->policy, &peer, rtt );
       fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
     }
@@ -952,10 +925,10 @@ after_credit( ctx_t *             ctx,
     return;
   }
 
-  if( FD_UNLIKELY( fd_inflights_should_drain( ctx->inflight, now ) ) ) {
+  if( FD_UNLIKELY( fd_inflights_should_drain( ctx->inflights, now ) ) ) {
     ulong nonce; ulong slot; ulong shred_idx;
     *charge_busy = 1;
-    fd_inflights_request_pop( ctx->inflight, &nonce, &slot, &shred_idx );
+    fd_inflights_request_pop( ctx->inflights, &nonce, &slot, &shred_idx );
     fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
     if( FD_UNLIKELY( blk && !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
@@ -964,7 +937,7 @@ after_credit( ctx_t *             ctx,
         /* No peers. But we CANNOT lose this request. */
         /* Add this request to the inflights table, pretend we've sent it and let the inflight timeout request it down the line. */
         fd_hash_t hash = { .ul[0] = 0 };
-        fd_inflights_request_insert( ctx->inflight, ctx->policy->nonce++, &hash, slot, shred_idx );
+        fd_inflights_request_insert( ctx->inflights, ctx->policy->nonce++, &hash, slot, shred_idx );
       } else {
         fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)((ulong)now / 1e6L), ctx->policy->nonce++, slot, shred_idx );
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
@@ -1019,7 +992,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->protocol     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),         fd_repair_footprint     ()                                       );
   ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),         fd_forest_footprint     ( tile->repair.slot_max )                );
   ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),         fd_policy_footprint     ( FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX ) );
-  ctx->inflight     = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),      fd_inflights_footprint  ()                                       );
+  ctx->inflights     = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),      fd_inflights_footprint  ()                                       );
   ctx->fec_sigs     = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(),        fd_fec_sig_footprint    ( 20 )                                   );
   ctx->signs_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint  ( lg_sign_depth )                        );
   ctx->sign_queue   = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                       );
@@ -1029,7 +1002,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->protocol     = fd_repair_join        ( fd_repair_new        ( ctx->protocol, &ctx->identity_public_key                              ) );
   ctx->forest       = fd_forest_join        ( fd_forest_new        ( ctx->forest,   tile->repair.slot_max, ctx->repair_seed                ) );
   ctx->policy       = fd_policy_join        ( fd_policy_new        ( ctx->policy,   FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX, ctx->repair_seed ) );
-  ctx->inflight     = fd_inflights_join     ( fd_inflights_new     ( ctx->inflight                                                         ) );
+  ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( ctx->inflights                                                        ) );
   ctx->fec_sigs     = fd_fec_sig_join       ( fd_fec_sig_new       ( ctx->fec_sigs, 20, 0UL                                                ) );
   ctx->signs_map    = fd_signs_map_join     ( fd_signs_map_new     ( ctx->signs_map, lg_sign_depth, 0UL                                    ) );
   ctx->sign_queue   = fd_signs_queue_join   ( fd_signs_queue_new   ( ctx->sign_queue                                                       ) );
