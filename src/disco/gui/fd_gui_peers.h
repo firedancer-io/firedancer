@@ -288,7 +288,7 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
   LIVE_TABLE_COL_ENTRY( "Stake",        stake,                                                                    live_table_col_stake_lt  ), \
   LIVE_TABLE_COL_ENTRY( "Pubkey",       contact_info.pubkey,                                                      live_table_col_pubkey_lt ), \
   LIVE_TABLE_COL_ENTRY( "Name",         name,                                                                     live_table_col_name_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "CC",           country_code_idx,                                                         live_table_col_uchar_lt  ), \
+  LIVE_TABLE_COL_ENTRY( "Country",      country_code_idx,                                                         live_table_col_uchar_lt  ), \
   LIVE_TABLE_COL_ENTRY( "IP Addr",      contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr,               live_table_col_ipv4_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Ingress Push", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Ingress Pull", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
