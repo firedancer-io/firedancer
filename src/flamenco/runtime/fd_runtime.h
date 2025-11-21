@@ -216,6 +216,9 @@ struct fd_txn_out {
     /* If the transaction has a nonce account that must be advanced,
        this would be !=ULONG_MAX. */
     fd_txn_account_t                rollback_fee_payer[ 1 ];
+
+    fd_pubkey_t                     pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_account_meta_t *             metas[ MAX_TX_ACCOUNT_LOCKS ];
   } accounts;
 };
 typedef struct fd_txn_out fd_txn_out_t;

@@ -1535,6 +1535,9 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 
+  memcpy( &txn_out->accounts.pubkeys[idx], acc, sizeof(fd_pubkey_t) );
+  txn_out->accounts.metas[ idx ] = account_meta;
+
   return txn_account;
 }
 
