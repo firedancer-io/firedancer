@@ -4,6 +4,10 @@
 #include "../../fd_borrowed_account.h"
 #include "../../../types/fd_types.h"
 
+/**********************************************************************/
+/* Getters                                                            */
+/**********************************************************************/
+
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1074 */
 int
 fd_vsv_get_state( fd_txn_account_t const * self,
@@ -17,27 +21,33 @@ uchar
 fd_vsv_get_commission( fd_vote_state_versioned_t * self );
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L752-L757 */
-fd_landed_vote_t *
+fd_landed_vote_t const *
 fd_vsv_get_votes( fd_vote_state_versioned_t * self );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L787-L792 */
+ulong const *
+fd_vsv_get_last_voted_slot( fd_vote_state_versioned_t * self );
+
+ulong const *
+fd_vsv_get_root_slot( fd_vote_state_versioned_t * self );
+
+fd_vote_block_timestamp_t const *
+fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self );
+
+/**********************************************************************/
+/* Mutable getters                                                    */
+/**********************************************************************/
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L815-L820 */
 fd_vote_epoch_credits_t *
-fd_vsv_get_epoch_credits( fd_vote_state_versioned_t * self );
+fd_vsv_get_epoch_credits_mutable( fd_vote_state_versioned_t * self );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L787-L792 */
-ulong *
-fd_vsv_get_last_voted_slot( fd_vote_state_versioned_t * self );
+fd_landed_vote_t *
+fd_vsv_get_votes_mutable( fd_vote_state_versioned_t * self );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L172-L180 */
-void
-fd_vsv_pop_expired_votes( fd_vote_state_versioned_t * self, ulong next_vote_slot );
-
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L638-L651 */
-void
-fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
-                               ulong                       next_vote_slot,
-                               ulong                       epoch,
-                               ulong                       current_slot );
+/**********************************************************************/
+/* Setters                                                            */
+/**********************************************************************/
 
 int
 fd_vsv_set_state( fd_borrowed_account_t *     self,
@@ -84,6 +94,34 @@ fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                fd_borrowed_account_t *     vote_account,
                                fd_vote_state_versioned_t * versioned,
                                uchar *                     vote_lockout_mem );
+
+/**********************************************************************/
+/* General functions                                                  */
+/**********************************************************************/
+
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L282-L309 */
+void
+fd_vsv_increment_credits( fd_vote_state_versioned_t * self,
+                          ulong                       epoch,
+                          ulong                       credits );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L159-L170 */
+int
+fd_vsv_process_timestamp( fd_exec_instr_ctx_t *       ctx,
+                          fd_vote_state_versioned_t * self,
+                          ulong                       slot,
+                          long                        timestamp );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L172-L180 */
+void
+fd_vsv_pop_expired_votes( fd_vote_state_versioned_t * self, ulong next_vote_slot );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L638-L651 */
+void
+fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
+                               ulong                       next_vote_slot,
+                               ulong                       epoch,
+                               ulong                       current_slot );
 
 /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L40-L98 */
 int

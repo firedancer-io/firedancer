@@ -18,5 +18,15 @@ fd_vote_signature_verify( fd_pubkey_t *       epoch_authorized_voter,
 uchar
 fd_vote_compute_vote_latency( ulong voted_for_slot, ulong current_slot );
 
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L673
+ulong
+fd_vote_credits_for_vote_at_index( fd_landed_vote_t const * votes,
+                                   ulong                    index );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L773-L778 */
+uchar
+fd_vote_contains_slot( fd_landed_vote_t const * votes,
+                       ulong                    slot );
+
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_common_h */
 
