@@ -574,29 +574,30 @@ fd_vm_delete( void * shmem ) {
 
 fd_vm_t *
 fd_vm_init(
-   fd_vm_t * vm,
-   fd_exec_instr_ctx_t *instr_ctx,
-   ulong heap_max,
-   ulong entry_cu,
-   uchar const * rodata,
-   ulong rodata_sz,
-   ulong const * text,
-   ulong text_cnt,
-   ulong text_off,
-   ulong text_sz,
-   ulong entry_pc,
-   ulong const * calldests,
-   ulong sbpf_version,
-   fd_sbpf_syscalls_t * syscalls,
-   fd_vm_trace_t * trace,
-   fd_sha256_t * sha,
-   fd_vm_input_region_t * mem_regions,
-   uint mem_regions_cnt,
+   fd_vm_t *                 vm,
+   fd_exec_instr_ctx_t *     instr_ctx,
+   ulong                     heap_max,
+   ulong                     entry_cu,
+   uchar const *             rodata,
+   ulong                     rodata_sz,
+   ulong const *             text,
+   ulong                     text_cnt,
+   ulong                     text_off,
+   ulong                     text_sz,
+   ulong                     entry_pc,
+   ulong const *             calldests,
+   ulong                     sbpf_version,
+   fd_sbpf_syscalls_t *      syscalls,
+   fd_vm_trace_t *           trace,
+   fd_sha256_t *             sha,
+   fd_vm_input_region_t *    mem_regions,
+   uint                      mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,
-   uchar is_deprecated,
-   int direct_mapping,
-   int stricter_abi_and_runtime_constraints,
-   int dump_syscall_to_pb ) {
+   uchar                     is_deprecated,
+   int                       direct_mapping,
+   int                       stricter_abi_and_runtime_constraints,
+   int                       dump_syscall_to_pb,
+   ulong                     r2_initial_value ) {
 
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
@@ -648,30 +649,14 @@ fd_vm_init(
   vm->segv_access_type                     = 0;
   vm->dump_syscall_to_pb                   = dump_syscall_to_pb;
 
-  /* Unpack the configuration */
-  int err = fd_vm_setup_state_for_execution( vm );
-  if( FD_UNLIKELY( err != FD_VM_SUCCESS ) ) {
-    return NULL;
-  }
-
-  return vm;
-}
-
-int
-fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
-
-  if ( FD_UNLIKELY( !vm ) ) {
-    FD_LOG_WARNING(( "NULL vm" ));
-    return FD_VM_ERR_INVAL;
-  }
-
   /* Unpack input and rodata */
   fd_vm_mem_cfg( vm );
 
   /* Initialize registers */
   /* FIXME: Zero out shadow, stack and heap here? */
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
-  vm->reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm->reg[1]  = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm->reg[2]  = r2_initial_value;
   /* https://github.com/solana-labs/rbpf/blob/4ad935be45e5663be23b30cfc750b1ae1ad03c44/src/vm.rs#L326-L333 */
   vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START +
     ( FD_VM_SBPF_DYNAMIC_STACK_FRAMES( vm->sbpf_version ) ? FD_VM_STACK_MAX : FD_VM_STACK_FRAME_SZ );
@@ -687,5 +672,5 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
 
   /* Do NOT reset logs */
 
-  return FD_VM_SUCCESS;
+  return vm;
 }
