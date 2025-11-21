@@ -168,7 +168,7 @@ test_cas_inc_async( void ) {
 
 racesan allows racing algorithms against one another.
 
-Races between real routines routines are typically more complex than
+Races between real routines are typically more complex than
 what can practically be modelled with fault injection.
 
 Consider the following scenario:
