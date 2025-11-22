@@ -1,6 +1,7 @@
 #include "fd_txn_account.h"
 #include "fd_runtime.h"
 #include "../accdb/fd_accdb_sync.h"
+#include "../accdb/fd_accdb_impl_v1.h"
 #include "program/fd_program_util.h"
 
 void *
@@ -160,7 +161,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
   memset( prepare_out, 0, sizeof(fd_funk_rec_prepare_t) );
 
   fd_accdb_rw_t rw[1];
-  if( FD_UNLIKELY( !fd_accdb_modify_prepare( accdb, rw, xid, pubkey->uc, min_data_sz, do_create ) ) ) {
+  if( FD_UNLIKELY( !fd_accdb_open_rw( accdb, rw, xid, pubkey->uc, min_data_sz, do_create ) ) ) {
     return NULL;
   }
 
@@ -174,8 +175,9 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
 
   /* HACKY: Convert accdb_rw writable reference into txn_account.
      In the future, use fd_accdb_modify_publish instead */
-  accdb->rw_active--;
-  fd_funk_txn_t * txn = accdb->funk->txn_pool->ele + accdb->tip_txn_idx;
+  accdb->base.rw_active--;
+  fd_accdb_user_v1_t * accdb_v1 = fd_type_pun( accdb );
+  fd_funk_txn_t * txn = accdb_v1->funk->txn_pool->ele + accdb_v1->tip_txn_idx;
   if( FD_UNLIKELY( !fd_funk_txn_xid_eq( &txn->xid, xid ) ) ) FD_LOG_CRIT(( "accdb_user corrupt: not joined to the expected transaction" ));
   if( !rw->published ) {
     *prepare_out = (fd_funk_rec_prepare_t) {
@@ -195,6 +197,7 @@ fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
                              fd_accdb_user_t *       accdb,
                              fd_funk_rec_prepare_t * prepare ) {
   fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
 
   /* Check that the prepared record is still valid -
      if these invariants are broken something is very wrong. */
@@ -215,7 +218,7 @@ fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
 
     /* Crashes the app if this key already exists in funk (conflicting
        write) */
-    fd_funk_rec_publish( accdb->funk, prepare );
+    fd_funk_rec_publish( funk, prepare );
   }
 }
 

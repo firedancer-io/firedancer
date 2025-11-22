@@ -3,8 +3,8 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/store/fd_store.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
+#include "../../funk/fd_funk.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \

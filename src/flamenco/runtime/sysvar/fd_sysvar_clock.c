@@ -5,6 +5,7 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../program/fd_program_util.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 
 /* Syvar Clock Possible Values:
   slot:
@@ -267,8 +268,9 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
                         fd_capture_ctx_t *        capture_ctx,
                         fd_runtime_stack_t *      runtime_stack,
                         ulong const *             parent_epoch ) {
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb->funk, xid, clock_ );
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( funk, xid, clock_ );
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );

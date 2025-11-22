@@ -1254,7 +1254,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   /* Get the programdata for the account */
   ulong         program_data_len = 0UL;
   uchar const * program_data     =
-      fd_prog_load_elf( runtime->funk, &xid, program_acc, &program_data_len, NULL );
+      fd_prog_load_elf( runtime->accdb, &xid, program_acc, &program_data_len, NULL );
   if( program_data==NULL ) {
     return;
   }

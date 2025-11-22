@@ -1,9 +1,8 @@
 #include "fd_builtin_programs.h"
 #include "fd_precompiles.h"
-#include "../fd_runtime.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../fd_system_ids_pp.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 
 #define BUILTIN_PROGRAM(program_id, name, feature_offset, migration_config) \
     {                                                                       \
@@ -281,9 +280,10 @@ fd_builtin_programs_init( fd_bank_t *               bank,
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/builtins/src/lib.rs#L52 */
   fd_builtin_program_t const * builtins = fd_builtins();
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
     /** https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4949 */
-    if( fd_bank_slot_get( bank )==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( accdb->funk, xid, builtins[i].pubkey ) ) {
+    if( fd_bank_slot_get( bank )==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( funk, xid, builtins[i].pubkey ) ) {
       fd_write_builtin_account( bank, accdb, xid, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen( builtins[i].data ) );
     } else if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       continue;

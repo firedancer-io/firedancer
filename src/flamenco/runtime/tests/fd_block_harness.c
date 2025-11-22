@@ -10,6 +10,7 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
 #include "../../stakes/fd_stakes.h"
@@ -248,7 +249,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                 ulong *                              out_txn_cnt,
                                 fd_hash_t *                          poh ) {
   fd_accdb_user_t * accdb = runner->accdb;
-  fd_funk_t *       funk  = runner->accdb->funk;
+  fd_funk_t *       funk  = fd_accdb_user_v1_funk( runner->accdb );
   fd_bank_t *       bank  = runner->bank;
   fd_banks_t *      banks = runner->banks;
 
@@ -507,9 +508,10 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( runner->bank ) );
     }
 
+    fd_funk_t * funk = fd_accdb_user_v1_funk( runner->accdb );
     fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->idx } };
 
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb->funk, &xid, runner->runtime_stack, capture_ctx );
+    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, funk, &xid, runner->runtime_stack, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
@@ -630,8 +632,9 @@ fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *          runn
                                              fd_funk_txn_xid_t const *      xid,
                                              fd_exec_test_block_effects_t * effects ) {
   /* Read epoch schedule sysvar */
+  fd_funk_t * funk = fd_accdb_user_v1_funk( runner->accdb );
   fd_epoch_schedule_t es_;
-  fd_epoch_schedule_t *sched = fd_sysvar_epoch_schedule_read( runner->accdb->funk, xid, &es_ );
+  fd_epoch_schedule_t *sched = fd_sysvar_epoch_schedule_read( funk, xid, &es_ );
   FD_TEST( sched!=NULL );
 
   /* We will capture the leader schedule for the current epoch that we

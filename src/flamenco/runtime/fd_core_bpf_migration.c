@@ -6,6 +6,7 @@
 #include "fd_system_ids.h"
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
+#include "../accdb/fd_accdb_impl_v1.h"
 #include <assert.h>
 
 static fd_pubkey_t
@@ -316,13 +317,14 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
                               fd_runtime_stack_t *                   runtime_stack,
                               fd_pubkey_t const *                    builtin_program_id,
                               fd_capture_ctx_t *                     capture_ctx ) {
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
 
   target_builtin_t target[1];
   if( FD_UNLIKELY( !target_builtin_new_checked(
       target,
       builtin_program_id,
       config->migration_target,
-      accdb->funk,
+      funk,
       xid,
       runtime_stack ) ) )
     return;
@@ -330,7 +332,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
   if( FD_UNLIKELY( !source_buffer_new_checked(
       source,
-      accdb->funk,
+      funk,
       xid,
       config->source_buffer_address ) ) )
     return;
@@ -372,8 +374,8 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   assert( new_target_program_data->data_sz>=PROGRAMDATA_METADATA_SIZE );
   if( FD_UNLIKELY( !fd_directly_invoke_loader_v3_deploy(
       bank,
-      accdb->funk,
-      accdb->funk->shmem,
+      funk,
+      funk->shmem,
       &target->program_account->addr,
       new_target_program_data->data   +PROGRAMDATA_METADATA_SIZE,
       new_target_program_data->data_sz-PROGRAMDATA_METADATA_SIZE ) ) ) {

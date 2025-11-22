@@ -2,6 +2,7 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../fd_acc_mgr.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 
 void
 fd_sysvar_last_restart_slot_write(
@@ -96,8 +97,9 @@ fd_sysvar_last_restart_slot_update(
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2098-L2106 */
   ulong last_restart_slot_have = ULONG_MAX;
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_sol_sysvar_last_restart_slot_t sysvar;
-  if( FD_LIKELY( fd_sysvar_last_restart_slot_read( accdb->funk, xid, &sysvar ) ) ) {
+  if( FD_LIKELY( fd_sysvar_last_restart_slot_read( funk, xid, &sysvar ) ) ) {
     last_restart_slot_have = sysvar.slot;
   }
 
