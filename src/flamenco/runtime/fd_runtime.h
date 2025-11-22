@@ -4,9 +4,10 @@
 #include "fd_runtime_helpers.h"
 
 struct fd_runtime {
-  fd_funk_t *      funk;
-  fd_txncache_t *  status_cache;
-  fd_progcache_t * progcache;
+  fd_accdb_user_t * accdb;
+  fd_funk_t *       funk;
+  fd_txncache_t *   status_cache;
+  fd_progcache_t *  progcache;
 
   struct {
     uchar                       stack_sz;                                /* Current depth of the instruction execution stack. */

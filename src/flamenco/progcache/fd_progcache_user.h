@@ -52,8 +52,9 @@
 
 #include "fd_progcache_rec.h"
 #include "fd_prog_load.h"
-#include "../../funk/fd_funk.h"
+#include "../accdb/fd_accdb_base.h"
 #include "../runtime/fd_runtime_const.h"
+#include "../../funk/fd_funk.h"
 
 #define FD_PROGCACHE_DEPTH_MAX (128UL)
 
@@ -165,7 +166,7 @@ fd_progcache_peek( fd_progcache_t *          cache,
 
 fd_progcache_rec_t const *
 fd_progcache_pull( fd_progcache_t *           cache,
-                   fd_funk_t *                accdb,
+                   fd_accdb_user_t *          accdb,
                    fd_funk_txn_xid_t const *  xid,
                    void const *               prog_addr,
                    fd_prog_load_env_t const * env );

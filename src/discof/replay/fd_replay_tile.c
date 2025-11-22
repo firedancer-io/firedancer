@@ -2,7 +2,6 @@
 #include "fd_sched.h"
 #include "fd_exec.h"
 #include "fd_vote_tracker.h"
-#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
 #include "../genesis/fd_genesi_tile.h"
@@ -21,7 +20,7 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/accdb/fd_accdb_admin.h"
-#include "../../flamenco/accdb/fd_accdb_user.h"
+#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
@@ -642,9 +641,10 @@ static ulong
 get_identity_balance( fd_replay_tile_t * ctx, fd_funk_txn_xid_t xid ) {
   ulong identity_balance = ULONG_MAX;
   fd_txn_account_t identity_acc[1];
+  fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
   int err = fd_txn_account_init_from_funk_readonly( identity_acc,
                                                     ctx->identity_pubkey,
-                                                    ctx->accdb->funk,
+                                                    funk,
                                                     &xid );
   if( FD_LIKELY( !err && identity_acc->meta ) ) identity_balance = identity_acc->meta->lamports;
 
@@ -784,7 +784,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* If enabled, dump the block to a file and reset the dumping
      context state */
   if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
-    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb->funk, ctx->capture_ctx );
+    fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
+    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, funk, ctx->capture_ctx );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
 # endif
@@ -881,7 +882,8 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx, curr_slot );
 
   /* Do hashing and other end-of-block processing */
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->accdb->funk );
+  fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
+  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( funk );
   if( FD_UNLIKELY( !txn_map->map ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
   }
@@ -984,8 +986,8 @@ init_funk( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to program cache" ));
   }
   fd_progcache_clear( ctx->progcache_admin );
-  fd_progcache_txn_attach_child( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), fd_funk_last_publish( ctx->accdb->funk ) );
-  fd_progcache_txn_advance_root( ctx->progcache_admin,                                             fd_funk_last_publish( ctx->accdb->funk ) );
+  fd_progcache_txn_attach_child( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), fd_funk_last_publish( ctx->accdb_admin->funk ) );
+  fd_progcache_txn_advance_root( ctx->progcache_admin,                                             fd_funk_last_publish( ctx->accdb_admin->funk ) );
 }
 
 static void
@@ -1000,17 +1002,18 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
   }
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
   init_funk( ctx, fd_bank_slot_get( bank ) );
 
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
 
-  fd_stake_delegations_refresh( root_delegations, ctx->accdb->funk, &xid );
+  fd_stake_delegations_refresh( root_delegations, funk, &xid );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->accdb->funk, &xid, &ctx->runtime_stack, ctx->capture_ctx );
+  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, funk, &xid, &ctx->runtime_stack, ctx->capture_ctx );
 
   ulong snapshot_slot = fd_bank_slot_get( bank );
   if( FD_UNLIKELY( !snapshot_slot ) ) {
@@ -1110,10 +1113,11 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     fd_acct_addr_t tip_receiver[1];
     fd_bundle_crank_get_addresses( ctx->bundle.gen, fd_bank_epoch_get( bank ), tip_payment_config, tip_receiver );
 
+    fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
     fd_txn_account_t tip_config_acc[1];
     int err = fd_txn_account_init_from_funk_readonly( tip_config_acc,
                                                       (fd_hash_t *)tip_payment_config->b,
-                                                      ctx->accdb->funk,
+                                                      funk,
                                                       &xid );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_CRIT(( "failed to initialize tip payment config account: err=%d", err ));
@@ -1125,7 +1129,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     fd_txn_account_t tip_receiver_acc[1];
     err = fd_txn_account_init_from_funk_readonly( tip_receiver_acc,
                                                   (fd_hash_t *)tip_receiver->b,
-                                                  ctx->accdb->funk,
+                                                  funk,
                                                   &xid );
     if( FD_LIKELY( !err ) ) {
       memcpy( tip_receiver_owner, tip_receiver_acc->meta->owner, sizeof(fd_acct_addr_t) );
@@ -1412,7 +1416,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };
 
-    fd_features_restore( bank, ctx->accdb->funk, &xid );
+    fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
+    fd_features_restore( bank, funk, &xid );
 
     fd_runtime_update_leaders( bank, &ctx->runtime_stack );
 
@@ -1712,7 +1717,7 @@ process_fec_set( fd_replay_tile_t * ctx,
   sched_fec->slot                   = reasm_fec->slot;
   sched_fec->parent_slot            = reasm_fec->slot - reasm_fec->parent_off;
   sched_fec->is_first_in_block      = reasm_fec->fec_set_idx==0U;
-  fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, fd_funk_last_publish( ctx->accdb->funk ) );
+  fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
   sched_fec->alut_ctx->accdb[0]     = ctx->accdb[0];
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
 
@@ -2389,7 +2394,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
 
   FD_TEST( fd_accdb_admin_join    ( ctx->accdb_admin,     fd_topo_obj_laddr( topo, tile->replay.funk_obj_id      ) ) );
-  FD_TEST( fd_accdb_user_join     ( ctx->accdb,           fd_topo_obj_laddr( topo, tile->replay.funk_obj_id      ) ) );
+  FD_TEST( fd_accdb_user_v1_init  ( ctx->accdb,           fd_topo_obj_laddr( topo, tile->replay.funk_obj_id      ) ) );
   FD_TEST( fd_progcache_admin_join( ctx->progcache_admin, fd_topo_obj_laddr( topo, tile->replay.progcache_obj_id ) ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
