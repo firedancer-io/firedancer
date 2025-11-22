@@ -44,7 +44,7 @@ include config/base.mk
 include config/extra/with-clang.mk
 endif
 
-BUILDDIR?=native/$(CC)
+BUILDDIR?=native/$(lastword $(CC))
 CPPFLAGS+=-march=native -mtune=native
 RUSTFLAGS+=-C target-cpu=native
 
