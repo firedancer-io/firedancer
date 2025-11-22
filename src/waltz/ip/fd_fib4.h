@@ -106,7 +106,7 @@ fd_fib4_clear( fd_fib4_t * fib );
 
 int
 fd_fib4_insert( fd_fib4_t *     fib,
-                uint            ip4_dst,
+                uint            ip4_dst, /* big endian */
                 int             prefix,
                 uint            prio,
                 fd_fib4_hop_t * hop );
@@ -117,15 +117,15 @@ fd_fib4_insert( fd_fib4_t *     fib,
    If route was not found, retval.rtype is set to FD_FIB4_RTYPE_THROW.
 
    Thread safe: Multiple threads can use the read API concurrently without
-   affecting each other.  If a write by one thread is in progress, all
-   other threads calling fd_fib4_lookup may briefly see a blackhole route
-   being returned.  (Until of the effects of the write become visible to
-   all CPUs in the system) */
+   affecting each other. If a write by one thread is in progress, all
+   other threads calling fd_fib4_lookup may 1) briefly see a blackhole route
+   being returned; 2) receive a route with rtype UNSPEC; or 3) receive a
+   valid route for a different ip4_dst. */
 
 fd_fib4_hop_t
-fd_fib4_lookup( fd_fib4_t const * fib,
-                uint              ip4_dst,
-                ulong             flags );
+fd_fib4_lookup( fd_fib4_t * fib,
+                uint        ip4_dst, /* big endian */
+                ulong       flags );
 
 /* fd_fib4_hop_or is a helper to chain together multiple FIB lookups. */
 
