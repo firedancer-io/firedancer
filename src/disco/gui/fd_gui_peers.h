@@ -215,6 +215,8 @@ struct fd_gui_peers_gossip_stats {
   ulong storage_expired_cnt;
   ulong storage_evicted_cnt;
   ulong storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong storage_cnt_rx    [ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong storage_bytes_rx  [ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong storage_cnt_tx    [ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong storage_bytes_tx  [ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong messages_push_rx_cnt;
@@ -222,9 +224,9 @@ struct fd_gui_peers_gossip_stats {
   ulong messages_pull_response_rx_cnt;
   ulong messages_pull_response_tx_cnt;
   ulong messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong messages_cnt_rx  [ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
   ulong messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong messages_cnt_tx  [ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
 };
 typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 

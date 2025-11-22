@@ -929,6 +929,11 @@ metric introduced.
     <counter name="MessageTxCount" label="Number of gossip messages sent" enum="GossipMessage" />
     <counter name="MessageTxBytes" label="Total wire bytes sent in gossip messages" enum="GossipMessage" />
 
+    <counter name="CrdsRxPushCount" label="Number of successful and failed CRDS values received in push messages" enum="CrdsValue" />
+    <counter name="CrdsRxPushBytes" label="Total wire bytes of successful and failed CRDS received in push messages" enum="CrdsValue" />
+    <counter name="CrdsRxPullResponseCount" label="Number of successful and failed CRDS values received in pull response messages" enum="CrdsValue" />
+    <counter name="CrdsRxPullResponseBytes" label="Total wire bytes of successful and failed CRDS received in pull response messages" enum="CrdsValue" />
+
     <counter name="CrdsTxPushCount" label="Number of CRDS values sent in push messages" enum="CrdsValue" />
     <counter name="CrdsTxPushBytes" label="Total wire bytes of CRDS sent out in push messages" enum="CrdsValue" />
     <counter name="CrdsTxPullResponseCount" label="Number of CRDS values sent in pull response messages" enum="CrdsValue" />
@@ -1141,6 +1146,7 @@ metric introduced.
     <counter name="HardForksSeen" summary="Number of hard forks we've seen (block ids with multiple candidate bank hashes)" />
     <counter name="HardForksPruned" summary="Number of hard forks (candidate bank hashes) we've pruned" />
     <gauge name="HardForksActive" summary="Currently active hard forks" />
+    <gauge name="HardForksMaxWidth" summary="The max width of hard forks (block id with most candidate bank hashes) we've ever seen" />
 </tile>
 
 <tile name="gui">
