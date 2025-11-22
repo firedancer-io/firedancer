@@ -121,25 +121,25 @@ fd_neigh4_netlink_ingest_message( fd_neigh4_hmap_t *      map,
 
   if( remove ) {
 
-    fd_neigh4_hmap_remove( map, &ip4_dst, NULL, FD_MAP_FLAG_BLOCKING );
+    fd_neigh4_entry_t * e = fd_neigh4_hmap_query( map, ip4_dst, NULL );
+    if( FD_LIKELY( e ) ) fd_neigh4_hmap_remove( map, e );
 
   } else {
+    fd_neigh4_entry_t to_insert = {
+      .ip4_addr = ip4_dst,
+      .state    = FD_NEIGH4_STATE_ACTIVE,
+    };
+    memcpy( to_insert.mac_addr, mac_addr.u6, 6 );
 
-    fd_neigh4_hmap_query_t query[1];
-    int prepare_res = fd_neigh4_hmap_prepare( map, &ip4_dst, NULL, query, FD_MAP_FLAG_BLOCKING );
-    if( FD_UNLIKELY( prepare_res!=FD_MAP_SUCCESS ) ) {
+    fd_neigh4_entry_t *       ele = fd_neigh4_hmap_insert( map, ip4_dst       );
+    if( FD_UNLIKELY( !ele ) ) ele = fd_neigh4_hmap_query(  map, ip4_dst, NULL );
+    if( FD_UNLIKELY( !ele ) ) {
       FD_LOG_WARNING(( "Failed to update neighbor table" ));
       return;
     }
 
-    fd_neigh4_entry_t * ele = fd_neigh4_hmap_query_ele( query );
-
-    ele->state    = FD_NEIGH4_STATE_ACTIVE;
-    ele->ip4_addr = ip4_dst;
-    memcpy( ele->mac_addr, mac_addr.u6, 6 );
-
-    fd_neigh4_hmap_publish( query );
-
+    to_insert.probe_suppress_until = ele->probe_suppress_until;
+    fd_neigh4_entry_atomic_st( ele, &to_insert );
   }
 
 }

@@ -29,24 +29,13 @@ dump_neighbor_table( fd_neigh4_hmap_t * map,
   fputs( "\n", stderr );
 
   /* Reinitialize table */
-
-  ulong  ele_max   = fd_neigh4_hmap_ele_max  ( map );
-  ulong  lock_cnt  = fd_neigh4_hmap_lock_cnt ( map );
-  ulong  probe_max = fd_neigh4_hmap_probe_max( map );
-  ulong  seed      = fd_neigh4_hmap_seed     ( map );
-  void * shmap     = fd_neigh4_hmap_shmap    ( map );
-  void * shele     = fd_neigh4_hmap_shele    ( map );
-  void * ljoin     = fd_neigh4_hmap_leave    ( map );
-  fd_neigh4_hmap_delete( shmap );
-  fd_memset( shele, 0, ele_max*sizeof(fd_neigh4_entry_t) );
-  FD_TEST( fd_neigh4_hmap_new( shmap, ele_max, lock_cnt, probe_max, seed ) );
-  FD_TEST( fd_neigh4_hmap_join( ljoin, shmap, shele ) );
+  fd_neigh4_hmap_clear( map );
 }
 
 static void
-dump_all_neighbor_tables( fd_neigh4_hmap_t * map,
-                          fd_netlink_t *     netlink0,
-                          fd_netlink_t *     netlink1 ) {
+dump_all_neighbor_tables( fd_neigh4_hmap_t *  map,
+                          fd_netlink_t *      netlink0,
+                          fd_netlink_t *      netlink1 ) {
 
   /* List all network interfaces */
 
@@ -124,17 +113,12 @@ main( int     argc,
   FD_TEST( netlink0 );
   FD_TEST( netlink1 );
 
-  ulong  ele_max   = 16384UL;
-  ulong  lock_cnt  = 4UL;
-  ulong  probe_max = 16UL;
-  ulong  seed      = 42UL;
-  void * hmap_mem  = fd_wksp_alloc_laddr( wksp, fd_neigh4_hmap_align(), fd_neigh4_hmap_footprint( ele_max, lock_cnt, probe_max ), 1UL );
-  void * ele_mem   = fd_wksp_alloc_laddr( wksp, alignof(fd_neigh4_entry_t), ele_max*sizeof(fd_neigh4_entry_t), 1UL );
-  FD_TEST( hmap_mem ); FD_TEST( ele_mem );
-  FD_TEST( fd_neigh4_hmap_new( hmap_mem, ele_max, lock_cnt, probe_max, seed ) );
-
-  fd_neigh4_hmap_t _map[1];
-  fd_neigh4_hmap_t * map = fd_neigh4_hmap_join( _map, hmap_mem, ele_mem );
+  ulong  ele_max     = 16384UL;
+  ulong  seed        = 42UL;
+  int    lg_slot_cnt = fd_neigh4_hmap_est_lg_slot_cnt( ele_max );
+  void * hmap_mem    = fd_wksp_alloc_laddr( wksp, fd_neigh4_hmap_align(), fd_neigh4_hmap_footprint( lg_slot_cnt ), 1UL );
+  FD_TEST( hmap_mem );
+  fd_neigh4_hmap_t * map = fd_neigh4_hmap_join( fd_neigh4_hmap_new( hmap_mem, lg_slot_cnt, seed ) );
   FD_TEST( map );
 
   dump_all_neighbor_tables( map, netlink0, netlink1 );
@@ -143,8 +127,8 @@ main( int     argc,
   fd_netlink_fini( netlink1 );
 
   fd_neigh4_hmap_leave( map );
+
   fd_wksp_free_laddr( fd_neigh4_hmap_delete( hmap_mem ) );
-  fd_wksp_free_laddr( ele_mem );
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));

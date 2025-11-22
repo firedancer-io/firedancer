@@ -231,7 +231,7 @@ typedef struct {
   /* Route and neighbor tables */
   fd_fib4_t const * fib_local;
   fd_fib4_t const * fib_main;
-  fd_neigh4_hmap_t  neigh4[1];
+  fd_neigh4_hmap_t * neigh4;
   fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
 
   /* Netdev table */
@@ -599,28 +599,22 @@ net_tx_route( fd_net_ctx_t * ctx,
   uint neigh_ip = next_hop->ip4_gw;
   if( !neigh_ip ) neigh_ip = dst_ip;
 
-  fd_neigh4_hmap_query_t neigh_query[1];
-  int neigh_res = fd_neigh4_hmap_query_try( ctx->neigh4, &neigh_ip, NULL, neigh_query, 0 );
-  if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
+  fd_neigh4_entry_t val_tmp[1];
+  int neigh_ok = fd_neigh4_hmap_query_entry( ctx->neigh4, neigh_ip, val_tmp );
+  if( FD_UNLIKELY( !neigh_ok ) ) {
     /* Neighbor not found */
     fd_netlink_neigh4_solicit( ctx->neigh4_solicit, neigh_ip, if_idx, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
-  fd_neigh4_entry_t const * neigh = fd_neigh4_hmap_query_ele_const( neigh_query );
-  if( FD_UNLIKELY( neigh->state != FD_NEIGH4_STATE_ACTIVE ) ) {
+  if( FD_UNLIKELY( val_tmp->state != FD_NEIGH4_STATE_ACTIVE ) ) {
     ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
   ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
   ctx->tx_op.src_ip = ip4_src;
-  memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,  6 );
-  memcpy( ctx->tx_op.mac_addrs+6, netdev->mac_addr, 6 );
-
-  if( FD_UNLIKELY( fd_neigh4_hmap_query_test( neigh_query ) ) ) {
-    ctx->metrics.tx_neigh_fail_cnt++;
-    return 0;
-  }
+  memcpy( ctx->tx_op.mac_addrs+0, val_tmp->mac_addr, 6 );
+  memcpy( ctx->tx_op.mac_addrs+6, netdev->mac_addr,  6 );
 
   return 1;
 }
@@ -1507,12 +1501,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->fib_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->xdp.fib4_local_obj_id ) );
   ctx->fib_main  = fd_fib4_join( fd_topo_obj_laddr( topo, tile->xdp.fib4_main_obj_id  ) );
   if( FD_UNLIKELY( !ctx->fib_local || !ctx->fib_main ) ) FD_LOG_ERR(( "fd_fib4_join failed" ));
-  if( FD_UNLIKELY( !fd_neigh4_hmap_join(
-      ctx->neigh4,
-      fd_topo_obj_laddr( topo, tile->xdp.neigh4_obj_id ),
-      fd_topo_obj_laddr( topo, tile->xdp.neigh4_ele_obj_id ) ) ) ) {
-    FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
-  }
+  ctx->neigh4 = fd_neigh4_hmap_join( fd_topo_obj_laddr( topo, tile->xdp.neigh4_obj_id ) );
+  if( FD_UNLIKELY( !ctx->neigh4 ) ) FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
 
   init_device_table( ctx, fd_topo_obj_laddr( topo, tile->xdp.netdev_dbl_buf_obj_id ) );
 

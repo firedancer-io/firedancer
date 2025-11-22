@@ -31,13 +31,11 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   fd_topo_obj_t * fib4_main_obj      = fd_topob_obj( topo, "fib4",        "netbase" );
   fd_topo_obj_t * fib4_local_obj     = fd_topob_obj( topo, "fib4",        "netbase" );
   fd_topo_obj_t * neigh4_obj         = fd_topob_obj( topo, "neigh4_hmap", "netbase" );
-  fd_topo_obj_t * neigh4_ele_obj     = fd_topob_obj( topo, "opaque",      "netbase" );
 
   fd_topob_tile_uses( topo, netlink_tile, netdev_dbl_buf_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, netlink_tile, fib4_main_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, netlink_tile, fib4_local_obj,     FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, netlink_tile, neigh4_obj,         FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, netlink_tile, neigh4_ele_obj,     FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /* Configure double buffer of netdev table */
   ulong const netdev_dbl_buf_mtu = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
@@ -53,16 +51,8 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   FD_TEST( fd_pod_insertf_ulong( topo->props, fib4_seed, "obj.%lu.route_peer_seed", fib4_local_obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, fib4_seed, "obj.%lu.route_peer_seed", fib4_main_obj->id  ) );
 
-  /* Configure neighbor hashmap: Open addressed hashmap with 3.0 sparsity
-     factor and 16 long probe chain */
-  ulong const neigh_ele_max   = fd_ulong_pow2_up( 3UL * netlnk_max_neighbors );
-  ulong const neigh_ele_align = alignof(fd_neigh4_entry_t);
-  ulong const neigh_ele_fp    = neigh_ele_max * sizeof(fd_neigh4_entry_t);
-  FD_TEST( fd_pod_insertf_ulong( topo->props, neigh_ele_max,   "obj.%lu.ele_max",   neigh4_obj->id     ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, 16UL,            "obj.%lu.probe_max", neigh4_obj->id     ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props,  4UL,            "obj.%lu.lock_cnt",  neigh4_obj->id     ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, neigh_ele_align, "obj.%lu.align",     neigh4_ele_obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, neigh_ele_fp,    "obj.%lu.footprint", neigh4_ele_obj->id ) );
+  /* Configure neighbor hashmap */
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_neighbors, "obj.%lu.ele_max", neigh4_obj->id ) );
 
   /* Pick a random hashmap seed */
   ulong neigh4_seed;
@@ -74,7 +64,6 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   netlink_tile->netlink.fib4_local_obj_id     = fib4_local_obj->id;
   memcpy( netlink_tile->netlink.neigh_if, bind_interface, sizeof(netlink_tile->netlink.neigh_if) );
   netlink_tile->netlink.neigh4_obj_id         = neigh4_obj->id;
-  netlink_tile->netlink.neigh4_ele_obj_id     = neigh4_ele_obj->id;
 }
 
 void
@@ -82,7 +71,6 @@ fd_netlink_topo_join( fd_topo_t *      topo,
                       fd_topo_tile_t * netlink_tile,
                       fd_topo_tile_t * join_tile ) {
   fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_obj_id     ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_ele_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_main_obj_id  ], FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_local_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
 }
@@ -191,7 +179,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( tile->netlink.netdev_dbl_buf_obj_id );
   FD_TEST( tile->netlink.neigh4_obj_id         );
-  FD_TEST( tile->netlink.neigh4_ele_obj_id     );
   FD_TEST( tile->netlink.fib4_local_obj_id     );
   FD_TEST( tile->netlink.fib4_main_obj_id      );
 
@@ -200,9 +187,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( ctx->netdev_buf = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->netlink.netdev_dbl_buf_obj_id ) ) );
 
-  FD_TEST( fd_neigh4_hmap_join( ctx->neigh4, fd_topo_obj_laddr( topo, tile->netlink.neigh4_obj_id ), fd_topo_obj_laddr( topo, tile->netlink.neigh4_ele_obj_id ) ) );
-  ctx->fib4_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->netlink.fib4_local_obj_id ) ); FD_TEST( ctx->fib4_local );
-  ctx->fib4_main  = fd_fib4_join( fd_topo_obj_laddr( topo, tile->netlink.fib4_main_obj_id  ) ); FD_TEST( ctx->fib4_main  );
+  ctx->neigh4     = fd_neigh4_hmap_join( fd_topo_obj_laddr( topo, tile->netlink.neigh4_obj_id     ) ); FD_TEST( ctx->neigh4 );
+  ctx->fib4_local = fd_fib4_join(        fd_topo_obj_laddr( topo, tile->netlink.fib4_local_obj_id ) ); FD_TEST( ctx->fib4_local );
+  ctx->fib4_main  = fd_fib4_join(        fd_topo_obj_laddr( topo, tile->netlink.fib4_main_obj_id  ) ); FD_TEST( ctx->fib4_main  );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -381,25 +368,24 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
 
   /* Drop if the kernel is already working on the request */
 
-  fd_neigh4_hmap_query_t query[1];
-  int spec_res = fd_neigh4_hmap_query_try( ctx->neigh4, &ip4_addr, NULL, query, 0 );
-  if( spec_res==FD_MAP_SUCCESS ) {
+  fd_neigh4_entry_t * ele = fd_neigh4_hmap_query( ctx->neigh4, ip4_addr, NULL );
+  if( ele ) {
     ctx->metrics.neigh_solicits_fails++;
     return;
   }
 
   /* Insert placeholder (take above branch next time) */
 
-  int prepare_res = fd_neigh4_hmap_prepare( ctx->neigh4, &ip4_addr, NULL, query, 0 );
-  if( FD_UNLIKELY( prepare_res!=FD_MAP_SUCCESS ) ) {
+  ele = fd_neigh4_hmap_insert( ctx->neigh4, ip4_addr );
+  if( FD_UNLIKELY( !ele ) ) {
     ctx->metrics.neigh_solicits_fails++;
     return;
   }
-  fd_neigh4_entry_t * ele = fd_neigh4_hmap_query_ele( query );
-  ele->state    = FD_NEIGH4_STATE_INCOMPLETE;
-  ele->ip4_addr = ip4_addr;
-  memset( ele->mac_addr, 0, 6UL );
-  fd_neigh4_hmap_publish( query );
+  /* Atomically write the entry, initializing MAC and probe suppression timestamp to 0 */
+  *ele = (fd_neigh4_entry_t) {
+    .ip4_addr = ip4_addr,
+    .state    = FD_NEIGH4_STATE_INCOMPLETE,
+  };
 
   /* Trigger neighbor solicit via netlink */
 
