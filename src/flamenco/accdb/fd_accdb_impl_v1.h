@@ -34,6 +34,38 @@ fd_accdb_user_v1_init( fd_accdb_user_t * ljoin,
 fd_funk_t *
 fd_accdb_user_v1_funk( fd_accdb_user_t * accdb );
 
+/* Methods (don't call directly, prefer the wrappers fd_accdb_user.h) */
+
+fd_accdb_peek_t *
+fd_accdb_user_v1_peek( fd_accdb_user_t *         accdb,
+                       fd_accdb_peek_t *         peek,
+                       fd_funk_txn_xid_t const * xid,
+                       void const *              address );
+
+void
+fd_accdb_user_v1_fini( fd_accdb_user_t * accdb );
+
+fd_accdb_ro_t *
+fd_accdb_user_v1_open_ro( fd_accdb_user_t *         accdb,
+                          fd_accdb_ro_t *           ro,
+                          fd_funk_txn_xid_t const * xid,
+                          void const *              address );
+
+void
+fd_accdb_user_v1_close_ro( fd_accdb_user_t * accdb,
+                           fd_accdb_ro_t *   ro );
+
+fd_accdb_rw_t *
+fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
+                          fd_accdb_rw_t *           rw,
+                          fd_funk_txn_xid_t const * xid,
+                          void const *              address,
+                          ulong                     data_max,
+                          int                       do_create );
+void
+fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
+                           fd_accdb_rw_t *   write );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_impl_v1_h */
