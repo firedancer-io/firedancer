@@ -72,7 +72,7 @@ fd_accdb_search_chain( fd_accdb_user_v1_t const * accdb,
   return FD_MAP_SUCCESS;
 }
 
-static void
+void
 fd_accdb_load_fork_slow( fd_accdb_user_v1_t *      accdb,
                          fd_funk_txn_xid_t const * xid ) {
   fd_funk_txn_xid_t next_xid = *xid;
@@ -179,11 +179,11 @@ fd_accdb_load_fork( fd_accdb_user_v1_t *      accdb,
   fd_accdb_load_fork_slow( accdb, xid ); /* switch fork */
 }
 
-static fd_accdb_peek_t *
-fd_accdb_peek1( fd_accdb_user_v1_t *      accdb,
-                fd_accdb_peek_t *         peek,
-                fd_funk_txn_xid_t const * xid,
-                void const *              address ) {
+fd_accdb_peek_t *
+fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
+                    fd_accdb_peek_t *         peek,
+                    fd_funk_txn_xid_t const * xid,
+                    void const *              address ) {
   fd_funk_t const * funk = accdb->funk;
   fd_funk_rec_key_t key[1]; memcpy( key->uc, address, 32UL );
 
@@ -227,7 +227,9 @@ fd_accdb_user_v1_peek( fd_accdb_user_t *         accdb,
   fd_accdb_user_v1_t * v1 = (fd_accdb_user_v1_t *)accdb;
   if( FD_UNLIKELY( !v1->funk->shmem ) ) FD_LOG_CRIT(( "NULL funk shmem" ));
   fd_accdb_load_fork( v1, xid );
-  return fd_accdb_peek1( v1, peek, xid, address );
+  if( !fd_accdb_peek_funk( v1, peek, xid, address ) ) return NULL;
+  if( FD_UNLIKELY( !peek->acc->meta->lamports ) ) return NULL;
+  return peek;
 }
 
 static void
@@ -316,13 +318,11 @@ fd_accdb_user_v1_open_ro( fd_accdb_user_t *         accdb,
                           fd_funk_txn_xid_t const * xid,
                           void const *              address ) {
   fd_accdb_user_v1_t * v1 = (fd_accdb_user_v1_t *)accdb;
-
   fd_accdb_load_fork( v1, xid );
 
   fd_accdb_peek_t peek[1];
-  if( FD_UNLIKELY( !fd_accdb_peek1( v1, peek, xid, address ) ) ) {
-    return NULL;
-  }
+  if( !fd_accdb_peek_funk( v1, peek, xid, address ) ) return NULL;
+  if( FD_UNLIKELY( !peek->acc->meta->lamports ) ) return NULL;
 
   v1->base.ro_active++;
   *ro = *peek->acc;
@@ -370,7 +370,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
   /* Query old record value */
 
   fd_accdb_peek_t peek[1];
-  if( FD_UNLIKELY( !fd_accdb_peek1( v1, peek, xid, address ) ) ) {
+  if( FD_UNLIKELY( !fd_accdb_peek_funk( v1, peek, xid, address ) ) ) {
 
     /* Record not found */
     if( !do_create ) return NULL;
