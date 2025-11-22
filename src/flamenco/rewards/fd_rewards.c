@@ -2,8 +2,6 @@
 #include <math.h>
 
 #include "../runtime/fd_acc_mgr.h"
-#include "../runtime/fd_executor_err.h"
-#include "../runtime/program/fd_vote_program.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
@@ -13,6 +11,7 @@
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_runtime.h"
 #include "fd_epoch_rewards.h"
+#include "../accdb/fd_accdb_impl_v1.h"
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
@@ -763,9 +762,10 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
      completed epoch.  We store the stake account rewards and vote
      states rewards in the bank */
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
   calculate_rewards_for_partitioning( bank,
-                                      accdb->funk,
+                                      funk,
                                       xid,
                                       runtime_stack,
                                       stake_delegations,
