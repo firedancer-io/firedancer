@@ -189,8 +189,7 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( TOWER, HARD_FORKS_SEEN,     ctx->metrics.hard_forks.seen   );
   FD_MCNT_SET( TOWER, HARD_FORKS_PRUNED,   ctx->metrics.hard_forks.pruned );
 
-  FD_MGAUGE_SET( TOWER, HARD_FORKS_ACTIVE,    ctx->metrics.hard_forks.active    );
-  FD_MGAUGE_SET( TOWER, HARD_FORKS_MAX_WIDTH, ctx->metrics.hard_forks.max_width );
+  FD_MGAUGE_SET( TOWER, HARD_FORKS_ACTIVE, ctx->metrics.hard_forks.active    );
 }
 
 static void

@@ -1039,10 +1039,12 @@ metric introduced.
     <gauge name="PredictedSlot" summary="The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted" />
     <gauge name="GossipFreshCount" summary="Number of fresh gossip peers seen when collecting gossip peers. " />
     <gauge name="GossipTotalCount" summary="Number of total gossip peers seen when collecting gossip peers. " />
+    <counter name="SslAllocErrors" summary="Number of SSL allocation errors encountered. " />
 </tile>
 
 <tile name="snapld">
     <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
+    <counter name="SslAllocErrors" summary="Number of SSL allocation errors encountered. " />
 </tile>
 
 <tile name="snapdc">
