@@ -100,14 +100,6 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                          fd_txn_in_t const * txn_in,
                                          fd_txn_out_t *      txn_out );
 
-/*
-  Validate the txn after execution for violations of various lamport balance and size rules
- */
-
-int
-fd_executor_txn_check( fd_bank_t *    bank,
-                       fd_txn_out_t * txn_out );
-
 void
 fd_executor_reclaim_account( fd_txn_account_t * account,
                              ulong              slot );

@@ -104,7 +104,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
   runtime->instr.stack_sz            = 0;
   txn_out->accounts.accounts_cnt     = 0UL;
-  runtime->executable.cnt            = 0UL;
+  runtime->accounts.executable_cnt   = 0UL;
 
   txn_out->details.programs_to_reverify_cnt       = 0UL;
   txn_out->details.loaded_accounts_data_size      = 0UL;
@@ -164,7 +164,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
 
     memcpy(  &(txn_out->accounts.account_keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
-    if( !fd_solfuzz_pb_load_account( &accts[j], runner->accdb, xid, &test_ctx->accounts[j], 0 ) ) {
+    if( !fd_solfuzz_pb_load_account( runtime, &accts[j], runner->accdb, xid, &test_ctx->accounts[j], 0, j ) ) {
       return 0;
     }
 
@@ -243,13 +243,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       }
 
       fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
-      if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( &runtime->executable.accounts[runtime->executable.cnt],
+      if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( &runtime->accounts.executables[runtime->accounts.executable_cnt],
                                                                programdata_acc,
                                                                runtime->funk,
                                                                xid ) ) ) {
         continue;
       }
-      runtime->executable.cnt++;
+      runtime->accounts.executable_cnt++;
     }
   }
 

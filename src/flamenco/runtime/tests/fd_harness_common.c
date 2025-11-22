@@ -1,15 +1,18 @@
 #include "fd_solfuzz_private.h"
 #include "generated/context.pb.h"
 #include "../fd_acc_mgr.h"
+#include "../fd_runtime.h"
 #include "../../features/fd_features.h"
 #include <assert.h>
 
 int
-fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
+fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
+                            fd_txn_account_t *                acc,
                             fd_accdb_user_t *                 accdb,
                             fd_funk_txn_xid_t const *         xid,
                             fd_exec_test_acct_state_t const * state,
-                            uchar                             reject_zero_lamports ) {
+                            uchar                             reject_zero_lamports,
+                            ulong                             acc_idx ) {
   if( reject_zero_lamports && state->lamports==0UL ) {
     return 0;
   }
@@ -39,8 +42,8 @@ fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
     fd_txn_account_set_data( acc, state->data->bytes, size );
   }
 
-  acc->starting_lamports = state->lamports;
-  acc->starting_dlen     = size;
+  runtime->accounts.starting_lamports[acc_idx] = state->lamports;
+  runtime->accounts.starting_dlen[acc_idx]     = size;
   fd_txn_account_set_lamports( acc, state->lamports );
   fd_txn_account_set_executable( acc, state->executable );
   fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );

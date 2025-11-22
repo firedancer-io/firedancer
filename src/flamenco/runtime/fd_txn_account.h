@@ -35,9 +35,6 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
   int                             is_mutable;
   long                            meta_soff;
 
-  ulong                           starting_dlen;
-  ulong                           starting_lamports;
-
   /* Provide borrowing semantics. Used for single-threaded logic only,
      thus not comparable to a data synchronization lock. */
   ushort                          refcnt_excl;
