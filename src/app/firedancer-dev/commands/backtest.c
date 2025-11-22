@@ -60,30 +60,30 @@ backtest_topo( config_t * config ) {
 
   ulong cpu_idx = 0;
 
-  fd_topob_wksp( topo, "metric_in" );
+  fd_topob_wksp( topo, "metric_in", 0 );
 
   /**********************************************************************/
   /* Add the backtest tile to topo                                      */
   /**********************************************************************/
-  fd_topob_wksp( topo, "backt" );
+  fd_topob_wksp( topo, "backt", 0 );
   fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", cpu_idx++, 0, 0 );
 
   /**********************************************************************/
   /* Add the replay tile to topo                                        */
   /**********************************************************************/
-  fd_topob_wksp( topo, "replay" );
+  fd_topob_wksp( topo, "replay", 0 );
   fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 0 );
 
   /* specified by [tiles.replay] */
 
-  fd_topob_wksp( topo, "funk" );
+  fd_topob_wksp( topo, "funk", 0 );
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
       config->firedancer.funk.max_account_records,
       config->firedancer.funk.max_database_transactions,
       config->firedancer.funk.heap_size_gib );
   fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  fd_topob_wksp( topo, "progcache" );
+  fd_topob_wksp( topo, "progcache", 0 );
   fd_topo_obj_t * progcache_obj = setup_topo_progcache( topo, "progcache",
       fd_progcache_est_rec_max( config->firedancer.runtime.program_cache.heap_size_mib<<20,
                                 config->firedancer.runtime.program_cache.mean_cache_entry_size ),
@@ -98,7 +98,7 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Add the executor tiles to topo                                     */
   /**********************************************************************/
-  fd_topob_wksp( topo, "exec" );
+  fd_topob_wksp( topo, "exec", 0 );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
   FOR(exec_tile_cnt) fd_topob_tile( topo, "exec", "exec", "metric_in", cpu_idx++, 0, 0 );
 
@@ -107,14 +107,14 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topo_tile_t * snapin_tile = NULL;
   if( FD_UNLIKELY( !disable_snap_loader ) ) {
-    fd_topob_wksp( topo, "snapct" );
-    fd_topob_wksp( topo, "snapld" );
-    fd_topob_wksp( topo, "snapdc" );
-    fd_topob_wksp( topo, "snapin" );
+    fd_topob_wksp( topo, "snapct", 0 );
+    fd_topob_wksp( topo, "snapld", 0 );
+    fd_topob_wksp( topo, "snapdc", 0 );
+    fd_topob_wksp( topo, "snapin", 0 );
 
     if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
-      fd_topob_wksp( topo, "snapla" );
-      fd_topob_wksp( topo, "snapls" );
+      fd_topob_wksp( topo, "snapla", 0 );
+      fd_topob_wksp( topo, "snapls", 0 );
     }
 
     fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct",  "snapct",  "metric_in",  cpu_idx++, 0, 0 );
@@ -130,7 +130,7 @@ backtest_topo( config_t * config ) {
     snapdc_tile->allow_shutdown = 1;
     snapin_tile->allow_shutdown = 1;
   } else {
-    fd_topob_wksp( topo, "genesi" );
+    fd_topob_wksp( topo, "genesi", 0 );
     fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  cpu_idx++, 0, 0 )->allow_shutdown = 1;
   }
 
@@ -143,7 +143,7 @@ backtest_topo( config_t * config ) {
      which is provided by the backtest tile, which reads in the entry
      batches from the CLI-specified source (eg. RocksDB). */
 
-  fd_topob_wksp( topo, "shred_out" );
+  fd_topob_wksp( topo, "shred_out", 0 );
   fd_topob_link( topo, "shred_out", "shred_out", 65536UL, FD_SHRED_OUT_MTU, 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "shred_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "backt", 0UL, "shred_out", 0UL );
@@ -152,21 +152,21 @@ backtest_topo( config_t * config ) {
   /* Setup snapshot links in topo                                       */
   /**********************************************************************/
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    fd_topob_wksp( topo, "snapct_ld"    );
-    fd_topob_wksp( topo, "snapld_dc"    );
-    fd_topob_wksp( topo, "snapdc_in"    );
+    fd_topob_wksp( topo, "snapct_ld",   0 );
+    fd_topob_wksp( topo, "snapld_dc",   0 );
+    fd_topob_wksp( topo, "snapdc_in",   0 );
     if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
-      fd_topob_wksp( topo, "snapin_ct"   );
+      fd_topob_wksp( topo, "snapin_ct",  0 );
     } else {
-      fd_topob_wksp( topo, "snapls_ct" );
+      fd_topob_wksp( topo, "snapls_ct", 0 );
     }
 
-    fd_topob_wksp( topo, "snapin_manif" );
-    fd_topob_wksp( topo, "snapct_repr"  );
+    fd_topob_wksp( topo, "snapin_manif", 0 );
+    fd_topob_wksp( topo, "snapct_repr", 0 );
 
     if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
-      fd_topob_wksp( topo, "snapla_ls" );
-      fd_topob_wksp( topo, "snapin_ls" );
+      fd_topob_wksp( topo, "snapla_ls", 0 );
+      fd_topob_wksp( topo, "snapin_ls", 0 );
     }
 
     fd_topob_link( topo, "snapct_ld",    "snapct_ld",    128UL,   sizeof(fd_ssctrl_init_t),       1UL );
@@ -214,7 +214,7 @@ backtest_topo( config_t * config ) {
       /**/              fd_topob_tile_out( topo, "snapls", 0UL,              "snapls_ct",   0UL                                        );
     }
   } else {
-    fd_topob_wksp( topo, "genesi_out" );
+    fd_topob_wksp( topo, "genesi_out", 0 );
     fd_topob_link( topo, "genesi_out", "genesi_out", 2UL, 10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
     fd_topob_tile_out( topo, "genesi", 0UL, "genesi_out", 0UL );
     fd_topob_tile_in ( topo, "replay", 0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -231,7 +231,7 @@ backtest_topo( config_t * config ) {
      This allows the replay tile to advance its watermark, and publish
      various data structures.  This is an oversimplified barebones mock
      of the tower tile. */
-  fd_topob_wksp( topo, "tower_out" );
+  fd_topob_wksp( topo, "tower_out", 0 );
   fd_topob_link( topo, "tower_out", "tower_out", 1024UL, sizeof(fd_tower_slot_done_t), 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "tower_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "backt", 0UL, "tower_out", 0UL );
@@ -239,8 +239,8 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Setup replay->stake/send/poh links in topo w/o consumers         */
   /**********************************************************************/
-  fd_topob_wksp( topo, "replay_stake"    );
-  fd_topob_wksp( topo, "replay_poh"   );
+  fd_topob_wksp( topo, "replay_stake", 0 );
+  fd_topob_wksp( topo, "replay_poh", 0 );
 
   fd_topob_link( topo, "replay_stake",   "replay_stake",   128UL, 40UL + 40200UL * 40UL, 1UL );
   ulong bank_tile_cnt   = config->layout.bank_tile_count;
@@ -256,7 +256,7 @@ backtest_topo( config_t * config ) {
   /* Setup replay->backtest link (replay_notif) in topo                 */
   /**********************************************************************/
 
-  fd_topob_wksp( topo, "replay_out" );
+  fd_topob_wksp( topo, "replay_out", 0 );
   fd_topob_link( topo, "replay_out", "replay_out", 8192UL, sizeof( fd_replay_message_t ), 1UL );
   fd_topob_tile_out( topo, "replay", 0UL, "replay_out", 0UL );
   fd_topob_tile_in ( topo, "backt", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -269,7 +269,7 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Setup replay->exec link in topo                                    */
   /**********************************************************************/
-  fd_topob_wksp( topo, "replay_exec" );
+  fd_topob_wksp( topo, "replay_exec", 0 );
   fd_topob_link( topo, "replay_exec", "replay_exec", 16384UL, 2240UL, 1UL );
   fd_topob_tile_out( topo, "replay", 0UL, "replay_exec", 0UL );
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
@@ -281,7 +281,7 @@ backtest_topo( config_t * config ) {
      so that they are serialized, and to notify replay tile that a txn
      has been finalized by the exec tile. */
   /**********************************************************************/
-  fd_topob_wksp( topo, "exec_replay" );
+  fd_topob_wksp( topo, "exec_replay", 0 );
 
   /* If solcap is enabled, we need to overload this link to also send
      solcap account updates to the replay tile. We can't use a separate
@@ -300,22 +300,22 @@ backtest_topo( config_t * config ) {
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
 
-  fd_topob_wksp( topo, "store" );
+  fd_topob_wksp( topo, "store", 0 );
   fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.store.max_completed_shred_sets, 1 );
   fd_topob_tile_uses( topo, backt_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
   /* banks_obj shared by replay and exec tiles */
-  fd_topob_wksp( topo, "banks" );
+  fd_topob_wksp( topo, "banks", 0 );
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, 0 );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   /* txncache_obj, busy_obj and poh_slot_obj only by replay tile */
-  fd_topob_wksp( topo, "txncache"    );
-  fd_topob_wksp( topo, "bank_busy"   );
+  fd_topob_wksp( topo, "txncache", 0 );
+  fd_topob_wksp( topo, "bank_busy", 0 );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
       config->firedancer.runtime.max_live_slots,
       fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );

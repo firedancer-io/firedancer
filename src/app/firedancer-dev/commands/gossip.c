@@ -66,7 +66,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   };
   for( int i=0; i<3; ++i) FD_TEST( fd_topo_find_tile( topo, tiles_to_add[i], 0UL ) == ULONG_MAX );
 
-  fd_topob_wksp( topo, "gossip" );
+  fd_topob_wksp( topo, "gossip", 0 );
   fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 1 /* uses_keyswitch */ );
   strncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
   gossip_tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
@@ -84,7 +84,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   gossip_tile->gossip.ports.tvu_quic       = 0;
   gossip_tile->gossip.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
-  fd_topob_wksp( topo, "gossvf" );
+  fd_topob_wksp( topo, "gossvf", 0 );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
     fd_topo_tile_t * gossvf_tile = fd_topob_tile( topo, "gossvf", "gossvf", "metric_in", 0UL, 0, 1 );
     strncpy( gossvf_tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(gossvf_tile->gossvf.identity_key_path) );
@@ -106,12 +106,12 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
     }
   }
 
-  fd_topob_wksp( topo, "gossip_net" );
+  fd_topob_wksp( topo, "gossip_net", 0 );
   fd_topob_link( topo, "gossip_net", "gossip_net", 65536*4UL, FD_NET_MTU, 1UL );
   fd_topos_tile_in_net( topo, "metric_in", "gossip_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_net", 0UL );
 
-  fd_topob_wksp( topo, "ipecho" );
+  fd_topob_wksp( topo, "ipecho", 0 );
   fd_topo_tile_t * ipecho_tile = fd_topob_tile( topo, "ipecho", "ipecho", "metric_in", 0UL, 0, 0 );
   ipecho_tile->ipecho.expected_shred_version = config->consensus.expected_shred_version;
   ipecho_tile->ipecho.bind_address = config->net.ip_addr;
@@ -121,7 +121,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
     ipecho_tile->ipecho.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
   }
 
-  fd_topob_wksp( topo, "ipecho_out" );
+  fd_topob_wksp( topo, "ipecho_out", 0 );
   fd_topob_link( topo, "ipecho_out", "ipecho_out", 4UL, 0UL, 1UL );
   fd_topob_tile_out( topo, "ipecho", 0UL, "ipecho_out", 0UL );
 
@@ -130,9 +130,9 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   }
   fd_topob_tile_in( topo, "gossip", 0UL, "metric_in", "ipecho_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
-  fd_topob_wksp( topo, "gossvf_gossi" );
-  fd_topob_wksp( topo, "gossip_gossv" );
-  fd_topob_wksp( topo, "gossip_out" );
+  fd_topob_wksp( topo, "gossvf_gossi", 0 );
+  fd_topob_wksp( topo, "gossip_gossv", 0 );
+  fd_topob_wksp( topo, "gossip_out", 0 );
 
   fd_topob_link(     topo, "gossip_gossv", "gossip_gossv", 65536UL*4, sizeof(fd_gossip_ping_update_t), 1UL );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_gossv", 0UL );
@@ -149,10 +149,10 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
     fd_topob_tile_in( topo, "gossvf", i, "metric_in", "gossip_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
-  fd_topob_wksp( topo, "gossip_sign"  );
+  fd_topob_wksp( topo, "gossip_sign", 0 );
   fd_topob_link( topo, "gossip_sign", "gossip_sign", 128UL, 2048UL, 1UL );
   fd_topob_tile_in( topo, "sign", 0UL, "metric_in", "gossip_sign", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  fd_topob_wksp( topo, "sign_gossip"  );
+  fd_topob_wksp( topo, "sign_gossip", 0 );
   fd_topob_link( topo, "sign_gossip", "sign_gossip", 128UL, 64UL, 1UL );
   fd_topob_tile_out( topo, "sign", 0UL, "sign_gossip", 0UL );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_sign", 0UL );

@@ -38,7 +38,8 @@ fd_topob_new( void * mem,
 
 fd_topo_wksp_t *
 fd_topob_wksp( fd_topo_t *  topo,
-               char const * name );
+               char const * name,
+               int          dumpable );
 
 /* Add an object with the given name to the toplogy.  An object is
    something that takes up space in memory, in a workspace.

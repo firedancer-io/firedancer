@@ -109,30 +109,30 @@ repair_topo( config_t * config ) {
   fd_gossip_subtopo( config, tile_to_cpu );
 
   /*             topo, name */
-  fd_topob_wksp( topo, "net_shred"    );
-  fd_topob_wksp( topo, "net_repair"   );
-  fd_topob_wksp( topo, "net_quic"     );
+  fd_topob_wksp( topo, "net_shred",    0 );
+  fd_topob_wksp( topo, "net_repair",   0 );
+  fd_topob_wksp( topo, "net_quic",     0 );
 
-  fd_topob_wksp( topo, "shred_out"    );
-  fd_topob_wksp( topo, "replay_stake" );
+  fd_topob_wksp( topo, "shred_out",    0 );
+  fd_topob_wksp( topo, "replay_stake", 0 );
 
-  fd_topob_wksp( topo, "poh_shred"    );
+  fd_topob_wksp( topo, "poh_shred",    0 );
 
-  fd_topob_wksp( topo, "shred_sign"   );
-  fd_topob_wksp( topo, "sign_shred"   );
+  fd_topob_wksp( topo, "shred_sign",   0 );
+  fd_topob_wksp( topo, "sign_shred",   0 );
 
-  fd_topob_wksp( topo, "repair_sign"  );
-  fd_topob_wksp( topo, "sign_repair"  );
+  fd_topob_wksp( topo, "repair_sign",  0 );
+  fd_topob_wksp( topo, "sign_repair",  0 );
 
-  fd_topob_wksp( topo, "send_out"     );
+  fd_topob_wksp( topo, "send_out",     0 );
 
-  fd_topob_wksp( topo, "shred"        );
-  fd_topob_wksp( topo, "repair"       );
-  fd_topob_wksp( topo, "fec_sets"     );
-  fd_topob_wksp( topo, "snapin_manif" );
+  fd_topob_wksp( topo, "shred",        0 );
+  fd_topob_wksp( topo, "repair",       0 );
+  fd_topob_wksp( topo, "fec_sets",     0 );
+  fd_topob_wksp( topo, "snapin_manif", 0 );
 
-  fd_topob_wksp( topo, "slot_fseqs"   ); /* fseqs for marked slots eg. turbine slot */
-  fd_topob_wksp( topo, "genesi_out"   ); /* mock genesi_out for ipecho */
+  fd_topob_wksp( topo, "slot_fseqs",   0 ); /* fseqs for marked slots eg. turbine slot */
+  fd_topob_wksp( topo, "genesi_out",   0 ); /* mock genesi_out for ipecho */
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -266,7 +266,7 @@ repair_topo( config_t * config ) {
   /**/                 fd_topob_tile_in ( topo, "ipecho", 0UL,           "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
   if( 1 ) {
-    fd_topob_wksp( topo, "scap" );
+    fd_topob_wksp( topo, "scap", 0 );
 
     fd_topo_tile_t * scap_tile = fd_topob_tile( topo, "scap", "scap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 

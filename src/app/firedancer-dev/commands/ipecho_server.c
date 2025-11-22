@@ -21,7 +21,7 @@ ipecho_topo( fd_topo_t *  topo,
   fd_topob_new( topo, name );
   topo->max_page_size = 1UL<<21UL;
 
-  fd_topob_wksp( topo, "all" );
+  fd_topob_wksp( topo, "all", 0 );
   fd_topo_link_t * link = fd_topob_link( topo, "ipecho_out", "all", 4UL, 0UL, 1UL );
   link->permit_no_consumers = 1;
   fd_topo_tile_t * tile = fd_topob_tile( topo, "ipecho", "all", "all", 0UL, 0, 0 );

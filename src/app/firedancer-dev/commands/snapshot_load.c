@@ -37,13 +37,13 @@ snapshot_load_topo( config_t * config,
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
 
-  fd_topob_wksp( topo, "txncache" );
+  fd_topob_wksp( topo, "txncache", 0 );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
       config->firedancer.runtime.max_live_slots,
       fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
-  fd_topob_wksp( topo, "funk" );
+  fd_topob_wksp( topo, "funk", 0 );
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
       config->firedancer.funk.max_account_records,
       config->firedancer.funk.max_database_transactions,
@@ -59,33 +59,33 @@ snapshot_load_topo( config_t * config,
   if( vinyl_server ) {
     /* Create a workspace with 512 MiB of free space for clients to
        create objects in. */
-    fd_topo_wksp_t * server_wksp = fd_topob_wksp( topo, "vinyl_server" );
+    fd_topo_wksp_t * server_wksp = fd_topob_wksp( topo, "vinyl_server", 0 );
     server_wksp->min_part_max = 64UL;
     server_wksp->min_loose_sz = 64UL<<20;
   }
 
   /* metrics tile *****************************************************/
-  fd_topob_wksp( topo, "metric_in" );
-  fd_topob_wksp( topo, "metric" );
+  fd_topob_wksp( topo, "metric_in", 0 );
+  fd_topob_wksp( topo, "metric", 0 );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", ULONG_MAX, 0, 0 );
 
   /* read() tile */
-  fd_topob_wksp( topo, "snapct" );
+  fd_topob_wksp( topo, "snapct", 0 );
   fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct", "snapct", "metric_in", ULONG_MAX, 0, 0 );
   snapct_tile->allow_shutdown = 1;
 
   /* load tile */
-  fd_topob_wksp( topo, "snapld" );
+  fd_topob_wksp( topo, "snapld", 0 );
   fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld", "snapld", "metric_in", ULONG_MAX, 0, 0 );
   snapld_tile->allow_shutdown = 1;
 
   /* "snapdc": Zstandard decompress tile */
-  fd_topob_wksp( topo, "snapdc" );
+  fd_topob_wksp( topo, "snapdc", 0 );
   fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", ULONG_MAX, 0, 0 );
   snapdc_tile->allow_shutdown = 1;
 
   /* "snapin": Snapshot parser tile */
-  fd_topob_wksp( topo, "snapin" );
+  fd_topob_wksp( topo, "snapin", 0 );
   fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", ULONG_MAX, 0, 0 );
   snapin_tile->allow_shutdown = 1;
 
@@ -93,33 +93,33 @@ snapshot_load_topo( config_t * config,
   int vinyl_enabled = config->firedancer.vinyl.enabled;
   fd_topo_tile_t * snapwr_tile = NULL;
   if( vinyl_enabled ) {
-    fd_topob_wksp( topo, "snapwh" );
+    fd_topob_wksp( topo, "snapwh", 0 );
     fd_topo_tile_t * snapwh_tile = fd_topob_tile( topo, "snapwh", "snapwh", "metric_in", ULONG_MAX, 0, 0 );
     snapwh_tile->allow_shutdown = 1;
 
-    fd_topob_wksp( topo, "snapwr" );
+    fd_topob_wksp( topo, "snapwr", 0 );
     snapwr_tile = fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", ULONG_MAX, 0, 0 );
     snapwr_tile->allow_shutdown = 1;
   }
 
-  fd_topob_wksp( topo, "snapct_ld"    );
-  fd_topob_wksp( topo, "snapld_dc"    );
-  fd_topob_wksp( topo, "snapdc_in"    );
+  fd_topob_wksp( topo, "snapct_ld", 0 );
+  fd_topob_wksp( topo, "snapld_dc", 0 );
+  fd_topob_wksp( topo, "snapdc_in", 0 );
   if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
-    fd_topob_wksp( topo, "snapin_ct" );
+    fd_topob_wksp( topo, "snapin_ct", 0 );
   }
-  fd_topob_wksp( topo, "snapin_manif" );
-  fd_topob_wksp( topo, "snapct_repr"  );
+  fd_topob_wksp( topo, "snapin_manif", 0 );
+  fd_topob_wksp( topo, "snapct_repr",  0 );
   if( vinyl_enabled ) {
-    fd_topob_wksp( topo, "snapin_wr" );
+    fd_topob_wksp( topo, "snapin_wr", 0 );
   }
 
   if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
-    fd_topob_wksp( topo, "snapla"    );
-    fd_topob_wksp( topo, "snapls"    );
-    fd_topob_wksp( topo, "snapla_ls" );
-    fd_topob_wksp( topo, "snapin_ls" );
-    fd_topob_wksp( topo, "snapls_ct" );
+    fd_topob_wksp( topo, "snapla",    0 );
+    fd_topob_wksp( topo, "snapls",    0 );
+    fd_topob_wksp( topo, "snapla_ls", 0 );
+    fd_topob_wksp( topo, "snapin_ls", 0 );
+    fd_topob_wksp( topo, "snapls_ct", 0 );
   }
 
 #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -213,7 +213,7 @@ snapshot_load_topo( config_t * config,
 
     fd_topo_obj_t * vinyl_data = setup_topo_vinyl_cache( topo, &config->firedancer );
 
-    fd_topob_wksp( topo, "vinyl_exec" );
+    fd_topob_wksp( topo, "vinyl_exec", 0 );
     fd_topo_tile_t * vinyl_tile = fd_topob_tile( topo, "vinyl", "vinyl_exec", "metric_in", ULONG_MAX, 0, 0 );
 
     fd_topob_tile_uses( topo, vinyl_tile, vinyl_cnc,  FD_SHMEM_JOIN_MODE_READ_WRITE );

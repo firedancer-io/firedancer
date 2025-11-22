@@ -81,20 +81,20 @@ fd_topos_net_tiles( fd_topo_t *             topo,
                     ulong                   netlnk_max_neighbors,
                     ulong const             tile_to_cpu[ FD_TILE_MAX ] ) {
   /* net_umem: Packet buffers */
-  fd_topob_wksp( topo, "net_umem" );
+  fd_topob_wksp( topo, "net_umem", 0 );
 
   /* Create workspaces */
 
   if( 0==strcmp( net_cfg->provider, "xdp" ) ) {
 
     /* net: private working memory of the net tiles */
-    fd_topob_wksp( topo, "net" );
+    fd_topob_wksp( topo, "net", 0 );
     /* netlnk: private working memory of the netlnk tile */
-    fd_topob_wksp( topo, "netlnk" );
+    fd_topob_wksp( topo, "netlnk", 0 );
     /* netbase: shared network config (config plane) */
-    fd_topob_wksp( topo, "netbase" );
+    fd_topob_wksp( topo, "netbase", 0 );
     /* net_netlnk: net->netlnk ARP requests */
-    fd_topob_wksp( topo, "net_netlnk" );
+    fd_topob_wksp( topo, "net_netlnk", 0 );
 
     fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
@@ -145,7 +145,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
   } else if( 0==strcmp( net_cfg->provider, "socket" ) ) {
 
     /* sock: private working memory of the sock tiles */
-    fd_topob_wksp( topo, "sock" );
+    fd_topob_wksp( topo, "sock", 0 );
 
     for( ulong i=0UL; i<net_tile_cnt; i++ ) {
       setup_sock_tile( topo, tile_to_cpu, net_cfg );

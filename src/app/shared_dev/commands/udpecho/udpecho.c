@@ -47,12 +47,12 @@ udpecho_topo( config_t * config ) {
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
 
-  fd_topob_wksp( topo, "metric" );
-  fd_topob_wksp( topo, "metric_in" );
+  fd_topob_wksp( topo, "metric", 0 );
+  fd_topob_wksp( topo, "metric_in", 0 );
   fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
-  fd_topob_wksp( topo, "l4swap" );
+  fd_topob_wksp( topo, "l4swap", 0 );
   fd_topob_tile( topo, "l4swap", "l4swap", "l4swap", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
   fd_topob_link( topo, "quic_net", "l4swap", 2048UL, FD_NET_MTU, 1UL );
