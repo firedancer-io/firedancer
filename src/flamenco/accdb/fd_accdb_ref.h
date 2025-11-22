@@ -24,6 +24,7 @@
 struct fd_accdb_ref {
   ulong rec_laddr;
   ulong meta_laddr;
+  uchar address[32];  /* only for vinyl requests */
 };
 typedef struct fd_accdb_ref fd_accdb_ref_t;
 
