@@ -3,7 +3,6 @@
 #include "fd_txn_harness.h"
 #include "../fd_runtime.h"
 #include "../fd_executor.h"
-#include "../fd_runtime_stack.h"
 #include "../fd_txn_account.h"
 #include "../program/fd_builtin_programs.h"
 #include "../sysvar/fd_sysvar_clock.h"
@@ -12,8 +11,8 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
 #include "../sysvar/fd_sysvar_stake_history.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../log_collector/fd_log_collector.h"
-#include "../../../disco/pack/fd_pack.h"
 #include <assert.h>
 
 /* Macros to append data to construct a serialized transaction
@@ -46,7 +45,7 @@ static fd_txn_p_t *
 fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                               fd_exec_test_txn_context_t const * test_ctx ) {
   fd_accdb_user_t * accdb = runner->accdb;
-  fd_funk_t *       funk  = runner->accdb->funk;
+  fd_funk_t *       funk  = fd_accdb_user_v1_funk( runner->accdb );
 
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
@@ -201,7 +200,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   }
 
   /* Restore sysvars from account context */
-  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb->funk, &xid );
+  fd_sysvar_cache_restore_fuzz( runner->bank, funk, &xid );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   fd_txn_p_t * txn    = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
@@ -338,15 +337,7 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
                          int *                 exec_res,
                          fd_txn_out_t *        txn_out ) {
 
-  txn_out->err.is_committable     = 1;
-  if( FD_UNLIKELY( !fd_funk_join( runner->funk, runner->accdb->funk->shmem ) ) ) {
-    FD_LOG_CRIT(( "fd_funk_join failed" ));
-  }
-
-  uchar * pc_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
-    FD_LOG_CRIT(( "fd_progcache_join failed" ));
-  }
+  txn_out->err.is_committable = 1;
 
   runtime->log.enable_vm_tracing = runner->enable_vm_tracing;
   uchar * tracing_mem = NULL;
@@ -354,9 +345,10 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
     tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
   }
 
-  runtime->funk            = runner->funk,
-  runtime->progcache       = runner->progcache,
-  runtime->status_cache    = NULL,
+  runtime->accdb           = runner->accdb;
+  runtime->funk            = fd_accdb_user_v1_funk( runner->accdb );
+  runtime->progcache       = runner->progcache;
+  runtime->status_cache    = NULL;
   runtime->log.tracing_mem = tracing_mem;
   runtime->log.dumping_mem = NULL;
   runtime->log.capture_ctx = NULL;

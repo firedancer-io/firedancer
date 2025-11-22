@@ -13,6 +13,7 @@
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector.h"
 
@@ -26,7 +27,7 @@ struct fd_bank_out {
 
 typedef struct fd_bank_out fd_bank_out_t;
 
-typedef struct {
+struct fd_bank_ctx {
   ulong kind_id;
 
   fd_blake3_t * blake3;
@@ -52,8 +53,8 @@ typedef struct {
 
   fd_banks_t * banks;
 
-  fd_funk_t      funk[1];
-  fd_progcache_t progcache[1];
+  fd_accdb_user_t accdb[1];
+  fd_progcache_t  progcache[1];
 
   /* For bundle execution, we need to execute each transaction against
      a separate transaction context and a set of accounts, but the exec
@@ -72,7 +73,9 @@ typedef struct {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
     ulong txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_CNT ];
   } metrics;
-} fd_bank_ctx_t;
+};
+
+typedef struct fd_bank_ctx fd_bank_ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -573,8 +576,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   void * shfunk = fd_topo_obj_laddr( topo, tile->bank.funk_obj_id );
   FD_TEST( shfunk );
-  fd_funk_t * funk = fd_funk_join( ctx->funk, shfunk );
-  FD_TEST( funk );
+  fd_accdb_user_t * accdb = fd_accdb_user_v1_init( ctx->accdb, shfunk );
+  FD_TEST( accdb );
 
   void * shprogcache = fd_topo_obj_laddr( topo, tile->bank.progcache_obj_id );
   FD_TEST( shprogcache );
@@ -596,7 +599,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->runtime = (fd_runtime_t) {
-    .funk         = funk,
+    .accdb        = accdb,
+    .funk         = fd_accdb_user_v1_funk( accdb ),
     .progcache    = progcache,
     .status_cache = txncache,
     .log          = {

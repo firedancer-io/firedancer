@@ -4,7 +4,6 @@
 #include "fd_solfuzz_private.h"
 #include "fd_instr_harness.h"
 #include "../fd_executor.h"
-#include "../fd_runtime_stack.h"
 #include "../fd_runtime.h"
 #include "../program/fd_bpf_loader_program.h"
 #include "../sysvar/fd_sysvar.h"
@@ -14,6 +13,7 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../fd_system_ids.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../log_collector/fd_log_collector.h"
 #include <assert.h>
 
@@ -25,7 +25,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
-  fd_funk_t * funk = runner->accdb->funk;
+  fd_funk_t * funk = fd_accdb_user_v1_funk( runner->accdb );
 
   /* Generate unique ID for funk txn */
 
@@ -85,19 +85,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_descriptor->transaction_version = FD_TXN_V0;
   txn_descriptor->acct_addr_cnt       = (ushort)test_ctx->accounts_count;
 
-  uchar * progcache_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-
-  if( FD_UNLIKELY( !fd_funk_join( runner->funk, runner->accdb->funk->shmem ) ) ) {
-    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
-  }
-  runtime->funk = runner->funk;
-
-
-  if( runner->progcache->funk->shmem ) {
-    if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
-      FD_LOG_CRIT(( "fd_progcache_join() failed" ));
-    }
-  }
+  runtime->funk = funk;
 
   runtime->log.enable_log_collector = 0;
 
@@ -300,7 +288,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb->funk, xid );
+  fd_sysvar_cache_restore_fuzz( runner->bank, funk, xid );
   ctx->sysvar_cache = fd_bank_sysvar_cache_modify( runner->bank );
   ctx->runtime = runtime;
 
@@ -346,17 +334,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   ctx->instr = info;
-
-  if( FD_UNLIKELY( !fd_funk_join( runtime->funk, runner->accdb->funk->shmem ) ) ) {
-    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
-  }
-
-  if( runner->progcache->funk->shmem ) {
-    if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, runner->progcache->funk->shmem, progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
-      FD_LOG_CRIT(( "fd_progcache_join() failed" ));
-    }
-    ctx->runtime->progcache = runner->progcache;
-  }
+  ctx->runtime->progcache = runner->progcache;
 
   runtime->log.enable_log_collector = 0;
 

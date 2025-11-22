@@ -17,9 +17,8 @@
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
+#include "../accdb/fd_accdb_impl_v1.h"
 #include "../progcache/fd_progcache_user.h"
-
-#include "../fd_flamenco.h"
 
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
@@ -495,8 +494,9 @@ fd_feature_activate( fd_bank_t *               bank,
 
   if( id->reverted==1 ) return;
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_txn_account_t acct_rec[1];
-  int err = fd_txn_account_init_from_funk_readonly( acct_rec, addr, accdb->funk, xid );
+  int err = fd_txn_account_init_from_funk_readonly( acct_rec, addr, funk, xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return;
   }
@@ -595,8 +595,9 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   /* Activate new features
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_features_activate( bank, accdb, xid, capture_ctx );
-  fd_features_restore( bank, accdb->funk, xid );
+  fd_features_restore( bank, funk, xid );
 
   /* Apply builtin program feature transitions
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
@@ -779,12 +780,12 @@ fd_runtime_load_txn_address_lookup_tables(
 }
 
 void
-fd_runtime_block_execute_prepare( fd_banks_t *              banks,
-                                  fd_bank_t *               bank,
-                                  fd_accdb_user_t  *        accdb,
-                                  fd_runtime_stack_t *      runtime_stack,
-                                  fd_capture_ctx_t *        capture_ctx,
-                                  int *                     is_epoch_boundary ) {
+fd_runtime_block_execute_prepare( fd_banks_t *         banks,
+                                  fd_bank_t *          bank,
+                                  fd_accdb_user_t  *   accdb,
+                                  fd_runtime_stack_t * runtime_stack,
+                                  fd_capture_ctx_t *   capture_ctx,
+                                  int *                is_epoch_boundary ) {
 
   fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
 
@@ -804,7 +805,8 @@ fd_runtime_block_execute_prepare( fd_banks_t *              banks,
 
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, &xid, runtime_stack, capture_ctx );
 
-  if( FD_UNLIKELY( !fd_sysvar_cache_restore( bank, accdb->funk, &xid ) ) ) {
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
+  if( FD_UNLIKELY( !fd_sysvar_cache_restore( bank, funk, &xid ) ) ) {
     FD_LOG_ERR(( "Failed to restore sysvar cache" ));
   }
 }
@@ -1682,7 +1684,8 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
      setting some fields, and notably setting up the vote and stake
      caches which are used for leader scheduling/rewards. */
 
-  fd_runtime_init_bank_from_genesis( banks, bank, accdb->funk, xid, genesis_block, genesis_hash );
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
+  fd_runtime_init_bank_from_genesis( banks, bank, funk, xid, genesis_block, genesis_hash );
 
   /* Write the native programs to the accounts db. */
 
@@ -1695,7 +1698,7 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
     fd_write_builtin_account( bank, accdb, xid, capture_ctx, a->pubkey, (const char *)string, a->string_len );
   }
 
-  fd_features_restore( bank, accdb->funk, xid );
+  fd_features_restore( bank, funk, xid );
 
   /* At this point, state related to the bank and the accounts db
      have been initialized and we are free to finish executing the

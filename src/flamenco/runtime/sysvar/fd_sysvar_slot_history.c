@@ -1,9 +1,8 @@
 #include "fd_sysvar_slot_history.h"
 #include "fd_sysvar.h"
-#include "fd_sysvar_rent.h"
 #include "../fd_system_ids.h"
 #include "../fd_txn_account.h"
-#include "../../../funk/fd_funk_txn.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 
 /* FIXME These constants should be header defines */
 
@@ -87,8 +86,9 @@ fd_sysvar_slot_history_update( fd_bank_t *               bank,
   /* Set current_slot, and update next_slot */
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_txn_account_t rec[1];
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, accdb->funk, xid );
+  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, xid );
   if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
 
   fd_bincode_decode_ctx_t ctx = {

@@ -4,8 +4,8 @@
 /* fd_prog_load.h provides high-level APIs for loading Solana programs
    from the account database. */
 
-#include "../../funk/fd_funk_rec.h"
 #include "../fd_flamenco_base.h"
+#include "../accdb/fd_accdb_user.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -19,7 +19,7 @@ FD_PROTOTYPES_BEGIN
    program not deployed, program data account not found, etc */
 
 uchar const *
-fd_prog_load_elf( fd_funk_t const *         accdb,
+fd_prog_load_elf( fd_accdb_user_t *         accdb,
                   fd_funk_txn_xid_t const * xid,
                   void const *              prog_addr,
                   ulong *                   out_sz,

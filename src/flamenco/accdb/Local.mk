@@ -4,7 +4,7 @@ $(call add-objs,fd_accdb_admin,fd_flamenco)
 
 # User API
 $(call add-hdrs,fd_accdb_user.h fd_accdb_sync.h)
-$(call add-objs,fd_accdb_user,fd_flamenco)
+$(call add-objs,fd_accdb_impl_v1,fd_flamenco)
 
 # Debug APIs
 $(call add-hdrs,fd_accdb_fsck.h)

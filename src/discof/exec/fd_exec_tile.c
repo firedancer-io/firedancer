@@ -3,15 +3,13 @@
 
 #include "../../util/pod/fd_pod_format.h"
 #include "../../discof/replay/fd_exec.h"
-#include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector.h"
 #include "../../disco/metrics/fd_metrics.h"
-
-#include "../../funk/fd_funk.h"
 
 /* The exec tile is responsible for executing single transactions. The
    tile recieves a parsed transaction (fd_txn_p_t) and an identifier to
@@ -49,7 +47,7 @@ typedef struct fd_exec_tile_ctx {
      a funk_txn and a bank. These are queried from fd_banks_t and
      fd_funk_t. */
   fd_banks_t *          banks;
-  fd_funk_t             funk[1];
+  fd_accdb_user_t       accdb[1];
   fd_progcache_t        progcache[1];
 
   fd_txncache_t *       txncache;
@@ -255,8 +253,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   void * shfunk = fd_topo_obj_laddr( topo, tile->exec.funk_obj_id );
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, shfunk ) ) ) {
-    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  if( FD_UNLIKELY( !fd_accdb_user_v1_init( ctx->accdb, shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_accdb_user_v1_init() failed" ));
   }
 
   void * shprogcache = fd_topo_obj_laddr( topo, tile->exec.progcache_obj_id );
@@ -306,7 +304,8 @@ unprivileged_init( fd_topo_t *      topo,
   /********************************************************************/
 
   ctx->runtime = (fd_runtime_t) {
-    .funk         = ctx->funk,
+    .accdb        = ctx->accdb,
+    .funk         = fd_accdb_user_v1_funk( ctx->accdb ),
     .status_cache = ctx->txncache,
     .progcache    = ctx->progcache,
     .log          = {

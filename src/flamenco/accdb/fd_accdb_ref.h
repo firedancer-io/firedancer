@@ -219,4 +219,14 @@ fd_accdb_spec_drop( fd_accdb_spec_t * spec ) {
   (void)spec;
 }
 
+/* fd_accdb_peek_t is an ephemeral lock-free read-only pointer to an
+   account in database cache. */
+
+struct fd_accdb_peek {
+  fd_accdb_ro_t   acc[1];
+  fd_accdb_spec_t spec[1];
+};
+
+typedef struct fd_accdb_peek fd_accdb_peek_t;
+
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_ref_h */

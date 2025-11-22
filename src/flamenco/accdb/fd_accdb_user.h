@@ -1,29 +1,70 @@
 #ifndef HEADER_fd_src_flamenco_accdb_fd_accdb_user_h
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_user_h
 
-#include "../../funk/fd_funk.h"
+#include "fd_accdb_base.h"
+#include "fd_accdb_ref.h"
+
+/* FD_ACCDB_DEPTH_MAX specifies the max non-rooted fork depth. */
 
 #define FD_ACCDB_DEPTH_MAX (128UL)
 
-struct fd_accdb_user {
-  fd_funk_t funk[1];
+/* fd_accdb_user_vt_t specifies the interface (vtable) for the account
+   DB client. */
 
-  /* Current fork cache */
-  fd_funk_txn_xid_t fork[ FD_ACCDB_DEPTH_MAX ];
-  ulong             fork_depth;
+struct fd_accdb_user_vt {
 
-  /* Current txn cache */
-  ulong tip_txn_idx; /* ==ULONG_MAX if tip is root */
+  void
+  (* fini)( fd_accdb_user_t * accdb );
 
-  /* Ref counting */
-  ulong rw_active;
+  fd_accdb_peek_t *
+  (* peek)( fd_accdb_user_t *         accdb,
+            fd_accdb_peek_t *         peek,
+            fd_funk_txn_xid_t const * xid,
+            void const *              address );
+
+  fd_accdb_ro_t *
+  (* open_ro)( fd_accdb_user_t *         accdb,
+               fd_accdb_ro_t *           ro,
+               fd_funk_txn_xid_t const * xid,
+               void const *              address );
+
+  void
+  (* close_ro)( fd_accdb_user_t * accdb,
+                fd_accdb_ro_t *   ro );
+
+  fd_accdb_rw_t *
+  (* open_rw)( fd_accdb_user_t *         accdb,
+               fd_accdb_rw_t *           rw,
+               fd_funk_txn_xid_t const * xid,
+               void const *              address,
+               ulong                     data_max,
+               int                       do_create );
+
+  void
+  (* close_rw)( fd_accdb_user_t * accdb,
+                fd_accdb_rw_t *   write );
+
 };
 
-typedef struct fd_accdb_user fd_accdb_user_t;
+typedef struct fd_accdb_user_vt fd_accdb_user_vt_t;
+
+struct fd_accdb_user_base {
+  fd_accdb_user_vt_t const * vt;
+  uint                       accdb_type;
+
+  ulong rw_active;
+  ulong ro_active;
+};
+
+typedef struct fd_accdb_user_base fd_accdb_user_base_t;
+
+struct fd_accdb_user {
+  fd_accdb_user_base_t base;
+
+  uchar impl[ 4096 ] __attribute__((aligned(64)));
+};
 
 FD_PROTOTYPES_BEGIN
-
-/* Constructor */
 
 static inline ulong
 fd_accdb_user_align( void ) {
@@ -35,27 +76,11 @@ fd_accdb_user_footprint( void ) {
   return sizeof(fd_accdb_user_t);
 }
 
-static inline fd_accdb_user_t *
-fd_accdb_user_new( void * ljoin ) {
-  return ljoin;
+static inline void
+fd_accdb_user_fini( fd_accdb_user_t * accdb ) {
+  accdb->base.vt->fini( accdb );
+  accdb->base.accdb_type = 0;
 }
-
-static inline void *
-fd_accdb_user_delete( void * ljoin ) {
-  return ljoin;
-}
-
-/* fd_accdb_user_join joins the caller to an accdb funk instance. */
-
-fd_accdb_user_t *
-fd_accdb_user_join( fd_accdb_user_t * ljoin,
-                    void *            shfunk );
-
-/* fd_accdb_leave detaches the caller from an accdb. */
-
-void *
-fd_accdb_user_leave( fd_accdb_user_t * cache,
-                     void **           opt_shfunk );
 
 FD_PROTOTYPES_END
 

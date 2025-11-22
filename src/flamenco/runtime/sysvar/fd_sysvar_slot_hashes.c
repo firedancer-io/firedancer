@@ -2,6 +2,8 @@
 #include "fd_sysvar.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
+
 /* FIXME These constants should be header defines */
 
 void
@@ -77,8 +79,9 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
                               fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx ) {
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   uchar __attribute__((aligned(FD_SYSVAR_SLOT_HASHES_ALIGN))) slot_hashes_mem[FD_SYSVAR_SLOT_HASHES_FOOTPRINT];
-  fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( accdb->funk, xid, slot_hashes_mem );
+  fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( funk, xid, slot_hashes_mem );
   fd_slot_hash_t *          hashes             = NULL;
   if( FD_UNLIKELY( !slot_hashes_global ) ) {
     /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */

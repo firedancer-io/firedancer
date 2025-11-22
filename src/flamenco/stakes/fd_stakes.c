@@ -1,10 +1,10 @@
 #include "fd_stakes.h"
 #include "../runtime/fd_bank.h"
-#include "../runtime/fd_system_ids.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "fd_stake_delegations.h"
+#include "../accdb/fd_accdb_impl_v1.h"
 
 ulong
 fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
@@ -97,8 +97,9 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
      sysvar.  Afterward, we can refresh the stake values for the vote
      accounts for the new epoch. */
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb->funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 
@@ -137,7 +138,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
   fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &new_elem );
 
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb->funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 

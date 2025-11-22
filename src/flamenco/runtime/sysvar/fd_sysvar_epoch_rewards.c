@@ -3,6 +3,7 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_txn_account.h"
 #include "../fd_system_ids.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 
 static void
 write_epoch_rewards( fd_bank_t *                 bank,
@@ -58,8 +59,9 @@ fd_sysvar_epoch_rewards_distribute( fd_bank_t *               bank,
                                     fd_funk_txn_xid_t const * xid,
                                     fd_capture_ctx_t *        capture_ctx,
                                     ulong                     distributed ) {
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( accdb->funk, xid, epoch_rewards ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( funk, xid, epoch_rewards ) ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
   }
 
@@ -81,8 +83,9 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *               bank,
                                       fd_accdb_user_t *         accdb,
                                       fd_funk_txn_xid_t const * xid,
                                       fd_capture_ctx_t *        capture_ctx ) {
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( accdb->funk, xid, epoch_rewards ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( funk, xid, epoch_rewards ) ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
   }
 

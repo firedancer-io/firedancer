@@ -2,6 +2,7 @@
 #include "generated/context.pb.h"
 #include "../fd_acc_mgr.h"
 #include "../../features/fd_features.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 #include <assert.h>
 
 int
@@ -20,7 +21,8 @@ fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
   /* Account must not yet exist */
-  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( accdb->funk, xid, pubkey, NULL, NULL, NULL) ) ) {
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
+  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( funk, xid, pubkey, NULL, NULL, NULL) ) ) {
     return 0;
   }
 
