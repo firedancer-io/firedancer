@@ -293,7 +293,7 @@ while true; do
                 # create new snapshot at that slot
                 if [ "$PREVIOUS_ROOTED_SLOT" -gt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
                     echo "Creating new snapshot at $PREVIOUS_ROOTED_SLOT"
-                    $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR
+                    $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change
                     sleep 10
                     rm $LEDGER_DIR/ledger_tool -rf
                     # delete old snapshot (LEADER_REPLAY_SNAPSHOT)
@@ -306,7 +306,7 @@ while true; do
 
                 # create a new base snapshot for rooted slot right after the mismatch slot
                 echo "Creating new snapshot at $NEXT_ROOTED_SLOT"
-                $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR
+                $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change
                 sleep 10
                 rm $LEDGER_DIR/ledger_tool -rf
 
@@ -339,7 +339,7 @@ while true; do
 
                 mv $LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
                 echo "Creating minimized snapshot for mismatch"
-                $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT
+                $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT --enable-capitalization-change
                 sleep 10
                 rm $LEDGER_DIR/ledger_tool -rf
                 mv $LEDGER_DIR/snapshot-${PREVIOUS_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
