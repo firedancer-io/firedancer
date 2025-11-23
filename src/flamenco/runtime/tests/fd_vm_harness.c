@@ -171,6 +171,7 @@ do{
   }
 
   /* Serialize accounts into input memory region. */
+  ulong instr_data_offset = 0UL;
   int err = fd_bpf_loader_input_serialize_parameters( instr_ctx,
                                                       &input_sz,
                                                       pre_lens,
@@ -180,6 +181,7 @@ do{
                                                       stricter_abi_and_runtime_constraints,
                                                       direct_mapping,
                                                       is_deprecated,
+                                                      &instr_data_offset,
                                                       &input_ptr );
   if( FD_UNLIKELY( err ) ) {
     fd_solfuzz_pb_instr_ctx_destroy( runner, instr_ctx );
@@ -258,12 +260,13 @@ do{
     is_deprecated, /* is deprecated */
     direct_mapping, /* direct mapping */
     stricter_abi_and_runtime_constraints, /* stricter_abi_and_runtime_constraints */
-    0 /* dump_syscall_to_pb */
+    0 /* dump_syscall_to_pb */,
+    0UL /* r2 is set by the fuzzer below */
   );
 
   /* Setup registers.
      r1, r10, r11 are initialized by EbpfVm::new (r10) or EbpfVm::execute_program (r1, r11),
-     or equivalently by fd_vm_init and fd_vm_setup_state_for_execution.
+     or equivalently by fd_vm_init.
      Modifying them will most like break execution.
      In syscalls we allow override them (especially r1) because that simulates the fact
      that a program partially executed before reaching the syscall.
@@ -482,6 +485,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   }
 
   /* Serialize accounts into input memory region. */
+  ulong instr_data_offset = 0UL;
   int err = fd_bpf_loader_input_serialize_parameters( ctx,
                                                       &input_sz,
                                                       pre_lens,
@@ -491,6 +495,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                                                       stricter_abi_and_runtime_constraints,
                                                       direct_mapping,
                                                       is_deprecated,
+                                                      &instr_data_offset,
                                                       &input_ptr );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "bpf loader input serialize parameters err" ));
@@ -519,7 +524,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
               is_deprecated,
               direct_mapping,
               stricter_abi_and_runtime_constraints,
-              0 /* dump_syscall_to_pb */ );
+              0 /* dump_syscall_to_pb */,
+              0UL /* r2 is set by the fuzzer below */ );
 
   // Override some execution state values from the syscall fuzzer input
   // This is so we can test if the syscall mutates any of these erroneously

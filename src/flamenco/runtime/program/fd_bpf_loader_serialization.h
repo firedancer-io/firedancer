@@ -18,6 +18,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           int                       stricter_abi_and_runtime_constraints,
                                           int                       direct_mapping,
                                           uchar                     is_deprecated,
+                                          ulong *                   instr_data_offset,
                                           uchar **                  out /* output */ );
 
 int

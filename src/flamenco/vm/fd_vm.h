@@ -287,29 +287,30 @@ fd_vm_join( void * shmem );
           to handle those errors separately. */
 fd_vm_t *
 fd_vm_init(
-   fd_vm_t * vm,
-   fd_exec_instr_ctx_t *instr_ctx,
-   ulong heap_max,
-   ulong entry_cu,
-   uchar const * rodata,
-   ulong rodata_sz,
-   ulong const * text,
-   ulong text_cnt,
-   ulong text_off,
-   ulong text_sz,
-   ulong entry_pc,
-   ulong const * calldests,
-   ulong sbpf_version,
-   fd_sbpf_syscalls_t * syscalls,
-   fd_vm_trace_t * trace,
-   fd_sha256_t * sha,
-   fd_vm_input_region_t * mem_regions,
-   uint mem_regions_cnt,
+   fd_vm_t *                 vm,
+   fd_exec_instr_ctx_t *     instr_ctx,
+   ulong                     heap_max,
+   ulong                     entry_cu,
+   uchar const *             rodata,
+   ulong                     rodata_sz,
+   ulong const *             text,
+   ulong                     text_cnt,
+   ulong                     text_off,
+   ulong                     text_sz,
+   ulong                     entry_pc,
+   ulong const *             calldests,
+   ulong                     sbpf_version,
+   fd_sbpf_syscalls_t *      syscalls,
+   fd_vm_trace_t *           trace,
+   fd_sha256_t *             sha,
+   fd_vm_input_region_t *    mem_regions,
+   uint                      mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,
-   uchar is_deprecated,
-   int direct_mapping,
-   int stricter_abi_and_runtime_constraints,
-   int dump_syscall_to_pb );
+   uchar                     is_deprecated,
+   int                       direct_mapping,
+   int                       stricter_abi_and_runtime_constraints,
+   int                       dump_syscall_to_pb,
+   ulong                     r2_initial_value );
 
 /* fd_vm_leave leaves the caller's current local join to a vm.
    Returns a pointer to the memory region holding the vm on success
@@ -348,11 +349,6 @@ FD_FN_PURE static inline int
 fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
    return !vm->is_deprecated;
 }
-
-/* FIXME: make this trace-aware, and move into fd_vm_init
-   This is a temporary hack to make the fuzz harness work. */
-int
-fd_vm_setup_state_for_execution( fd_vm_t * vm ) ;
 
 /* fd_vm_exec runs vm from program start to program halt or program
    fault, appending an execution trace if vm is attached to a trace.

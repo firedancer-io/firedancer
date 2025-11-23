@@ -291,7 +291,8 @@ main( int     argc,
       /* is_deprecated                        */ 0,
       /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
       /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( bank, stricter_abi_and_runtime_constraints ),
-      /* dump_syscall_to_pb */ 0
+      /* dump_syscall_to_pb                   */ 0,
+      /* r2_initial_value                     */ 0UL
   );
   FD_TEST( vm_ok );
 
