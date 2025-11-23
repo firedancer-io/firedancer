@@ -214,7 +214,7 @@ advance_tar( fd_ssparse_t *                ssparse,
 
   ssparse->tar.file_bytes = fd_tar_meta_get_size( hdr );
   if( FD_UNLIKELY( ssparse->tar.file_bytes==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "invalid tar header size %lu", ssparse->tar.file_bytes ));
+    FD_LOG_WARNING(( "invalid tar header size" ));
     return FD_SSPARSE_ADVANCE_ERROR;
   }
 
