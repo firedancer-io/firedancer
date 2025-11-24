@@ -8,6 +8,22 @@
    responsible for checking there is space before appending a new value,
    and flushing the final message. */
 
+struct __attribute__((packed)) fd_gossip_crds_val_hdr {
+  uchar sig[ 64UL ];
+  uint  tag; /* CRDS value tag */
+};
+
+typedef struct fd_gossip_crds_val_hdr fd_gossip_crds_val_hdr_t;
+
+struct __attribute__((packed)) fd_gossip_crds_msg {
+  uint  msg_type;
+  uchar identity_pubkey[ 32UL ];
+  ulong crds_len;
+  uchar crds[ ];
+};
+
+typedef struct fd_gossip_crds_msg fd_gossip_crds_msg_t;
+
 struct fd_gossip_txbuild {
   uchar tag;
 

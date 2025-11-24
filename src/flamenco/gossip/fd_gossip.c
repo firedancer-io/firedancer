@@ -293,17 +293,77 @@ txbuild_flush( fd_gossip_t *         gossip,
                long                  now ) {
   if( FD_UNLIKELY( !txbuild->crds_len ) ) return;
 
+  fd_gossip_crds_msg_t const * msg = (fd_gossip_crds_msg_t const *)txbuild->bytes;
+  if( FD_UNLIKELY( msg->crds_len!=txbuild->crds_len ) ) {
+    FD_LOG_ERR(( "txbuild_flush: crds_len mismatch (msg=%lu meta=%lu txbuild=%p tag=%u dest=%u:%u now=%li)",
+                     msg->crds_len,
+                     txbuild->crds_len,
+                     (void *)txbuild,
+                     (uint)txbuild->tag,
+                     dest_addr.addr,
+                     dest_addr.port,
+                     now ));
+  }
+
   gossip->send_fn( gossip->send_ctx, stem, txbuild->bytes, txbuild->bytes_len, &dest_addr, (ulong)now );
 
   gossip->metrics->message_tx[ txbuild->tag ]++;
   gossip->metrics->message_tx_bytes[ txbuild->tag ] += txbuild->bytes_len+42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
   for( ulong i=0UL; i<txbuild->crds_len; i++ ) {
+    ulong off = txbuild->crds[ i ].off;
+    ulong sz  = txbuild->crds[ i ].sz;
+    ulong end = off + sz;
+    if( FD_UNLIKELY( end>txbuild->bytes_len || sz==0UL ) ) {
+      FD_LOG_ERR(( "txbuild_flush: CRDS slice out of bounds (idx=%lu off=%lu sz=%lu len=%lu txbuild=%p tag=%u dest=%u:%u now=%li)",
+                       i,
+                       off,
+                       sz,
+                       txbuild->bytes_len,
+                       (void *)txbuild,
+                       (uint)txbuild->tag,
+                       dest_addr.addr,
+                       dest_addr.port,
+                       now ));
+      continue;
+    }
+
+    fd_gossip_crds_val_hdr_t const * hdr = (fd_gossip_crds_val_hdr_t const *)(txbuild->bytes + off);
+    ulong encoded_tag = (ulong)hdr->tag;
+    if( FD_UNLIKELY( encoded_tag!=txbuild->crds[ i ].tag ) ) {
+      FD_LOG_ERR(( "txbuild_flush: metadata tag mismatch (idx=%lu meta=%lu encoded=%lu off=%lu sz=%lu txbuild=%p msg_tag=%u dest=%u:%u now=%li)",
+                       i,
+                       txbuild->crds[ i ].tag,
+                       encoded_tag,
+                       off,
+                       sz,
+                       (void *)txbuild,
+                       (uint)txbuild->tag,
+                       dest_addr.addr,
+                       dest_addr.port,
+                       now ));
+    }
+
+    ulong crds_tag = encoded_tag;
+    if( FD_UNLIKELY( crds_tag>=FD_METRICS_ENUM_CRDS_VALUE_CNT ) ) {
+      FD_LOG_ERR(( "txbuild_flush: dropping CRDS metric update with invalid tag %lu (max %lu) idx=%lu off=%lu sz=%lu txbuild=%p msg_tag=%u dest=%u:%u now=%li",
+                       crds_tag,
+                       FD_METRICS_ENUM_CRDS_VALUE_CNT-1UL,
+                       i,
+                       off,
+                       sz,
+                       (void *)txbuild,
+                       (uint)txbuild->tag,
+                       dest_addr.addr,
+                       dest_addr.port,
+                       now ));
+      continue;
+    }
     if( FD_LIKELY( txbuild->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
-      gossip->metrics->crds_tx_push[ txbuild->crds[ i ].tag ]++;
-      gossip->metrics->crds_tx_push_bytes[ txbuild->crds[ i ].tag ] += txbuild->crds[ i ].sz;
+      gossip->metrics->crds_tx_push[ crds_tag ]++;
+      gossip->metrics->crds_tx_push_bytes[ crds_tag ] += txbuild->crds[ i ].sz;
     } else {
-      gossip->metrics->crds_tx_pull_response[ txbuild->crds[ i ].tag ]++;
-      gossip->metrics->crds_tx_pull_response_bytes[ txbuild->crds[ i ].tag ] += txbuild->crds[ i ].sz;
+      gossip->metrics->crds_tx_pull_response[ crds_tag ]++;
+      gossip->metrics->crds_tx_pull_response_bytes[ crds_tag ] += txbuild->crds[ i ].sz;
     }
   }
 

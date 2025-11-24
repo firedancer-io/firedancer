@@ -2,31 +2,15 @@
 
 #include "fd_gossip_private.h"
 
-struct __attribute__((packed)) crds_val_hdr {
-  uchar sig[ 64UL ];
-  uint  tag; /* CRDS value tag */
-};
-
-typedef struct crds_val_hdr crds_val_hdr_t;
-
-struct __attribute__((packed)) crds_msg {
-  uint msg_type;
-  uchar identity_pubkey[ 32UL ];
-  ulong crds_len;
-  uchar crds[ ];
-};
-
-typedef struct crds_msg crds_msg_t;
-
 void
 fd_gossip_txbuild_init( fd_gossip_txbuild_t * txbuild,
                         uchar const *         identity_pubkey,
                         uchar                 msg_type ) {
   txbuild->tag = msg_type;
-  txbuild->bytes_len = 44UL; /* offsetof( crds_msg_t, crds ) */
+  txbuild->bytes_len = 44UL; /* offsetof( fd_gossip_crds_msg_t, crds ) */
   txbuild->crds_len = 0UL;
 
-  crds_msg_t * msg = (crds_msg_t *)txbuild->bytes;
+  fd_gossip_crds_msg_t * msg = (fd_gossip_crds_msg_t *)txbuild->bytes;
   msg->msg_type = msg_type;
   fd_memcpy( msg->identity_pubkey, identity_pubkey, 32UL );
   msg->crds_len = 0UL;
@@ -48,12 +32,17 @@ fd_gossip_txbuild_append( fd_gossip_txbuild_t * txbuild,
 
   fd_memcpy( &txbuild->bytes[ txbuild->bytes_len ], crds, crds_len );
 
-  crds_msg_t * msg = (crds_msg_t *)txbuild->bytes;
+  fd_gossip_crds_msg_t * msg = (fd_gossip_crds_msg_t *)txbuild->bytes;
   msg->crds_len++;
 
-  crds_val_hdr_t * hdr = (crds_val_hdr_t *)crds;
+  fd_gossip_crds_val_hdr_t * hdr = (fd_gossip_crds_val_hdr_t *)crds;
+  ulong crds_tag = (ulong)hdr->tag;
+  if( FD_UNLIKELY( crds_tag>FD_GOSSIP_VALUE_LAST ) ) {
+    FD_LOG_ERR(( "fd_gossip_txbuild_append: tag %lu out of range (txbuild=%p msg_tag=%u crds_len=%lu sz=%lu)",
+                     crds_tag, (void *)txbuild, (uint)txbuild->tag, txbuild->crds_len, crds_len ));
+  }
 
-  txbuild->crds[ txbuild->crds_len ].tag = hdr->tag;
+  txbuild->crds[ txbuild->crds_len ].tag = crds_tag;
   txbuild->crds[ txbuild->crds_len ].off = (ushort)txbuild->bytes_len;
   txbuild->crds[ txbuild->crds_len ].sz  = (ushort)crds_len;
   txbuild->crds_len++;
