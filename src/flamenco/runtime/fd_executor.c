@@ -1421,12 +1421,12 @@ fd_execute_instr( fd_runtime_t *      runtime,
 }
 
 void
-fd_executor_reclaim_account( fd_txn_account_t *  account,
+fd_executor_reclaim_account( fd_account_meta_t * meta,
                              ulong               slot ) {
-  fd_txn_account_set_slot( account, slot );
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( account )==0UL ) ) {
-    fd_txn_account_set_data_len( account, 0UL );
-    fd_txn_account_clear_owner( account );
+  meta->slot = slot;
+  if( FD_UNLIKELY( meta->lamports==0UL ) ) {
+    meta->dlen = 0UL;
+    memset( meta->owner, 0, sizeof(fd_pubkey_t) );
   }
 }
 
@@ -1640,28 +1640,29 @@ fd_executor_txn_check( fd_runtime_t * runtime,
 
   /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
   for( ulong idx = 0; idx < txn_out->accounts.accounts_cnt; idx++ ) {
-    fd_txn_account_t * b = &txn_out->accounts.accounts[idx];
-    ulong starting_lamports = runtime->accounts.starting_lamports[idx];
-    ulong starting_dlen     = runtime->accounts.starting_dlen[idx];
+    ulong               starting_lamports  = runtime->accounts.starting_lamports[idx];
+    ulong               starting_dlen      = runtime->accounts.starting_dlen[idx];
+    fd_account_meta_t * meta               = txn_out->accounts.metas[idx];
+    fd_pubkey_t *       pubkey             = &txn_out->accounts.account_keys[idx];
 
     // Was this account written to?
     /* TODO: Clean this logic up... lots of redundant checks with our newer account loading model.
        We should be using the rent transition checking logic instead, along with a small refactor
        to keep check ordering consistent. */
-    if( fd_txn_account_get_meta( b )!=NULL ) {
+    if( meta!=NULL ) {
 
-      fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, b->meta->lamports );
+      fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, meta->lamports );
 
       /* Rent states are defined as followed:
          - lamports == 0                      -> Uninitialized
          - 0 < lamports < rent_exempt_minimum -> RentPaying
          - lamports >= rent_exempt_minimum    -> RentExempt
          In Agave, 'self' refers to our 'after' state. */
-      uchar after_uninitialized  = b->meta->lamports == 0;
-      uchar after_rent_exempt    = b->meta->lamports >= fd_rent_exempt_minimum_balance( rent, b->meta->dlen );
+      uchar after_uninitialized  = meta->lamports == 0;
+      uchar after_rent_exempt    = meta->lamports >= fd_rent_exempt_minimum_balance( rent, meta->dlen );
 
       /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L96 */
-      if( FD_LIKELY( memcmp( b->pubkey->key, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) != 0 ) ) {
+      if( FD_LIKELY( memcmp( pubkey, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) != 0 ) ) {
         /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L44 */
         if( after_uninitialized || after_rent_exempt ) {
           // no-op
@@ -1675,7 +1676,7 @@ fd_executor_txn_check( fd_runtime_t * runtime,
             /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
             return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
           /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
-          } else if( (b->meta->dlen == starting_dlen) && b->meta->lamports <= starting_lamports ) {
+          } else if( (meta->dlen == starting_dlen) && meta->lamports <= starting_lamports ) {
             // no-op
           } else {
             /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */

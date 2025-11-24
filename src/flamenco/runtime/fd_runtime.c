@@ -237,7 +237,7 @@ fd_runtime_run_incinerator( fd_bank_t *               bank,
   fd_bank_capitalization_set( bank, new_capitalization );
 
   fd_txn_account_set_lamports( rec, 0UL );
-  fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
+  fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
   fd_txn_account_mutable_fini( rec, accdb, &prepare );
 
   return 0;
@@ -321,7 +321,7 @@ fd_runtime_freeze( fd_bank_t *         bank,
       fd_txn_account_checked_add_lamports( rec, fees );
       fd_txn_account_set_slot( rec, fd_bank_slot_get( bank ) );
 
-      fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
+      fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
       fd_txn_account_mutable_fini( rec, accdb, &prepare );
 
     } while(0);
@@ -538,7 +538,7 @@ fd_feature_activate( fd_bank_t *               bank,
       FD_LOG_ERR(( "Failed to encode feature account %s (%d)", addr_b58, decode_err ));
     }
 
-    fd_hashes_update_lthash( modify_acct_rec, prev_hash, bank, capture_ctx );
+    fd_hashes_update_lthash( modify_acct_rec->pubkey, modify_acct_rec->meta, prev_hash, bank, capture_ctx );
     fd_txn_account_mutable_fini( modify_acct_rec, accdb, &modify_acct_prepare );
   }
 }
@@ -975,7 +975,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
         https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
 
         In any case, we should always add the dlen of the fee payer. */
-    txn_out->details.loaded_accounts_data_size = fd_txn_account_get_data_len( &txn_out->accounts.accounts[FD_FEE_PAYER_TXN_IDX] );
+    txn_out->details.loaded_accounts_data_size = txn_out->accounts.metas[ FD_FEE_PAYER_TXN_IDX ]->dlen;
 
     /* Special case handling for if a nonce account is present in the transaction. */
     if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
@@ -1142,7 +1142,8 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
 static void
 fd_runtime_save_account( fd_funk_t *               funk,
                          fd_funk_txn_xid_t const * xid,
-                         fd_txn_account_t *        account,
+                         fd_pubkey_t const *       pubkey,
+                         fd_account_meta_t *       meta,
                          fd_bank_t *               bank,
                          fd_capture_ctx_t *        capture_ctx ) {
   /* Look up the previous version of the account from Funk */
@@ -1151,7 +1152,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
   fd_account_meta_t const * prev_meta = fd_funk_get_acc_meta_readonly(
       funk,
       xid,
-      account->pubkey,
+      pubkey,
       fd_type_pun( &funk_prev_rec ),
       &err,
       NULL );
@@ -1162,17 +1163,23 @@ fd_runtime_save_account( fd_funk_t *               funk,
   fd_lthash_zero( prev_hash );
   if( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     fd_hashes_account_lthash(
-      account->pubkey,
+      pubkey,
       prev_meta,
       prev_data,
       prev_hash );
   }
 
   /* Mix in the account hash into the bank hash */
-  fd_hashes_update_lthash( account, prev_hash, bank, NULL );
+  fd_hashes_update_lthash( pubkey, meta, prev_hash, bank, NULL );
 
   /* Publish account update to replay tile for solcap writing
      TODO: write in the exec tile with solcap v2 */
+  fd_txn_account_t account[1];
+  memcpy( account->pubkey, pubkey, sizeof(fd_pubkey_t) );
+  account->meta = meta;
+  account->data = fd_account_data( meta );
+  account->is_mutable = 1;
+
   fd_runtime_buffer_solcap_account_update( account, bank, capture_ctx );
 
   /* Save the new version of the account to Funk */
@@ -1210,12 +1217,22 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
        We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
     if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-      fd_runtime_save_account( runtime->funk, &xid, txn_out->accounts.rollback_nonce, bank, runtime->log.capture_ctx );
+      fd_runtime_save_account( runtime->funk,
+                               &xid,
+                               txn_out->accounts.rollback_nonce->pubkey,
+                               txn_out->accounts.rollback_nonce->meta,
+                               bank,
+                               runtime->log.capture_ctx );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
     if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      fd_runtime_save_account( runtime->funk, &xid, txn_out->accounts.rollback_fee_payer, bank, runtime->log.capture_ctx );
+      fd_runtime_save_account( runtime->funk,
+                               &xid,
+                               txn_out->accounts.rollback_fee_payer->pubkey,
+                               txn_out->accounts.rollback_fee_payer->meta,
+                               bank,
+                               runtime->log.capture_ctx );
     }
   } else {
 
@@ -1226,7 +1243,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
         continue;
       }
 
-      fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_out->accounts.accounts[i] );
+      fd_txn_account_t * acc_rec = &txn_out->accounts.accounts[i];
       if( FD_UNLIKELY( !acc_rec ) ) {
         FD_LOG_CRIT(( "fd_runtime_commit_txn: failed to join account at idx %u", i ));
       }
@@ -1249,9 +1266,14 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
       /* Reclaim any accounts that have 0-lamports, now that any related
          cache updates have been applied. */
-      fd_executor_reclaim_account( &txn_out->accounts.accounts[i], fd_bank_slot_get( bank ) );
+      fd_executor_reclaim_account( txn_out->accounts.metas[i], fd_bank_slot_get( bank ) );
 
-      fd_runtime_save_account( runtime->funk, &xid, &txn_out->accounts.accounts[i], bank, runtime->log.capture_ctx );
+      fd_runtime_save_account( runtime->funk,
+                               &xid,
+                               txn_out->accounts.accounts[i].pubkey,
+                               txn_out->accounts.accounts[i].meta,
+                               bank,
+                               runtime->log.capture_ctx );
     }
 
     /* We need to queue any existing program accounts that may have

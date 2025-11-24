@@ -116,15 +116,9 @@ struct fd_account_meta {
 };
 typedef struct fd_account_meta fd_account_meta_t;
 
-struct fd_account {
-  uchar               pubkey[32UL];
-  fd_account_meta_t * meta;
-};
-typedef struct fd_account fd_account_t;
-
 FD_FN_PURE static inline uchar *
-fd_account_data( fd_account_t const * acc ) {
-  return (uchar *)( acc->meta+1 );
+fd_account_data( fd_account_meta_t const * acc ) {
+  return (uchar *)( acc+1 );
 }
 
 FD_PROTOTYPES_BEGIN

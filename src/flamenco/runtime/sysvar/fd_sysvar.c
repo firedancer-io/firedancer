@@ -47,7 +47,7 @@ fd_sysvar_account_update( fd_bank_t *               bank,
     __builtin_unreachable();
   }
 
-  fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
+  fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
   fd_txn_account_mutable_fini( rec, accdb, &prepare );
 
   if( FD_UNLIKELY( fd_log_level_logfile()<=0 || fd_log_level_stderr()<=0 ) ) {
