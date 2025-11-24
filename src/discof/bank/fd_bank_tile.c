@@ -56,6 +56,8 @@ struct fd_bank_ctx {
   fd_accdb_user_t accdb[1];
   fd_progcache_t  progcache[1];
 
+  fd_runtime_t runtime[1];
+
   /* For bundle execution, we need to execute each transaction against
      a separate transaction context and a set of accounts, but the exec
      stack can be reused.  We will also use these same memory regions
@@ -65,9 +67,6 @@ struct fd_bank_ctx {
   fd_txn_out_t       txn_out[ FD_PACK_MAX_TXN_PER_BUNDLE ];
 
   fd_log_collector_t log_collector[ 1 ];
-
-  fd_runtime_t runtime;
-
 
   struct {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
@@ -84,7 +83,6 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_bank_ctx_t ),   sizeof( fd_bank_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
@@ -199,7 +197,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
-    fd_runtime_prepare_and_execute_txn( &ctx->runtime, bank, txn_in, txn_out );
+    fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
 
     /* Stash the result in the flags value so that pack can inspect it. */
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
@@ -234,7 +232,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_commit_txn( &ctx->runtime, bank, txn_in, txn_out );
+    fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       /* If the transaction failed to fit into the block, we need to
@@ -385,7 +383,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
     txn_in->bundle.is_bundle = 1;
-    fd_runtime_prepare_and_execute_txn( &ctx->runtime, bank, txn_in, txn_out );
+    fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       execution_success = 0;
@@ -407,7 +405,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
-      fd_runtime_commit_txn( &ctx->runtime, bank, txn_in, txn_out );
+      fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
@@ -556,7 +554,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ),   sizeof( fd_bank_ctx_t ) );
+  fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bank_ctx_t),     sizeof(fd_bank_ctx_t) );
   void * blake3       = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
   void * bmtree       = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
   void * _txncache    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->bank.max_live_slots ) );
@@ -598,16 +596,12 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  ctx->runtime = (fd_runtime_t) {
-    .accdb        = accdb,
-    .funk         = fd_accdb_user_v1_funk( accdb ),
-    .progcache    = progcache,
-    .status_cache = txncache,
-    .log          = {
-      .log_collector = ctx->log_collector,
-      .enable_log_collector = 0,
-    }
-  };
+  ctx->runtime->accdb = accdb;
+  ctx->runtime->funk = fd_accdb_user_v1_funk( accdb );
+  ctx->runtime->progcache = progcache;
+  ctx->runtime->status_cache = txncache;
+  ctx->runtime->log.log_collector = ctx->log_collector;
+  ctx->runtime->log.enable_log_collector = 0;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
