@@ -124,6 +124,7 @@ FD_IMPORT_BINARY( icmp_echo,       "src/waltz/xdp/fixtures/icmp_echo.bin"       
 FD_IMPORT_BINARY( dns_query_a,     "src/waltz/xdp/fixtures/dns_query_a.bin"     );
 FD_IMPORT_BINARY( tcp_rst,         "src/waltz/xdp/fixtures/tcp_rst.bin"         );
 FD_IMPORT_BINARY( quic_initial,    "src/waltz/xdp/fixtures/quic_initial.bin"    );
+FD_IMPORT_BINARY( ip4_ihl0,        "src/waltz/xdp/fixtures/ip4_ihl0.bin"        );
 
 FD_IMPORT_BINARY( tcp_syn_gre,         "src/waltz/xdp/fixtures/tcp_syn_gre.bin"         );
 FD_IMPORT_BINARY( tcp_ack_gre,         "src/waltz/xdp/fixtures/tcp_ack_gre.bin"         );
@@ -319,6 +320,7 @@ run_tests( uint dst_ip ) {
   prog_test( TEST_FIXTURE( dns_query_a     ), XDP_PASS );
   prog_test( TEST_FIXTURE( tcp_rst         ), XDP_PASS );
   prog_test( TEST_FIXTURE( quic_initial    ), XDP_REDIRECT );
+  prog_test( TEST_FIXTURE( ip4_ihl0        ), XDP_PASS );
 
   /* GRE tests */
   prog_test( TEST_FIXTURE( tcp_syn_gre         ), XDP_PASS );
