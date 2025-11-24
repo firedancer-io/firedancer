@@ -70,6 +70,7 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *          runtime,
     if( FD_UNLIKELY( !acc ) ) {
       FD_LOG_CRIT(( "Failed to join txn account" ));
     }
+    txn_out->accounts.metas[txn_idx] = acc->meta;
   }
 
   /* Agave sets up the borrowed account for the instructions sysvar to contain

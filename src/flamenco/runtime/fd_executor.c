@@ -1436,7 +1436,6 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
                                fd_txn_in_t const * txn_in,
                                fd_txn_out_t *      txn_out,
                                ushort              idx ) {
-
   /* To setup a transaction account, we need to first retrieve a
      read-only handle to the account from the database. */
 
@@ -1650,15 +1649,16 @@ fd_executor_txn_check( fd_runtime_t * runtime,
        We should be using the rent transition checking logic instead, along with a small refactor
        to keep check ordering consistent. */
     if( fd_txn_account_get_meta( b )!=NULL ) {
-      fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, fd_txn_account_get_lamports( b ) );
+
+      fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, b->meta->lamports );
 
       /* Rent states are defined as followed:
          - lamports == 0                      -> Uninitialized
          - 0 < lamports < rent_exempt_minimum -> RentPaying
          - lamports >= rent_exempt_minimum    -> RentExempt
          In Agave, 'self' refers to our 'after' state. */
-      uchar after_uninitialized  = fd_txn_account_get_lamports( b ) == 0;
-      uchar after_rent_exempt    = fd_txn_account_get_lamports( b ) >= fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( b ) );
+      uchar after_uninitialized  = b->meta->lamports == 0;
+      uchar after_rent_exempt    = b->meta->lamports >= fd_rent_exempt_minimum_balance( rent, b->meta->dlen );
 
       /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L96 */
       if( FD_LIKELY( memcmp( b->pubkey->key, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) != 0 ) ) {
@@ -1675,7 +1675,7 @@ fd_executor_txn_check( fd_runtime_t * runtime,
             /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
             return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
           /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
-          } else if( (fd_txn_account_get_data_len( b ) == starting_dlen) && fd_txn_account_get_lamports( b ) <= starting_lamports ) {
+          } else if( (b->meta->dlen == starting_dlen) && b->meta->lamports <= starting_lamports ) {
             // no-op
           } else {
             /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
