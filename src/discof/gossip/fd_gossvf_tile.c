@@ -13,27 +13,20 @@
 #include "generated/fd_gossvf_tile_seccomp.h"
 
 #define DEBUG_PEERS (0)
+#define DEBUG_PINGS (0)
 
 #define IN_KIND_SHRED_VERSION (0)
 #define IN_KIND_NET           (1)
 #define IN_KIND_REPLAY        (2)
 #define IN_KIND_PINGS         (3)
-#define IN_KIND_GOSSIP        (4)
+#define IN_KIND_PEERS         (4)
 
 struct peer {
-  fd_pubkey_t pubkey;
-
+  fd_pubkey_t   pubkey;
   fd_ip4_port_t gossip_addr;
-  ushort shred_version;
+  ushort        shred_version;
 
-  struct {
-    ulong prev;
-    ulong next;
-  } map;
-
-  struct {
-    ulong next;
-  } pool;
+  ulong         map_next;
 };
 
 typedef struct peer peer_t;
@@ -70,18 +63,11 @@ struct stake {
 
 typedef struct stake stake_t;
 
-#define POOL_NAME  peer_pool
-#define POOL_T     peer_t
-#define POOL_IDX_T ulong
-#define POOL_NEXT  pool.next
-#include "../../util/tmpl/fd_pool.c"
-
 #define MAP_NAME               peer_map
 #define MAP_KEY                pubkey
 #define MAP_ELE_T              peer_t
 #define MAP_KEY_T              fd_pubkey_t
-#define MAP_PREV               map.prev
-#define MAP_NEXT               map.next
+#define MAP_NEXT               map_next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
 #define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
 #include "../../util/tmpl/fd_map_chain.c"
@@ -133,27 +119,25 @@ struct fd_gossvf_tile_ctx {
 
 #if DEBUG_PEERS
   ulong peer_cnt;
+#endif
+#if DEBUG_PINGS
   ulong ping_cnt;
 #endif
 
-  peer_t * peers;
+  peer_t *     peer_table;
   peer_map_t * peer_map;
 
-  ping_t * pings;
+  ping_t *     pings;
   ping_map_t * ping_map;
 
   struct {
     ulong         count;
     stake_t *     pool;
     stake_map_t * map;
-    uchar         msg_buf[ FD_STAKE_CI_STAKE_MSG_SZ ];
   } stake;
 
   uchar payload[ FD_NET_MTU ];
   fd_ip4_port_t peer;
-
-  fd_gossip_ping_update_t _ping_update[1];
-  fd_gossip_update_message_t _gossip_update[1];
 
   double ticks_per_ns;
   long   last_wallclock;
@@ -203,20 +187,28 @@ typedef struct fd_gossvf_tile_ctx fd_gossvf_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 128UL;
+  return fd_ulong_max( 128UL,
+         fd_ulong_max( alignof(fd_gossvf_tile_ctx_t),
+         fd_ulong_max( alignof(peer_t),
+         fd_ulong_max( peer_map_align(),
+         fd_ulong_max( ping_pool_align(),
+         fd_ulong_max( ping_map_align(),
+         fd_ulong_max( stake_pool_align(),
+         fd_ulong_max( stake_map_align(),
+                       fd_tcache_align() ) ) ) ) ) ) ) );
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_gossvf_tile_ctx_t ), sizeof( fd_gossvf_tile_ctx_t )                                );
-  l = FD_LAYOUT_APPEND( l, peer_pool_align(),               peer_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE )             );
-  l = FD_LAYOUT_APPEND( l, peer_map_align(),                peer_map_footprint( 2UL*FD_CONTACT_INFO_TABLE_SIZE )          );
-  l = FD_LAYOUT_APPEND( l, ping_pool_align(),               ping_pool_footprint( FD_PING_TRACKER_MAX )                    );
-  l = FD_LAYOUT_APPEND( l, ping_map_align(),                ping_map_footprint( 2UL*FD_PING_TRACKER_MAX )                 );
-  l = FD_LAYOUT_APPEND( l, stake_pool_align(),              stake_pool_footprint( MAX_STAKED_LEADERS )                    );
-  l = FD_LAYOUT_APPEND( l, stake_map_align(),               stake_map_footprint( fd_ulong_pow2_up( MAX_STAKED_LEADERS ) ) );
-  l = FD_LAYOUT_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )         );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gossvf_tile_ctx_t), sizeof(fd_gossvf_tile_ctx_t)                                               );
+  l = FD_LAYOUT_APPEND( l, alignof(peer_t),               sizeof(peer_t)*FD_CONTACT_INFO_TABLE_SIZE                                  );
+  l = FD_LAYOUT_APPEND( l, peer_map_align(),              peer_map_footprint( peer_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE ) ) );
+  l = FD_LAYOUT_APPEND( l, ping_pool_align(),             ping_pool_footprint(                        FD_PING_TRACKER_MAX )          );
+  l = FD_LAYOUT_APPEND( l, ping_map_align(),              ping_map_footprint( ping_map_chain_cnt_est( FD_PING_TRACKER_MAX ) )        );
+  l = FD_LAYOUT_APPEND( l, stake_pool_align(),            stake_pool_footprint(                         MAX_STAKED_LEADERS )         );
+  l = FD_LAYOUT_APPEND( l, stake_map_align(),             stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) )       );
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(),             fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )                      );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -248,11 +240,11 @@ before_frag( fd_gossvf_tile_ctx_t * ctx,
 
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: return 0;
-    case IN_KIND_NET: return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
-    case IN_KIND_REPLAY: return 0;
-    case IN_KIND_PINGS: return 0;
-    case IN_KIND_GOSSIP: return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
-                                sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+    case IN_KIND_NET:           return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
+    case IN_KIND_REPLAY:        return 0;
+    case IN_KIND_PINGS:         return 0;
+    case IN_KIND_PEERS:         return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
+                                       sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
     default: FD_LOG_ERR(( "unexpected in_kind %d", ctx->in[ in_idx ].kind )); return -1;
   }
 }
@@ -261,42 +253,16 @@ static inline void
 during_frag( fd_gossvf_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq FD_PARAM_UNUSED,
-             ulong                  sig,
+             ulong                  sig FD_PARAM_UNUSED,
              ulong                  chunk,
              ulong                  sz,
              ulong                  ctl ) {
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark, ctx->in[ in_idx ].mtu ));
 
-  switch( ctx->in[ in_idx ].kind ) {
-    case IN_KIND_SHRED_VERSION: {
-      ctx->shred_version = (ushort)sig;
-      FD_TEST( ctx->shred_version );
-      break;
-    }
-    case IN_KIND_NET: {
-      uchar const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
-      fd_memcpy( ctx->payload, src, sz );
-      break;
-    }
-    case IN_KIND_REPLAY: {
-      fd_stake_weight_msg_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( msg->staked_cnt>MAX_STAKED_LEADERS ) )
-        FD_LOG_ERR(( "Malformed stake update with %lu stakes in it, but the maximum allowed is %lu", msg->staked_cnt, MAX_SHRED_DESTS ));
-      ulong msg_sz = FD_STAKE_CI_STAKE_MSG_RECORD_SZ*msg->staked_cnt+FD_STAKE_CI_STAKE_MSG_HEADER_SZ;
-      fd_memcpy( ctx->stake.msg_buf, msg, msg_sz );
-      break;
-    }
-    case IN_KIND_PINGS: {
-      fd_memcpy( ctx->_ping_update, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sz );
-      break;
-    }
-    case IN_KIND_GOSSIP:
-      FD_TEST( sz==FD_GOSSIP_UPDATE_SZ_CONTACT_INFO || sz==FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE );
-      fd_memcpy( ctx->_gossip_update, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sz );
-      break;
-    default:
-      FD_LOG_ERR(( "unexpected in_kind %d", ctx->in[ in_idx ].kind ));
+  if( ctx->in[ in_idx ].kind==IN_KIND_NET ) {
+    uchar const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
+    fd_memcpy( ctx->payload, src, sz );
   }
 }
 
@@ -447,7 +413,7 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
                            int                               tag,
                            fd_gossip_view_crds_container_t * container,
                            uchar const *                     payload ) {
-  peer_t const * relayer = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->from_off), NULL, ctx->peers );
+  peer_t const * relayer = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->from_off), NULL, ctx->peer_table );
   int keep_non_ci = (relayer && relayer->shred_version==ctx->shred_version) || (!relayer && is_entrypoint( ctx, ctx->peer ) );
 
   ulong i = 0UL;
@@ -455,7 +421,7 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
     int keep = container->crds_values[ i ].tag==FD_GOSSIP_VALUE_CONTACT_INFO;
     int no_origin = 0;
     if( FD_LIKELY( !keep && keep_non_ci ) ) {
-      peer_t const * origin = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->crds_values[ i ].pubkey_off), NULL, ctx->peers );
+      peer_t const * origin = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->crds_values[ i ].pubkey_off), NULL, ctx->peer_table );
       no_origin = !origin;
       keep = origin && origin->shred_version==ctx->shred_version;
     }
@@ -611,7 +577,7 @@ ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *    ctx,
     fd_stem_publish( stem, 0UL, fd_gossvf_sig( gossip_addr->addr, gossip_addr->port, 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
     ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_pingreq_t), ctx->out->chunk0, ctx->out->wmark );
 
-#if DEBUG_PEERS
+#if DEBUG_PINGS
     char base58[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( contact_info->pubkey.uc, NULL, base58 );
     FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_addr->addr ), gossip_addr->port, ctx->ping_cnt ));
@@ -681,15 +647,15 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
 }
 
 static void
-handle_ping_update( fd_gossvf_tile_ctx_t *    ctx,
-                    fd_gossip_ping_update_t * ping_update ) {
-#if DEBUG_PEERS
+handle_ping_update( fd_gossvf_tile_ctx_t *          ctx,
+                    fd_gossip_ping_update_t const * ping_update ) {
+#if DEBUG_PINGS
     char base58[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( ping_update->pubkey.uc, NULL, base58 );
 #endif
 
   if( FD_UNLIKELY( ping_update->remove ) ) {
-#if DEBUG_PEERS
+#if DEBUG_PINGS
     ctx->ping_cnt--;
     FD_LOG_NOTICE(( "removing ping for %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( ping_update->gossip_addr.addr ), fd_ushort_bswap( ping_update->gossip_addr.port ), ctx->ping_cnt ));
 #endif
@@ -698,7 +664,7 @@ handle_ping_update( fd_gossvf_tile_ctx_t *    ctx,
     FD_TEST( ping );
     ping_pool_ele_release( ctx->pings, ping );
   } else {
-#if DEBUG_PEERS
+#if DEBUG_PINGS
     ctx->ping_cnt++;
     FD_LOG_NOTICE(( "adding ping for %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( ping_update->gossip_addr.addr ), fd_ushort_bswap( ping_update->gossip_addr.port ), ctx->ping_cnt ));
 #endif
@@ -713,8 +679,9 @@ handle_ping_update( fd_gossvf_tile_ctx_t *    ctx,
 }
 
 static void
-handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
-                    fd_gossip_update_message_t * gossip_update ) {
+handle_peer_update( fd_gossvf_tile_ctx_t *             ctx,
+                    fd_gossip_update_message_t const * gossip_update,
+                    ulong                              sz ) {
 #if DEBUG_PEERS
     char base58[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( gossip_update->origin_pubkey, NULL, base58 );
@@ -722,38 +689,44 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
 
   switch( gossip_update->tag ) {
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
-      peer_t * peer = peer_map_ele_query( ctx->peer_map, (fd_pubkey_t*)gossip_update->origin_pubkey, NULL, ctx->peers );
-      if( FD_LIKELY( peer ) ) {
+      FD_TEST( sz==FD_GOSSIP_UPDATE_SZ_CONTACT_INFO );
+      FD_TEST( gossip_update->contact_info.idx<FD_CONTACT_INFO_TABLE_SIZE );
+      peer_t * peer = ctx->peer_table + gossip_update->contact_info.idx;
+      if( FD_LIKELY( fd_pubkey_eq( &peer->pubkey, &gossip_update->contact_info.contact_info->pubkey ) ) ) {
 #if DEBUG_PEERS
-        FD_LOG_NOTICE(( "updating peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
+        if( FD_UNLIKELY( peer->shred_version!=gossip_update->contact_info.contact_info->shred_version ||
+                         peer->gossip_addr.l!=gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].l ) )
+          FD_LOG_NOTICE(( "updating peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
 #endif
-
         peer->shred_version = gossip_update->contact_info.contact_info->shred_version;
-        peer->gossip_addr = gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
+        peer->gossip_addr   = gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
       } else {
+        FD_TEST( fd_pubkey_check_zero( &peer->pubkey ) );
+        peer->shred_version = gossip_update->contact_info.contact_info->shred_version;
+        peer->gossip_addr   = gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
+        peer->pubkey        = gossip_update->contact_info.contact_info->pubkey;
+        peer_map_idx_insert( ctx->peer_map, gossip_update->contact_info.idx, ctx->peer_table );
 #if DEBUG_PEERS
         ctx->peer_cnt++;
         FD_LOG_NOTICE(( "adding peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
 #endif
-
-        FD_TEST( peer_pool_free( ctx->peers ) );
-        peer = peer_pool_ele_acquire( ctx->peers );
-        peer->shred_version = gossip_update->contact_info.contact_info->shred_version;
-        peer->gossip_addr = gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
-        fd_memcpy( peer->pubkey.uc, gossip_update->contact_info.contact_info->pubkey.uc, 32UL );
-        peer_map_ele_insert( ctx->peer_map, peer, ctx->peers );
       }
       break;
     }
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
+      FD_TEST( sz==FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE );
+      FD_TEST( gossip_update->contact_info_remove.idx<FD_CONTACT_INFO_TABLE_SIZE );
+      peer_t * peer = ctx->peer_table + gossip_update->contact_info_remove.idx;
+      ulong rem_idx = peer_map_idx_remove( ctx->peer_map, (fd_pubkey_t*)gossip_update->origin_pubkey, ULONG_MAX, ctx->peer_table );
+      if( FD_LIKELY( rem_idx==gossip_update->contact_info_remove.idx ) ) {
 #if DEBUG_PEERS
-      ctx->peer_cnt--;
-      FD_LOG_NOTICE(( "removing peer %s (%lu)", base58, ctx->peer_cnt ));
+        ctx->peer_cnt--;
+        FD_LOG_NOTICE(( "removing peer %s (%lu)", base58, ctx->peer_cnt ));
 #endif
-
-      peer_t * peer = peer_map_ele_remove( ctx->peer_map, (fd_pubkey_t*)gossip_update->origin_pubkey, NULL, ctx->peers );
-      FD_TEST( peer );
-      peer_pool_ele_release( ctx->peers, peer );
+        fd_memset( peer, 0, sizeof(*peer) );
+      } else {
+        FD_TEST( rem_idx==ULONG_MAX && fd_pubkey_check_zero( &peer->pubkey ) );
+      }
       break;
     }
     default: FD_LOG_ERR(( "unexpected gossip_update tag %u", gossip_update->tag ));
@@ -889,31 +862,64 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   return result;
 }
 
+static inline int
+returnable_frag( fd_gossvf_tile_ctx_t * ctx,
+                 ulong                  in_idx,
+                 ulong                  seq    FD_PARAM_UNUSED,
+                 ulong                  sig,
+                 ulong                  chunk,
+                 ulong                  sz,
+                 ulong                  ctl    FD_PARAM_UNUSED,
+                 ulong                  tsorig FD_PARAM_UNUSED,
+                 ulong                  tspub  FD_PARAM_UNUSED,
+                 fd_stem_context_t *    stem   FD_PARAM_UNUSED ) {
+  FD_TEST( chunk>=ctx->in[ in_idx ].chunk0 && chunk<=ctx->in[ in_idx ].wmark && sz<=ctx->in[ in_idx ].mtu );
+
+  switch( ctx->in[ in_idx ].kind ) {
+    case IN_KIND_SHRED_VERSION: {
+      ctx->shred_version = (ushort)sig;
+      FD_TEST( ctx->shred_version );
+      break;
+    }
+    case IN_KIND_NET: /*after_frag*/ break;
+    case IN_KIND_REPLAY: {
+      fd_stake_weight_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      if( FD_UNLIKELY( msg->staked_cnt>MAX_STAKED_LEADERS ) )
+        FD_LOG_ERR(( "Malformed stake update with %lu stakes in it, but the maximum allowed is %lu", msg->staked_cnt, MAX_STAKED_LEADERS ));
+      handle_stakes( ctx, msg );
+      break;
+    }
+    case IN_KIND_PINGS: {
+      fd_gossip_ping_update_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      FD_TEST( sz==sizeof(fd_gossip_ping_update_t) );
+      handle_ping_update( ctx, msg );
+      break;
+    }
+    case IN_KIND_PEERS: {
+      fd_gossip_update_message_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      handle_peer_update( ctx, msg, sz );
+      break;
+    }
+    default:
+      FD_LOG_ERR(( "unexpected in_kind %d", ctx->in[ in_idx ].kind ));
+  }
+
+  return 0;
+}
+
 static inline void
 after_frag( fd_gossvf_tile_ctx_t * ctx,
             ulong                  in_idx,
-            ulong                  seq,
-            ulong                  sig,
+            ulong                  seq    FD_PARAM_UNUSED,
+            ulong                  sig    FD_PARAM_UNUSED,
             ulong                  sz,
             ulong                  tsorig,
-            ulong                  _tspub,
+            ulong                  tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *    stem ) {
-  (void)seq;
-  (void)sig;
-  (void)_tspub;
-
-  switch( ctx->in[ in_idx ].kind ) {
-    case IN_KIND_SHRED_VERSION: break;
-    case IN_KIND_PINGS:  handle_ping_update( ctx, ctx->_ping_update ); break;
-    case IN_KIND_GOSSIP: handle_peer_update( ctx, ctx->_gossip_update ); break;
-    case IN_KIND_REPLAY: handle_stakes( ctx, (fd_stake_weight_msg_t const *) ctx->stake.msg_buf ); break;
-    case IN_KIND_NET: {
-      int result = handle_net( ctx, sz, tsorig, stem );
-      ctx->metrics.message_rx[ result ]++;
-      ctx->metrics.message_rx_bytes[ result ] += sz;
-      break;
-    }
-    default: FD_LOG_ERR(( "unexpected in_kind %d", ctx->in[ in_idx ].kind ));
+  if( ctx->in[ in_idx ].kind==IN_KIND_NET ) {
+    int result = handle_net( ctx, sz, tsorig, stem );
+    ctx->metrics.message_rx[ result ]++;
+    ctx->metrics.message_rx_bytes[ result ] += sz;
   }
 }
 
@@ -924,7 +930,7 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossvf_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gossvf_tile_ctx_t ), sizeof( fd_gossvf_tile_ctx_t ) );
-  FD_TEST( fd_rng_secure( &ctx->seed, 8U ) );
+  FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
 
   if( FD_UNLIKELY( !strcmp( tile->gossvf.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
@@ -937,32 +943,33 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_gossvf_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gossvf_tile_ctx_t ), sizeof( fd_gossvf_tile_ctx_t ) );
-  void * _peer_pool          = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),               peer_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE )             );
-  void * _peer_map           = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),                peer_map_footprint( 2UL*FD_CONTACT_INFO_TABLE_SIZE )          );
-  void * _ping_pool          = FD_SCRATCH_ALLOC_APPEND( l, ping_pool_align(),               ping_pool_footprint( FD_PING_TRACKER_MAX )                    );
-  void * _ping_map           = FD_SCRATCH_ALLOC_APPEND( l, ping_map_align(),                ping_map_footprint( 2UL*FD_PING_TRACKER_MAX )                 );
-  void * _stake_pool         = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),              stake_pool_footprint( MAX_STAKED_LEADERS )                    );
-  void * _stake_map          = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),               stake_map_footprint( fd_ulong_pow2_up( MAX_STAKED_LEADERS ) ) );
-  void * _tcache             = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )         );
+  fd_gossvf_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossvf_tile_ctx_t), sizeof(fd_gossvf_tile_ctx_t)                                               );
+  void * _peer_table         = FD_SCRATCH_ALLOC_APPEND( l, alignof(peer_t),               sizeof(peer_t)*FD_CONTACT_INFO_TABLE_SIZE                                  );
+  void * _peer_map           = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),              peer_map_footprint( peer_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE ) ) );
+  void * _ping_pool          = FD_SCRATCH_ALLOC_APPEND( l, ping_pool_align(),             ping_pool_footprint(                        FD_PING_TRACKER_MAX )          );
+  void * _ping_map           = FD_SCRATCH_ALLOC_APPEND( l, ping_map_align(),              ping_map_footprint( ping_map_chain_cnt_est( FD_PING_TRACKER_MAX ) )        );
+  void * _stake_pool         = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),            stake_pool_footprint(                         MAX_STAKED_LEADERS )         );
+  void * _stake_map          = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),             stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) )       );
+  void * _tcache             = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),             fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )                      );
 
-  ctx->peers = peer_pool_join( peer_pool_new( _peer_pool, FD_CONTACT_INFO_TABLE_SIZE ) );
-  FD_TEST( ctx->peers );
+  fd_memset( _peer_table, 0, sizeof(peer_t)*FD_CONTACT_INFO_TABLE_SIZE );
+  ctx->peer_table = _peer_table;
+  FD_TEST( ctx->peer_table );
 
-  ctx->peer_map = peer_map_join( peer_map_new( _peer_map, 2UL*FD_CONTACT_INFO_TABLE_SIZE, ctx->seed ) );
+  ctx->peer_map = peer_map_join( peer_map_new( _peer_map, peer_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE ), ctx->seed ) );
   FD_TEST( ctx->peer_map );
 
   ctx->pings = ping_pool_join( ping_pool_new( _ping_pool, FD_PING_TRACKER_MAX ) );
   FD_TEST( ctx->pings );
 
-  ctx->ping_map = ping_map_join( ping_map_new( _ping_map, 2UL*FD_PING_TRACKER_MAX, ctx->seed ) );
+  ctx->ping_map = ping_map_join( ping_map_new( _ping_map, ping_map_chain_cnt_est( FD_PING_TRACKER_MAX ), ctx->seed ) );
   FD_TEST( ctx->ping_map );
 
   ctx->stake.count = 0UL;
   ctx->stake.pool  = stake_pool_join( stake_pool_new( _stake_pool, MAX_STAKED_LEADERS ) );
   FD_TEST( ctx->stake.pool );
 
-  ctx->stake.map = stake_map_join( stake_map_new( _stake_map, fd_ulong_pow2_up( MAX_STAKED_LEADERS ), ctx->seed ) );
+  ctx->stake.map = stake_map_join( stake_map_new( _stake_map, stake_map_chain_cnt_est( MAX_STAKED_LEADERS ), ctx->seed ) );
   FD_TEST( ctx->stake.map );
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
@@ -1002,6 +1009,8 @@ unprivileged_init( fd_topo_t *      topo,
 
 #if DEBUG_PEERS
   ctx->peer_cnt = 0UL;
+#endif
+#if DEBUG_PINGS
   ctx->ping_cnt = 0UL;
 #endif
 
@@ -1024,7 +1033,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if(      !strcmp( link->name, "gossip_gossv" ) ) ctx->in[ i ].kind = IN_KIND_PINGS;
     else if( !strcmp( link->name, "ipecho_out"   ) ) ctx->in[ i ].kind = IN_KIND_SHRED_VERSION;
-    else if( !strcmp( link->name, "gossip_out"   ) ) ctx->in[ i ].kind = IN_KIND_GOSSIP;
+    else if( !strcmp( link->name, "gossip_out"   ) ) ctx->in[ i ].kind = IN_KIND_PEERS;
     else if( !strcmp( link->name, "net_gossvf"   ) ) {
       ctx->in[ i ].kind = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
@@ -1039,6 +1048,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out->chunk0 = fd_dcache_compact_chunk0( ctx->out->mem, gossvf_out->dcache );
   ctx->out->wmark  = fd_dcache_compact_wmark ( ctx->out->mem, gossvf_out->dcache, gossvf_out->mtu );
   ctx->out->chunk  = ctx->out->chunk0;
+  FD_TEST( !strcmp( gossvf_out->name, "gossvf_gossi" ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -1085,6 +1095,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../disco/stem/fd_stem.c"
