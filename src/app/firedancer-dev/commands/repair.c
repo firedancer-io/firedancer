@@ -19,6 +19,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../waltz/resolv/fd_io_readline.h"
+#include "../../platform/fd_sys_util.h"
 #include "../../shared/commands/monitor/helper.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../discof/repair/fd_repair_tile.c"
@@ -623,7 +624,9 @@ repair_cmd_fn_catchup( args_t *   args,
   /* Collect all net tiles and their repair_net link metrics */
   ulong net_tile_cnt = config->layout.net_tile_count;
   volatile ulong ** repair_net_links = aligned_alloc( 8UL, net_tile_cnt * sizeof(volatile ulong*) );
+  volatile ulong ** net_shred_links  = aligned_alloc( 8UL, net_tile_cnt * sizeof(volatile ulong*) );
   FD_TEST( repair_net_links );
+  FD_TEST( net_shred_links );
 
   for( ulong i = 0UL; i < net_tile_cnt; i++ ) {
     ulong tile_idx = fd_topo_find_tile( &config->topo, "net", i );
@@ -636,6 +639,15 @@ repair_cmd_fn_catchup( args_t *   args,
     }
     repair_net_links[i] = fd_metrics_link_in( tile->metrics, repair_net_in_idx );
     FD_TEST( repair_net_links[i] );
+
+    ulong shred_tile_idx = fd_topo_find_tile( &config->topo, "shred", 0 );
+    if( FD_UNLIKELY( shred_tile_idx == ULONG_MAX ) ) FD_LOG_ERR(( "shred tile 0 not found" ));
+    fd_topo_tile_t * shred_tile = &config->topo.tiles[ shred_tile_idx ];
+
+    ulong shred_out_in_idx = fd_topo_find_tile_in_link( &config->topo, shred_tile, "net_shred", i );
+    if( FD_UNLIKELY( shred_out_in_idx == ULONG_MAX ) ) FD_LOG_ERR(( "net_shred link not found for shred tile 0" ));
+    net_shred_links[i] = fd_metrics_link_in( shred_tile->metrics, shred_out_in_idx );
+    FD_TEST( net_shred_links[i] );
   }
 
   FD_LOG_NOTICE(( "Repair catchup run" ));
@@ -668,7 +680,7 @@ repair_cmd_fn_catchup( args_t *   args,
     int catchup_finished = 0;
     if( FD_UNLIKELY( now - last_print > 1e9L ) ) {
       char buf2[ 64 ];
-      ulong rcvd = shred_metrics [ MIDX( COUNTER, SHRED,  SHRED_OUT_RCV ) ];
+      ulong rcvd = shred_metrics [ MIDX( COUNTER, SHRED,  SHRED_REPAIR_RCV ) ];
       ulong sent = repair_metrics[ MIDX( COUNTER, REPAIR, SENT_PKT_TYPES_NEEDED_WINDOW ) ] +
                    repair_metrics[ MIDX( COUNTER, REPAIR, SENT_PKT_TYPES_NEEDED_HIGHEST_WINDOW ) ] +
                    repair_metrics[ MIDX( COUNTER, REPAIR, SENT_PKT_TYPES_NEEDED_ORPHAN ) ];
@@ -690,10 +702,21 @@ repair_cmd_fn_catchup( args_t *   args,
       for( ulong i = 0UL; i < net_tile_cnt; i++ ) {
         volatile ulong * ovar_net_metrics = repair_net_links[i];
         total_overrun  += ovar_net_metrics[ MIDX( COUNTER, LINK, OVERRUN_READING_FRAG_COUNT ) ];
-        total_consumed += ovar_net_metrics[ MIDX( COUNTER, LINK, CONSUMED_COUNT ) ];
+        total_consumed += ovar_net_metrics[ MIDX( COUNTER, LINK, CONSUMED_COUNT ) ]; /* consumed is incremented after after_frag is called */
       }
-      printf( " Total overrun: %s\n",     fmt_count( buf2, total_overrun ) );
-      printf( " Net consumed:  %s\n",     fmt_count( buf2, total_consumed ) );
+      printf( " Outgoing requests overrun:  %s\n", fmt_count( buf2, total_overrun  ) );
+      printf( " Outgoing requests consumed: %s\n", fmt_count( buf2, total_consumed ) );
+
+      total_overrun  = net_shred_links[0][ MIDX( COUNTER, LINK, OVERRUN_READING_FRAG_COUNT ) ];
+      total_consumed = 0UL;
+      for( ulong i = 0UL; i < net_tile_cnt; i++ ) {
+        volatile ulong * ovar_net_metrics = net_shred_links[i];
+        total_overrun  += ovar_net_metrics[ MIDX( COUNTER, LINK, OVERRUN_READING_FRAG_COUNT ) ];
+        total_consumed += ovar_net_metrics[ MIDX( COUNTER, LINK, CONSUMED_COUNT ) ]; /* shred frag filtering happens manually in after_frag, so no need to index every shred_tile. */
+      }
+
+      printf( " Incoming shreds overrun:    %s\n", fmt_count( buf2, total_overrun ) );
+      printf( " Incoming shreds consumed:   %s\n", fmt_count( buf2, total_consumed ) );
 
       print_histogram_buckets( repair_metrics,
                                MIDX( HISTOGRAM, REPAIR, RESPONSE_LATENCY ),
@@ -728,7 +751,8 @@ repair_cmd_fn_catchup( args_t *   args,
       read_iptable( args->repair.iptable_path, location_table );
       print_peer_location_latency( repair_wksp->wksp, repair_ctx );
       print_catchup_slots( repair_wksp->wksp, repair_ctx, 0, 1 );
-      FD_LOG_ERR(("Catchup to slot %lu completed successfully", turbine_slot0));
+      FD_LOG_NOTICE(("Catchup to slot %lu completed successfully", turbine_slot0));
+      fd_sys_util_exit_group( 0 );
     }
   }
 }
@@ -892,6 +916,7 @@ static const char * CATCHUP_HELP =
   "\n"
   "optional arguments:\n"
   "  -h, --help            show this help message and exit\n"
+  "  --end-slot END_SLOT   slot to catchup to (generally should be a rooted slot)\n"
   "  --iptable-path IPTABLE_PATH\n"
   "                        path to iptable file\n"
   "  --sort-by-slot        sort results by slot\n";
@@ -920,11 +945,11 @@ static const char * REQUESTS_HELP =
 
 static const char * WATERFALL_HELP =
   "\n\n"
-  "usage: repair waterfall [-h] [--iptable-path IPTABLE_PATH] [--sort-by-slot]\n"
+  "usage: repair waterfall [-h] [--iptable IPTABLE_PATH] [--sort-by-slot]\n"
   "\n"
   "optional arguments:\n"
   "  -h, --help            show this help message and exit\n"
-  "  --iptable-path IPTABLE_PATH\n"
+  "  --iptable IPTABLE_PATH\n"
   "                        path to iptable file\n"
   "  --sort-by-slot        sort results by slot\n";
 
@@ -966,6 +991,7 @@ repair_cmd_args( int *    pargc,
   char const * iptable_path  = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--iptable",       NULL, NULL      );
   ulong        slot          = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--slot",          NULL, ULONG_MAX );
   int          sort_by_slot  = fd_env_strip_cmdline_contains( pargc, pargv, "--sort-by-slot"                   );
+  ulong        end_slot      = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--end-slot",      NULL, 0         );
 
   if( FD_UNLIKELY( !strcmp( args->repair.pos_arg, "catchup" ) && !manifest_path ) ) {
     args->repair.help = 1;
@@ -978,6 +1004,7 @@ repair_cmd_args( int *    pargc,
   fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( args->repair.iptable_path ),  iptable_path,  sizeof(args->repair.iptable_path )-1UL ) );
   args->repair.slot         = slot;
   args->repair.sort_by_slot = sort_by_slot;
+  args->repair.end_slot     = end_slot;
 }
 
 static void

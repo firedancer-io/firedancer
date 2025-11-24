@@ -750,8 +750,8 @@ metric introduced.
     <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
     <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
-    <counter name="ShredOutRcv"          summary="The number of times we received a repair shred" />
-    <counter name="ShredOutRcvBytes"     summary="The number bytes received from network packets with repair shreds. Bytes include network headers." />
+    <counter name="ShredRepairRcv"       summary="The number of times we received a repair shred" />
+    <counter name="ShredRepairRcvBytes"  summary="The number bytes received from network packets with repair shreds. Bytes include network headers." />
     <counter name="ShredTurbineRcv"      summary="The number of times we received a turbine shred" />
     <counter name="ShredTurbineRcvBytes" summary="The number bytes received from network packets with turbine shreds. Bytes include network headers." />
     <histogram name="StoreInsertWait" min="0.00000001" max="0.0005" converter="seconds">

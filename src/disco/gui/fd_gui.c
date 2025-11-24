@@ -376,7 +376,7 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
     }
   }
 
-  cur->in.repair = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_OUT_RCV_BYTES ) );
+  cur->in.repair = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_REPAIR_RCV_BYTES ) );
   ulong repair_tile_idx = fd_topo_find_tile( topo, "repair", 0UL );
   if( FD_LIKELY( repair_tile_idx!=ULONG_MAX ) ) {
     fd_topo_tile_t const * repair = &topo->tiles[ repair_tile_idx ];

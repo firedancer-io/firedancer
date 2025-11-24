@@ -450,8 +450,8 @@
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;request</span> | counter | The number of times we received a FEC force complete message |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;failure</span> | counter | The number of times we failed to force complete a FEC set on request |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;success</span> | counter | The number of times we successfully forced completed a FEC set on request |
-| <span class="metrics-name">shred_&#8203;shred_&#8203;out_&#8203;rcv</span> | counter | The number of times we received a repair shred |
-| <span class="metrics-name">shred_&#8203;shred_&#8203;out_&#8203;rcv_&#8203;bytes</span> | counter | The number bytes received from network packets with repair shreds. Bytes include network headers. |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rcv</span> | counter | The number of times we received a repair shred |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rcv_&#8203;bytes</span> | counter | The number bytes received from network packets with repair shreds. Bytes include network headers. |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv</span> | counter | The number of times we received a turbine shred |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv_&#8203;bytes</span> | counter | The number bytes received from network packets with turbine shreds. Bytes include network headers. |
 | <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to insert a new FEC set |
