@@ -325,7 +325,7 @@ fd_xdp_install( uint           if_idx,
     }
   }
 
-  if( FD_UNLIKELY( -1==close( prog_fd ) ) ) FD_LOG_ERR(( "close(%d) failed (%i-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( prog_fd ) ) ) FD_LOG_ERR(( "close(%d) failed (%i-%s)", prog_fd, errno, fd_io_strerror( errno ) ));
 
   return (fd_xdp_fds_t){
     .xsk_map_fd   = xsk_map_fd,
