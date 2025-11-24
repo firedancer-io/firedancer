@@ -335,6 +335,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   ctx->instr = info;
   ctx->runtime->progcache = runner->progcache;
+  ctx->runtime->accdb     = runner->accdb;
 
   runtime->log.enable_log_collector = 0;
 
