@@ -1446,6 +1446,7 @@ process_tower_sync( fd_exec_instr_ctx_t *         ctx,
       clock->slot,
       tower_sync
   );
+  if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L1032 */
   return fd_vsv_set_vote_account_state(
