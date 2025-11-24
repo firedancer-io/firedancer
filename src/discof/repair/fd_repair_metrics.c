@@ -141,22 +141,23 @@ fd_repair_metrics_print_sorted( fd_repair_metrics_t * repair_metrics, int verbos
   double pipelined_time     = (double)(max_ts - min_ts);
   double non_pipelined_time = (double)slot_durations_sum;
   FD_LOG_NOTICE(( "\n"
-                  "Over past %u completed slots: \n"
+                  "Completed %u slots in %.2f seconds total. \n"
                   "Average slot duration (time from first shred/rq to all shreds received): %.2f ms\n"
                   "Average time between slot completions:                                   %.2f ms\n"
                   "Average slots per second:                                                %.2f\n"
                   "Pipeline factor (sum duration of all slots / total time):                %.2f\n",
                   total_slots,
+                  (double)fd_metrics_convert_ticks_to_nanoseconds((ulong)pipelined_time) / 1e9,
                   (double)fd_metrics_convert_ticks_to_nanoseconds((ulong)slot_durations_sum) / (double)total_slots / 1e6,
                   (double)fd_metrics_convert_ticks_to_nanoseconds((ulong)incremental_cmpl_sum) / (double)total_slots / 1e6,
                   (double)total_slots / (double)fd_metrics_convert_ticks_to_nanoseconds((ulong)pipelined_time) * 1e9,
                   non_pipelined_time / pipelined_time ));
 
   FD_LOG_NOTICE(( "\n"
-                  "Total time to finish catchup over %d slots:  %.2f ms \n"
-                  "Time to repair orphans:                      %.2f ms \n"
-                  "Total time from connected orphan to done:    %.2f ms \n"
-                  "Slots completed by orphans connected:        %d\n",
+                  "Caught up %d slots in %.2f ms total. \n"
+                  "Time to repair orphans:                    %.2f ms \n"
+                  "Total time from connected orphan to done:  %.2f ms \n"
+                  "Slots completed by orphans connected:      %d\n",
                   num_catchup_slots,
                   (double)fd_metrics_convert_ticks_to_nanoseconds((ulong)(finish_catchup_ts - repair_kickoff_ts)) / 1e6,
                   (double)fd_metrics_convert_ticks_to_nanoseconds((ulong)(orphan_cmpl_ts    - repair_kickoff_ts)) / 1e6,
