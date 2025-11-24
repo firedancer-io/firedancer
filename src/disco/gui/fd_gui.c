@@ -137,6 +137,7 @@ fd_gui_new( void *                shmem,
   gui->summary.slot_turbine                  = ULONG_MAX;
   gui->summary.slot_reset                    = ULONG_MAX;
   gui->summary.slot_storage                  = ULONG_MAX;
+  gui->summary.active_fork_cnt               = 1UL;
 
   for( ulong i=0UL; i < (FD_GUI_REPAIR_SLOT_HISTORY_SZ+1UL); i++ )  gui->summary.slots_max_repair[ i ].slot  = ULONG_MAX;
   for( ulong i=0UL; i < (FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL); i++ ) gui->summary.slots_max_turbine[ i ].slot = ULONG_MAX;
@@ -229,6 +230,9 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_vote_balance,
     fd_gui_printf_estimated_slot_duration_nanos,
     fd_gui_printf_root_slot,
+    fd_gui_printf_storage_slot,
+    fd_gui_printf_reset_slot,
+    fd_gui_printf_active_fork_cnt,
     fd_gui_printf_optimistically_confirmed_slot,
     fd_gui_printf_completed_slot,
     fd_gui_printf_estimated_slot,
@@ -2630,6 +2634,12 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
                             long                         now ) {
   (void)now;
 
+  if( FD_UNLIKELY( tower->active_fork_cnt!=gui->summary.active_fork_cnt ) ) {
+    gui->summary.active_fork_cnt = tower->active_fork_cnt;
+    fd_gui_printf_active_fork_cnt( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
   /* handle new root */
   if( FD_LIKELY( tower->root_slot!=ULONG_MAX && gui->summary.slot_rooted!=tower->root_slot ) ) {
     fd_gui_handle_rooted_slot( gui, tower->root_slot );
@@ -2656,6 +2666,7 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
                              ulong                     identity_balance,
                              long                      now ) {
   (void)now;
+
   if( FD_LIKELY( gui->summary.slot_storage!=storage_slot ) ) {
     gui->summary.slot_storage = storage_slot;
     fd_gui_printf_storage_slot( gui );
