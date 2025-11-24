@@ -32,6 +32,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/json/cJSON_alloc.h"
 #include "../../util/clock/fd_clock.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -56,6 +57,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_GENESI_OUT    (14UL) /* firedancer only */
 #define IN_KIND_SNAPIN        (15UL) /* firedancer only */
 #define IN_KIND_EXECRP_REPLAY (16UL) /* firedancer only */
+#define IN_KIND_SNAPIN_MANIF  (17UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -237,6 +239,11 @@ before_frag( fd_gui_ctx_t * ctx,
 
   /* Ignore "done draining banks" signal from pack->poh */
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==ULONG_MAX ) ) return 1;
+
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPIN_MANIF ) ) {
+    ulong msg = fd_ssmsg_sig_message( sig );
+    if( FD_UNLIKELY( msg!=FD_SSMSG_MANIFEST_FULL && msg!=FD_SSMSG_MANIFEST_INCREMENTAL ) ) return 1;
+  }
   return 0;
 }
 
@@ -417,7 +424,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_stem_publish( stem, ctx->replay_out->idx, replay->bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
 
         /* update vote info */
-        fd_gui_peers_handle_vote_update( ctx->peers, ctx->peers->votes, vote_count, fd_clock_now( ctx->clock ), ctx->gui->summary.identity_key );
+        fd_gui_peers_handle_vote_update( ctx->peers, ctx->peers->votes, vote_count, ctx->gui->summary.identity_key );
 
         /* update slot data */
         fd_gui_handle_replay_update( ctx->gui, &slot_completed, &replay->block_hash, ctx->peers->slot_voted, replay->storage_slot, replay->root_slot, replay->identity_balance, fd_clock_now( ctx->clock ) );
@@ -435,6 +442,25 @@ after_frag( fd_gui_ctx_t *      ctx,
 
       fd_epoch_info_msg_t * epoch_info = (fd_epoch_info_msg_t *)src;
       fd_gui_handle_epoch_info( ctx->gui, epoch_info, fd_clock_now( ctx->clock ) );
+      break;
+    }
+    case IN_KIND_SNAPIN_MANIF: {
+      fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)src;
+
+      ulong vote_count = fd_ulong_min( FD_RUNTIME_MAX_VOTE_ACCOUNTS, manifest->vote_accounts_len );
+      for( ulong i=0UL; i<vote_count; i++ ) {
+        fd_memcpy( ctx->peers->votes[ i ].vote_account.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
+        fd_memcpy( ctx->peers->votes[ i ].node_account.uc, manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
+        ctx->peers->votes[ i ].stake               = manifest->vote_accounts[ i ].stake;
+        ctx->peers->votes[ i ].last_vote_slot      = manifest->vote_accounts[ i ].last_slot;
+        ctx->peers->votes[ i ].last_vote_timestamp = manifest->vote_accounts[ i ].last_timestamp;
+        ctx->peers->votes[ i ].commission          = manifest->vote_accounts[ i ].commission;
+        ctx->peers->votes[ i ].epoch               = fd_ulong_if( !manifest->vote_accounts[ i ].epoch_credits_history_len, ULONG_MAX, manifest->vote_accounts[ i ].epoch_credits[ 0 ].epoch   );
+        ctx->peers->votes[ i ].epoch_credits       = fd_ulong_if( !manifest->vote_accounts[ i ].epoch_credits_history_len, ULONG_MAX, manifest->vote_accounts[ i ].epoch_credits[ 0 ].credits );
+      }
+
+      fd_gui_peers_handle_vote_update( ctx->peers, ctx->peers->votes, vote_count, ctx->gui->summary.identity_key );
+
       break;
     }
     case IN_KIND_SNAPIN: {
@@ -753,11 +779,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_http_server_params_t http_param = derive_http_params( tile );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t )                                    );
-                       FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( http_param )                    );
-  void * _peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt) );
-  void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint()                                        );
-  void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
+  fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t )                                     );
+                       FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( http_param )                     );
+  void * _peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
+  void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint()                                         );
+  void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                       );
 
   ctx->is_full_client = ULONG_MAX!=fd_topo_find_tile( topo, "repair", 0UL );
   ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snapct", 0UL );
@@ -826,6 +852,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT;    /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN;        /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "execrp_replay" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_REPLAY; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "snapin_manif"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN_MANIF; /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_pohh" ) || !strcmp( link->name, "execle_poh" ) ) ) {

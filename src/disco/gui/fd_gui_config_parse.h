@@ -25,7 +25,7 @@ struct fd_gui_config_parse_info {
   char icon_uri[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_ICON_URI_SZ + 1UL ];
   char keybase_username[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_KEYBASE_USERNAME_SZ + 1UL ];
 
-  struct { ulong prev, next; } map;
+  struct { ulong next; } map;
   struct { ulong next; } pool;
 };
 

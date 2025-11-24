@@ -1277,21 +1277,22 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
 
     jsonp_close_object( peers->http );
 
-    if( FD_LIKELY( !peer->has_vote_info ) ) {
+    fd_gui_peers_vote_t * vote = fd_gui_peers_node_vote_map_ele_query( peers->node_vote_map, &peer->contact_info.pubkey, NULL, peers->node_vote_pool );
+    if( FD_LIKELY( !vote ) ) {
       jsonp_open_array( peers->http, "vote" );
       jsonp_close_array( peers->http );
     } else {
       jsonp_open_array( peers->http, "vote" );
         jsonp_open_object( peers->http, NULL );
           char vote_account_base58[ FD_BASE58_ENCODED_32_SZ ];
-          fd_base58_encode_32( peer->vote_account.uc, NULL, vote_account_base58 );
+          fd_base58_encode_32( vote->vote_account.uc, NULL, vote_account_base58 );
           jsonp_string( peers->http, "vote_account", vote_account_base58 );
-          jsonp_ulong_as_str( peers->http, "activated_stake", peer->stake );
-          jsonp_ulong( peers->http, "last_vote", peer->last_vote_slot );
-          jsonp_ulong( peers->http, "epoch_credits", peer->epoch_credits );
-          jsonp_ulong( peers->http, "commission", peer->commission );
+          jsonp_ulong_as_str( peers->http, "activated_stake", vote->stake );
+          jsonp_ulong( peers->http, "last_vote", vote->last_vote_slot );
+          jsonp_ulong( peers->http, "epoch_credits", vote->epoch_credits );
+          jsonp_ulong( peers->http, "commission", vote->commission );
           jsonp_ulong( peers->http, "root_slot", 0UL );
-          jsonp_bool( peers->http,  "delinquent", peer->delinquent );
+          jsonp_bool( peers->http,  "delinquent", vote->delinquent );
         jsonp_close_object( peers->http );
       jsonp_close_array( peers->http );
     }
