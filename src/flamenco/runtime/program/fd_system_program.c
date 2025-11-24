@@ -158,7 +158,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
     /* Max msg_sz: 35 - 2 + 125 = 158 */
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Allocate: 'to' (account %s, base %s) must sign",
-      FD_BASE58_ENC_32_ALLOCA( &account->acct->pubkey ),
+      FD_BASE58_ENC_32_ALLOCA( &account->pubkey ),
       base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -170,7 +170,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
     /* Max msg_sz: 35 - 2 + 125 = 158 */
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Allocate: account (account %s, base %s) already in use",
-      FD_BASE58_ENC_32_ALLOCA( &account->acct->pubkey ),
+      FD_BASE58_ENC_32_ALLOCA( &account->pubkey ),
       base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
     ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -220,7 +220,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
     /* Max msg_sz: 28 - 2 + 125 = 151 */
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Allocate: 'to' (account %s, base %s) must sign",
-      FD_BASE58_ENC_32_ALLOCA( &account->acct->pubkey ),
+      FD_BASE58_ENC_32_ALLOCA( &account->pubkey ),
       base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -279,7 +279,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
       /* Max msg_sz: 41 - 2 + 125 = 164 */
       fd_log_collector_printf_inefficient_max_512( ctx,
         "Allocate: 'to' (account %s, base %s) already in use",
-        FD_BASE58_ENC_32_ALLOCA( &to.acct->pubkey ),
+        FD_BASE58_ENC_32_ALLOCA( &to.pubkey ),
         base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
       ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -358,7 +358,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L392 */
 
-  err = fd_system_program_assign( ctx, &account, owner, account.acct->pubkey, NULL );
+  err = fd_system_program_assign( ctx, &account, owner, account.pubkey, NULL );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Implicit drop */
@@ -453,7 +453,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L515
      Authorization check is lifted out from 'allocate' to here. */
 
-  err = fd_system_program_allocate( ctx, &account, space, account.acct->pubkey, NULL );
+  err = fd_system_program_allocate( ctx, &account, space, account.pubkey, NULL );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Implicit drop */
@@ -484,7 +484,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
 
   err = verify_seed_address(
     ctx,
-    account.acct->pubkey,
+    account.pubkey,
     &args->base,
     (char const *)args->seed,
     args->seed_len,
@@ -531,7 +531,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
 
   err = verify_seed_address(
     ctx,
-    account.acct->pubkey,
+    account.pubkey,
     &args->base,
     (char const *)args->seed,
     args->seed_len,
