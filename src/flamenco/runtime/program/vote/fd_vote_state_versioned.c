@@ -474,7 +474,8 @@ fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
   fd_landed_vote_t * votes = fd_vsv_get_votes_mutable( self );
 
   fd_landed_vote_t landed_vote = {
-    .latency = fd_vote_compute_vote_latency( next_vote_slot, current_slot ), ( fd_vote_lockout_t ){ .slot = next_vote_slot }
+    .latency = fd_vote_compute_vote_latency( next_vote_slot, current_slot ),
+    .lockout = ( fd_vote_lockout_t ){ .slot = next_vote_slot }
   };
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L623
