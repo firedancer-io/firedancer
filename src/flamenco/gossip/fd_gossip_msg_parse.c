@@ -78,12 +78,14 @@ decode_u64_varint( uchar const * payload,
   while( FD_LIKELY( _i < _payload_sz ) ) {
     uchar byte = FD_LOAD( uchar, CURSOR ); INC( 1U );
     value |= (ulong)(byte & 0x7F) << shift;
-    if( !(byte & 0x80) ) break;
+    if( !(byte & 0x80) ) {
+      *out_value = value;
+      return BYTES_CONSUMED;
+    }
     shift += 7U;
     if( FD_UNLIKELY( shift >= 64U ) ) return 0;
   }
-  *out_value = value;
-  return BYTES_CONSUMED;
+  return 0;
 }
 
 /* Returns bytes_consumed for valid bitvec, 0 otherwise (should be dropped) */
