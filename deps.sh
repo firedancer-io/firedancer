@@ -505,10 +505,10 @@ install_openssl () {
 
   echo "[+] Configuring OpenSSL"
   ./config \
-    -static \
     -fPIC \
     --prefix="$PREFIX" \
     --libdir=lib \
+    threads \
     no-engine \
     no-static-engine \
     no-weak-ssl-ciphers \
