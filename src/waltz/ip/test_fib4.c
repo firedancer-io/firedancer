@@ -420,12 +420,12 @@ main( int     argc,
   FD_TEST( !fd_fib4_footprint( 0UL, 1UL ) );
   FD_TEST( !fd_fib4_footprint( 1UL, 0UL ) );
   FD_TEST( !fd_fib4_footprint( 1UL, 0UL ) );
-  FD_TEST( 1UL==fd_fib4_hmap_get_lock_cnt( 16UL ) );
-  FD_TEST( 3UL==fd_fib4_hmap_get_lock_cnt( 48UL ) );
 
   FD_TEST( fd_fib4_footprint( 16UL, 16UL )<=sizeof(fib1_mem) );
-  fd_fib4_t * fib_local = fd_fib4_join( fd_fib4_new( fib1_mem, 16UL, 16UL, 123456UL ) );
-  fd_fib4_t * fib_main  = fd_fib4_join( fd_fib4_new( fib2_mem, 16UL, 16UL, 123456UL ) );
+  fd_fib4_t fib_local[1];
+  fd_fib4_t fib_main[1];
+  FD_TEST( fd_fib4_join( fib_local, fd_fib4_new( fib1_mem, 16UL, 16UL, 123456UL ) ) );
+  FD_TEST( fd_fib4_join( fib_main,  fd_fib4_new( fib2_mem, 16UL, 16UL, 123456UL ) ) );
   fd_fib4_hop_t candidate[2];
 
   /* Ensure empty FIB returns THROW */

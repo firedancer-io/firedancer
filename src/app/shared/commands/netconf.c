@@ -43,14 +43,14 @@ netconf_cmd_fn( args_t *   args,
   fd_dbl_buf_leave( netdev_buf );
 
   puts( "\nIPv4 ROUTES (main)\n" );
-  fd_fib4_t * fib4_main = fd_fib4_join( fd_topo_obj_laddr( topo, tile->netlink.fib4_main_obj_id ) );
-  FD_TEST( fib4_main );
+  fd_fib4_t fib4_main[1];
+  FD_TEST( fd_fib4_join( fib4_main, fd_topo_obj_laddr( topo, tile->netlink.fib4_main_obj_id ) ) );
   fd_fib4_fprintf( fib4_main, stdout );
   fd_fib4_leave( fib4_main );
 
   puts( "\nIPv4 ROUTES (local)\n" );
-  fd_fib4_t * fib4_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->netlink.fib4_local_obj_id ) );
-  FD_TEST( fib4_local );
+  fd_fib4_t fib4_local[1];
+  FD_TEST( fd_fib4_join( fib4_local, fd_topo_obj_laddr( topo, tile->netlink.fib4_local_obj_id ) ) );
   fd_fib4_fprintf( fib4_local, stdout );
   fd_fib4_leave( fib4_local );
 

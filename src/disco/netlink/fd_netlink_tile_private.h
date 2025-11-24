@@ -38,8 +38,8 @@ struct fd_netlink_tile_ctx {
   fd_dbl_buf_t *       netdev_buf;    /* global immutable copy */
 
   /* Route tables */
-  fd_fib4_t * fib4_local;
-  fd_fib4_t * fib4_main;
+  fd_fib4_t fib4_local[1];
+  fd_fib4_t fib4_main[1];
 
   /* Neighbor table */
   fd_neigh4_hmap_t neigh4[1];

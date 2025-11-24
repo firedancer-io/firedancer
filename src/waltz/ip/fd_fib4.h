@@ -34,10 +34,16 @@
 #define FD_FIB4_RTYPE_BLACKHOLE (6) /* drop packet */
 #define FD_FIB4_RTYPE_THROW     (9) /* continue in next table */
 
-/* fd_fib4_t is a local handle to a fib4 object.  Use fd_fib4_{align,
-   footprint,new,delete,join,leave} to construct and join a fib4. */
+/* fd_fib4_t is a local handle to a fib4 object. Use fd_fib4_{join,leave}
+   to join the fd_fib4_t to the shmem fib4. A fd_fib4_t can be stack declared,
+   e.g. fd_fib4_t fib4[1]; */
 
-struct fd_fib4;
+struct fd_fib4_priv;
+typedef struct fd_fib4_priv fd_fib4_priv_t;
+struct fd_fib4 {
+   fd_fib4_priv_t * priv;          /* local ptr to shared fib4_priv_t */
+   uchar            hmap_join[64]; /* local join to the hmap - punned internally */
+ };
 typedef struct fd_fib4 fd_fib4_t;
 
 /* fd_fib4_hop_t holds a FIB lookup result (see fd_fib4_lookup) */
@@ -68,14 +74,25 @@ FD_FN_CONST ulong
 fd_fib4_footprint( ulong route_max,
                    ulong route_peer_max );
 
+/* fd_fib4_new formats a shared memory region mem with alignment and footprint
+   suitable for a fib4. It expects at most route_peer_max /32 routes, and
+   at most route_max non-/32 routes. Returns mem on success and NULL on failure.
+   Takes seed to be used for the hashmap. */
+
 void *
 fd_fib4_new( void * mem,
              ulong  route_max,
              ulong  route_peer_max,
              ulong  route_peer_seed );
 
+/* fd_fib4_join joins the caller to a shared memory region shmem holding a fib4.
+   fib4 should be a pointer to the local join to populate, and shmem should be a
+   pointer in the caller's address space to the shared memory region formatted
+   using fd_fib4_new. Returns fib4 on success and NULL on failure. */
+
 fd_fib4_t *
-fd_fib4_join( void * mem );
+fd_fib4_join( fd_fib4_t * fib4,
+              void *      shmem );
 
 void *
 fd_fib4_leave( fd_fib4_t * fib4 );

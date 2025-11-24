@@ -200,9 +200,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( ctx->netdev_buf = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->netlink.netdev_dbl_buf_obj_id ) ) );
 
-  FD_TEST( fd_neigh4_hmap_join( ctx->neigh4, fd_topo_obj_laddr( topo, tile->netlink.neigh4_obj_id ), fd_topo_obj_laddr( topo, tile->netlink.neigh4_ele_obj_id ) ) );
-  ctx->fib4_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->netlink.fib4_local_obj_id ) ); FD_TEST( ctx->fib4_local );
-  ctx->fib4_main  = fd_fib4_join( fd_topo_obj_laddr( topo, tile->netlink.fib4_main_obj_id  ) ); FD_TEST( ctx->fib4_main  );
+  FD_TEST( fd_neigh4_hmap_join( ctx->neigh4,     fd_topo_obj_laddr( topo, tile->netlink.neigh4_obj_id ), fd_topo_obj_laddr( topo, tile->netlink.neigh4_ele_obj_id ) ) );
+  FD_TEST( fd_fib4_join(        ctx->fib4_local, fd_topo_obj_laddr( topo, tile->netlink.fib4_local_obj_id ) ) );
+  FD_TEST( fd_fib4_join(        ctx->fib4_main,  fd_topo_obj_laddr( topo, tile->netlink.fib4_main_obj_id  ) ) );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
