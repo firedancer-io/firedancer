@@ -5,6 +5,8 @@
 #include "fd_vote_state_v3.h"
 #include "fd_vote_state_v4.h"
 #include "fd_authorized_voters.h"
+#include "../../fd_runtime.h"
+
 
 /*****
 TODO:
@@ -432,7 +434,7 @@ fd_vsv_process_timestamp( fd_exec_instr_ctx_t *       ctx,
           ( slot==last_timestamp->slot &&
             ( slot!=last_timestamp->slot || timestamp!=last_timestamp->timestamp ) &&
             last_timestamp->slot!=0UL ) ) ) {
-    ctx->txn_ctx->err.custom_err = FD_VOTE_ERR_TIMESTAMP_TOO_OLD;
+    ctx->txn_out->err.custom_err = FD_VOTE_ERR_TIMESTAMP_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 

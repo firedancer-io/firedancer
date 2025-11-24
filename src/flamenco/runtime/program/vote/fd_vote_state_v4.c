@@ -3,6 +3,7 @@
 #include "fd_vote_state_versioned.h"
 #include "fd_vote_common.h"
 #include "../fd_vote_program.h"
+#include "../../fd_runtime.h"
 
 /**********************************************************************/
 /* VoteStateV4                                                        */
@@ -21,7 +22,7 @@ fd_vote_state_v4_create_new( fd_pubkey_t const *           vote_pubkey,
   vote_state->node_pubkey                      = *vote_pubkey;
   vote_state->authorized_voters                = *fd_authorized_voters_new(clock->epoch, &vote_init->authorized_voter, authorized_voters_mem);
   vote_state->authorized_withdrawer            = vote_init->authorized_withdrawer;
-  vote_state->inflation_rewards_commission_bps = ((uint16_t)vote_init->commission) * 100;
+  vote_state->inflation_rewards_commission_bps = ((ushort)vote_init->commission) * 100;
   vote_state->inflation_rewards_collector      = *vote_pubkey;
   vote_state->block_revenue_collector          = vote_init->node_pubkey;
   vote_state->block_revenue_commission_bps     = DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
@@ -95,7 +96,7 @@ fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t *                
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L470-L472 */
   if( FD_UNLIKELY( fd_authorized_voters_contains( &self->authorized_voters, target_epoch ) ) ) {
-    ctx->txn_ctx->err.custom_err = FD_VOTE_ERR_TOO_SOON_TO_REAUTHORIZE;
+    ctx->txn_out->err.custom_err = FD_VOTE_ERR_TOO_SOON_TO_REAUTHORIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 

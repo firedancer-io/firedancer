@@ -3,6 +3,7 @@
 #include "fd_vote_common.h"
 #include "fd_vote_state_versioned.h"
 #include "../fd_vote_program.h"
+#include "../../fd_runtime.h"
 
 /**********************************************************************/
 /* impl From<VoteState> for VoteState1_14_11                          */
@@ -164,7 +165,7 @@ fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *                
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L786
   if( FD_UNLIKELY( fd_authorized_voters_contains( &self->authorized_voters, target_epoch ) ) ) {
-    ctx->txn_ctx->err.custom_err = FD_VOTE_ERR_TOO_SOON_TO_REAUTHORIZE;
+    ctx->txn_out->err.custom_err = FD_VOTE_ERR_TOO_SOON_TO_REAUTHORIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
