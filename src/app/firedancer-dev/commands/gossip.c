@@ -9,6 +9,7 @@
 #include "../../../flamenco/gossip/fd_gossip_private.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../util/net/fd_ip4.h" /* fd_cstr_to_ip4_addr */
+#include "../../../util/clock/fd_clock.h"
 
 #include "core_subtopo.h"
 #include "gossip.h"
@@ -741,6 +742,33 @@ rx_deltas( volatile ulong * gossip_metrics,
   return deltas;
 }
 
+static void
+gossip_args( int *    pargc,
+             char *** pargv,
+             args_t * args  ) {
+  if( FD_UNLIKELY( fd_env_strip_cmdline_contains( pargc, pargv, "--help" ) ) ) {
+    fputs(
+      "\nUsage: firedancer-dev gossip [GLOBAL FLAGS] [FLAGS]\n"
+      "\n"
+      "Global Flags:\n"
+      "  --mainnet            Use Solana mainnet-beta defaults\n"
+      "  --testnet            Use Solana testnet defaults\n"
+      "  --devnet             Use Solana devnet defaults\n"
+      "\n"
+      "Flags:\n"
+      "  --max-entries <num>         Exit once we see <num> CRDS entries in table\n"
+      "  --max-contact-infos <num>   Exit once we see <num> contact infos in table\n"
+      "  --compact                   Use compact output format\n"
+      "\n",
+      stderr );
+    exit( EXIT_SUCCESS );
+  }
+
+  args->gossip.max_entries  = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--max-entries", NULL, ULONG_MAX );
+  args->gossip.max_contact  = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--max-contact-infos", NULL, ULONG_MAX );
+  args->gossip.compact_mode = fd_env_strip_cmdline_contains( pargc, pargv, "--compact" );
+}
+
 void
 gossip_cmd_fn( args_t *   args,
                config_t * config ) {
@@ -798,7 +826,41 @@ gossip_cmd_fn( args_t *   args,
 
   ulong prev_net0_rx_bytes = 0UL;
 
+  fd_clock_t   clock_lmem[1];
+  void       * clock_mem = aligned_alloc( FD_CLOCK_ALIGN, FD_CLOCK_FOOTPRINT );
+  FD_TEST( clock_mem );
+  fd_clock_default_init( clock_lmem, clock_mem );
+
+  long start_time       = fd_clock_now( clock_lmem );
+  long next_report_time = start_time + 1000000000L;
+
   for(;;) {
+    ulong total_crds = 0UL;
+    for( ulong i=0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) total_crds += gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT )+i ];
+    ulong total_contact_infos = gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 ) ];
+
+    long current_time = fd_clock_now( clock_lmem );
+    if( FD_UNLIKELY( total_crds >= args->gossip.max_entries || total_contact_infos >= args->gossip.max_contact ) ) {
+      long elapsed = current_time - start_time;
+      double elapsed_secs = (double)elapsed / 1000000000.0;
+      printf("User defined thresholds reached in %.2fs\n"
+             "  Table Size   : %lu\n"
+             "  Contact Infos: %lu\n",
+             elapsed_secs, total_crds, total_contact_infos );
+      break;
+    }
+
+    if( FD_LIKELY( current_time < next_report_time ) ) {
+      continue;
+    }
+    next_report_time += 1000000000L;
+
+    if( args->gossip.compact_mode ) {
+      printf("Table Size: %lu,\tContact Infos: %lu\n",
+             total_crds,
+             total_contact_infos );
+      continue;
+    }
 #define DIFFC(buf, METRIC) fmt_count( buf, gossip_metrics[ MIDX( COUNTER, GOSSIP, METRIC ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, METRIC ) ] )
 #define DIFFB(buf, METRIC) fmt_bytes( buf, gossip_metrics[ MIDX( COUNTER, GOSSIP, METRIC ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, METRIC ) ] )
 
@@ -1038,9 +1100,6 @@ gossip_cmd_fn( args_t *   args,
 
     // display_gossvf_detailed( &gossvf_tiles );
 
-    ulong total_crds = 0UL;
-    for( ulong i=0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) total_crds += gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT )+i ];
-
     printf( " +--------------+--------------+--------------+--------------+--------------+--------------+\n" );
     printf( " |              | Entries      | Capacity     | Utilization  | Evicted      | Expired      |\n" );
     printf( " +--------------+--------------+--------------+--------------+--------------+--------------+\n" );
@@ -1095,13 +1154,12 @@ gossip_cmd_fn( args_t *   args,
         gossvf_tiles.prev_metrics[tile_idx][ i ] = gossvf_tiles.metrics[tile_idx][ i ];
       }
     }
-    sleep( 1 );
   }
 }
 
 action_t fd_action_gossip = {
   .name = "gossip",
-  .args = NULL,
+  .args = gossip_args,
   .fn   = gossip_cmd_fn,
   .perm = gossip_cmd_perm,
   .topo = gossip_cmd_topo,
