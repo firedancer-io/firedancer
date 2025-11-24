@@ -1010,21 +1010,18 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 static void
 fd_runtime_finalize_account( fd_funk_t *               funk,
                              fd_funk_txn_xid_t const * xid,
-                             fd_txn_account_t *        acc,
+                             fd_pubkey_t const *       pubkey,
+                             fd_account_meta_t *       meta,
                              fd_funk_rec_t *           prev_rec ) {
-  if( FD_UNLIKELY( !fd_txn_account_is_mutable( acc ) ) ) {
-    FD_LOG_CRIT(( "fd_runtime_finalize_account: account is not mutable" ));
-  }
 
-  fd_pubkey_t const * key         = acc->pubkey;
-  uchar       const * record_data = (uchar *)fd_txn_account_get_meta( acc );
-  ulong               record_sz   = fd_account_meta_get_record_sz( acc->meta );
+  uchar       const * record_data = (uchar *)meta;
+  ulong               record_sz   = fd_account_meta_get_record_sz( meta );
 
   int err = FD_FUNK_SUCCESS;
 
   if( !prev_rec || !fd_funk_txn_xid_eq( prev_rec->pair.xid, xid ) ) {
 
-    fd_funk_rec_key_t     funk_key = fd_funk_acc_key( key );
+    fd_funk_rec_key_t     funk_key = fd_funk_acc_key( pubkey );
     fd_funk_rec_prepare_t prepare[1];
     fd_funk_rec_t *       rec = fd_funk_rec_prepare( funk, xid, &funk_key, prepare, &err );
     if( FD_UNLIKELY( !rec || err!=FD_FUNK_SUCCESS ) ) {
@@ -1183,7 +1180,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
   fd_runtime_buffer_solcap_account_update( account, bank, capture_ctx );
 
   /* Save the new version of the account to Funk */
-  fd_runtime_finalize_account( funk, xid, account, funk_prev_rec );
+  fd_runtime_finalize_account( funk, xid, pubkey, meta, funk_prev_rec );
 }
 
 /* fd_runtime_commit_txn is a helper used by the non-tpool transaction
