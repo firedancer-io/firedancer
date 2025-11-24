@@ -958,7 +958,7 @@ update_commission( fd_exec_instr_ctx_t *         ctx,
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L800-L804 */
   fd_vote_state_versioned_t * vote_state_versioned           = NULL;
   int                         enforce_commission_update_rule = 1;
-  if( FD_LIKELY( rc==FD_EXECUTOR_INSTR_SUCCESS ) ) {
+  if( FD_LIKELY( get_vsv_rc==FD_EXECUTOR_INSTR_SUCCESS ) ) {
     vote_state_versioned           = (fd_vote_state_versioned_t *)ctx->runtime->vote_program.update_commission.vote_state_mem;
     enforce_commission_update_rule = (commission>fd_vsv_get_commission( vote_state_versioned ));
   }
