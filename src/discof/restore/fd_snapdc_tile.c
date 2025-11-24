@@ -18,8 +18,9 @@
    this tile simply copies the stream to the next tile in the pipeline. */
 
 struct fd_snapdc_tile {
-  int full;
-  int is_zstd;
+  uint full    : 1;
+  uint is_zstd : 1;
+  uint dirty   : 1;  /* in the middle of a frame? */
   int state;
 
   ZSTD_DCtx * zstd;
@@ -95,6 +96,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   /* All control messages cause us to want to reset the decompression stream */
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
+  ctx->dirty = 0;
 
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL: {
@@ -103,7 +105,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = 1;
-      ctx->is_zstd = msg->zstd;
+      ctx->is_zstd = !!msg->zstd;
       ctx->in.frag_pos = 0UL;
       ctx->metrics.full.compressed_bytes_read      = 0UL;
       ctx->metrics.full.decompressed_bytes_written = 0UL;
@@ -115,7 +117,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = 0;
-      ctx->is_zstd = msg->zstd;
+      ctx->is_zstd = !!msg->zstd;
       ctx->in.frag_pos = 0UL;
       ctx->metrics.incremental.compressed_bytes_read      = 0UL;
       ctx->metrics.incremental.decompressed_bytes_written = 0UL;
@@ -123,16 +125,15 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     }
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
     case FD_SNAPSHOT_MSG_CTRL_DONE:
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( FD_UNLIKELY( ctx->is_zstd && ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
+      if( FD_UNLIKELY( ctx->is_zstd && ctx->dirty ) ) {
+        FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame" ));
         ctx->state = FD_SNAPSHOT_STATE_ERROR;
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
         return;
@@ -160,16 +161,7 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
                   fd_stem_context_t * stem,
                   ulong               chunk,
                   ulong               sz ) {
-  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
-    /* We thought the snapshot was finished (we already read the full
-       frame) and then we got another data fragment from the reader.
-       This means the snapshot has extra padding or garbage on the end,
-       which we don't trust so just abandon it completely. */
-    ctx->state = FD_SNAPSHOT_STATE_ERROR;
-    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
-    return 0;
-  }
-  else if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
     /* Ignore all data frags after observing an error in the stream until
        we receive fail & init control messages to restart processing. */
     return 0;
@@ -206,14 +198,16 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
   }
 
   ulong in_consumed = 0UL, out_produced = 0UL;
-  ulong error = ZSTD_decompressStream_simpleArgs( ctx->zstd,
-                                                  out,
-                                                  ctx->out.mtu,
-                                                  &out_produced,
-                                                  in,
-                                                  sz-ctx->in.frag_pos,
-                                                  &in_consumed );
-  if( FD_UNLIKELY( ZSTD_isError( error ) ) ) {
+  ulong frame_res = ZSTD_decompressStream_simpleArgs(
+      ctx->zstd,
+      out,
+      ctx->out.mtu,
+      &out_produced,
+      in,
+      sz-ctx->in.frag_pos,
+      &in_consumed );
+  if( FD_UNLIKELY( ZSTD_isError( frame_res ) ) ) {
+    FD_LOG_WARNING(( "error while decompressing snapshot (%u-%s)", ZSTD_getErrorCode( frame_res ), ZSTD_getErrorName( frame_res ) ));
     ctx->state = FD_SNAPSHOT_STATE_ERROR;
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
     return 0;
@@ -235,22 +229,7 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     ctx->metrics.incremental.decompressed_bytes_written += out_produced;
   }
 
-  if( FD_UNLIKELY( !error ) ) {
-    if( FD_UNLIKELY( ctx->in.frag_pos!=sz ) ) {
-      /* Zstandard finished decoding the snapshot frame (the whole
-         snapshot is a single frame), but, the fragment we got from
-         the snapshot reader has not been fully consumed, so there is
-         some trailing padding or garbage at the end of the snapshot.
-
-         This is not valid under the snapshot format and indicates a
-         problem so we abandon the snapshot. */
-      ctx->state = FD_SNAPSHOT_STATE_ERROR;
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
-      return 0;
-    }
-
-    ctx->state = FD_SNAPSHOT_STATE_FINISHING;
-  }
+  ctx->dirty = frame_res!=0UL;
 
   int maybe_more_output = out_produced==ctx->out.mtu || ctx->in.frag_pos<sz;
   if( FD_LIKELY( !maybe_more_output ) ) ctx->in.frag_pos = 0UL;
@@ -316,6 +295,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->zstd );
   FD_TEST( ctx->zstd==_zstd );
 
+  ctx->dirty = 0;
   ctx->in.frag_pos = 0UL;
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
