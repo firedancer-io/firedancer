@@ -169,6 +169,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     if( !fd_solfuzz_pb_load_account( runtime, &accts[j], runner->accdb, xid, &test_ctx->accounts[j], 0, j ) ) {
       return 0;
     }
+    txn_out->accounts.metas[j] = accts[j].meta;
 
     fd_txn_account_t * acc = &accts[j];
     if( fd_txn_account_get_meta( acc ) ) {
@@ -180,6 +181,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
         FD_LOG_CRIT(( "Failed to join and new a txn account" ));
       }
     }
+
 
     if( !memcmp( accts[j].pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       has_program_id = 1;
@@ -208,6 +210,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
           1 ) ) ) ) {
       FD_LOG_CRIT(( "Failed to join and new a txn account" ));
     }
+
+    txn_out->accounts.metas[test_ctx->accounts_count] = meta;
 
     info->program_id = (uchar)txn_out->accounts.accounts_cnt;
     txn_out->accounts.accounts_cnt++;
@@ -420,7 +424,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   if( FD_LIKELY( effects->result ) ) {
     int program_id_idx = ctx->instr[ 0UL ].program_id;
     if( exec_result==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-        fd_executor_lookup_native_precompile_program( &ctx->txn_out->accounts.accounts[ program_id_idx ] )==NULL ) {
+        fd_executor_lookup_native_precompile_program( &ctx->txn_out->accounts.account_keys[ program_id_idx ] )==NULL ) {
       effects->custom_err = ctx->txn_out->err.custom_err;
     }
   }

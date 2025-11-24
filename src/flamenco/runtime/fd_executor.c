@@ -102,8 +102,7 @@ typedef struct fd_native_prog_info fd_native_prog_info_t;
 #undef PERFECT_HASH
 
 fd_exec_instr_fn_t
-fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc ) {
-  fd_pubkey_t const * pubkey                = prog_acc->pubkey;
+fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey ) {
   const fd_native_prog_info_t null_function = {0};
   return fd_native_precompile_program_fn_lookup_tbl_query( pubkey, &null_function )->fn;
 }
@@ -128,20 +127,20 @@ fd_executor_program_is_active( fd_bank_t *         bank,
    native program ID. Returns NULL if given ID is not a recognized native program.
    https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L520-L544 */
 static int
-fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
-                                   fd_bank_t *              bank,
-                                   fd_exec_instr_fn_t *     native_prog_fn,
-                                   uchar *                  is_precompile ) {
+fd_executor_lookup_native_program( fd_pubkey_t const *       pubkey,
+                                   fd_account_meta_t const * meta,
+                                   fd_bank_t *               bank,
+                                   fd_exec_instr_fn_t *      native_prog_fn,
+                                   uchar *                   is_precompile ) {
   /* First lookup to see if the program key is a precompile */
   *is_precompile = 0;
-  *native_prog_fn = fd_executor_lookup_native_precompile_program( prog_acc );
+  *native_prog_fn = fd_executor_lookup_native_precompile_program( pubkey );
   if( FD_UNLIKELY( *native_prog_fn!=NULL ) ) {
     *is_precompile = 1;
     return 0;
   }
 
-  fd_pubkey_t const * pubkey = prog_acc->pubkey;
-  fd_pubkey_t const * owner  = fd_txn_account_get_owner( prog_acc );
+  fd_pubkey_t const * owner = (fd_pubkey_t const *)meta->owner;
 
   /* Native programs should be owned by the native loader...
      This will not be the case though once core programs are migrated to BPF. */
@@ -212,10 +211,10 @@ fd_executor_rent_transition_allowed( fd_rent_state_t const * pre_rent_state,
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/svm_rent_collector.rs#L61-L77 */
 static int
-fd_executor_check_rent_state_with_account( fd_txn_account_t const * account,
-                                           fd_rent_state_t const *  pre_rent_state,
-                                           fd_rent_state_t const *  post_rent_state ) {
-  if( FD_UNLIKELY( memcmp( account->pubkey->key, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) &&
+fd_executor_check_rent_state_with_account( fd_pubkey_t const *     pubkey,
+                                           fd_rent_state_t const * pre_rent_state,
+                                           fd_rent_state_t const * post_rent_state ) {
+  if( FD_UNLIKELY( memcmp( pubkey, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) &&
                    !fd_executor_rent_transition_allowed( pre_rent_state, post_rent_state ) ) ) {
     return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
   }
@@ -292,7 +291,7 @@ fd_validate_fee_payer( fd_txn_account_t * account,
   fd_rent_state_t payer_post_rent_state = fd_executor_get_account_rent_state( account, rent );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L335-L342 */
-  return fd_executor_check_rent_state_with_account( account, &payer_pre_rent_state, &payer_post_rent_state );
+  return fd_executor_check_rent_state_with_account( account->pubkey, &payer_pre_rent_state, &payer_post_rent_state );
 }
 
 static int
@@ -1363,7 +1362,8 @@ fd_execute_instr( fd_runtime_t *      runtime,
      https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/message_processor.rs#L88 */
   fd_exec_instr_fn_t native_prog_fn;
   uchar              is_precompile;
-  int                err = fd_executor_lookup_native_program( &txn_out->accounts.accounts[ instr->program_id ],
+  int                err = fd_executor_lookup_native_program( &txn_out->accounts.account_keys[ instr->program_id ],
+                                                              txn_out->accounts.metas[ instr->program_id ],
                                                               bank,
                                                               &native_prog_fn,
                                                               &is_precompile );

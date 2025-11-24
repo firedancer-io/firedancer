@@ -456,7 +456,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
 
         /* If the exec err was a custom instr error and came from a precompile instruction, don't capture the custom error code. */
         if( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-            fd_executor_lookup_native_precompile_program( &txn_out->accounts.accounts[ program_id_idx ] )==NULL ) {
+            fd_executor_lookup_native_precompile_program( &txn_out->accounts.account_keys[ program_id_idx ] )==NULL ) {
           txn_result->custom_error = txn_out->err.custom_err;
         }
       }
