@@ -1755,17 +1755,15 @@ int
 fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  ushort                          idx,
-                                 fd_txn_account_t * *            account,
                                  fd_txn_account_condition_fn_t * condition ) {
   if( FD_UNLIKELY( idx>=txn_out->accounts.accounts_cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
   fd_txn_account_t * txn_account = &txn_out->accounts.accounts[idx];
-  *account = txn_account;
 
   if( FD_LIKELY( condition != NULL ) ) {
-    if( FD_UNLIKELY( !condition( *account, txn_in, txn_out, idx ) ) ) {
+    if( FD_UNLIKELY( !condition( txn_account, txn_in, txn_out, idx ) ) ) {
       return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
     }
   }
@@ -1777,17 +1775,18 @@ int
 fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  fd_pubkey_t const *             pubkey,
-                                 fd_txn_account_t * *            account,
+                                 int *                           index_out,
                                  fd_txn_account_condition_fn_t * condition ) {
   int index = fd_runtime_find_index_of_account( txn_out, pubkey );
   if( FD_UNLIKELY( index==-1 ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
+  *index_out = index;
+
   return fd_runtime_get_account_at_index( txn_in,
                                           txn_out,
                                           (uchar)index,
-                                          account,
                                           condition );
 }
 
@@ -1803,12 +1802,14 @@ fd_runtime_get_executable_account( fd_runtime_t *                  runtime,
      borrowed account since it reflects changes from prior instructions. Referencing the
      read-only executable accounts list is incorrect behavior when the program
      data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
+  int index;
   int err = fd_runtime_get_account_with_key( txn_in,
                                              txn_out,
                                              pubkey,
-                                             account,
+                                             &index,
                                              condition );
   if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
+    *account = &txn_out->accounts.accounts[index];
     return FD_ACC_MGR_SUCCESS;
   }
 

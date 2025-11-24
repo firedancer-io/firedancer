@@ -41,18 +41,20 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *          runtime,
                                           ulong                   txn_idx ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
-  fd_txn_account_t * rec = NULL;
+  int index;
   int err = fd_runtime_get_account_with_key( txn_in,
                                              txn_out,
                                              &fd_sysvar_instructions_id,
-                                             &rec,
+                                             &index,
                                              fd_runtime_account_check_exists );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && rec==NULL ) ) {
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && index==-1 ) ) {
     /* The way we use this, this should NEVER hit since the borrowed accounts should be set up
        before this is called, and this is only called if the sysvar instructions account is in
        the borrowed accounts list. */
     FD_LOG_ERR(( "Failed to view sysvar instructions borrowed account. It may not be included in the txn account keys." ));
   }
+
+  fd_txn_account_t * rec = &txn_out->accounts.accounts[index];
 
   /* This stays within the FD spad allocation bounds because...
      1. Case 1: rec->meta!=NULL

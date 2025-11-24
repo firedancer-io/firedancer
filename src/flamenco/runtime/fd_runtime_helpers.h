@@ -151,7 +151,6 @@ int
 fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  ushort                          idx,
-                                 fd_txn_account_t * *            account,
                                  fd_txn_account_condition_fn_t * condition );
 
 /* A wrapper around fd_exec_txn_ctx_get_account_at_index that obtains an
@@ -161,7 +160,7 @@ int
 fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  fd_pubkey_t const *             pubkey,
-                                 fd_txn_account_t * *            account,
+                                 int *                           index_out,
                                  fd_txn_account_condition_fn_t * condition );
 
 /* Gets an executable (program data) account via its pubkey. */
