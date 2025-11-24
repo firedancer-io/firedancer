@@ -1059,7 +1059,17 @@ gossip_cmd_fn( args_t *   args,
   printf( " | Duplicate Shred        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_DUPLICATE_SHRED ) ] ) );
   printf( " | Restart Last Voted     | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_LAST_VOTED_FORK_SLOTS ) ] ) );
   printf( " | Restart Heaviest       | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_HEAVIEST_FORK ) ] ) );
-  printf( " +------------------------+--------------+\n\n" );
+  printf( " +------------------------+--------------+\n" );
+  printf( " +-------------+--------------+\n" );
+  printf( " | Pong Result | Count        |\n" );
+  printf( " +-------------+--------------+\n" );
+  printf( " | Staked      | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_STAKED ) ] ) );
+  printf( " | Entrypoint  | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_ENTRYPOINT ) ] ) );
+  printf( " | Untracked   | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_UNTRACKED ) ] ) );
+  printf( " | Address     | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_ADDRESS ) ] ) );
+  printf( " | Token       | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_TOKEN ) ] ) );
+  printf( " | Success     | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_SUCCESS ) ] ) );
+  printf( " +-------------+--------------+\n\n" );
 
 #define DIFFX(METRIC) gossip_metrics[ MIDX( COUNTER, TILE, METRIC ) ] - gossip_prev[ MIDX( COUNTER, TILE, METRIC ) ]
     ulong hkeep_ticks = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_PROCESSING_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_BACKPRESSURE_HOUSEKEEPING);
