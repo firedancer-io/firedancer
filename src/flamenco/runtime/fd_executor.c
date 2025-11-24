@@ -1195,14 +1195,17 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
+    ulong refcnt = runtime->accounts.refcnt[idx];
+
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L401-L402 */
-    if( FD_UNLIKELY( !fd_txn_account_try_borrow_mut( sysvar_instructions_account ) ) ) {
+    if( FD_UNLIKELY( refcnt!=0UL ) ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
     }
+    refcnt++;
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L403-L406 */
     fd_sysvar_instructions_update_current_instr_idx( sysvar_instructions_account, (ushort)runtime->instr.current_idx );
-    fd_txn_account_drop( sysvar_instructions_account );
+    refcnt--;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -1284,8 +1287,8 @@ fd_instr_stack_pop( fd_runtime_t *          runtime,
   for( ushort i=0; i<instr->acct_cnt; i++ ) {
     ushort idx_in_txn = instr->accounts[i].index_in_transaction;
     fd_txn_account_t * account = &txn_out->accounts.accounts[ idx_in_txn ];
-    if( FD_UNLIKELY( fd_txn_account_is_executable( account ) &&
-                     fd_txn_account_is_borrowed( account ) ) ) {
+    ulong refcnt = runtime->accounts.refcnt[idx_in_txn];
+    if( FD_UNLIKELY( fd_txn_account_is_executable( account ) && refcnt!=0UL ) ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING;
     }
   }
@@ -1538,6 +1541,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
   runtime->accounts.starting_lamports[idx] = fd_txn_account_get_lamports( txn_account );
   runtime->accounts.starting_dlen[idx]     = fd_txn_account_get_data_len( txn_account );
+  runtime->accounts.refcnt[idx]            = 0UL;
   memcpy( &txn_out->accounts.pubkeys[idx], acc, sizeof(fd_pubkey_t) );
   txn_out->accounts.metas[ idx ] = account_meta;
 

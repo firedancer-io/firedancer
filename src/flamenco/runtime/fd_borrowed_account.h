@@ -22,6 +22,8 @@ struct fd_borrowed_account {
   /* index_in_instruction will be USHORT_MAX for borrowed program accounts because
      they are not stored in the list of instruction accounts in the instruction context */
   ushort                      index_in_instruction;
+
+  ulong *                     refcnt;
 };
 typedef struct fd_borrowed_account fd_borrowed_account_t;
 
@@ -37,10 +39,12 @@ static inline void
 fd_borrowed_account_init( fd_borrowed_account_t *     borrowed_acct,
                           fd_txn_account_t *          acct,
                           fd_exec_instr_ctx_t const * instr_ctx,
-                          ushort                      index_in_instruction ) {
+                          ushort                      index_in_instruction,
+                          ulong *                     refcnt ) {
   borrowed_acct->acct                 = acct;
   borrowed_acct->instr_ctx            = instr_ctx;
   borrowed_acct->index_in_instruction = index_in_instruction;
+  borrowed_acct->refcnt               = refcnt;
 
   FD_COMPILER_MFENCE();
   borrowed_acct->magic = FD_BORROWED_ACCOUNT_MAGIC;
@@ -52,7 +56,8 @@ fd_borrowed_account_init( fd_borrowed_account_t *     borrowed_acct,
 
 static inline void
 fd_borrowed_account_drop( fd_borrowed_account_t * borrowed_acct ) {
-  fd_txn_account_drop( borrowed_acct->acct );
+  //fd_txn_account_drop( borrowed_acct->acct );
+  (*borrowed_acct->refcnt) = 0;
 }
 
 /* Destructor  */

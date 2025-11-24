@@ -170,6 +170,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       return 0;
     }
     txn_out->accounts.metas[j] = accts[j].meta;
+    runtime->accounts.refcnt[j] = 0UL;
 
     fd_txn_account_t * acc = &accts[j];
     if( fd_txn_account_get_meta( acc ) ) {

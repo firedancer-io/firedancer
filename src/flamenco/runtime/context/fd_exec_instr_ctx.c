@@ -61,17 +61,18 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
 
   /* Return an AccountBorrowFailed error if the write is not acquirable.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L605 */
-  int borrow_res = fd_txn_account_try_borrow_mut( txn_account );
-  if( FD_UNLIKELY( !borrow_res ) ) {
+  if( FD_UNLIKELY( ctx->runtime->accounts.refcnt[idx_in_txn]!=0UL ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
   }
+  ctx->runtime->accounts.refcnt[idx_in_txn]++;
 
   /* Create a BorrowedAccount upon success.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L606 */
   fd_borrowed_account_init( account,
                             txn_account,
                             ctx,
-                            idx_in_instr );
+                            idx_in_instr,
+                            &ctx->runtime->accounts.refcnt[idx_in_txn] );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
