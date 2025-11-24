@@ -348,6 +348,7 @@ struct fd_config {
 
     struct {
       int disable_lthash_verification;
+      uint decompress_tile_count;
     } snapshots;
 
     struct {

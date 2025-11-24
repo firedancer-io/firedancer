@@ -17,6 +17,8 @@
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 
+#define DC_TILE_MAX (64UL)
+
 struct blockhash_group {
   uchar blockhash[ 32UL ];
   ulong txnhash_offset;
@@ -44,11 +46,41 @@ struct buffered_account_batch {
 
 typedef struct buffered_account_batch buffered_account_batch_t;
 
+struct fd_snapin_in {
+  fd_wksp_t * wksp;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       mtu;
+  ulong       pos;
+};
+
+typedef struct fd_snapin_in fd_snapin_in_t;
+
+/* fd_snapdc_barrier synchronizes all snapdc tiles to the same control
+   frag event.  E.g. when a 'snapshot read finished' message is received
+   from an in link, this barrier polls all other links until the same
+   message is received. */
+
+struct fd_snapdc_barrier {
+  ulong rem_set;
+  uint  ctrl_type;
+  uint  cnt;
+  uint  active : 1;
+  uint  primed : 1;
+};
+
+typedef struct fd_snapdc_barrier fd_snapdc_barrier_t;
+
 struct fd_snapin_tile {
   int  state;
   uint full      : 1;       /* loading a full snapshot? */
   uint use_vinyl : 1;       /* using vinyl-backed accdb? */
   uint lthash_disabled : 1; /* disable lthash checking? */
+  uint dirty : 1;           /* in the middle of a dc in burst? */
+
+  ulong dirty_idx;
+  ulong in_idx;
+  ulong in_cnt;
 
   ulong seed;
   long boot_timestamp;
@@ -66,6 +98,8 @@ struct fd_snapin_tile {
   fd_ssparse_t *           ssparse;
   fd_ssmanifest_parser_t * manifest_parser;
   fd_slot_delta_parser_t * slot_delta_parser;
+
+  fd_snapdc_barrier_t dc_barrier;
 
   buffered_account_batch_t buffered_batch;
 
@@ -91,13 +125,7 @@ struct fd_snapin_tile {
     ulong accounts_inserted;
   } metrics;
 
-  struct {
-    fd_wksp_t * wksp;
-    ulong       chunk0;
-    ulong       wmark;
-    ulong       mtu;
-    ulong       pos;
-  } in;
+  fd_snapin_in_t in[ DC_TILE_MAX ];
 
   ulong                out_ct_idx;
   fd_snapin_out_link_t manifest_out;

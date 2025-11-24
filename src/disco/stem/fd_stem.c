@@ -194,6 +194,10 @@
 #define STEM_LAZY (0L)
 #endif
 
+#ifndef STEM_CUSTOM_IN_SELECT
+#define STEM_CUSTOM_IN_SELECT 0
+#endif
+
 #define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
 
 static inline void
@@ -473,6 +477,7 @@ STEM_(run1)( ulong                        in_cnt,
       if( FD_UNLIKELY( event_seq>=event_cnt ) ) {
         event_seq = 0UL;
 
+#       if !STEM_CUSTOM_IN_SELECT
         /* Randomize the order of event processing for the next event
            event_cnt events to avoid lighthousing effects causing input
            credit starvation at extreme fan in/fan out, extreme in load
@@ -494,6 +499,7 @@ STEM_(run1)( ulong                        in_cnt,
           in[ swap_idx ] = in[ 0        ];
           in[ 0        ] = in_tmp;
         }
+#       endif
       }
 
       /* Reload housekeeping timer */
@@ -581,9 +587,15 @@ STEM_(run1)( ulong                        in_cnt,
     }
 #endif
 
+#   if STEM_CUSTOM_IN_SELECT
+    in_seq = stem.next_in_idx;
+#   endif
+
     fd_stem_tile_in_t * this_in = &in[ in_seq ];
+#   if !STEM_CUSTOM_IN_SELECT
     in_seq++;
     if( in_seq>=in_cnt ) in_seq = 0UL; /* cmov */
+#   endif
 
     /* Check if this in has any new fragments to mux */
 
@@ -824,3 +836,4 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_RETURNABLE_FRAG
 #undef STEM_CALLBACK_AFTER_FRAG
 #undef STEM_CALLBACK_AFTER_POLL_OVERRUN
+#undef STEM_CUSTOM_IN_SELECT

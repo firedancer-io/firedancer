@@ -28,6 +28,12 @@ $(call make-unit-test,test_sspeer_selector,utils/test_sspeer_selector,fd_discof 
 $(call run-unit-test,test_slot_delta_parser)
 $(call run-unit-test,test_sspeer_selector)
 endif
+ifdef FD_HAS_ZSTD
+$(call add-objs,utils/fd_zstd_dskip,fd_discof)
+ifdef FD_HAS_HOSTED
+$(call make-unit-test,test_zstd_dskip,utils/test_zstd_dskip,fd_discof fd_flamenco fd_ballet fd_util)
+endif
+endif
 
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_snapshot_parser,utils/fuzz_snapshot_parser,fd_discof fd_flamenco fd_ballet fd_util)

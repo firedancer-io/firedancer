@@ -13,6 +13,8 @@ struct fd_stem_context {
    ulong *           cr_avail;
    ulong *           min_cr_avail;
    ulong             cr_decrement_amount;
+
+   ulong             next_in_idx;
 };
 
 typedef struct fd_stem_context fd_stem_context_t;
