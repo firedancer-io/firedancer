@@ -262,19 +262,27 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
 }
 
 int
-fd_bpf_loader_program_get_state( fd_txn_account_t const *            acct,
-                                 fd_bpf_upgradeable_loader_state_t * state ) {
+fd_bpf_loader_program_get_state_inner( fd_account_meta_t const *           meta,
+                                       fd_bpf_upgradeable_loader_state_t * state ) {
 
   int err = 0;
   fd_bincode_decode_static( bpf_upgradeable_loader_state,
                             state,
-                            fd_txn_account_get_data( acct ),
-                            fd_txn_account_get_data_len( acct ),
+                            fd_account_data( meta ),
+                            meta->dlen,
                             &err );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+
+int
+fd_bpf_loader_program_get_state( fd_txn_account_t const *            acct,
+                                 fd_bpf_upgradeable_loader_state_t * state ) {
+
+  return fd_bpf_loader_program_get_state_inner( acct->meta, state );
 }
 
 /* Mirrors solana_sdk::transaction_context::BorrowedAccount::set_state()

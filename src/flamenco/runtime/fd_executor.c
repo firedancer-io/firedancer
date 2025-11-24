@@ -459,14 +459,15 @@ load_transaction_account( fd_runtime_t *      runtime,
                           fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out,
-                          fd_txn_account_t *  acct,
+                          fd_pubkey_t const * pubkey,
+                          fd_account_meta_t * meta,
                           uchar               is_writable,
                           uchar               unknown_acc,
                           ulong               txn_idx ) {
 
   /* Handling the sysvar instructions account explictly.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L817-L824 */
-  if( FD_UNLIKELY( !memcmp( acct->pubkey->key, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( !memcmp( pubkey, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) ) ) {
     /* The sysvar instructions account cannot be "loaded" since it's
        constructed by the SVM and modified within each transaction's
        instruction execution only, so it incurs a loaded size cost
@@ -491,9 +492,9 @@ load_transaction_account( fd_runtime_t *      runtime,
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L828-L835 */
     if( is_writable ) {
       /* TODO:FIXME: DO WE REALLY NEED THIS */
-      runtime->accounts.starting_lamports[txn_idx] = fd_txn_account_get_lamports( acct );
+      runtime->accounts.starting_lamports[txn_idx] = meta->lamports;
     }
-    return fd_ulong_sat_add( base_account_size, fd_txn_account_get_data_len( acct ) );
+    return fd_ulong_sat_add( base_account_size, meta->dlen );
   }
 
   /* The rest of this function is a no-op for us since we already set up
@@ -549,7 +550,7 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L733-L740 */
-    ulong loaded_acc_size = load_transaction_account( runtime, bank, txn_in, txn_out, acct, is_writable, unknown_acc, i );
+    ulong loaded_acc_size = load_transaction_account( runtime, bank, txn_in, txn_out, acct->pubkey, acct->meta, is_writable, unknown_acc, i );
     int err = accumulate_and_check_loaded_account_data_size( loaded_acc_size,
                                                              requested_loaded_accounts_data_size,
                                                              &txn_out->details.loaded_accounts_data_size );
@@ -671,13 +672,13 @@ fd_increase_calculated_data_size( fd_txn_out_t * txn_out,
 /* This function is represented as a closure in Agave.
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L578-L640 */
 static int
-fd_collect_loaded_account( fd_runtime_t *           runtime,
-                           fd_txn_out_t *           txn_out,
-                           fd_bank_t *              bank,
-                           fd_txn_account_t const * account,
-                           ulong                    loaded_acc_size,
-                           fd_pubkey_t *            additional_loaded_account_keys,
-                           ulong *                  additional_loaded_account_keys_cnt ) {
+fd_collect_loaded_account( fd_runtime_t *            runtime,
+                           fd_txn_out_t *            txn_out,
+                           fd_bank_t *               bank,
+                           fd_account_meta_t const * account_meta,
+                           ulong                     loaded_acc_size,
+                           fd_pubkey_t *             additional_loaded_account_keys,
+                           ulong *                   additional_loaded_account_keys_cnt ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L586-L590 */
   int err = fd_increase_calculated_data_size( txn_out, loaded_acc_size );
@@ -692,14 +693,14 @@ fd_collect_loaded_account( fd_runtime_t *           runtime,
      loading logic.
 
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L611 */
-  if( FD_LIKELY( memcmp( fd_txn_account_get_owner( account ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_LIKELY( memcmp( account_meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   /* Try to read the program state
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L612-L634 */
   fd_bpf_upgradeable_loader_state_t loader_state[1];
-  err = fd_bpf_loader_program_get_state( account, loader_state );
+  err = fd_bpf_loader_program_get_state_inner( account_meta, loader_state );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
@@ -812,7 +813,7 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
         runtime,
         txn_out,
         bank,
-        acct,
+        acct->meta,
         loaded_acc_size,
         additional_loaded_account_keys,
         &additional_loaded_account_keys_cnt );
@@ -824,12 +825,12 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
 
     /* Load and collect any remaining accounts
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
-    ulong loaded_acc_size = load_transaction_account( runtime, bank, txn_in, txn_out, acct, is_writable, unknown_acc, i );
+    ulong loaded_acc_size = load_transaction_account( runtime, bank, txn_in, txn_out, acct->pubkey, acct->meta, is_writable, unknown_acc, i );
     int err = fd_collect_loaded_account(
       runtime,
       txn_out,
       bank,
-      acct,
+      acct->meta,
       loaded_acc_size,
       additional_loaded_account_keys,
       &additional_loaded_account_keys_cnt );

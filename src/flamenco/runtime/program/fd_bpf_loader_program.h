@@ -55,6 +55,10 @@
 
 FD_PROTOTYPES_BEGIN
 
+int
+fd_bpf_loader_program_get_state_inner( fd_account_meta_t const *           meta,
+                                       fd_bpf_upgradeable_loader_state_t * state );
+
 /* Mirrors solana_sdk::transaction_context::BorrowedAccount::get_state()
 
    Acts on a fd_txn_account_t for ease of API use.
