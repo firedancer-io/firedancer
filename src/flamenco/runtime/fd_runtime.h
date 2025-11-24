@@ -131,6 +131,7 @@ struct fd_runtime {
     fd_txn_account_t executables[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
     ulong            starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
     ulong            starting_dlen[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting data length for each account */
+    ulong            refcnt[ MAX_TX_ACCOUNT_LOCKS ]; /* Reference count for each account */
   } accounts;
 };
 typedef struct fd_runtime fd_runtime_t;
