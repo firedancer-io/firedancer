@@ -1243,37 +1243,30 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
         continue;
       }
 
-      fd_txn_account_t * acc_rec = &txn_out->accounts.accounts[i];
-      if( FD_UNLIKELY( !acc_rec ) ) {
-        FD_LOG_CRIT(( "fd_runtime_commit_txn: failed to join account at idx %u", i ));
-      }
+      fd_pubkey_t const * pubkey = &txn_out->accounts.account_keys[i];
+      fd_account_meta_t * meta   = txn_out->accounts.metas[i];
 
       /* Tips for bundles are collected in the bank: a user submitting a
          bundle must include a instruction that transfers lamports to
          a specific tip account.  Tips accumulated through the slot. */
-      if( fd_pack_tip_is_tip_account( fd_type_pun( acc_rec->pubkey->uc ) ) ) {
-        txn_out->details.tips += fd_ulong_sat_sub( acc_rec->meta->lamports, runtime->accounts.starting_lamports[i] );
+      if( fd_pack_tip_is_tip_account( fd_type_pun_const( pubkey->uc ) ) ) {
+        txn_out->details.tips += fd_ulong_sat_sub( meta->lamports, runtime->accounts.starting_lamports[i] );
         FD_ATOMIC_FETCH_AND_ADD( fd_bank_tips_modify( bank ), txn_out->details.tips );
       }
 
-      if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-        fd_stakes_update_vote_state( acc_rec, bank );
+      if( 0==memcmp( meta->owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+        fd_stakes_update_vote_state( pubkey, meta, bank );
       }
 
-      if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
-        fd_stakes_update_stake_delegation( acc_rec, bank );
+      if( 0==memcmp( meta->owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
+        fd_stakes_update_stake_delegation( pubkey, meta, bank );
       }
 
       /* Reclaim any accounts that have 0-lamports, now that any related
          cache updates have been applied. */
       fd_executor_reclaim_account( txn_out->accounts.metas[i], fd_bank_slot_get( bank ) );
 
-      fd_runtime_save_account( runtime->funk,
-                               &xid,
-                               txn_out->accounts.accounts[i].pubkey,
-                               txn_out->accounts.accounts[i].meta,
-                               bank,
-                               runtime->log.capture_ctx );
+      fd_runtime_save_account( runtime->funk, &xid, pubkey, meta, bank, runtime->log.capture_ctx );
     }
 
     /* We need to queue any existing program accounts that may have
