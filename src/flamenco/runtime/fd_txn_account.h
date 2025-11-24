@@ -217,6 +217,9 @@ fd_txn_account_set_readonly( fd_txn_account_t * acct );
 void
 fd_txn_account_set_mutable( fd_txn_account_t * acct );
 
+int
+fd_account_meta_checked_sub_lamports( fd_account_meta_t * meta, ulong lamports );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_txn_account_h */

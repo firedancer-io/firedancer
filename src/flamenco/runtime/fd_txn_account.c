@@ -366,6 +366,20 @@ fd_txn_account_checked_add_lamports( fd_txn_account_t * acct, ulong lamports ) {
 }
 
 int
+fd_account_meta_checked_sub_lamports( fd_account_meta_t * meta, ulong lamports ) {
+  ulong balance_post = 0UL;
+  int err = fd_ulong_checked_sub( meta->lamports,
+                                  lamports,
+                                  &balance_post );
+  if( FD_UNLIKELY( err ) ) {
+    return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
+  }
+
+  meta->lamports = balance_post;
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+int
 fd_txn_account_checked_sub_lamports( fd_txn_account_t * acct, ulong lamports ) {
   ulong balance_post = 0UL;
   int err = fd_ulong_checked_sub( fd_txn_account_get_lamports( acct ),
