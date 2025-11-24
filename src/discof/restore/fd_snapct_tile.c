@@ -8,6 +8,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../waltz/openssl/fd_openssl_tile.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -32,7 +33,7 @@
 /* FIXME: Handle cases where the slot number we start downloading differs from advertised */
 
 #define GOSSIP_PEERS_MAX (FD_CONTACT_INFO_TABLE_SIZE)
-#define SERVER_PEERS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX)
+#define SERVER_PEERS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED)
 #define TOTAL_PEERS_MAX  (GOSSIP_PEERS_MAX + SERVER_PEERS_MAX)
 
 #define IN_KIND_ACK    (0)
@@ -165,6 +166,13 @@ download_enabled( fd_topo_tile_t const * tile ) {
   return gossip_enabled( tile ) || tile->snapct.sources.servers_cnt>0UL;
 }
 
+FD_FN_CONST static inline ulong
+loose_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  /* Leftover space for OpenSSL allocations */
+  return 1<<26UL; /* 64 MiB */
+}
+
 static ulong
 scratch_align( void ) {
   return fd_ulong_max( alignof(fd_snapct_tile_t),
@@ -184,6 +192,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
   l = FD_LAYOUT_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX )                             );
   l = FD_LAYOUT_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX )                            );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()                                                       );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -237,6 +246,10 @@ metrics_write( fd_snapct_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPCT, GOSSIP_TOTAL_COUNT,            ctx->gossip.total_cnt );
 
   FD_MGAUGE_SET( SNAPCT, PREDICTED_SLOT,                ctx->predicted_incremental.slot );
+
+#if FD_HAS_OPENSSL
+  FD_MCNT_SET(   SNAPCT, SSL_ALLOC_ERRORS,                fd_ossl_alloc_errors );
+#endif
 
   FD_MGAUGE_SET( SNAPCT, STATE, (ulong)ctx->state );
 }
@@ -406,7 +419,16 @@ init_load( fd_snapct_tile_t *  ctx,
   fd_ssctrl_init_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
   out->file = file;
   out->zstd = !file || (full ? ctx->local_in.full_snapshot_zstd : ctx->local_in.incremental_snapshot_zstd);
-  if( !file ) out->addr = ctx->addr;
+  if( !file ) {
+    out->addr = ctx->addr;
+    for( ulong i=0UL; i<SERVER_PEERS_MAX; i++ ) {
+      if( FD_UNLIKELY( ctx->addr.l==ctx->config.sources.servers[ i ].addr.l ) ) {
+        fd_cstr_ncpy( out->hostname, ctx->config.sources.servers[ i ].hostname, sizeof(out->hostname) );
+        out->is_https = ctx->config.sources.servers[ i ].is_https;
+        break;
+      }
+    }
+  }
   fd_stem_publish( stem, ctx->out_ld.idx, full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR, ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), 0UL, 0UL, 0UL );
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
   ctx->flush_ack = 0;
@@ -452,11 +474,18 @@ log_download( fd_snapct_tile_t * ctx,
   }
 
   for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
-    if( addr.l==ctx->config.sources.servers[ i ].l ) {
-      FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from configured server with index %lu at http://" FD_IP4_ADDR_FMT ":%hu/%s",
-                      full ? "full" : "incremental", slot, i,
-                      FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ),
-                      full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ));
+    if( addr.l==ctx->config.sources.servers[ i ].addr.l ) {
+      if( ctx->config.sources.servers[ i ].is_https ) {
+        FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from configured server with index %lu at https://%s:%hu/%s",
+                        full ? "full" : "incremental", slot, i,
+                        ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ),
+                        full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ));
+      } else {
+        FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from configured server with index %lu at http://" FD_IP4_ADDR_FMT ":%hu/%s",
+                        full ? "full" : "incremental", slot, i,
+                        FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ),
+                        full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ));
+      }
       return;
     }
   }
@@ -1156,11 +1185,23 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snapct_tile_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t),  sizeof(fd_snapct_tile_t) );
-  void *             _ssping = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( TOTAL_PEERS_MAX ) );
+  fd_snapct_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t),  sizeof(fd_snapct_tile_t) );
+  void *             _ssping     = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( TOTAL_PEERS_MAX ) );
+                                   FD_SCRATCH_ALLOC_APPEND( l, alignof(gossip_ci_entry_t), sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX );
+                                   FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
+  void *             _ssresolver = FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX )  );
+                                   FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
+
+#if FD_HAS_OPENSSL
+  void * _alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), tile->kind_id );
+  fd_ossl_tile_init( alloc );
+#endif
 
   ctx->ssping = NULL;
-  if( FD_LIKELY( download_enabled( tile ) ) ) ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, 1UL, on_ping, ctx ) );
+  if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, 1UL, on_ping, ctx ) );
+  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, on_resolve, ctx ) );
+  else                                                ctx->ssresolver = NULL;
 
   /* FIXME: We will keep too many snapshots if we have local snapshots
      but elect not to use them due to their age. */
@@ -1272,19 +1313,20 @@ unprivileged_init( fd_topo_t *      topo,
                             FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( TOTAL_PEERS_MAX ) );
   void * _ci_table        = FD_SCRATCH_ALLOC_APPEND( l, alignof(gossip_ci_entry_t), sizeof(gossip_ci_entry_t) * GOSSIP_PEERS_MAX );
   void * _ci_map          = FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
-  void * _ssresolver      = FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX ) );
+                            FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX ) );
   void * _selector        = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
 
   fd_memcpy( &ctx->config, &tile->snapct, sizeof(ctx->config) );
   ctx->gossip_enabled   = gossip_enabled( tile );
   ctx->download_enabled = download_enabled( tile );
 
-  ctx->ssresolver = NULL;
   if( ctx->config.sources.servers_cnt ) {
-    ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, ctx->config.incremental_snapshots, on_resolve, ctx ) );
     for( ulong i=0UL; i<tile->snapct.sources.servers_cnt; i++ ) {
-      fd_ssping_add       ( ctx->ssping,     tile->snapct.sources.servers[ i ] );
-      fd_http_resolver_add( ctx->ssresolver, tile->snapct.sources.servers[ i ] );
+      fd_ssping_add       ( ctx->ssping, tile->snapct.sources.servers[ i ].addr );
+      fd_http_resolver_add( ctx->ssresolver,
+                            tile->snapct.sources.servers[ i ].addr,
+                            tile->snapct.sources.servers[ i ].hostname,
+                            tile->snapct.sources.servers[ i ].is_https );
     }
   }
 
@@ -1365,6 +1407,7 @@ fd_topo_run_tile_t fd_tile_snapct = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .loose_footprint          = loose_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,

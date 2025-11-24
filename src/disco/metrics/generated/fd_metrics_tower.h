@@ -90,13 +90,7 @@
 #define FD_METRICS_GAUGE_TOWER_HARD_FORKS_ACTIVE_DESC "Currently active hard forks"
 #define FD_METRICS_GAUGE_TOWER_HARD_FORKS_ACTIVE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_TOWER_HARD_FORKS_MAX_WIDTH_OFF  (30UL)
-#define FD_METRICS_GAUGE_TOWER_HARD_FORKS_MAX_WIDTH_NAME "tower_hard_forks_max_width"
-#define FD_METRICS_GAUGE_TOWER_HARD_FORKS_MAX_WIDTH_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_TOWER_HARD_FORKS_MAX_WIDTH_DESC "The max width of hard forks (block id with most candidate bank hashes) we've ever seen"
-#define FD_METRICS_GAUGE_TOWER_HARD_FORKS_MAX_WIDTH_CVT  (FD_METRICS_CONVERTER_NONE)
-
-#define FD_METRICS_TOWER_TOTAL (15UL)
+#define FD_METRICS_TOWER_TOTAL (14UL)
 extern const fd_metrics_meta_t FD_METRICS_TOWER[FD_METRICS_TOWER_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_tower_h */
