@@ -635,6 +635,7 @@ struct fd_gui {
     ulong slot_turbine;
     ulong slot_reset;
     ulong slot_storage;
+    ulong active_fork_cnt;
 
     fd_gui_ephemeral_slot_t slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL ];
     fd_gui_ephemeral_slot_t slots_max_repair [ FD_GUI_REPAIR_SLOT_HISTORY_SZ +1UL ];

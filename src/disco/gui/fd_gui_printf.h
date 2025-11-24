@@ -39,6 +39,7 @@ void fd_gui_printf_catch_up_history( fd_gui_t * gui );
 void fd_gui_peers_printf_vote_slot( fd_gui_peers_ctx_t * peers );
 void fd_gui_printf_reset_slot( fd_gui_t * gui );
 void fd_gui_printf_storage_slot( fd_gui_t * gui );
+void fd_gui_printf_active_fork_cnt( fd_gui_t * gui );
 
 void
 fd_gui_printf_null_query_response( fd_http_server_t * http,

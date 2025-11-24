@@ -276,6 +276,14 @@ fd_gui_printf_storage_slot( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_active_fork_cnt( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui->http, "summary", "active_fork_count" );
+    if( FD_LIKELY( gui->summary.active_fork_cnt!=ULONG_MAX  ) ) jsonp_ulong( gui->http, "value", gui->summary.active_fork_cnt );
+    else                                                        jsonp_null ( gui->http, "value" );
+  jsonp_close_envelope( gui->http );
+}
+
+void
 fd_gui_printf_slot_caught_up( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "slot_caught_up" );
     if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX  ) ) jsonp_ulong( gui->http, "value", gui->summary.slot_caught_up );
