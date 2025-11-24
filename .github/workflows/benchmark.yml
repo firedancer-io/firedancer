@@ -32,7 +32,7 @@ jobs:
 
     steps:
     - name: Checkout current commit
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - uses: ./.github/actions/deps
       with:
@@ -49,7 +49,7 @@ jobs:
     - run: echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
 
     - name: Checkout main for baseline
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         ref: main
         clean: false
@@ -78,7 +78,7 @@ jobs:
         echo DEFAULT_MEM_BASELINE=$DEFAULT_MEM_BASELINE >> $GITHUB_ENV
 
     - name: Checkout new changes
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         clean: false
 

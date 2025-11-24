@@ -17,7 +17,7 @@ jobs:
       name: coverage-report
       url: ${{ vars.COVERAGE_URL }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 

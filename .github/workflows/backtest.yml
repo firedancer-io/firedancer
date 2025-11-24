@@ -44,7 +44,7 @@ jobs:
         run: |
           sudo killall firedancer-dev || true
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
