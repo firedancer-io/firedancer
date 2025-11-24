@@ -911,13 +911,15 @@ net_rx_packet( fd_net_ctx_t * ctx,
       ctx->metrics.rx_gre_ignored_cnt++; // drop. No gre interface in netdev table
       return;
     }
-    if( FD_UNLIKELY( FD_IP4_GET_VERSION( *iphdr )!=0x4 ) ) {
-      ctx->metrics.rx_gre_inv_pkt_cnt++; // drop. IP version!=IPv4
+    ulong gre_ipver = FD_IP4_GET_VERSION( *iphdr );
+    ulong gre_iplen = FD_IP4_GET_LEN( *iphdr );
+    if( FD_UNLIKELY( gre_ipver!=0x4 || gre_iplen<20 ) ) {
+      FD_DTRACE_PROBE( net_tile_err_rx_noip );
+      ctx->metrics.rx_gre_inv_pkt_cnt++; /* drop IPv6 packets */
       return;
     }
 
-    ulong overhead = FD_IP4_GET_LEN( *iphdr ) + sizeof(fd_gre_hdr_t);
-
+    ulong overhead = gre_iplen + sizeof(fd_gre_hdr_t);
     if( FD_UNLIKELY( (uchar *)iphdr+overhead+sizeof(fd_ip4_hdr_t)>packet_end ) ) {
       FD_DTRACE_PROBE( net_tile_err_rx_undersz );
       ctx->metrics.rx_undersz_cnt++;  // inner ip4 header invalid
@@ -939,13 +941,16 @@ net_rx_packet( fd_net_ctx_t * ctx,
   ulong ctl         = umem_off & 0x3fUL;
 
   /* Filter for UDP/IPv4 packets. */
-  if( FD_UNLIKELY( ( FD_IP4_GET_VERSION( *iphdr )!=0x4 ) ||
-                   ( iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) ) return;
+  ulong ipver = FD_IP4_GET_VERSION( *iphdr );
+  ulong iplen = FD_IP4_GET_LEN    ( *iphdr );
+  if( FD_UNLIKELY( ipver!=0x4 || iplen<20 ||
+                   iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) {
+    FD_DTRACE_PROBE( net_tile_err_rx_noip );
+    ctx->metrics.rx_undersz_cnt++; /* drop IPv6 packets */
+    return;
+  }
 
-  /* IPv4 is variable-length, so lookup IHL to find start of UDP */
-  uint iplen        = FD_IP4_GET_LEN( *iphdr );
   uchar const * udp = (uchar *)iphdr + iplen;
-
   if( FD_UNLIKELY( udp+sizeof(fd_udp_hdr_t) > packet_end ) ) {
     FD_DTRACE_PROBE( net_tile_err_rx_undersz );
     ctx->metrics.rx_undersz_cnt++;
