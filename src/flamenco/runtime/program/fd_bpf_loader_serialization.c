@@ -162,7 +162,7 @@ write_account( fd_borrowed_account_t *   account,
   ulong         dlen = account ? fd_borrowed_account_get_data_len( account ) : 0UL;
 
   acc_region_metas[instr_acc_idx].original_data_len = dlen;
-  acc_region_metas[instr_acc_idx].acct              = account->acct;
+  acc_region_metas[instr_acc_idx].meta              = account->meta;
 
   /* Legacy behavior: no stricter_abi_and_runtime_constraints (also implies no direct mapping)
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L131-L140 */

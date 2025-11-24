@@ -57,7 +57,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   fd_guarded_borrowed_account_t config_acc_rec = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_CONFIG, &config_acc_rec );
 
-  config_account_key = config_acc_rec.acct->pubkey;
+  config_account_key = config_acc_rec.pubkey;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L27 */
 
@@ -148,7 +148,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L80-L87 */
 
-      if( FD_UNLIKELY( 0!=memcmp( signer_account.acct->pubkey, signer, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_UNLIKELY( 0!=memcmp( signer_account.pubkey, signer, sizeof(fd_pubkey_t) ) ) ) {
         /* Max msg_sz: 53 - 3 + 20 = 70 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
           "account[%lu].signer_key() does not match Config data)", counter+1 );

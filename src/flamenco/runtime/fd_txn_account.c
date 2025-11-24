@@ -401,6 +401,16 @@ fd_txn_account_clear_owner( fd_txn_account_t * acct ) {
 }
 
 void
+fd_account_meta_resize( fd_account_meta_t * meta,
+                        ulong               dlen ) {
+  ulong old_sz    = meta->dlen;
+  ulong new_sz    = dlen;
+  ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
+  fd_memset( fd_account_data( meta ) + old_sz, 0, memset_sz );
+  meta->dlen = (uint)dlen;
+}
+
+void
 fd_txn_account_resize( fd_txn_account_t * acct,
                        ulong              dlen ) {
   if( FD_UNLIKELY( !acct->is_mutable ) ) {

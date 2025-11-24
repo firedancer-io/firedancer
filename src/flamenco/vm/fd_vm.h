@@ -44,7 +44,7 @@ struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
       original data len. */
    ulong              original_data_len;
    /* The transaction account corresponding to this account. */
-   fd_txn_account_t * acct;
+   fd_account_meta_t * meta;
    /* The expected virtual offsets of the serialized pubkey, lamports and owner
       for the account corresponding to this region. Relative to the start of the
       account's input region vaddr.

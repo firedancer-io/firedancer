@@ -822,7 +822,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_guarded_borrowed_account_t authority_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
-  authority_key = authority_acct.acct->pubkey;
+  authority_key = authority_acct.pubkey;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L356-L359 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY, NULL ) ) ) {
@@ -930,7 +930,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_guarded_borrowed_account_t authority_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
-  authority_key = authority_acct.acct->pubkey;
+  authority_key = authority_acct.pubkey;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L405-L408 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY, NULL ) ) ) {

@@ -69,7 +69,8 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
   /* Create a BorrowedAccount upon success.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L606 */
   fd_borrowed_account_init( account,
-                            txn_account,
+                            &ctx->txn_out->accounts.account_keys[idx_in_txn],
+                            txn_account->meta,
                             ctx,
                             idx_in_instr,
                             &ctx->runtime->accounts.refcnt[idx_in_txn] );

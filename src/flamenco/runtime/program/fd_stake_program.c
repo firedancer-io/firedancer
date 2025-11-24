@@ -142,13 +142,13 @@ typedef struct effective_activating effective_activating_t;
 /**********************************************************************/
 
 static int
-get_state( fd_txn_account_t const * self,
-           fd_stake_state_v2_t *    out ) {
+get_state( fd_account_meta_t const * meta,
+           fd_stake_state_v2_t *     out ) {
   int rc;
 
   fd_bincode_decode_ctx_t bincode_ctx = {
-    .data    = fd_txn_account_get_data( self ),
-    .dataend = fd_txn_account_get_data( self ) + fd_txn_account_get_data_len( self ),
+    .data    = fd_account_data( meta ),
+    .dataend = fd_account_data( meta ) + meta->dlen,
   };
 
   ulong total_sz = 0UL;
