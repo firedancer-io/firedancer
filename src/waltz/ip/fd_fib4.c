@@ -136,12 +136,14 @@ fd_fib4_clear( fd_fib4_t * fib4_join ) {
 
   if( fib4->hmap_cnt==0 ) return;
 
+
   fib4->hmap_cnt = 0;
+  fd_fib4_hmap_t * hmap_join = fd_type_pun( fib4_join->hmap_join );
   void *           hmap_mem  = fd_fib4_hmap_mem( fib4 );
   ulong            elem_max  = fd_fib4_hmap_get_ele_max( fib4->hmap_max );
+  FD_TEST( fd_fib4_hmap_leave( hmap_join ) );
   FD_TEST( fd_fib4_hmap_new( hmap_mem, elem_max, 1 ) );
 
-  fd_fib4_hmap_t * hmap_join = fd_type_pun( fib4_join->hmap_join );
   ulong            probe_max = fd_fib4_hmap_get_probe_max( elem_max );
   ulong            seed      = fib4->seed;
   FD_TEST( fd_fib4_hmap_join( hmap_join, hmap_mem, elem_max, probe_max, seed ) );

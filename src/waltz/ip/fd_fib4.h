@@ -41,8 +41,11 @@
 struct fd_fib4_priv;
 typedef struct fd_fib4_priv fd_fib4_priv_t;
 struct fd_fib4 {
-   fd_fib4_priv_t * priv;          /* local ptr to shared fib4_priv_t */
-   uchar            hmap_join[64]; /* local join to the hmap - punned internally */
+   /* local ptr to shared fib4_priv_t */
+   fd_fib4_priv_t * priv;
+
+   /* local join to the hmap - punned internally */
+   uchar            hmap_join[64] __attribute__((aligned(8)));
  };
 typedef struct fd_fib4 fd_fib4_t;
 

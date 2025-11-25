@@ -3,6 +3,7 @@
 #include "fd_fib4.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_ip4.h"
+#include <stddef.h> /* offsetof */
 
 static uchar __attribute__((aligned(FD_FIB4_ALIGN)))
 fib1_mem[ 1<<18 ];
@@ -412,6 +413,8 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   FD_TEST( fd_ulong_is_aligned( (ulong)fib1_mem, fd_fib4_align() ) );
+
+  FD_TEST( fd_ulong_is_aligned( offsetof(fd_fib4_t, hmap_join), alignof(fd_fib4_hmap_t) ) );
 
   // Test fib4_footprint
   FD_TEST(  fd_fib4_footprint( 1UL, 1UL ) );

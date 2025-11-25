@@ -95,7 +95,7 @@ fd_fib4_hmap_entry_hash( uint dst_addr, ulong seed ) {
 
 #include "../../util/tmpl/fd_map_slot.c"
 
-FD_STATIC_ASSERT( sizeof(fd_fib4_hmap_t)<=sizeof(((fd_fib4_t){0}).hmap_join), "hmap_join is too small" );
+FD_STATIC_ASSERT( sizeof( fd_fib4_hmap_t)<=sizeof(( (fd_fib4_t){0}).hmap_join), "hmap_join is too small" );
 
 /* fd_fib4_hmap_query_hop queries the /32 routing table for the next hop
    for the given destination address. Attempts (but does not guarantee) atomicity.
@@ -106,9 +106,8 @@ FD_STATIC_ASSERT( sizeof(fd_fib4_hmap_t)<=sizeof(((fd_fib4_t){0}).hmap_join), "h
 static inline fd_fib4_hop_t
 fd_fib4_hmap_query_hop( fd_fib4_hmap_t const * map,
                         uint                   dst_addr ) {
-  static fd_fib4_hop_t null = {0};
   fd_fib4_hmap_entry_t const * entry = fd_fib4_hmap_query( map, &dst_addr );
-  if( !entry ) return null;
+  if( !entry ) return (fd_fib4_hop_t){0};
 
   fd_fib4_hmap_entry_t hmap_entry;
   fd_fib4_hmap_entry_ld( &hmap_entry, entry );
