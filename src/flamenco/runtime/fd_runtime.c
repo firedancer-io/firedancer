@@ -1016,8 +1016,8 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
                              fd_account_meta_t *       meta,
                              fd_funk_rec_t *           prev_rec ) {
 
-  uchar       const * record_data = (uchar *)meta;
-  ulong               record_sz   = fd_account_meta_get_record_sz( meta );
+  uchar const * record_data = (uchar *)meta;
+  ulong         record_sz   = fd_account_meta_get_record_sz( meta );
 
   int err = FD_FUNK_SUCCESS;
 
@@ -1069,7 +1069,8 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
 
    TODO: remove this when solcap v2 is here. */
 static void
-fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
+fd_runtime_buffer_solcap_account_update( fd_pubkey_t const *       pubkey,
+                                         fd_account_meta_t const * meta,
                                          fd_bank_t *               bank,
                                          fd_capture_ctx_t *        capture_ctx ) {
 
@@ -1079,12 +1080,11 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
   }
 
   /* Get account data */
-  fd_account_meta_t const * meta = fd_txn_account_get_meta( account );
-  void const * data              = fd_txn_account_get_data( account );
+  void const * data = fd_account_data( meta );
 
   /* Calculate account hash using lthash */
   fd_lthash_value_t lthash[1];
-  fd_hashes_account_lthash( account->pubkey, meta, data, lthash );
+  fd_hashes_account_lthash( pubkey, meta, data, lthash );
 
   /* Calculate message size */
   if( FD_UNLIKELY( capture_ctx->account_updates_len >= FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES ) ) {
@@ -1094,15 +1094,14 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
 
   /* Write the message to the buffer */
   fd_capture_ctx_account_update_msg_t * account_update_msg = (fd_capture_ctx_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
-  account_update_msg->pubkey   = *account->pubkey;
+  account_update_msg->pubkey   = *pubkey;
   account_update_msg->data_sz  = meta->dlen;
   account_update_msg->bank_idx = bank->idx;
   fd_solana_account_meta_init(
       &account_update_msg->info,
-      fd_txn_account_get_lamports ( account ),
-      fd_txn_account_get_owner    ( account ),
-      fd_txn_account_is_executable( account )
-  );
+      meta->lamports,
+      meta->owner,
+      meta->executable );
   memcpy( account_update_msg->hash.uc, lthash->bytes, sizeof(fd_hash_t) );
   capture_ctx->account_updates_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
 
@@ -1179,7 +1178,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
   account->data = fd_account_data( meta );
   account->is_mutable = 1;
 
-  fd_runtime_buffer_solcap_account_update( account, bank, capture_ctx );
+  fd_runtime_buffer_solcap_account_update( pubkey, meta, bank, capture_ctx );
 
   /* Save the new version of the account to Funk */
   fd_runtime_finalize_account( funk, xid, pubkey, meta, funk_prev_rec );
