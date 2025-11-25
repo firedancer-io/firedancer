@@ -956,11 +956,13 @@ repair_cmd_args( int *    pargc,
     args->repair.help = 1;
     return;
   }
-  (*pargc)--;
+
+  /* required args */
+
+  char const * manifest_path = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--manifest-path", NULL, NULL      );
 
   /* optional args */
 
-  char const * manifest_path = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--manifest-path", NULL, NULL      );
   char const * iptable_path  = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--iptable",       NULL, NULL      );
   ulong        slot          = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--slot",          NULL, ULONG_MAX );
   int          sort_by_slot  = fd_env_strip_cmdline_contains( pargc, pargv, "--sort-by-slot"                   );
@@ -968,6 +970,8 @@ repair_cmd_args( int *    pargc,
   if( FD_UNLIKELY( !strcmp( args->repair.pos_arg, "catchup" ) && !manifest_path ) ) {
     args->repair.help = 1;
     return;
+  } else {
+    (*pargc)--;
   }
 
   fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( args->repair.manifest_path ), manifest_path, sizeof(args->repair.manifest_path)-1UL ) );
