@@ -97,12 +97,12 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *          runtime,
 
       // pubkey
       ushort idx_in_txn = instr->accounts[j].index_in_transaction;
-      FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_out->accounts.account_keys[ idx_in_txn ] );
+      FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_out->accounts.keys[ idx_in_txn ] );
       offset += sizeof(fd_pubkey_t);
     }
 
     // program_id_pubkey
-    FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_out->accounts.account_keys[ instr->program_id ] );
+    FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_out->accounts.keys[ instr->program_id ] );
     offset += sizeof(fd_pubkey_t);
 
     // instr_data_len

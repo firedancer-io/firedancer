@@ -1218,7 +1218,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
       fd_runtime_save_account( runtime->funk,
                                &xid,
-                               &txn_out->accounts.account_keys[txn_out->accounts.nonce_idx_in_txn],
+                               &txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn],
                                txn_out->accounts.rollback_nonce,
                                bank,
                                runtime->log.capture_ctx );
@@ -1228,21 +1228,21 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
       fd_runtime_save_account( runtime->funk,
                                &xid,
-                               &txn_out->accounts.account_keys[FD_FEE_PAYER_TXN_IDX],
+                               &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX],
                                txn_out->accounts.rollback_fee_payer,
                                bank,
                                runtime->log.capture_ctx );
     }
   } else {
 
-    for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
+    for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
       if( !fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
         continue;
       }
 
-      fd_pubkey_t const * pubkey = &txn_out->accounts.account_keys[i];
+      fd_pubkey_t const * pubkey = &txn_out->accounts.keys[i];
       fd_account_meta_t * meta   = txn_out->accounts.metas[i];
 
       /* Tips for bundles are collected in the bank: a user submitting a
@@ -1337,7 +1337,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   txn_out->details.exec_start_timestamp   = LONG_MAX;
   txn_out->details.commit_start_timestamp = LONG_MAX;
 
-  txn_out->accounts.accounts_cnt   = 0UL;
+  txn_out->accounts.cnt   = 0UL;
 
   txn_out->details.programs_to_reverify_cnt       = 0UL;
   txn_out->details.loaded_accounts_data_size      = 0UL;
@@ -1743,8 +1743,8 @@ fd_runtime_block_execute_finalize( fd_bank_t *        bank,
 int
 fd_runtime_find_index_of_account( fd_txn_out_t const * txn_out,
                                   fd_pubkey_t const *  pubkey ) {
-  for( ulong i=txn_out->accounts.accounts_cnt; i>0UL; i-- ) {
-    if( 0==memcmp( pubkey, &txn_out->accounts.account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
+  for( ulong i=txn_out->accounts.cnt; i>0UL; i-- ) {
+    if( 0==memcmp( pubkey, &txn_out->accounts.keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
       return (int)(i-1UL);
     }
   }
@@ -1756,7 +1756,7 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  ushort                          idx,
                                  fd_txn_account_condition_fn_t * condition ) {
-  if( FD_UNLIKELY( idx>=txn_out->accounts.accounts_cnt ) ) {
+  if( FD_UNLIKELY( idx>=txn_out->accounts.cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
@@ -1834,11 +1834,11 @@ fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
                                              fd_pubkey_t const * * key ) {
   /* Return a NotEnoughAccountKeys error if idx is out of bounds.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L218 */
-  if( FD_UNLIKELY( idx>=txn_out->accounts.accounts_cnt ) ) {
+  if( FD_UNLIKELY( idx>=txn_out->accounts.cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
-  *key = &txn_out->accounts.account_keys[ idx ];
+  *key = &txn_out->accounts.keys[ idx ];
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -1909,10 +1909,10 @@ fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
                                     fd_txn_out_t const * txn_out,
                                     fd_bank_t *          bank,
                                     ushort               idx ) {
-  uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.account_keys, txn_out->accounts.accounts_cnt );
+  uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.keys, txn_out->accounts.cnt );
   return fd_runtime_account_is_writable_idx_flat( fd_bank_slot_get( bank ),
                                                    idx,
-                                                   &txn_out->accounts.account_keys[idx],
+                                                   &txn_out->accounts.keys[idx],
                                                    TXN( txn_in->txn ),
                                                    fd_bank_features_query( bank ),
                                                    bpf_upgradeable );

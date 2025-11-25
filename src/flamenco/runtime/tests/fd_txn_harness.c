@@ -451,7 +451,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
 
         /* If the exec err was a custom instr error and came from a precompile instruction, don't capture the custom error code. */
         if( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-            fd_executor_lookup_native_precompile_program( &txn_out->accounts.account_keys[ program_id_idx ] )==NULL ) {
+            fd_executor_lookup_native_precompile_program( &txn_out->accounts.keys[ program_id_idx ] )==NULL ) {
           txn_result->custom_error = txn_out->err.custom_err;
         }
       }
@@ -478,7 +478,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     /* Allocate space for captured accounts */
-    ulong modified_acct_cnt = txn_out->accounts.accounts_cnt;
+    ulong modified_acct_cnt = txn_out->accounts.cnt;
 
     txn_result->has_resulting_state         = true;
     txn_result->resulting_state.acct_states =
@@ -490,7 +490,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
 
     /* If the transaction is a fees-only transaction, we have to create rollback accounts to iterate over and save. */
     fd_account_meta_t * * accounts_to_save = txn_out->accounts.metas;
-    ulong                 accounts_cnt     = txn_out->accounts.accounts_cnt;
+    ulong                 accounts_cnt     = txn_out->accounts.cnt;
     if( txn_out->err.is_fees_only ) {
       accounts_to_save = fd_spad_alloc( runner->spad, alignof(fd_txn_account_t), sizeof(fd_txn_account_t) * 2 );
       accounts_cnt     = 0UL;
@@ -507,7 +507,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     /* Capture borrowed accounts */
     for( ulong j=0UL; j<accounts_cnt; j++ ) {
       fd_account_meta_t * meta = accounts_to_save[j];
-      fd_pubkey_t * pubkey     = &txn_out->accounts.account_keys[j];
+      fd_pubkey_t * pubkey     = &txn_out->accounts.keys[j];
 
       if( !( fd_runtime_account_is_writable_idx( txn_in, txn_out, runner->bank, (ushort)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
 

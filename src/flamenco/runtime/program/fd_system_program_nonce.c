@@ -949,7 +949,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   fd_txn_account_t durable_nonce_rec[1];
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
-                                                    &txn_out->accounts.account_keys[ nonce_idx ],
+                                                    &txn_out->accounts.keys[ nonce_idx ],
                                                     runtime->funk,
                                                     &xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
@@ -993,7 +993,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      the nonce instruction are signers. This is a successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( TXN( txn_in->txn ), (int)instr_accts[i] ) ) {
-      if( !memcmp( &txn_out->accounts.account_keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof(fd_pubkey_t) ) ) {
+      if( !memcmp( &txn_out->accounts.keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof(fd_pubkey_t) ) ) {
         /*
            Mark nonce account to make sure that we modify and hash the
            account even if the transaction failed to execute
@@ -1007,7 +1007,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
         fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
             runtime->funk,
             &xid,
-            &txn_out->accounts.account_keys[ instr_accts[ 0UL ] ],
+            &txn_out->accounts.keys[ instr_accts[ 0UL ] ],
             NULL,
             &err,
             NULL );

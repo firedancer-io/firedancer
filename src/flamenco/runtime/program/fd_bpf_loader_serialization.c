@@ -263,7 +263,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
                                        fd_vm_acc_region_meta_t * acc_region_metas,
                                        int                       stricter_abi_and_runtime_constraints,
                                        int                       direct_mapping ) {
-  fd_pubkey_t * txn_accs = ctx->txn_out->accounts.account_keys;
+  fd_pubkey_t * txn_accs = ctx->txn_out->accounts.keys;
 
   uchar  acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
   ushort dup_acc_idx[ FD_INSTR_ACCT_MAX ]  = {0};
@@ -539,7 +539,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
                                          int                       stricter_abi_and_runtime_constraints,
                                          int                       direct_mapping ) {
-  fd_pubkey_t const * txn_accs = ctx->txn_out->accounts.account_keys;
+  fd_pubkey_t const * txn_accs = ctx->txn_out->accounts.keys;
 
   uchar  acc_idx_seen[FD_INSTR_ACCT_MAX] = {0};
   ushort dup_acc_idx[FD_INSTR_ACCT_MAX]  = {0};

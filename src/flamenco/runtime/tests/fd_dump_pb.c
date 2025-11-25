@@ -775,15 +775,15 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-  for( ulong i = 0; i < txn_out->accounts.accounts_cnt; ++i ) {
+  for( ulong i = 0; i < txn_out->accounts.cnt; ++i ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_out->accounts.account_keys[i], runtime->funk, &xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_out->accounts.keys[i], runtime->funk, &xid );
     if( FD_UNLIKELY( ret ) ) {
       continue;
     }
 
     // Make sure account is not a non-migrating builtin
-    if( !is_builtin_account( &txn_out->accounts.account_keys[i] ) ) {
+    if( !is_builtin_account( &txn_out->accounts.keys[i] ) ) {
       dump_account_state( txn_account->pubkey, txn_account->meta, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
     }
   }
@@ -849,8 +849,8 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
     // Make sure the account doesn't exist in the output accounts yet
     int account_exists = 0;
-    for( ulong j = 0; j < txn_out->accounts.accounts_cnt; j++ ) {
-      if ( 0 == memcmp( txn_out->accounts.account_keys[j].key, fd_dump_sysvar_ids[i], sizeof(fd_pubkey_t) ) ) {
+    for( ulong j = 0; j < txn_out->accounts.cnt; j++ ) {
+      if ( 0 == memcmp( txn_out->accounts.keys[j].key, fd_dump_sysvar_ids[i], sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }
@@ -896,18 +896,18 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
                                                  fd_instr_info_t const *        instr,
                                                  fd_spad_t *                    spad ) {
   /* Program ID */
-  fd_memcpy( instr_context->program_id, txn_out->accounts.account_keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
+  fd_memcpy( instr_context->program_id, txn_out->accounts.keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
 
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
 
   /* Accounts */
-  instr_context->accounts_count = (pb_size_t) txn_out->accounts.accounts_cnt;
+  instr_context->accounts_count = (pb_size_t) txn_out->accounts.cnt;
   instr_context->accounts = fd_spad_alloc( spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + runtime->accounts.executable_cnt) * sizeof(fd_exec_test_acct_state_t));
-  for( ulong i = 0; i < txn_out->accounts.accounts_cnt; i++ ) {
+  for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
     // Copy account information over
     fd_account_meta_t * account_meta = txn_out->accounts.metas[i];
     fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
-    dump_account_state( &txn_out->accounts.account_keys[i], account_meta, output_account, spad );
+    dump_account_state( &txn_out->accounts.keys[i], account_meta, output_account, spad );
   }
 
   /* Add sysvar cache variables */
@@ -919,8 +919,8 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     }
     // Make sure the account doesn't exist in the output accounts yet
     int account_exists = 0;
-    for( ulong j = 0; j < txn_out->accounts.accounts_cnt; j++ ) {
-      if ( 0 == memcmp( txn_out->accounts.account_keys[j].key, fd_dump_sysvar_ids[i], sizeof(fd_pubkey_t) ) ) {
+    for( ulong j = 0; j < txn_out->accounts.cnt; j++ ) {
+      if ( 0 == memcmp( txn_out->accounts.keys[j].key, fd_dump_sysvar_ids[i], sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }

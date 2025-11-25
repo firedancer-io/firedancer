@@ -201,10 +201,11 @@ struct fd_txn_out {
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
      That is the limit we are going to use here. */
   struct {
-    ulong                           accounts_cnt;
+    ulong                           cnt;
     /* The account keys are used by the CU rebating mechanism in the
        bank tile (leader pipeline). */
-    fd_pubkey_t                     account_keys[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_pubkey_t                     keys[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_account_meta_t *             metas[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* The rollback accounts are special cased accounts that are still
        committed to the accounts database even if a transaction fails
@@ -220,8 +221,6 @@ struct fd_txn_out {
        this would be !=ULONG_MAX. */
     fd_account_meta_t *             rollback_fee_payer;
 
-    fd_pubkey_t                     pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
-    fd_account_meta_t *             metas[ MAX_TX_ACCOUNT_LOCKS ];
   } accounts;
 };
 typedef struct fd_txn_out fd_txn_out_t;
