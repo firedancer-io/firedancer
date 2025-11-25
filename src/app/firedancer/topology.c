@@ -270,9 +270,8 @@ resolve_peer( char const *            peer,
 
   char const * colon    = strrchr( host_port, ':' );
   char const * host_end = colon;
-  if( FD_LIKELY( FD_UNLIKELY( !colon && !https )  ) ) {
+  if( FD_UNLIKELY( !colon && !https ) ) {
     FD_LOG_ERR(( "invalid [%s] entry \"%s\": no port number", config_str, host_port ));
-    host_end = colon;
   } else if( FD_LIKELY( !colon && https ) ) {
     host_end = host_port + strlen( host_port );
   }
