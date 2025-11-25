@@ -215,7 +215,7 @@ struct fd_txn_out {
        in this state and then they are free to be committed to the
        accounts database. */
     ulong                           nonce_idx_in_txn;
-    fd_txn_account_t                rollback_nonce[ 1 ];
+    fd_account_meta_t *             rollback_nonce;
     /* If the transaction has a nonce account that must be advanced,
        this would be !=ULONG_MAX. */
     fd_account_meta_t *             rollback_fee_payer;

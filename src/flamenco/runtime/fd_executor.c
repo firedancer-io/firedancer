@@ -977,7 +977,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
      can just deduct fees from the nonce account and return, because
      we save the nonce account in the commit phase anyways. */
   if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
-    txn_out->accounts.rollback_fee_payer = txn_out->accounts.rollback_nonce->meta;
+    txn_out->accounts.rollback_fee_payer = txn_out->accounts.rollback_nonce;
   } else {
     fd_account_meta_t const * meta = NULL;
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {

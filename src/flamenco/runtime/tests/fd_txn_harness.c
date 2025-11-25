@@ -500,7 +500,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
       }
 
       if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-        accounts_to_save[accounts_cnt++] = txn_out->accounts.rollback_nonce->meta;
+        accounts_to_save[accounts_cnt++] = txn_out->accounts.rollback_nonce;
       }
     }
 

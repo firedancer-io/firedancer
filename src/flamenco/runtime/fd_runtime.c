@@ -984,7 +984,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
       /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
           be double counting the dlen of the fee payer. */
       if( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
-        txn_out->details.loaded_accounts_data_size += fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce );
+        txn_out->details.loaded_accounts_data_size += txn_out->accounts.rollback_nonce->dlen;
       }
     }
   }
@@ -1218,8 +1218,8 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
       fd_runtime_save_account( runtime->funk,
                                &xid,
-                               txn_out->accounts.rollback_nonce->pubkey,
-                               txn_out->accounts.rollback_nonce->meta,
+                               &txn_out->accounts.account_keys[txn_out->accounts.nonce_idx_in_txn],
+                               txn_out->accounts.rollback_nonce,
                                bank,
                                runtime->log.capture_ctx );
     }

@@ -1044,21 +1044,15 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
         }
         fd_memcpy( borrowed_account_data, meta, sizeof(fd_account_meta_t)+acc_data_len );
 
-        if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
-              txn_out->accounts.rollback_nonce,
-              &txn_out->accounts.account_keys[ instr_accts[ 0UL ] ],
-              (fd_account_meta_t *)borrowed_account_data,
-              1 ) ) ) ) {
-          FD_LOG_CRIT(( "Failed to join txn account" ));
-        }
+        txn_out->accounts.rollback_nonce = (fd_account_meta_t *)borrowed_account_data;
 
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce ) ) ) {
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>txn_out->accounts.rollback_nonce->dlen ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
         do {
           fd_bincode_encode_ctx_t encode_ctx =
-            { .data    = fd_txn_account_get_data_mut( txn_out->accounts.rollback_nonce ),
-              .dataend = fd_txn_account_get_data_mut( txn_out->accounts.rollback_nonce ) + fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce ) };
+            { .data    = fd_account_data( txn_out->accounts.rollback_nonce ),
+              .dataend = fd_account_data( txn_out->accounts.rollback_nonce ) + txn_out->accounts.rollback_nonce->dlen };
           int err = fd_nonce_state_versions_encode( &new_state, &encode_ctx );
           if( FD_UNLIKELY( err ) ) {
             return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
