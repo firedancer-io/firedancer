@@ -615,35 +615,32 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
        total size of accounts and their owners are accumulated: duplicate owners
        should be avoided.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L496-L517 */
-    fd_txn_account_t owner_account[1];
-    err = fd_txn_account_init_from_funk_readonly( owner_account,
-                                                  (fd_pubkey_t const *)program_meta->owner,
-                                                  runtime->funk,
-                                                  &xid );
+
+    fd_pubkey_t const *       owner_pubkey  = (fd_pubkey_t const *)program_meta->owner;
+    fd_account_meta_t const * owner_account = fd_funk_get_acc_meta_readonly( runtime->funk, &xid, owner_pubkey, NULL, &err, NULL );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L520 */
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
 
-
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L502-L510 */
-    if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( owner_account ), fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ||
+    if( FD_UNLIKELY( memcmp( owner_account->owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ||
                      ( !FD_FEATURE_ACTIVE_BANK( bank, remove_accounts_executable_flag_checks ) &&
-                       !fd_txn_account_is_executable( owner_account ) ) ) ) {
+                       !owner_account->executable ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
 
     /* Count the owner's data in the loaded account size for program accounts.
        However, it is important to not double count repeated owners.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L511-L517 */
-    err = accumulate_and_check_loaded_account_data_size( fd_txn_account_get_data_len( owner_account ),
+    err = accumulate_and_check_loaded_account_data_size( owner_account->dlen,
                                                          requested_loaded_accounts_data_size,
                                                          &txn_out->details.loaded_accounts_data_size );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       return err;
     }
 
-    fd_memcpy( validated_loaders[ validated_loaders_cnt++ ].key, owner_account->pubkey, sizeof(fd_pubkey_t) );
+    fd_memcpy( validated_loaders[ validated_loaders_cnt++ ].key, owner_pubkey, sizeof(fd_pubkey_t) );
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -727,20 +724,23 @@ fd_collect_loaded_account( fd_runtime_t *            runtime,
   }
 
   /* Load the programdata account from Funk to read the programdata length */
-  fd_txn_account_t  programdata_account[1];
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-  err = fd_txn_account_init_from_funk_readonly( programdata_account,
-                                                &loader_state->inner.program.programdata_address,
-                                                runtime->funk,
-                                                &xid );
+
+  fd_account_meta_t const * programdata_meta = fd_funk_get_acc_meta_readonly(
+      runtime->funk,
+      &xid,
+      &loader_state->inner.program.programdata_address,
+      NULL,
+      &err,
+      NULL );
+
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   /* Try to accumulate the programdata's data size
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L625-L630 */
-  ulong programdata_size_delta = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE,
-                                                   fd_txn_account_get_data_len( programdata_account ) );
+  ulong programdata_size_delta = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE, programdata_meta->dlen );
   err = fd_increase_calculated_data_size( txn_out, programdata_size_delta );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
