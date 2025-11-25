@@ -736,6 +736,17 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 }
 
 static void
+publish_slot_dead( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem,
+                   fd_bank_t *         bank ) {
+  fd_replay_slot_dead_t * slot_dead = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  slot_dead->slot                   = fd_bank_slot_get( bank );
+  slot_dead->block_id               = ctx->block_id_arr[ bank->idx ].block_id;
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_DEAD, ctx->replay_out->chunk, sizeof(fd_replay_slot_dead_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_dead_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
+static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
@@ -1610,8 +1621,9 @@ can_process_fec( fd_replay_tile_t * ctx ) {
 }
 
 static void
-process_fec_set( fd_replay_tile_t * ctx,
-                 fd_reasm_fec_t *   reasm_fec ) {
+process_fec_set( fd_replay_tile_t *  ctx,
+                 fd_stem_context_t * stem,
+                 fd_reasm_fec_t *    reasm_fec ) {
   long now = fd_log_wallclock();
 
   /* Linking only requires a shared lock because the fields that are
@@ -1722,7 +1734,9 @@ process_fec_set( fd_replay_tile_t * ctx,
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
 
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
-    fd_banks_mark_bank_dead( ctx->banks, fd_banks_bank_query( ctx->banks, sched_fec->bank_idx ) );
+    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
+    publish_slot_dead( ctx, stem, bank );
+    fd_banks_mark_bank_dead( ctx->banks, bank );
   }
 }
 
@@ -1861,12 +1875,12 @@ after_credit( fd_replay_tile_t *  ctx,
 
       /* Now we can process all of the FECs. */
       for( ulong i=fec_cnt; i>0UL; i-- ) {
-        process_fec_set( ctx, fecs[i-1UL] );
+        process_fec_set( ctx, stem, fecs[i-1UL] );
       }
     } else {
       /* Standard case. */
       fec = fd_reasm_out( ctx->reasm );
-      process_fec_set( ctx, fec );
+      process_fec_set( ctx, stem, fec );
     }
 
     *charge_busy = 1;
@@ -1915,6 +1929,7 @@ process_solcap_account_update( fd_replay_tile_t *                          ctx,
 
 static void
 process_exec_task_done( fd_replay_tile_t *        ctx,
+                        fd_stem_context_t *       stem,
                         fd_exec_task_done_msg_t * msg,
                         ulong                     sig ) {
   if( FD_UNLIKELY( sig==0UL ) ) {
@@ -1945,6 +1960,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* Every transaction in a valid block has to execute.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
+        publish_slot_dead( ctx, stem, bank );
         fd_banks_mark_bank_dead( ctx->banks, bank );
         fd_sched_block_abandon( ctx->sched, bank->idx );
       }
@@ -1959,6 +1975,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* Every transaction in a valid block has to sigverify.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
+        publish_slot_dead( ctx, stem, bank );
         fd_banks_mark_bank_dead( ctx->banks, bank );
         fd_sched_block_abandon( ctx->sched, bank->idx );
       }
@@ -2223,7 +2240,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       maybe_verify_shred_version( ctx );
       break;
     case IN_KIND_EXEC: {
-      process_exec_task_done( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sig );
+      process_exec_task_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sig );
       break;
     }
     case IN_KIND_POH: {

@@ -6,7 +6,8 @@
 #include "../../flamenco/types/fd_types_custom.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
-#define REPLAY_SIG_ROOT_ADVANCED  (1)
+#define REPLAY_SIG_SLOT_DEAD      (1)
+#define REPLAY_SIG_ROOT_ADVANCED  (2)
 #define REPLAY_SIG_RESET          (3)
 #define REPLAY_SIG_BECAME_LEADER  (4)
 
@@ -66,6 +67,12 @@ struct fd_replay_slot_completed {
 };
 
 typedef struct fd_replay_slot_completed fd_replay_slot_completed_t;
+
+struct fd_replay_slot_dead {
+  ulong     slot;
+  fd_hash_t block_id;
+};
+typedef struct fd_replay_slot_dead fd_replay_slot_dead_t;
 
 struct fd_replay_root_advanced {
   ulong bank_idx;

@@ -455,21 +455,21 @@ query_vote_state_from_accdb( fd_accdb_user_t *         accdb,
 
 static void
 replay_slot_completed( ctx_t *                      ctx,
-                       fd_replay_slot_completed_t * slot_info,
+                       fd_replay_slot_completed_t * slot_completed,
                        ulong                        tsorig,
                        fd_stem_context_t *          stem ) {
 
   /* Initialize slot watermarks on the first replay_slot_completed. */
 
   if( FD_UNLIKELY( ctx->init_slot == ULONG_MAX ) ) {
-    ctx->init_slot = slot_info->slot;
-    ctx->root_slot = slot_info->slot;
-    ctx->conf_slot = slot_info->slot;
+    ctx->init_slot = slot_completed->slot;
+    ctx->root_slot = slot_completed->slot;
+    ctx->conf_slot = slot_completed->slot;
   }
 
   /* Initialize the xid. */
 
-  fd_funk_txn_xid_t xid = { .ul = { slot_info->slot, slot_info->bank_idx } };
+  fd_funk_txn_xid_t xid = { .ul = { slot_completed->slot, slot_completed->bank_idx } };
 
   /* Query our on-chain vote acct and reconcile with our local tower. */
 
@@ -479,28 +479,28 @@ replay_slot_completed( ctx_t *                      ctx,
   /* Insert the vote acct addrs and stakes from the bank into accts. */
 
   fd_tower_accts_remove_all( ctx->tower_accts );
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, slot_info->bank_idx );
-  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_info->bank_idx ));
-  ulong total_stake = query_acct_stake_from_bank( ctx->tower_accts, ctx->slot_stakes, bank, slot_info->slot );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, slot_completed->bank_idx );
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
+  ulong total_stake = query_acct_stake_from_bank( ctx->tower_accts, ctx->slot_stakes, bank, slot_completed->slot );
 
   /* Insert the just replayed block into forks. */
 
-  FD_TEST( !fd_forks_query( ctx->forks, slot_info->slot ) );
-  fd_tower_forks_t * fork = fd_forks_insert( ctx->forks, slot_info->slot, slot_info->parent_slot );
-  fork->parent_slot       = slot_info->parent_slot;
+  FD_TEST( !fd_forks_query( ctx->forks, slot_completed->slot ) );
+  fd_tower_forks_t * fork = fd_forks_insert( ctx->forks, slot_completed->slot, slot_completed->parent_slot );
+  fork->parent_slot       = slot_completed->parent_slot;
   fork->confirmed         = 0;
   fork->voted             = 0;
-  fork->replayed_block_id = slot_info->block_id;
-  fork->bank_idx          = slot_info->bank_idx;
-  fd_forks_replayed( ctx->forks, fork, slot_info->bank_idx, &slot_info->block_id );
-  fd_forks_lockouts_clear( ctx->forks, slot_info->parent_slot );
+  fork->replayed_block_id = slot_completed->block_id;
+  fork->bank_idx          = slot_completed->bank_idx;
+  fd_forks_replayed( ctx->forks, fork, slot_completed->bank_idx, &slot_completed->block_id );
+  fd_forks_lockouts_clear( ctx->forks, slot_completed->parent_slot );
 
   /* Insert the just replayed block into ghost. */
 
-  fd_hash_t const * parent_block_id = &slot_info->parent_block_id;
-  if( FD_UNLIKELY( slot_info->parent_slot==ctx->init_slot ) ) parent_block_id = &manifest_block_id;
-  if( FD_UNLIKELY( slot_info->slot       ==ctx->init_slot ) ) parent_block_id = NULL;
-  fd_ghost_blk_t * ghost_blk = fd_ghost_insert( ctx->ghost, &slot_info->block_id, parent_block_id, slot_info->slot );
+  fd_hash_t const * parent_block_id = &slot_completed->parent_block_id;
+  if( FD_UNLIKELY( slot_completed->parent_slot==ctx->init_slot ) ) parent_block_id = &manifest_block_id;
+  if( FD_UNLIKELY( slot_completed->slot       ==ctx->init_slot ) ) parent_block_id = NULL;
+  fd_ghost_blk_t * ghost_blk = fd_ghost_insert( ctx->ghost, &slot_completed->block_id, parent_block_id, slot_completed->slot );
   ghost_blk->total_stake     = total_stake;
 
   /* Iterate vote accounts. */
@@ -513,12 +513,12 @@ replay_slot_completed( ctx_t *                      ctx,
 
     if( FD_UNLIKELY( !query_vote_state_from_accdb( ctx->accdb, &xid, vote_acc, acct->data ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( vote_acc->uc, acc_cstr );
-      FD_LOG_CRIT(( "vote account in bank->vote_states not found. slot %lu address: %s", slot_info->slot, acc_cstr ));
+      FD_LOG_CRIT(( "vote account in bank->vote_states not found. slot %lu address: %s", slot_completed->slot, acc_cstr ));
     };
 
     /* 1. Update forks with lockouts. */
 
-    fd_forks_lockouts_add( ctx->forks, slot_info->slot, &acct->addr, acct );
+    fd_forks_lockouts_add( ctx->forks, slot_completed->slot, &acct->addr, acct );
 
     /* 2. Count the last vote slot in the vote state towards ghost. */
 
@@ -540,25 +540,25 @@ replay_slot_completed( ctx_t *                      ctx,
        know these towers must contain slots we know about (as long as
        they are >= root, which we checked above). */
 
-    if( FD_UNLIKELY( !ancestor_blk ) ) FD_LOG_CRIT(( "missing ancestor. replay slot %lu vote slot %lu voter %s", slot_info->slot, vote_slot, FD_BASE58_ENC_32_ALLOCA( &acct->addr ) ));
+    if( FD_UNLIKELY( !ancestor_blk ) ) FD_LOG_CRIT(( "missing ancestor. replay slot %lu vote slot %lu voter %s", slot_completed->slot, vote_slot, FD_BASE58_ENC_32_ALLOCA( &acct->addr ) ));
 
     fd_ghost_count_vote( ctx->ghost, ancestor_blk, &acct->addr, acct->stake, vote_slot );
   }
 
   /* Insert the just replayed block into hard fork detector. */
 
-  fd_hfork_record_our_bank_hash( ctx->hfork, &slot_info->block_id, &slot_info->bank_hash, fd_ghost_root( ctx->ghost )->total_stake );
+  fd_hfork_record_our_bank_hash( ctx->hfork, &slot_completed->block_id, &slot_completed->bank_hash, fd_ghost_root( ctx->ghost )->total_stake );
 
   /* fd_notar requires some bookkeeping when there is a new epoch. */
 
-  if( FD_UNLIKELY( ctx->notar->epoch==ULONG_MAX || slot_info->epoch > ctx->notar->epoch ) ) {
-    fd_notar_advance_epoch( ctx->notar, ctx->tower_accts, slot_info->epoch );
+  if( FD_UNLIKELY( ctx->notar->epoch==ULONG_MAX || slot_completed->epoch > ctx->notar->epoch ) ) {
+    fd_notar_advance_epoch( ctx->notar, ctx->tower_accts, slot_completed->epoch );
   }
 
   /* Check if gossip votes already confirmed the fork's block_id (gossip
      can be ahead of replay - this is tracked by fd_notar). */
 
-  fd_notar_slot_t * notar_slot = fd_notar_slot_query( ctx->notar->slot_map, slot_info->slot, NULL );
+  fd_notar_slot_t * notar_slot = fd_notar_slot_query( ctx->notar->slot_map, slot_completed->slot, NULL );
   if( FD_UNLIKELY( notar_slot )) { /* optimize for replay keeping up (being ahead of gossip votes) */
     for( ulong i = 0; i < notar_slot->block_ids_cnt; i++ ) {
       fd_notar_blk_t * notar_blk = fd_notar_blk_query( ctx->notar->blk_map, notar_slot->block_ids[i], NULL );
@@ -575,7 +575,7 @@ replay_slot_completed( ctx_t *                      ctx,
      will implement eviction and repair of the correct one. */
 
   if( FD_UNLIKELY( fork->confirmed && 0!=memcmp( &fork->confirmed_block_id, &fork->replayed_block_id, sizeof(fd_hash_t) ) ) ) {
-    FD_LOG_WARNING(( "replayed an unconfirmed duplicate %lu. ours %s. confirmed %s.", slot_info->slot, FD_BASE58_ENC_32_ALLOCA( &slot_info->block_id ), FD_BASE58_ENC_32_ALLOCA( &fork->confirmed_block_id ) ));
+    FD_LOG_WARNING(( "replayed an unconfirmed duplicate %lu. ours %s. confirmed %s.", slot_completed->slot, FD_BASE58_ENC_32_ALLOCA( &slot_completed->block_id ), FD_BASE58_ENC_32_ALLOCA( &fork->confirmed_block_id ) ));
   }
 
   /* Determine reset, vote, and root slots.  There may not be a vote or
@@ -647,14 +647,14 @@ replay_slot_completed( ctx_t *                      ctx,
   /* Publish a slot_done frag to tower_out. */
 
   fd_tower_slot_done_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-  msg->replay_slot           = slot_info->slot;
+  msg->replay_slot           = slot_completed->slot;
   msg->active_fork_cnt       = fd_tower_leaves_pool_used( ctx->forks->tower_leaves_pool );
   msg->vote_slot             = out.vote_slot;
   msg->reset_slot            = out.reset_slot;
   msg->reset_block_id        = out.reset_block_id;
   msg->root_slot             = out.root_slot;
   msg->root_block_id         = out.root_block_id;
-  msg->replay_bank_idx       = slot_info->bank_idx;
+  msg->replay_bank_idx       = slot_completed->bank_idx;
 
   /* Populate slot_done with a vote txn representing our current tower
      (regardless of whether there was a new vote slot or not).
@@ -663,7 +663,7 @@ replay_slot_completed( ctx_t *                      ctx,
 
   fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
   fd_txn_p_t          txn[1];
-  fd_tower_to_vote_txn( ctx->tower, out.root_slot, lockouts, &slot_info->bank_hash, &slot_info->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_account, txn );
+  fd_tower_to_vote_txn( ctx->tower, out.root_slot, lockouts, &slot_completed->bank_hash, &slot_completed->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_account, txn );
   FD_TEST( !fd_tower_empty( ctx->tower ) );
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
   fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
@@ -728,6 +728,9 @@ returnable_frag( ctx_t *             ctx,
     if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
       fd_memcpy( &ctx->replay_slot_completed, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_completed_t) );
       replay_slot_completed( ctx, &ctx->replay_slot_completed, tsorig, stem );
+    } else if ( FD_LIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
+      fd_replay_slot_dead_t * slot_dead = (fd_replay_slot_dead_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      fd_hfork_record_our_bank_hash( ctx->hfork, &slot_dead->block_id, NULL, fd_ghost_root( ctx->ghost )->total_stake );
     }
     return 0;
   }
