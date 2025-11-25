@@ -3288,9 +3288,9 @@ fd_stake_program_config_init( fd_accdb_user_t *         accdb,
 }
 
 int
-fd_stake_get_state( fd_txn_account_t const * self,
-                    fd_stake_state_v2_t *    out ) {
-  return get_state( self->meta, out );
+fd_stake_get_state( fd_account_meta_t const * meta,
+                    fd_stake_state_v2_t *     out ) {
+  return get_state( meta, out );
 }
 
 fd_stake_history_entry_t

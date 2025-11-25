@@ -882,7 +882,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
   fd_txn_account_set_slot( stake_acc_rec, fd_bank_slot_get( bank ) );
 
   fd_stake_state_v2_t stake_state[1] = {0};
-  if( fd_stake_get_state( stake_acc_rec, stake_state ) != 0 ) {
+  if( fd_stake_get_state( stake_acc_rec->meta, stake_state ) != 0 ) {
     FD_LOG_DEBUG(( "failed to read stake state for %s", FD_BASE58_ENC_32_ALLOCA( stake_pubkey ) ));
     return 1;
   }

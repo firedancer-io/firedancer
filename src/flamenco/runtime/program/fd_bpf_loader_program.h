@@ -56,9 +56,6 @@
 FD_PROTOTYPES_BEGIN
 
 /* Mirrors solana_sdk::transaction_context::BorrowedAccount::get_state()
-
-   Acts on a fd_txn_account_t for ease of API use.
-
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965-L969 */
 
 int
@@ -92,6 +89,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
    documentation for our `fd_deploy_program` for more information.
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L155-L233 */
+
 int
 fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
                                      fd_funk_t *         funk,

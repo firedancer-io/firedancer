@@ -192,7 +192,7 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
   stake_account->meta = (fd_account_meta_t *)meta;
 
   fd_stake_state_v2_t stake_state;
-  int err = fd_stake_get_state( stake_account, &stake_state );
+  int err = fd_stake_get_state( stake_account->meta, &stake_state );
   if( FD_UNLIKELY( err!=0 ) ) {
     fd_stake_delegations_remove( stake_delegations_delta, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
@@ -242,11 +242,7 @@ fd_stakes_update_vote_state( fd_pubkey_t const *       pubkey,
     return;
   }
 
-  fd_txn_account_t vote_account[1];
-  vote_account->data = (uchar *)fd_account_data( meta );
-  vote_account->meta = (fd_account_meta_t *)meta;
-
-  if( !fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
+  if( !fd_vote_state_versions_is_correct_and_initialized( meta ) ) {
     fd_vote_states_remove( vote_states, pubkey );
     fd_bank_vote_states_end_locking_modify( bank );
     return;

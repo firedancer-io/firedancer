@@ -369,7 +369,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
     }
 
     fd_stake_state_v2_t stake_state;
-    err = fd_stake_get_state( acct_rec, &stake_state );
+    err = fd_stake_get_state( acct_rec->meta, &stake_state );
     if( FD_UNLIKELY( err ) ) {
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
       fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );

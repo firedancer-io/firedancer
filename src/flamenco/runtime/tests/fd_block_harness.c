@@ -111,7 +111,7 @@ fd_solfuzz_block_register_vote_account( fd_funk_t  *              funk,
   }
 
   /* Account must be initialized correctly */
-  if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc ) ) ) {
+  if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc->meta ) ) ) {
     return;
   }
 
@@ -147,7 +147,7 @@ fd_solfuzz_block_register_stake_delegation( fd_funk_t *               funk,
 
   /* Stake state must exist and be initialized correctly */
   fd_stake_state_v2_t stake_state;
-  if( FD_UNLIKELY( fd_stake_get_state( acc, &stake_state ) || !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+  if( FD_UNLIKELY( fd_stake_get_state( acc->meta, &stake_state ) || !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
     return;
   }
 

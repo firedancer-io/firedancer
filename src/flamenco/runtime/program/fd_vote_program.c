@@ -2721,22 +2721,22 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 /**********************************************************************/
 
 uint
-fd_vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_account ) {
+fd_vote_state_versions_is_correct_and_initialized( fd_account_meta_t const * meta ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
-  uint data_len_check = fd_txn_account_get_data_len( vote_account )==FD_VOTE_STATE_V3_SZ;
+  uint data_len_check = meta->dlen==FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
   uint data_check = memcmp((
-      fd_txn_account_get_data( vote_account )+VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET)!=0;
+      fd_account_data( meta )+VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET)!=0;
   if (data_check && data_len_check) {
     return 1;
   }
 
   // VoteState1_14_11::is_correct_size_and_initialized
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L58
-  data_len_check = fd_txn_account_get_data_len( vote_account )==FD_VOTE_STATE_V2_SZ;
+  data_len_check = meta->dlen==FD_VOTE_STATE_V2_SZ;
   uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
   data_check = memcmp( (
-      fd_txn_account_get_data( vote_account )+VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11)!=0;
+      fd_account_data( meta )+VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11)!=0;
   return data_check && data_len_check;
 }
 
@@ -2753,29 +2753,4 @@ fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
                             uchar *                     authorized_voters_mem,
                             uchar *                     landed_votes_mem ) {
   convert_to_current( self, authorized_voters_mem, landed_votes_mem );
-}
-
-void
-fd_vote_store_account( fd_txn_account_t * vote_account,
-                       fd_bank_t *        bank ) {
-
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-
-  if( fd_txn_account_get_lamports( vote_account )==0UL ) {
-    fd_vote_states_remove( vote_states, vote_account->pubkey );
-    fd_bank_vote_states_end_locking_modify( bank );
-    return;
-  }
-
-  if( !fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
-    fd_vote_states_remove( vote_states, vote_account->pubkey );
-    fd_bank_vote_states_end_locking_modify( bank );
-    return;
-  }
-
-  fd_vote_states_update_from_account( vote_states,
-                                      vote_account->pubkey,
-                                      fd_txn_account_get_data( vote_account ),
-                                      fd_txn_account_get_data_len( vote_account ) );
-  fd_bank_vote_states_end_locking_modify( bank );
 }
