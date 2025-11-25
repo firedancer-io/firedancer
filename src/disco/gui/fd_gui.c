@@ -1452,6 +1452,7 @@ fd_gui_clear_slot( fd_gui_t *      gui,
     lslot->txs.end_microblocks         = 0U;
     lslot->txs.start_offset            = ULONG_MAX;
     lslot->txs.end_offset              = ULONG_MAX;
+    lslot->unbecame_leader             = 0;
   }
 
   if( FD_UNLIKELY( !_slot ) ) {
@@ -2671,6 +2672,8 @@ fd_gui_unbecame_leader( fd_gui_t *                gui,
   /* fd_gui_handle_slot_end may have already been called in response to
      a "became_leader" message for a subseqeunt slot. */
   if( FD_UNLIKELY( gui->summary.is_full_client && gui->leader_slot==_slot ) ) fd_gui_handle_slot_end( gui, slot->slot, ULONG_MAX, now );
+
+  lslot->unbecame_leader = 1;
 }
 
 void

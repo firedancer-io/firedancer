@@ -1516,7 +1516,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         else                                       jsonp_ulong( gui->http, "tips", slot->tips );
       jsonp_close_object( gui->http );
 
-      if( FD_UNLIKELY( lslot ) ) {
+      if( FD_UNLIKELY( lslot && lslot->unbecame_leader ) ) {
         jsonp_open_object( gui->http, "limits" );
           jsonp_ulong( gui->http, "used_total_block_cost",        lslot->scheduler_stats->limits_usage->block_cost          );
           jsonp_ulong( gui->http, "used_total_vote_cost",         lslot->scheduler_stats->limits_usage->vote_cost           );
@@ -1566,7 +1566,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
       }
 
       int overwritten               = lslot && (gui->pack_txn_idx - lslot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
-      int processed_all_microblocks = lslot &&
+      int processed_all_microblocks = lslot && lslot->unbecame_leader &&
                                       lslot->txs.start_offset!=ULONG_MAX &&
                                       lslot->txs.end_offset!=ULONG_MAX &&
                                       lslot->txs.microblocks_upper_bound!=USHORT_MAX &&
@@ -1779,7 +1779,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
 
         fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
-        if( FD_LIKELY( lslot ) ) {
+        if( FD_LIKELY( lslot && lslot->unbecame_leader ) ) {
           jsonp_open_array( gui->http, "tile_timers" );
             fd_gui_tile_timers_t const * prev_timer = lslot->tile_timers[ 0 ];
             for( ulong i=1UL; i<lslot->tile_timers_sample_cnt; i++ ) {
@@ -1793,7 +1793,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
           jsonp_null( gui->http, "tile_timers" );
         }
 
-        if( FD_LIKELY( lslot ) ) {
+        if( FD_LIKELY( lslot && lslot->unbecame_leader ) ) {
           jsonp_open_array( gui->http, "scheduler_counts" );
             /* Unlike tile timers (which are counters), scheduler counts
                are a gauge and we don't take a diff. */

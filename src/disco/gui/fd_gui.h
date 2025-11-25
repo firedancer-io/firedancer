@@ -305,6 +305,8 @@ struct fd_gui_leader_slot {
   } txs;
 
   fd_done_packing_t scheduler_stats[ 1 ];
+
+  uchar unbecame_leader: 1;
 };
 
 typedef struct fd_gui_leader_slot fd_gui_leader_slot_t;
