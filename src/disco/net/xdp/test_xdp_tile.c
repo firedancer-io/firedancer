@@ -71,15 +71,16 @@ add_neighbor( fd_neigh4_hmap_t * join,
               uint               ip4_addr,
               uchar mac0, uchar mac1, uchar mac2,
               uchar mac3, uchar mac4, uchar mac5 ) {
-  fd_neigh4_hmap_query_t query[1];
-  int prepare_res = fd_neigh4_hmap_prepare( join, &ip4_addr, NULL, query, FD_MAP_FLAG_BLOCKING );
-  FD_TEST( prepare_res==FD_MAP_SUCCESS );
-  fd_neigh4_entry_t * ele = fd_neigh4_hmap_query_ele( query );
-  ele->state    = FD_NEIGH4_STATE_ACTIVE;
-  ele->ip4_addr = ip4_addr;
-  ele->mac_addr[0] = mac0; ele->mac_addr[1] = mac1; ele->mac_addr[2] = mac2;
-  ele->mac_addr[3] = mac3; ele->mac_addr[4] = mac4; ele->mac_addr[5] = mac5;
-  fd_neigh4_hmap_publish( query );
+  fd_neigh4_entry_t * e = fd_neigh4_hmap_upsert( join, &ip4_addr );
+  FD_TEST( e );
+  ulong suppress_until = e->probe_suppress_until;
+  fd_neigh4_entry_t to_insert = (fd_neigh4_entry_t) {
+    .ip4_addr             = ip4_addr,
+    .state                = FD_NEIGH4_STATE_ACTIVE,
+    .mac_addr             = { mac0, mac1, mac2, mac3, mac4, mac5 },
+    .probe_suppress_until = suppress_until&FD_NEIGH4_PROBE_SUPPRESS_MASK
+  };
+  fd_neigh4_entry_atomic_st( e, &to_insert );
 }
 
 static void
@@ -256,23 +257,16 @@ main( int     argc,
   topo_tile->xdp.fib4_local_obj_id = topo_fib4_local->id;
   topo_tile->xdp.fib4_main_obj_id  = topo_fib4_main->id;
 
-
   /* Neigh4 table setup */
   ulong const neigh4_ele_max   = 16UL;
   ulong const neigh4_probe_max =  8UL;
-  ulong const neigh4_lock_max  =  4UL;
-  void * neigh4_hmap_mem = fd_wksp_alloc_laddr( wksp, fd_neigh4_hmap_align(), fd_neigh4_hmap_footprint( neigh4_ele_max, neigh4_lock_max, neigh4_probe_max ), WKSP_TAG );
-  void * neigh4_ele_mem  = fd_wksp_alloc_laddr( wksp, alignof(fd_neigh4_entry_t), neigh4_ele_max*sizeof(fd_neigh4_entry_t), WKSP_TAG );
-  FD_TEST( fd_neigh4_hmap_new( neigh4_hmap_mem, neigh4_ele_max, neigh4_lock_max, neigh4_probe_max, 1UL ) );
+  void      * neigh4_hmap_mem = fd_wksp_alloc_laddr( wksp, fd_neigh4_hmap_align(), fd_neigh4_hmap_footprint( neigh4_ele_max ), WKSP_TAG );
+  FD_TEST( fd_neigh4_hmap_new( neigh4_hmap_mem, neigh4_ele_max, 1 ) );
   fd_topo_obj_t * topo_neigh4_hmap = fd_topob_obj( topo, "neigh4_hmap", "wksp" );
-  fd_topo_obj_t * topo_neigh4_ele  = fd_topob_obj( topo, "opaque",      "wksp" );
-  topo_neigh4_hmap->offset = (ulong)neigh4_hmap_mem - (ulong)wksp;
-  topo_neigh4_ele->offset  = (ulong)neigh4_ele_mem  - (ulong)wksp;
-  topo_tile->xdp.neigh4_obj_id     = topo_neigh4_hmap->id;
-  topo_tile->xdp.neigh4_ele_obj_id = topo_neigh4_ele->id;
-  fd_neigh4_hmap_t neigh4_hmap_[1];
-  fd_neigh4_hmap_t * neigh4_hmap   = fd_neigh4_hmap_join( neigh4_hmap_, neigh4_hmap_mem, neigh4_ele_mem );
-  FD_TEST( neigh4_hmap );
+  topo_neigh4_hmap->offset      = (ulong)neigh4_hmap_mem - (ulong)wksp;
+  topo_tile->xdp.neigh4_obj_id  = topo_neigh4_hmap->id;
+  fd_neigh4_hmap_t neigh4_hmap[1];
+  FD_TEST( fd_neigh4_hmap_join( neigh4_hmap, neigh4_hmap_mem, neigh4_ele_max, neigh4_probe_max, 123456UL ) );
 
   /* Netdev table double buffer setup */
   ulong           netdev_mtu               = fd_netdev_tbl_footprint(NETDEV_MAX, BOND_MASTER_MAX);
@@ -395,10 +389,7 @@ main( int     argc,
   add_neighbor( neigh4_hmap, gre0_outer_dst_ip, eth0_dst_mac_addr[0], eth0_dst_mac_addr[1], eth0_dst_mac_addr[2], eth0_dst_mac_addr[3], eth0_dst_mac_addr[4], eth0_dst_mac_addr[5] );
   add_neighbor( neigh4_hmap, gre1_outer_dst_ip, eth1_dst_mac_addr[0], eth1_dst_mac_addr[1], eth1_dst_mac_addr[2], eth1_dst_mac_addr[3], eth1_dst_mac_addr[4], eth1_dst_mac_addr[5] );
   add_neighbor( neigh4_hmap, gw_ip,     eth1_dst_mac_addr[0], eth1_dst_mac_addr[1], eth1_dst_mac_addr[2], eth1_dst_mac_addr[3], eth1_dst_mac_addr[4], eth1_dst_mac_addr[5] );
-  FD_TEST( fd_neigh4_hmap_join(
-    ctx->neigh4,
-    fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_obj_id ),
-    fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_ele_obj_id ) ) );
+  FD_TEST( fd_neigh4_hmap_join( ctx->neigh4, fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_obj_id ), neigh4_ele_max, neigh4_probe_max, 123456UL ) );
 
   /* Netdev table */
   FD_TEST( fd_topo_obj_laddr( topo, topo_tile->xdp.netdev_dbl_buf_obj_id )==netdev_dbl_buf_mem );

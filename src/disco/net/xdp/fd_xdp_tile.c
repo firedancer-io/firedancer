@@ -26,6 +26,7 @@
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_gre.h"
+#include "../../../util/pod/fd_pod_format.h"
 
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
@@ -622,28 +623,22 @@ net_tx_route( fd_net_ctx_t * ctx,
   uint neigh_ip = next_hop->ip4_gw;
   if( !neigh_ip ) neigh_ip = dst_ip;
 
-  fd_neigh4_hmap_query_t neigh_query[1];
-  int neigh_res = fd_neigh4_hmap_query_try( ctx->neigh4, &neigh_ip, NULL, neigh_query, 0 );
+  fd_neigh4_entry_t neigh[1];
+  int neigh_res = fd_neigh4_hmap_query_entry( ctx->neigh4, neigh_ip, neigh );
   if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
     /* Neighbor not found */
     fd_netlink_neigh4_solicit( ctx->neigh4_solicit, neigh_ip, if_idx, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
-  fd_neigh4_entry_t const * neigh = fd_neigh4_hmap_query_ele_const( neigh_query );
   if( FD_UNLIKELY( neigh->state != FD_NEIGH4_STATE_ACTIVE ) ) {
     ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
   ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
   ctx->tx_op.src_ip = ip4_src;
-  memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,  6 );
-  memcpy( ctx->tx_op.mac_addrs+6, netdev->mac_addr, 6 );
-
-  if( FD_UNLIKELY( fd_neigh4_hmap_query_test( neigh_query ) ) ) {
-    ctx->metrics.tx_neigh_fail_cnt++;
-    return 0;
-  }
+  memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr, 6 );
+  memcpy( ctx->tx_op.mac_addrs+6, netdev->mac_addr,  6 );
 
   return 1;
 }
@@ -1544,10 +1539,19 @@ unprivileged_init( fd_topo_t *      topo,
   /* Join netbase objects */
   FD_TEST( fd_fib4_join( ctx->fib_local, fd_topo_obj_laddr( topo, tile->xdp.fib4_local_obj_id ) ) );
   FD_TEST( fd_fib4_join( ctx->fib_main, fd_topo_obj_laddr( topo, tile->xdp.fib4_main_obj_id  ) ) );
+
+  ulong neigh4_obj_id = tile->xdp.neigh4_obj_id;
+  ulong ele_max   = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.ele_max",   neigh4_obj_id );
+  ulong probe_max = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.probe_max", neigh4_obj_id );
+  ulong seed      = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.seed",      neigh4_obj_id );
+  if( FD_UNLIKELY( (ele_max==ULONG_MAX) | (probe_max==ULONG_MAX) | (seed==ULONG_MAX) ) )
+    FD_LOG_ERR(( "neigh4 hmap properties not set" ));
   if( FD_UNLIKELY( !fd_neigh4_hmap_join(
       ctx->neigh4,
-      fd_topo_obj_laddr( topo, tile->xdp.neigh4_obj_id ),
-      fd_topo_obj_laddr( topo, tile->xdp.neigh4_ele_obj_id ) ) ) ) {
+      fd_topo_obj_laddr( topo, neigh4_obj_id ),
+      ele_max,
+      probe_max,
+      seed ) ) ) {
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
 
