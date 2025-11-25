@@ -414,6 +414,7 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
 
 #define STEM_BURST (1UL)
 #define STEM_LAZY ((ulong)13e6) /* 13ms */
+#define STEM_IDLE_SLEEP_ENABLED 0
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_netlink_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_netlink_tile_ctx_t)

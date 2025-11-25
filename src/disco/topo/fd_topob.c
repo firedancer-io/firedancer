@@ -142,6 +142,7 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
   tile->is_agave            = is_agave;
+  tile->idle_sleep          = topo->low_power_mode;
   tile->cpu_idx             = cpu_idx;
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
@@ -340,11 +341,17 @@ fd_topob_auto_layout( fd_topo_t * topo,
      tiles to CPU cores in NUMA sequential order, except for a few tiles
      which should be floating. */
 
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+
   char const * FLOATING[] = {
     "netlnk",
     "metric",
     "cswtch",
     "bencho",
+    "plugin",
+    "gui",
+    "store"
   };
 
   char const * ORDERED[] = {
@@ -391,29 +398,26 @@ fd_topob_auto_layout( fd_topo_t * topo,
     tile->cpu_idx = ULONG_MAX;
   }
 
-  fd_topo_cpus_t cpus[1];
-  fd_topo_cpus_init( cpus );
-
   ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
-  int   pairs_assigned[ FD_TILE_MAX ] = { 0 };
+  // int   pairs_assigned[ FD_TILE_MAX ] = { 0 };
 
   ulong next_cpu_idx   = 0UL;
   for( ulong i=0UL; i<cpus->numa_node_cnt; i++ ) {
     for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) {
-      fd_topo_cpu_t * cpu = &cpus->cpu[ j ];
+      // fd_topo_cpu_t * cpu = &cpus->cpu[ j ];
 
-      if( FD_UNLIKELY( pairs_assigned[ j ] || cpu->numa_node!=i ) ) continue;
+      // if( FD_UNLIKELY( pairs_assigned[ j ] || cpu->numa_node!=i ) ) continue;
 
       FD_TEST( next_cpu_idx<FD_TILE_MAX );
       cpu_ordering[ next_cpu_idx++ ] = j;
 
-      if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
-        /* If the CPU has a HT pair, place it immediately after so they
-           are sequentially assigned. */
-        FD_TEST( next_cpu_idx<FD_TILE_MAX );
-        cpu_ordering[ next_cpu_idx++ ] = cpu->sibling;
-        pairs_assigned[ cpu->sibling ] = 1;
-      }
+      // if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
+      //   /* If the CPU has a HT pair, place it immediately after so they
+      //      are sequentially assigned. */
+      //   FD_TEST( next_cpu_idx<FD_TILE_MAX );
+      //   cpu_ordering[ next_cpu_idx++ ] = cpu->sibling;
+      //   pairs_assigned[ cpu->sibling ] = 1;
+      // }
     }
   }
 
@@ -484,8 +488,9 @@ fd_topob_auto_layout( fd_topo_t * topo,
   }
 
   if( FD_UNLIKELY( reserve_agave_cores ) ) {
-    for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
+    for( ulong i=1UL; i<cpus->cpu_cnt; i++ ) {
       if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
+      if( FD_UNLIKELY( cpu_assigned[ cpu_ordering[ i ] ] ) ) continue;
 
       if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
         topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = cpu_ordering[ i ];

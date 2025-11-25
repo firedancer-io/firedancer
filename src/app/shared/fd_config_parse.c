@@ -162,6 +162,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   layout.verify_tile_count                         );
   CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
+  CFG_POP      ( bool,   layout.low_power_mode                            );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
   CFG_POP      ( cstr,   hugetlbfs.max_page_size                          );

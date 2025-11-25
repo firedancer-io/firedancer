@@ -31,7 +31,6 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sched.h>
-#include <time.h>
 #if defined(__linux__)
 #include <syscall.h>
 #endif
