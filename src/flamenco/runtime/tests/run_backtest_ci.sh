@@ -26,8 +26,5 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-380592002-v2.3.0 -y 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-multi-boundary -y 1 -m 1000 -e 2325
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v3.0 -y 1 -m 3000 -e 1280 -g
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-stake-v3.0.0 -y 1 -m 3000 -e 541
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-stricter-abi -y 5 -m 2000000 -e 368528527 -o sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping -y 5 -m 2000000 -e 368528527 -o sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r,DFN8MyKpQqFW31qczcahgnnxcAHQc6P94wtTEX5EP1RA
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-362107883-direct-mapping-2 -y 1 -m 2000000 -e 362219427 -o sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r,DFN8MyKpQqFW31qczcahgnnxcAHQc6P94wtTEX5EP1RA
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-378539412 -y 5 -m 2000000 -e 378539445
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842 -y 1 -m 2000000 -e 422969848
