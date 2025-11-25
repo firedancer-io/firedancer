@@ -2523,14 +2523,13 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    fd_txn_account_t * program_data_account = NULL;
-    fd_pubkey_t *      programdata_pubkey   = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
+    fd_account_meta_t * programdata_meta   = NULL;
+    fd_pubkey_t *       programdata_pubkey = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
     err = fd_runtime_get_executable_account( ctx->runtime,
                                              ctx->txn_in,
                                              ctx->txn_out,
                                              programdata_pubkey,
-                                             &program_data_account,
-                                             fd_runtime_account_check_exists );
+                                             &programdata_meta );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
@@ -2539,7 +2538,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    if( FD_UNLIKELY( fd_txn_account_get_data_len( program_data_account )<PROGRAMDATA_METADATA_SIZE ) ) {
+    if( FD_UNLIKELY( programdata_meta->dlen<PROGRAMDATA_METADATA_SIZE ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -2548,7 +2547,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     fd_bpf_upgradeable_loader_state_t program_data_account_state[1];
-    err = fd_bpf_loader_program_get_state( program_data_account, program_data_account_state );
+    err = fd_bpf_loader_program_get_state_inner( programdata_meta, program_data_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       if( FD_FEATURE_ACTIVE_BANK( ctx->bank, remove_accounts_executable_flag_checks ) ) {

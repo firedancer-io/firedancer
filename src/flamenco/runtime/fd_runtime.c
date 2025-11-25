@@ -1760,10 +1760,8 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  fd_txn_account_t * txn_account = &txn_out->accounts.accounts[idx];
-
   if( FD_LIKELY( condition != NULL ) ) {
-    if( FD_UNLIKELY( !condition( txn_account, txn_in, txn_out, idx ) ) ) {
+    if( FD_UNLIKELY( !condition( txn_in, txn_out, idx ) ) ) {
       return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
     }
   }
@@ -1791,17 +1789,21 @@ fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
 }
 
 int
-fd_runtime_get_executable_account( fd_runtime_t *                  runtime,
-                                   fd_txn_in_t const *             txn_in,
-                                   fd_txn_out_t *                  txn_out,
-                                   fd_pubkey_t const *             pubkey,
-                                   fd_txn_account_t * *            account,
-                                   fd_txn_account_condition_fn_t * condition ) {
-  /* First try to fetch the executable account from the existing borrowed accounts.
-     If the pubkey is in the account keys, then we want to re-use that
-     borrowed account since it reflects changes from prior instructions. Referencing the
-     read-only executable accounts list is incorrect behavior when the program
-     data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
+fd_runtime_get_executable_account( fd_runtime_t *        runtime,
+                                   fd_txn_in_t const *   txn_in,
+                                   fd_txn_out_t *        txn_out,
+                                   fd_pubkey_t const *   pubkey,
+                                   fd_account_meta_t * * meta ) {
+  /* First try to fetch the executable account from the existing
+     borrowed accounts.  If the pubkey is in the account keys, then we
+     want to re-use that borrowed account since it reflects changes from
+     prior instructions.  Referencing the read-only executable accounts
+     list is incorrect behavior when the program data account is written
+     to in a prior instruction (e.g. program upgrade + invoke within the
+     same txn) */
+
+  fd_txn_account_condition_fn_t * condition = fd_runtime_account_check_exists;
+
   int index;
   int err = fd_runtime_get_account_with_key( txn_in,
                                              txn_out,
@@ -1809,21 +1811,17 @@ fd_runtime_get_executable_account( fd_runtime_t *                  runtime,
                                              &index,
                                              condition );
   if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
-    *account = &txn_out->accounts.accounts[index];
+    *meta = txn_out->accounts.metas[index];
     return FD_ACC_MGR_SUCCESS;
   }
 
   for( ushort i=0; i<runtime->accounts.executable_cnt; i++ ) {
     if( memcmp( pubkey->uc, runtime->accounts.executables[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
       fd_txn_account_t * txn_account = &runtime->accounts.executables[i];
-      *account = txn_account;
-
-      if( FD_LIKELY( condition != NULL ) ) {
-        if( FD_UNLIKELY( !condition( *account, txn_in, txn_out, i ) ) ) {
-          return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-        }
+      *meta = txn_account->meta;
+      if( FD_UNLIKELY( !fd_account_meta_exists( txn_account->meta ) ) ) {
+        return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
       }
-
       return FD_ACC_MGR_SUCCESS;
     }
   }
@@ -1924,22 +1922,18 @@ fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
 /* Account pre-condition filtering functions */
 
 int
-fd_runtime_account_check_exists( fd_txn_account_t *  acc,
-                                 fd_txn_in_t const * txn_in,
+fd_runtime_account_check_exists( fd_txn_in_t const * txn_in,
                                  fd_txn_out_t *      txn_out,
                                  ushort              idx ) {
   (void) txn_in;
-  (void) txn_out;
-  (void) idx;
-  return fd_account_meta_exists( fd_txn_account_get_meta( acc ) );
+  fd_txn_account_t * acc2 = &txn_out->accounts.accounts[idx];
+  return fd_account_meta_exists( fd_txn_account_get_meta( acc2 ) );
 }
 
 int
-fd_runtime_account_check_fee_payer_writable( fd_txn_account_t *  acc,
-                                             fd_txn_in_t const * txn_in,
+fd_runtime_account_check_fee_payer_writable( fd_txn_in_t const * txn_in,
                                              fd_txn_out_t *      txn_out,
                                              ushort              idx ) {
   (void) txn_out;
-  (void) acc;
   return fd_txn_is_writable( TXN( txn_in->txn ), idx );
 }
