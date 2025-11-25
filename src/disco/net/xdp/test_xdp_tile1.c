@@ -202,8 +202,6 @@ setup_routing_table( fd_net_ctx_t * ctx ) {
   FD_TEST( fd_fib4_insert( fib_main,  banned_ip, 32, 0U, &hop5 ) );
   FD_TEST( fd_fib4_insert( fib_main,  gre1_dst_ip, 32, 0U, &hop6 ) );
   FD_TEST( fd_fib4_insert( fib_main,  gre1_outer_dst_ip, 32, 0U, &hop7 ) );
-  ctx->fib_local = fib_local;
-  ctx->fib_main = fib_main;
 }
 
 static void

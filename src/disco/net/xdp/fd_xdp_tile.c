@@ -229,8 +229,8 @@ typedef struct {
   fd_net_flusher_t tx_flusher[2]; /* one per XSK */
 
   /* Route and neighbor tables */
-  fd_fib4_t const * fib_local;
-  fd_fib4_t const * fib_main;
+  fd_fib4_t fib_local[1];
+  fd_fib4_t fib_main[1];
   fd_neigh4_hmap_t  neigh4[1];
   fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
 
@@ -1504,9 +1504,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Join netbase objects */
-  ctx->fib_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->xdp.fib4_local_obj_id ) );
-  ctx->fib_main  = fd_fib4_join( fd_topo_obj_laddr( topo, tile->xdp.fib4_main_obj_id  ) );
-  if( FD_UNLIKELY( !ctx->fib_local || !ctx->fib_main ) ) FD_LOG_ERR(( "fd_fib4_join failed" ));
+  FD_TEST( fd_fib4_join( ctx->fib_local, fd_topo_obj_laddr( topo, tile->xdp.fib4_local_obj_id ) ) );
+  FD_TEST( fd_fib4_join( ctx->fib_main, fd_topo_obj_laddr( topo, tile->xdp.fib4_main_obj_id  ) ) );
   if( FD_UNLIKELY( !fd_neigh4_hmap_join(
       ctx->neigh4,
       fd_topo_obj_laddr( topo, tile->xdp.neigh4_obj_id ),
