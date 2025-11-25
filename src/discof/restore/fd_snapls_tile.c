@@ -101,16 +101,16 @@ metrics_write( fd_snapls_tile_t * ctx ) {
 
 static void
 transition_malformed( fd_snapls_tile_t *  ctx,
-                      fd_stem_context_t *  stem ) {
+                      fd_stem_context_t * stem ) {
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static void
 handle_data_frag( fd_snapls_tile_t *  ctx,
-                  ulong                sig,
-                  ulong                chunk,
-                  ulong                sz ) {
+                  ulong               sig,
+                  ulong               chunk,
+                  ulong               sz ) {
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
 
   switch( sig ) {
@@ -179,7 +179,7 @@ handle_data_frag( fd_snapls_tile_t *  ctx,
 
 static int
 recv_acks( fd_snapls_tile_t * ctx,
-           ulong               in_idx ) {
+           ulong              in_idx ) {
   FD_TEST( ctx->acks[ in_idx ]==0 );
 
   ctx->acks[ in_idx ] = 1;
@@ -194,9 +194,9 @@ recv_acks( fd_snapls_tile_t * ctx,
 
 static void
 handle_control_frag( fd_snapls_tile_t *  ctx,
-                     fd_stem_context_t *  stem,
-                     ulong                sig,
-                     ulong                in_idx ) {
+                     fd_stem_context_t * stem,
+                     ulong               sig,
+                     ulong               in_idx ) {
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
@@ -263,10 +263,10 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
 
 static void
 handle_hash_frag( fd_snapls_tile_t * ctx,
-                  ulong               in_idx,
-                  ulong               sig,
-                  ulong               chunk,
-                  ulong               sz ) {
+                  ulong              in_idx,
+                  ulong              sig,
+                  ulong              chunk,
+                  ulong              sz ) {
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING || ctx->state==FD_SNAPSHOT_STATE_IDLE );
   switch( sig ) {
     case FD_SNAPSHOT_HASH_MSG_RESULT_ADD: {
@@ -292,15 +292,15 @@ handle_hash_frag( fd_snapls_tile_t * ctx,
 
 static inline int
 returnable_frag( fd_snapls_tile_t *  ctx,
-                 ulong                in_idx FD_PARAM_UNUSED,
-                 ulong                seq    FD_PARAM_UNUSED,
-                 ulong                sig,
-                 ulong                chunk,
-                 ulong                sz,
-                 ulong                ctl    FD_PARAM_UNUSED,
-                 ulong                tsorig FD_PARAM_UNUSED,
-                 ulong                tspub  FD_PARAM_UNUSED,
-                 fd_stem_context_t *  stem ) {
+                 ulong               in_idx FD_PARAM_UNUSED,
+                 ulong               seq    FD_PARAM_UNUSED,
+                 ulong               sig,
+                 ulong               chunk,
+                 ulong               sz,
+                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tspub  FD_PARAM_UNUSED,
+                 fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   if( FD_LIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB ||
