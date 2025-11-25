@@ -292,6 +292,12 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     last_vote_timestamp = vsv->inner.current.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.current.last_timestamp.slot;
     break;
+  case fd_vote_state_versioned_enum_v4:
+    node_account        = vsv->inner.v4.node_pubkey;
+    commission          = (uchar)fd_ushort_min( vsv->inner.v4.inflation_rewards_commission_bps/100, UCHAR_MAX );
+    last_vote_timestamp = vsv->inner.v4.last_timestamp.timestamp;
+    last_vote_slot      = vsv->inner.v4.last_timestamp.slot;
+    break;
   default:
     __builtin_unreachable();
   }
