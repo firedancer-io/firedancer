@@ -1789,11 +1789,11 @@ fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
 }
 
 int
-fd_runtime_get_executable_account( fd_runtime_t *        runtime,
-                                   fd_txn_in_t const *   txn_in,
-                                   fd_txn_out_t *        txn_out,
-                                   fd_pubkey_t const *   pubkey,
-                                   fd_account_meta_t * * meta ) {
+fd_runtime_get_executable_account( fd_runtime_t *              runtime,
+                                   fd_txn_in_t const *         txn_in,
+                                   fd_txn_out_t *              txn_out,
+                                   fd_pubkey_t const *         pubkey,
+                                   fd_account_meta_t const * * meta ) {
   /* First try to fetch the executable account from the existing
      borrowed accounts.  If the pubkey is in the account keys, then we
      want to re-use that borrowed account since it reflects changes from
@@ -1925,8 +1925,7 @@ fd_runtime_account_check_exists( fd_txn_in_t const * txn_in,
                                  fd_txn_out_t *      txn_out,
                                  ushort              idx ) {
   (void) txn_in;
-  fd_txn_account_t * acc2 = &txn_out->accounts.accounts[idx];
-  return fd_account_meta_exists( fd_txn_account_get_meta( acc2 ) );
+  return fd_account_meta_exists( txn_out->accounts.metas[idx] );
 }
 
 int

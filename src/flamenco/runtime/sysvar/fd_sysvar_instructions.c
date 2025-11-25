@@ -54,10 +54,6 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *          runtime,
     FD_LOG_ERR(( "Failed to view sysvar instructions borrowed account. It may not be included in the txn account keys." ));
   }
 
-  fd_txn_account_t * rec = &txn_out->accounts.accounts[index];
-  rec->is_mutable = 1;
-  rec->meta = txn_out->accounts.metas[txn_idx];
-
   fd_account_meta_t * meta = txn_out->accounts.metas[ txn_idx ];
   /* Agave sets up the borrowed account for the instructions sysvar to contain
      default values except for the data which is serialized into the account. */
@@ -70,7 +66,7 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *          runtime,
   runtime->accounts.starting_lamports[txn_idx] = 0UL;
   runtime->accounts.starting_dlen[txn_idx]     = serialized_sz;
 
-  uchar * serialized_instructions = fd_txn_account_get_data_mut( rec );
+  uchar * serialized_instructions = fd_account_data( meta );
   ulong offset = 0;
 
   // TODO: do we needs bounds checking?

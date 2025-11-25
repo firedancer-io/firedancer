@@ -165,11 +165,11 @@ fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
 /* Gets an executable (program data) account via its pubkey. */
 
 int
-fd_runtime_get_executable_account( fd_runtime_t *        runtime,
-                                   fd_txn_in_t const *   txn_in,
-                                   fd_txn_out_t *        txn_out,
-                                   fd_pubkey_t const *   pubkey,
-                                   fd_account_meta_t * * meta );
+fd_runtime_get_executable_account( fd_runtime_t *              runtime,
+                                   fd_txn_in_t const *         txn_in,
+                                   fd_txn_out_t *              txn_out,
+                                   fd_pubkey_t const *         pubkey,
+                                   fd_account_meta_t const * * meta );
 
 /* Mirrors Agave function solana_sdk::transaction_context::get_key_of_account_at_index
 

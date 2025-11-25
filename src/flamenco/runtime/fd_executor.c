@@ -1285,9 +1285,9 @@ fd_instr_stack_pop( fd_runtime_t *          runtime,
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L367-L371 */
   for( ushort i=0; i<instr->acct_cnt; i++ ) {
     ushort idx_in_txn = instr->accounts[i].index_in_transaction;
-    fd_txn_account_t * account = &txn_out->accounts.accounts[ idx_in_txn ];
+    fd_account_meta_t const * meta = txn_out->accounts.metas[ idx_in_txn ];
     ulong refcnt = runtime->accounts.refcnt[idx_in_txn];
-    if( FD_UNLIKELY( fd_txn_account_is_executable( account ) && refcnt!=0UL ) ) {
+    if( FD_UNLIKELY( meta->executable && refcnt!=0UL ) ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING;
     }
   }
@@ -1354,7 +1354,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
     .txn_out      = txn_out,
     .bank         = bank,
   };
-  fd_base58_encode_32( txn_out->accounts.accounts[ instr->program_id ].pubkey->uc, NULL, ctx->program_id_base58 );
+  fd_base58_encode_32( txn_out->accounts.account_keys[ instr->program_id ].uc, NULL, ctx->program_id_base58 );
 
   runtime->instr.trace[ runtime->instr.trace_length - 1 ] = (fd_exec_instr_trace_entry_t) {
     .instr_info = instr,
@@ -1434,7 +1434,7 @@ fd_executor_reclaim_account( fd_account_meta_t * meta,
   }
 }
 
-static fd_txn_account_t *
+static void
 fd_executor_setup_txn_account( fd_runtime_t *      runtime,
                                fd_bank_t *         bank,
                                fd_txn_in_t const * txn_in,
@@ -1467,7 +1467,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
       for( ushort j=0UL; j<prev_txn_out->accounts.accounts_cnt; j++ ) {
         if( !memcmp( &prev_txn_out->accounts.account_keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_runtime_account_is_writable_idx( prev_txn_in, prev_txn_out, bank, j ) ) {
           /* Found the account in a previous transaction */
-          meta = prev_txn_out->accounts.accounts[ j ].meta;
+          meta = prev_txn_out->accounts.metas[ j ];
           is_found = 1;
           break;
         }
@@ -1492,7 +1492,6 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
   }
 
-  fd_txn_account_t *  txn_account  = &txn_out->accounts.accounts[ idx ];
   int                 is_writable  = fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
   fd_account_meta_t * account_meta = NULL;
 
@@ -1530,30 +1529,20 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     }
   }
 
-  if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
-      txn_account,
-      acc,
-      account_meta,
-      is_writable ) ) ) ) {
-    FD_LOG_CRIT(( "Failed to join txn account" ));
-  }
-
-  runtime->accounts.starting_lamports[idx] = fd_txn_account_get_lamports( txn_account );
-  runtime->accounts.starting_dlen[idx]     = fd_txn_account_get_data_len( txn_account );
+  runtime->accounts.starting_lamports[idx] = account_meta->lamports;
+  runtime->accounts.starting_dlen[idx]     = account_meta->dlen;
   runtime->accounts.refcnt[idx]            = 0UL;
   memcpy( &txn_out->accounts.pubkeys[idx], acc, sizeof(fd_pubkey_t) );
   txn_out->accounts.metas[ idx ] = account_meta;
-
-  return txn_account;
 }
 
 static void
-fd_executor_setup_executable_account( fd_runtime_t *           runtime,
-                                      fd_bank_t *              bank,
-                                      fd_txn_account_t const * account,
-                                      ushort *                 executable_idx ) {
+fd_executor_setup_executable_account( fd_runtime_t *            runtime,
+                                      fd_bank_t *               bank,
+                                      fd_account_meta_t const * program_meta,
+                                      ushort *                  executable_idx ) {
   fd_bpf_upgradeable_loader_state_t program_loader_state[1];
-  int err = fd_bpf_loader_program_get_state( account, program_loader_state );
+  int err = fd_bpf_loader_program_get_state_inner( program_meta, program_loader_state );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return;
   }
@@ -1590,14 +1579,13 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_txn_out_t *      txn_out ) {
 
   ushort executable_idx = 0U;
-  fd_memset( txn_out->accounts.accounts, 0, sizeof(fd_txn_account_t) * txn_out->accounts.accounts_cnt );
 
   for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
-    fd_txn_account_t * txn_account = fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i );
+    fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i );
+    fd_account_meta_t * meta = txn_out->accounts.metas[ i ];
 
-    if( FD_UNLIKELY( txn_account &&
-                     memcmp( fd_txn_account_get_owner( txn_account ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
-      fd_executor_setup_executable_account( runtime, bank, txn_account, &executable_idx );
+    if( FD_UNLIKELY( meta && memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
+      fd_executor_setup_executable_account( runtime, bank, meta, &executable_idx );
     }
   }
 
@@ -1608,7 +1596,10 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                        runtime->log.capture_ctx->dump_elf_to_pb;
   if( FD_UNLIKELY( dump_elf_to_pb ) ) {
     for( ushort i=0; i<txn_out->accounts.accounts_cnt; i++ ) {
-      fd_dump_elf_to_protobuf( runtime, bank, txn_in, &txn_out->accounts.accounts[i] );
+      fd_txn_account_t txn_account[1];
+      txn_account->meta = txn_out->accounts.metas[i];
+      fd_memcpy( txn_account->pubkey, &txn_out->accounts.account_keys[i], sizeof(fd_pubkey_t) );
+      fd_dump_elf_to_protobuf( runtime, bank, txn_in, txn_account );
     }
   }
 # endif

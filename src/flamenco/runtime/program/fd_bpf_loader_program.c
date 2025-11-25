@@ -2523,8 +2523,8 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    fd_account_meta_t * programdata_meta   = NULL;
-    fd_pubkey_t *       programdata_pubkey = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
+    fd_account_meta_t const * programdata_meta   = NULL;
+    fd_pubkey_t *             programdata_pubkey = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
     err = fd_runtime_get_executable_account( ctx->runtime,
                                              ctx->txn_in,
                                              ctx->txn_out,
