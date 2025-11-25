@@ -370,6 +370,10 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
 
     /* Setup the transaction context */
     fd_txn_p_t * txn = fd_solfuzz_pb_txn_ctx_create( runner, input );
+    if( FD_UNLIKELY( txn==NULL ) ) {
+      fd_solfuzz_txn_ctx_destroy( runner );
+      return 0UL;
+    }
 
     /* Execute the transaction against the runtime */
     int exec_res = 0;
