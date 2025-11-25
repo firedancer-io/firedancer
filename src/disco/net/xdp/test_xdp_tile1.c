@@ -213,37 +213,50 @@ setup_neighbor_table( fd_net_ctx_t * ctx ) {
 }
 
 static void
+append_netdev( fd_net_ctx_t * ctx,
+               fd_netdev_t     netdev ) {
+  ushort idx = ctx->netdev_tbl.hdr->dev_cnt;
+  FD_TEST( idx < ctx->netdev_tbl.hdr->dev_max );
+  ctx->netdev_tbl.dev_tbl[ idx ] = netdev;
+  ctx->netdev_tbl.hdr->dev_cnt   = (ushort)(idx + (ushort)1);
+}
+
+static void
 setup_netdev_table( fd_net_ctx_t * ctx ) {
-  /* GRE interfaces */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_GRE0] = (fd_netdev_t) {
+  ctx->netdev_tbl.hdr->dev_cnt = 0;
+
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_GRE0,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre0_outer_dst_ip,
     .gre_src_ip = gre0_outer_src_ip
-  };
-  ctx->netdev_tbl.dev_tbl[IF_IDX_GRE1] = (fd_netdev_t) {
+  } );
+
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_GRE1,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre1_outer_dst_ip,
-  };
+  } );
   /* Eth0 interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_ETH0] = (fd_netdev_t) {
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_ETH0,
     .dev_type = ARPHRD_ETHER,
-  };
+  } );
   /* Eth1 interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_ETH1] = (fd_netdev_t) {
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_ETH1,
     .dev_type = ARPHRD_ETHER,
-  };
+  } );
   /* Lo interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_LO] = (fd_netdev_t) {
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_LO,
     .dev_type = ARPHRD_LOOPBACK,
-  };
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl.dev_tbl[IF_IDX_ETH0].mac_addr, eth0_src_mac_addr, 6 );
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl.dev_tbl[IF_IDX_ETH1].mac_addr, eth1_src_mac_addr, 6 );
-  ctx->netdev_tbl.hdr->dev_cnt = IF_IDX_GRE1 + 1;
+  } );
+  fd_netdev_t * eth0 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH0 );
+  fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH1 );
+  FD_TEST( eth0 && eth1 );
+  fd_memcpy( eth0->mac_addr, eth0_src_mac_addr, 6 );
+  fd_memcpy( eth1->mac_addr, eth1_src_mac_addr, 6 );
 }
 
 /************************* Test Init Auxiliary Function ***********************/
