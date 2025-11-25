@@ -245,5 +245,6 @@
   {"name":"stricter_abi_and_runtime_constraints","pubkey":"sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r","old":"CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM"},
   {"name":"account_data_direct_mapping","pubkey":"DFN8MyKpQqFW31qczcahgnnxcAHQc6P94wtTEX5EP1RA","old":"9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ"},
   {"name":"fix_alt_bn128_pairing_length_check","pubkey":"bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm"},
-  {"name":"poseidon_enforce_padding","pubkey":"poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb"}
+  {"name":"poseidon_enforce_padding","pubkey":"poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb"},
+  {"name":"relax_intrabatch_account_locks","pubkey":"ENTRYnPAoT5Swwx73YDGzMp3XnNH1kxacyvLosRHza1i"}
 ]
