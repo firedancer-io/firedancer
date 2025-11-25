@@ -140,6 +140,7 @@ union fdctl_args {
     ulong db_rec_max;
     ulong cache_sz;
     ulong cache_rec_max;
+    uint  dc_tile_cnt;
   } snapshot_load;
 
   struct {

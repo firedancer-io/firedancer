@@ -1,4 +1,5 @@
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_zstd_dskip.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -12,6 +13,10 @@
 
 #define ZSTD_WINDOW_SZ (1UL<<25UL) /* 32MiB */
 
+#define FD_SNAP_PARA_MAGIC   (0xf212f209fd944ba2UL)
+#define FD_SNAP_PARA_ENABLE  (0x72701281047a55b8UL)
+#define FD_SNAP_PARA_DISABLE (0xd629be3208ad6fb4UL)
+
 /* The snapdc tile is a state machine that decompresses the full and
    optionally incremental snapshot byte stream that it receives from the
    snapld tile.  In the event that the snapshot is already uncompressed,
@@ -21,9 +26,23 @@ struct fd_snapdc_tile {
   uint full    : 1;
   uint is_zstd : 1;
   uint dirty   : 1;  /* in the middle of a frame? */
-  int state;
+  uint para    : 1;  /* parallel decompress enabled? */
+  int  state;
+
+  uint tile_idx;
+  uint tile_cnt;
 
   ZSTD_DCtx * zstd;
+  fd_zstd_dskip_t skip[1];
+
+  /* Window to peek into the first few bytes of each Zstandard frame.
+     Used to detect Zstandard skippable frames for signaling. */
+# define FRAME_PEEK (128UL)
+  uchar peek[ FRAME_PEEK ];
+  ulong peek_off;
+
+  ulong frame_idx; /* index of current frame */
+  ulong frame_off; /* offset within current frame */
 
   struct {
     fd_wksp_t * wksp;
@@ -96,7 +115,13 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   /* All control messages cause us to want to reset the decompression stream */
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
-  ctx->dirty = 0;
+  fd_zstd_dskip_init( ctx->skip );
+  ctx->dirty     = 0;
+  ctx->peek_off  = 0UL;
+  ctx->frame_idx = 0UL;
+  ctx->frame_off = 0UL;
+  if( ctx->tile_idx==0 && ctx->para ) FD_LOG_INFO(( "parallel decompress disable" ));
+  ctx->para      = 0;
 
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL: {
@@ -156,6 +181,28 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
+__attribute__((cold)) static void
+handle_skippable_frame( fd_snapdc_tile_t *  ctx,
+                        fd_stem_context_t * stem ) {
+  uchar const * peek = ctx->peek;
+  uint zstd_magic_idx;
+  ulong magic;
+  if( ZSTD_isError( ZSTD_readSkippableFrame( &magic, sizeof(ulong), &zstd_magic_idx, peek, FRAME_PEEK ) ) ) {
+    return;
+  }
+  if( zstd_magic_idx!=0 ) return;
+
+  if( magic==FD_SNAP_PARA_ENABLE && !ctx->para ) {
+    if( ctx->tile_idx==0 ) FD_LOG_INFO(( "parallel decompress enable" ));
+    ctx->para = 1;
+  }
+  if( magic==FD_SNAP_PARA_DISABLE && ctx->para ) {
+    if( ctx->tile_idx==0 ) FD_LOG_INFO(( "parallel decompress disable" ));
+    ctx->para = 0;
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_BARRIER, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
+}
+
 static inline int
 handle_data_frag( fd_snapdc_tile_t *  ctx,
                   fd_stem_context_t * stem,
@@ -176,6 +223,7 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
   uchar * out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
 
   if( FD_UNLIKELY( !ctx->is_zstd ) ) {
+    if( ctx->tile_idx!=0UL ) return 0;
     FD_TEST( ctx->in.frag_pos<sz );
     ulong cpy = fd_ulong_min( sz-ctx->in.frag_pos, ctx->out.mtu );
     fd_memcpy( out, in, cpy );
@@ -197,6 +245,65 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     return 0;
   }
 
+  /* Detect Zstandard skippable frames */
+
+  ulong peek_consumed = 0UL;
+  if( FD_UNLIKELY( ctx->peek_off<FRAME_PEEK ) ) {
+    /* Buffer up more peek header bytes */
+    uchar * peek      = ctx->peek + ctx->peek_off;
+    ulong   peek_free = FRAME_PEEK - ctx->peek_off;
+    peek_consumed = fd_ulong_min( peek_free, sz-ctx->in.frag_pos );
+    fd_memcpy( peek, in, peek_consumed );
+    ctx->peek_off += peek_consumed;
+
+    /* Try to find skippable signaling frames */
+    if( ctx->peek_off>=16UL ) {
+      if( ZSTD_isSkippableFrame( peek, FRAME_PEEK ) ) {
+        handle_skippable_frame( ctx, stem );
+      }
+    }
+  }
+
+  /* Are we responsible for this frame? */
+
+  _Bool ignore_frame = 0;
+  if( ctx->para ) {
+    ignore_frame = ( ctx->frame_idx%ctx->tile_cnt )!=(ulong)ctx->tile_idx;
+  } else {
+    ignore_frame = ctx->tile_idx!=0UL;
+  }
+
+  /* Skip over frames */
+
+  if( ignore_frame ) {
+    ulong in_consumed = 0UL;
+    ulong frame_res = fd_zstd_dskip_advance( ctx->skip, in, sz-ctx->in.frag_pos, &in_consumed );
+    if( FD_UNLIKELY( frame_res==ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "error while skipping compressed frame" ));
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+      return 0;
+    }
+    FD_TEST( in_consumed<=sz-ctx->in.frag_pos );
+
+    ctx->in.frag_pos += in_consumed;
+    FD_TEST( ctx->in.frag_pos<=sz );
+
+    ctx->frame_off += in_consumed;
+    ctx->dirty = frame_res!=0UL;
+    if( !ctx->dirty ) {
+      ctx->frame_idx++;
+      ctx->frame_off = 0UL;
+      ctx->peek_off  = 0UL;
+    }
+
+    if( FD_LIKELY( ctx->in.frag_pos<sz ) ) return 1;
+    ctx->in.frag_pos = 0UL;
+    return 0;
+  }
+
+  /* Actually decompress frame */
+
   ulong in_consumed = 0UL, out_produced = 0UL;
   ulong frame_res = ZSTD_decompressStream_simpleArgs(
       ctx->zstd,
@@ -214,7 +321,8 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
   }
 
   if( FD_LIKELY( out_produced ) ) {
-    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, out_produced, 0UL, 0UL, 0UL );
+    ulong ctl = fd_frag_meta_ctl( 0UL, 0, frame_res==0UL, 0 );
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, out_produced, ctl, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, out_produced, ctx->out.chunk0, ctx->out.wmark );
   }
 
@@ -229,7 +337,13 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     ctx->metrics.incremental.decompressed_bytes_written += out_produced;
   }
 
+  ctx->frame_off += in_consumed;
   ctx->dirty = frame_res!=0UL;
+  if( !ctx->dirty ) {
+    ctx->frame_idx++;
+    ctx->frame_off = 0UL;
+    ctx->peek_off  = 0UL;
+  }
 
   int maybe_more_output = out_produced==ctx->out.mtu || ctx->in.frag_pos<sz;
   if( FD_LIKELY( !maybe_more_output ) ) ctx->in.frag_pos = 0UL;
@@ -289,11 +403,21 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snapdc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapdc_tile_t), sizeof(fd_snapdc_tile_t) );
   void * _zstd           = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                      ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
 
-  ctx->state = FD_SNAPSHOT_STATE_IDLE;
+  ctx->state    = FD_SNAPSHOT_STATE_IDLE;
+  ctx->tile_idx = (uint)tile->kind_id;
+  ctx->tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );;
+  ctx->dirty    = 0;
+  ctx->para     = 0;
+  if( ctx->tile_idx==0 && ctx->tile_cnt>1 ) FD_LOG_INFO(( "parallel decompress disable" ));
 
   ctx->zstd = ZSTD_initStaticDStream( _zstd, ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
   FD_TEST( ctx->zstd );
   FD_TEST( ctx->zstd==_zstd );
+  fd_zstd_dskip_init( ctx->skip );
+
+  ctx->frame_idx = 0UL;
+  ctx->frame_off = 0UL;
+  ctx->peek_off  = 0UL;
 
   ctx->dirty = 0;
   ctx->in.frag_pos = 0UL;
@@ -325,8 +449,8 @@ unprivileged_init( fd_topo_t *      topo,
                  (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-/* handle_data_frag can publish one data frag plus an error frag */
-#define STEM_BURST 2UL
+/* handle_data_frag can publish one data frag, a barrier frag, and an error frag */
+#define STEM_BURST 3UL
 
 #define STEM_LAZY  1000L
 

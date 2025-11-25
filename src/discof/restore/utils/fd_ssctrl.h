@@ -70,6 +70,7 @@
 #define FD_SNAPSHOT_MSG_CTRL_DONE              (6UL) /* Current snapshot succeeded, commit work, go idle, and expect shutdown */
 #define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (7UL) /* No work left to do, perform final cleanup and shut down */
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
+#define FD_SNAPSHOT_MSG_CTRL_BARRIER           (9UL) /* Synchronize all tiles up to this point in the pipeline */
 
 /* snapla -> snapls */
 #define FD_SNAPSHOT_HASH_MSG_RESULT_ADD        (9UL) /* Hash result sent from snapla to snapls */

@@ -315,6 +315,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   development.udpecho.affinity                     );
   CFG_POP      ( bool,   development.snapshots.disable_lthash_verification );
+  CFG_POP      ( uint,   development.snapshots.decompress_tile_count      );
 
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
     CFG_POP    ( bool,   development.gui.websocket_compression            );

@@ -1778,12 +1778,18 @@ user = ""
     [development.udpecho]
         affinity = "auto"
 
-    # Set to true to disable verification of the lthash in the
-    # snapshot loader.  This is not safe or supported in production
-    # and should only be used for development and testing purposes.
-    #
-    # If lthash verification is disabled, the validator will not
-    # start any lthash tiles and the value of `snapla_tile_count`
-    # in the layout will be ignored.
+    # Experimental snapshot loading options
     [development.snapshots]
+        # Set to true to disable verification of the lthash in the
+        # snapshot loader.  This is not safe or supported in production
+        # and should only be used for development and testing purposes.
+        #
+        # If lthash verification is disabled, the validator will not
+        # start any lthash tiles and the value of `snapla_tile_count`
+        # in the layout will be ignored.
         disable_lthash_verification = true
+
+        # Set numebr of decompression threads.  Values other than 1 only
+        # have an effect with snapshot files with an experimental
+        # compression format.  See src/discof/restore/fd_snapmk_para.c
+        decompress_tile_count = 1

@@ -428,13 +428,20 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
-
 static int
 handle_data_frag( fd_snapin_tile_t *  ctx,
+                  ulong               in_idx,
                   ulong               chunk,
                   ulong               sz,
+                  ulong               ctl,
                   fd_stem_context_t * stem ) {
+  if( in_idx!=0UL && !ctx->flags.manifest_processed ) return 1;
+  if( ctx->dirty ) FD_TEST( in_idx==ctx->dirty_idx );
+  ctx->dirty = !fd_frag_meta_ctl_eom( ctl );
+  if( ctx->dirty ) ctx->dirty_idx = in_idx;
+
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
+    FD_LOG_WARNING(( "invariant violation: received data frag after finishing snapshot" ));
     transition_malformed( ctx, stem );
     return 0;
   }
@@ -447,23 +454,26 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
   }
 
-  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
+  fd_snapin_in_t * in = &ctx->in[ in_idx ];
+  FD_TEST( chunk>=in->chunk0 && chunk<=in->wmark && sz<=in->mtu );
 
   if( FD_UNLIKELY( !ctx->lthash_disabled && ctx->buffered_batch.batch_cnt>0UL ) ) {
     fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch );
+    ctx->dirty = 1; ctx->dirty_idx = in_idx;
     return 1;
   }
 
   for(;;) {
-    if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
+    if( FD_UNLIKELY( sz-in->pos==0UL ) ) break;
 
-    uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ) + ctx->in.pos;
+    uchar const * data = (uchar const *)fd_chunk_to_laddr_const( in->wksp, chunk ) + in->pos;
 
     int early_exit = 0;
     fd_ssparse_advance_result_t result[1];
-    int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
+    int res = fd_ssparse_advance( ctx->ssparse, data, sz-in->pos, result );
     switch( res ) {
       case FD_SSPARSE_ADVANCE_ERROR:
+        FD_LOG_WARNING(( "snapshot parsing failed" ));
         transition_malformed( ctx, stem );
         return 0;
       case FD_SSPARSE_ADVANCE_AGAIN:
@@ -475,6 +485,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                                                 result->manifest.acc_vec_map,
                                                 result->manifest.acc_vec_pool );
         if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+          FD_LOG_WARNING(( "invalid snapshot manifest" ));
           transition_malformed( ctx, stem );
           return 0;
         } else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
@@ -492,6 +503,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                                                   bytes_remaining,
                                                   sd_result );
           if( FD_UNLIKELY( res<0 ) ) {
+            FD_LOG_WARNING(( "invalid slot deltas in snapshot" ));
             transition_malformed( ctx, stem );
             return 0;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) ) {
@@ -551,25 +563,76 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       ctx->flags.manifest_processed = 1;
     }
 
-    ctx->in.pos += result->bytes_consumed;
+    in->pos += result->bytes_consumed;
     if( FD_LIKELY( ctx->full ) ) ctx->metrics.full_bytes_read        += result->bytes_consumed;
     else                         ctx->metrics.incremental_bytes_read += result->bytes_consumed;
 
     if( FD_UNLIKELY( early_exit ) ) break;
   }
 
-  int reprocess_frag = ctx->in.pos<sz;
-  if( FD_LIKELY( !reprocess_frag ) ) ctx->in.pos = 0UL;
+  int reprocess_frag = in->pos<sz;
+  if( FD_LIKELY( !reprocess_frag ) ) {
+    in->pos = 0UL;
+  } else {
+    ctx->dirty = 1;
+    ctx->dirty_idx = in_idx;
+  }
   return reprocess_frag;
 }
 
-static void
+static fd_snapdc_barrier_t *
+fd_snapdc_barrier_init( fd_snapdc_barrier_t * barrier,
+                        uint                  tile_cnt ) {
+  *barrier = (fd_snapdc_barrier_t) {
+    .rem_set   = 0UL,
+    .ctrl_type = 0U,
+    .cnt       = tile_cnt,
+    .active    = 0
+  };
+  return barrier;
+}
+
+static int
+fd_snapdc_barrier_recv( fd_snapdc_barrier_t * barrier,
+                        uint                  in_idx,
+                        ulong                 ctrl_type ) {
+  if( FD_UNLIKELY( barrier->primed ) ) {
+    /* All tiles reached barrier, now let them pass */
+    barrier->rem_set = fd_ulong_clear_bit( barrier->rem_set, (int)in_idx );
+    barrier->primed  = !!barrier->rem_set;
+    return 1;
+  }
+  /* Still waiting for tiles to reach barrier */
+  if( !barrier->active ) {
+    barrier->active    = 1;
+    barrier->ctrl_type = (uint)ctrl_type;
+    barrier->rem_set   = (1UL<<barrier->cnt)-1UL;
+  } else {
+    if( FD_UNLIKELY( barrier->ctrl_type!=ctrl_type ) ) {
+      FD_LOG_ERR(( "received conflicting control messages from snapdc tiles: %u vs %u",
+                   barrier->ctrl_type, (uint)ctrl_type ));
+    }
+  }
+  barrier->rem_set = fd_ulong_clear_bit( barrier->rem_set, (int)in_idx );
+  if( !barrier->rem_set ) {
+    barrier->primed  = 1;
+    barrier->active  = 0;
+    barrier->rem_set = (1UL<<barrier->cnt)-1UL;
+  }
+  return 0;
+}
+
+static int
 handle_control_frag( fd_snapin_tile_t *  ctx,
-                     fd_stem_context_t * stem,
-                     ulong               sig ) {
+                     uint                in_idx,
+                     ulong               sig,
+                     fd_stem_context_t * stem ) {
+  ctx->dirty = 0;
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
+      if( !fd_snapdc_barrier_recv( &ctx->dc_barrier, in_idx, sig ) ) return 1;
+      if( in_idx!=0UL ) return 0;
       fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
@@ -594,6 +657,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
                ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      FD_LOG_DEBUG(( "state transition FAIL->IDLE" ));
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
       if( ctx->use_vinyl ) {
@@ -615,9 +679,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
                ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      if( !fd_snapdc_barrier_recv( &ctx->dc_barrier, in_idx, sig ) ) return 1;
+      if( in_idx!=0UL ) return 0;
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-        transition_malformed( ctx, stem );
-        return;
+       FD_LOG_WARNING(( "corrupt snapshot: unexpected end of TAR file" ));
+       transition_malformed( ctx, stem );
+       return 0;
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
@@ -638,9 +705,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
                ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      if( !fd_snapdc_barrier_recv( &ctx->dc_barrier, in_idx, sig ) ) return 1;
+      if( in_idx!=0UL ) return 0;
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
+        FD_LOG_WARNING(( "corrupt snapshot: unexpected end of TAR file" ));
         transition_malformed( ctx, stem );
-        return;
+        return 0;
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
@@ -674,6 +744,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
+      if( !fd_snapdc_barrier_recv( &ctx->dc_barrier, in_idx, sig ) ) return 1;
+      if( in_idx!=0UL ) return 0;
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       if( ctx->use_vinyl ) fd_snapin_vinyl_shutdown( ctx );
@@ -689,34 +761,48 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
       break;
 
+    case FD_SNAPSHOT_MSG_CTRL_BARRIER:
+      if( !fd_snapdc_barrier_recv( &ctx->dc_barrier, in_idx, sig ) ) return 1;
+      if( in_idx!=0UL ) return 0;
+      break;
+
     default:
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
-      return;
   }
 
   /* Forward the control message down the pipeline */
   fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  return 0;
+}
+
+static void
+before_credit( fd_snapin_tile_t *  ctx,
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
+  (void)charge_busy;
+  if( !ctx->dirty ) {
+    ctx->in_idx++;
+    if( ctx->in_idx==ctx->in_cnt ) ctx->in_idx = 0;
+  }
+  stem->next_in_idx = ctx->in_idx;
 }
 
 static inline int
 returnable_frag( fd_snapin_tile_t *  ctx,
-                 ulong               in_idx FD_PARAM_UNUSED,
+                 ulong               in_idx,
                  ulong               seq    FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               ctl,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   ctx->stem = stem;
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
-  else                                           handle_control_frag( ctx, stem, sig );
-  ctx->stem = NULL;
-
-  return 0;
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, in_idx, chunk, sz, ctl, stem );
+  else                                           return handle_control_frag( ctx, (uint)in_idx, sig, stem );
 }
 
 static ulong
@@ -807,6 +893,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
   ctx->lthash_disabled = tile->snapin.lthash_disabled;
+  ctx->dirty = 0;
 
   ctx->boot_timestamp = fd_log_wallclock();
 
@@ -835,7 +922,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
-  if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1", tile->in_cnt ));
+  if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "tile `" NAME "` has no ins" ));
+  if( FD_UNLIKELY( tile->in_cnt > DC_TILE_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` has too many ins" ));
 
   ctx->manifest_out = out1( topo, tile, "snapin_manif" );
   ctx->gui_out      = out1( topo, tile, "snapin_gui"   );
@@ -855,15 +943,20 @@ unprivileged_init( fd_topo_t *      topo,
   fd_ssparse_reset( ctx->ssparse );
   fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
   fd_slot_delta_parser_init( ctx->slot_delta_parser );
+  fd_snapdc_barrier_init( &ctx->dc_barrier, (uint)tile->in_cnt );
 
-  fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
-  FD_TEST( 0==strcmp( in_link->name, "snapdc_in" ) );
-  fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
-  ctx->in.wksp                   = in_wksp->wksp;
-  ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
-  ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
-  ctx->in.mtu                    = in_link->mtu;
-  ctx->in.pos                    = 0UL;
+  ctx->in_cnt = tile->in_cnt;
+  ctx->in_idx = 0UL;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
+    FD_TEST( 0==strcmp( in_link->name, "snapdc_in" ) );
+    fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
+    ctx->in[ i ].wksp                   = in_wksp->wksp;
+    ctx->in[ i ].chunk0                 = fd_dcache_compact_chunk0( ctx->in[ i ].wksp, in_link->dcache );
+    ctx->in[ i ].wmark                  = fd_dcache_compact_wmark( ctx->in[ i ].wksp, in_link->dcache, in_link->mtu );
+    ctx->in[ i ].mtu                    = in_link->mtu;
+    ctx->in[ i ].pos                    = 0UL;
+  }
 
   ctx->buffered_batch.batch_cnt     = 0UL;
   ctx->buffered_batch.remaining_idx = 0UL;
@@ -887,7 +980,10 @@ unprivileged_init( fd_topo_t *      topo,
 
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT   before_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+
+#define STEM_CUSTOM_IN_SELECT 1
 
 #include "../../disco/stem/fd_stem.c"
 
