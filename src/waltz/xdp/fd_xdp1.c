@@ -218,7 +218,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   /* Fill in jump labels */
 
   for( ulong i=0UL; i<code_cnt; i++ ) {
-    if( (code_buf[ i ] & 0x05)==0x05 ) {
+    if( (code_buf[ i ] & 0x07)==0x05 ) {
       ulong * jmp_target = 0;
       uint    jmp_label = (code_buf[ i ]>>16) & 0xFFFF;
       switch( jmp_label ) {
