@@ -144,8 +144,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Load accounts into database */
 
-  fd_txn_account_t * accts = txn_out->accounts.accounts;
-  fd_memset( accts, 0, test_ctx->accounts_count * sizeof(fd_txn_account_t) );
+  fd_txn_account_t accts[MAX_TX_ACCOUNT_LOCKS] = {0};
   txn_out->accounts.accounts_cnt = test_ctx->accounts_count;
 
   int has_program_id = 0;
@@ -154,7 +153,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
 
     memcpy(  &(txn_out->accounts.account_keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
-    if( !fd_solfuzz_pb_load_account( runtime, &accts[j], runner->accdb, xid, &test_ctx->accounts[j], 0, j ) ) {
+    if( !fd_solfuzz_pb_load_account( runtime, runner->accdb, xid, &test_ctx->accounts[j], 0, j, &accts[j].meta ) ) {
       return 0;
     }
     runtime->accounts.refcnt[j] = 0UL;
@@ -432,8 +431,9 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   /* Capture borrowed accounts */
 
   for( ulong j=0UL; j < ctx->txn_out->accounts.accounts_cnt; j++ ) {
-    fd_txn_account_t * acc = &ctx->txn_out->accounts.accounts[j];
-    if( !fd_txn_account_get_meta( acc ) ) {
+    fd_pubkey_t * acc_key = &ctx->txn_out->accounts.account_keys[j];
+    fd_account_meta_t * acc = ctx->txn_out->accounts.metas[j];
+    if( !acc ) {
       continue;
     }
 
@@ -444,22 +444,22 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
     memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
     /* Copy over account content */
 
-    memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
-    out_acct->lamports = fd_txn_account_get_lamports( acc );
-    if( fd_txn_account_get_data_len( acc )>0UL ) {
+    memcpy( out_acct->address, acc_key, sizeof(fd_pubkey_t) );
+    out_acct->lamports = acc->lamports;
+    if( acc->dlen>0UL ) {
       out_acct->data =
         FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                    PB_BYTES_ARRAY_T_ALLOCSIZE( fd_txn_account_get_data_len( acc ) ) );
+                                    PB_BYTES_ARRAY_T_ALLOCSIZE( acc->dlen ) );
       if( FD_UNLIKELY( _l > output_end ) ) {
         fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
         return 0UL;
       }
-      out_acct->data->size = (pb_size_t)fd_txn_account_get_data_len( acc );
-      fd_memcpy( out_acct->data->bytes, fd_txn_account_get_data( acc ), fd_txn_account_get_data_len( acc ) );
+      out_acct->data->size = (pb_size_t)acc->dlen;
+      fd_memcpy( out_acct->data->bytes, fd_account_data( acc ), acc->dlen );
     }
 
-    out_acct->executable = fd_txn_account_is_executable( acc );
-    memcpy( out_acct->owner, fd_txn_account_get_owner( acc ), sizeof(fd_pubkey_t) );
+    out_acct->executable = acc->executable;
+    memcpy( out_acct->owner, acc->owner, sizeof(fd_pubkey_t) );
 
     effects->modified_accounts_count++;
   }

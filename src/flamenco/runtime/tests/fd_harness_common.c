@@ -8,12 +8,12 @@
 
 int
 fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
-                            fd_txn_account_t *                acc,
                             fd_accdb_user_t *                 accdb,
                             fd_funk_txn_xid_t const *         xid,
                             fd_exec_test_acct_state_t const * state,
                             uchar                             reject_zero_lamports,
-                            ulong                             acc_idx ) {
+                            ulong                             acc_idx,
+                            fd_account_meta_t * *             meta_out ) {
   if( reject_zero_lamports && state->lamports==0UL ) {
     return 0;
   }
@@ -29,7 +29,12 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
     return 0;
   }
 
+  /* TODO: break the txn account dependency completely from the
+     harnesses. */
+
   fd_funk_rec_prepare_t prepare = {0};
+
+  fd_txn_account_t acc[1];
 
   int ok = !!fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                     /* pubkey      */ pubkey,
@@ -39,6 +44,9 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
                                                     /* min_data_sz */ size,
                                                     /* prepare     */ &prepare );
   assert( ok );
+  if( meta_out ) {
+    *meta_out = acc->meta;
+  }
 
   if( state->data ) {
     fd_txn_account_set_data( acc, state->data->bytes, size );

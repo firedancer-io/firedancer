@@ -344,8 +344,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
   vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
-    fd_txn_account_t acc[1];
-    fd_solfuzz_pb_load_account( runner->runtime, acc, accdb, xid, &test_ctx->acct_states[i], 1, i );
+    fd_solfuzz_pb_load_account( runner->runtime, accdb, xid, &test_ctx->acct_states[i], 1, i, NULL );
 
     /* Update vote accounts cache for epoch T */
     fd_pubkey_t pubkey;

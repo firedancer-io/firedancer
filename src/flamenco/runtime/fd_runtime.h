@@ -201,11 +201,7 @@ struct fd_txn_out {
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
      That is the limit we are going to use here. */
   struct {
-    /* TODO: These fd_txn_account_t arrays should be replaced with an
-       array of fd_account_meta_t pointers.  Currently, the
-       fd_txn_account_t is just a wrapper around uchar data pointers. */
     ulong                           accounts_cnt;
-    fd_txn_account_t                accounts[ MAX_TX_ACCOUNT_LOCKS ];
     /* The account keys are used by the CU rebating mechanism in the
        bank tile (leader pipeline). */
     fd_pubkey_t                     account_keys[ MAX_TX_ACCOUNT_LOCKS ];
