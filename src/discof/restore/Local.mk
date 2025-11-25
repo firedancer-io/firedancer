@@ -32,6 +32,7 @@ ifdef FD_HAS_ZSTD
 $(call add-objs,utils/fd_zstd_dskip,fd_discof)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_zstd_dskip,utils/test_zstd_dskip,fd_discof fd_flamenco fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_zstd_dskip,utils/fuzz_zstd_dskip,fd_discof fd_flamenco fd_ballet fd_util)
 endif
 endif
 
