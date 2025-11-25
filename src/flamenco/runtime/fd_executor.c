@@ -699,7 +699,7 @@ fd_collect_loaded_account( fd_runtime_t *            runtime,
   /* Try to read the program state
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L612-L634 */
   fd_bpf_upgradeable_loader_state_t loader_state[1];
-  err = fd_bpf_loader_program_get_state_inner( account_meta, loader_state );
+  err = fd_bpf_loader_program_get_state( account_meta, loader_state );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
@@ -1532,7 +1532,7 @@ fd_executor_setup_executable_account( fd_runtime_t *            runtime,
                                       fd_account_meta_t const * program_meta,
                                       ushort *                  executable_idx ) {
   fd_bpf_upgradeable_loader_state_t program_loader_state[1];
-  int err = fd_bpf_loader_program_get_state_inner( program_meta, program_loader_state );
+  int err = fd_bpf_loader_program_get_state( program_meta, program_loader_state );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return;
   }

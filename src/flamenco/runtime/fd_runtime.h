@@ -202,25 +202,23 @@ struct fd_txn_out {
      That is the limit we are going to use here. */
   struct {
     ulong                           cnt;
-    /* The account keys are used by the CU rebating mechanism in the
-       bank tile (leader pipeline). */
     fd_pubkey_t                     keys[ MAX_TX_ACCOUNT_LOCKS ];
     fd_account_meta_t *             metas[ MAX_TX_ACCOUNT_LOCKS ];
 
-    /* The rollback accounts are special cased accounts that are still
-       committed to the accounts database even if a transaction fails
-       to execute (but still lands on chain).  The state of both the
-       nonce and fee payer account is saved after the nonce is advanced
-       and the fee payer is debited.  If the transaction fails to
-       execute, the state must be rolled back to when the accounts were
-       in this state and then they are free to be committed to the
-       accounts database. */
-    ulong                           nonce_idx_in_txn;
-    fd_account_meta_t *             rollback_nonce;
+    /* The fee payer and nonce accounts are treated differently than
+       other accounts: if an on-transaction fails they are still
+       committed to the accounts database.  However, they are saved at
+       the point where they were before the transaction was executed
+       because the failed transaction could have potentially modified
+       these accounts.  The rollback fee payer and nonce are used to
+       store the state of these accounts after fees have been debited
+       and the nonce has been advanced, but before the transaction is
+       executed. */
+    fd_account_meta_t *             rollback_fee_payer;
     /* If the transaction has a nonce account that must be advanced,
        this would be !=ULONG_MAX. */
-    fd_account_meta_t *             rollback_fee_payer;
-
+    ulong                           nonce_idx_in_txn;
+    fd_account_meta_t *             rollback_nonce;
   } accounts;
 };
 typedef struct fd_txn_out fd_txn_out_t;
