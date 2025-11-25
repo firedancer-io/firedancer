@@ -1,17 +1,17 @@
+// #define _GNU_SOURCE /* O_DIRECT */
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../util/log/fd_log.h"
+#include "../../vinyl/bstream/fd_vinyl_bstream.h"
 
 #include "utils/fd_ssctrl.h"
 
 #include "generated/fd_snapls_tile_seccomp.h"
 
-#include "../../vinyl/io/fd_vinyl_io.h"
-#include "../../vinyl/bstream/fd_vinyl_bstream.h"
-
 #include <errno.h>
+#include <sys/stat.h> /* fstat */
 #include <fcntl.h> /* open */
 #include <unistd.h> /* close */
 
@@ -22,9 +22,9 @@
 #define MAX_IN_LINKS   (1 + FD_SNAPSHOT_MAX_SNAPLA_TILES)
 
 #define VINYL_LTHASH_PENDING_MAX  (4UL)
-#define VINYL_LTHASH_BLOCK_ALIGN  (4096UL)
+#define VINYL_LTHASH_BLOCK_ALIGN  (512UL) /* O_DIRECT would require 4096UL */
 #define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
-FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ), "VINYL_LTHASH_BLOCK_MAX_SZ" );
+FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
 
 struct fd_snapls_tile {
   int state;
@@ -60,9 +60,11 @@ struct fd_snapls_tile {
   } account_hdr;
 
   struct {
-    fd_vinyl_io_t * io;
-    fd_vinyl_io_t * io_bd;
-    void *          block_mem;
+    int             dev_fd;
+    ulong           dev_sz;
+    ulong           dev_base;
+    void *          pair_mem;
+    void *          pair_tmp;
     long            stats_tdelta_poll;
     long            stats_tdelta_read;
     long            stats_tdelta_comp;
@@ -122,6 +124,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapls_tile_t),           sizeof(fd_snapls_tile_t)           );
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_full_account_t), sizeof(fd_snapshot_full_account_t) );
   l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,            VINYL_LTHASH_BLOCK_MAX_SZ          );
+  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,            VINYL_LTHASH_BLOCK_MAX_SZ          );
   return FD_LAYOUT_FINI( l, alignof(fd_snapls_tile_t) );
 }
 
@@ -171,38 +174,69 @@ handle_vinyl_lthash_seq_check_until_match( fd_snapls_tile_t * ctx,
   return seq < ctx->vinyl.bstream_seq_last;
 }
 
+static inline void
+bd_read( int    fd,
+         ulong  off,
+         void * buf,
+         ulong  sz ) {
+  ssize_t ssz = pread( fd, buf, sz, (off_t)off );
+  if( FD_LIKELY( ssz==(ssize_t)sz ) ) return;
+  if( ssz<(ssize_t)0 ) FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (%i-%s)", fd, off, sz, errno, fd_io_strerror( errno ) ));
+  /**/                 FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
+}
+
 static void
 handle_vinyl_lthash_request( fd_snapls_tile_t *        ctx,
                              ulong                     seq,
                              fd_vinyl_bstream_phdr_t * acc_hdr ) {
   long t0 = fd_log_wallclock();
+  /* no more polling */
+  long t1 = fd_log_wallclock();
+  ctx->vinyl.stats_tdelta_poll += t1-t0;
 
-  fd_vinyl_bstream_block_t block[1];
+  ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
+  ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
+
+  ulong dev_seq  = seq + ctx->vinyl.dev_base; /* this is where the seq is physically located in device. */
+  ulong rd_off   = fd_ulong_align_dn( dev_seq, VINYL_LTHASH_BLOCK_ALIGN );
+  ulong pair_off = (dev_seq - rd_off);
+  ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, VINYL_LTHASH_BLOCK_ALIGN );
+  FD_TEST( rd_sz < VINYL_LTHASH_BLOCK_MAX_SZ );
+
+  uchar * pair = ((uchar*)ctx->vinyl.pair_mem) + pair_off;
+  fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)pair;
+
   for(;;) {
-    fd_vinyl_io_read_imm( ctx->vinyl.io, seq, block, sizeof(fd_vinyl_bstream_block_t) );
-    if( FD_LIKELY( !memcmp( &block->phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) ) ) {
+    ulong sz    = rd_sz;
+    ulong rsz   = fd_ulong_min( rd_sz, ctx->vinyl.dev_sz - rd_off );
+    uchar * dst = ctx->vinyl.pair_mem;
+    uchar * tmp = ctx->vinyl.pair_tmp;
+    bd_read( ctx->vinyl.dev_fd, rd_off, dst, rsz );
+    sz -= rsz;
+    if( FD_UNLIKELY( sz ) ) {
+      /* When the dev wraps around, the dev_base needs to be skipped.
+         This means: increase the size multiple of the alignment,
+         read into a temporary buffer, and memcpy into the dst at the
+         correct offset. */
+      bd_read( ctx->vinyl.dev_fd, 0, tmp, sz + VINYL_LTHASH_BLOCK_ALIGN );
+      fd_memcpy( dst + rsz, tmp + ctx->vinyl.dev_base, sz );
+    }
+
+    if( FD_LIKELY( !memcmp( phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) ) ) {
       break;
     }
+    FD_LOG_WARNING(( "phdr mismatch!" ));
     FD_SPIN_PAUSE();
     ctx->vinyl.stats_phdr_reload++;
   }
 
-  long t1 = fd_log_wallclock();
-  ctx->vinyl.stats_tdelta_poll += t1-t0;
-
-  ulong val_esz       = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
-  ulong block_sz      = fd_vinyl_bstream_pair_sz( val_esz );
-  FD_TEST( block_sz < VINYL_LTHASH_BLOCK_MAX_SZ );
-  fd_vinyl_io_read_imm( ctx->vinyl.io, seq, ctx->vinyl.block_mem, block_sz );
-
   long t2 = fd_log_wallclock();
   ctx->vinyl.stats_tdelta_read += t2-t1;
 
-  uchar * pair = (uchar*)ctx->vinyl.block_mem;
   pair += sizeof(fd_vinyl_bstream_phdr_t);
   fd_account_meta_t const * meta       = (fd_account_meta_t *)pair;
   void const *              data       = (void const *)( meta+1 );
-  void const *              pubkey     = block->phdr.key.uc;
+  void const *              pubkey     = phdr->key.uc;
   ulong                     data_sz    = meta->dlen;
   ulong                     lamports   = meta->lamports;
   _Bool                     executable = !!meta->executable;
@@ -566,28 +600,24 @@ privileged_init( fd_topo_t *      topo,
   /* Set up io_bd dependencies */
 
   char const * bstream_path = tile->snapls.vinyl_path;
-  int dev_fd = open( bstream_path, O_RDONLY|O_CLOEXEC );
+  /* Note: it would be possible to use O_DIRECT, but it would require
+     VINYL_LTHASH_BLOCK_ALIGN to be 4096UL, which substantially
+     increases the read overhead, making it slower (keep in mind that
+     a rather large subset of mainnet accounts typically fits inside
+     one FD_VINYL_BSTREAM_BLOCK_SZ. */
+  int dev_fd = open( bstream_path, O_RDONLY|O_CLOEXEC, 0444 );
   if( FD_UNLIKELY( dev_fd<0 ) ) {
-    FD_LOG_ERR(( "open(%s,O_RDONLY|O_CLOEXEC) failed (%i-%s)",
+    FD_LOG_ERR(( "open(%s,O_RDONLY|O_CLOEXEC, 0444) failed (%i-%s)",
                  bstream_path, errno, fd_io_strerror( errno ) ));
   }
 
-  ulong  io_spad_max = 1UL<<20;
-  void * io_bd       = aligned_alloc( fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( io_spad_max ) );
-  FD_TEST( io_bd );
-  fd_vinyl_io_t * io = fd_vinyl_io_bd_init( io_bd, io_spad_max, dev_fd, 0/*reset*/, NULL, 0UL, 0UL );
-  FD_TEST( io );
+  struct stat st;
+  if( FD_UNLIKELY( 0!=fstat( dev_fd, &st ) ) ) FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", bstream_path, errno, strerror( errno ) ));
 
-  /* Sequences are not synchronized with the writing io_bd. */
-  io->seq_ancient = 0;
-  io->seq_past    = 0;
-  io->seq_present = ULONG_MAX>>1;
-  io->seq_future  = ULONG_MAX>>1;
-
-  ctx->vinyl.io_bd   = io_bd;
-  ctx->vinyl.io      = io;
+  ctx->vinyl.dev_fd  = dev_fd;
+  ctx->vinyl.dev_sz  = fd_ulong_align_dn( (ulong)st.st_size, FD_VINYL_BSTREAM_BLOCK_SZ );
+  ctx->vinyl.dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
 }
-
 
 static void
 unprivileged_init( fd_topo_t *      topo,
@@ -596,9 +626,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapls_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapls_tile_t), sizeof(fd_snapls_tile_t) );
-  void *       block_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
+  void *       pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
+  void *       pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
 
-  ctx->vinyl.block_mem = block_mem;
+  ctx->vinyl.pair_mem = pair_mem;
+  ctx->vinyl.pair_tmp = pair_tmp; /* only needed when a wrap-around takes place. */
+
   ctx->vinyl.stats_tdelta_poll = 0L;
   ctx->vinyl.stats_tdelta_read = 0L;
   ctx->vinyl.stats_tdelta_comp = 0L;
