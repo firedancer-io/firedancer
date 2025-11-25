@@ -187,12 +187,8 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
     return;
   }
 
-  fd_txn_account_t stake_account[1];
-  stake_account->data = (uchar *)fd_account_data( meta );
-  stake_account->meta = (fd_account_meta_t *)meta;
-
   fd_stake_state_v2_t stake_state;
-  int err = fd_stake_get_state( stake_account->meta, &stake_state );
+  int err = fd_stake_get_state( meta, &stake_state );
   if( FD_UNLIKELY( err!=0 ) ) {
     fd_stake_delegations_remove( stake_delegations_delta, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
