@@ -16,8 +16,8 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *          runtime,
                                           ulong                   txn_idx );
 
 void
-fd_sysvar_instructions_update_current_instr_idx( fd_txn_account_t * rec,
-                                                 ushort             current_instr_idx );
+fd_sysvar_instructions_update_current_instr_idx( fd_account_meta_t * meta,
+                                                 ushort              current_instr_idx );
 
 FD_PROTOTYPES_END
 

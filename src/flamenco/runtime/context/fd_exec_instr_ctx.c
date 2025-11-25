@@ -57,7 +57,7 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
-  fd_txn_account_t * txn_account = &ctx->txn_out->accounts.accounts[idx_in_txn];
+  fd_account_meta_t * meta = ctx->txn_out->accounts.metas[idx_in_txn];
 
   /* Return an AccountBorrowFailed error if the write is not acquirable.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L605 */
@@ -70,7 +70,7 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L606 */
   fd_borrowed_account_init( account,
                             &ctx->txn_out->accounts.account_keys[idx_in_txn],
-                            txn_account->meta,
+                            meta,
                             ctx,
                             idx_in_instr,
                             &ctx->runtime->accounts.refcnt[idx_in_txn] );

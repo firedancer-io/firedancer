@@ -1189,7 +1189,6 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
   int idx = fd_runtime_find_index_of_account( txn_out, &fd_sysvar_instructions_id );
   if( FD_UNLIKELY( idx!=-1 ) ) {
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L397-L400 */
-    fd_txn_account_t * sysvar_instructions_account = &txn_out->accounts.accounts[idx];
     err = fd_runtime_get_account_at_index( txn_in, txn_out, (ushort)idx, NULL );
     if( FD_UNLIKELY( err ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -1204,7 +1203,7 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
     refcnt++;
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L403-L406 */
-    fd_sysvar_instructions_update_current_instr_idx( sysvar_instructions_account, (ushort)runtime->instr.current_idx );
+    fd_sysvar_instructions_update_current_instr_idx( txn_out->accounts.metas[idx], (ushort)runtime->instr.current_idx );
     refcnt--;
   }
 

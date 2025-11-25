@@ -157,7 +157,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     if( !fd_solfuzz_pb_load_account( runtime, &accts[j], runner->accdb, xid, &test_ctx->accounts[j], 0, j ) ) {
       return 0;
     }
-    txn_out->accounts.metas[j] = accts[j].meta;
     runtime->accounts.refcnt[j] = 0UL;
 
     fd_txn_account_t * acc = &accts[j];
@@ -170,7 +169,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
         FD_LOG_CRIT(( "Failed to join and new a txn account" ));
       }
     }
-
+    txn_out->accounts.metas[j] = accts[j].meta;
 
     if( !memcmp( accts[j].pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       has_program_id = 1;
