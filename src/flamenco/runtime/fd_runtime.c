@@ -1228,8 +1228,8 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
       fd_runtime_save_account( runtime->funk,
                                &xid,
-                               txn_out->accounts.rollback_fee_payer->pubkey,
-                               txn_out->accounts.rollback_fee_payer->meta,
+                               &txn_out->accounts.account_keys[FD_FEE_PAYER_TXN_IDX],
+                               txn_out->accounts.rollback_fee_payer,
                                bank,
                                runtime->log.capture_ctx );
     }

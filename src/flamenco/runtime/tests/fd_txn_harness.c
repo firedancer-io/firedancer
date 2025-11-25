@@ -496,7 +496,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
       accounts_cnt     = 0UL;
 
       if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-        accounts_to_save[accounts_cnt++] = txn_out->accounts.rollback_fee_payer->meta;
+        accounts_to_save[accounts_cnt++] = txn_out->accounts.rollback_fee_payer;
       }
 
       if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {

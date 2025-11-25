@@ -970,15 +970,14 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
                                                fd_txn_in_t const * txn_in,
                                                fd_txn_out_t *      txn_out,
                                                ulong               total_fee ) {
-  fd_pubkey_t *      fee_payer_key = &txn_out->accounts.account_keys[FD_FEE_PAYER_TXN_IDX];
-  fd_txn_account_t * rollback_fee_payer_acc;
+  fd_pubkey_t * fee_payer_key = &txn_out->accounts.account_keys[FD_FEE_PAYER_TXN_IDX];
 
   /* When setting the data of the rollback fee payer, there is an edge
      case where the fee payer is the nonce account.  In this case, we
      can just deduct fees from the nonce account and return, because
      we save the nonce account in the commit phase anyways. */
   if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
-    rollback_fee_payer_acc = txn_out->accounts.rollback_nonce;
+    txn_out->accounts.rollback_fee_payer = txn_out->accounts.rollback_nonce->meta;
   } else {
     fd_account_meta_t const * meta = NULL;
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
@@ -1012,19 +1011,11 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
 
     uchar * fee_payer_data = txn_in->exec_accounts->rollback_fee_payer_mem;
     fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
-    if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
-          txn_out->accounts.rollback_fee_payer,
-          fee_payer_key,
-          (fd_account_meta_t *)fee_payer_data,
-          1 ) ) ) ) {
-      FD_LOG_CRIT(( "Failed to join txn account" ));
-    }
-
-    rollback_fee_payer_acc = txn_out->accounts.rollback_fee_payer;
+    txn_out->accounts.rollback_fee_payer = fd_type_pun( fee_payer_data );
   }
 
   /* Deduct the transaction fees from the rollback account. Because of prior checks, this should never fail. */
-  if( FD_UNLIKELY( fd_txn_account_checked_sub_lamports( rollback_fee_payer_acc, total_fee ) ) ) {
+  if( FD_UNLIKELY( fd_account_meta_checked_sub_lamports( txn_out->accounts.rollback_fee_payer, total_fee ) ) ) {
     FD_LOG_ERR(( "fd_executor_create_rollback_fee_payer_account(): failed to deduct fees from rollback account" ));
   }
 }
