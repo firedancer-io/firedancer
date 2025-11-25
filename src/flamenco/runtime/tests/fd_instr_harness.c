@@ -237,12 +237,20 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       }
 
       fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
-      if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( &runtime->accounts.executables[runtime->accounts.executable_cnt],
-                                                               programdata_acc,
-                                                               runtime->funk,
-                                                               xid ) ) ) {
+
+      fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
+          runtime->funk,
+          xid,
+          programdata_acc,
+          NULL,
+          &err,
+          NULL );
+
+      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         continue;
       }
+      runtime->accounts.executable_pubkeys[runtime->accounts.executable_cnt] = *programdata_acc;
+      runtime->accounts.executables_meta[runtime->accounts.executable_cnt]   = (fd_account_meta_t *)meta;
       runtime->accounts.executable_cnt++;
     }
   }

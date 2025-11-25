@@ -1816,10 +1816,9 @@ fd_runtime_get_executable_account( fd_runtime_t *        runtime,
   }
 
   for( ushort i=0; i<runtime->accounts.executable_cnt; i++ ) {
-    if( memcmp( pubkey->uc, runtime->accounts.executables[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
-      fd_txn_account_t * txn_account = &runtime->accounts.executables[i];
-      *meta = txn_account->meta;
-      if( FD_UNLIKELY( !fd_account_meta_exists( txn_account->meta ) ) ) {
+    if( memcmp( pubkey->uc, runtime->accounts.executable_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
+      *meta = runtime->accounts.executables_meta[i];
+      if( FD_UNLIKELY( !fd_account_meta_exists( *meta ) ) ) {
         return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
       }
       return FD_ACC_MGR_SUCCESS;

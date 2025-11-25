@@ -1568,10 +1568,17 @@ fd_executor_setup_executable_account( fd_runtime_t *           runtime,
       account will not exist within the executable accounts list. */
   fd_pubkey_t *     programdata_acc = &program_loader_state->inner.program.programdata_address;
   fd_funk_txn_xid_t xid             = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-  if( FD_LIKELY( fd_txn_account_init_from_funk_readonly( &runtime->accounts.executables[ *executable_idx ],
-                                                         programdata_acc,
-                                                         runtime->funk,
-                                                         &xid )==0 ) ) {
+
+  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
+      runtime->funk,
+      &xid,
+      programdata_acc,
+      NULL,
+      &err,
+      NULL );
+  if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
+    runtime->accounts.executable_pubkeys[*executable_idx] = *programdata_acc;
+    runtime->accounts.executables_meta[*executable_idx]   = (fd_account_meta_t *)meta;
     (*executable_idx)++;
   }
 }

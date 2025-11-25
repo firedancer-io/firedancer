@@ -935,14 +935,14 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Add executable accounts */
   for( ulong i = 0; i < runtime->accounts.executable_cnt; i++ ) {
     fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, runtime->accounts.executables[i].pubkey, runtime->funk, &xid );
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &runtime->accounts.executable_pubkeys[i], runtime->funk, &xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
     // Make sure the account doesn't exist in the output accounts yet
     bool account_exists = false;
     for( ulong j = 0; j < instr_context->accounts_count; j++ ) {
-      if( 0 == memcmp( instr_context->accounts[j].address, runtime->accounts.executables[i].pubkey->uc, sizeof(fd_pubkey_t) ) ) {
+      if( 0 == memcmp( instr_context->accounts[j].address, runtime->accounts.executable_pubkeys[i].uc, sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }
