@@ -1,5 +1,5 @@
 #include "fd_accdb_admin.h"
-#include "fd_accdb_user.h"
+#include "fd_accdb_impl_v1.h"
 #include "../../funk/test_funk_common.h"
 #include "../../funk/test_funk_common.c"
 
@@ -169,8 +169,9 @@ test_random_ops( fd_wksp_t * wksp,
   fd_accdb_admin_t admin[1];
   FD_TEST( fd_accdb_admin_join( admin, shfunk ) );
   fd_accdb_user_t accdb[1];
-  FD_TEST( fd_accdb_user_join( accdb, shfunk ) );
+  FD_TEST( fd_accdb_user_v1_init( accdb, shfunk ) );
   verify_accdb_empty( admin );
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
 
   fd_funk_txn_xid_t txid[1];
   fd_funk_rec_key_t tkey[1];
@@ -186,8 +187,8 @@ test_random_ops( fd_wksp_t * wksp,
     uint op = fd_rng_uint_roll( rng, 1U+2U+8U );
     if( op>=3U ) { /* insert (2x as frequent as attach_child) */
 
-      if( FD_UNLIKELY( fd_funk_rec_is_full( accdb->funk ) ) ) continue;
-      if( FD_UNLIKELY( !ref->txn_cnt                      ) ) continue;
+      if( FD_UNLIKELY( fd_funk_rec_is_full( funk ) ) ) continue;
+      if( FD_UNLIKELY( !ref->txn_cnt               ) ) continue;
 
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt );
       txn_t * rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
@@ -199,26 +200,26 @@ test_random_ops( fd_wksp_t * wksp,
         /* record already exists ... cross-check with funk */
         fd_funk_xid_key_pair_t key[1]; xid_set( key->xid, rxid ); key_set( key->key, rkey );
         fd_funk_rec_map_query_t query[1];
-        FD_TEST( fd_funk_rec_map_query_try( accdb->funk->rec_map, key, NULL, query, 0 )==FD_MAP_SUCCESS );
+        FD_TEST( fd_funk_rec_map_query_try( funk->rec_map, key, NULL, query, 0 )==FD_MAP_SUCCESS );
         continue;
       }
       rec_insert( ref, rtxn, rkey );
 
       int err;
       fd_funk_rec_prepare_t prepare[1];
-      fd_funk_rec_t * trec = fd_funk_rec_prepare( accdb->funk, xid_set( txid, rxid ), key_set( tkey, rkey ), prepare, &err );
+      fd_funk_rec_t * trec = fd_funk_rec_prepare( funk, xid_set( txid, rxid ), key_set( tkey, rkey ), prepare, &err );
       FD_TEST( trec );
-      void * val = fd_funk_val_truncate( trec, accdb->funk->alloc, accdb->funk->wksp, 1UL, 8UL, NULL );
+      void * val = fd_funk_val_truncate( trec, funk->alloc, funk->wksp, 1UL, 8UL, NULL );
       FD_TEST( val );
       FD_STORE( ulong, val, rkey );
-      fd_funk_rec_publish( accdb->funk, prepare );
+      fd_funk_rec_publish( funk, prepare );
 #if VERBOSE
       FD_LOG_DEBUG(( "accdb insert key %lu txn %lu:%lu", rkey, txid->ul[0], txid->ul[1] ));
 #endif
 
     } else if( op>=1U ) { /* attach_child (2x as frequent as advance_root) */
 
-      if( FD_UNLIKELY( fd_funk_txn_is_full( accdb->funk ) ) ) continue;
+      if( FD_UNLIKELY( fd_funk_txn_is_full( funk ) ) ) continue;
 
       txn_t *           rparent;
       fd_funk_txn_xid_t tparent;
@@ -229,7 +230,7 @@ test_random_ops( fd_wksp_t * wksp,
         xid_set( &tparent, rparent->xid );
       } else { /* Branch off last published */
         rparent = NULL;
-        fd_funk_txn_xid_copy( &tparent, fd_funk_last_publish( accdb->funk ) );
+        fd_funk_txn_xid_copy( &tparent, fd_funk_last_publish( funk ) );
       }
 
       ulong rxid = xid_unique();
@@ -261,7 +262,7 @@ test_random_ops( fd_wksp_t * wksp,
   verify_accdb_empty( admin );
   fd_accdb_verify( admin );
 
-  fd_accdb_user_leave( accdb, NULL );
+  fd_accdb_user_fini( accdb );
   fd_accdb_admin_leave( admin, NULL );
   fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
 

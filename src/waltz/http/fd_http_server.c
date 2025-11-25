@@ -1230,6 +1230,8 @@ fd_http_server_reserve( fd_http_server_t * http,
                   else.  Mark the hcache as errored and exit. */
 
       FD_LOG_WARNING(( "tried to reserve %lu bytes for an outgoing message which exceeds the entire data size", http->stage_len+len ));
+      FD_LOG_HEXDUMP_WARNING(( "start of message:\n%.*s", http->oring+http->stage_off, fd_ulong_min( 500UL, http->oring_sz-http->stage_off-1UL ) ));
+      FD_LOG_HEXDUMP_WARNING(( "start of buffer:\n%.*s",  http->oring,                 fd_ulong_min( 500UL, http->oring_sz )                     ));
       http->stage_err = 1;
       return;
     } else {

@@ -3,15 +3,13 @@
 
 #include "../../util/pod/fd_pod_format.h"
 #include "../../discof/replay/fd_exec.h"
-#include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector.h"
 #include "../../disco/metrics/fd_metrics.h"
-
-#include "../../funk/fd_funk.h"
 
 /* The exec tile is responsible for executing single transactions. The
    tile recieves a parsed transaction (fd_txn_p_t) and an identifier to
@@ -49,7 +47,7 @@ typedef struct fd_exec_tile_ctx {
      a funk_txn and a bank. These are queried from fd_banks_t and
      fd_funk_t. */
   fd_banks_t *          banks;
-  fd_funk_t             funk[1];
+  fd_accdb_user_t       accdb[1];
   fd_progcache_t        progcache[1];
 
   fd_txncache_t *       txncache;
@@ -76,7 +74,7 @@ typedef struct fd_exec_tile_ctx {
   uchar                 dumping_mem[ FD_SPAD_FOOTPRINT( 1UL<<28UL ) ] __attribute__((aligned(FD_SPAD_ALIGN)));
   uchar                 tracing_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_VM_TRACE_STATIC_ALIGN)));
 
-  fd_runtime_t runtime;
+  fd_runtime_t runtime[1];
 
 } fd_exec_tile_ctx_t;
 
@@ -133,11 +131,11 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         ctx->txn_in.txn           = &msg->txn;
         ctx->txn_in.exec_accounts = &ctx->exec_accounts;
 
-        fd_runtime_prepare_and_execute_txn( &ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+        fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
         /* Commit. */
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          fd_runtime_commit_txn( &ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
         }
 
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
@@ -255,8 +253,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   void * shfunk = fd_topo_obj_laddr( topo, tile->exec.funk_obj_id );
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, shfunk ) ) ) {
-    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  if( FD_UNLIKELY( !fd_accdb_user_v1_init( ctx->accdb, shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_accdb_user_v1_init() failed" ));
   }
 
   void * shprogcache = fd_topo_obj_laddr( topo, tile->exec.progcache_obj_id );
@@ -305,17 +303,14 @@ unprivileged_init( fd_topo_t *      topo,
   /* Runtime                                                          */
   /********************************************************************/
 
-  ctx->runtime = (fd_runtime_t) {
-    .funk         = ctx->funk,
-    .status_cache = ctx->txncache,
-    .progcache    = ctx->progcache,
-    .log          = {
-      .dumping_mem   = ctx->dumping_mem,
-      .tracing_mem   = &ctx->tracing_mem[0][0],
-      .log_collector = &ctx->log_collector,
-      .capture_ctx   = ctx->capture_ctx,
-    }
-  };
+  ctx->runtime->accdb = ctx->accdb;
+  ctx->runtime->funk = fd_accdb_user_v1_funk( ctx->accdb );
+  ctx->runtime->progcache = ctx->progcache;
+  ctx->runtime->status_cache = ctx->txncache;
+  ctx->runtime->log.log_collector = &ctx->log_collector;
+  ctx->runtime->log.enable_log_collector = 0;
+  ctx->runtime->log.dumping_mem = ctx->dumping_mem;
+  ctx->runtime->log.tracing_mem = &ctx->tracing_mem[0][0];
 }
 
 /* Publish the next account update event buffered in the capture tile to the replay tile

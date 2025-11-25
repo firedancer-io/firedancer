@@ -501,7 +501,7 @@ fd_progcache_lock_best_txn( fd_progcache_t * cache,
 
 static fd_progcache_rec_t const *
 fd_progcache_insert( fd_progcache_t *           cache,
-                     fd_funk_t *                accdb,
+                     fd_accdb_user_t *          accdb,
                      fd_funk_txn_xid_t const *  load_xid,
                      void const *               prog_addr,
                      fd_prog_load_env_t const * env,
@@ -617,7 +617,7 @@ fd_progcache_insert( fd_progcache_t *           cache,
 
 fd_progcache_rec_t const *
 fd_progcache_pull( fd_progcache_t *           cache,
-                   fd_funk_t *                accdb,
+                   fd_accdb_user_t *          accdb,
                    fd_funk_txn_xid_t const *  xid,
                    void const *               prog_addr,
                    fd_prog_load_env_t const * env ) {

@@ -29,6 +29,7 @@
 #define FD_EBPF_ASM_jeq_imm( dst, imm, off ) FD_EBPF_ASM_JUMP_COND_IMM( 0x15, dst, imm, off )
 #define FD_EBPF_ASM_jne_imm( dst, imm, off ) FD_EBPF_ASM_JUMP_COND_IMM( 0x55, dst, imm, off )
 #define FD_EBPF_ASM_jgt_reg( dst, src, off ) FD_EBPF_ASM_JUMP_COND_REG( 0x2d, dst, src, off )
+#define FD_EBPF_ASM_jlt_imm( dst, imm, off ) FD_EBPF_ASM_JUMP_COND_IMM( 0xa5, dst, imm, off )
 
 #define FD_EBPF_ASM_call( off ) (0x85 | ((off&0xFFFFFFFFUL)<<32))
 

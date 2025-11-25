@@ -108,6 +108,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( ldxb, r4, r2, 0                          );  // r4 = ip4_hdr->verihl
   *(code++) = FD_EBPF( and64_imm, r4, 0x0f                      );  // r4 = ip4_hdr->ihl (lsb of ip4_hrd->verihl)
   *(code++) = FD_EBPF( lsh64_imm, r4, 2                         );  // r4 = ip4_hdr->ihl*4 (length of ipv4 header)
+  *(code++) = FD_EBPF( jlt_imm, r4, 20, LBL_PASS                );  // if r4<20 goto LBL_PASS
   *(code++) = FD_EBPF( add64_reg, r4, r2                        );  // r4 = &ip4_hdr + length of ip4_hdr = start of next hdr
 
   /* Check if the next hdr is udp or gre */
@@ -160,6 +161,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( ldxb, r4, r2, 0                          );  // r4 = inner ip4_hdr->verihl
   *(code++) = FD_EBPF( and64_imm, r4, 0x0f                      );  // r4 = inner ip4_hdr->ihl
   *(code++) = FD_EBPF( lsh64_imm, r4, 2                         );  // r4 = ip4_hdr->ihl*4 (length of ipv4 header)
+  *(code++) = FD_EBPF( jlt_imm, r4, 20, LBL_PASS                );  // if r4<20 goto LBL_PASS
   *(code++) = FD_EBPF( add64_reg, r4, r2                        );  // r4 = start of udp_hdr
 
   /*
@@ -325,7 +327,7 @@ fd_xdp_install( uint           if_idx,
     }
   }
 
-  if( FD_UNLIKELY( -1==close( prog_fd ) ) ) FD_LOG_ERR(( "close(%d) failed (%i-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( prog_fd ) ) ) FD_LOG_ERR(( "close(%d) failed (%i-%s)", prog_fd, errno, fd_io_strerror( errno ) ));
 
   return (fd_xdp_fds_t){
     .xsk_map_fd   = xsk_map_fd,

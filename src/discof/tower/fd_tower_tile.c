@@ -17,7 +17,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../discof/replay/fd_replay_tile.h"
-#include "../../flamenco/fd_flamenco_base.h"
+#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../util/pod/fd_pod.h"
 
@@ -189,8 +189,7 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( TOWER, HARD_FORKS_SEEN,     ctx->metrics.hard_forks.seen   );
   FD_MCNT_SET( TOWER, HARD_FORKS_PRUNED,   ctx->metrics.hard_forks.pruned );
 
-  FD_MGAUGE_SET( TOWER, HARD_FORKS_ACTIVE,    ctx->metrics.hard_forks.active    );
-  FD_MGAUGE_SET( TOWER, HARD_FORKS_MAX_WIDTH, ctx->metrics.hard_forks.max_width );
+  FD_MGAUGE_SET( TOWER, HARD_FORKS_ACTIVE, ctx->metrics.hard_forks.active    );
 }
 
 static void
@@ -825,7 +824,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX );
   FD_TEST( funk_obj_id!=ULONG_MAX );
-  FD_TEST( fd_accdb_user_join( ctx->accdb, fd_topo_obj_laddr( topo, funk_obj_id ) ) );
+  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, funk_obj_id ) ) );
 
   FD_TEST( tile->in_cnt<sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

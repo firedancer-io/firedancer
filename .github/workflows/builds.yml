@@ -96,7 +96,7 @@ jobs:
       group: fd-public-repo
     if: ${{ inputs.gcc != 'none' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -151,7 +151,7 @@ jobs:
       group: fd-public-repo
     if: ${{ inputs.clang != 'none' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -209,7 +209,7 @@ jobs:
       matrix:
         gcc_version: [12]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 

@@ -36,7 +36,9 @@ fd_http_resolver_new( void *                           shmem,
    be unique. */
 void
 fd_http_resolver_add( fd_http_resolver_t * resolver,
-                      fd_ip4_port_t        addr );
+                      fd_ip4_port_t        addr,
+                      char const *         hostname,
+                      int                  is_https );
 
 fd_http_resolver_t *
 fd_http_resolver_join( void * shresolve );

@@ -6,6 +6,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/gui/fd_gui_config_parse.h"
+#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
@@ -519,16 +520,19 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
         /* We exepect ConfigKeys Vec to be length 2.  We expect the size
            of ConfigProgram-owned accounts to be
-           FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, since this the the
-           size that the solana CLI allocates for them.  Although the
-           Config program itself does not enforce this limit, the vast
-           majority of accounts (with a tiny number of excpetions on
-           devnet) are maintained with the solana cli. */
+           FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, since this the size
+           that the solana CLI allocates for them.  Although the Config
+           program itself does not enforce this limit, the vast majority
+           of accounts (with a tiny number of excpetions on devnet) are
+           maintained with the solana cli. */
         if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX && !memcmp( result->account_data.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) && result->account_data.data_sz && *(uchar *)result->account_data.data==2UL && result->account_data.data_sz<=FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ ) ) {
           uchar * acct = fd_chunk_to_laddr( ctx->gui_out.mem, ctx->gui_out.chunk );
           fd_memcpy( acct, result->account_data.data, result->account_data.data_sz );
-          fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz, 0UL, 0UL, 0UL );
-          ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz, ctx->gui_out.chunk0, ctx->gui_out.wmark );
+
+          /* We add 1 to the frag size since the cJSON parser used by
+             the gui tile requires one byte past the parsable JSON */
+          fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz+1UL, 0UL, 0UL, 0UL );
+          ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz+1UL, ctx->gui_out.chunk0, ctx->gui_out.wmark );
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
@@ -806,8 +810,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->boot_timestamp = fd_log_wallclock();
 
-  FD_TEST( fd_accdb_admin_join( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
-  FD_TEST( fd_accdb_user_join ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_admin_join  ( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_user_v1_init( ctx->accdb,       fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->accdb_admin->funk ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );

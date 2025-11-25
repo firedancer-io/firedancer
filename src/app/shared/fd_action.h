@@ -138,6 +138,11 @@ union fdctl_args {
     ulong cache_rec_max;
   } snapshot_load;
 
+  struct {
+    ulong max_entries;
+    ulong max_contact;
+    int   compact_mode;
+  } gossip;
 };
 
 typedef union fdctl_args args_t;

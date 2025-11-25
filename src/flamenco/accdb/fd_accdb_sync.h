@@ -2,22 +2,11 @@
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_sync_h
 
 /* fd_accdb_sync.h provides synchronous blocking APIs for the account
-   database. */
+   database.  These are slow and should only be used for management ops. */
 
 #include "fd_accdb_user.h"
-#include "fd_accdb_ref.h"
 
 /* Speculative zero-copy read API *************************************/
-
-/* fd_accdb_peek_t is an ephemeral lock-free read-only pointer to an
-   account in database cache. */
-
-struct fd_accdb_peek {
-  fd_accdb_ro_t   acc[1];
-  fd_accdb_spec_t spec[1];
-};
-
-typedef struct fd_accdb_peek fd_accdb_peek_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -40,11 +29,13 @@ FD_PROTOTYPES_BEGIN
      }
      ... happy path ... */
 
-fd_accdb_peek_t *
+static inline fd_accdb_peek_t *
 fd_accdb_peek( fd_accdb_user_t *         accdb,
                fd_accdb_peek_t *         peek,
                fd_funk_txn_xid_t const * xid,
-               void const *              address );
+               void const *              address ) {
+  return accdb->base.vt->peek( accdb, peek, xid, address );
+}
 
 /* fd_accdb_peek_test verifies whether a previously taken peek still
    refers to valid account data.  Returns 1 if still valid, 0 if peek
@@ -64,28 +55,63 @@ fd_accdb_peek_drop( fd_accdb_peek_t * peek ) {
 
 FD_PROTOTYPES_END
 
+/* In-place read APIs *************************************************/
+
+static inline fd_accdb_ro_t *
+fd_accdb_open_ro( fd_accdb_user_t *         accdb,
+                  fd_accdb_ro_t *           ro,
+                  fd_funk_txn_xid_t const * txn_id,
+                  void const *              address ) {
+  return accdb->base.vt->open_ro( accdb, ro, txn_id, address );
+}
+
+static inline void
+fd_accdb_close_ro( fd_accdb_user_t * accdb,
+                   fd_accdb_ro_t *   ro ) {
+  accdb->base.vt->close_ro( accdb, ro );
+}
+
 /* In-place transactional write APIs **********************************/
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_accdb_modify_prepare prepares an account modification.  Creates a
-   copy of the previous version of the account.
+/* fd_accdb_open_rw starts an account modification op.  txn_xid names a
+   non-rooted non-frozen fork graph node, and address identifies the
+   account.  If the account data buffer is smaller than data_max, it is
+   resized (does not affect the data size, just the buffer capacity).
+   If do_create==0, returns NULL if the account does not exist.
+   Otherwise, returns an existing or newly created account.
 
-   FIXME ... extensive argument documentation + invariants ... */
+   For the entire lifetime of an rw handle, the (txn_xid,address) pair
+   MUST NOT be accessed by any other ro or rw operation.  Violating this
+   rule causes undefined behavior.  The lifetime of an rw handle starts
+   as soon as open_rw is called.  It ends once all memory writes done
+   after the close_rw call returns are visible to all other DB user
+   threads.
 
-fd_accdb_rw_t *
-fd_accdb_modify_prepare( fd_accdb_user_t *         accdb,
-                         fd_accdb_rw_t *           rw,
-                         fd_funk_txn_xid_t const * txn_id,
-                         void const *              address,
-                         ulong                     data_min,
-                         int                       do_create );
+   It is fine to do multiple open_rw/close_rw interactions with the same
+   (txn_xid,address) pair assuming proper synchronization.  Only the
+   final state for a (txn_xid,address) pair is retained. */
 
-/* fd_accdb_write_publish publishes a previously prepared account write. */
+static inline fd_accdb_rw_t *
+fd_accdb_open_rw( fd_accdb_user_t *         accdb,
+                  fd_accdb_rw_t *           rw,
+                  fd_funk_txn_xid_t const * txn_id,
+                  void const *              address,
+                  ulong                     data_max,
+                  int                       do_create ) {
+  return accdb->base.vt->open_rw( accdb, rw, txn_id, address, data_max, do_create );
+}
 
-void
-fd_accdb_write_publish( fd_accdb_user_t * accdb,
-                        fd_accdb_rw_t *   write ); /* destroyed */
+/* fd_accdb_close_rw publishes a previously prepared account write.
+   Note that this function returns before memory writes have propagated
+   to other threads, thus requires external synchronization. */
+
+static inline void
+fd_accdb_close_rw( fd_accdb_user_t * accdb,
+                   fd_accdb_rw_t *   write ) { /* destroyed */
+  accdb->base.vt->close_rw( accdb, write );
+}
 
 FD_PROTOTYPES_END
 

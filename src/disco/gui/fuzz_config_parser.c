@@ -27,17 +27,16 @@ LLVMFuzzerTestOneInput( uchar const * data,
   cJSON * json;
   fd_gui_config_parse_info_t validator_info[1];
   fd_pubkey_t pubkey;
-  FD_LOG_WARNING(("TEST"));
   int valid = fd_gui_config_parse_validator_info_check( data, size, &json, &pubkey );
 
   if( valid ) {
     fd_gui_config_parse_validator_info( json, validator_info );
 
-    assert( fd_utf8_verify( validator_info->name,             strlen( validator_info->name ) ) );
-    assert( fd_utf8_verify( validator_info->website,          strlen( validator_info->name ) ) );
-    assert( fd_utf8_verify( validator_info->details,          strlen( validator_info->name ) ) );
-    assert( fd_utf8_verify( validator_info->icon_uri,         strlen( validator_info->name ) ) );
-    assert( fd_utf8_verify( validator_info->keybase_username, strlen( validator_info->name ) ) );
+    assert( fd_utf8_verify( validator_info->name,             strlen( validator_info->name )             ) );
+    assert( fd_utf8_verify( validator_info->website,          strlen( validator_info->website )          ) );
+    assert( fd_utf8_verify( validator_info->details,          strlen( validator_info->details )          ) );
+    assert( fd_utf8_verify( validator_info->icon_uri,         strlen( validator_info->icon_uri )         ) );
+    assert( fd_utf8_verify( validator_info->keybase_username, strlen( validator_info->keybase_username ) ) );
   }
   return 0;
 }

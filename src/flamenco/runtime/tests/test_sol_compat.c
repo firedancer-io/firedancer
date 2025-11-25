@@ -72,7 +72,7 @@ run_test1( fd_solfuzz_runner_t * runner,
     else if( strstr( path, "/block/fixtures/"         ) ) type = FIXTURE_TYPE_PB_BLOCK;
     else if( strstr( path, "/elf_loader/fixtures_fb/" ) ) type = FIXTURE_TYPE_FB_ELF_LOADER;
     else {
-      FD_LOG_WARNING(( "Unknown test type: %s", path ));
+      FD_LOG_WARNING(( "Unsupported test type: %s", path ));
       return 0;
     }
   }
@@ -96,11 +96,13 @@ run_test1( fd_solfuzz_runner_t * runner,
   case FIXTURE_TYPE_PB_BLOCK:
     ok = fd_solfuzz_pb_block_fixture( runner, buf, file_sz );
     break;
+# if FD_HAS_FLATCC
   case FIXTURE_TYPE_FB_ELF_LOADER:
     ok = fd_solfuzz_fb_elf_loader_fixture( runner, buf );
     break;
+# endif
   default:
-    FD_LOG_CRIT(( "unreachable code entered" ));
+    FD_LOG_CRIT(( "unsupported fixture type (flatcc available?)" ));
   }
 
   if( ok ) FD_LOG_INFO   (( "OK   %s", path ));

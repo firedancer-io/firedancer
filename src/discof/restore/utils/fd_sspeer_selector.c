@@ -319,9 +319,9 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                    (!incremental ||
                    (incremental && peer->ssinfo.incremental.base_slot==base_slot) ) ) ) {
       return (fd_sspeer_t){
-        .addr    = peer->addr,
-        .ssinfo  = peer->ssinfo,
-        .score   = peer->score,
+        .addr   = peer->addr,
+        .ssinfo = peer->ssinfo,
+        .score  = peer->score,
       };
     }
   }

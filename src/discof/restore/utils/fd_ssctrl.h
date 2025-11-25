@@ -88,6 +88,8 @@ typedef struct fd_ssctrl_init {
   int           file;
   int           zstd;
   fd_ip4_port_t addr;
+  char          hostname[ 256UL ];
+  int           is_https;
 } fd_ssctrl_init_t;
 
 /* Sent by snapld to tell snapct metadata about a downloaded snapshot. */

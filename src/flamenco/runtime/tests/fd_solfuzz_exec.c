@@ -7,7 +7,9 @@
 #include "generated/vm.pb.h"
 #include "generated/elf.pb.h"
 
+#if FD_HAS_FLATCC
 #include "flatbuffers/generated/elf_reader.h"
+#endif
 
 #include "../fd_executor_err.h"
 #include <assert.h>
@@ -392,6 +394,8 @@ fd_solfuzz_pb_vm_interp_fixture( fd_solfuzz_runner_t * runner,
   return ok;
 }
 
+#if FD_HAS_FLATCC
+
 /* Flatbuffers */
 static int
 sol_compat_fb_cmp_elf_loader( SOL_COMPAT_NS(ELFLoaderEffects_table_t) expected,
@@ -484,3 +488,5 @@ fd_solfuzz_fb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
     return sol_compat_fb_cmp_elf_loader( expected, actual );
   } FD_SPAD_FRAME_END;
 }
+
+#endif /* FD_HAS_FLATCC */

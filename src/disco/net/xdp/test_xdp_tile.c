@@ -87,8 +87,10 @@ setup_routing_table( fd_net_ctx_t * ctx,
                      void * fib4_local_mem,
                      void * fib4_main_mem ) {
   /* Basic routing tables */
-  fd_fib4_t * fib_local = fd_fib4_join( fib4_local_mem ); FD_TEST( fib_local );
-  fd_fib4_t * fib_main  = fd_fib4_join( fib4_main_mem  ); FD_TEST( fib_main  );
+  fd_fib4_t * fib_local = ctx->fib_local;
+  fd_fib4_t * fib_main = ctx->fib_main;
+  FD_TEST( fd_fib4_join( fib_local, fib4_local_mem ) );
+  FD_TEST( fd_fib4_join( fib_main, fib4_main_mem ) );
 
   fd_fib4_hop_t hop1 = (fd_fib4_hop_t) {
     .if_idx  = IF_IDX_LO,
@@ -133,8 +135,6 @@ setup_routing_table( fd_net_ctx_t * ctx,
   FD_TEST( fd_fib4_insert( fib_main,  banned_ip, 32, 0U, &hop5 ) );
   FD_TEST( fd_fib4_insert( fib_main,  gre1_dst_ip, 32, 0U, &hop6 ) );
   FD_TEST( fd_fib4_insert( fib_main,  gre1_outer_dst_ip, 32, 0U, &hop7 ) );
-  ctx->fib_local = fib_local;
-  ctx->fib_main = fib_main;
 }
 
 static void

@@ -140,7 +140,7 @@ before_credit( fd_snapwh_t *       ctx,
 
 static void
 metrics_write( fd_snapwh_t * ctx ) {
-  FD_MGAUGE_SET( SNAPWR, STATE, ctx->state );
+  FD_MGAUGE_SET( SNAPWH, STATE, ctx->state );
 }
 
 /* handle_control_frag handles an administrative frag from the snapin

@@ -4,6 +4,7 @@
 #include "../fd_system_ids.h"
 #include "../fd_bank.h"
 #include "../../accdb/fd_accdb_admin.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 #include <errno.h>
 
 test_sysvar_cache_env_t *
@@ -19,7 +20,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   void * funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), funk_tag );
   FD_TEST( funk_mem );
   FD_TEST( fd_funk_new( funk_mem, funk_tag, funk_seed, txn_max, rec_max ) );
-  fd_accdb_user_t * accdb = fd_accdb_user_join( fd_accdb_user_new( env->accdb ), funk_mem );
+  fd_accdb_user_t * accdb = fd_accdb_user_v1_init( env->accdb, funk_mem );
   FD_TEST( accdb );
 
   fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
@@ -31,7 +32,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
 
   fd_accdb_admin_t admin[1];
   FD_TEST( fd_accdb_admin_join( admin, funk_mem ) );
-  fd_accdb_attach_child( admin, fd_funk_last_publish( accdb->funk ), &env->xid );
+  fd_accdb_attach_child( admin, fd_funk_last_publish( admin->funk ), &env->xid );
   fd_accdb_admin_leave( admin, NULL );
 
   return env;
@@ -42,7 +43,7 @@ test_sysvar_cache_env_destroy( test_sysvar_cache_env_t * env ) {
   FD_TEST( env );
   FD_TEST( fd_sysvar_cache_delete( fd_sysvar_cache_leave( env->sysvar_cache ) ) );
   fd_wksp_free_laddr( env->bank );
-  FD_TEST( fd_accdb_user_delete( fd_accdb_user_leave( env->accdb, NULL ) ) );
+  fd_accdb_user_fini( env->accdb );
   fd_funk_delete_fast( env->shfunk );
   memset( env, 0, sizeof(test_sysvar_cache_env_t) );
 }

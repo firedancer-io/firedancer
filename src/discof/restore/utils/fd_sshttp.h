@@ -29,6 +29,8 @@ fd_sshttp_content_len( fd_sshttp_t const * http );
 void
 fd_sshttp_init( fd_sshttp_t * http,
                 fd_ip4_port_t addr,
+                char const *  hostname,
+                int           is_https,
                 char const *  path,
                 ulong         path_len,
                 long          now );

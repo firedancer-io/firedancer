@@ -818,6 +818,17 @@ fd_banks_advance_root( fd_banks_t * banks,
     #undef HAS_COW_0
     #undef HAS_COW_1
 
+    /* It is possible for a bank that never finished replaying to be
+       pruned away.  If the bank was never frozen, then it's possible
+       that the bank still owns a cost tracker pool element.  If this
+       is the case, we need to release the pool element. */
+    if( head->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( head )) ) {
+      FD_TEST( !(head->flags&FD_BANK_FLAGS_FROZEN) && head->flags&FD_BANK_FLAGS_REPLAYABLE );
+      FD_LOG_DEBUG(( "releasing cost tracker pool element for bank at index %lu at slot %lu", head->idx, fd_bank_slot_get( head ) ));
+      fd_bank_cost_tracker_pool_idx_release( fd_bank_get_cost_tracker_pool( head ), head->cost_tracker_pool_idx );
+      head->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( head ) );
+    }
+
     head->flags = 0UL;
     fd_banks_pool_ele_release( bank_pool, head );
     head = next;

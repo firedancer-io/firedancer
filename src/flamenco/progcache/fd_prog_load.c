@@ -3,6 +3,7 @@
 #include "../runtime/program/fd_loader_v4_program.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/fd_acc_mgr.h"
+#include "../accdb/fd_accdb_impl_v1.h"
 
 /* Similar to the below function, but gets the executable program content for the v4 loader.
    Unlike the v3 loader, the programdata is stored in a single program account. The program must
@@ -102,17 +103,18 @@ fd_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t const * pr
 }
 
 uchar const *
-fd_prog_load_elf( fd_funk_t const *         accdb,
+fd_prog_load_elf( fd_accdb_user_t *         accdb,
                   fd_funk_txn_xid_t const * xid,
                   void const *              _prog_addr,
                   ulong *                   out_sz,
                   fd_funk_txn_xid_t *       out_xid ) {
   fd_pubkey_t prog_addr = FD_LOAD( fd_pubkey_t, _prog_addr );
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_funk_txn_xid_t _out_xid;
   if( !out_xid ) out_xid = &_out_xid;
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      accdb, xid, &prog_addr, NULL, NULL, out_xid );
+      funk, xid, &prog_addr, NULL, NULL, out_xid );
   if( FD_UNLIKELY( !meta ) ) return NULL;
   fd_txn_account_t _rec[1];
   fd_txn_account_t * rec = fd_txn_account_join( fd_txn_account_new( _rec, &prog_addr, (void *)meta, 0 ) );
@@ -130,7 +132,7 @@ fd_prog_load_elf( fd_funk_t const *         accdb,
     /* When a loader v3 program is redeployed, the programdata account
        is always updated.  Therefore, use the programdata account's
        'last update XID' instead of the program account's. */
-    elf = fd_get_executable_program_content_for_upgradeable_loader( accdb, xid, rec, out_sz, out_xid );
+    elf = fd_get_executable_program_content_for_upgradeable_loader( funk, xid, rec, out_sz, out_xid );
   } else if( !memcmp( owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     elf = fd_get_executable_program_content_for_v4_loader( rec, out_sz );
   } else if( !memcmp( owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||

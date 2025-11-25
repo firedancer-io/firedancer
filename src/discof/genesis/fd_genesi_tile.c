@@ -6,7 +6,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/runtime/fd_txn_account.h"
 #include "../../flamenco/accdb/fd_accdb_admin.h"
-#include "../../flamenco/accdb/fd_accdb_user.h"
+#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../util/archive/fd_tar.h"
 
@@ -122,15 +122,16 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
 
   fd_pubkey_account_pair_global_t const * accounts = fd_genesis_solana_accounts_join( genesis );
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
   for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
     fd_pubkey_account_pair_global_t const * account = &accounts[ i ];
 
     /* FIXME use accdb API */
     fd_funk_rec_prepare_t prepare[1];
     fd_funk_rec_key_t key[1]; memcpy( key->uc, account->key.uc, sizeof(fd_pubkey_t) );
-    fd_funk_rec_t * rec = fd_funk_rec_prepare( ctx->accdb->funk, &root_xid, key, prepare, NULL );
+    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, &root_xid, key, prepare, NULL );
     FD_TEST( rec );
-    fd_account_meta_t * meta = fd_funk_val_truncate( rec, ctx->accdb->funk->alloc, ctx->accdb->funk->wksp, 16UL, sizeof(fd_account_meta_t)+account->account.data_len, NULL );
+    fd_account_meta_t * meta = fd_funk_val_truncate( rec, funk->alloc, funk->wksp, 16UL, sizeof(fd_account_meta_t)+account->account.data_len, NULL );
     FD_TEST( meta );
     void * data = (void *)( meta+1 );
     fd_memcpy( meta->owner, account->account.owner.uc, sizeof(fd_pubkey_t) );
@@ -139,7 +140,7 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     meta->executable = !!account->account.executable;
     meta->dlen = (uint)account->account.data_len;
     fd_memcpy( data, fd_solana_account_data_join( &account->account ), account->account.data_len );
-    fd_funk_rec_publish( ctx->accdb->funk, prepare );
+    fd_funk_rec_publish( funk, prepare );
 
     fd_lthash_value_t new_hash[1];
     fd_hashes_account_lthash( &account->key, meta, data, new_hash );
@@ -462,8 +463,8 @@ unprivileged_init( fd_topo_t *      topo,
                            FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
   void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
 
-  FD_TEST( fd_accdb_admin_join( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
-  FD_TEST( fd_accdb_user_join ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_admin_join  ( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_user_v1_init( ctx->accdb,       fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
 
   fd_lthash_zero( ctx->lthash );
 

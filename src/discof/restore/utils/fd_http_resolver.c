@@ -11,13 +11,18 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
+#if FD_HAS_OPENSSL
+#include <openssl/ssl.h>
+#include "../../../waltz/openssl/fd_openssl_tile.h"
+#endif
+
 #define PEER_STATE_UNRESOLVED (0)
 #define PEER_STATE_REFRESHING (1)
 #define PEER_STATE_VALID      (2)
 #define PEER_STATE_INVALID    (3)
 
 #define PEER_DEADLINE_NANOS_VALID   (5L*1000L*1000L*1000L) /* 5 seconds */
-#define PEER_DEADLINE_NANOS_RESOLVE (1L*1000L*1000L*1000L) /* 1 second */
+#define PEER_DEADLINE_NANOS_RESOLVE (2L*1000L*1000L*1000L) /* 2 seconds */
 #define PEER_DEADLINE_NANOS_INVALID (5L*1000L*1000L*1000L) /* 5 seconds */
 
 /* FIXME: The fds/fds_len/idx logic is fragile, replace with something
@@ -25,6 +30,8 @@
 
 struct fd_ssresolve_peer {
   fd_ip4_port_t addr;
+  char const *  hostname;
+  int           is_https;
   fd_ssinfo_t   ssinfo;
 
   fd_ssresolve_t * full_ssresolve;
@@ -75,6 +82,10 @@ struct fd_http_resolver_private {
 
   void *                           cb_arg;
   fd_http_resolver_on_resolve_fn_t on_resolve_cb;
+
+#if FD_HAS_OPENSSL
+  SSL_CTX * ssl_ctx;
+#endif
 
   ulong                            magic; /* ==FD_HTTP_RESOLVER_MAGIC */
 };
@@ -155,6 +166,22 @@ fd_http_resolver_new( void *                           shmem,
   resolver->cb_arg                     = cb_arg;
   resolver->on_resolve_cb              = on_resolve_cb;
 
+#if FD_HAS_OPENSSL
+  SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
+  if( FD_UNLIKELY( !ssl_ctx ) ) {
+    FD_LOG_ERR(( "SSL_CTX_new failed" ));
+  }
+
+  if( FD_UNLIKELY( !SSL_CTX_set_min_proto_version( ssl_ctx, TLS1_3_VERSION ) ) ) {
+    FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
+  }
+
+  /* transfering ownership of ssl_ctx by assignment */
+  resolver->ssl_ctx = ssl_ctx;
+
+  fd_ossl_load_certs( resolver->ssl_ctx );
+#endif
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( resolver->magic ) = FD_HTTP_RESOLVER_MAGIC;
   FD_COMPILER_MFENCE();
@@ -186,13 +213,17 @@ fd_http_resolver_join( void * shresolver ) {
 
 void
 fd_http_resolver_add( fd_http_resolver_t * resolver,
-                      fd_ip4_port_t        addr ) {
+                      fd_ip4_port_t        addr,
+                      char const *         hostname,
+                      int                  is_https ) {
   if( !peer_pool_free( resolver->pool ) ) {
     FD_LOG_ERR(( "peer pool exhausted" ));
   }
   fd_ssresolve_peer_t * peer = peer_pool_ele_acquire( resolver->pool );
   peer->state                        = PEER_STATE_UNRESOLVED;
   peer->addr                         = addr;
+  peer->hostname                     = hostname;
+  peer->is_https                     = is_https;
   peer->fd.idx                       = ULONG_MAX;
   peer->ssinfo.full.slot             = ULONG_MAX;
   peer->ssinfo.incremental.base_slot = ULONG_MAX;
@@ -240,14 +271,31 @@ peer_connect( fd_http_resolver_t *  resolver,
   resolver->fds_idx[ resolver->fds_len ] = peer_pool_idx( resolver->pool, peer );
   peer->fd.idx = resolver->fds_len;
   resolver->fds_len++;
-  fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1 );
+
+  if( FD_UNLIKELY( peer->is_https ) ) {
+#if FD_HAS_OPENSSL
+    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->hostname, resolver->ssl_ctx );
+#else
+    FD_LOG_ERR(( "peer %s requires https but firedancer is built without openssl support. Please remove this peer from your validator config.", peer->hostname ));
+#endif
+  } else {
+    fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1 );
+  }
 
   if( FD_LIKELY( resolver->incremental_snapshot_fetch ) ) {
     err = create_socket( resolver, peer ); /* incremental */
     if( FD_UNLIKELY( err ) ) return err;
     resolver->fds_idx[ resolver->fds_len ] = peer_pool_idx( resolver->pool, peer );
     resolver->fds_len++;
-    fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0 );
+    if( FD_UNLIKELY( peer->is_https ) ) {
+#if FD_HAS_OPENSSL
+      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->hostname, resolver->ssl_ctx );
+#else
+      FD_LOG_ERR(( "peer requires https but firedancer is built without openssl support" ));
+#endif
+    } else {
+      fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0 );
+    }
   } else {
     resolver->fds[ resolver->fds_len ] = (struct pollfd) {
       .fd      = -1,
@@ -266,9 +314,9 @@ remove_peer( fd_http_resolver_t * resolver,
              ulong                idx ) {
   FD_TEST( idx<resolver->fds_len );
 
-  /* FIXME: These sockets should be closed at the correct location */
-  close( resolver->fds[ idx ].fd );
-  if( FD_LIKELY( -1!=resolver->fds[ idx+1UL ].fd ) ) close( resolver->fds[ idx+1UL ].fd );
+  fd_ssresolve_peer_t * cur_peer = peer_pool_ele( resolver->pool, resolver->fds_idx[ idx ] );
+  fd_ssresolve_cancel( cur_peer->full_ssresolve );
+  fd_ssresolve_cancel( cur_peer->inc_ssresolve );
 
   if( FD_UNLIKELY( resolver->fds_len==2UL ) ) {
     resolver->fds_len = 0UL;
@@ -306,6 +354,7 @@ poll_resolve( fd_http_resolver_t *  resolver,
               fd_ssresolve_t *      ssresolve,
               ulong                 idx,
               long                  now ) {
+  FD_TEST( !fd_ssresolve_is_done( ssresolve ) );
   if( FD_LIKELY( pfd->revents & POLLOUT ) ) {
     int res = fd_ssresolve_advance_poll_out( ssresolve );
 
@@ -324,7 +373,7 @@ poll_resolve( fd_http_resolver_t *  resolver,
       return -1;
     } else if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_AGAIN ) ) {
       return -1;
-    } else { /* FD_SSRESOLVE_ADVANCE_SUCCESS */
+    } else if( FD_LIKELY( res==FD_SSRESOLVE_ADVANCE_RESULT ) ) {
       FD_TEST( peer->deadline_nanos>now );
 
       if( resolve_result.base_slot==ULONG_MAX ) {

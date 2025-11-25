@@ -173,6 +173,7 @@ fd_gui_new( void *                shmem,
 
   gui->pack_txn_idx = 0UL;
 
+  gui->shreds.leader_shred_cnt      = 0UL;
   gui->shreds.staged_next_broadcast = 0UL;
   gui->shreds.staged_head           = 0UL;
   gui->shreds.staged_tail           = 0UL;
@@ -1648,30 +1649,36 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
     fd_rng_t rng[ 1 ];
     fd_rng_new( rng, 0UL, 0UL);
 
-    /* Sampling at radom from the list of samples.  By using a random
-       sample stride instead of a integral stride, we can downsample
-       more evenly over the duration of the entire block. */
-    ulong sample_count = 0UL;
-    ulong end = gui->summary.tile_timers_snap_idx;
-    end = fd_ulong_if( end<gui->summary.tile_timers_snap_idx_slot_start, end+FD_GUI_TILE_TIMER_SNAP_CNT, end );
-    for( ulong sample_snap_idx=gui->summary.tile_timers_snap_idx_slot_start; sample_snap_idx<end && sample_count<FD_GUI_TILE_TIMER_SNAP_CNT; sample_snap_idx++ ) {
-      if( FD_UNLIKELY( fd_rng_float_robust( rng ) > (float)(FD_GUI_TILE_TIMER_SNAP_CNT-sample_count) / (float)(end-gui->summary.tile_timers_snap_idx_slot_start-sample_count) ) ) continue;
+#define DOWNSAMPLE( a, a_start, a_end, a_capacity, b, b_sz, elt_sz ) (__extension__({  \
+  ulong __cnt = 0UL; \
+  ulong __a_sz = (fd_ulong_if( a_end<a_start, a_end+a_capacity, a_end )-a_start); \
+  if( FD_UNLIKELY( __a_sz && b_sz ) ) { \
+    for( ulong a_idx=0UL; a_idx<__a_sz && __cnt<b_sz; a_idx++ ) { \
+      if( FD_UNLIKELY( fd_rng_float_robust( rng ) > (float)(b_sz-__cnt) / (float)(__a_sz-__cnt) ) ) continue; \
+      fd_memcpy( (uchar *)b+(elt_sz*__cnt), (uchar *)a+(elt_sz*((a_start+a_idx)%a_capacity)), elt_sz ); \
+      __cnt++; \
+    } \
+  } \
+  __cnt; }))
 
-      fd_memcpy( lslot->tile_timers[ sample_count ], gui->summary.tile_timers_snap[ sample_snap_idx%FD_GUI_TILE_TIMER_SNAP_CNT ], sizeof(lslot->tile_timers[ sample_count ]) );
-      sample_count++;
-    }
-    lslot->tile_timers_sample_cnt = sample_count;
+    lslot->tile_timers_sample_cnt = DOWNSAMPLE(
+      gui->summary.tile_timers_snap,
+      gui->summary.tile_timers_snap_idx_slot_start,
+      gui->summary.tile_timers_snap_idx,
+      FD_GUI_TILE_TIMER_SNAP_CNT,
+      lslot->tile_timers,
+      FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT,
+      sizeof(fd_gui_tile_timers_t) );
 
-    sample_count = 0UL;
-    end = gui->summary.scheduler_counts_snap_idx;
-    end = fd_ulong_if( end<gui->summary.scheduler_counts_snap_idx_slot_start, end+FD_GUI_SCHEDULER_COUNT_SNAP_CNT, end );
-    for( ulong sample_snap_idx=gui->summary.scheduler_counts_snap_idx_slot_start; sample_snap_idx<end && sample_count<FD_GUI_SCHEDULER_COUNT_SNAP_CNT; sample_snap_idx++ ) {
-      if( FD_UNLIKELY( fd_rng_float_robust( rng ) > (float)(FD_GUI_SCHEDULER_COUNT_SNAP_CNT-sample_count) / (float)(end-gui->summary.scheduler_counts_snap_idx_slot_start-sample_count) ) ) continue;
-
-      fd_memcpy( lslot->scheduler_counts[ sample_count ], gui->summary.scheduler_counts_snap[ sample_snap_idx%FD_GUI_SCHEDULER_COUNT_SNAP_CNT ], sizeof(lslot->scheduler_counts[ sample_count ]) );
-      sample_count++;
-    }
-    lslot->scheduler_counts_sample_cnt = sample_count;
+    lslot->scheduler_counts_sample_cnt = DOWNSAMPLE(
+      gui->summary.scheduler_counts_snap,
+      gui->summary.scheduler_counts_snap_idx_slot_start,
+      gui->summary.scheduler_counts_snap_idx,
+      FD_GUI_SCHEDULER_COUNT_SNAP_CNT,
+      lslot->scheduler_counts,
+      FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT,
+      sizeof(fd_gui_scheduler_counts_t) );
+#undef DOWNSAMPLE
   }
 
   /* When a slot ends, snap the state of the waterfall and save it into
@@ -1715,7 +1722,7 @@ fd_gui_try_insert_ephemeral_slot( fd_gui_ephemeral_slot_t * slots, ulong slots_s
 }
 
 static inline void
-fd_gui_try_insert_catch_up_slot( ulong * slots, ulong * slots_sz, ulong slot ) {
+fd_gui_try_insert_catch_up_slot( ulong * slots, ulong capacity, ulong * slots_sz, ulong slot ) {
   /* catch up history is run-length encoded */
   int inserted = 0;
   for( ulong i=0UL; i<*slots_sz; i++ ) {
@@ -1742,6 +1749,12 @@ fd_gui_try_insert_catch_up_slot( ulong * slots, ulong * slots_sz, ulong slot ) {
       slots[ i+1UL ] = ULONG_MAX;
       removed += 2;
     }
+  }
+
+  if( FD_UNLIKELY( (*slots_sz)>removed+capacity-2UL ) ) {
+    /* We are at capacity, start coalescing earlier intervals. */
+    slots[ 1 ] = ULONG_MAX;
+    slots[ 2 ] = ULONG_MAX;
   }
 
   fd_sort_up_ulong_insert( slots, (*slots_sz) );
@@ -1772,7 +1785,7 @@ fd_gui_handle_shred( fd_gui_t * gui,
     fd_gui_printf_turbine_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
 
-    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_turbine, &gui->summary.catch_up_turbine_sz, slot );
+    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_turbine, FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_turbine_sz, slot );
   }
 
   fd_gui_slot_staged_shred_event_t * recv_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
@@ -1781,6 +1794,24 @@ fd_gui_handle_shred( fd_gui_t * gui,
   recv_event->shred_idx = (ushort)shred_idx;
   recv_event->slot      = slot;
   recv_event->event     = fd_uchar_if( is_turbine, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR );
+}
+
+void
+fd_gui_handle_leader_fec( fd_gui_t * gui,
+                          ulong      slot,
+                          ulong      fec_shred_cnt,
+                          int        is_end_of_slot,
+                          long       tsorig ) {
+  for( ulong i=gui->shreds.leader_shred_cnt; i<gui->shreds.leader_shred_cnt+fec_shred_cnt; i++ ) {
+    fd_gui_slot_staged_shred_event_t * exec_end_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
+    gui->shreds.staged_tail++;
+    exec_end_event->timestamp = tsorig;
+    exec_end_event->shred_idx = (ushort)i;
+    exec_end_event->slot      = slot;
+    exec_end_event->event     = FD_GUI_SLOT_SHRED_SHRED_PUBLISHED;
+  }
+  gui->shreds.leader_shred_cnt += fec_shred_cnt;
+  if( FD_UNLIKELY( is_end_of_slot ) ) gui->shreds.leader_shred_cnt = 0UL;
 }
 
 void
@@ -1824,7 +1855,7 @@ fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now ) {
     fd_gui_printf_repair_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
 
-    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_repair, &gui->summary.catch_up_repair_sz, slot );
+    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_repair, FD_GUI_REPAIR_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_repair_sz, slot );
   }
 }
 
