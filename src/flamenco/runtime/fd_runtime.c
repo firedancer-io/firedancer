@@ -22,6 +22,7 @@
 
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
+#include "program/fd_program_util.h"
 
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_last_restart_slot.h"
@@ -1933,4 +1934,29 @@ fd_runtime_account_check_fee_payer_writable( fd_txn_in_t const * txn_in,
                                              ushort              idx ) {
   (void) txn_out;
   return fd_txn_is_writable( TXN( txn_in->txn ), idx );
+}
+
+
+int
+fd_account_meta_checked_sub_lamports( fd_account_meta_t * meta, ulong lamports ) {
+  ulong balance_post = 0UL;
+  int err = fd_ulong_checked_sub( meta->lamports,
+                                  lamports,
+                                  &balance_post );
+  if( FD_UNLIKELY( err ) ) {
+    return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
+  }
+
+  meta->lamports = balance_post;
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+void
+fd_account_meta_resize( fd_account_meta_t * meta,
+                        ulong               dlen ) {
+  ulong old_sz    = meta->dlen;
+  ulong new_sz    = dlen;
+  ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
+  fd_memset( fd_account_data( meta ) + old_sz, 0, memset_sz );
+  meta->dlen = (uint)dlen;
 }

@@ -220,6 +220,14 @@ fd_runtime_account_check_fee_payer_writable( fd_txn_in_t const * txn_in,
                                              fd_txn_out_t *      txn_out,
                                              ushort              idx );
 
+int
+fd_account_meta_checked_sub_lamports( fd_account_meta_t * meta,
+                                      ulong               lamports );
+
+void
+fd_account_meta_resize( fd_account_meta_t * meta,
+                        ulong               dlen );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h */
