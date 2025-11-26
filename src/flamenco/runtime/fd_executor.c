@@ -1182,7 +1182,6 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
     }
 
     ulong refcnt = runtime->accounts.refcnt[idx];
-
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L401-L402 */
     if( FD_UNLIKELY( refcnt!=0UL ) ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
@@ -1519,7 +1518,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
   runtime->accounts.starting_lamports[idx] = account_meta->lamports;
   runtime->accounts.starting_dlen[idx]     = account_meta->dlen;
   runtime->accounts.refcnt[idx]            = 0UL;
-  txn_out->accounts.metas[ idx ] = account_meta;
+  txn_out->accounts.metas[idx]             = account_meta;
 }
 
 static void

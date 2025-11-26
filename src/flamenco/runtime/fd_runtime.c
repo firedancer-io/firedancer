@@ -1173,11 +1173,6 @@ fd_runtime_save_account( fd_funk_t *               funk,
 
   /* Publish account update to replay tile for solcap writing
      TODO: write in the exec tile with solcap v2 */
-  fd_txn_account_t account[1];
-  memcpy( account->pubkey, pubkey, sizeof(fd_pubkey_t) );
-  account->meta = meta;
-  account->data = fd_account_data( meta );
-  account->is_mutable = 1;
 
   fd_runtime_buffer_solcap_account_update( pubkey, meta, bank, capture_ctx );
 
