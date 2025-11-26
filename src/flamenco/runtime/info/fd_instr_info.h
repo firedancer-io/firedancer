@@ -24,6 +24,11 @@
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01U)
 #define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02U)
 
+/* The maximum possible size for the instruction data for any
+   instruction, which is bounded by FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN
+   (which is 10KB). */
+#define FD_INSTR_DATA_MAX FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN
+
 struct fd_instruction_account {
   ushort index_in_transaction;
   ushort index_in_caller;
@@ -36,13 +41,16 @@ typedef struct fd_instruction_account fd_instruction_account_t;
 
 struct fd_instr_info {
   uchar                    program_id;
-  ushort                   data_sz;
   ushort                   acct_cnt;
 
-  uchar *                  data;
+  uchar                    data[ FD_INSTR_DATA_MAX ];
+  ushort                   data_sz;
 
   fd_instruction_account_t accounts[ FD_INSTR_ACCT_MAX ];
   uchar                    is_duplicate[ FD_INSTR_ACCT_MAX ];
+
+  /* Stack height when this instruction was pushed onto the stack (including itself) */
+  uchar stack_height;
 
   /* TODO: convert to fd_uwide_t representation of uint_128 */
   ulong                    starting_lamports_h;
@@ -156,20 +164,6 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
                                     fd_txn_out_t *          txn_out,
                                     ulong *                 total_lamports_h,
                                     ulong *                 total_lamports_l );
-
-static inline uchar
-fd_instr_get_acc_flags( fd_instr_info_t const * instr,
-                        ushort                  idx ) {
-  if( FD_UNLIKELY( idx>=instr->acct_cnt ) ) {
-    return 0;
-  }
-
-  uchar flags = 0;
-  if( instr->accounts[idx].is_signer )   flags |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-  if( instr->accounts[idx].is_writable ) flags |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-
-  return flags;
-}
 
 FD_PROTOTYPES_END
 

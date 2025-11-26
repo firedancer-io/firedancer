@@ -237,14 +237,6 @@ get_cpi_max_account_infos( fd_bank_t * bank ) {
   return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( bank, increase_tx_account_lock_limit ), FD_CPI_MAX_ACCOUNT_INFOS, 64UL );
 }
 
-/* Maximum CPI instruction data size. 10 KiB was chosen to ensure that CPI
-   instructions are not more limited than transaction instructions if the size
-   of transactions is doubled in the future.
-
-   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L14 */
-
-#define FD_CPI_MAX_INSTRUCTION_DATA_LEN    (10240UL)
-
 /* Maximum CPI instruction accounts. 255 was chosen to ensure that instruction
    accounts are always within the maximum instruction account limit for BPF
    program instructions.
@@ -253,7 +245,6 @@ get_cpi_max_account_infos( fd_bank_t * bank ) {
    https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/serialization.rs#L26 */
 
 #define FD_CPI_MAX_INSTRUCTION_ACCOUNTS    (255UL)
-
 
 /* fd_vm_syscall_cpi_check_instruction contains common instruction acct
    count and data sz checks.  Also consumes compute units proportional
@@ -270,7 +261,7 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
       // SyscallError::MaxInstructionAccountsExceeded
       return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
     }
-    if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
+    if( FD_UNLIKELY( data_sz>FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
       // SyscallError::MaxInstructionDataLenExceeded
       return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
