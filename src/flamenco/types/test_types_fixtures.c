@@ -23,10 +23,7 @@
 
 #define TEST_VECTOR( X )                                            \
   X( vote_account,                     vote_state_versioned, 1, 0 ) \
-  X( vote_account_two,                 vote_state_versioned, 1, 0 ) \
-  X( repair_pong,                      repair_protocol,      0, 0 ) \
-  X( repair_window_index,              repair_protocol,      0, 0 ) \
-  X( repair_highest_window_index,      repair_protocol,      0, 0 ) \
+  X( vote_account_two,                 vote_state_versioned, 1, 0 )
   /* Add more fixtures to the end ... */
 
 

@@ -167,15 +167,6 @@ FD_FN_UNUSED static uchar * fd_solana_account_data_join( fd_solana_account_globa
 FD_FN_UNUSED static void fd_solana_account_data_update( fd_solana_account_global_t * struct_mem, uchar * vec ) {
   struct_mem->data_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
 }
-/* Encoded Size: Fixed (48 bytes) */
-struct __attribute__((packed)) fd_solana_account_stored_meta {
-  ulong write_version_obsolete;
-  ulong data_len;
-  uchar pubkey[32];
-};
-typedef struct fd_solana_account_stored_meta fd_solana_account_stored_meta_t;
-#define FD_SOLANA_ACCOUNT_STORED_META_ALIGN (8UL)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303 */
 /* Encoded Size: Fixed (64 bytes) */
 struct fd_delegation {
@@ -907,16 +898,6 @@ struct fd_stake_config {
 typedef struct fd_stake_config fd_stake_config_t;
 #define FD_STAKE_CONFIG_ALIGN alignof(fd_stake_config_t)
 
-/* Encoded Size: Dynamic */
-struct fd_feature_entry {
-  fd_pubkey_t pubkey;
-  ulong description_len;
-  uchar* description;
-  ulong since_slot;
-};
-typedef struct fd_feature_entry fd_feature_entry_t;
-#define FD_FEATURE_ENTRY_ALIGN alignof(fd_feature_entry_t)
-
 struct fd_cluster_type {
   uint discriminant;
 };
@@ -1628,16 +1609,6 @@ struct fd_address_lookup_table_state {
 typedef struct fd_address_lookup_table_state fd_address_lookup_table_state_t;
 #define FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN alignof(fd_address_lookup_table_state_t)
 
-/* https://github.com/solana-labs/solana/blob/52616cf7aa424a80f770e5ec3f2cd49d1cfeb845/gossip/src/ping_pong.rs#L22 */
-/* Encoded Size: Fixed (128 bytes) */
-struct fd_gossip_ping {
-  fd_pubkey_t from;
-  fd_hash_t token;
-  fd_signature_t signature;
-};
-typedef struct fd_gossip_ping fd_gossip_ping_t;
-#define FD_GOSSIP_PING_ALIGN alignof(fd_gossip_ping_t)
-
 /* Encoded Size: Fixed (9 bytes) */
 struct fd_addrlut_create {
   ulong recent_slot;
@@ -1667,80 +1638,6 @@ struct fd_addrlut_instruction {
 };
 typedef struct fd_addrlut_instruction fd_addrlut_instruction_t;
 #define FD_ADDRLUT_INSTRUCTION_ALIGN alignof(fd_addrlut_instruction_t)
-
-/* https://github.com/anza-xyz/agave/blob/v2.2.7/core/src/repair/serve_repair.rs#L204-L210 */
-/* Encoded Size: Fixed (140 bytes) */
-struct fd_repair_request_header {
-  fd_signature_t signature;
-  fd_pubkey_t sender;
-  fd_pubkey_t recipient;
-  ulong timestamp;
-  uint nonce;
-};
-typedef struct fd_repair_request_header fd_repair_request_header_t;
-#define FD_REPAIR_REQUEST_HEADER_ALIGN alignof(fd_repair_request_header_t)
-
-/* Encoded Size: Fixed (156 bytes) */
-struct fd_repair_window_index {
-  fd_repair_request_header_t header;
-  ulong slot;
-  ulong shred_index;
-};
-typedef struct fd_repair_window_index fd_repair_window_index_t;
-#define FD_REPAIR_WINDOW_INDEX_ALIGN alignof(fd_repair_window_index_t)
-
-/* Encoded Size: Fixed (156 bytes) */
-struct fd_repair_highest_window_index {
-  fd_repair_request_header_t header;
-  ulong slot;
-  ulong shred_index;
-};
-typedef struct fd_repair_highest_window_index fd_repair_highest_window_index_t;
-#define FD_REPAIR_HIGHEST_WINDOW_INDEX_ALIGN alignof(fd_repair_highest_window_index_t)
-
-/* Encoded Size: Fixed (148 bytes) */
-struct fd_repair_orphan {
-  fd_repair_request_header_t header;
-  ulong slot;
-};
-typedef struct fd_repair_orphan fd_repair_orphan_t;
-#define FD_REPAIR_ORPHAN_ALIGN alignof(fd_repair_orphan_t)
-
-/* Encoded Size: Fixed (148 bytes) */
-struct fd_repair_ancestor_hashes {
-  fd_repair_request_header_t header;
-  ulong slot;
-};
-typedef struct fd_repair_ancestor_hashes fd_repair_ancestor_hashes_t;
-#define FD_REPAIR_ANCESTOR_HASHES_ALIGN alignof(fd_repair_ancestor_hashes_t)
-
-union fd_repair_protocol_inner {
-  fd_gossip_ping_t pong;
-  fd_repair_window_index_t window_index;
-  fd_repair_highest_window_index_t highest_window_index;
-  fd_repair_orphan_t orphan;
-  fd_repair_ancestor_hashes_t ancestor_hashes;
-};
-typedef union fd_repair_protocol_inner fd_repair_protocol_inner_t;
-
-struct fd_repair_protocol {
-  uint discriminant;
-  fd_repair_protocol_inner_t inner;
-};
-typedef struct fd_repair_protocol fd_repair_protocol_t;
-#define FD_REPAIR_PROTOCOL_ALIGN alignof(fd_repair_protocol_t)
-
-union fd_repair_response_inner {
-  fd_gossip_ping_t ping;
-};
-typedef union fd_repair_response_inner fd_repair_response_inner_t;
-
-struct fd_repair_response {
-  uint discriminant;
-  fd_repair_response_inner_t inner;
-};
-typedef struct fd_repair_response fd_repair_response_t;
-#define FD_REPAIR_RESPONSE_ALIGN alignof(fd_repair_response_t)
 
 union fd_instr_error_enum_inner {
   uint custom;
@@ -1809,25 +1706,6 @@ struct fd_calculated_stake_rewards {
 };
 typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
 #define FD_CALCULATED_STAKE_REWARDS_ALIGN alignof(fd_calculated_stake_rewards_t)
-
-/* https://github.com/anza-xyz/agave/blob/v2.0.3/ledger/src/blockstore_meta.rs#L150-L156 */
-/* Encoded Size: Dynamic */
-struct fd_duplicate_slot_proof {
-  ulong shred1_len;
-  uchar* shred1;
-  ulong shred2_len;
-  uchar* shred2;
-};
-typedef struct fd_duplicate_slot_proof fd_duplicate_slot_proof_t;
-#define FD_DUPLICATE_SLOT_PROOF_ALIGN alignof(fd_duplicate_slot_proof_t)
-
-/* Encoded Size: Fixed (104 bytes) */
-struct fd_epoch_info_pair {
-  fd_pubkey_t account;
-  fd_stake_t stake;
-};
-typedef struct fd_epoch_info_pair fd_epoch_info_pair_t;
-#define FD_EPOCH_INFO_PAIR_ALIGN alignof(fd_epoch_info_pair_t)
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
 /* Encoded Size: Fixed (48 bytes) */
@@ -2032,18 +1910,6 @@ void * fd_solana_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_solana_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_solana_account_encode_global( fd_solana_account_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_solana_account_size_global( fd_solana_account_global_t const * self );
-
-static inline void fd_solana_account_stored_meta_new( fd_solana_account_stored_meta_t * self ) { fd_memset( self, 0, sizeof(fd_solana_account_stored_meta_t) ); }
-int fd_solana_account_stored_meta_encode( fd_solana_account_stored_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_solana_account_stored_meta_walk( void * w, fd_solana_account_stored_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_solana_account_stored_meta_size( fd_solana_account_stored_meta_t const * self ) { (void)self; return 48UL; }
-static inline ulong fd_solana_account_stored_meta_align( void ) { return FD_SOLANA_ACCOUNT_STORED_META_ALIGN; }
-static inline int fd_solana_account_stored_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_solana_account_stored_meta_t);
-  if( (ulong)ctx->data + 48UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_solana_account_stored_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_delegation_new( fd_delegation_t * self ) { fd_memset( self, 0, sizeof(fd_delegation_t) ); }
 int fd_delegation_encode( fd_delegation_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -2508,14 +2374,6 @@ ulong fd_stake_config_size( fd_stake_config_t const * self );
 static inline ulong fd_stake_config_align( void ) { return FD_STAKE_CONFIG_ALIGN; }
 int fd_stake_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_stake_config_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_feature_entry_new( fd_feature_entry_t * self );
-int fd_feature_entry_encode( fd_feature_entry_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_feature_entry_walk( void * w, fd_feature_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_feature_entry_size( fd_feature_entry_t const * self );
-static inline ulong fd_feature_entry_align( void ) { return FD_FEATURE_ENTRY_ALIGN; }
-int fd_feature_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_feature_entry_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_cluster_type_new_disc( fd_cluster_type_t * self, uint discriminant ) { self->discriminant = discriminant; }
 static inline void fd_cluster_type_new( fd_cluster_type_t * self ) { self->discriminant = (uint)ULONG_MAX; }
@@ -3374,18 +3232,6 @@ enum {
 fd_address_lookup_table_state_enum_uninitialized = 0,
 fd_address_lookup_table_state_enum_lookup_table = 1,
 };
-static inline void fd_gossip_ping_new( fd_gossip_ping_t * self ) { fd_memset( self, 0, sizeof(fd_gossip_ping_t) ); }
-int fd_gossip_ping_encode( fd_gossip_ping_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_gossip_ping_walk( void * w, fd_gossip_ping_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_gossip_ping_size( fd_gossip_ping_t const * self ) { (void)self; return 128UL; }
-static inline ulong fd_gossip_ping_align( void ) { return FD_GOSSIP_PING_ALIGN; }
-static inline int fd_gossip_ping_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_gossip_ping_t);
-  if( (ulong)ctx->data + 128UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_gossip_ping_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 static inline void fd_addrlut_create_new( fd_addrlut_create_t * self ) { fd_memset( self, 0, sizeof(fd_addrlut_create_t) ); }
 int fd_addrlut_create_encode( fd_addrlut_create_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_addrlut_create_walk( void * w, fd_addrlut_create_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
@@ -3426,114 +3272,6 @@ fd_addrlut_instruction_enum_freeze_lut = 1,
 fd_addrlut_instruction_enum_extend_lut = 2,
 fd_addrlut_instruction_enum_deactivate_lut = 3,
 fd_addrlut_instruction_enum_close_lut = 4,
-};
-static inline void fd_repair_request_header_new( fd_repair_request_header_t * self ) { fd_memset( self, 0, sizeof(fd_repair_request_header_t) ); }
-int fd_repair_request_header_encode( fd_repair_request_header_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_repair_request_header_walk( void * w, fd_repair_request_header_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_repair_request_header_size( fd_repair_request_header_t const * self ) { (void)self; return 140UL; }
-static inline ulong fd_repair_request_header_align( void ) { return FD_REPAIR_REQUEST_HEADER_ALIGN; }
-static inline int fd_repair_request_header_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_repair_request_header_t);
-  if( (ulong)ctx->data + 140UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_repair_request_header_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_repair_window_index_new( fd_repair_window_index_t * self ) { fd_memset( self, 0, sizeof(fd_repair_window_index_t) ); }
-int fd_repair_window_index_encode( fd_repair_window_index_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_repair_window_index_walk( void * w, fd_repair_window_index_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_repair_window_index_size( fd_repair_window_index_t const * self ) { (void)self; return 156UL; }
-static inline ulong fd_repair_window_index_align( void ) { return FD_REPAIR_WINDOW_INDEX_ALIGN; }
-static inline int fd_repair_window_index_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_repair_window_index_t);
-  if( (ulong)ctx->data + 156UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_repair_window_index_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_repair_highest_window_index_new( fd_repair_highest_window_index_t * self ) { fd_memset( self, 0, sizeof(fd_repair_highest_window_index_t) ); }
-int fd_repair_highest_window_index_encode( fd_repair_highest_window_index_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_repair_highest_window_index_walk( void * w, fd_repair_highest_window_index_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_repair_highest_window_index_size( fd_repair_highest_window_index_t const * self ) { (void)self; return 156UL; }
-static inline ulong fd_repair_highest_window_index_align( void ) { return FD_REPAIR_HIGHEST_WINDOW_INDEX_ALIGN; }
-static inline int fd_repair_highest_window_index_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_repair_highest_window_index_t);
-  if( (ulong)ctx->data + 156UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_repair_highest_window_index_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_repair_orphan_new( fd_repair_orphan_t * self ) { fd_memset( self, 0, sizeof(fd_repair_orphan_t) ); }
-int fd_repair_orphan_encode( fd_repair_orphan_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_repair_orphan_walk( void * w, fd_repair_orphan_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_repair_orphan_size( fd_repair_orphan_t const * self ) { (void)self; return 148UL; }
-static inline ulong fd_repair_orphan_align( void ) { return FD_REPAIR_ORPHAN_ALIGN; }
-static inline int fd_repair_orphan_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_repair_orphan_t);
-  if( (ulong)ctx->data + 148UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_repair_orphan_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_repair_ancestor_hashes_new( fd_repair_ancestor_hashes_t * self ) { fd_memset( self, 0, sizeof(fd_repair_ancestor_hashes_t) ); }
-int fd_repair_ancestor_hashes_encode( fd_repair_ancestor_hashes_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_repair_ancestor_hashes_walk( void * w, fd_repair_ancestor_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_repair_ancestor_hashes_size( fd_repair_ancestor_hashes_t const * self ) { (void)self; return 148UL; }
-static inline ulong fd_repair_ancestor_hashes_align( void ) { return FD_REPAIR_ANCESTOR_HASHES_ALIGN; }
-static inline int fd_repair_ancestor_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_repair_ancestor_hashes_t);
-  if( (ulong)ctx->data + 148UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_repair_ancestor_hashes_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_repair_protocol_new_disc( fd_repair_protocol_t * self, uint discriminant );
-void fd_repair_protocol_new( fd_repair_protocol_t * self );
-int fd_repair_protocol_encode( fd_repair_protocol_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_repair_protocol_walk( void * w, fd_repair_protocol_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_repair_protocol_size( fd_repair_protocol_t const * self );
-static inline ulong fd_repair_protocol_align( void ) { return FD_REPAIR_PROTOCOL_ALIGN; }
-int fd_repair_protocol_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_repair_protocol_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndex( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndex( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphan( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndexWithNonce( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndexWithNonce( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphanWithNonce( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_LegacyAncestorHashes( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_pong( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_window_index( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_highest_window_index( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_orphan( fd_repair_protocol_t const * self );
-FD_FN_PURE uchar fd_repair_protocol_is_ancestor_hashes( fd_repair_protocol_t const * self );
-enum {
-fd_repair_protocol_enum_LegacyWindowIndex = 0,
-fd_repair_protocol_enum_LegacyHighestWindowIndex = 1,
-fd_repair_protocol_enum_LegacyOrphan = 2,
-fd_repair_protocol_enum_LegacyWindowIndexWithNonce = 3,
-fd_repair_protocol_enum_LegacyHighestWindowIndexWithNonce = 4,
-fd_repair_protocol_enum_LegacyOrphanWithNonce = 5,
-fd_repair_protocol_enum_LegacyAncestorHashes = 6,
-fd_repair_protocol_enum_pong = 7,
-fd_repair_protocol_enum_window_index = 8,
-fd_repair_protocol_enum_highest_window_index = 9,
-fd_repair_protocol_enum_orphan = 10,
-fd_repair_protocol_enum_ancestor_hashes = 11,
-};
-void fd_repair_response_new_disc( fd_repair_response_t * self, uint discriminant );
-void fd_repair_response_new( fd_repair_response_t * self );
-int fd_repair_response_encode( fd_repair_response_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_repair_response_walk( void * w, fd_repair_response_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_repair_response_size( fd_repair_response_t const * self );
-static inline ulong fd_repair_response_align( void ) { return FD_REPAIR_RESPONSE_ALIGN; }
-int fd_repair_response_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_repair_response_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_repair_response_is_ping( fd_repair_response_t const * self );
-enum {
-fd_repair_response_enum_ping = 0,
 };
 void fd_instr_error_enum_new_disc( fd_instr_error_enum_t * self, uint discriminant );
 void fd_instr_error_enum_new( fd_instr_error_enum_t * self );
@@ -3785,26 +3523,6 @@ static inline int fd_calculated_stake_rewards_decode_footprint( fd_bincode_decod
   return 0;
 }
 void * fd_calculated_stake_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_duplicate_slot_proof_new( fd_duplicate_slot_proof_t * self );
-int fd_duplicate_slot_proof_encode( fd_duplicate_slot_proof_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_duplicate_slot_proof_walk( void * w, fd_duplicate_slot_proof_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_duplicate_slot_proof_size( fd_duplicate_slot_proof_t const * self );
-static inline ulong fd_duplicate_slot_proof_align( void ) { return FD_DUPLICATE_SLOT_PROOF_ALIGN; }
-int fd_duplicate_slot_proof_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_duplicate_slot_proof_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_epoch_info_pair_new( fd_epoch_info_pair_t * self ) { fd_memset( self, 0, sizeof(fd_epoch_info_pair_t) ); }
-int fd_epoch_info_pair_encode( fd_epoch_info_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_epoch_info_pair_walk( void * w, fd_epoch_info_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_epoch_info_pair_size( fd_epoch_info_pair_t const * self ) { (void)self; return 104UL; }
-static inline ulong fd_epoch_info_pair_align( void ) { return FD_EPOCH_INFO_PAIR_ALIGN; }
-static inline int fd_epoch_info_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_epoch_info_pair_t);
-  if( (ulong)ctx->data + 104UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_epoch_info_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_usage_cost_details_new( fd_usage_cost_details_t * self ) { fd_memset( self, 0, sizeof(fd_usage_cost_details_t) ); }
 int fd_usage_cost_details_encode( fd_usage_cost_details_t const * self, fd_bincode_encode_ctx_t * ctx );

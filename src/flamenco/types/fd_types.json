@@ -158,16 +158,6 @@
       "comment": "https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/src/account.rs#L37"
     },
     {
-      "name": "solana_account_stored_meta",
-      "packed": true,
-      "type": "struct",
-      "fields": [
-        { "name": "write_version_obsolete", "type": "ulong" },
-        { "name": "data_len", "type": "ulong" },
-        { "name": "pubkey", "type": "uchar[32]" }
-      ]
-    },
-    {
       "name": "delegation",
       "type": "struct",
       "fields": [
@@ -634,15 +624,6 @@
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L14",
       "comment2": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/config/src/lib.rs#L18"
-    },
-    {
-      "name": "feature_entry",
-      "type": "struct",
-      "fields": [
-        { "name": "pubkey", "type": "pubkey" },
-        { "name": "description", "type": "string" },
-        { "name": "since_slot", "type": "ulong" }
-      ]
     },
     {
       "name": "cluster_type",
@@ -1306,16 +1287,6 @@
       ]
     },
     {
-      "name": "gossip_ping",
-      "type": "struct",
-      "fields": [
-        { "name": "from",      "type": "pubkey"    },
-        { "name": "token",     "type": "hash"      },
-        { "name": "signature", "type": "signature" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/52616cf7aa424a80f770e5ec3f2cd49d1cfeb845/gossip/src/ping_pong.rs#L22"
-    },
-    {
       "name": "addrlut_create",
       "type": "struct",
       "fields": [
@@ -1341,77 +1312,6 @@
         { "name": "close_lut" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/sdk/program/src/address_lookup_table/instruction.rs#L13"
-    },
-    {
-      "name": "repair_request_header",
-      "type": "struct",
-      "fields": [
-        { "name": "signature", "type": "signature" },
-        { "name": "sender", "type": "pubkey" },
-        { "name": "recipient", "type": "pubkey" },
-        { "name": "timestamp", "type": "ulong" },
-        { "name": "nonce", "type": "uint" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.7/core/src/repair/serve_repair.rs#L204-L210"
-    },
-    {
-      "name": "repair_window_index",
-      "type": "struct",
-      "fields": [
-        { "name": "header", "type": "repair_request_header" },
-        { "name": "slot", "type": "ulong" },
-        { "name": "shred_index", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "repair_highest_window_index",
-      "type": "struct",
-      "fields": [
-        { "name": "header", "type": "repair_request_header" },
-        { "name": "slot", "type": "ulong" },
-        { "name": "shred_index", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "repair_orphan",
-      "type": "struct",
-      "fields": [
-        { "name": "header", "type": "repair_request_header" },
-        { "name": "slot", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "repair_ancestor_hashes",
-      "type": "struct",
-      "fields": [
-        { "name": "header", "type": "repair_request_header" },
-        { "name": "slot", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "repair_protocol",
-      "type": "enum",
-      "variants": [
-        { "name": "LegacyWindowIndex" },
-        { "name": "LegacyHighestWindowIndex" },
-        { "name": "LegacyOrphan" },
-        { "name": "LegacyWindowIndexWithNonce" },
-        { "name": "LegacyHighestWindowIndexWithNonce" },
-        { "name": "LegacyOrphanWithNonce" },
-        { "name": "LegacyAncestorHashes" },
-        { "name": "pong", "type": "gossip_ping" },
-        { "name": "window_index", "type": "repair_window_index" },
-        { "name": "highest_window_index", "type": "repair_highest_window_index" },
-        { "name": "orphan", "type": "repair_orphan" },
-        { "name": "ancestor_hashes", "type": "repair_ancestor_hashes" }
-      ]
-    },
-    {
-      "name": "repair_response",
-      "type": "enum",
-      "variants": [
-        { "name": "ping", "type": "gossip_ping" }
-      ]
     },
     {
       "name": "instr_error_enum",
@@ -1744,23 +1644,6 @@
         { "name": "new_credits_observed", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24"
-    },
-    {
-      "name": "duplicate_slot_proof",
-      "type": "struct",
-      "fields": [
-        { "name": "shred1", "type": "vector", "element": "uchar" },
-        { "name": "shred2", "type": "vector", "element": "uchar" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/v2.0.3/ledger/src/blockstore_meta.rs#L150-L156"
-    },
-    {
-      "name": "epoch_info_pair",
-      "type": "struct",
-      "fields": [
-        { "name": "account", "type": "pubkey" },
-        { "name": "stake", "type": "stake" }
-      ]
     },
     {
       "name": "usage_cost_details",
