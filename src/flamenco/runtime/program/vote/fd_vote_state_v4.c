@@ -19,7 +19,7 @@ fd_vote_state_v4_create_new( fd_pubkey_t const *           vote_pubkey,
   versioned->discriminant = fd_vote_state_versioned_enum_v4;
 
   fd_vote_state_v4_t * vote_state              = &versioned->inner.v4;
-  vote_state->node_pubkey                      = *vote_pubkey;
+  vote_state->node_pubkey                      = vote_init->node_pubkey;
   vote_state->authorized_voters                = *fd_authorized_voters_new(clock->epoch, &vote_init->authorized_voter, authorized_voters_mem);
   vote_state->authorized_withdrawer            = vote_init->authorized_withdrawer;
   vote_state->inflation_rewards_commission_bps = ((ushort)vote_init->commission) * 100;

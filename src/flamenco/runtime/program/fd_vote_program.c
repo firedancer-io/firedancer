@@ -212,7 +212,7 @@ init_vote_account_state( fd_exec_instr_ctx_t *         ctx,
       );
     case VOTE_STATE_TARGET_VERSION_V4:
       fd_vote_state_v4_create_new(
-          &vote_init->node_pubkey,
+          vote_account->acct->pubkey,
           vote_init,
           clock,
           ctx->runtime->vote_program.init_account.authorized_voters_mem,
