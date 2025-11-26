@@ -274,17 +274,17 @@ static int
 fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
                                      ulong           acct_cnt,
                                      ulong           data_sz ) {
-  /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L958-L959 */
+  /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L146-L161 */
   if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
-    if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
-      FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
-      // SyscallError::MaxInstructionDataLenExceeded
-      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
-    }
     if( FD_UNLIKELY( acct_cnt > FD_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
       FD_LOG_WARNING(( "cpi: too many accounts (%#lx)", acct_cnt ));
       // SyscallError::MaxInstructionAccountsExceeded
       return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
+    }
+    if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
+      FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
+      // SyscallError::MaxInstructionDataLenExceeded
+      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
     }
   } else {
     // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1114
