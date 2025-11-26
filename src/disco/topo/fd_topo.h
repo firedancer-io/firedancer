@@ -366,6 +366,8 @@ struct fd_topo_tile {
       ulong max_vote_accounts;
 
       ulong funk_obj_id;
+      ulong vinyl_data_wksp_id;
+
       ulong txncache_obj_id;
       ulong progcache_obj_id;
 
@@ -629,6 +631,10 @@ struct fd_topo_tile {
 
       int  io_type; /* FD_VINYL_IO_TYPE_* */
       uint uring_depth;
+
+#     define FD_TOPO_VINYL_LINK_MAX 16UL
+      ulong rq_cnt;
+      ulong rq_obj_id[ FD_TOPO_VINYL_LINK_MAX ];
     } vinyl;
 
     struct {
@@ -644,8 +650,12 @@ typedef struct fd_topo_tile fd_topo_tile_t;
 
 typedef struct {
   ulong id;
-  char  name[ 13UL ];
+  char  name[ 13UL ];  /* object type */
   ulong wksp_id;
+
+  /* Optional label for object */
+  char  label[ 13UL ];  /* object label */
+  ulong label_idx;      /* index of object for this label (ULONG_MAX if not labelled) */
 
   ulong offset;
   ulong footprint;
@@ -898,6 +908,49 @@ fd_topo_tile_producer_cnt( fd_topo_t const *     topo,
     in_cnt++;
   }
   return in_cnt;
+}
+
+FD_FN_PURE FD_FN_UNUSED static ulong
+fd_topo_obj_cnt( fd_topo_t const * topo,
+                 char const *      obj_type,
+                 char const *      label ) {
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
+    fd_topo_obj_t const * obj = &topo->objs[ i ];
+    if( strncmp( obj->name, obj_type, sizeof(obj->name) ) ) continue;
+    if( label &&
+        strncmp( obj->label, label, sizeof(obj->label) ) ) continue;
+    cnt++;
+  }
+  return cnt;
+}
+
+FD_FN_PURE FD_FN_UNUSED static fd_topo_obj_t const *
+fd_topo_find_obj( fd_topo_t const * topo,
+                  char const *      obj_type,
+                  char const *      label,
+                  ulong             label_idx ) {
+  for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
+    fd_topo_obj_t const * obj = &topo->objs[ i ];
+    if( strncmp( obj->name, obj_type, sizeof(obj->name) ) ) continue;
+    if( label &&
+        strncmp( obj->label, label, sizeof(obj->label) ) ) continue;
+    if( label_idx != ULONG_MAX && obj->label_idx != label_idx ) continue;
+    return obj;
+  }
+  return NULL;
+}
+
+FD_FN_PURE FD_FN_UNUSED static fd_topo_obj_t const *
+fd_topo_find_tile_obj( fd_topo_t const *      topo,
+                       fd_topo_tile_t const * tile,
+                       char const *           obj_type ) {
+  for( ulong i=0UL; i<(tile->uses_obj_cnt); i++ ) {
+    fd_topo_obj_t const * obj = &topo->objs[ tile->uses_obj_id[ i ] ];
+    if( strncmp( obj->name, obj_type, sizeof(obj->name) ) ) continue;
+    return obj;
+  }
+  return NULL;
 }
 
 /* Join (map into the process) all shared memory (huge/gigantic pages)

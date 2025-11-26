@@ -20,6 +20,7 @@
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
+#include "../../../disco/topo/fd_topob_vinyl.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
@@ -50,7 +51,7 @@ backtest_topo( config_t * config ) {
   ulong lta_tile_cnt    = config->firedancer.layout.snapla_tile_count;
 
   int disable_snap_loader      = !config->gossip.entrypoints_cnt;
-  int snap_vinyl               = !!config->firedancer.vinyl.enabled;
+  int vinyl_enabled            = !!config->firedancer.vinyl.enabled;
   int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
 
@@ -91,8 +92,9 @@ backtest_topo( config_t * config ) {
       config->firedancer.runtime.program_cache.heap_size_mib<<20 );
   fd_topob_tile_uses( topo, replay_tile, progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  if( snap_vinyl ) {
-    setup_topo_vinyl_meta( topo, &config->firedancer );
+  if( vinyl_enabled ) {
+    setup_topo_vinyl_meta ( topo, &config->firedancer );
+    setup_topo_vinyl_cache( topo, &config->firedancer );
   }
 
   /**********************************************************************/
@@ -113,7 +115,6 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
   /**********************************************************************/
-  int vinyl_enabled = config->firedancer.vinyl.enabled;
   fd_topo_tile_t * snapin_tile = NULL;
   fd_topo_tile_t * snapwr_tile = NULL;
   if( FD_UNLIKELY( !disable_snap_loader ) ) {
@@ -369,7 +370,7 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( !disable_snap_loader ) ) {
     fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    if( snap_vinyl ) {
+    if( vinyl_enabled ) {
       ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
       ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
       fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
@@ -391,6 +392,12 @@ backtest_topo( config_t * config ) {
 
   if( FD_LIKELY( !disable_snap_loader ) ) {
     fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
+
+  if( vinyl_enabled ) {
+    fd_topob_vinyl_rq    ( topo, "replay", "vinyl_replay", 128UL );
+    fd_topob_vinyl_rq_out( topo, "replay", 0UL, "replay", 0UL );
+    fd_topob_vinyl_rq_in ( topo, "vinyl",  0UL, "replay", 0UL );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
