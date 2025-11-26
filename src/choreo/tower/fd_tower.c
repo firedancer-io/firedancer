@@ -236,8 +236,9 @@ switch_check( fd_tower_t const  * tower,
     /* Iterate over all the leaves of all forks */
     fd_tower_leaf_t  * leaf = fd_tower_leaves_dlist_iter_ele( iter, forks->tower_leaves_dlist, forks->tower_leaves_pool );
     ulong candidate_slot = leaf->slot;
+    ulong lca = fd_forks_lowest_common_ancestor( forks, candidate_slot, last_vote_slot );
 
-    if( fd_forks_is_slot_descendant( forks, fd_forks_lowest_common_ancestor( forks, candidate_slot, last_vote_slot ), switch_slot ) ) {
+    if( lca != ULONG_MAX && fd_forks_is_slot_descendant( forks, lca, switch_slot ) ) {
 
       /* This candidate slot may be considered for the switch proof, if
          it passes the following conditions:
@@ -811,6 +812,9 @@ fd_tower_verify( fd_tower_t const * tower ) {
 void
 fd_tower_print( fd_tower_t const * tower, ulong root ) {
   FD_LOG_NOTICE( ( "\n\n[Tower]" ) );
+
+  if( FD_UNLIKELY( fd_tower_empty( tower ) ) ) return;
+
   ulong max_slot = 0;
 
   /* Determine spacing. */

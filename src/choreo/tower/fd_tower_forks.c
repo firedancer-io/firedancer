@@ -108,7 +108,10 @@ fd_forks_lowest_common_ancestor( fd_forks_t * forks,
     if( fork1->slot > fork2->slot                 ) fork1 = fd_tower_forks_query( forks->tower_forks, fork1->parent_slot, NULL );
     else                                            fork2 = fd_tower_forks_query( forks->tower_forks, fork2->parent_slot, NULL );
   }
-  FD_LOG_CRIT(( "invalid forks" ));
+  /* If we reach here, then one of the slots is on a minority fork who's
+     ancestor that connected it to the main fork has been pruned (i.e.)
+     we have a dangling leaf right now! There is no LCA in this case. */
+  return ULONG_MAX;
 }
 
 fd_hash_t const *

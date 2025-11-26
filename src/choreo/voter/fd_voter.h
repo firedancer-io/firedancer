@@ -79,8 +79,8 @@ fd_voter_root_slot( uchar const * vote_account_data ) {
   fd_voter_t const * voter = (fd_voter_t const *)fd_type_pun_const( vote_account_data );
   ulong              cnt   = voter->votes_cnt;
   switch( voter->kind ) {
-  case FD_VOTER_V3: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->votes_v3[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->votes_v3[cnt] ) : ULONG_MAX; }
-  case FD_VOTER_V2: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->votes_v2[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->votes_v2[cnt] ) : ULONG_MAX; }
+  case FD_VOTER_V3: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->votes_v3[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->votes_v3[cnt] + 1UL ) : ULONG_MAX; }
+  case FD_VOTER_V2: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->votes_v2[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->votes_v2[cnt] + 1UL ) : ULONG_MAX; }
   default: FD_LOG_CRIT(( "unhandled kind %u", voter->kind ));
   }
 }
