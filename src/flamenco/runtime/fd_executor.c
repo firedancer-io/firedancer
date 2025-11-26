@@ -258,6 +258,7 @@ fd_validate_fee_payer( fd_txn_account_t * account,
                        ulong              fee ) {
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L301-L304 */
   if( FD_UNLIKELY( fd_txn_account_get_lamports( account )==0UL ) ) {
+    FD_LOG_DEBUG(( "Fee payer doesn't exist %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ) ));
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 
@@ -1042,6 +1043,7 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
                                              &fee_payer_rec,
                                              fd_runtime_account_check_fee_payer_writable );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_DEBUG(( "Fee payer isn't writable %s", FD_BASE58_ENC_32_ALLOCA( fee_payer_rec->pubkey ) ));
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 
@@ -1104,6 +1106,7 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
     fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( bank );
     fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
     if( FD_UNLIKELY( !slot_hashes ) ) {
+      FD_LOG_DEBUG(( "fd_executor_setup_txn_alut_account_keys(): failed to get slot hashes" ));
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
     fd_funk_txn_xid_t xid       = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
