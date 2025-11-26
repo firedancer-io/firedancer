@@ -224,6 +224,7 @@ append_netdev( fd_net_ctx_t * ctx,
 static void
 setup_netdev_table( fd_net_ctx_t * ctx ) {
   ctx->netdev_tbl.hdr->dev_cnt = 0;
+  ctx->netdev_tbl.hdr->dev_max = 5;
 
   append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_GRE0,
