@@ -20,7 +20,9 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <linux/fs.h>
+#if FD_HAS_BZIP2
 #include <bzlib.h>
+#endif
 
 #include "generated/fd_genesi_tile_seccomp.h"
 
@@ -236,6 +238,9 @@ after_credit( fd_genesi_tile_t *  ctx,
     if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "failed to retrieve genesis.bin from any configured gossip entrypoints" ));
     if( FD_LIKELY( 1==result ) ) return;
 
+    uchar * decompressed = ctx->buffer;
+    ulong   actual_decompressed_sz = 0UL;
+#   if FD_HAS_BZIP2
     bz_stream bzstrm = {0};
     bzstrm.bzalloc = bz2_malloc;
     bzstrm.bzfree  = bz2_free;
@@ -243,8 +248,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     int bzerr = BZ2_bzDecompressInit( &bzstrm, 0, 0 );
     if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompressInit() failed (%d)", bzerr ));
 
-    uchar * decompressed = ctx->buffer;
-    ulong   decompressed_sz = GENESIS_MAX_SZ;
+    ulong decompressed_sz = GENESIS_MAX_SZ;
 
     bzstrm.next_in   = (char *)buffer;
     bzstrm.avail_in  = (uint)buffer_sz;
@@ -253,7 +257,11 @@ after_credit( fd_genesi_tile_t *  ctx,
     bzerr = BZ2_bzDecompress( &bzstrm );
     if( FD_UNLIKELY( BZ_STREAM_END!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompress() failed (%d)", bzerr ));
 
-    ulong actual_decompressed_sz = decompressed_sz - (ulong)bzstrm.avail_out;
+    actual_decompressed_sz = decompressed_sz - (ulong)bzstrm.avail_out;
+#   else
+    FD_LOG_ERR(( "This build does not include bzip2, which is required to boot from genesis.\n"
+                 "To install bzip2, re-run ./deps.sh +dev, make distclean, and make -j" ));
+#   endif
 
     FD_TEST( actual_decompressed_sz>=512UL );
 
