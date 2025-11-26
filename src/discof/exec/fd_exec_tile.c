@@ -128,8 +128,9 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
-        ctx->txn_in.txn           = &msg->txn;
-        ctx->txn_in.exec_accounts = &ctx->exec_accounts;
+        ctx->txn_in.txn               = &msg->txn;
+        ctx->txn_in.exec_accounts     = &ctx->exec_accounts;
+        ctx->runtime->log.capture_ctx = ctx->capture_ctx;
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 

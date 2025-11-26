@@ -2211,11 +2211,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };
   fd_exec_instr_ctx_get_signers( ctx, signers );
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L70
-  if( FD_UNLIKELY( ctx->instr->data==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
-
   uchar __attribute__((aligned(alignof(fd_vote_instruction_t)))) vote_instruction_mem[ FD_VOTE_INSTRUCTION_FOOTPRINT ];
   fd_vote_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
       vote_instruction,
