@@ -462,7 +462,6 @@ load_transaction_account( fd_runtime_t *      runtime,
                           fd_txn_out_t *      txn_out,
                           fd_pubkey_t const * pubkey,
                           fd_account_meta_t * meta,
-                          uchar               is_writable,
                           uchar               unknown_acc,
                           ulong               txn_idx ) {
 
@@ -491,10 +490,6 @@ load_transaction_account( fd_runtime_t *      runtime,
     ulong base_account_size = FD_FEATURE_ACTIVE_BANK( bank, formalize_loaded_transaction_data_size ) ? FD_TRANSACTION_ACCOUNT_BASE_SIZE : 0UL;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L828-L835 */
-    if( is_writable ) {
-      /* TODO:FIXME: DO WE REALLY NEED THIS */
-      runtime->accounts.starting_lamports[txn_idx] = meta->lamports;
-    }
     return fd_ulong_sat_add( base_account_size, meta->dlen );
   }
 
@@ -529,7 +524,6 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
     fd_account_meta_t * meta = txn_out->accounts.metas[i];
     uchar unknown_acc = !!(fd_runtime_get_account_at_index( txn_in, txn_out, i, fd_runtime_account_check_exists ) ||
                             meta->lamports==0UL);
-    uchar is_writable = !!(fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ));
 
     /* Collect the fee payer account separately (since it was already)
        loaded during fee payer validation.
@@ -551,7 +545,7 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L733-L740 */
-    ulong loaded_acc_size = load_transaction_account( runtime, bank, txn_in, txn_out, &txn_out->accounts.keys[i], meta, is_writable, unknown_acc, i );
+    ulong loaded_acc_size = load_transaction_account( runtime, bank, txn_in, txn_out, &txn_out->accounts.keys[i], meta, unknown_acc, i );
     int err = accumulate_and_check_loaded_account_data_size( loaded_acc_size,
                                                              requested_loaded_accounts_data_size,
                                                              &txn_out->details.loaded_accounts_data_size );
@@ -796,7 +790,6 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
 
     uchar unknown_acc = !!(fd_runtime_get_account_at_index( txn_in, txn_out, i, fd_runtime_account_check_exists ) ||
                             meta->lamports==0UL);
-    uchar is_writable = !!(fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ));
 
     /* Collect the fee payer account separately (since it was already)
        loaded during fee payer validation.
@@ -826,7 +819,7 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
 
     /* Load and collect any remaining accounts
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
-    ulong loaded_acc_size = load_transaction_account( runtime, bank, txn_in, txn_out, &txn_out->accounts.keys[i], meta, is_writable, unknown_acc, i );
+    ulong loaded_acc_size = load_transaction_account( runtime, bank, txn_in, txn_out, &txn_out->accounts.keys[i], meta, unknown_acc, i );
     int err = fd_collect_loaded_account(
       runtime,
       txn_out,
