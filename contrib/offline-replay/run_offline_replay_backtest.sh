@@ -59,7 +59,17 @@ while true; do
         cd $AGAVE_REPO
         git pull
         git checkout $AGAVE_TAG
-        cargo build --release
+
+        AGAVE_VERSION=$(echo "$AGAVE_TAG" | sed 's/^v//')
+        if [ "$(printf '%s\n' "$AGAVE_VERSION" "3.1.0" | sort -V | head -n1)" = "3.1.0" ]; then
+            cargo clean
+            cargo build --manifest-path dev-bins/Cargo.toml -p agave-ledger-tool --release
+            AGAVE_LEDGER_TOOL="${AGAVE_REPO}/dev-bins/target/release/agave-ledger-tool"
+        else
+            cargo clean
+            cargo build --release
+            AGAVE_LEDGER_TOOL="${AGAVE_REPO}/target/release/agave-ledger-tool"
+        fi
 
         send_slack_message "Bucket Slot \`$NEWEST_BUCKET_SLOT\` is greater than the last run bucket slot \`$LATEST_RUN_BUCKET_SLOT\`"
 
