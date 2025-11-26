@@ -105,7 +105,9 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
   /**********************************************************************/
+  int vinyl_enabled = config->firedancer.vinyl.enabled;
   fd_topo_tile_t * snapin_tile = NULL;
+  fd_topo_tile_t * snapwr_tile = NULL;
   if( FD_UNLIKELY( !disable_snap_loader ) ) {
     fd_topob_wksp( topo, "snapct" );
     fd_topob_wksp( topo, "snapld" );
@@ -129,6 +131,16 @@ backtest_topo( config_t * config ) {
     snapld_tile->allow_shutdown = 1;
     snapdc_tile->allow_shutdown = 1;
     snapin_tile->allow_shutdown = 1;
+
+    if( vinyl_enabled ) {
+      fd_topob_wksp( topo, "snapwh" );
+      fd_topo_tile_t * snapwh_tile = fd_topob_tile( topo, "snapwh", "snapwh", "metric_in", cpu_idx++, 0, 0 );
+      snapwh_tile->allow_shutdown = 1;
+
+      fd_topob_wksp( topo, "snapwr" );
+      snapwr_tile = fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", cpu_idx++, 0, 0 );
+      snapwr_tile->allow_shutdown = 1;
+    }
   } else {
     fd_topob_wksp( topo, "genesi" );
     fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  cpu_idx++, 0, 0 )->allow_shutdown = 1;
@@ -169,6 +181,10 @@ backtest_topo( config_t * config ) {
       fd_topob_wksp( topo, "snapin_ls" );
     }
 
+    if( vinyl_enabled ) {
+      fd_topob_wksp( topo, "snapin_wr" );
+    }
+
     fd_topob_link( topo, "snapct_ld",    "snapct_ld",    128UL,   sizeof(fd_ssctrl_init_t),       1UL );
     fd_topob_link( topo, "snapld_dc",    "snapld_dc",    16384UL, USHORT_MAX,                     1UL );
     fd_topob_link( topo, "snapdc_in",    "snapdc_in",    16384UL, USHORT_MAX,                     1UL );
@@ -182,6 +198,12 @@ backtest_topo( config_t * config ) {
       FOR(lta_tile_cnt) fd_topob_link( topo, "snapla_ls",  "snapla_ls",   128UL,  sizeof(fd_lthash_value_t),          1UL );
       /**/              fd_topob_link( topo, "snapin_ls",  "snapin_ls",   256UL,  sizeof(fd_snapshot_full_account_t), 1UL );
       /**/              fd_topob_link( topo, "snapls_ct",  "snapls_ct",   128UL,  0UL,                                1UL );
+    }
+
+    if( vinyl_enabled ) {
+      fd_topo_link_t * snapin_wh = fd_topob_link( topo, "snapin_wh", "snapin_wr", 4UL, 16UL<<20, 1UL );
+      fd_topob_link( topo, "snapwh_wr", "snapin_wr", 4UL, 0UL, 1UL );
+      fd_pod_insertf_ulong( topo->props, 8UL, "obj.%lu.app_sz", snapin_wh->dcache_obj_id );
     }
 
     if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
@@ -212,6 +234,14 @@ backtest_topo( config_t * config ) {
       /**/              fd_topob_tile_in ( topo, "snapls", 0UL, "metric_in", "snapin_ls",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
       FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapls", 0UL, "metric_in", "snapla_ls",   i,    FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
       /**/              fd_topob_tile_out( topo, "snapls", 0UL,              "snapls_ct",   0UL                                        );
+    }
+
+    if( vinyl_enabled ) {
+      fd_topob_tile_out( topo, "snapin", 0UL,              "snapin_wh", 0UL );
+      fd_topob_tile_in ( topo, "snapwh", 0UL, "metric_in", "snapin_wh", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      fd_topob_tile_out( topo, "snapwh", 0UL,              "snapwh_wr", 0UL );
+      fd_topob_tile_in ( topo, "snapwr", 0UL, "metric_in", "snapwh_wr", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      fd_topob_tile_uses( topo, snapwr_tile, &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapin_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
     }
   } else {
     fd_topob_wksp( topo, "genesi_out" );
