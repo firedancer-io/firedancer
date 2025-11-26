@@ -25,7 +25,7 @@
    complete as they happen.  Specifically, except for "move", individual
    items in a batch complete atomically in whatever order they were
    processed.  (During the move of an individual item for the current
-   implementation, there is a brief momment where a concurrent meta
+   implementation, there is a brief moment where a concurrent meta
    reader could observe both key_src and key_dst as not present.)
    Similarly clients doing speculative processing will see individual
    batch items complete atomically (including move) in whatever order
