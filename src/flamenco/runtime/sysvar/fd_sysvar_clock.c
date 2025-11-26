@@ -74,30 +74,31 @@ fd_sysvar_clock_write( fd_bank_t *               bank,
   fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_clock_id, enc, sizeof(fd_sol_sysvar_clock_t) );
 }
 
-
 fd_sol_sysvar_clock_t *
-fd_sysvar_clock_read( fd_funk_t *               funk,
+fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
                       fd_funk_txn_xid_t const * xid,
                       fd_sol_sysvar_clock_t *   clock ) {
-  fd_txn_account_t acc[1];
-  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_clock_id, funk, xid );
-  if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
-    return NULL;
-  }
+  FD_ACCDB_RO_BEGIN( accdb, acc, xid, &fd_sysvar_clock_id ) {
 
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
-    return NULL;
-  }
+    /* This check is needed as a quirk of the fuzzer. If a sysvar account
+       exists in the accounts database, but doesn't have any lamports,
+       this means that the account does not exist. This wouldn't happen
+       in a real execution environment. */
+    if( FD_UNLIKELY( fd_accdb_ref_lamports( acc )==0UL ) ) {
+      return NULL;
+    }
 
-  return fd_bincode_decode_static(
-      sol_sysvar_clock, clock,
-      fd_txn_account_get_data( acc ),
-      fd_txn_account_get_data_len( acc ),
-      NULL );
+    return fd_bincode_decode_static(
+        sol_sysvar_clock, clock,
+        fd_accdb_ref_data_const( acc ),
+        fd_accdb_ref_data_sz   ( acc ),
+        NULL );
+
+  } FD_ACCDB_RO_NOT_FOUND {
+
+    return NULL;
+
+  } FD_ACCDB_RO_END;
 }
 
 void
@@ -268,9 +269,8 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
                         fd_capture_ctx_t *        capture_ctx,
                         fd_runtime_stack_t *      runtime_stack,
                         ulong const *             parent_epoch ) {
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( funk, xid, clock_ );
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, xid, clock_ );
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );

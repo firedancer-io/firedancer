@@ -488,7 +488,8 @@ fd_accdb_user_v1_init( fd_accdb_user_t * accdb,
 fd_funk_t *
 fd_accdb_user_v1_funk( fd_accdb_user_t * accdb ) {
   fd_accdb_user_v1_t * v1 = (fd_accdb_user_v1_t *)accdb;
-  if( FD_UNLIKELY( accdb->base.accdb_type!=FD_ACCDB_TYPE_V1 ) ) {
+  uint accdb_type = accdb->base.accdb_type;
+  if( FD_UNLIKELY( accdb_type!=FD_ACCDB_TYPE_V1 && accdb_type!=FD_ACCDB_TYPE_V2 ) ) {
     FD_LOG_CRIT(( "fd_accdb_user_v1_funk called on non-v1 accdb_user (type %u)", accdb->base.accdb_type ));
   }
   return v1->funk;
