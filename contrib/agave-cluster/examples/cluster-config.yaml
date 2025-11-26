@@ -1,0 +1,37 @@
+# Example Agave Cluster Configuration
+# This file shows how cluster settings could be configured
+
+cluster:
+  name: "development-cluster"
+  network: "devnet"
+
+validators:
+  count: 2
+  stake: 1000000
+  ports:
+    start: 8001
+    rpc: 8899
+
+rpc_nodes:
+  count: 1
+  ports:
+    start: 8900
+
+network:
+  gossip_port: 8001
+  rpc_port: 8899
+  faucet_port: 9900
+
+ledger:
+  location: "./ledger"
+  genesis_accounts: 10
+
+logging:
+  level: "info"
+  file: "./cluster.log"
+
+accounts:
+  - name: "test-account-1"
+    balance: 1000000000
+  - name: "test-account-2"
+    balance: 500000000
