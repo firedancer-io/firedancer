@@ -15,7 +15,7 @@ struct blk {
   uint          hash;
   int           forked;        /* whether this block id has hard forked (multiple candidate bank hashes) */
   int           replayed;      /* whether we've replayed */
-  int           invalid;       /* whether we marked the block as invalid during replay (must ignore our_bank_hash) */
+  int           dead;          /* whether we marked the block as dead during replay (must ignore our_bank_hash) */
   fd_hash_t     our_bank_hash; /* our bank hash for this block_id after replay */
   bank_hash_t * bank_hashes;
 };

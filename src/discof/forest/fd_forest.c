@@ -697,6 +697,15 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot
 }
 
 fd_forest_blk_t *
+fd_forest_blk_parent_update( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
+  VER_INC;
+  fd_forest_blk_t * ele = query( forest, slot );
+  if( FD_UNLIKELY( !ele ) ) return NULL;
+  ele->parent_slot = parent_slot;
+  return ele;
+}
+
+fd_forest_blk_t *
 fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick ) {
   VER_INC;
   FD_TEST( last_shred_idx <= FD_SHRED_IDX_MAX );

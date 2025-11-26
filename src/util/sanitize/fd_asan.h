@@ -91,6 +91,16 @@ void   __asan_unpoison_memory_region( void const volatile * addr, ulong sz );
 int    __asan_address_is_poisoned   ( void const volatile * addr           );
 void * __asan_region_is_poisoned    ( void *                addr, ulong sz );
 
+void
+__sanitizer_start_switch_fiber( void **      fake_stack_save,
+                                void const * stack_bottom,
+                                ulong        stack_size );
+
+void
+__sanitizer_finish_switch_fiber( void *        fake_stack_save,
+                                 void const ** stack_bottom_old,
+                                 ulong *       stack_size_old );
+
 #ifdef FD_HAS_DEEPASAN_WATCH
 void fd_asan_check_watch( int poison, void * addr, ulong sz );
 void fd_asan_watch( void const * addr );
@@ -105,12 +115,18 @@ static inline void * fd_asan_unpoison( void * addr, ulong sz ) { __asan_unpoison
 static inline int    fd_asan_test    ( void * addr           ) { return __asan_address_is_poisoned( addr );     }
 static inline void * fd_asan_query   ( void * addr, ulong sz ) { return __asan_region_is_poisoned ( addr, sz ); }
 
+static inline void fd_asan_start_switch_fiber ( void ** a, void const *  b, ulong   c ) { __sanitizer_start_switch_fiber ( a, b, c ); }
+static inline void fd_asan_finish_switch_fiber( void *  a, void const ** b, ulong * c ) { __sanitizer_finish_switch_fiber( a, b, c ); }
+
 #else
 
 static inline void * fd_asan_poison  ( void * addr, ulong sz ) { (void)sz;             return addr; }
 static inline void * fd_asan_unpoison( void * addr, ulong sz ) { (void)sz;             return addr; }
 static inline int    fd_asan_test    ( void * addr           ) { (void)addr;           return 0;    }
 static inline void * fd_asan_query   ( void * addr, ulong sz ) { (void)addr; (void)sz; return NULL; }
+
+static inline void fd_asan_start_switch_fiber ( void ** a, void const *  b, ulong   c ) { (void)a; (void)b; (void)c; }
+static inline void fd_asan_finish_switch_fiber( void *  a, void const ** b, ulong * c ) { (void)a; (void)b; (void)c; }
 
 #endif
 

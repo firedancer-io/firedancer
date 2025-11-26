@@ -4,3 +4,4 @@ extractor: cpp
 warnOnImplicitThis: true
 dependencies:
   codeql/cpp-all: "*"
+  asymmetric-research/fd-dev-queries: "*"

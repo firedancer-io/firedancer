@@ -5,13 +5,13 @@ static void
 check( fd_hfork_t *  hfork,
        ulong         total_stake,
        candidate_t * candidate,
-       int           invalid,
+       int           dead,
        fd_hash_t *   our_bank_hash ) {
 
   if( FD_LIKELY( candidate->checked ) ) return; /* already checked this bank hash against our own */
   if( FD_LIKELY( candidate->stake * 100UL / total_stake < 52UL ) ) return; /* not enough stake to compare */
 
-  if( FD_UNLIKELY( invalid ) ) {
+  if( FD_UNLIKELY( dead ) ) {
     char msg[ 4096UL ];
     FD_BASE58_ENCODE_32_BYTES( candidate->key.block_id.uc, _block_id );
     FD_TEST( fd_cstr_printf_check( msg, sizeof( msg ), NULL,
@@ -183,7 +183,10 @@ fd_hfork_count_vote( fd_hfork_t *         hfork,
   /* Get the vtr. */
 
   vtr_t * vtr = vtr_map_query( hfork->vtr_map, *vote_acc, NULL );
-  if( FD_UNLIKELY( !vtr ) ) vtr = vtr_map_insert( hfork->vtr_map, *vote_acc );
+  if( FD_UNLIKELY( !vtr ) ) {
+    FD_TEST( vtr_map_key_cnt( hfork->vtr_map ) < vtr_map_key_max( hfork->vtr_map ) );
+    vtr = vtr_map_insert( hfork->vtr_map, *vote_acc );
+  }
 
   /* Ignore out of order or duplicate votes. */
 
@@ -240,11 +243,10 @@ fd_hfork_count_vote( fd_hfork_t *         hfork,
   blk_t * blk = blk_map_query( hfork->blk_map, *block_id, NULL );
   if( FD_UNLIKELY( !blk ) ) {
     FD_TEST( blk_map_key_cnt( hfork->blk_map ) < blk_map_key_max( hfork->blk_map ) ); /* invariant violation: blk_map full */
-    blk                  = blk_map_insert( hfork->blk_map, *block_id );
-    FD_TEST( blk );
-    blk->bank_hashes     = NULL;
-    blk->replayed        = 0;
-    blk->invalid         = 0;
+    blk              = blk_map_insert( hfork->blk_map, *block_id );
+    blk->bank_hashes = NULL;
+    blk->replayed    = 0;
+    blk->dead        = 0;
   }
   int           found = 0;
   ulong         cnt   = 0;
@@ -256,8 +258,8 @@ fd_hfork_count_vote( fd_hfork_t *         hfork,
     curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
     cnt++;
   }
-
   if( FD_UNLIKELY( !found ) ) {
+    FD_TEST( bank_hash_pool_free( hfork->bank_hash_pool ) );
     bank_hash_t * ele = bank_hash_pool_ele_acquire( hfork->bank_hash_pool );
     ele->bank_hash    = *bank_hash;
     ele->next         = bank_hash_pool_idx_null( hfork->bank_hash_pool );
@@ -274,7 +276,7 @@ fd_hfork_count_vote( fd_hfork_t *         hfork,
 
   /* Check for hard forks. */
 
-  if( FD_LIKELY( blk->replayed ) ) check( hfork, total_stake, candidate, blk->invalid, &blk->our_bank_hash );
+  if( FD_LIKELY( blk->replayed ) ) check( hfork, total_stake, candidate, blk->dead, &blk->our_bank_hash );
 }
 
 void
@@ -287,14 +289,14 @@ fd_hfork_record_our_bank_hash( fd_hfork_t * hfork,
     blk           = blk_map_insert( hfork->blk_map, *block_id );
     blk->replayed = 1;
   }
-  if( FD_LIKELY( bank_hash ) ) { blk->invalid = 0; blk->our_bank_hash = *bank_hash; }
-  else                           blk->invalid = 1;
+  if( FD_LIKELY( bank_hash ) ) { blk->dead = 0; blk->our_bank_hash = *bank_hash; }
+  else                           blk->dead = 1;
 
   bank_hash_t * curr  = blk->bank_hashes;
   while( FD_LIKELY( curr ) ) {
     candidate_key_t key       = { .block_id = *block_id, .bank_hash = curr->bank_hash };
     candidate_t *   candidate = candidate_map_query( hfork->candidate_map, key, NULL );
-    if( FD_LIKELY( candidate ) ) check( hfork, total_stake, candidate, blk->invalid, &blk->our_bank_hash );
+    if( FD_LIKELY( candidate ) ) check( hfork, total_stake, candidate, blk->dead, &blk->our_bank_hash );
     curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
   }
 }

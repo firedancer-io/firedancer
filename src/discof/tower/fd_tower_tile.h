@@ -45,6 +45,9 @@ struct fd_tower_slot_done {
   ulong     root_slot;
   fd_hash_t root_block_id;
 
+  /* The number of leaves in the forks tree. */
+  ulong     active_fork_cnt;
+
   /* This tower_slot_done message is 1-to-1 with the completion of a
      replayed slot.  When that slot was done, the bank_idx was sent to
      tower, which tower used to query the bank and populate the vote

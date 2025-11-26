@@ -4,7 +4,7 @@
 void
 test_hfork_simple( fd_wksp_t * wksp ) {
   ulong  max_live_slots    = 2;
-  ulong  max_vote_accounts = 2;
+  ulong  max_vote_accounts = 4;
 
   void *       mem   = fd_wksp_alloc_laddr( wksp, fd_hfork_align(), fd_hfork_footprint( max_live_slots, max_vote_accounts ), 1UL );
   fd_hfork_t * hfork = fd_hfork_join( fd_hfork_new( mem, max_live_slots, max_vote_accounts, 42, 0 ) );
@@ -22,9 +22,15 @@ test_hfork_simple( fd_wksp_t * wksp ) {
   fd_hash_t block_id2  = { .ul = { slot2 } };
   fd_hash_t bank_hash2 = { .ul = { slot2 } };
 
-  fd_hash_t voters[2] = {
+  ulong     slot3      = 368778156;
+  // fd_hash_t block_id3  = { .ul = { slot3 } };
+  fd_hash_t bank_hash3 = { .ul = { slot3 } };
+
+  fd_hash_t voters[4] = {
     (fd_hash_t){ .ul = { 1 } },
     (fd_hash_t){ .ul = { 2 } },
+    (fd_hash_t){ .ul = { 3 } },
+    (fd_hash_t){ .ul = { 4 } },
   };
 
   fd_hfork_metrics_t metrics = { 0 };
@@ -57,6 +63,22 @@ test_hfork_simple( fd_wksp_t * wksp ) {
 
   FD_TEST( candidate->stake==51 );
   FD_TEST( candidate->cnt  ==1 );
+
+  /* max bank hashes for a given block_id */
+
+  fd_hfork_count_vote( hfork, &voters[0], &block_id, &bank_hash,  slot3, 1,  100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[1], &block_id, &bank_hash1, slot3, 51, 100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[2], &block_id, &bank_hash2, slot3, 2,  100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[3], &block_id, &bank_hash3, slot3, 3,  100, &metrics );
+
+  blk_t * blk = blk_map_query( hfork->blk_map, block_id, NULL );
+  bank_hash_t * curr = blk->bank_hashes;
+  ulong cnt = 0;
+  while( FD_LIKELY( curr ) ) {
+    curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+    cnt++;
+  }
+  FD_TEST( cnt==4 );
 
   fd_wksp_free_laddr( fd_hfork_delete( fd_hfork_leave( hfork ) ) );
 }

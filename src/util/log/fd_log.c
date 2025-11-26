@@ -8,8 +8,8 @@
 
 #if FD_LOG_STYLE==0 /* POSIX style */
 
-#ifndef FD_HAS_BACKTRACE
-#if __has_include( <execinfo.h> )
+#if !defined(FD_HAS_BACKTRACE)
+#if __has_include( <execinfo.h> ) && !FD_HAS_ASAN
 #define FD_HAS_BACKTRACE 1
 #else
 #define FD_HAS_BACKTRACE 0
@@ -579,7 +579,7 @@ static int fd_log_private_shared_lock_local[1] __attribute__((aligned(128))); /*
 static int fd_log_private_stderr_fileno = STDERR_FILENO;
 int fd_log_private_restore_stderr = STDERR_FILENO;
 
-void
+__attribute__((no_sanitize_address)) void
 fd_log_private_fprintf_0( int          fd,
                           char const * fmt, ... ) {
 
@@ -1334,9 +1334,11 @@ fd_log_private_boot_custom( int *        lock,
   }
 
   if( FD_UNLIKELY( fd_log_private_signal_handler ) ) {
+#   if FD_HAS_BACKTRACE
     /* See note above about needing to prime backtrace */
     void * btrace[128];
     (void)backtrace( btrace, 128 );
+#   endif
 
     /* This is all overridable POSIX sigs whose default behavior is to
        abort the program.  It will backtrace and then fallback to the

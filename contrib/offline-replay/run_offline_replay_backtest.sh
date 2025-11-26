@@ -59,7 +59,17 @@ while true; do
         cd $AGAVE_REPO
         git pull
         git checkout $AGAVE_TAG
-        cargo build --release
+
+        AGAVE_VERSION=$(echo "$AGAVE_TAG" | sed 's/^v//')
+        if [ "$(printf '%s\n' "$AGAVE_VERSION" "3.1.0" | sort -V | head -n1)" = "3.1.0" ]; then
+            cargo clean
+            cargo build --manifest-path dev-bins/Cargo.toml -p agave-ledger-tool --release
+            AGAVE_LEDGER_TOOL="${AGAVE_REPO}/dev-bins/target/release/agave-ledger-tool"
+        else
+            cargo clean
+            cargo build --release
+            AGAVE_LEDGER_TOOL="${AGAVE_REPO}/target/release/agave-ledger-tool"
+        fi
 
         send_slack_message "Bucket Slot \`$NEWEST_BUCKET_SLOT\` is greater than the last run bucket slot \`$LATEST_RUN_BUCKET_SLOT\`"
 
@@ -293,7 +303,7 @@ while true; do
                 # create new snapshot at that slot
                 if [ "$PREVIOUS_ROOTED_SLOT" -gt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
                     echo "Creating new snapshot at $PREVIOUS_ROOTED_SLOT"
-                    $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR
+                    $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change
                     sleep 10
                     rm $LEDGER_DIR/ledger_tool -rf
                     # delete old snapshot (LEADER_REPLAY_SNAPSHOT)
@@ -306,7 +316,7 @@ while true; do
 
                 # create a new base snapshot for rooted slot right after the mismatch slot
                 echo "Creating new snapshot at $NEXT_ROOTED_SLOT"
-                $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR
+                $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change
                 sleep 10
                 rm $LEDGER_DIR/ledger_tool -rf
 
@@ -339,7 +349,7 @@ while true; do
 
                 mv $LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
                 echo "Creating minimized snapshot for mismatch"
-                $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT
+                $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT --enable-capitalization-change
                 sleep 10
                 rm $LEDGER_DIR/ledger_tool -rf
                 mv $LEDGER_DIR/snapshot-${PREVIOUS_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR

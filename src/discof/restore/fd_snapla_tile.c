@@ -100,7 +100,7 @@ metrics_write( fd_snapla_tile_t * ctx ) {
 
 static void
 transition_malformed( fd_snapla_tile_t *  ctx,
-                      fd_stem_context_t *  stem ) {
+                      fd_stem_context_t * stem ) {
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, FD_SNAPLA_OUT_CTRL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
@@ -112,7 +112,7 @@ should_hash_account( fd_snapla_tile_t * ctx ) {
 
 static void
 streamlined_hash( fd_snapla_tile_t * ctx,
-                    uchar const *      frame ) {
+                  uchar const *      frame ) {
   ulong data_len   = fd_ulong_load_8_fast( frame+0x08UL );
   uchar pubkey[32];  memcpy( pubkey, frame+0x10UL, 32UL );
   ulong lamports   = fd_ulong_load_8_fast( frame+0x30UL );
@@ -139,7 +139,7 @@ streamlined_hash( fd_snapla_tile_t * ctx,
 }
 
 static int
-handle_data_frag( fd_snapla_tile_t * ctx,
+handle_data_frag( fd_snapla_tile_t *  ctx,
                   ulong               chunk,
                   ulong               sz,
                   fd_stem_context_t * stem ) {

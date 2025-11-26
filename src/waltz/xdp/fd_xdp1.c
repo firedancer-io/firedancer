@@ -176,7 +176,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   /* udp check */
   ulong * udp_check = code;
 
-  /* check ip4's dst port */
+  /* check ip4's dst addr */
   if( listen_ip4_addr!=0 ) {
     *(code++) = FD_EBPF( ldxw, r5, r2, 16                       );
     *(code++) = FD_EBPF( jne_imm, r5, listen_ip4_addr, LBL_PASS );  // if ip4->daddr != listen_ip4_addr goto LBL_PASS
@@ -218,7 +218,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   /* Fill in jump labels */
 
   for( ulong i=0UL; i<code_cnt; i++ ) {
-    if( (code_buf[ i ] & 0x05)==0x05 ) {
+    if( (code_buf[ i ] & 0x07)==0x05 ) {
       ulong * jmp_target = 0;
       uint    jmp_label = (code_buf[ i ]>>16) & 0xFFFF;
       switch( jmp_label ) {

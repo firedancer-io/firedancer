@@ -609,6 +609,12 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
 fd_forest_blk_t *
 fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot );
 
+/* fd_forest_blk_parent_update updates the parent of a block in the forest.
+   Needed for profiler mode. */
+
+fd_forest_blk_t *
+fd_forest_blk_parent_update( fd_forest_t * forest, ulong slot, ulong parent_slot );
+
 #define SHRED_SRC_TURBINE   0
 #define SHRED_SRC_REPAIR    1
 #define SHRED_SRC_RECOVERED 2

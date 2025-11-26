@@ -5,6 +5,7 @@
 #include "../../../waltz/mib/fd_dbl_buf.h"
 #include "../../../waltz/mib/fd_netdev_tbl.h"
 #include "../../../waltz/neigh/fd_neigh4_map.h"
+#include "../../../util/pod/fd_pod_format.h"
 
 #include <net/if.h>
 #include <stdio.h>
@@ -56,7 +57,12 @@ netconf_cmd_fn( args_t *   args,
 
   printf( "\nNEIGHBOR TABLE (%.16s)\n\n", tile->netlink.neigh_if );
   fd_neigh4_hmap_t neigh4[1];
-  FD_TEST( fd_neigh4_hmap_join( neigh4, fd_topo_obj_laddr( topo, tile->netlink.neigh4_obj_id ), fd_topo_obj_laddr( topo, tile->netlink.neigh4_ele_obj_id ) ) );
+  ulong neigh4_obj_id = tile->netlink.neigh4_obj_id;
+  ulong ele_max   = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.ele_max",   neigh4_obj_id );
+  ulong probe_max = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.probe_max", neigh4_obj_id );
+  ulong seed      = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.seed",      neigh4_obj_id );
+  FD_TEST( (ele_max!=ULONG_MAX) & (probe_max!=ULONG_MAX) & (seed!=ULONG_MAX) );
+  FD_TEST( fd_neigh4_hmap_join( neigh4, fd_topo_obj_laddr( topo, neigh4_obj_id ), ele_max, probe_max, seed ) );
   fd_neigh4_hmap_fprintf( neigh4, stdout );
   fd_neigh4_hmap_leave( neigh4 );
 

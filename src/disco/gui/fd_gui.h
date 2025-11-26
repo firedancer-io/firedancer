@@ -317,6 +317,8 @@ struct fd_gui_leader_slot {
   } txs;
 
   fd_done_packing_t scheduler_stats[ 1 ];
+
+  uchar unbecame_leader: 1;
 };
 
 typedef struct fd_gui_leader_slot fd_gui_leader_slot_t;
@@ -633,6 +635,7 @@ struct fd_gui {
     ulong slot_turbine;
     ulong slot_reset;
     ulong slot_storage;
+    ulong active_fork_cnt;
 
     fd_gui_ephemeral_slot_t slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL ];
     fd_gui_ephemeral_slot_t slots_max_repair [ FD_GUI_REPAIR_SLOT_HISTORY_SZ +1UL ];

@@ -26,6 +26,7 @@
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_gre.h"
+#include "../../../util/pod/fd_pod_format.h"
 
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
@@ -381,17 +382,6 @@ net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
 }
 
-/* Query the netdev table. Return a fd_netdev_t pointer to the net device of the
-interface specified by if_idx. Null if the if_idx is invalid */
-
-static fd_netdev_t *
-net_query_netdev_tbl( fd_net_ctx_t * ctx,
-                      uint           if_idx ) {
-  /* dev_tbl is one-indexed */
-  if( if_idx>ctx->netdev_tbl.hdr->dev_cnt ) return NULL;
-  return &ctx->netdev_tbl.dev_tbl[ if_idx ];
-}
-
 /* Iterates the netdev table and returns 1 if a GRE interface exists, 0 otherwise.
    Only called in privileged_init and during_housekeeping */
 
@@ -420,7 +410,14 @@ net_tx_ready( fd_net_ctx_t * ctx,
   fd_xdp_ring_t *      tx_ring = &xsk->ring_tx;
   fd_net_free_ring_t * free    = &ctx->free_tx;
   if( free->prod == free->cons ) return 0; /* drop */
-  if( tx_ring->prod - tx_ring->cons >= tx_ring->depth ) return 0; /* drop */
+
+  /* If potentially stale cached_cons says there is space,
+     there is definitely space */
+  if( tx_ring->cached_prod - tx_ring->cached_cons >= tx_ring->depth ) return 1;
+
+  /* read the fseq, and update our cache */
+  tx_ring->cached_cons = FD_VOLATILE_CONST( *tx_ring->cons );
+  if( tx_ring->cached_prod - tx_ring->cached_cons >= tx_ring->depth ) return 0; /* drop */
   return 1;
 }
 
@@ -431,6 +428,8 @@ static void
 net_rx_wakeup( fd_net_ctx_t * ctx,
                fd_xsk_t *     xsk,
                int *          charge_busy ) {
+  FD_VOLATILE( *xsk->ring_rx.cons ) = xsk->ring_rx.cached_cons; /* write-back local copies to fseqs */
+  FD_VOLATILE( *xsk->ring_fr.prod ) = xsk->ring_fr.cached_prod;
   if( !fd_xsk_rx_need_wakeup( xsk ) ) return;
   *charge_busy = 1;
   struct msghdr _ignored[ 1 ] = { 0 };
@@ -450,14 +449,16 @@ net_rx_wakeup( fd_net_ctx_t * ctx,
 }
 
 /* net_tx_wakeup triggers xsk_sendmsg to run in the kernel.  Needs to be
-   called periodically in order to transmit packets. */
+   called periodically in order to transmit packets. Should only be called
+   if there are unconsumed packets in Tx ring. */
 
 static void
 net_tx_wakeup( fd_net_ctx_t * ctx,
                fd_xsk_t *     xsk,
                int *          charge_busy ) {
+  FD_VOLATILE( *xsk->ring_tx.prod ) = xsk->ring_tx.cached_prod; /* write-back local copies to fseqs */
+  FD_VOLATILE( *xsk->ring_cr.cons ) = xsk->ring_cr.cached_cons;
   if( !fd_xsk_tx_need_wakeup( xsk ) ) return;
-  if( FD_VOLATILE_CONST( *xsk->ring_tx.prod )==FD_VOLATILE_CONST( *xsk->ring_tx.cons ) ) return;
   *charge_busy = 1;
   if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
     if( FD_UNLIKELY( net_is_fatal_xdp_error( errno ) ) ) {
@@ -481,9 +482,18 @@ net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
                         uint           xsk_idx,
                         long           now,
                         int *          charge_busy ) {
-  uint tx_prod = FD_VOLATILE_CONST( *ctx->xsk[ xsk_idx ].ring_tx.prod );
-  uint tx_cons = FD_VOLATILE_CONST( *ctx->xsk[ xsk_idx ].ring_tx.cons );
-  int tx_ring_empty = tx_prod==tx_cons;
+  fd_xdp_ring_t * tx_ring        = &ctx->xsk[ xsk_idx ].ring_tx;
+  uint            tx_prod        = tx_ring->cached_prod;
+  uint            tx_cons        = tx_ring->cached_cons;
+
+  int             tx_ring_empty  = tx_prod==tx_cons;
+  /* If we already think tx_ring_empty, it's definitely empty.
+     But if not, we should update our view of what kernel has consumed. */
+  if( FD_LIKELY( !tx_ring_empty ) ) {
+    tx_cons       = tx_ring->cached_cons = FD_VOLATILE_CONST( *tx_ring->cons );
+    tx_ring_empty = tx_prod==tx_cons;
+  }
+
   if( fd_net_flusher_check( ctx->tx_flusher+xsk_idx, now, tx_ring_empty ) ) {
     net_tx_wakeup( ctx, &ctx->xsk[ xsk_idx ], charge_busy );
     fd_net_flusher_wakeup( ctx->tx_flusher+xsk_idx, now );
@@ -503,16 +513,19 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
   ctx->metrics.tx_idle_cnt = fd_seq_diff( ctx->free_tx.prod, ctx->free_tx.cons );
   for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
     fd_xsk_t * xsk = &ctx->xsk[ j ];
-    /* Refresh all sequence numbers (consumer first, then producer) */
     FD_COMPILER_MFENCE();
+    /* Write back local copies to fseqs that we own */
+    FD_VOLATILE( *xsk->ring_fr.prod ) = xsk->ring_fr.cached_prod;
+    FD_VOLATILE( *xsk->ring_rx.cons ) = xsk->ring_rx.cached_cons;
+    FD_VOLATILE( *xsk->ring_tx.prod ) = xsk->ring_tx.cached_prod;
+    FD_VOLATILE( *xsk->ring_cr.cons ) = xsk->ring_cr.cached_cons;
+
+    /* Refresh kernel-owned seq numbers for accurate stats */
     xsk->ring_fr.cached_cons = FD_VOLATILE_CONST( *xsk->ring_fr.cons );
-    xsk->ring_fr.cached_prod = FD_VOLATILE_CONST( *xsk->ring_fr.prod );
-    xsk->ring_rx.cached_cons = FD_VOLATILE_CONST( *xsk->ring_rx.cons );
     xsk->ring_rx.cached_prod = FD_VOLATILE_CONST( *xsk->ring_rx.prod );
     xsk->ring_tx.cached_cons = FD_VOLATILE_CONST( *xsk->ring_tx.cons );
-    xsk->ring_tx.cached_prod = FD_VOLATILE_CONST( *xsk->ring_tx.prod );
-    xsk->ring_cr.cached_cons = FD_VOLATILE_CONST( *xsk->ring_cr.cons );
     xsk->ring_cr.cached_prod = FD_VOLATILE_CONST( *xsk->ring_cr.prod );
+
     FD_COMPILER_MFENCE();
     ctx->metrics.rx_busy_cnt += (long)(int)( xsk->ring_rx.cached_prod - xsk->ring_rx.cached_cons );
     ctx->metrics.rx_idle_cnt += (long)(int)( xsk->ring_fr.cached_prod - xsk->ring_fr.cached_cons );
@@ -560,7 +573,7 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 0;
   }
 
-  fd_netdev_t * netdev = net_query_netdev_tbl( ctx, if_idx );
+  fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
     ctx->metrics.tx_route_fail_cnt++;
     return 0;
@@ -599,28 +612,22 @@ net_tx_route( fd_net_ctx_t * ctx,
   uint neigh_ip = next_hop->ip4_gw;
   if( !neigh_ip ) neigh_ip = dst_ip;
 
-  fd_neigh4_hmap_query_t neigh_query[1];
-  int neigh_res = fd_neigh4_hmap_query_try( ctx->neigh4, &neigh_ip, NULL, neigh_query, 0 );
+  fd_neigh4_entry_t neigh[1];
+  int neigh_res = fd_neigh4_hmap_query_entry( ctx->neigh4, neigh_ip, neigh );
   if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
     /* Neighbor not found */
     fd_netlink_neigh4_solicit( ctx->neigh4_solicit, neigh_ip, if_idx, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
-  fd_neigh4_entry_t const * neigh = fd_neigh4_hmap_query_ele_const( neigh_query );
   if( FD_UNLIKELY( neigh->state != FD_NEIGH4_STATE_ACTIVE ) ) {
     ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
   ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
   ctx->tx_op.src_ip = ip4_src;
-  memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,  6 );
-  memcpy( ctx->tx_op.mac_addrs+6, netdev->mac_addr, 6 );
-
-  if( FD_UNLIKELY( fd_neigh4_hmap_query_test( neigh_query ) ) ) {
-    ctx->metrics.tx_neigh_fail_cnt++;
-    return 0;
-  }
+  memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr, 6 );
+  memcpy( ctx->tx_op.mac_addrs+6, netdev->mac_addr,  6 );
 
   return 1;
 }
@@ -870,7 +877,7 @@ after_frag( fd_net_ctx_t *      ctx,
 
   fd_xsk_t      * xsk     = &ctx->xsk[ xsk_idx ];
   fd_xdp_ring_t * tx_ring = &xsk->ring_tx;
-  uint            tx_seq  = FD_VOLATILE_CONST( *tx_ring->prod );
+  uint            tx_seq  = tx_ring->cached_prod;
   uint            tx_mask = tx_ring->depth - 1U;
   xsk->ring_tx.packet_ring[ tx_seq&tx_mask ] = (struct xdp_desc) {
     .addr    = (ulong)frame - (ulong)ctx->umem,
@@ -882,12 +889,11 @@ after_frag( fd_net_ctx_t *      ctx,
   ctx->tx_op.frame = NULL;
 
   /* Register newly enqueued packet */
-  FD_VOLATILE( *xsk->ring_tx.prod ) = tx_ring->cached_prod = tx_seq+1U;
+  tx_ring->cached_prod = tx_seq+1U;
   ctx->metrics.tx_submit_cnt++;
   ctx->metrics.tx_bytes_total += sz;
   if( ctx->tx_op.use_gre ) ctx->metrics.tx_gre_cnt++;
   fd_net_flusher_inc( ctx->tx_flusher+xsk_idx, fd_tickcount() );
-
 }
 
 /* net_rx_packet is called when a new Ethernet frame is available.
@@ -1054,7 +1060,9 @@ net_comp_event( fd_net_ctx_t * ctx,
   fd_net_free_ring_t * free      = &ctx->free_tx;
   ulong                free_prod = free->prod;
   ulong                free_mask = free->depth - 1UL;
-  long free_cnt = fd_seq_diff( free_prod, free->cons );
+  ulong                free_cons = free->cons;
+  long                 free_cnt = fd_seq_diff( free_prod, free_cons );
+  FD_TEST( free_prod >= free_cons );
   if( FD_UNLIKELY( free_cnt>=(long)free->depth ) ) return; /* blocked */
 
   free->queue[ free_prod&free_mask ] = (ulong)ctx->umem + (frame & (~frame_mask));
@@ -1062,10 +1070,8 @@ net_comp_event( fd_net_ctx_t * ctx,
 
   /* Wind up for next iteration */
 
-  FD_VOLATILE( *comp_ring->cons ) = comp_ring->cached_cons = comp_seq+1U;
-
+  comp_ring->cached_cons = comp_seq+1U;
   ctx->metrics.tx_complete_cnt++;
-
 }
 
 /* net_rx_event is called when a new XDP RX frame is available.  Calls
@@ -1091,12 +1097,18 @@ net_rx_event( fd_net_ctx_t * ctx,
   uint            fill_depth = fill_ring->depth;
   uint            fill_mask  = fill_depth-1U;
   ulong           frame_mask = FD_NET_MTU - 1UL;
-  uint            fill_prod  = FD_VOLATILE_CONST( *fill_ring->prod );
-  uint            fill_cons  = FD_VOLATILE_CONST( *fill_ring->cons );
+  uint            fill_prod  = fill_ring->cached_prod;
+  uint            fill_cons  = fill_ring->cached_cons;
 
-  if( FD_UNLIKELY( (int)(fill_prod-fill_cons) >= (int)fill_depth ) ) {
-    ctx->metrics.rx_fill_blocked_cnt++;
-    return; /* blocked */
+  /* If cached_cons suggests there may not be space in the fill ring,
+     refresh from fseq and check again. Else, skip the fseq access */
+
+  if( FD_UNLIKELY( fill_prod-fill_cons >= fill_depth ) ) {
+    fill_cons = fill_ring->cached_cons = FD_VOLATILE_CONST( *fill_ring->cons );
+    if( FD_UNLIKELY( fill_prod-fill_cons >= fill_depth ) ) {
+      ctx->metrics.rx_fill_blocked_cnt++;
+      return; /* blocked */
+    }
   }
 
   /* Pass it to the receive handler */
@@ -1105,7 +1117,7 @@ net_rx_event( fd_net_ctx_t * ctx,
   net_rx_packet( ctx, frame.addr, frame.len, &freed_chunk );
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( *rx_ring->cons ) = rx_ring->cached_cons = rx_seq+1U;
+  rx_ring->cached_cons = rx_seq+1U;
 
   /* Every RX operation returns one frame to the FILL ring.  If the
      packet was forwarded to a downstream ring, the newly shadowed frame
@@ -1118,8 +1130,7 @@ net_rx_event( fd_net_ctx_t * ctx,
   }
   ulong freed_off = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
   fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off & (~frame_mask);
-  FD_VOLATILE( *fill_ring->prod ) = fill_ring->cached_prod = fill_prod+1U;
-
+  fill_ring->cached_prod = fill_prod+1U;
 }
 
 /* before_credit is called every loop iteration. */
@@ -1151,10 +1162,13 @@ before_credit( fd_net_ctx_t *      ctx,
   net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
 
   uint rx_cons = rr_xsk->ring_rx.cached_cons;
-  uint rx_prod = FD_VOLATILE_CONST( *rr_xsk->ring_rx.prod );
+  uint rx_prod = rr_xsk->ring_rx.cached_prod; /* might be stale */
+  if( FD_UNLIKELY( rx_cons==rx_prod ) ) {
+    rx_prod = rr_xsk->ring_rx.cached_prod = FD_VOLATILE_CONST( *rr_xsk->ring_rx.prod );
+  }
+
   if( rx_cons!=rx_prod ) {
     *charge_busy = 1;
-    rr_xsk->ring_rx.cached_prod = rx_prod;
     net_rx_event( ctx, rr_xsk, rx_cons );
   } else {
     net_rx_wakeup( ctx, rr_xsk, charge_busy );
@@ -1162,14 +1176,17 @@ before_credit( fd_net_ctx_t *      ctx,
     ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
   }
 
-  uint comp_cons = FD_VOLATILE_CONST( *rr_xsk->ring_cr.cons );
-  uint comp_prod = FD_VOLATILE_CONST( *rr_xsk->ring_cr.prod );
+  uint comp_cons = rr_xsk->ring_cr.cached_cons;
+  uint comp_prod = rr_xsk->ring_cr.cached_prod; /* might be stale */
+  if( FD_UNLIKELY( comp_cons==comp_prod ) ) {
+    comp_prod = rr_xsk->ring_cr.cached_prod = FD_VOLATILE_CONST( *rr_xsk->ring_cr.prod );
+  }
+
   if( comp_cons!=comp_prod ) {
     *charge_busy = 1;
     rr_xsk->ring_cr.cached_prod = comp_prod;
     net_comp_event( ctx, rr_xsk, comp_cons );
   }
-
 }
 
 /* net_xsk_bootstrap assigns UMEM frames to the FILL ring. */
@@ -1399,7 +1416,6 @@ init_device_table( fd_net_ctx_t * ctx,
 
   /* Create temporary empty device table during startup */
   FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, fd_netdev_tbl_new( ctx->netdev_buf, 1, 1 ) ) );
-
 }
 
 FD_FN_UNUSED static void
@@ -1511,10 +1527,19 @@ unprivileged_init( fd_topo_t *      topo,
   /* Join netbase objects */
   FD_TEST( fd_fib4_join( ctx->fib_local, fd_topo_obj_laddr( topo, tile->xdp.fib4_local_obj_id ) ) );
   FD_TEST( fd_fib4_join( ctx->fib_main, fd_topo_obj_laddr( topo, tile->xdp.fib4_main_obj_id  ) ) );
+
+  ulong neigh4_obj_id = tile->xdp.neigh4_obj_id;
+  ulong ele_max   = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.ele_max",   neigh4_obj_id );
+  ulong probe_max = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.probe_max", neigh4_obj_id );
+  ulong seed      = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.seed",      neigh4_obj_id );
+  if( FD_UNLIKELY( (ele_max==ULONG_MAX) | (probe_max==ULONG_MAX) | (seed==ULONG_MAX) ) )
+    FD_LOG_ERR(( "neigh4 hmap properties not set" ));
   if( FD_UNLIKELY( !fd_neigh4_hmap_join(
       ctx->neigh4,
-      fd_topo_obj_laddr( topo, tile->xdp.neigh4_obj_id ),
-      fd_topo_obj_laddr( topo, tile->xdp.neigh4_ele_obj_id ) ) ) ) {
+      fd_topo_obj_laddr( topo, neigh4_obj_id ),
+      ele_max,
+      probe_max,
+      seed ) ) ) {
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
 

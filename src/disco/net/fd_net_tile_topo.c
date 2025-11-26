@@ -48,7 +48,6 @@ setup_xdp_tile( fd_topo_t *             topo,
   tile->xdp.fib4_main_obj_id       = netlink_tile->netlink.fib4_main_obj_id;
   tile->xdp.fib4_local_obj_id      = netlink_tile->netlink.fib4_local_obj_id;
   tile->xdp.neigh4_obj_id          = netlink_tile->netlink.neigh4_obj_id;
-  tile->xdp.neigh4_ele_obj_id      = netlink_tile->netlink.neigh4_ele_obj_id;
 
   /* Allocate free ring */
 

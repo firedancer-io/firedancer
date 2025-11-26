@@ -135,21 +135,21 @@ static uint xdp_tx_flags     = 0;
 static uint xdp_fr_flags     = 0;
 static uint xdp_cr_flags     = 0;
 
-
 static void
 add_neighbor( fd_neigh4_hmap_t * join,
               uint               ip4_addr,
               uchar mac0, uchar mac1, uchar mac2,
               uchar mac3, uchar mac4, uchar mac5 ) {
-  fd_neigh4_hmap_query_t query[1];
-  int prepare_res = fd_neigh4_hmap_prepare( join, &ip4_addr, NULL, query, FD_MAP_FLAG_BLOCKING );
-  FD_TEST( prepare_res==FD_MAP_SUCCESS );
-  fd_neigh4_entry_t * ele = fd_neigh4_hmap_query_ele( query );
-  ele->state    = FD_NEIGH4_STATE_ACTIVE;
-  ele->ip4_addr = ip4_addr;
-  ele->mac_addr[0] = mac0; ele->mac_addr[1] = mac1; ele->mac_addr[2] = mac2;
-  ele->mac_addr[3] = mac3; ele->mac_addr[4] = mac4; ele->mac_addr[5] = mac5;
-  fd_neigh4_hmap_publish( query );
+  fd_neigh4_entry_t * e = fd_neigh4_hmap_upsert( join, &ip4_addr );
+  FD_TEST( e );
+  ulong suppress_until = e->probe_suppress_until;
+  fd_neigh4_entry_t to_insert = (fd_neigh4_entry_t) {
+    .ip4_addr             = ip4_addr,
+    .state                = FD_NEIGH4_STATE_ACTIVE,
+    .mac_addr             = { mac0, mac1, mac2, mac3, mac4, mac5 },
+    .probe_suppress_until = suppress_until&FD_NEIGH4_PROBE_SUPPRESS_MASK
+  };
+  fd_neigh4_entry_atomic_st( e, &to_insert );
 }
 
 static void
@@ -213,37 +213,51 @@ setup_neighbor_table( fd_net_ctx_t * ctx ) {
 }
 
 static void
+append_netdev( fd_net_ctx_t * ctx,
+               fd_netdev_t     netdev ) {
+  ushort idx = ctx->netdev_tbl.hdr->dev_cnt;
+  FD_TEST( idx < ctx->netdev_tbl.hdr->dev_max );
+  ctx->netdev_tbl.dev_tbl[ idx ] = netdev;
+  ctx->netdev_tbl.hdr->dev_cnt   = (ushort)(idx + (ushort)1);
+}
+
+static void
 setup_netdev_table( fd_net_ctx_t * ctx ) {
-  /* GRE interfaces */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_GRE0] = (fd_netdev_t) {
+  ctx->netdev_tbl.hdr->dev_cnt = 0;
+  ctx->netdev_tbl.hdr->dev_max = 5;
+
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_GRE0,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre0_outer_dst_ip,
     .gre_src_ip = gre0_outer_src_ip
-  };
-  ctx->netdev_tbl.dev_tbl[IF_IDX_GRE1] = (fd_netdev_t) {
+  } );
+
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_GRE1,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre1_outer_dst_ip,
-  };
+  } );
   /* Eth0 interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_ETH0] = (fd_netdev_t) {
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_ETH0,
     .dev_type = ARPHRD_ETHER,
-  };
+  } );
   /* Eth1 interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_ETH1] = (fd_netdev_t) {
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_ETH1,
     .dev_type = ARPHRD_ETHER,
-  };
+  } );
   /* Lo interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_LO] = (fd_netdev_t) {
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_LO,
     .dev_type = ARPHRD_LOOPBACK,
-  };
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl.dev_tbl[IF_IDX_ETH0].mac_addr, eth0_src_mac_addr, 6 );
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl.dev_tbl[IF_IDX_ETH1].mac_addr, eth1_src_mac_addr, 6 );
-  ctx->netdev_tbl.hdr->dev_cnt = IF_IDX_GRE1 + 1;
+  } );
+  fd_netdev_t * eth0 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH0 );
+  fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH1 );
+  FD_TEST( eth0 && eth1 );
+  fd_memcpy( eth0->mac_addr, eth0_src_mac_addr, 6 );
+  fd_memcpy( eth1->mac_addr, eth1_src_mac_addr, 6 );
 }
 
 /************************* Test Init Auxiliary Function ***********************/
@@ -587,7 +601,8 @@ static int
 xsk_af_check( fd_tile_test_ctx_t * test_ctx,
               fd_net_ctx_t       * ctx  ) {
   fd_tile_test_locals_t * locals = test_ctx->locals;
-  struct xdp_desc * tx_desc = &locals->xsk->ring_tx.packet_ring[ xdp_tx_ring_prod-1 ];
+  uint tx_seq = ctx->xsk[0].ring_tx.cached_prod;
+  struct xdp_desc * tx_desc = &locals->xsk->ring_tx.packet_ring[ tx_seq-1 ];
   void * out_mem = (void *)((ulong)tx_desc->addr + (ulong)ctx->umem);
 
   if( tx_desc->len!=test_ctx->locals->tx_output_sz ||
@@ -714,15 +729,17 @@ xdp_reset( fd_tile_test_ctx_t * test_ctx,
   fd_memset( xsk->ring_fr.frame_ring,  0, xsk->ring_fr.depth * sizeof(ulong)           );
   fd_memset( xsk->ring_cr.frame_ring,  0, xsk->ring_cr.depth * sizeof(ulong)           );
 
+  xdp_fr_ring_prod = xsk->ring_fr.depth/2;
+  xdp_fr_ring_cons = 0;
   xdp_rx_ring_prod = xdp_rx_ring_cons = 0;
   xdp_tx_ring_prod = xdp_tx_ring_cons = 0;
-  xdp_fr_ring_prod = xdp_fr_ring_cons = 0;
   xdp_cr_ring_prod = xdp_cr_ring_cons = 0;
   xdp_rx_flags = xdp_tx_flags = xdp_fr_flags = xdp_cr_flags = 0;
 
+  xsk->ring_fr.cached_cons = 0;
+  xsk->ring_fr.cached_prod = xdp_fr_ring_prod;
   xsk->ring_rx.cached_cons = xsk->ring_rx.cached_prod = 0;
   xsk->ring_tx.cached_cons = xsk->ring_tx.cached_prod = 0;
-  xsk->ring_fr.cached_cons = xsk->ring_fr.cached_prod = 0;
   xsk->ring_cr.cached_cons = xsk->ring_cr.cached_prod = 0;
 
   /* Avoid calling poll_xdp_statistics since we don't have a real xsk */
