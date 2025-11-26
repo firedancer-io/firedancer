@@ -44,3 +44,16 @@ $(call add-objs,fd_zk_elgamal_proof_program,fd_flamenco)
 
 $(call add-hdrs,fd_native_cpi.h)
 $(call add-objs,fd_native_cpi,fd_flamenco)
+
+### Unit tests
+
+ifdef FD_HAS_ATOMIC
+ifdef FD_HAS_INT128
+ifdef FD_HAS_HOSTED
+ifdef FD_HAS_SECP256K1
+$(call make-unit-test,test_bpf_loader_serialization,test_bpf_loader_serialization,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_bpf_loader_serialization)
+endif
+endif
+endif
+endif

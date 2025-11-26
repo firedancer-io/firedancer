@@ -403,17 +403,15 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   int                     provide_instruction_data_offset_in_vm_r2 = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, provide_instruction_data_offset_in_vm_r2 );
 
   ulong instruction_data_offset = 0UL;
-  uchar * input = NULL;
-  err = fd_bpf_loader_input_serialize_parameters( instr_ctx, &input_sz, pre_lens,
+  /* 16-byte aligned buffer:
+     https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60 */
+  uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
+  err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
                                                   acc_region_metas, stricter_abi_and_runtime_constraints, direct_mapping, is_deprecated,
-                                                  &instruction_data_offset, &input );
+                                                  &instruction_data_offset, &input_sz );
   if( FD_UNLIKELY( err ) ) {
     return err;
-  }
-
-  if( FD_UNLIKELY( input==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   fd_sha256_t _sha[1];

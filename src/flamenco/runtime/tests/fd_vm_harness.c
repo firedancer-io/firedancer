@@ -156,7 +156,6 @@ do{
   int                       direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
   int                       stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
 
-  uchar *                   input_ptr      = NULL;
   uchar                     program_id_idx = instr_ctx->instr->program_id;
   fd_account_meta_t const * program_acc    = instr_ctx->txn_out->accounts.account[program_id_idx].meta;
   uchar                     is_deprecated  = ( program_id_idx < instr_ctx->txn_out->accounts.cnt ) &&
@@ -170,10 +169,8 @@ do{
     return 0;
   }
 
-  /* Serialize accounts into input memory region. */
   ulong instr_data_offset = 0UL;
   int err = fd_bpf_loader_input_serialize_parameters( instr_ctx,
-                                                      &input_sz,
                                                       pre_lens,
                                                       input_mem_regions,
                                                       &input_mem_regions_cnt,
@@ -182,7 +179,7 @@ do{
                                                       direct_mapping,
                                                       is_deprecated,
                                                       &instr_data_offset,
-                                                      &input_ptr );
+                                                      &input_sz );
   if( FD_UNLIKELY( err ) ) {
     fd_solfuzz_pb_instr_ctx_destroy( runner, instr_ctx );
     return 0;
@@ -469,7 +466,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   int                     direct_mapping                         = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
   int                     stricter_abi_and_runtime_constraints   = FD_FEATURE_ACTIVE_BANK( ctx->bank, stricter_abi_and_runtime_constraints );
 
-  uchar *             input_ptr      = NULL;
   uchar               program_id_idx = ctx->instr->program_id;
   fd_account_meta_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx].meta;
   uchar               is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
@@ -482,10 +478,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
       goto error;
   }
 
-  /* Serialize accounts into input memory region. */
   ulong instr_data_offset = 0UL;
   int err = fd_bpf_loader_input_serialize_parameters( ctx,
-                                                      &input_sz,
                                                       pre_lens,
                                                       input_mem_regions,
                                                       &input_mem_regions_cnt,
@@ -494,7 +488,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                                                       direct_mapping,
                                                       is_deprecated,
                                                       &instr_data_offset,
-                                                      &input_ptr );
+                                                      &input_sz );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "bpf loader input serialize parameters err" ));
     goto error;
