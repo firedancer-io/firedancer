@@ -7,6 +7,7 @@
 #include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../../disco/fd_disco.h"
 #include "../../discof/fd_discof.h"
+#include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
@@ -373,7 +374,7 @@ during_frag( fd_capture_tile_ctx_t * ctx,
     const uchar * encoded_protocol = dcache_entry + sizeof(fd_ip4_udp_hdrs_t);
     uint discriminant = FD_LOAD(uint, encoded_protocol);
 
-    if( FD_UNLIKELY( discriminant <= fd_repair_protocol_enum_pong ) ) {
+    if( FD_UNLIKELY( discriminant <= FD_REPAIR_KIND_PONG ) ) {
       ctx->skip_frag = 1;
       return;
     }
@@ -497,6 +498,77 @@ after_credit( fd_capture_tile_ctx_t * ctx,
   }
 }
 
+static void
+handle_repair_request( fd_capture_tile_ctx_t * ctx ) {
+  /* We have a valid repair request that we can finally decode.
+     Unfortunately we actually have to decode because we cant cast
+     directly to the protocol */
+  fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)ctx->repair_buffer;
+
+  uint   peer_ip4_addr = hdr->ip4->daddr;
+  ushort peer_port     = hdr->udp->net_dport;
+  ulong  slot          = 0UL;
+  ulong  shred_index   = UINT_MAX;
+  uint   nonce         = 0U;
+
+  /* FIXME this assumes IPv4 without options, which is not always true */
+  uchar const * const buf0 = ctx->repair_buffer + sizeof(fd_ip4_udp_hdrs_t);
+  uchar const * const buf1 = ctx->repair_buffer + ctx->repair_buffer_sz;
+  if( FD_UNLIKELY( buf0>=buf1 ) ) return;
+
+  uchar const * cur = buf0;
+  ulong         rem = (ulong)( buf1-buf0 );
+
+  if( FD_UNLIKELY( rem<sizeof(uint) ) ) return;
+  uint discriminant = FD_LOAD( uint, cur );
+  cur += sizeof(uint);
+  rem -= sizeof(uint);
+
+  switch( discriminant ) {
+  case FD_REPAIR_KIND_SHRED: {
+    if( FD_UNLIKELY( rem<sizeof(fd_repair_shred_req_t) ) ) return;
+    fd_repair_shred_req_t req = FD_LOAD( fd_repair_shred_req_t, cur );
+    cur += sizeof(fd_repair_shred_req_t);
+    rem -= sizeof(fd_repair_shred_req_t);
+
+    slot        = req.slot;
+    shred_index = req.shred_idx;
+    nonce       = req.nonce;
+    break;
+  }
+  case FD_REPAIR_KIND_HIGHEST_SHRED: {
+    if( FD_UNLIKELY( rem<sizeof(fd_repair_highest_shred_req_t) ) ) return;
+    fd_repair_highest_shred_req_t req = FD_LOAD( fd_repair_highest_shred_req_t, cur );
+    cur += sizeof(fd_repair_highest_shred_req_t);
+    rem -= sizeof(fd_repair_highest_shred_req_t);
+
+    slot        = req.slot;
+    shred_index = req.shred_idx;
+    nonce       = req.nonce;
+    break;
+  }
+  case FD_REPAIR_KIND_ORPHAN: {
+    if( FD_UNLIKELY( rem<sizeof(fd_repair_orphan_req_t) ) ) return;
+    fd_repair_orphan_req_t req = FD_LOAD( fd_repair_orphan_req_t, cur );
+    cur += sizeof(fd_repair_orphan_req_t);
+    rem -= sizeof(fd_repair_orphan_req_t);
+
+    slot  = req.slot;
+    nonce = req.nonce;
+    break;
+  }
+  default:
+    break;
+  }
+
+  char repair_data_buf[1024];
+  snprintf( repair_data_buf, sizeof(repair_data_buf),
+            "%u,%u,%ld,%u,%lu,%lu\n",
+            peer_ip4_addr, peer_port, fd_log_wallclock(), nonce, slot, shred_index );
+  int err = fd_io_buffered_ostream_write( &ctx->repair_ostream, repair_data_buf, strlen(repair_data_buf) );
+  FD_TEST( err==0 );
+}
+
 static inline void
 after_frag( fd_capture_tile_ctx_t * ctx,
             ulong                   in_idx,
@@ -559,51 +631,7 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     int err = fd_io_buffered_ostream_write( &ctx->shred_ostream, repair_data_buf, strlen(repair_data_buf) );
     FD_TEST( err==0 );
   } else if( ctx->in_kind[ in_idx ] == REPAIR_NET ) {
-    /* We have a valid repair request that we can finally decode.
-       Unfortunately we actually have to decode because we cant cast
-       directly to the protocol */
-    fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)ctx->repair_buffer;
-    fd_repair_protocol_t protocol;
-    fd_bincode_decode_ctx_t bctx = { .data = ctx->repair_buffer + sizeof(fd_ip4_udp_hdrs_t), .dataend = ctx->repair_buffer + ctx->repair_buffer_sz };
-    fd_repair_protocol_t * decoded = fd_repair_protocol_decode( &protocol, &bctx );
-
-    FD_TEST( decoded == &protocol );
-    FD_TEST( decoded != NULL );
-
-    uint   peer_ip4_addr = hdr->ip4->daddr;
-    ushort peer_port     = hdr->udp->net_dport;
-    ulong  slot          = 0UL;
-    ulong  shred_index   = UINT_MAX;
-    uint   nonce         = 0U;
-
-    switch( protocol.discriminant ) {
-      case fd_repair_protocol_enum_window_index: {
-        slot        = protocol.inner.window_index.slot;
-        shred_index = protocol.inner.window_index.shred_index;
-        nonce       = protocol.inner.window_index.header.nonce;
-        break;
-      }
-      case fd_repair_protocol_enum_highest_window_index: {
-        slot        = protocol.inner.highest_window_index.slot;
-        shred_index = protocol.inner.highest_window_index.shred_index;
-        nonce       = protocol.inner.highest_window_index.header.nonce;
-        break;
-      }
-      case fd_repair_protocol_enum_orphan: {
-        slot  = protocol.inner.orphan.slot;
-        nonce = protocol.inner.orphan.header.nonce;
-        break;
-      }
-      default:
-        break;
-    }
-
-    char repair_data_buf[1024];
-    snprintf( repair_data_buf, sizeof(repair_data_buf),
-              "%u,%u,%ld,%u,%lu,%lu\n",
-              peer_ip4_addr, peer_port, fd_log_wallclock(), nonce, slot, shred_index );
-    int err = fd_io_buffered_ostream_write( &ctx->repair_ostream, repair_data_buf, strlen(repair_data_buf) );
-    FD_TEST( err==0 );
+    handle_repair_request( ctx );
   } else if( ctx->in_kind[ in_idx ] == GOSSIP_OUT ) {
     handle_new_contact_info( ctx, ctx->contact_info_buffer );
   }
