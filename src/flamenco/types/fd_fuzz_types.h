@@ -209,25 +209,6 @@ void *fd_stake_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
-void *fd_reward_type_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_reward_type_t *self = (fd_reward_type_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_reward_type_t);
-  fd_reward_type_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 4;
-  return mem;
-}
-
-void *fd_reward_info_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_reward_info_t *self = (fd_reward_info_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_reward_info_t);
-  fd_reward_info_new(mem);
-  fd_reward_type_generate( &self->reward_type, alloc_mem, rng );
-  self->lamports = fd_rng_ulong( rng );
-  self->post_balance = fd_rng_ulong( rng );
-  self->commission = fd_rng_ulong( rng );
-  return mem;
-}
-
 void *fd_rust_duration_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_rust_duration_t *self = (fd_rust_duration_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rust_duration_t);
@@ -787,31 +768,6 @@ void *fd_slot_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
-void *fd_clock_timestamp_vote_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_clock_timestamp_vote_t *self = (fd_clock_timestamp_vote_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_clock_timestamp_vote_t);
-  fd_clock_timestamp_vote_new(mem);
-  fd_pubkey_generate( &self->pubkey, alloc_mem, rng );
-  self->timestamp = fd_rng_long( rng );
-  self->slot = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_clock_timestamp_votes_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_clock_timestamp_votes_t *self = (fd_clock_timestamp_votes_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_clock_timestamp_votes_t);
-  fd_clock_timestamp_votes_new(mem);
-  ulong votes_len = fd_rng_ulong( rng ) % 8;
-  self->votes_pool = fd_clock_timestamp_vote_t_map_join_new( alloc_mem, fd_ulong_max( votes_len, 15000 ) );
-  self->votes_root = NULL;
-  for( ulong i=0; i < votes_len; i++ ) {
-    fd_clock_timestamp_vote_t_mapnode_t * node = fd_clock_timestamp_vote_t_map_acquire( self->votes_pool );
-    fd_clock_timestamp_vote_generate( &node->elem, alloc_mem, rng );
-    fd_clock_timestamp_vote_t_map_insert( self->votes_pool, &self->votes_root, node );
-  }
-  return mem;
-}
-
 void *fd_sysvar_fees_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_sysvar_fees_t *self = (fd_sysvar_fees_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_sysvar_fees_t);
@@ -1229,14 +1185,6 @@ void *fd_system_program_instruction_generate( void *mem, void **alloc_mem, fd_rn
   fd_system_program_instruction_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 13;
   fd_system_program_instruction_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void *fd_system_error_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_system_error_t *self = (fd_system_error_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_system_error_t);
-  fd_system_error_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 9;
   return mem;
 }
 
@@ -1977,87 +1925,6 @@ void *fd_addrlut_instruction_generate( void *mem, void **alloc_mem, fd_rng_t * r
   fd_addrlut_instruction_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 5;
   fd_addrlut_instruction_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void fd_instr_error_enum_inner_generate( fd_instr_error_enum_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 25: {
-    self->custom = fd_rng_uint( rng );
-    break;
-  }
-  case 44: {
-    ulong slen = fd_rng_ulong( rng ) % 256;
-    char *buffer = (char *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + slen;
-    self->borsh_io_error = buffer;
-    LLVMFuzzerMutate( (uchar *)self->borsh_io_error, slen, slen );
-    self->borsh_io_error[slen] = '\0';
-    break;
-  }
-  }
-}
-void *fd_instr_error_enum_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_instr_error_enum_t *self = (fd_instr_error_enum_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_instr_error_enum_t);
-  fd_instr_error_enum_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 54;
-  fd_instr_error_enum_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void *fd_txn_instr_error_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_txn_instr_error_t *self = (fd_txn_instr_error_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_txn_instr_error_t);
-  fd_txn_instr_error_new(mem);
-  self->instr_idx = fd_rng_uchar( rng );
-  fd_instr_error_enum_generate( &self->error, alloc_mem, rng );
-  return mem;
-}
-
-void fd_txn_error_enum_inner_generate( fd_txn_error_enum_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 8: {
-    fd_txn_instr_error_generate( &self->instruction_error, alloc_mem, rng );
-    break;
-  }
-  case 30: {
-    self->duplicate_instruction = fd_rng_uchar( rng );
-    break;
-  }
-  case 31: {
-    self->insufficient_funds_for_rent = fd_rng_uchar( rng );
-    break;
-  }
-  case 35: {
-    self->program_execution_temporarily_restricted = fd_rng_uchar( rng );
-    break;
-  }
-  }
-}
-void *fd_txn_error_enum_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_txn_error_enum_t *self = (fd_txn_error_enum_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_txn_error_enum_t);
-  fd_txn_error_enum_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 37;
-  fd_txn_error_enum_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void fd_txn_result_inner_generate( fd_txn_result_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 1: {
-    fd_txn_error_enum_generate( &self->error, alloc_mem, rng );
-    break;
-  }
-  }
-}
-void *fd_txn_result_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_txn_result_t *self = (fd_txn_result_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_txn_result_t);
-  fd_txn_result_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 2;
-  fd_txn_result_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
 
