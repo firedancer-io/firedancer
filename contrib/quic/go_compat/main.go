@@ -33,7 +33,6 @@ import (
 	"unsafe"
 
 	"github.com/quic-go/quic-go"
-	"github.com/quic-go/quic-go/logging"
 	"github.com/quic-go/quic-go/qlog"
 	"golang.org/x/net/ipv4"
 )
@@ -161,9 +160,7 @@ func clientTest(fdQuic *C.fd_quic_t) {
 		}
 		quicConfig := &quic.Config{}
 		if enableQlog {
-			quicConfig.Tracer = func(ctx context.Context, p logging.Perspective, odcid quic.ConnectionID) *logging.ConnectionTracer {
-				return qlog.NewConnectionTracer(qlogWriter{}, p, odcid)
-			}
+			quicConfig.Tracer = qlog.DefaultConnectionTracer
 		}
 		udpConnGo.SetDeadline(time.Now().Add(3 * time.Second))
 
@@ -323,9 +320,7 @@ func serverTest(fdQuic *C.fd_quic_t) {
 		}
 		quicConfig := &quic.Config{}
 		if enableQlog {
-			quicConfig.Tracer = func(ctx context.Context, p logging.Perspective, odcid quic.ConnectionID) *logging.ConnectionTracer {
-				return qlog.NewConnectionTracer(qlogWriter{}, p, odcid)
-			}
+			quicConfig.Tracer = qlog.DefaultConnectionTracer
 		}
 		udpConnGo.SetDeadline(time.Now().Add(3 * time.Second))
 		quicConn, err := quic.Dial(ctx, udpConnGo, addrFd, tlsConf, quicConfig)
