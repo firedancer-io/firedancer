@@ -379,17 +379,6 @@ net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
 }
 
-/* Query the netdev table. Return a fd_netdev_t pointer to the net device of the
-interface specified by if_idx. Null if the if_idx is invalid */
-
-static fd_netdev_t *
-net_query_netdev_tbl( fd_net_ctx_t * ctx,
-                      uint           if_idx ) {
-  /* dev_tbl is one-indexed */
-  if( if_idx>ctx->netdev_tbl.hdr->dev_cnt ) return NULL;
-  return &ctx->netdev_tbl.dev_tbl[ if_idx ];
-}
-
 /* Iterates the netdev table and returns 1 if a GRE interface exists, 0 otherwise.
    Only called in privileged_init and during_housekeeping */
 
@@ -558,7 +547,7 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 0;
   }
 
-  fd_netdev_t * netdev = net_query_netdev_tbl( ctx, if_idx );
+  fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
     ctx->metrics.tx_route_fail_cnt++;
     return 0;
@@ -1380,7 +1369,6 @@ init_device_table( fd_net_ctx_t * ctx,
 
   /* Create temporary empty device table during startup */
   FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, fd_netdev_tbl_new( ctx->netdev_buf, 1, 1 ) ) );
-
 }
 
 FD_FN_UNUSED static void
