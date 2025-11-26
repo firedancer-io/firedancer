@@ -93,8 +93,9 @@ setup_topo_funk( fd_topo_t *  topo,
   ulong wksp_idx = fd_topo_find_wksp( topo, wksp_name );
   FD_TEST( wksp_idx!=ULONG_MAX );
   fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_idx ];
-  ulong part_max = fd_wksp_part_max_est( funk_footprint+(heap_size_gib*(1UL<<30)), 1U<<14U );
-  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,16KiB) failed", funk_footprint ));
+  ulong size     = funk_footprint+(heap_size_gib*(1UL<<30));
+  ulong part_max = fd_wksp_part_max_est( size, 1U<<14U );
+  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,16KiB) failed", size ));
   wksp->part_max += part_max;
 
   return obj;
@@ -115,7 +116,7 @@ setup_topo_progcache( fd_topo_t *  topo,
   if( FD_UNLIKELY( !funk_footprint ) ) FD_LOG_ERR(( "Invalid [runtime.program_cache] parameters" ));
   if( FD_UNLIKELY( heap_size<(2*funk_footprint) ) ) {
     FD_LOG_ERR(( "Invalid [runtime.program_cache] parameters: heap_size_mib should be at least %lu",
-                 ( 4*funk_footprint )>>20 ));
+                 ( 2*funk_footprint )>>20 ));
   }
 
   /* Increase workspace partition count */
@@ -1130,12 +1131,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.sources.servers_cnt                  = config->firedancer.snapshots.sources.servers_cnt;
     for( ulong i=0UL; i<tile->snapct.sources.gossip.allow_list_cnt; i++ ) {
       if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.snapshots.sources.gossip.allow_list[ i ], tile->snapct.sources.gossip.allow_list[ i ].uc ) ) ) {
-        FD_LOG_ERR(( "[snapshots.sources.gossip.allow_list[%lu] invalid (%s)", i, config->firedancer.snapshots.sources.gossip.allow_list[ i ] ));
+        FD_LOG_ERR(( "[snapshots.sources.gossip.allow_list[%lu]] invalid (%s)", i, config->firedancer.snapshots.sources.gossip.allow_list[ i ] ));
       }
     }
     for( ulong i=0UL; i<tile->snapct.sources.gossip.block_list_cnt; i++ ) {
       if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.snapshots.sources.gossip.block_list[ i ], tile->snapct.sources.gossip.block_list[ i ].uc ) ) ) {
-        FD_LOG_ERR(( "[snapshots.sources.gossip.block_list[%lu] invalid (%s)", i, config->firedancer.snapshots.sources.gossip.block_list[ i ] ));
+        FD_LOG_ERR(( "[snapshots.sources.gossip.block_list[%lu]] invalid (%s)", i, config->firedancer.snapshots.sources.gossip.block_list[ i ] ));
       }
     }
 
@@ -1151,7 +1152,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
                                        FD_TOPO_MAX_RESOLVED_ADDRS,
                                        &tile->snapct.sources.servers[ resolved_peers_cnt ].is_https );
       if( FD_UNLIKELY( 0==num_resolved ) ) {
-        FD_LOG_ERR(( "[snapshots.sources.servers[%lu] invalid (%s)", i, config->firedancer.snapshots.sources.servers[ i ] ));
+        FD_LOG_ERR(( "[snapshots.sources.servers[%lu]] invalid (%s)", i, config->firedancer.snapshots.sources.servers[ i ] ));
       } else {
         for( ulong i=0UL; i<(ulong)num_resolved; i++ ) tile->snapct.sources.servers[ resolved_peers_cnt+i ].addr = resolved_addrs[ i ];
         for( ulong i=1UL; i<(ulong)num_resolved; i++ ) {
