@@ -246,7 +246,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( fd_sysvar_last_restart_slot_read( funk, xid, last_restart_slot_ ) );
 
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( funk, xid, clock_ );
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( runner->accdb, xid, clock_ );
   FD_TEST( clock );
   fd_bank_slot_set( runner->bank, clock->slot );
 

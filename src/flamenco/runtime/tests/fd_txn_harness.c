@@ -119,7 +119,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( stake_history );
 
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, &xid, clock_ );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( runner->accdb, &xid, clock_ );
   FD_TEST( clock );
 
   /* Setup vote states dummy account */
