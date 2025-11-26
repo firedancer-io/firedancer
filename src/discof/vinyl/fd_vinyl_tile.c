@@ -5,9 +5,11 @@
    stem run loop and takes over. */
 
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../vinyl/fd_vinyl.h"
 #include "../../vinyl/io/fd_vinyl_io_ur.h"
+#include "../../util/pod/fd_pod_format.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -17,6 +19,7 @@
 
 #define NAME "vinyl"
 #define MAX_INS 8
+#define MAX_CLIENTS 8
 
 #define IN_KIND_GENESIS 1
 #define IN_KIND_SNAP    2
@@ -42,6 +45,20 @@ struct fd_vinyl_tile_ctx {
 # if FD_HAS_LIBURING
   struct io_uring _ring[1];
 # endif
+
+  struct {
+    fd_wksp_t *     rq_wksp;
+    ulong           rq_gaddr;
+    fd_wksp_t *     cq_wksp;
+    ulong           cq_gaddr;
+    fd_wksp_t *     req_pool_wksp;
+    ulong           link_id;
+    ulong           burst_max;
+    ulong           quota_max;
+  } client_param[ MAX_CLIENTS ];
+  uint client_active_cnt;
+  uint client_cnt;
+  uint client_join_inflight : 1;
 };
 
 typedef struct fd_vinyl_tile_ctx fd_vinyl_tile_ctx_t;
@@ -85,6 +102,84 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_cnc_align(),           fd_cnc_footprint( FD_VINYL_CNC_APP_SZ ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_vinyl_line_t), sizeof(fd_vinyl_line_t)*tile->vinyl.vinyl_line_max );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+/* FIXME Pre-register database clients
+
+   Ideally, we'd pre-register all database clients with the server at
+   initialization time (since all client data structures are allocated
+   upfront).  But the vinyl_exec run loop can only register new
+   clients post-initialization.  So, for now housekeep will be
+   responsible for registering clients from within. */
+
+static void
+register_clients( fd_vinyl_tile_ctx_t * ctx ) {
+  fd_cnc_t *       cnc = ctx->vinyl->cnc;
+  fd_vinyl_cmd_t * cmd = fd_cnc_app_laddr( cnc );
+
+  int err = fd_cnc_open( cnc );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_cnc_open failed (%i-%s)", err, fd_cnc_strerror( err ) ));
+
+  /* See if the vinyl_cnc is ready to accept new requests */
+
+  if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_RUN ) ) {
+    fd_cnc_close( cnc );
+    return;
+  }
+
+  /* See if a previous client join request finished */
+
+  if( ctx->client_join_inflight ) {
+    int err = cmd->join.err;
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "Failed to initialize vinyl tile (%i-%s)", err, fd_vinyl_strerror( err ) ));
+    }
+
+    ctx->client_active_cnt++;
+    ctx->client_join_inflight = 0;
+
+    fd_cnc_close( cnc );
+    return;
+  }
+
+  /* Join the next client */
+
+  ulong       client_idx    = ctx->client_active_cnt;
+  fd_wksp_t * rq_wksp       = ctx->client_param[ client_idx ].rq_wksp;
+  ulong       rq_gaddr      = ctx->client_param[ client_idx ].rq_gaddr;
+  fd_wksp_t * cq_wksp       = ctx->client_param[ client_idx ].cq_wksp;
+  ulong       cq_gaddr      = ctx->client_param[ client_idx ].cq_gaddr;
+  fd_wksp_t * req_pool_wksp = ctx->client_param[ client_idx ].req_pool_wksp;
+
+  cmd->join.err       = 0;
+  cmd->join.link_id   = ctx->client_param[ client_idx ].link_id;
+  cmd->join.burst_max = ctx->client_param[ client_idx ].burst_max;
+  cmd->join.quota_max = ctx->client_param[ client_idx ].quota_max;
+  fd_cstr_ncpy( cmd->join.wksp, fd_wksp_name( req_pool_wksp ), FD_SHMEM_NAME_MAX );
+  fd_wksp_cstr( rq_wksp, rq_gaddr, cmd->join.rq );
+  fd_wksp_cstr( cq_wksp, cq_gaddr, cmd->join.cq );
+
+  ctx->client_join_inflight = 1;
+  fd_cnc_signal( cnc, FD_VINYL_CNC_SIGNAL_CLIENT_JOIN );
+  fd_cnc_close( cnc );
+}
+
+/* vinyl_housekeep is periodically called by the vinyl_exec run loop.
+   Does async startup tasks and metric publishing. */
+
+static void
+vinyl_housekeep( void * ctx_ ) {
+  fd_vinyl_tile_ctx_t * ctx = ctx_;
+
+  long now = fd_tickcount();
+  FD_MGAUGE_SET( TILE, HEARTBEAT, (ulong)now );
+
+  if( FD_UNLIKELY( ctx->client_active_cnt < ctx->client_cnt ) ) {
+    register_clients( ctx );
+    if( ctx->client_active_cnt==ctx->client_cnt ) {
+      FD_LOG_INFO(( "Vinyl tile initialization complete" ));
+    }
+  }
 }
 
 /* vinyl_init_fast is a variation of fd_vinyl_init.  Creates tile
@@ -278,10 +373,40 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->cnc_footprint = topo->objs[ tile->vinyl.vinyl_cnc_obj_id ].footprint;
   }
 
+  FD_TEST( tile->in_cnt==1UL );
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
   FD_TEST( in_link && 0==strcmp( in_link->name, "snapin_manif" ) );
   if( FD_UNLIKELY( !tile->in_link_reliable[ 0 ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link 0 must be reliable" ));
   ctx->snapin_manif_fseq = tile->in_link_fseq[ 0 ];
+
+  /* Discover mapped clients */
+  for( ulong i=0UL; i<(tile->uses_obj_cnt); i++ ) {
+    ulong rq_obj_id = tile->uses_obj_id[ i ];
+    fd_topo_obj_t const * rq_obj = &topo->objs[ rq_obj_id ];
+    if( strcmp( rq_obj->name, "vinyl_rq" ) ) continue;
+    FD_TEST( ctx->client_cnt<MAX_CLIENTS );
+
+    ulong link_id         = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.link_id",         rq_obj_id );
+    ulong quota_max       = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.quota_max",       rq_obj_id );
+    ulong req_pool_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.req_pool_obj_id", rq_obj_id );
+    ulong cq_obj_id       = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.cq_obj_id",       rq_obj_id );
+    FD_TEST( link_id        !=ULONG_MAX );
+    FD_TEST( quota_max      !=ULONG_MAX );
+    FD_TEST( req_pool_obj_id!=ULONG_MAX );
+    FD_TEST( cq_obj_id      !=ULONG_MAX );
+    fd_topo_obj_t const * cq_obj       = &topo->objs[ cq_obj_id       ];
+    fd_topo_obj_t const * req_pool_obj = &topo->objs[ req_pool_obj_id ];
+
+    ulong client_idx = ctx->client_cnt++;
+    ctx->client_param[ client_idx ].rq_wksp       = topo->workspaces[ rq_obj->wksp_id ].wksp;
+    ctx->client_param[ client_idx ].rq_gaddr      = rq_obj->offset;
+    ctx->client_param[ client_idx ].cq_wksp       = topo->workspaces[ cq_obj->wksp_id ].wksp;
+    ctx->client_param[ client_idx ].cq_gaddr      = cq_obj->offset;
+    ctx->client_param[ client_idx ].req_pool_wksp = topo->workspaces[ req_pool_obj->wksp_id ].wksp;
+    ctx->client_param[ client_idx ].link_id       = link_id;
+    ctx->client_param[ client_idx ].burst_max     = 1UL;
+    ctx->client_param[ client_idx ].quota_max     = quota_max;
+  }
 }
 
 __attribute__((noreturn)) static void
@@ -316,6 +441,8 @@ enter_vinyl_exec( fd_vinyl_tile_ctx_t * ctx ) {
       part_thresh,
       gc_thresh,
       gc_eager );
+  ctx->vinyl->housekeep     = vinyl_housekeep;
+  ctx->vinyl->housekeep_ctx = ctx;
 
   fd_vinyl_line_t * line     = ctx->vinyl->line;
   ulong const       line_cnt = ctx->vinyl->line_cnt;

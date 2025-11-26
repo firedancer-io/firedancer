@@ -20,6 +20,7 @@
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
+#include "../../../disco/topo/fd_topob_vinyl.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
@@ -50,7 +51,7 @@ backtest_topo( config_t * config ) {
   ulong lta_tile_cnt    = config->firedancer.layout.snapla_tile_count;
 
   int disable_snap_loader      = !config->gossip.entrypoints_cnt;
-  int snap_vinyl               = !!config->firedancer.vinyl.enabled;
+  int vinyl_enabled            = !!config->firedancer.vinyl.enabled;
   int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
 
@@ -91,10 +92,6 @@ backtest_topo( config_t * config ) {
       config->firedancer.runtime.program_cache.heap_size_mib<<20 );
   fd_topob_tile_uses( topo, replay_tile, progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  if( snap_vinyl ) {
-    setup_topo_vinyl_meta( topo, &config->firedancer );
-  }
-
   /**********************************************************************/
   /* Add the executor tiles to topo                                     */
   /**********************************************************************/
@@ -113,7 +110,6 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
   /**********************************************************************/
-  int vinyl_enabled = config->firedancer.vinyl.enabled;
   fd_topo_tile_t * snapin_tile = NULL;
   fd_topo_tile_t * snapwr_tile = NULL;
   if( FD_UNLIKELY( !disable_snap_loader ) ) {
@@ -258,6 +254,23 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_in ( topo, "replay", 0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
+  if( vinyl_enabled ) {
+    setup_topo_vinyl_meta( topo, &config->firedancer );
+
+    fd_topo_obj_t * vinyl_data = setup_topo_vinyl_cache( topo, &config->firedancer );
+
+    fd_topob_wksp( topo, "vinyl_exec" );
+    fd_topo_tile_t * vinyl_tile = fd_topob_tile( topo, "vinyl", "vinyl_exec", "metric_in", ULONG_MAX, 0, 0 );
+    fd_topob_tile_uses( topo, vinyl_tile,  vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, replay_tile, vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    }
+
+    fd_topob_wksp( topo, "vinyl_replay" );
+    fd_topob_tile_in( topo, "vinyl", 0UL, "metric_in", "snapin_manif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
+
   /**********************************************************************/
   /* More backtest->replay links in topo                                */
   /**********************************************************************/
@@ -369,7 +382,7 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( !disable_snap_loader ) ) {
     fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    if( snap_vinyl ) {
+    if( vinyl_enabled ) {
       ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
       ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
       fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
@@ -391,6 +404,10 @@ backtest_topo( config_t * config ) {
 
   if( FD_LIKELY( !disable_snap_loader ) ) {
     fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
+
+  if( vinyl_enabled ) {
+    fd_topob_vinyl_rq( topo, "replay", 0UL, "vinyl_replay", "replay", 4UL, 1UL, 1UL );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -437,7 +454,20 @@ void
 backtest_cmd_args( int *    pargc,
                    char *** pargv,
                    args_t * args ) {
+  char const * db         = fd_env_strip_cmdline_cstr( pargc, pargv, "--db", NULL,   "funk"     );
+  char const * vinyl_path = fd_env_strip_cmdline_cstr( pargc, pargv, "--vinyl-path", NULL, NULL );
+  char const * vinyl_io   = fd_env_strip_cmdline_cstr( pargc, pargv, "--vinyl-io",   NULL, "bd" );
+
   args->backtest.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+
+  if(      0==strcmp( db, "funk"  ) ) args->backtest.is_vinyl = 0;
+  else if( 0==strcmp( db, "vinyl" ) ) args->backtest.is_vinyl = 1;
+  else FD_LOG_ERR(( "invalid --db '%s' (must be 'funk' or 'vinyl')", db ));
+
+  fd_cstr_ncpy( args->backtest.vinyl_path, vinyl_path, sizeof(args->backtest.vinyl_path) );
+
+  if( FD_UNLIKELY( strlen( vinyl_io )!=2UL ) ) FD_LOG_ERR(( "invalid --vinyl-io '%s'", vinyl_io ));
+  fd_cstr_ncpy( args->backtest.vinyl_io, vinyl_io, sizeof(args->backtest.vinyl_io) );
 }
 
 void
@@ -450,8 +480,34 @@ backtest_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 }
 
 static void
-backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
+fixup_config( config_t *     config,
+              args_t const * args ) {
+  if( args->backtest.vinyl_path[0] ) {
+    fd_cstr_ncpy( config->paths.accounts, args->backtest.vinyl_path, sizeof(config->paths.accounts) );
+  }
+
+  if( args->backtest.is_vinyl ) {
+    config->firedancer.vinyl.enabled = 1;
+
+    config->firedancer.vinyl.file_size_gib       = config->firedancer.funk.heap_size_gib;
+    config->firedancer.vinyl.max_account_records = config->firedancer.funk.max_account_records;
+
+    char const * io_mode = args->backtest.vinyl_io;
+    if(      0==strcmp( io_mode, "ur" ) ) config->firedancer.vinyl.io_uring.enabled = 1;
+    else if( 0==strcmp( io_mode, "bd" ) ) {}
+    else FD_LOG_ERR(( "unsupported --vinyl-io '%s' (valid options are 'bd' and 'ur')", io_mode ));
+  }
+
+  /* FIXME Unfortunately, the fdctl boot procedure constructs the
+           topology before parsing command-line arguments.  So, here,
+           we construct the topology again (a third time ... sigh). */
+  backtest_topo( config );
+}
+
+static void
+backtest_cmd_fn( args_t *   args,
                  config_t * config ) {
+  fixup_config( config, args );
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
 

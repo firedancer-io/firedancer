@@ -85,6 +85,7 @@ fd_accdb_user_v2_open_ro( fd_accdb_user_t *         accdb_,
   fd_vinyl_req_send_batch(
       accdb->vinyl_rq,
       accdb->vinyl_req_pool,
+      accdb->vinyl_req_wksp,
       accdb->vinyl_req_id++,
       accdb->vinyl_link_id,
       FD_VINYL_REQ_TYPE_ACQUIRE,
@@ -156,6 +157,7 @@ fd_accdb_user_v2_close_ro( fd_accdb_user_t * accdb_,
   fd_vinyl_req_send_batch(
       accdb->vinyl_rq,
       accdb->vinyl_req_pool,
+      accdb->vinyl_req_wksp,
       accdb->vinyl_req_id++,
       accdb->vinyl_link_id,
       FD_VINYL_REQ_TYPE_RELEASE,
@@ -218,6 +220,10 @@ fd_accdb_user_v2_init( fd_accdb_user_t * accdb_,
   if( FD_UNLIKELY( !fd_accdb_user_v1_init( accdb_, funk ) ) ) {
     return NULL;
   }
+  if( FD_UNLIKELY( !vinyl_data ) ) {
+    FD_LOG_WARNING(( "NULL vinyl_data" ));
+    return NULL;
+  }
 
   fd_vinyl_rq_t *       rq       = fd_vinyl_rq_join( vinyl_rq );
   fd_vinyl_req_pool_t * req_pool = fd_vinyl_req_pool_join( vinyl_req_pool );
@@ -232,6 +238,7 @@ fd_accdb_user_v2_init( fd_accdb_user_t * accdb_,
   accdb->vinyl_rq        = rq;
   accdb->vinyl_link_id   = vinyl_link_id;
   accdb->vinyl_data_wksp = vinyl_data;
+  accdb->vinyl_req_wksp  = fd_wksp_containing( req_pool );
   accdb->vinyl_req_pool  = req_pool;
   accdb->base.accdb_type = FD_ACCDB_TYPE_V2;
   accdb->base.vt         = &fd_accdb_user_v2_vt;
