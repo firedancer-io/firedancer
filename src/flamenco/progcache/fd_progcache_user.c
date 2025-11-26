@@ -1,6 +1,7 @@
 #include "fd_prog_load.h"
 #include "fd_progcache_user.h"
 #include "fd_progcache_rec.h"
+#include "../../util/racesan/fd_racesan_target.h"
 
 FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 
@@ -261,33 +262,11 @@ fd_progcache_query( fd_progcache_t *          cache,
     int err = fd_progcache_search_chain( cache, chain_idx, key, epoch_slot0, &rec );
     if( FD_LIKELY( err==FD_MAP_SUCCESS ) ) break;
     FD_SPIN_PAUSE();
+    fd_racesan_hook( "fd_progcache_query_wait" );
     /* FIXME backoff */
   }
 
   return rec;
-}
-
-fd_progcache_rec_t const *
-fd_progcache_peek_exact( fd_progcache_t *          cache,
-                         fd_funk_txn_xid_t const * xid,
-                         void const *              prog_addr ) {
-  fd_funk_xid_key_pair_t key[1];
-  fd_funk_txn_xid_copy( key->xid, xid );
-  memcpy( key->key->uc, prog_addr, 32UL );
-
-  for(;;) {
-    fd_funk_rec_map_query_t query[1];
-    int query_err = fd_funk_rec_map_query_try( cache->funk->rec_map, key, NULL, query, 0 );
-    if( query_err==FD_MAP_ERR_AGAIN ) {
-      FD_SPIN_PAUSE();
-      continue;
-    }
-    if( FD_UNLIKELY( query_err==FD_MAP_ERR_KEY ) ) return NULL;
-    if( FD_UNLIKELY( query_err!=FD_MAP_SUCCESS ) ) {
-      FD_LOG_CRIT(( "fd_funk_rec_map_query_try failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
-    }
-    return fd_funk_val_const( fd_funk_rec_map_query_ele_const( query ), fd_funk_wksp( cache->funk ) );
-  }
 }
 
 fd_progcache_rec_t const *
@@ -336,6 +315,7 @@ fd_funk_rec_push_tail( fd_funk_rec_t * rec_pool,
       next_idx_p = &rec_pool[ rec_prev_idx ].next_idx;
     }
 
+    fd_racesan_hook( "fd_progcache_rec_push_tail_start" );
     if( FD_UNLIKELY( !__sync_bool_compare_and_swap( next_idx_p, FD_FUNK_REC_IDX_NULL, rec_idx ) ) ) {
       /* Another thread beat us to the punch */
       FD_SPIN_PAUSE();
