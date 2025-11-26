@@ -47,6 +47,10 @@ union fdctl_args {
 
   struct {
     int no_watch;
+
+    uint is_vinyl : 1;
+    char vinyl_path[ PATH_MAX ];
+    char vinyl_io  [ 3 ];
   } backtest;
 
   struct {

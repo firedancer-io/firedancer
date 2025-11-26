@@ -28,6 +28,9 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_acc_pool;
 extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta;
 extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta_ele;
 extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_data;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_req_pool;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_rq;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_cq;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
@@ -49,6 +52,9 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_vinyl_meta_ele,
   &fd_obj_cb_vinyl_data,
   &fd_obj_cb_acc_pool,
+  &fd_obj_cb_vinyl_req_pool,
+  &fd_obj_cb_vinyl_rq,
+  &fd_obj_cb_vinyl_cq,
   NULL,
 };
 

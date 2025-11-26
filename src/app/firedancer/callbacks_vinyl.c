@@ -1,5 +1,6 @@
 #include "../../vinyl/fd_vinyl.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../flamenco/accdb/fd_vinyl_req_pool.h"
 #include "../../util/pod/fd_pod_format.h"
 
 #define VAL(name) (__extension__({                                                             \
@@ -110,4 +111,88 @@ fd_topo_obj_callbacks_t fd_obj_cb_vinyl_data = {
   .footprint = vinyl_data_footprint,
   .align     = vinyl_data_align,
   .new       = vinyl_data_new,
+};
+
+/* vinyl_req_pool: request allocator */
+
+static ulong
+vinyl_req_pool_align( fd_topo_t const *     topo,
+                      fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_vinyl_req_pool_align();
+}
+
+static ulong
+vinyl_req_pool_footprint( fd_topo_t const *     topo,
+                            fd_topo_obj_t const * obj ) {
+  return fd_vinyl_req_pool_footprint( VAL("batch_max"), VAL("batch_key_max") );
+}
+
+static void
+vinyl_req_pool_new( fd_topo_t const *     topo,
+                    fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_vinyl_req_pool_new( fd_topo_obj_laddr( topo, obj->id ), VAL("batch_max"), VAL("batch_key_max") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_vinyl_req_pool = {
+  .name      = "vinyl_rpool",
+  .footprint = vinyl_req_pool_footprint,
+  .align     = vinyl_req_pool_align,
+  .new       = vinyl_req_pool_new,
+};
+
+/* vinyl_rq: request queue */
+
+static ulong
+vinyl_rq_align( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_vinyl_rq_align();
+}
+
+static ulong
+vinyl_rq_footprint( fd_topo_t const *     topo,
+                    fd_topo_obj_t const * obj ) {
+  return fd_vinyl_rq_footprint( VAL("req_cnt") );
+}
+
+static void
+vinyl_rq_new( fd_topo_t const *     topo,
+              fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_vinyl_rq_new( fd_topo_obj_laddr( topo, obj->id ), VAL("req_cnt") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_vinyl_rq = {
+  .name      = "vinyl_rq",
+  .footprint = vinyl_rq_footprint,
+  .align     = vinyl_rq_align,
+  .new       = vinyl_rq_new,
+};
+
+/* vinyl_cq: completion queue */
+
+static ulong
+vinyl_cq_align( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_vinyl_cq_align();
+}
+
+static ulong
+vinyl_cq_footprint( fd_topo_t const *     topo,
+                    fd_topo_obj_t const * obj ) {
+  return fd_vinyl_cq_footprint( VAL("comp_cnt") );
+}
+
+static void
+vinyl_cq_new( fd_topo_t const *     topo,
+              fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_vinyl_cq_new( fd_topo_obj_laddr( topo, obj->id ), VAL("comp_cnt") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_vinyl_cq = {
+  .name      = "vinyl_cq",
+  .footprint = vinyl_cq_footprint,
+  .align     = vinyl_cq_align,
+  .new       = vinyl_cq_new,
 };

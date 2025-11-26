@@ -46,13 +46,12 @@
    the _gaddr() values returned are safe to share. */
 
 struct fd_vinyl_req_pool {
-  ulong       magic;
-  fd_wksp_t * wksp;
-  ulong       batch_key_max;
-  ulong       batch_max;
-  ulong *     free;
-  ulong       free_cnt;
-  ulong *     used;  /* bit set */
+  ulong magic;
+  ulong batch_key_max;
+  ulong batch_max;
+  ulong free_off;
+  ulong free_cnt;
+  ulong used_off;
 
   ulong key_off;
   ulong val_gaddr_off;
@@ -161,8 +160,9 @@ fd_vinyl_req_batch_key( fd_vinyl_req_pool_t * pool,
 
 static inline ulong
 fd_vinyl_req_batch_key_gaddr( fd_vinyl_req_pool_t * pool,
+                              fd_wksp_t *           wksp,
                               ulong                 batch_idx ) {
-  return fd_wksp_gaddr_fast( pool->wksp, fd_vinyl_req_batch_key( pool, batch_idx ) );
+  return fd_wksp_gaddr_fast( wksp, fd_vinyl_req_batch_key( pool, batch_idx ) );
 }
 
 /* fd_vinyl_req_batch_val_gaddr returns a pointer to the array of
@@ -180,8 +180,9 @@ fd_vinyl_req_batch_val_gaddr( fd_vinyl_req_pool_t * pool,
 
 static inline ulong
 fd_vinyl_req_batch_val_gaddr_gaddr( fd_vinyl_req_pool_t * pool,
+                                    fd_wksp_t *           wksp,
                                     ulong                 batch_idx ) {
-  return fd_wksp_gaddr_fast( pool->wksp, fd_vinyl_req_batch_val_gaddr( pool, batch_idx ) );
+  return fd_wksp_gaddr_fast( wksp, fd_vinyl_req_batch_val_gaddr( pool, batch_idx ) );
 }
 
 /* fd_vinyl_req_batch_err returns a pointer to the error codes for a
@@ -199,8 +200,9 @@ fd_vinyl_req_batch_err( fd_vinyl_req_pool_t * pool,
 
 static inline ulong
 fd_vinyl_req_batch_err_gaddr( fd_vinyl_req_pool_t * pool,
+                              fd_wksp_t *           wksp,
                               ulong                 batch_idx ) {
-  return fd_wksp_gaddr_fast( pool->wksp, fd_vinyl_req_batch_err( pool, batch_idx ) );
+  return fd_wksp_gaddr_fast( wksp, fd_vinyl_req_batch_err( pool, batch_idx ) );
 }
 
 /* fd_vinyl_req_batch_comp returns a pointer to the array of completion
@@ -218,8 +220,9 @@ fd_vinyl_req_batch_comp( fd_vinyl_req_pool_t * pool,
 
 static inline ulong
 fd_vinyl_req_batch_comp_gaddr( fd_vinyl_req_pool_t * pool,
+                               fd_wksp_t *           wksp,
                                ulong                 batch_idx ) {
-  return fd_wksp_gaddr_fast( pool->wksp, fd_vinyl_req_batch_comp( pool, batch_idx ) );
+  return fd_wksp_gaddr_fast( wksp, fd_vinyl_req_batch_comp( pool, batch_idx ) );
 }
 
 /* fd_vinyl_rq_send_batch is syntax sugar for fd_vinyl_rq_send with a
@@ -228,6 +231,7 @@ fd_vinyl_req_batch_comp_gaddr( fd_vinyl_req_pool_t * pool,
 static inline void
 fd_vinyl_req_send_batch( fd_vinyl_rq_t *       rq,
                          fd_vinyl_req_pool_t * req_pool,
+                         fd_wksp_t *           req_pool_wksp,
                          ulong                 req_id,
                          ulong                 link_id,
                          int                   type,
@@ -235,10 +239,10 @@ fd_vinyl_req_send_batch( fd_vinyl_rq_t *       rq,
                          ulong                 batch_idx,
                          ulong                 batch_cnt,
                          ulong                 val_max ) {
-  ulong key_gaddr        = fd_vinyl_req_batch_key_gaddr      ( req_pool, batch_idx );
-  ulong val_gaddr_gaddr  = fd_vinyl_req_batch_val_gaddr_gaddr( req_pool, batch_idx );
-  ulong err_gaddr        = fd_vinyl_req_batch_err_gaddr      ( req_pool, batch_idx );
-  ulong comp_gaddr       = fd_vinyl_req_batch_comp_gaddr     ( req_pool, batch_idx );
+  ulong key_gaddr        = fd_vinyl_req_batch_key_gaddr      ( req_pool, req_pool_wksp, batch_idx );
+  ulong val_gaddr_gaddr  = fd_vinyl_req_batch_val_gaddr_gaddr( req_pool, req_pool_wksp, batch_idx );
+  ulong err_gaddr        = fd_vinyl_req_batch_err_gaddr      ( req_pool, req_pool_wksp, batch_idx );
+  ulong comp_gaddr       = fd_vinyl_req_batch_comp_gaddr     ( req_pool, req_pool_wksp, batch_idx );
   fd_vinyl_rq_send( rq, req_id, link_id, type, flags, batch_cnt, val_max, key_gaddr, val_gaddr_gaddr, err_gaddr, comp_gaddr );
 }
 

@@ -87,23 +87,6 @@ main( int     argc,
   FD_TEST( !fd_funk_join  ( funk_, shfunk )        ); /* Can't join deleted */
   FD_TEST( !fd_funk_delete( shfunk        )        ); /* Can't delete twice */
 
-  /* Test combinations of txn_max==0 and rec_max==0 */
-
-  funk = fd_funk_join( funk_, fd_funk_new( shmem, wksp_tag, seed, 0UL, rec_max ) ); FD_TEST( funk );
-  FD_TEST( !fd_funk_verify( funk ) );
-  FD_TEST( fd_funk_leave( funk, NULL ) );
-  FD_TEST( fd_funk_delete( shmem ) );
-
-  funk = fd_funk_join( funk_, fd_funk_new( shmem, wksp_tag, seed, txn_max, 0UL ) ); FD_TEST( funk );
-  FD_TEST( !fd_funk_verify( funk ) );
-  FD_TEST( fd_funk_leave( funk, NULL ) );
-  FD_TEST( fd_funk_delete( shmem ) );
-
-  funk = fd_funk_join( funk_, fd_funk_new( shmem, wksp_tag, seed, 0UL, 0UL ) ); FD_TEST( funk );
-  FD_TEST( !fd_funk_verify( funk ) );
-  FD_TEST( fd_funk_leave( funk, NULL ) );
-  FD_TEST( fd_funk_delete( shmem ) );
-
   fd_wksp_free_laddr( shmem );
   if( name ) fd_wksp_detach( wksp );
   else       fd_wksp_delete_anonymous( wksp );

@@ -421,6 +421,8 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
         fd_cnc_signal( cnc, FD_VINYL_CNC_SIGNAL_RUN );
       }
+
+      vinyl->housekeep( vinyl->housekeep_ctx );
     }
 
     /* Receive requests from clients */

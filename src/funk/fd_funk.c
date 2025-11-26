@@ -64,12 +64,12 @@ fd_funk_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( txn_max>FD_FUNK_TXN_IDX_NULL ) ) { /* See note in fd_funk.h about this limit */
+  if( FD_UNLIKELY( !txn_max || txn_max>FD_FUNK_TXN_IDX_NULL ) ) { /* See note in fd_funk.h about this limit */
     FD_LOG_WARNING(( "txn_max too large for index compression" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( rec_max>UINT_MAX ) ) {
+  if( FD_UNLIKELY( !rec_max || rec_max>UINT_MAX ) ) {
     FD_LOG_WARNING(( "invalid rec_max" ));
     return NULL;
   }
