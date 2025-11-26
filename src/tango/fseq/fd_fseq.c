@@ -38,7 +38,7 @@ fd_fseq_new( void * shmem,
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_fseq_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
-  } 
+  }
 
   fd_fseq_shmem_t * fseq = (fd_fseq_shmem_t *)shmem;
 
