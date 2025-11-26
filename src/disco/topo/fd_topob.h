@@ -40,7 +40,7 @@ fd_topo_wksp_t *
 fd_topob_wksp( fd_topo_t *  topo,
                char const * name );
 
-/* Add an object with the given name to the toplogy.  An object is
+/* Add an object with the given type to the toplogy.  An object is
    something that takes up space in memory, in a workspace.
 
    The workspace must exist and have been added to the topology.
@@ -50,8 +50,16 @@ fd_topob_wksp( fd_topo_t *  topo,
 
 fd_topo_obj_t *
 fd_topob_obj( fd_topo_t *  topo,
-              char const * obj_name,
+              char const * obj_type,
               char const * wksp_name );
+
+/* Same as fd_topo_obj, but labels the object. */
+
+fd_topo_obj_t *
+fd_topob_obj_named( fd_topo_t *  topo,
+                    char const * obj_type,
+                    char const * wksp_name,
+                    char const * label );
 
 /* Add a relationship saying that a certain tile uses a given object.
    This has the effect that when memory mapping required workspaces
@@ -62,10 +70,10 @@ fd_topob_obj( fd_topo_t *  topo,
    FD_SHMEM_JOIN_MODE_READ_WRITE. */
 
 void
-fd_topob_tile_uses( fd_topo_t *      topo,
-                    fd_topo_tile_t * tile,
-                    fd_topo_obj_t *  obj,
-                    int              mode );
+fd_topob_tile_uses( fd_topo_t *           topo,
+                    fd_topo_tile_t *      tile,
+                    fd_topo_obj_t const * obj,
+                    int                   mode );
 
 /* Add a link to the toplogy.  The link will not have any producer or
    consumer(s) by default, and those need to be added after.  The link

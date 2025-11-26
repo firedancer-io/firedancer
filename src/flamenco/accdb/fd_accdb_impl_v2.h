@@ -36,6 +36,7 @@ struct fd_accdb_user_v2 {
   fd_vinyl_rq_t *       vinyl_rq;
   ulong                 vinyl_link_id;
   fd_wksp_t *           vinyl_data_wksp;
+  fd_wksp_t *           vinyl_req_wksp;
   fd_vinyl_req_pool_t * vinyl_req_pool;
 };
 
