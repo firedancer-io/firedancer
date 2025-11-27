@@ -727,7 +727,6 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
   (void)now;
   fd_gui_peers_vote_t * votes_sorted  = votes;
   fd_gui_peers_vote_t * votes_scratch = peers->votes_scratch;
-  fd_memcpy( votes_sorted, votes, vote_cnt*sizeof(fd_gui_peers_vote_t) );
 
   /* deduplicate node accounts, keeping the vote accounts with largest stake */
   fd_gui_peers_votes_stake_sort_inplace( votes_sorted, vote_cnt );
