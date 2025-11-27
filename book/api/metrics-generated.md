@@ -1217,3 +1217,16 @@
 | <span class="metrics-name">ibeth_&#8203;tx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes transmitted (including Ethernet header). |
 
 </div>
+
+## Dpdk Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">dpdk_&#8203;rx_&#8203;pkt_&#8203;cnt</span> | counter | Packet receive count. |
+| <span class="metrics-name">dpdk_&#8203;rx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes received (including Ethernet header). |
+| <span class="metrics-name">dpdk_&#8203;tx_&#8203;pkt_&#8203;cnt</span> | counter | Number of packet transmit jobs marked as completed by the kernel. |
+| <span class="metrics-name">dpdk_&#8203;tx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes transmitted (including Ethernet header). |
+
+</div>

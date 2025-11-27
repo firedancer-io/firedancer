@@ -1025,6 +1025,7 @@ user = ""
         # just fine.
         native_bond = false
 
+    # This section is only active if [net.provider] is set to "socket".
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
         # Raises net.core.rmem_max accordingly
@@ -1033,6 +1034,16 @@ user = ""
         # Sets the socket receive buffer size via SO_SNDBUF.
         # Raises net.core.wmem_max accordingly
         send_buffer_size = 134217728
+
+    # Configure embedded DPDK fast network stack (experimental).
+    # This section is only active if [net.provider] is set to "dpdk".
+    [net.dpdk]
+        # Which interface to take over with DPDK.  The PCIe device
+        # backing this interface is taken over using vfio-pci and thus
+        # removed from Linux networking.  Typically, this is a virtual
+        # function (VF) of the main NIC at [net.interface].
+        interface = ""
+"""
 
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on

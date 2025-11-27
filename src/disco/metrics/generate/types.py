@@ -44,6 +44,7 @@ class Tile(Enum):
     SNAPLS = 38
     TOWER = 39
     IBETH = 40
+    DPDK = 41
 
 class MetricType(Enum):
     COUNTER = 0
