@@ -1163,4 +1163,11 @@ metric introduced.
     <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
 </tile>
 
+<tile name="dpdk">
+    <counter name="RxPktCnt" summary="Packet receive count." />
+    <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)." />
+    <counter name="TxPktCnt" summary="Number of packet transmit jobs marked as completed by the kernel." />
+    <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
+</tile>
+
 </metrics>
