@@ -389,10 +389,10 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
   account_cost_map_t const * map = fd_type_pun_const(((cost_tracker_outer_t const *)cost_tracker)+1UL);
   account_cost_t const * pool = fd_type_pun_const( (void*)((ulong)cost_tracker + ((cost_tracker_outer_t const *)cost_tracker)->pool_offset) );
 
-  for( ulong i=0UL; i<txn_out->accounts.accounts_cnt; i++ ) {
+  for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( !fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, (ushort)i ) ) continue;
 
-    fd_pubkey_t const * writable_acc = &txn_out->accounts.account_keys[i];
+    fd_pubkey_t const * writable_acc = &txn_out->accounts.keys[i];
 
     account_cost_t const * chained_cost = account_cost_map_ele_query_const( map, writable_acc, NULL, pool );
     if( FD_UNLIKELY( chained_cost && fd_ulong_sat_add( chained_cost->cost, cost )>cost_tracker->account_cost_limit ) ) {
@@ -415,10 +415,10 @@ add_transaction_execution_cost( fd_cost_tracker_t *           _cost_tracker,
   account_cost_map_t * map = fd_type_pun( cost_tracker+1UL );
   account_cost_t * pool = fd_type_pun( (void*)((ulong)cost_tracker+cost_tracker->pool_offset) );
 
-  for( ulong i=0UL; i<txn_out->accounts.accounts_cnt; i++ ) {
+  for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( FD_LIKELY( !fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, (ushort)i ) ) ) continue;
 
-    fd_pubkey_t const * writable_acc = &txn_out->accounts.account_keys[i];
+    fd_pubkey_t const * writable_acc = &txn_out->accounts.keys[i];
 
     account_cost_t * account_cost = account_cost_map_ele_query( map, writable_acc, NULL, pool );
     if( FD_UNLIKELY( !account_cost ) ) {

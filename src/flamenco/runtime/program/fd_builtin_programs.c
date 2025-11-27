@@ -229,7 +229,7 @@ fd_write_builtin_account( fd_bank_t  *              bank,
   fd_txn_account_set_executable( rec, 1 );
   fd_txn_account_set_owner( rec, &fd_solana_native_loader_id );
 
-  fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
+  fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
 
   fd_txn_account_mutable_fini( rec, accdb, &prepare );
 

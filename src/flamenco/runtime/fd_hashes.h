@@ -84,7 +84,7 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
    maintained incrementally by subtracting the old account hash and
    adding the new account hash.
 
-   account is the modified account (via fd_txn_account_t interface).
+   meta is a pointer to the modified account's metadata and data.
    prev_hash contains the lthash of the account before modification (or
    zero for newly created accounts).  bank is the bank whose lthash
    should be updated.  capture_ctx is an optional capture context for
@@ -106,7 +106,8 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
    execution. This includes sysvar accounts. */
 
 void
-fd_hashes_update_lthash( fd_txn_account_t const  * account,
+fd_hashes_update_lthash( fd_pubkey_t const *       pubkey,
+                         fd_account_meta_t const * meta,
                          fd_lthash_value_t const * prev_account_hash,
                          fd_bank_t               * bank,
                          fd_capture_ctx_t        * capture_ctx );

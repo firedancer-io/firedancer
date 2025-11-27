@@ -113,8 +113,6 @@ create_test_account( test_ctx_t *              ctx,
     fd_txn_account_set_data( acc, data, data_len );
   }
 
-  acc->starting_lamports = lamports;
-  acc->starting_dlen     = data_len;
   fd_txn_account_set_lamports( acc, lamports );
   fd_txn_account_set_executable( acc, executable );
   fd_txn_account_set_owner( acc, &owner );

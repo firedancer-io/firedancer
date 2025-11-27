@@ -237,7 +237,7 @@ register_vote_account_from_funk( fd_funk_t *               funk,
   }
 
   /* Account must be initialized correctly */
-  if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc ) ) ) {
+  if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc->meta ) ) ) {
     return;
   }
 
@@ -271,7 +271,7 @@ register_stake_delegation_from_funk( fd_funk_t *               funk,
 
   /* Stake state must exist and be initialized correctly */
   fd_stake_state_v2_t stake_state;
-  if( FD_UNLIKELY( fd_stake_get_state( acc, &stake_state ) || !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+  if( FD_UNLIKELY( fd_stake_get_state( acc->meta, &stake_state ) || !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
     return;
   }
 
@@ -323,8 +323,6 @@ load_accounts_from_proto( fd_accdb_user_t * accdb,
     }
 
     /* Set account metadata */
-    acc->starting_lamports = state->lamports;
-    acc->starting_dlen = size;
     fd_txn_account_set_lamports( acc, state->lamports );
     fd_txn_account_set_executable( acc, state->executable );
     fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );

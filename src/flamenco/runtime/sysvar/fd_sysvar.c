@@ -47,7 +47,7 @@ fd_sysvar_account_update( fd_bank_t *               bank,
     __builtin_unreachable();
   }
 
-  fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
+  fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
   fd_txn_account_mutable_fini( rec, accdb, &prepare );
 
   if( FD_UNLIKELY( fd_log_level_logfile()<=0 || fd_log_level_stderr()<=0 ) ) {
@@ -67,7 +67,7 @@ fd_sysvar_instr_acct_check( fd_exec_instr_ctx_t const * ctx,
   }
 
   ushort idx_in_txn = ctx->instr->accounts[idx].index_in_transaction;
-  fd_pubkey_t const * addr_have = &ctx->txn_out->accounts.account_keys[ idx_in_txn ];
+  fd_pubkey_t const * addr_have = &ctx->txn_out->accounts.keys[ idx_in_txn ];
   if( FD_UNLIKELY( 0!=memcmp( addr_have, addr_want, sizeof(fd_pubkey_t) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }

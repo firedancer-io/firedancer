@@ -18,7 +18,7 @@ fd_get_executable_program_content_for_v4_loader( fd_txn_account_t const * progra
   int err;
 
   /* Get the current loader v4 state. This implicitly also checks the dlen. */
-  fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program_acc, &err );
+  fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program_acc->meta, &err );
   if( FD_UNLIKELY( err ) ) {
     return NULL;
   }
