@@ -201,9 +201,7 @@ typedef struct {
   /* Ring tracking free packet buffers */
   fd_net_free_ring_t free_tx;
 
-  uchar  src_mac_addr[6];
   uint   default_address;
-
   uint   bind_address;
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
@@ -600,9 +598,7 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 1;
   }
 
-  if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) return 0; // drop
-
-  if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
+  if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER || if_idx!=ctx->if_virt ) ) {
     ctx->metrics.tx_no_xdp_cnt++;
     return 0;
   }
@@ -626,8 +622,8 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
   ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
   ctx->tx_op.src_ip = ip4_src;
-  memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr, 6 );
-  memcpy( ctx->tx_op.mac_addrs+6, netdev->mac_addr,  6 );
+  memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,  6 );
+  memcpy( ctx->tx_op.mac_addrs+6, netdev->mac_addr, 6 );
 
   return 1;
 }
@@ -1215,16 +1211,10 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
 
 static void
 interface_addrs( const char * interface,
-                 uchar *      mac,
                  uint *       ip4_addr ) {
   int fd = socket( AF_INET, SOCK_DGRAM, 0 );
   struct ifreq ifr;
   ifr.ifr_addr.sa_family = AF_INET;
-
-  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
-  if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
-  fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
 
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) )
     FD_LOG_ERR(( "could not get IP address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
@@ -1265,7 +1255,7 @@ privileged_init( fd_topo_t *      topo,
 
   fd_memset( ctx, 0, sizeof(fd_net_ctx_t) );
 
-  interface_addrs( tile->xdp.if_virt, ctx->src_mac_addr, &ctx->default_address );
+  interface_addrs( tile->xdp.if_virt, &ctx->default_address );
   ctx->if_virt = if_nametoindex( tile->xdp.if_virt ); FD_TEST( ctx->if_virt );
 
   /* Load up dcache containing UMEM */
