@@ -38,6 +38,7 @@ jobs:
           MACHINES="linux_clang_x86_64 linux_clang_haswell linux_clang_icelake" \
           EXTRAS="llvm-cov" \
           COV_REPORT=1 \
+          RACESAN=1 \
           contrib/test/ci_tests.sh
 
       - name: 'Authenticate to Google Cloud'
