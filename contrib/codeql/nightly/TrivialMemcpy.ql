@@ -14,14 +14,7 @@
 
 import cpp
 import filter
-
-class MemcpyFunction extends Function {
-  MemcpyFunction() {
-    this.hasGlobalOrStdName("memcpy")
-    or
-    this.hasGlobalName(["fd_memcpy", "__builtin_memcpy"])
-  }
-}
+import fd_memcpy
 
 predicate ignoredLocation(Location l) {
   // we don't want to change vendored code if not really necessary
