@@ -889,6 +889,11 @@ user = ""
     #   for hosts which do not support XDP, and to support experimental
     #   features that are not yet implemented in the XDP stack.
     #
+    #  "ibverbs" (experimental)
+    #   Use libibverbs (RDMA) in 'raw packet' mode for networking.
+    #   Compatible with Mellanox ConnectX 5 and newer.  Requires a
+    #   Firedancer build with 'make EXTRAS=ibverbs'.
+    #
     # Using the XDP networking stack is strongly preferred where
     # possible, as it is faster and better tested by the development
     # team.
