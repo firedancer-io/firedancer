@@ -938,15 +938,15 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       break;
     }
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
-      FD_TEST( msg->contact_info.idx<GOSSIP_PEERS_MAX );
-      gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info.idx;
+      FD_TEST( msg->contact_info_remove.idx<GOSSIP_PEERS_MAX );
+      gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info_remove.idx;
       if( FD_UNLIKELY( !fd_pubkey_eq( &entry->pubkey, pubkey ) ) ) {
         FD_TEST( fd_pubkey_check_zero( &entry->pubkey ) );
         break;
       }
       ulong rem_idx = gossip_ci_map_idx_remove( ctx->gossip.ci_map, pubkey, ULONG_MAX, ctx->gossip.ci_table );
       if( rem_idx==ULONG_MAX ) break;
-      FD_TEST( entry->allowed && rem_idx==msg->contact_info.idx );
+      FD_TEST( entry->allowed && rem_idx==msg->contact_info_remove.idx );
       fd_ip4_port_t addr = entry->rpc_addr;
       if( FD_LIKELY( !!addr.l ) ) {
         int removed = fd_ssping_remove( ctx->ssping, addr );
