@@ -158,6 +158,14 @@ verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
   return 0;
 }
 
+static inline void
+seq_to_tsorig_tspub( ulong * tsorig,
+                     ulong * tspub,
+                     ulong   seq ) {
+  *tsorig = ( seq >>  0 ) & ((1UL<<32)-1UL);
+  *tspub  = ( seq >> 32 ) & ((1UL<<32)-1UL);
+}
+
 static void
 transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
@@ -567,6 +575,9 @@ static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig ) {
+  ulong tsorig = 0UL;
+  ulong tspub  = 0UL;
+
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
@@ -601,6 +612,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         if( ctx->vinyl.txn_active ) {
           fd_snapin_vinyl_txn_cancel( ctx );
         }
+        if( !ctx->lthash_disabled ) {
+          seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
+        }
       } else {
         if( ctx->full ) {
           fd_accdb_clear( ctx->accdb_admin );
@@ -626,6 +640,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         if( ctx->vinyl.txn_active ) {
           fd_snapin_vinyl_txn_commit( ctx );
         }
+        if( !ctx->lthash_disabled ) {
+          seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
+        }
       }
 
       fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
@@ -648,6 +665,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_snapin_vinyl_wd_fini( ctx );
         if( ctx->vinyl.txn_active ) {
           fd_snapin_vinyl_txn_commit( ctx );
+        }
+        if( !ctx->lthash_disabled ) {
+          seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
         }
       }
 
@@ -686,6 +706,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         if( ctx->vinyl.txn_active ) {
           fd_snapin_vinyl_txn_cancel( ctx );
         }
+        if( !ctx->lthash_disabled ) {
+          seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
+        }
       }
       break;
 
@@ -695,7 +718,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, tsorig, tspub );
 }
 
 static inline int
@@ -757,8 +780,8 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
 
   if( tile->snapin.use_vinyl && !tile->snapin.lthash_disabled ) {
-    FD_LOG_WARNING(( "lthash verficiation for vinyl not yet implemented" ));
-    tile->snapin.lthash_disabled = 1;
+    FD_LOG_WARNING(( "lthash verficiation for vinyl is currently experimental" ));
+    // tile->snapin.lthash_disabled = 1;
   }
 
   if( tile->snapin.use_vinyl ) {
@@ -841,15 +864,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gui_out      = out1( topo, tile, "snapin_gui"   );
   ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ct", 0UL );
   if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ls", 0UL );
-  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
+  if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_lv", 0UL );
+  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls` or `snapin_lv`" ));
   fd_topo_link_t * snapin_out_link = &topo->links[ tile->out_link_id[ out_link_ct_idx ] ];
   ctx->out_ct_idx = out_link_ct_idx;
 
-  if( FD_UNLIKELY( ctx->out_ct_idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
+  if( FD_UNLIKELY( ctx->out_ct_idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls` or `snapin_lv`" ));
   if( FD_UNLIKELY( ctx->manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
 
-  if( 0==strcmp( snapin_out_link->name, "snapin_ls" ) ) {
-    ctx->hash_out = out1( topo, tile, "snapin_ls" );
+  if( ( 0==strcmp( snapin_out_link->name, "snapin_ls" ) ) ||
+        0==strcmp( snapin_out_link->name, "snapin_lv" ) ) {
+    ctx->hash_out = out1( topo, tile, snapin_out_link->name );
   }
 
   fd_ssparse_reset( ctx->ssparse );
