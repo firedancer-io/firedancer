@@ -77,6 +77,8 @@ typedef struct {
 } in_ctx_t;
 
 typedef struct {
+  fd_wksp_t * wksp; /* workspace */
+
   ulong       seed; /* map seed */
   int         checkpt_fd;
   int         restore_fd;
@@ -788,6 +790,7 @@ unprivileged_init( fd_topo_t *      topo,
   void  * notif = FD_SCRATCH_ALLOC_APPEND( l, notif_align(),            notif_footprint( slot_max )                          );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
+  ctx->wksp        = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->ghost       = fd_ghost_join       ( fd_ghost_new       ( ghost, 2*slot_max, FD_VOTER_MAX, 42UL ) ); /* FIXME seed */
   ctx->hfork       = fd_hfork_join       ( fd_hfork_new       ( hfork, slot_max, FD_VOTER_MAX, ctx->seed, tile->tower.hard_fork_fatal ) );
   ctx->notar       = fd_notar_join       ( fd_notar_new       ( notar, tile->tower.max_vote_lookahead ) );
