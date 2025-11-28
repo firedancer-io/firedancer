@@ -38,12 +38,6 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
 
-  /* And only if the account is not executable
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L749 */
-  if( FD_UNLIKELY( fd_borrowed_account_is_executable_internal( borrowed_acct ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-  }
-
   /* And only if the data is zero-initialized or empty
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L753 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_zeroed( borrowed_acct ) ) ) {
@@ -82,12 +76,6 @@ fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L779 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_writable( borrowed_acct ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE;
-  }
-
-  /* The balance of executable accounts may not change
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L783 */
-  if( FD_UNLIKELY( fd_borrowed_account_is_executable_internal( borrowed_acct ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE;
   }
 
   /* Don't copy the account if the lamports do not change
@@ -190,12 +178,6 @@ fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
   /* And only if the account is writable
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1015 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_writable( borrowed_acct ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
-  }
-
-  /* One can not clear the executable flag
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1019 */
-  if( FD_UNLIKELY( fd_borrowed_account_is_executable_internal( borrowed_acct ) && !is_executable ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
   }
 

@@ -147,7 +147,7 @@ fd_executor_lookup_native_program( fd_txn_account_t const * prog_acc,
      This will not be the case though once core programs are migrated to BPF. */
   int is_native_program = !memcmp( owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) );
 
-  if( !is_native_program && FD_FEATURE_ACTIVE_BANK( bank, remove_accounts_executable_flag_checks ) ) {
+  if( !is_native_program ) {
     if( FD_UNLIKELY( !fd_executor_pubkey_is_bpf_loader( owner ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
@@ -587,12 +587,6 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L464-L471 */
-    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( bank, remove_accounts_executable_flag_checks ) &&
-                     !fd_txn_account_is_executable( program_account ) ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
-    }
-
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L474-L477 */
     if( !memcmp( fd_txn_account_get_owner( program_account ), fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) {
       continue;
@@ -627,9 +621,7 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
 
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L502-L510 */
-    if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( owner_account ), fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ||
-                     ( !FD_FEATURE_ACTIVE_BANK( bank, remove_accounts_executable_flag_checks ) &&
-                       !fd_txn_account_is_executable( owner_account ) ) ) ) {
+    if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( owner_account ), fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
 
@@ -853,12 +845,6 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
                                                fd_runtime_account_check_exists );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || fd_txn_account_get_lamports( program_account )==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L668-L675 */
-    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( bank, remove_accounts_executable_flag_checks ) &&
-                     !fd_txn_account_is_executable( program_account ) ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L677-L681 */
