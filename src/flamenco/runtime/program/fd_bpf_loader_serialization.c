@@ -391,8 +391,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
   *instr_data_offset = FD_VM_MEM_MAP_INPUT_REGION_START + region_vaddr_offset + (ulong)(serialized_params - curr_serialized_params_start);
 
   /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L559 */
-  uchar * instr_data = ctx->instr->data;
-  fd_memcpy( serialized_params, instr_data, instr_data_len );
+  fd_memcpy( serialized_params, ctx->instr->data, instr_data_len );
   serialized_params += instr_data_len;
 
   /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L560 */
@@ -641,8 +640,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
   }
   *instr_data_offset = FD_VM_MEM_MAP_INPUT_REGION_START + region_vaddr_offset + (ulong)(serialized_params - curr_serialized_params_start);
 
-  uchar * instr_data = (uchar *)ctx->instr->data;
-  fd_memcpy( serialized_params, instr_data, instr_data_len );
+  fd_memcpy( serialized_params, ctx->instr->data, instr_data_len );
   serialized_params += instr_data_len;
 
   FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx->instr->program_id] );

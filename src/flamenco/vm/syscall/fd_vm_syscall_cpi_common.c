@@ -61,10 +61,11 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
                                           fd_instr_info_t *                 out_instr,
                                           fd_pubkey_t                       out_instr_acct_keys[ FD_INSTR_ACCT_MAX ] ) {
 
-  out_instr->program_id = UCHAR_MAX;
-  out_instr->data_sz    = (ushort)VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instr );
-  out_instr->data       = (uchar *)cpi_instr_data;
-  out_instr->acct_cnt   = (ushort)VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr );
+  out_instr->program_id   = UCHAR_MAX;
+  out_instr->stack_height = vm->instr_ctx->runtime->instr.stack_sz+1;
+  out_instr->data_sz      = (ushort)VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instr );
+  out_instr->acct_cnt     = (ushort)VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr );
+  memcpy( out_instr->data, cpi_instr_data, out_instr->data_sz );
 
   /* Find the index of the CPI instruction's program account in the transaction */
   int program_id_idx = fd_runtime_find_index_of_account( vm->instr_ctx->txn_out, program_id );
@@ -782,7 +783,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs. */
   fd_pubkey_t cpi_instr_acct_keys[ FD_INSTR_ACCT_MAX ];
-  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->runtime->instr.infos[ vm->instr_ctx->runtime->instr.info_cnt++ ];
+  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->runtime->instr.trace[ vm->instr_ctx->runtime->instr.trace_length++ ];
 
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute, cpi_instr_acct_keys );
   if( FD_UNLIKELY( err ) ) {

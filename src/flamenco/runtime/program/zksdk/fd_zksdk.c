@@ -115,9 +115,9 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   int err;
-  uchar const * instr_data = ctx->instr->data;
-  ulong instr_acc_cnt      = ctx->instr->acct_cnt;
-  uchar instr_id = instr_data[0]; /* instr_data_sz already checked by the caller */
+  uchar const * instr_data    = ctx->instr->data;
+  ulong         instr_acc_cnt = ctx->instr->acct_cnt;
+  uchar         instr_id      = instr_data[0]; /* instr_data_sz already checked by the caller */
 
   /* ProofContextState "header" size, ie. 1 authority pubkey + 1 proof_type byte */
 #define CTX_HEAD_SZ 33UL

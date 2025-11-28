@@ -47,9 +47,9 @@ create_test_ctx( fd_exec_instr_ctx_t * ctx,
   ctx->txn_out->details.compute_budget.compute_meter = compute_meter;
   ctx->instr = instr;
   ctx->runtime = runtime;
-  instr->data = &tx[instr_off];
   instr->data_sz = (ushort)(tx_len - instr_off); //TODO: this only works if the instruction is the last one
   instr->acct_cnt = 0; // TODO: hack to avoid filling proof context account (it requires to create the account first)
+  memcpy( instr->data, &tx[instr_off], instr->data_sz );
   fd_log_collector_init( ctx->runtime->log.log_collector, 1 );
 }
 
@@ -76,7 +76,6 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng, fd_runtime_t * runtime ) {
   fd_log_collector_t log_collector[1];
   fd_bank_t bank[1];
   ulong tx_len = 0;
-  ulong proof_offset = offset + 1 + context_sz;
   ctx.bank = bank;
   runtime->log.log_collector = log_collector;
 
@@ -88,8 +87,8 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng, fd_runtime_t * runtime ) {
   uchar * tx = load_test_tx( hex, hex_sz, &tx_len );
   create_test_ctx( &ctx, runtime, txn_out, instr, tx, tx_len, offset, cu );
 
-  void const * context = tx + offset + 1;
-  void const * proof = tx + proof_offset;
+  void const * context = instr->data+1;
+  void const * proof   = instr->data+1+context_sz;
 
   // valid
   FD_TEST( fd_zksdk_instr_verify_proof_pubkey_validity( context, proof )==FD_EXECUTOR_INSTR_SUCCESS );
@@ -97,10 +96,10 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng, fd_runtime_t * runtime ) {
   FD_TEST( fd_executor_zk_elgamal_proof_program_execute( &ctx )==FD_EXECUTOR_INSTR_SUCCESS );
 
   // invalid proof
-  tx[1 + proof_offset] ^= 0xff;
+  instr->data[1 + context_sz] ^= 0xff;
   FD_TEST( fd_zksdk_instr_verify_proof_pubkey_validity( context, proof )==FD_ZKSDK_VERIFY_PROOF_ERROR );
   FD_TEST( fd_zksdk_process_verify_proof( &ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
-  tx[1 + proof_offset] ^= 0xff;
+  instr->data[1 + context_sz] ^= 0xff;
 
   // invalid data
   instr->data_sz = (ushort)(instr->data_sz - 10);

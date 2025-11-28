@@ -28,6 +28,10 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
   fd_txn_t const * txn_descriptor = TXN( txn_in->txn );
   uchar *          instr_acc_idxs = (uchar *)txn_in->txn->payload + txn_instr->acct_off;
 
+  /* Set the stack height to 1 (since this is a top-level instruction) */
+  instr->stack_height = 1;
+
+  /* Set the program id */
   instr->program_id = txn_instr->program_id;
 
   /* See note in fd_instr_info.h.  TLDR: capping this value at 256
@@ -38,7 +42,7 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
      the instr info. */
   instr->acct_cnt = fd_ushort_min( txn_instr->acct_cnt, FD_INSTR_ACCT_MAX );
   instr->data_sz  = txn_instr->data_sz;
-  instr->data     = (uchar *)txn_in->txn->payload + txn_instr->data_off;
+  memcpy( instr->data, txn_in->txn->payload+txn_instr->data_off, instr->data_sz );
 
   uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
 

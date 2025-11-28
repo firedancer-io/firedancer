@@ -2557,9 +2557,6 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = {0};
   fd_exec_instr_ctx_get_signers( ctx, signers );
 
-  if( FD_UNLIKELY( ctx->instr->data==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
   if( FD_UNLIKELY( ctx->instr->data_sz>FD_STAKE_INSTR_FOOTPRINT ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

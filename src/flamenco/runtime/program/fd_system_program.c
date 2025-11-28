@@ -623,12 +623,6 @@ int
 fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_EXEC_CU_UPDATE( ctx, 150UL );
 
-  /* Deserialize the SystemInstruction enum */
-  uchar * data = ctx->instr->data;
-  if( FD_UNLIKELY( data==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
-
   if( FD_UNLIKELY( ctx->instr->data_sz>FD_SYSTEM_PROGRAM_INSTR_FOOTPRINT ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
@@ -637,10 +631,13 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   int decode_err;
   fd_system_program_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
-      system_program_instruction, instr_mem,
-      data, ctx->instr->data_sz,
+      system_program_instruction,
+      instr_mem,
+      ctx->instr->data,
+      ctx->instr->data_sz,
       FD_TXN_MTU,
-      &decode_err );
+      &decode_err
+  );
   if( FD_UNLIKELY( decode_err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

@@ -406,8 +406,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   if( !fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks ) )
     goto error;
 
-  ctx->runtime->instr.trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
-  ctx->runtime->instr.trace[0].stack_height = 1;
   ctx->txn_out->err.exec_err = 0;
   ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
   ctx->bank = runner->bank;
