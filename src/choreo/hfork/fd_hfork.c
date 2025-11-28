@@ -171,6 +171,25 @@ fd_hfork_delete( void * hfork ) {
 }
 
 void
+remove( blk_t * blk, fd_hash_t * bank_hash, bank_hash_t * pool ) {
+  bank_hash_t * prev = NULL;
+  bank_hash_t * curr = blk->bank_hashes;
+  while( FD_LIKELY( curr ) ) {
+    if( FD_LIKELY( 0==memcmp( &curr->bank_hash, bank_hash, 32UL ) ) ) break;
+    prev = curr;
+    curr = bank_hash_pool_ele( pool, curr->next );
+  }
+  FD_TEST( curr ); /* assumes bank_hash in blk->bank_hashes */
+
+  /* In most cases, there is only one bank_hash per blk, so it will be
+     the first element in blk->bank_hashes and prev will be NULL. */
+
+  if( FD_LIKELY( !prev ) ) blk->bank_hashes = bank_hash_pool_ele( pool, curr->next );
+  else                     prev->next       = curr->next;
+  bank_hash_pool_ele_release( pool, curr );
+}
+
+void
 fd_hfork_count_vote( fd_hfork_t *         hfork,
                      fd_hash_t const *    vote_acc,
                      fd_hash_t const *    block_id,
@@ -205,11 +224,9 @@ fd_hfork_count_vote( fd_hfork_t *         hfork,
     candidate->cnt--;
     if( FD_UNLIKELY( candidate->cnt==0 ) ) {
       candidate_map_remove( hfork->candidate_map, candidate );
-      blk_t *       blk    = blk_map_query( hfork->blk_map, vote.block_id, NULL );
-      bank_hash_t * remove = blk->bank_hashes;
-      blk->bank_hashes     = bank_hash_pool_ele( hfork->bank_hash_pool, remove->next );
-      bank_hash_pool_ele_release( hfork->bank_hash_pool, remove );
-
+      blk_t * blk = blk_map_query( hfork->blk_map, vote.block_id, NULL );
+      FD_TEST( blk ); /* asumes if this is in candidate_map, it must also be in blk_map */
+      remove( blk, &vote.bank_hash, hfork->bank_hash_pool );
       if( FD_UNLIKELY( !blk->bank_hashes ) ) {
         blk_map_remove( hfork->blk_map, blk );
         if( FD_UNLIKELY( blk->forked ) ) {

@@ -1,6 +1,18 @@
 #include "fd_hfork.h"
 #include "fd_hfork_private.h"
 
+ulong
+cnt( fd_hfork_t * hfork, fd_hash_t * block_id ) {
+  ulong         cnt  = 0;
+  blk_t *       blk  = blk_map_query( hfork->blk_map, *block_id, NULL );
+  bank_hash_t * curr = blk->bank_hashes;
+  while( FD_LIKELY( curr ) ) {
+    curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+    cnt++;
+  }
+  return cnt;
+}
+
 void
 test_hfork_simple( fd_wksp_t * wksp ) {
   ulong  max_live_slots    = 2;
@@ -10,21 +22,29 @@ test_hfork_simple( fd_wksp_t * wksp ) {
   fd_hfork_t * hfork = fd_hfork_join( fd_hfork_new( mem, max_live_slots, max_vote_accounts, 42, 0 ) );
   FD_TEST( hfork );
 
-  ulong     slot      = 368778153;
+  ulong     slot      = 368778150;
   fd_hash_t block_id  = { .ul = { slot } };
   fd_hash_t bank_hash = { .ul = { slot } };
 
-  ulong     slot1      = 368778154;
+  ulong     slot1      = 368778151;
   fd_hash_t block_id1  = { .ul = { slot1 } };
   fd_hash_t bank_hash1 = { .ul = { slot1 } };
 
-  ulong     slot2      = 368778155;
+  ulong     slot2      = 368778152;
   fd_hash_t block_id2  = { .ul = { slot2 } };
   fd_hash_t bank_hash2 = { .ul = { slot2 } };
 
-  ulong     slot3      = 368778156;
-  // fd_hash_t block_id3  = { .ul = { slot3 } };
+  ulong     slot3      = 368778153;
+  fd_hash_t block_id3  = { .ul = { slot3 } };
   fd_hash_t bank_hash3 = { .ul = { slot3 } };
+
+  ulong     slot4      = 368778154;
+  fd_hash_t block_id4  = { .ul = { slot4 } };
+  fd_hash_t bank_hash4 = { .ul = { slot4 } };
+
+  ulong     slot5      = 368778155;
+  fd_hash_t block_id5  = { .ul = { slot5 } };
+  fd_hash_t bank_hash5 = { .ul = { slot5 } };
 
   fd_hash_t voters[4] = {
     (fd_hash_t){ .ul = { 1 } },
@@ -66,19 +86,77 @@ test_hfork_simple( fd_wksp_t * wksp ) {
 
   /* max bank hashes for a given block_id */
 
-  fd_hfork_count_vote( hfork, &voters[0], &block_id, &bank_hash,  slot3, 1,  100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[1], &block_id, &bank_hash1, slot3, 51, 100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[2], &block_id, &bank_hash2, slot3, 2,  100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[3], &block_id, &bank_hash3, slot3, 3,  100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[0], &block_id3, &bank_hash,  slot3, 1,  100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[1], &block_id3, &bank_hash1, slot3, 51, 100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[2], &block_id3, &bank_hash2, slot3, 2,  100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[3], &block_id3, &bank_hash3, slot3, 3,  100, &metrics );
 
-  blk_t * blk = blk_map_query( hfork->blk_map, block_id, NULL );
-  bank_hash_t * curr = blk->bank_hashes;
-  ulong cnt = 0;
-  while( FD_LIKELY( curr ) ) {
-    curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
-    cnt++;
-  }
-  FD_TEST( cnt==4 );
+  FD_TEST( cnt( hfork, &block_id3 )==4 );
+  blk_t *       blk3 = blk_map_query( hfork->blk_map, block_id3, NULL );
+  bank_hash_t * curr = blk3->bank_hashes;
+  FD_TEST( curr->bank_hash.ul[0] == bank_hash.ul[0] );
+  curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+  FD_TEST( curr->bank_hash.ul[0] == bank_hash1.ul[0] );
+  curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+  FD_TEST( curr->bank_hash.ul[0] == bank_hash2.ul[0] );
+  curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+  FD_TEST( curr->bank_hash.ul[0] == bank_hash3.ul[0] );
+
+  /* evict front (bank_hash) from block_id */
+
+  fd_hfork_count_vote( hfork, &voters[0], &block_id4, &bank_hash4,  slot4, 1,  100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[0], &block_id5, &bank_hash5,  slot5, 1,  100, &metrics );
+
+  FD_TEST( !candidate_map_query( hfork->candidate_map, (candidate_key_t){ .block_id = block_id3, .bank_hash = bank_hash }, NULL ) );
+  FD_TEST( cnt( hfork, &block_id3 )==3 );
+  blk3 = blk_map_query( hfork->blk_map, block_id3, NULL );
+
+  curr = blk3->bank_hashes;
+  FD_TEST( curr->bank_hash.ul[0] == bank_hash1.ul[0] );
+  curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+  FD_TEST( curr->bank_hash.ul[0] == bank_hash2.ul[0] );
+  curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+  FD_TEST( curr->bank_hash.ul[0] == bank_hash3.ul[0] );
+  curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+  FD_TEST( !curr );
+
+  /* evict middle (bank_hash2) from block_id */
+
+  fd_hfork_count_vote( hfork, &voters[2], &block_id4, &bank_hash4,  slot4, 1,  100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[2], &block_id5, &bank_hash5,  slot5, 1,  100, &metrics );
+
+  FD_TEST( !candidate_map_query( hfork->candidate_map, (candidate_key_t){ .block_id = block_id3, .bank_hash = bank_hash2 }, NULL ) );
+  FD_TEST( cnt( hfork, &block_id3 )==2 );
+  blk3 = blk_map_query( hfork->blk_map, block_id3, NULL );
+
+  curr = blk3->bank_hashes;
+  FD_TEST( curr->bank_hash.ul[0] == bank_hash1.ul[0] );
+  curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+  FD_TEST( curr->bank_hash.ul[0] == bank_hash3.ul[0] );
+  curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+  FD_TEST( !curr );
+
+  /* evict back (bank_hash3) from block_id */
+
+  fd_hfork_count_vote( hfork, &voters[3], &block_id4, &bank_hash4,  slot4, 1,  100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[3], &block_id5, &bank_hash5,  slot5, 1,  100, &metrics );
+
+  FD_TEST( !candidate_map_query( hfork->candidate_map, (candidate_key_t){ .block_id = block_id3, .bank_hash = bank_hash3 }, NULL ) );
+  FD_TEST( cnt( hfork, &block_id3 )==1 );
+  blk3 = blk_map_query( hfork->blk_map, block_id3, NULL );
+
+  curr = blk3->bank_hashes;
+  FD_TEST( curr->bank_hash.ul[0] == bank_hash1.ul[0] );
+  curr = bank_hash_pool_ele( hfork->bank_hash_pool, curr->next );
+  FD_TEST( !curr );
+
+  /* evict singleton (bank_hash1) from block_id */
+
+  fd_hfork_count_vote( hfork, &voters[1], &block_id4, &bank_hash4,  slot4, 1,  100, &metrics );
+  fd_hfork_count_vote( hfork, &voters[1], &block_id5, &bank_hash5,  slot5, 1,  100, &metrics );
+
+  FD_TEST( !candidate_map_query( hfork->candidate_map, (candidate_key_t){ .block_id = block_id3, .bank_hash = bank_hash1 }, NULL ) );
+  FD_TEST( !blk_map_query( hfork->blk_map, block_id3, NULL ) );
 
   fd_wksp_free_laddr( fd_hfork_delete( fd_hfork_leave( hfork ) ) );
 }
