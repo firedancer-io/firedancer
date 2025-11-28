@@ -99,7 +99,8 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   /* Create objects */
   fd_memset( runner, 0, sizeof(fd_solfuzz_runner_t) );
-  runner->wksp = wksp;
+  runner->wksp     = wksp;
+  runner->wksp_tag = wksp_tag;
 
   void * shfunk   = fd_funk_new( funk_mem,   wksp_tag, 1UL, txn_max, rec_max );
   void * shpcache = fd_funk_new( pcache_mem, wksp_tag, 1UL, txn_max, rec_max );
@@ -138,6 +139,12 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   runner->enable_vm_tracing = options->enable_vm_tracing;
   FD_TEST( runner->progcache->funk->shmem );
+
+  ulong tags[1] = { wksp_tag };
+  fd_wksp_usage_t usage[1];
+  fd_wksp_usage( wksp, tags, 1UL, usage );
+  runner->wksp_baseline_used_sz = usage->used_sz;
+
   return runner;
 
 bail2:
@@ -181,10 +188,23 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
 void
 fd_solfuzz_runner_leak_check( fd_solfuzz_runner_t * runner ) {
   if( FD_UNLIKELY( fd_spad_frame_used( runner->spad ) ) ) {
-    FD_LOG_CRIT(( "solfuzz leaked a spad frame (bump allocator)" ));
+    FD_LOG_CRIT(( "leaked spad frame" ));
   }
 
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->accdb_admin->funk->shmem->child_head_cidx ) ) ) ) {
-    FD_LOG_CRIT(( "solfuzz leaked a funk txn" ));
+    FD_LOG_CRIT(( "leaked a funk txn in accdb" ));
+  }
+  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->progcache_admin->funk->shmem->child_head_cidx ) ) ) ) {
+    FD_LOG_CRIT(( "leaked a funk txn in progcache" ));
+  }
+
+  ulong tags[1] = { runner->wksp_tag };
+  fd_wksp_usage_t usage[1];
+  fd_wksp_usage( runner->wksp, tags, 1UL, usage );
+  if( FD_UNLIKELY( usage->used_sz != runner->wksp_baseline_used_sz ) ) {
+    FD_LOG_CRIT(( "leaked wksp allocations: %lu bytes with tag %lu (baseline %lu bytes, delta %+ld)",
+                  usage->used_sz, runner->wksp_tag,
+                  runner->wksp_baseline_used_sz,
+                  (long)usage->used_sz - (long)runner->wksp_baseline_used_sz ));
   }
 }
