@@ -94,8 +94,9 @@ init( config_t const * config ) {
   fd_shredder_t * shredder = fd_shredder_join( fd_shredder_new( _shredder, zero_signer, NULL ) );
   fd_shredder_set_shred_version( shredder, shred_version );
 
+  uchar chained_merkle_root[ FD_SHRED_MERKLE_ROOT_SZ ] = { 0 };
   fd_shredder_init_batch( shredder, &batch, batch_sz, 0UL, meta );
-  fd_shredder_next_fec_set( shredder, &fec, /* chained */ NULL, NULL );
+  fd_shredder_next_fec_set( shredder, &fec, /* chained */ chained_merkle_root, NULL );
 
   /* Fork off a new process for inserting the shreds to the blockstore.
      RocksDB creates a dozen background workers, and doesn't close them
