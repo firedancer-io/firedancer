@@ -293,6 +293,7 @@ struct fd_config {
     int sandbox;
     int no_clone;
     int core_dump;
+    int dump_wksp_mem;
     int no_agave;
     int bootstrap;
     uint debug_tile;

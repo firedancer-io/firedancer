@@ -47,40 +47,40 @@ fd_topo_initialize( config_t * config ) {
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
-  /*             topo, name */
-  fd_topob_wksp( topo, "metric_in"    );
-  fd_topob_wksp( topo, "net_quic"     );
-  fd_topob_wksp( topo, "net_shred"    );
-  fd_topob_wksp( topo, "quic_verify"  );
-  fd_topob_wksp( topo, "verify_dedup" );
-  fd_topob_wksp( topo, "dedup_resolv" );
-  fd_topob_wksp( topo, "resolv_pack"  );
-  fd_topob_wksp( topo, "pack_bank"    );
-  fd_topob_wksp( topo, "pack_poh"     );
-  fd_topob_wksp( topo, "bank_pack"    );
-  fd_topob_wksp( topo, "bank_poh"     );
-  fd_topob_wksp( topo, "bank_busy"    );
-  fd_topob_wksp( topo, "poh_shred"    );
-  fd_topob_wksp( topo, "gossip_dedup" );
-  fd_topob_wksp( topo, "shred_store"  );
-  fd_topob_wksp( topo, "stake_out"    );
-  fd_topob_wksp( topo, "executed_txn" );
+  /*             topo, name,          dumpable */
+  fd_topob_wksp( topo, "metric_in",    0 );
+  fd_topob_wksp( topo, "net_quic",     0 );
+  fd_topob_wksp( topo, "net_shred",    0 );
+  fd_topob_wksp( topo, "quic_verify",  0 );
+  fd_topob_wksp( topo, "verify_dedup", 0 );
+  fd_topob_wksp( topo, "dedup_resolv", 0 );
+  fd_topob_wksp( topo, "resolv_pack",  0 );
+  fd_topob_wksp( topo, "pack_bank",    0 );
+  fd_topob_wksp( topo, "pack_poh",     0 );
+  fd_topob_wksp( topo, "bank_pack",    0 );
+  fd_topob_wksp( topo, "bank_poh",     0 );
+  fd_topob_wksp( topo, "bank_busy",    0 );
+  fd_topob_wksp( topo, "poh_shred",    0 );
+  fd_topob_wksp( topo, "gossip_dedup", 0 );
+  fd_topob_wksp( topo, "shred_store",  0 );
+  fd_topob_wksp( topo, "stake_out",    0 );
+  fd_topob_wksp( topo, "executed_txn", 0 );
 
-  fd_topob_wksp( topo, "shred_sign"   );
-  fd_topob_wksp( topo, "sign_shred"   );
+  fd_topob_wksp( topo, "shred_sign",   0 );
+  fd_topob_wksp( topo, "sign_shred",   0 );
 
-  fd_topob_wksp( topo, "quic"         );
-  fd_topob_wksp( topo, "verify"       );
-  fd_topob_wksp( topo, "dedup"        );
-  fd_topob_wksp( topo, "resolv"       );
-  fd_topob_wksp( topo, "pack"         );
-  fd_topob_wksp( topo, "bank"         );
-  fd_topob_wksp( topo, "poh"          );
-  fd_topob_wksp( topo, "shred"        );
-  fd_topob_wksp( topo, "store"        );
-  fd_topob_wksp( topo, "sign"         );
-  fd_topob_wksp( topo, "metric"       );
-  fd_topob_wksp( topo, "cswtch"       );
+  fd_topob_wksp( topo, "quic",         0 );
+  fd_topob_wksp( topo, "verify",       0 );
+  fd_topob_wksp( topo, "dedup",        0 );
+  fd_topob_wksp( topo, "resolv",       0 );
+  fd_topob_wksp( topo, "pack",         0 );
+  fd_topob_wksp( topo, "bank",         0 );
+  fd_topob_wksp( topo, "poh",          0 );
+  fd_topob_wksp( topo, "shred",        0 );
+  fd_topob_wksp( topo, "store",        0 );
+  fd_topob_wksp( topo, "sign",         0 );
+  fd_topob_wksp( topo, "metric",       0 );
+  fd_topob_wksp( topo, "cswtch",       0 );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -238,9 +238,9 @@ fd_topo_initialize( config_t * config ) {
   /* For now the only plugin consumer is the GUI */
   int plugins_enabled = config->tiles.gui.enabled;
   if( FD_LIKELY( plugins_enabled ) ) {
-    fd_topob_wksp( topo, "plugin_in"    );
-    fd_topob_wksp( topo, "plugin_out"   );
-    fd_topob_wksp( topo, "plugin"       );
+    fd_topob_wksp( topo, "plugin_in",      0 );
+    fd_topob_wksp( topo, "plugin_out",     0 );
+    fd_topob_wksp( topo, "plugin",         0 );
 
     /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
     /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    128UL,                                    4098*8UL,                     1UL );
@@ -270,7 +270,7 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
-    fd_topob_wksp( topo, "gui"          );
+    fd_topob_wksp( topo, "gui",            0 );
     /**/                 fd_topob_tile( topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
     /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "plugin_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "poh_pack",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -280,12 +280,12 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-    fd_topob_wksp( topo, "bundle_verif" );
-    fd_topob_wksp( topo, "bundle_sign"  );
-    fd_topob_wksp( topo, "sign_bundle"  );
-    fd_topob_wksp( topo, "pack_sign"    );
-    fd_topob_wksp( topo, "sign_pack"    );
-    fd_topob_wksp( topo, "bundle"       );
+    fd_topob_wksp( topo, "bundle_verif",  0 );
+    fd_topob_wksp( topo, "bundle_sign",   0 );
+    fd_topob_wksp( topo, "sign_bundle",   0 );
+    fd_topob_wksp( topo, "pack_sign",     0 );
+    fd_topob_wksp( topo, "sign_pack",     0 );
+    fd_topob_wksp( topo, "bundle",        0 );
 
     /**/                 fd_topob_link( topo, "bundle_verif", "bundle_verif", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,         1UL );
     /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  65536UL,                                  9UL,                       1UL );
@@ -309,7 +309,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_pack",      0UL                                                );
 
     if( plugins_enabled ) {
-      fd_topob_wksp( topo, "bundle_plugi" );
+      fd_topob_wksp( topo, "bundle_plugi", 0 );
       /* bundle_plugi must be kind of deep, to prevent exhausting shared
          flow control credits when publishing many packets at once. */
       fd_topob_link( topo, "bundle_plugi", "bundle_plugi", 65536UL, sizeof(fd_plugin_msg_block_engine_update_t), 1UL );

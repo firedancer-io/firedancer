@@ -16,17 +16,17 @@ bundle_client_topo( config_t *   config ) {
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
 
-  fd_topob_wksp( topo, "metric_in" );
+  fd_topob_wksp( topo, "metric_in", 0 );
 
   /* Tiles */
 
-  fd_topob_wksp( topo, "bundle" );
+  fd_topob_wksp( topo, "bundle", 0 );
   fd_topo_tile_t * bundle_tile = fd_topob_tile( topo, "bundle", "bundle", "metric_in", ULONG_MAX, 0, 1 );
 
-  fd_topob_wksp( topo, "sign" );
+  fd_topob_wksp( topo, "sign", 0 );
   fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", ULONG_MAX, 0, 1 );
 
-  fd_topob_wksp( topo, "metric" );
+  fd_topob_wksp( topo, "metric", 0 );
   fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0 );
 
   /* Links */

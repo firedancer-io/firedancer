@@ -81,13 +81,13 @@ send_test_topo( config_t * config ) {
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
   /* Add send tile */
-  fd_topob_wksp( topo, "send" );
+  fd_topob_wksp( topo, "send", 0 );
   fd_topob_tile( topo, "send", "send", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
   /* wksps for send links */
-  fd_topob_wksp( topo, "send_net" );
-  fd_topob_wksp( topo, "sign_send" );
-  fd_topob_wksp( topo, "send_sign" );
+  fd_topob_wksp( topo, "send_net", 0 );
+  fd_topob_wksp( topo, "sign_send", 0 );
+  fd_topob_wksp( topo, "send_sign", 0 );
 
   /* real links for send */
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_send", i, ingress_buf_sz );
@@ -98,10 +98,10 @@ send_test_topo( config_t * config ) {
 
   /* mock links */
   /* braces shut up clang's 'misleading identation' warning */
-  if( !use_live_gossip ) {fd_topob_wksp( topo, "gossip_out" ); }
-  /**/                    fd_topob_wksp( topo, "replay_stake"  );
-  /**/                    fd_topob_wksp( topo, "tower_out" );
-  /**/                    fd_topob_wksp( topo, "send_out"  );
+  if( !use_live_gossip ) {fd_topob_wksp( topo, "gossip_out", 0 ); }
+  /**/                    fd_topob_wksp( topo, "replay_stake", 0 );
+  /**/                    fd_topob_wksp( topo, "tower_out", 0 );
+  /**/                    fd_topob_wksp( topo, "send_out", 0 );
 
   if( !use_live_gossip ) {fd_topob_link( topo, "gossip_out",   "gossip_out",   65536UL*4UL, sizeof(fd_gossip_update_message_t), 1UL ); }
   /**/                    fd_topob_link( topo, "replay_stake", "replay_stake", 128UL,       FD_STAKE_OUT_MTU,                   1UL );

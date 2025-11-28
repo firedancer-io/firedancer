@@ -56,7 +56,7 @@ static fd_topo_t *
 mock_topo_create( void ) {
   fd_topo_t * topo = fd_topob_new( test_malloc( alignof(fd_topo_t), sizeof(fd_topo_t) ), "verify-test" );
 
-  fd_topo_wksp_t * wksp = fd_topob_wksp( topo, "wksp" );
+  fd_topo_wksp_t * wksp = fd_topob_wksp( topo, "wksp", 0 );
   wksp->wksp = NULL;
 
   fd_topo_tile_t * verify = fd_topob_tile( topo, "verify", "wksp", "wksp", 0UL, 0, 0 );
