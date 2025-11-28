@@ -28,6 +28,8 @@
 
 struct fd_solfuzz_runner {
   fd_wksp_t *    wksp;
+  ulong          wksp_tag;
+  ulong          wksp_baseline_used_sz;
   fd_spad_t *    spad;
   fd_banks_t *   banks;
   fd_bank_t *    bank;

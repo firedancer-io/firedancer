@@ -351,6 +351,12 @@ fd_solfuzz_pb_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
   if( !ctx ) return;
   fd_accdb_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache_admin );
+
+  /* In order to check for leaks in the workspace, we need to compact the
+     allocators. Without doing this, empty superblocks may be retained
+     by the fd_alloc instance, which mean we cannot check for leaks. */
+  fd_alloc_compact( runner->accdb_admin->funk->alloc );
+  fd_alloc_compact( runner->progcache_admin->funk->alloc );
 }
 
 ulong

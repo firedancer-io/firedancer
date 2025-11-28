@@ -37,6 +37,12 @@ static void
 fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_accdb_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache_admin );
+
+  /* In order to check for leaks in the workspace, we need to compact the
+     allocators. Without doing this, empty superblocks may be retained
+     by the fd_alloc instance, which mean we cannot check for leaks. */
+  fd_alloc_compact( runner->accdb_admin->funk->alloc );
+  fd_alloc_compact( runner->progcache_admin->funk->alloc );
 }
 
 /* Creates transaction execution context for a single test case.
