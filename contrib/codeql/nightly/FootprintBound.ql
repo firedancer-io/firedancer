@@ -67,5 +67,57 @@ where (
     macroName = "FD_FRAG_META_FOOTPRINT" and
     structName = "fd_frag_meta" and
     not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_CAP_CHK_FOOTPRINT" and
+    structName = "fd_cap_chk_private" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_RPC_CLIENT_FOOTPRINT" and
+    structName = "fd_rpc_client_private" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_AIO_PKT_INFO_FOOTPRINT" and
+    structName = "fd_aio_pkt_info" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_GROOVE_VOLUME_FOOTPRINT" and
+    structName = "fd_groove_volume" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_KECCAK256_FOOTPRINT" and
+    structName = "fd_keccak256_private" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_SHA256_FOOTPRINT" and
+    structName = "fd_sha256_private" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_SHA512_FOOTPRINT" and
+    structName = "fd_sha512_private" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_RNG_FOOTPRINT" and
+    structName = "fd_rng_private" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_HISTF_FOOTPRINT" and
+    structName = "fd_histf_private" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_VINYL_REQ_FOOTPRINT" and
+    structName = "fd_vinyl_req" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_VINYL_COMP_FOOTPRINT" and
+    structName = "fd_vinyl_comp" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_BLOOM_FOOTPRINT" and
+    structName = "fd_bloom_private" and
+    not fitsInFootprint(structName, macroName)
+) and (
+    macroName = "FD_VM_FOOTPRINT" and
+    structName = "fd_vm" and
+    not fitsInFootprint(structName, macroName)
 )
 select structName, structName + "does not fit in " + macroName
