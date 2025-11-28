@@ -204,7 +204,8 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* is_deprecated                        */ 0,
     /* direct mapping                       */ direct_mapping,
     /* stricter_abi_and_runtime_constraints */ stricter_abi_and_runtime_constraints,
-    /* dump_syscall_to_pb                   */ 0 );
+    /* dump_syscall_to_pb                   */ 0,
+    /* r2_initial_value                     */ 0UL );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
@@ -391,18 +392,21 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                                0 );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
-  ulong                   input_sz                             = 0UL;
-  ulong                   pre_lens[256]                        = {0};
-  fd_vm_input_region_t    input_mem_regions[1000]              = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256]                = {0}; /* instr acc idx to idx */
-  uint                    input_mem_regions_cnt                = 0U;
-    int                     direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
-  int                     stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
+  ulong                   input_sz                                 = 0UL;
+  ulong                   pre_lens[256]                            = {0};
+  fd_vm_input_region_t    input_mem_regions[1000]                  = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]                    = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt                    = 0U;
+  int                     direct_mapping                           = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
+  int                     stricter_abi_and_runtime_constraints     = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
+  int                     provide_instruction_data_offset_in_vm_r2 = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, provide_instruction_data_offset_in_vm_r2 );
 
+  ulong instruction_data_offset = 0UL;
   uchar * input = NULL;
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, &input_sz, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                  acc_region_metas, stricter_abi_and_runtime_constraints, direct_mapping, is_deprecated, &input );
+                                                  acc_region_metas, stricter_abi_and_runtime_constraints, direct_mapping, is_deprecated,
+                                                  &instruction_data_offset, &input );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -432,6 +436,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                            fd_bank_slot_get( instr_ctx->bank ) >= instr_ctx->runtime->log.capture_ctx->dump_proto_start_slot &&
                            instr_ctx->runtime->log.capture_ctx->dump_syscall_to_pb;
 
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/bpf_loader/src/lib.rs#L1525-L1528 */
+  ulong r2_initial_value = provide_instruction_data_offset_in_vm_r2 ? instruction_data_offset : 0UL;
+
   /* TODO: (topointon): correctly set check_size in vm setup */
   vm = fd_vm_init(
     /* vm                                   */ vm,
@@ -456,7 +463,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     /* is_deprecated                        */ is_deprecated,
     /* direct_mapping                       */ direct_mapping,
     /* stricter_abi_and_runtime_constraints */ stricter_abi_and_runtime_constraints,
-    /* dump_syscall_to_pb    */                dump_syscall_to_pb );
+    /* dump_syscall_to_pb                   */ dump_syscall_to_pb,
+    /* r2_initial_value                     */ r2_initial_value );
   if( FD_UNLIKELY( !vm ) ) {
     /* We throw an error here because it could be the case that the given heap_size > HEAP_MAX.
        In this case, Agave fails the transaction but does not error out.
