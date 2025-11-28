@@ -385,6 +385,8 @@ struct fd_topo_tile {
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
 
+      char  genesis_path[ PATH_MAX ];
+
       int   larger_max_cost_per_block;
 
       ulong capture_start_slot;
