@@ -287,19 +287,6 @@ fd_borrowed_account_is_executable( fd_borrowed_account_t const * borrowed_acct )
   return fd_txn_account_is_executable( borrowed_acct->acct );
 }
 
-/* fd_borrowed_account_is_executable_internal is a private function for deprecating the `is_executable` flag.
-   It returns true if the `remove_accounts_executable_flag_checks` feature is inactive AND fd_account_is_executable
-   return true. This is newly used in account modification logic to eventually allow "executable" accounts to be
-   modified.
-
-   https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L1052-L1060 */
-
-FD_FN_PURE static inline int
-fd_borrowed_account_is_executable_internal( fd_borrowed_account_t const * borrowed_acct ) {
-  return !FD_FEATURE_ACTIVE_BANK( borrowed_acct->instr_ctx->bank, remove_accounts_executable_flag_checks ) &&
-          fd_borrowed_account_is_executable( borrowed_acct );
-}
-
 FD_FN_PURE static inline int
 fd_borrowed_account_is_mutable( fd_borrowed_account_t const * borrowed_acct ) {
   return fd_txn_account_is_mutable( borrowed_acct->acct );
@@ -370,14 +357,7 @@ fd_borrowed_account_is_owned_by_current_program( fd_borrowed_account_t const * b
 static inline int
 fd_borrowed_account_can_data_be_changed( fd_borrowed_account_t const * borrowed_acct,
                                          int *                       err ) {
-  /* Only non-executable accounts data can be changed
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1076 */
-  if( FD_UNLIKELY( fd_borrowed_account_is_executable_internal( borrowed_acct ) ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
-    return 0;
-  }
-
-  /* And only if the account is writable
+  /* Only writable accounts can be changed
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1080 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_writable( borrowed_acct ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;

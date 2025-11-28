@@ -202,17 +202,6 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
-  /* Check that the program account is executable. We need to ensure that the
-    program account is a valid instruction account.
-    https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L438 */
-  if( !FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, remove_accounts_executable_flag_checks ) ) {
-    if( FD_UNLIKELY( !fd_borrowed_account_is_executable( &borrowed_program_account ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
-      fd_log_collector_msg_many( instr_ctx, 3, "Account ", 8UL, id_b58, id_b58_len, " is not executable", 18UL );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_out->err.exec_err_idx );
-      return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
-    }
-  }
 
   *instruction_accounts_cnt = duplicate_indicies_cnt;
 

@@ -1496,7 +1496,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xd7\xeb\x98\x87\x27\xcf\x64\x78\xbe\x0d\x81\x84\x03\x96\x2b\x10\x77\xb6\xc9\xcb\x3b\xfd\x6c\x3b\x95\xf6\xa4\x79\xee\x74\xde\xb8"},
                                  /* FXs1zh47QbNnhXcnB6YiAQoJ4sGB91tKF3UFHLcKT7PM */
     .name                      = "remove_accounts_executable_flag_checks",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {3, 0, 0},
     .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, fix_alt_bn128_multiplication_input_length)>>3,
