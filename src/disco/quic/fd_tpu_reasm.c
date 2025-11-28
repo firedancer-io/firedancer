@@ -1,5 +1,7 @@
 #include "fd_tpu.h"
 #include "fd_tpu_reasm_private.h"
+#include "../../tango/dcache/fd_dcache.h"
+#include "../../tango/mcache/fd_mcache.h"
 
 FD_FN_CONST ulong
 fd_tpu_reasm_align( void ) {
@@ -197,7 +199,6 @@ fd_tpu_reasm_frag( fd_tpu_reasm_t *      reasm,
   ulong sz0      = slot->k.sz;
 
   if( FD_UNLIKELY( data_off>sz0 ) ) {
-    fd_tpu_reasm_cancel( reasm, slot );
     return FD_TPU_REASM_ERR_SKIP;
   }
 

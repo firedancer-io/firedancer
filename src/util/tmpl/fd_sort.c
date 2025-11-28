@@ -66,20 +66,15 @@
                                  ulong    cnt,
                                  ulong    rnk );
 
-     // Binary search for element greater or equal to key in a sorted
-     // list.  Return value is an index into sorted in [0,cnt].  If
-     // return value > 0 then it is the largest index where
-     // SORT_BEFORE(sorted[index-1],query)==1.   Returns 0 if
-     // SORT_BEFORE(query,elem)==1 for all elements in sorted.  Assumes
-     // SORT_BEFORE defines a total order over sorted, and each element
-     // in sorted is less-or-equal than its successor.  (Returns
-     // incorrect result otherwise!)   Robust if cnt==0 (in that case,
-     // returns 0 and ignores pointer to sorted).
+     // Given a sorted array sorted indexed [0,cnt),
+     // sort_double_descend_split returns an index i in [0,cnt] such all
+     // entries in [0,i) are BEFORE query and all entries [i,cnt) are
+     // NOT BEFORE query.
 
      ulong
-     sort_double_descend_search_geq( double const * sorted,
-                                     ulong          cnt,
-                                     double         query );
+     sort_double_descend_split( double const * sorted,
+                                ulong          cnt,
+                                double         query );
 
      // sort_double_descend_{stable_fast,stable,inplace}_para is the
      // same as // above is adaptively parallelized over the caller
@@ -204,6 +199,12 @@
 #define SORT_IDX_IF(c,t,f) ((SORT_IDX_T)fd_ulong_if( (c), (ulong)(t), (ulong)(f) ))
 #endif
 
+/* SORT_FN_ATTR applies extra function attributes. */
+
+#ifndef SORT_FN_ATTR
+#define SORT_FN_ATTR
+#endif
+
 /* 0 - local use only
    1 - library header declaration
    2 - library implementation */
@@ -244,21 +245,21 @@ SORT_(cnt_valid)( SORT_IDX_T cnt ) {
 FD_FN_CONST static inline ulong SORT_(stable_scratch_align)    ( void )           { return alignof(SORT_KEY_T); }
 FD_FN_CONST static inline ulong SORT_(stable_scratch_footprint)( SORT_IDX_T cnt ) { return sizeof (SORT_KEY_T)*(ulong)cnt; }
 
-SORT_STATIC SORT_KEY_T *
+SORT_FN_ATTR SORT_STATIC SORT_KEY_T *
 SORT_(private_merge)( SORT_KEY_T * key,
                       long         cnt,
                       SORT_KEY_T * tmp );
 
-SORT_STATIC SORT_KEY_T *
+SORT_FN_ATTR SORT_STATIC SORT_KEY_T *
 SORT_(private_quick)( SORT_KEY_T * key,
                       SORT_IDX_T   cnt );
 
-SORT_STATIC SORT_KEY_T *
+SORT_FN_ATTR SORT_STATIC SORT_KEY_T *
 SORT_(private_select)( SORT_KEY_T * key,
                        SORT_IDX_T   cnt,
                        SORT_IDX_T   rnk );
 
-SORT_STATIC SORT_KEY_T *
+SORT_FN_ATTR SORT_STATIC SORT_KEY_T *
 SORT_(insert)( SORT_KEY_T * key,
                SORT_IDX_T   cnt );
 
@@ -296,20 +297,36 @@ SORT_(select)( SORT_KEY_T * key,
 }
 
 static inline SORT_IDX_T
-SORT_(search_geq)( SORT_KEY_T const * sorted,
-                   SORT_IDX_T         cnt,
-                   SORT_KEY_T         query ) {
+SORT_(split)( SORT_KEY_T const * sorted,
+              SORT_IDX_T         cnt,
+              SORT_KEY_T         query ) {
   SORT_IDX_T j = (SORT_IDX_T)0;
-  SORT_IDX_T n = (SORT_IDX_T)cnt;
-  while( n>((SORT_IDX_T)1) ) {
-    /* At this point the j corresponding to k is in [j,j+n) */
-    SORT_IDX_T j_left  = j;          SORT_IDX_T n_left  = n >> 1;
-    SORT_IDX_T j_right = j + n_left; SORT_IDX_T n_right = n - n_left;
-    int  go_left = SORT_BEFORE( query, sorted[ j_right ] );
-    j = go_left ? j_left : j_right; /* branchless */
-    n = go_left ? n_left : n_right; /* branchless */
+  SORT_IDX_T k = (SORT_IDX_T)cnt;
+  for(;;) {
+    SORT_IDX_T n = k-j;
+    if( FD_UNLIKELY( n<(SORT_IDX_T)1 ) ) break;
+
+    /* At this point, entries [0,j) are known "lt"  query (i.e. before),
+                      entries [j,k) are unknown (this range is non-empty and sorted),
+                      entries [k,n) are known "geq" query (i.e. not before)
+       Test the entry in the middle of the unknown range. */
+
+    SORT_IDX_T m = j + (n>>1);
+
+    int c = SORT_BEFORE( sorted[ m ], query );
+
+    /* At this point:
+        If c is 1, entry m is     before query.  As such, entries [0,m] are all known "lt"  query and range (m,k) is unknown now.
+        If c is 0, entry m is not before query.  As such, entries [m,n) are all known "geq" query and range [j,m) is unknown now. */
+
+    j = c ? (m+(SORT_IDX_T)1) : j; /* cmov */
+    k = c ?  k                : m; /* cmov */
   }
-  return j;
+
+  /* At this point, [0,j) are known "lt" query and [k,n) are known
+     "geq" query and j==k such that [j,k) is an empty range. */
+
+  return k;
 }
 
 #if SORT_PARALLEL
@@ -392,7 +409,7 @@ SORT_(stable_para)( fd_tpool_t * tpool,
   return key;
 }
 
-SORT_STATIC void
+SORT_FN_ATTR SORT_STATIC void
 SORT_(private_quick_node)( void * _tpool,
                            ulong  t0,      ulong t1,
                            void * _args,
@@ -414,7 +431,7 @@ SORT_(inplace_para)( fd_tpool_t * tpool,
 
 #if FD_HAS_ALLOCA
 
-SORT_STATIC SORT_KEY_T *
+SORT_FN_ATTR SORT_STATIC SORT_KEY_T *
 SORT_(fast_para)( fd_tpool_t * tpool, ulong t0, ulong t1,
                   SORT_KEY_T * key,
                   SORT_IDX_T   cnt,
@@ -432,7 +449,7 @@ FD_PROTOTYPES_END
 
 #if SORT_IMPL_STYLE!=1 /* need implementations (assumes header already included) */
 
-SORT_KEY_T *
+SORT_FN_ATTR SORT_KEY_T *
 SORT_(insert)( SORT_KEY_T * key,
                SORT_IDX_T   cnt ) {
   for( SORT_IDX_T i=((SORT_IDX_T)1); i<cnt; i++ ) {
@@ -449,7 +466,7 @@ SORT_(insert)( SORT_KEY_T * key,
   return key;
 }
 
-static void
+SORT_FN_ATTR static void
 SORT_(private_merge_pass)( SORT_KEY_T const * key_l, long cnt_l,
                            SORT_KEY_T const * key_r, long cnt_r,
                            SORT_KEY_T       * key_m ) {
@@ -487,7 +504,7 @@ SORT_(private_merge_pass)( SORT_KEY_T const * key_l, long cnt_l,
 # endif
 }
 
-SORT_KEY_T *
+SORT_FN_ATTR SORT_KEY_T *
 SORT_(private_merge)( SORT_KEY_T * key,
                       long         cnt,
                       SORT_KEY_T * tmp ) {
@@ -526,7 +543,7 @@ SORT_(private_merge)( SORT_KEY_T * key,
 /* This uses a dual pivot quick sort for better theoretical and
    practical mojo. */
 
-SORT_KEY_T *
+SORT_FN_ATTR SORT_KEY_T *
 SORT_(private_quick)( SORT_KEY_T * key,
                       SORT_IDX_T   cnt ) {
   SORT_IDX_T stack[ 4UL*8UL*sizeof(SORT_IDX_T) ]; /* See note below on sizing */
@@ -703,7 +720,7 @@ SORT_(private_quick)( SORT_KEY_T * key,
    partition that could contain rank).  See above for comments on the
    algo. */
 
-SORT_KEY_T *
+SORT_FN_ATTR SORT_KEY_T *
 SORT_(private_select)( SORT_KEY_T * key,
                        SORT_IDX_T   cnt,
                        SORT_IDX_T   rnk ) {
@@ -801,7 +818,7 @@ SORT_(private_select)( SORT_KEY_T * key,
    relevant to parallelization are commented.  See above for comments on
    the algo. */
 
-void
+SORT_FN_ATTR void
 SORT_(private_quick_node)( void * _tpool,
                            ulong  t0,      ulong t1,
                            void * _args,
@@ -1141,7 +1158,7 @@ static FD_FOR_ALL_BEGIN( SORT_(private_subsort_para), 1L ) {
 
 } FD_FOR_ALL_END
 
-SORT_KEY_T *
+SORT_FN_ATTR SORT_KEY_T *
 SORT_(fast_para)( fd_tpool_t * tpool, ulong t0, ulong t1,
                   SORT_KEY_T * key,
                   SORT_IDX_T   cnt,
@@ -1291,6 +1308,7 @@ SORT_(fast_para)( fd_tpool_t * tpool, ulong t0, ulong t1,
 #undef SORT_STATIC
 
 #undef SORT_IMPL_STYLE
+#undef SORT_FN_ATTR
 #undef SORT_IDX_IF
 #undef SORT_OVERSAMPLE_RATIO
 #undef SORT_PARALLEL

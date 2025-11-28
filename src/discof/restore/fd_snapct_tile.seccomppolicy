@@ -1,0 +1,144 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+uint logfile_fd, uint dir_fd, uint out_full_fd, uint out_inc_fd, uint ping_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.  Other files that can be
+# written to include the out descriptors for the full and incremental
+# snapshots.  OpenSSL also calls write on the underlying socket
+# descriptor.  We will restrict this being called on the snapshot
+# directory file descriptor and the ping file descriptor.
+write: (not (or (eq (arg 0) dir_fd)
+                (eq (arg 0) ping_fd)))
+
+# openssl: read
+#
+# OpenSSL calls read to receive bytes from a socket.  We will restrict
+# this being called on the stderr, the log file descriptor, the snapshot
+# directory, the full and incremental snapshot files, and the ping file
+# descriptor.
+read: (not (or (eq (arg 0) 2)
+               (eq (arg 0) logfile_fd)
+               (eq (arg 0) dir_fd)
+               (eq (arg 0) out_full_fd)
+               (eq (arg 0) out_inc_fd)
+               (eq (arg 0) ping_fd)))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# snapshot: establish connections when initializing client for snapshot
+# download.  Also establish connections to receive snapshot slot info
+socket: (and (eq (arg 0) "AF_INET")
+             (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
+             (eq (arg 2) 0))
+
+# snapshot: need to be able to connect to a peer to download a snapshot
+# from and for snapshot slot resolution.
+#
+# arg 0 is the file descriptor of the socket to connect to.  We will
+# restrict this being called on any of the snapshot file descriptors,
+# STDERR or the logfile.
+connect: (not (or (eq (arg 0) 2)
+                  (eq (arg 0) logfile_fd)
+                  (eq (arg 0) dir_fd)
+                  (eq (arg 0) out_full_fd)
+                  (eq (arg 0) out_inc_fd)
+                  (eq (arg 0) ping_fd)))
+
+# snapshot: need to close sockets that were opened when calls to connect
+# fail.
+#
+# arg 0 is the file descriptor that we would like to close.  We will
+# restrict this being called on any of the snapshot file descriptors,
+# STDERR or the logfile.
+close: (not (or (eq (arg 0) 2)
+                (eq (arg 0) logfile_fd)
+                (eq (arg 0) dir_fd)
+                (eq (arg 0) out_full_fd)
+                (eq (arg 0) out_inc_fd)
+                (eq (arg 0) ping_fd)))
+
+# snapshot: we need to be able to poll existing connections that we want
+# to download snapshots and resolve snapshots from
+ppoll
+
+# snapshot: we need to be send http requests to endpoints for snapshot
+# downloading
+#
+# arg 0 is the file descriptor that we would like to send a request to.
+# We will restrict this being called on any of the snapshot file
+# descriptors, STDERR or the logfile.
+sendto: (not (or (eq (arg 0) 2)
+                 (eq (arg 0) logfile_fd)
+                 (eq (arg 0) dir_fd)
+                 (eq (arg 0) out_full_fd)
+                 (eq (arg 0) out_inc_fd)
+                 (eq (arg 0) ping_fd)))
+
+sendmmsg: (and (eq (arg 0) ping_fd)
+               (eq (arg 3) 0))
+
+# snapshot: we need to be able to receive responses for any requests
+# that were sent out for snapshot download or slot resolution.
+#
+# arg 0 is the file descriptor that we would like to send a request to.
+# We will restrict this being called on any of the snapshot file
+# descriptors, STDERR or the logfile.
+recvfrom: (not (or (eq (arg 0) 2)
+                   (eq (arg 0) logfile_fd)
+                   (eq (arg 0) dir_fd)
+                   (eq (arg 0) out_full_fd)
+                   (eq (arg 0) out_inc_fd)))
+
+# snapshot: we need to be able to configure out socket connection from
+# the peer that we download our snapshot from or resolve slot
+# information from.
+#
+# arg 0 is the file descriptor that corresponds to the socket that we
+# want to connect to.  We know that we don't want to connect to the
+# file descriptors used for logging, stderr, or any of the snapshot fds.
+setsockopt: (and (not (or (eq (arg 0) 2)
+                          (eq (arg 0) logfile_fd)
+                          (eq (arg 0) dir_fd)
+                          (eq (arg 0) out_full_fd)
+                          (eq (arg 0) out_inc_fd)
+                          (eq (arg 0) ping_fd)))
+                 (eq (arg 1) IPPROTO_TCP)
+                 (eq (arg 2) TCP_NODELAY))
+
+# snapshot: after a snapshot file has been read in, the file is renamed
+# to its full name
+#
+# arg 0 is the file descriptor for the directory that the file is being
+# renamed from
+#
+# arg 2 is the file descriptor for the directory that the file is being
+# renamed to.  This should be the same file descriptor as the one used
+# in arg 0
+renameat: (and (eq (arg 0) dir_fd)
+               (eq (arg 2) dir_fd))
+
+# openssl: RAND_bytes requires getpid
+#
+# The OpenSSL implementation calls getpid() as an implementation
+# detail, they save the PID in a global and reseed the RNG if the PID
+# ever changes (the process was forked).  We don't need this logic since
+# our process can't fork.
+getpid
+
+# openssl: RAND_bytes requires getrandom
+#
+# The OpenSSL implementation calls getrandom internally for periodically
+# reseeding the RNG.
+getrandom
+
+# shutdown: exit is called on shutdown
+exit: (eq (arg 0) 0)

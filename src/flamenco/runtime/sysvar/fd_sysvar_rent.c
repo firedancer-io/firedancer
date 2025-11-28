@@ -2,41 +2,45 @@
 #include "fd_sysvar.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
+#include "fd_sysvar_base.h"
 
 #include <assert.h>
 
 void
-fd_sysvar_rent_write( fd_exec_slot_ctx_t * slot_ctx,
-                      fd_rent_t const *    rent ) {
+fd_sysvar_rent_write( fd_bank_t *               bank,
+                      fd_accdb_user_t *         accdb,
+                      fd_funk_txn_xid_t const * xid,
+                      fd_capture_ctx_t *        capture_ctx,
+                      fd_rent_t const *         rent ) {
 
-  uchar enc[ 32 ];
+  uchar enc[ FD_SYSVAR_RENT_BINCODE_SZ ] = {0};
 
-  ulong sz = fd_rent_size( rent );
-  FD_TEST( sz<=sizeof(enc) );
-  memset( enc, 0, sz );
+  fd_bincode_encode_ctx_t ctx = {
+    .data    = enc,
+    .dataend = enc + FD_SYSVAR_RENT_BINCODE_SZ,
+  };
+  if( FD_UNLIKELY( fd_rent_encode( rent, &ctx ) ) ) {
+    FD_LOG_ERR(( "fd_rent_encode failed" ));
+  }
 
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data    = enc;
-  ctx.dataend = enc + sz;
-  if( fd_rent_encode( rent, &ctx ) )
-    FD_LOG_ERR(("fd_rent_encode failed"));
-
-  fd_sysvar_account_update( slot_ctx, &fd_sysvar_rent_id, enc, sz );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_rent_id, enc, FD_SYSVAR_RENT_BINCODE_SZ );
 }
 
 void
-fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_rent_t const * rent = fd_bank_rent_query( slot_ctx->bank );
-  fd_sysvar_rent_write( slot_ctx, rent );
+fd_sysvar_rent_init( fd_bank_t *               bank,
+                     fd_accdb_user_t *         accdb,
+                     fd_funk_txn_xid_t const * xid,
+                     fd_capture_ctx_t *        capture_ctx ) {
+  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  fd_sysvar_rent_write( bank, accdb, xid, capture_ctx, rent );
 }
 
 fd_rent_t const *
-fd_sysvar_rent_read( fd_funk_t *     funk,
-                     fd_funk_txn_t * funk_txn,
-                     fd_spad_t *     spad ) {
-  FD_TXN_ACCOUNT_DECL( acc );
-  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_rent_id, funk, funk_txn );
+fd_sysvar_rent_read( fd_funk_t *               funk,
+                     fd_funk_txn_xid_t const * xid,
+                     fd_rent_t *               rent ) {
+  fd_txn_account_t acc[1];
+  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_rent_id, funk, xid );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }
@@ -49,10 +53,9 @@ fd_sysvar_rent_read( fd_funk_t *     funk,
     return NULL;
   }
 
-  int err;
-  return fd_bincode_decode_spad(
-      rent, spad,
+  return fd_bincode_decode_static(
+      rent, rent,
       fd_txn_account_get_data( acc ),
       fd_txn_account_get_data_len( acc ),
-      &err );
+      NULL );
 }

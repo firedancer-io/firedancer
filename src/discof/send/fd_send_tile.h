@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_fdctl_run_tiles_fd_send_tile_h
-#define HEADER_fd_src_app_fdctl_run_tiles_fd_send_tile_h
+#ifndef HEADER_fd_src_discof_send_fd_send_tile_h
+#define HEADER_fd_src_discof_send_fd_send_tile_h
 
 /* Sender tile signs and sends transactions to the current leader.
    Currently only supports transactions which require one signature.
@@ -10,11 +10,11 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/fd_disco.h"
-#include "../../disco/pack/fd_microblock.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../waltz/quic/fd_quic.h"
+#include "../../util/clock/fd_clock.h"
 
 #define IN_KIND_SIGN   (0UL)
 #define IN_KIND_GOSSIP (1UL)
@@ -26,19 +26,30 @@
 #define FD_SEND_TARGET_LEADER_CNT (3UL)
 
 /* Connect FD_CONNECT_AHEAD_LEADER_CNT leaders ahead (slot x, x+4, x+8, ...) */
-#define FD_SEND_CONNECT_AHEAD_LEADER_CNT  (6UL)
+#define FD_SEND_CONNECT_AHEAD_LEADER_CNT  (7UL)
 
 /* Agave currently rate limits connections per minute per IP */
 #define FD_AGAVE_MAX_CONNS_PER_MINUTE (8UL)
 /* so each of our connections must survive at least 60/8 = 7.5 seconds
    Let's conservatively go to 10 */
-#define FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS (10UL)
+#define FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS (10L)
+
+/* Wait FD_SEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS many seconds before
+   re-establishing a conn to a quic_vote port. Why?
+   After timing out, the agave server puts the conn in a draining state, during
+   which time it remains in their connection map. So our new attempt gets
+   rejected, as the quic_vote port limits to 1 conn per client. Without cooldown,
+   we keep trying rapidly, and can quickly hit their 8 conn/min limit.
+   That prevents us from connecting for far longer than just cooling down
+   (which should be free because we connect ahead). This number is based
+   on empirical observation, but has much room for improvement. */
+#define FD_SEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS (2L)
 
 /* the 1M lets this be integer math */
 FD_STATIC_ASSERT((60*1000000)/FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS <= 1000000*FD_AGAVE_MAX_CONNS_PER_MINUTE, "QUIC conn lifetime too low for rate limit");
 
-#define FD_SEND_QUIC_IDLE_TIMEOUT_NS (2e9)  /*  2 s  */
-#define FD_SEND_QUIC_ACK_DELAY_NS    (25e6) /* 25 ms */
+#define FD_SEND_QUIC_IDLE_TIMEOUT_NS (30e9L) /* 30 s - minimize keep_alive work */
+#define FD_SEND_QUIC_ACK_DELAY_NS    (25e6L) /* 25 ms */
 
 /* quic ports first, so we can re-use idx to select conn ptr
    Don't rearrange, lots of stuff depends on this order. */
@@ -75,11 +86,11 @@ struct fd_send_conn_entry {
   fd_pubkey_t      pubkey;
   uint             hash;
 
-  fd_quic_conn_t * conn[ FD_SEND_PORT_UDP_VOTE_IDX ]; /* first non-quic port */
-  long             last_ci_ticks;
+  fd_quic_conn_t * conn[ FD_SEND_PORT_UDP_VOTE_IDX ]; /* quic ports first in enum */
+  long             last_quic_vote_close;
+
   uint             ip4s [ FD_SEND_PORT_CNT ]; /* net order */
   ushort           ports[ FD_SEND_PORT_CNT ]; /* host order */
-  int              got_ci_msg;
 };
 typedef struct fd_send_conn_entry fd_send_conn_entry_t;
 
@@ -90,7 +101,7 @@ struct fd_send_tile_ctx {
   #define FD_SEND_MAX_IN_LINK_CNT 32UL
   fd_stem_context_t *  stem;
   fd_send_link_in_t    in_links[ FD_SEND_MAX_IN_LINK_CNT ];
-  fd_net_rx_bounds_t   net_in_bounds;
+  fd_net_rx_bounds_t   net_in_bounds[ FD_SEND_MAX_IN_LINK_CNT ];
   fd_send_link_out_t   gossip_verify_out[ 1 ];
   fd_send_link_out_t   net_out          [ 1 ];
 
@@ -103,9 +114,6 @@ struct fd_send_tile_ctx {
       fd_shred_dest_wire_t       contact_buf[ MAX_STAKED_LEADERS ];
       ulong                      contact_cnt;
     };
-
-    /* IN_KIND_SIGN */
-    uchar txn_buf[ sizeof(fd_txn_p_t) ] __attribute__((aligned(alignof(fd_txn_p_t))));
 
     /* IN_KIND_NET */
     uchar quic_buf[ FD_NET_MTU ];
@@ -131,14 +139,12 @@ struct fd_send_tile_ctx {
   fd_send_conn_entry_t * conn_map;
 
   /* timekeeping */
-  long                now;
-  ulong               ticks_per_sec;
-  ulong               housekeeping_ctr;
+  long             now;            /* current time in ns!     */
+  fd_clock_t       clock[1];       /* memory for fd_clock_t   */
+  long             recal_next;     /* next recalibration time (ns) */
 
   struct {
     ulong leader_not_found;
-    ulong staked_no_ci;
-    ulong stale_ci;
 
     /* Contact info */
     ulong unstaked_ci_rcvd;
@@ -159,7 +165,10 @@ struct fd_send_tile_ctx {
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
+  uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 };
+
 typedef struct fd_send_tile_ctx fd_send_tile_ctx_t;
 
-#endif
+#endif /* HEADER_fd_src_discof_send_fd_send_tile_h */
+

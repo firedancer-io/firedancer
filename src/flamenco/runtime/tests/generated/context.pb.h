@@ -20,16 +20,6 @@ typedef struct fd_exec_test_feature_set {
     uint64_t *features;
 } fd_exec_test_feature_set_t;
 
-/* A seed address.  This is not a PDA. */
-typedef struct fd_exec_test_seed_address {
-    /* The seed address base.  (32 bytes) */
-    pb_callback_t base;
-    /* The seed path  (<= 32 bytes) */
-    pb_callback_t seed;
-    /* The seed address owner.  (32 bytes) */
-    pb_callback_t owner;
-} fd_exec_test_seed_address_t;
-
 /* The complete state of an account excluding its public key. */
 typedef struct fd_exec_test_acct_state {
     /* The account address.  (32 bytes) */
@@ -38,17 +28,8 @@ typedef struct fd_exec_test_acct_state {
     /* Account data is limited to 10 MiB on Solana mainnet as of 2024-Feb. */
     pb_bytes_array_t *data;
     bool executable;
-    /* The rent epoch is deprecated on Solana mainnet as of 2024-Feb.
- If ommitted, implies a value of UINT64_MAX. */
-    uint64_t rent_epoch;
     /* Address of the program that owns this account.  (32 bytes) */
     pb_byte_t owner[32];
-    /* The account address, but derived as a seed address.  Overrides
- `address` if present.
- TODO: This is a solfuzz specific extension and is not compliant
- with the org.solana.sealevel.v1 API. */
-    bool has_seed_addr;
-    fd_exec_test_seed_address_t seed_addr;
 } fd_exec_test_acct_state_t;
 
 typedef struct fd_exec_test_vote_account {
@@ -111,6 +92,8 @@ typedef struct fd_exec_test_slot_context {
     pb_byte_t poh[32];
     /* Parent bank hash */
     pb_byte_t parent_bank_hash[32];
+    /* Parent lt hash */
+    pb_byte_t parent_lthash[2048];
     /* The last executed slot */
     uint64_t prev_slot;
     /* Last slot lamports per signature */
@@ -132,34 +115,27 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT    {0, NULL}
-#define FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT   {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT}
+#define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, {0}}
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT   {false, FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0}
+#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
-#define FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO      {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO}
+#define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, {0}}
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO      {false, FD_EXEC_TEST_ACCT_STATE_INIT_ZERO, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0}
+#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, {0}, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_FEATURE_SET_FEATURES_TAG    1
-#define FD_EXEC_TEST_SEED_ADDRESS_BASE_TAG       1
-#define FD_EXEC_TEST_SEED_ADDRESS_SEED_TAG       2
-#define FD_EXEC_TEST_SEED_ADDRESS_OWNER_TAG      3
 #define FD_EXEC_TEST_ACCT_STATE_ADDRESS_TAG      1
 #define FD_EXEC_TEST_ACCT_STATE_LAMPORTS_TAG     2
 #define FD_EXEC_TEST_ACCT_STATE_DATA_TAG         3
 #define FD_EXEC_TEST_ACCT_STATE_EXECUTABLE_TAG   4
-#define FD_EXEC_TEST_ACCT_STATE_RENT_EPOCH_TAG   5
 #define FD_EXEC_TEST_ACCT_STATE_OWNER_TAG        6
-#define FD_EXEC_TEST_ACCT_STATE_SEED_ADDR_TAG    7
 #define FD_EXEC_TEST_VOTE_ACCOUNT_VOTE_ACCOUNT_TAG 1
 #define FD_EXEC_TEST_VOTE_ACCOUNT_STAKE_TAG      2
 #define FD_EXEC_TEST_INFLATION_INITIAL_TAG       1
@@ -184,6 +160,7 @@ extern "C" {
 #define FD_EXEC_TEST_SLOT_CONTEXT_BLOCK_HEIGHT_TAG 2
 #define FD_EXEC_TEST_SLOT_CONTEXT_POH_TAG        3
 #define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_BANK_HASH_TAG 4
+#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_LTHASH_TAG 5
 #define FD_EXEC_TEST_SLOT_CONTEXT_PREV_SLOT_TAG  6
 #define FD_EXEC_TEST_SLOT_CONTEXT_PREV_LPS_TAG   7
 #define FD_EXEC_TEST_SLOT_CONTEXT_PREV_EPOCH_CAPITALIZATION_TAG 8
@@ -196,24 +173,14 @@ X(a, POINTER,  REPEATED, FIXED64,  features,          1)
 #define FD_EXEC_TEST_FEATURE_SET_CALLBACK NULL
 #define FD_EXEC_TEST_FEATURE_SET_DEFAULT NULL
 
-#define FD_EXEC_TEST_SEED_ADDRESS_FIELDLIST(X, a) \
-X(a, CALLBACK, SINGULAR, BYTES,    base,              1) \
-X(a, CALLBACK, SINGULAR, BYTES,    seed,              2) \
-X(a, CALLBACK, SINGULAR, BYTES,    owner,             3)
-#define FD_EXEC_TEST_SEED_ADDRESS_CALLBACK pb_default_field_callback
-#define FD_EXEC_TEST_SEED_ADDRESS_DEFAULT NULL
-
 #define FD_EXEC_TEST_ACCT_STATE_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, address,           1) \
 X(a, STATIC,   SINGULAR, UINT64,   lamports,          2) \
 X(a, POINTER,  SINGULAR, BYTES,    data,              3) \
 X(a, STATIC,   SINGULAR, BOOL,     executable,        4) \
-X(a, STATIC,   SINGULAR, UINT64,   rent_epoch,        5) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             6) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  seed_addr,         7)
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             6)
 #define FD_EXEC_TEST_ACCT_STATE_CALLBACK NULL
 #define FD_EXEC_TEST_ACCT_STATE_DEFAULT NULL
-#define fd_exec_test_acct_state_t_seed_addr_MSGTYPE fd_exec_test_seed_address_t
 
 #define FD_EXEC_TEST_VOTE_ACCOUNT_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  vote_account,      1) \
@@ -261,6 +228,7 @@ X(a, STATIC,   SINGULAR, FIXED64,  slot,              1) \
 X(a, STATIC,   SINGULAR, FIXED64,  block_height,      2) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, poh,               3) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_bank_hash,   4) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_lthash,     5) \
 X(a, STATIC,   SINGULAR, FIXED64,  prev_slot,         6) \
 X(a, STATIC,   SINGULAR, UINT64,   prev_lps,          7) \
 X(a, STATIC,   SINGULAR, UINT64,   prev_epoch_capitalization,   8) \
@@ -271,7 +239,6 @@ X(a, STATIC,   SINGULAR, UINT64,   parent_signature_count,  10)
 #define fd_exec_test_slot_context_t_fee_rate_governor_MSGTYPE fd_exec_test_fee_rate_governor_t
 
 extern const pb_msgdesc_t fd_exec_test_feature_set_t_msg;
-extern const pb_msgdesc_t fd_exec_test_seed_address_t_msg;
 extern const pb_msgdesc_t fd_exec_test_acct_state_t_msg;
 extern const pb_msgdesc_t fd_exec_test_vote_account_t_msg;
 extern const pb_msgdesc_t fd_exec_test_inflation_t_msg;
@@ -281,7 +248,6 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_FEATURE_SET_FIELDS &fd_exec_test_feature_set_t_msg
-#define FD_EXEC_TEST_SEED_ADDRESS_FIELDS &fd_exec_test_seed_address_t_msg
 #define FD_EXEC_TEST_ACCT_STATE_FIELDS &fd_exec_test_acct_state_t_msg
 #define FD_EXEC_TEST_VOTE_ACCOUNT_FIELDS &fd_exec_test_vote_account_t_msg
 #define FD_EXEC_TEST_INFLATION_FIELDS &fd_exec_test_inflation_t_msg
@@ -291,18 +257,16 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_FeatureSet_size depends on runtime parameters */
-/* fd_exec_test_SeedAddress_size depends on runtime parameters */
 /* fd_exec_test_AcctState_size depends on runtime parameters */
 /* fd_exec_test_VoteAccount_size depends on runtime parameters */
 /* fd_exec_test_EpochContext_size depends on runtime parameters */
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_SIZE      50
 #define FD_EXEC_TEST_INFLATION_SIZE              45
-#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           180
+#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           2231
 #define ORG_SOLANA_SEALEVEL_V1_CONTEXT_PB_H_MAX_SIZE FD_EXEC_TEST_SLOT_CONTEXT_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_FeatureSet fd_exec_test_FeatureSet
-#define org_solana_sealevel_v1_SeedAddress fd_exec_test_SeedAddress
 #define org_solana_sealevel_v1_AcctState fd_exec_test_AcctState
 #define org_solana_sealevel_v1_VoteAccount fd_exec_test_VoteAccount
 #define org_solana_sealevel_v1_Inflation fd_exec_test_Inflation
@@ -310,7 +274,6 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 #define org_solana_sealevel_v1_EpochContext fd_exec_test_EpochContext
 #define org_solana_sealevel_v1_SlotContext fd_exec_test_SlotContext
 #define ORG_SOLANA_SEALEVEL_V1_FEATURE_SET_INIT_DEFAULT FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_SEED_ADDRESS_INIT_DEFAULT FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_DEFAULT FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_INIT_DEFAULT FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_INFLATION_INIT_DEFAULT FD_EXEC_TEST_INFLATION_INIT_DEFAULT
@@ -318,7 +281,6 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_EPOCH_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_SLOT_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_FEATURE_SET_INIT_ZERO FD_EXEC_TEST_FEATURE_SET_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_SEED_ADDRESS_INIT_ZERO FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_ZERO FD_EXEC_TEST_ACCT_STATE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_INIT_ZERO FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_INFLATION_INIT_ZERO FD_EXEC_TEST_INFLATION_INIT_ZERO

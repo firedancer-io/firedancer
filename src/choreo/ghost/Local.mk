@@ -1,4 +1,4 @@
-ifdef FD_HAS_INT128
+ifdef FD_HAS_ALLOCA
 $(call add-hdrs,fd_ghost.h)
 $(call add-objs,fd_ghost,fd_choreo)
 ifdef FD_HAS_HOSTED

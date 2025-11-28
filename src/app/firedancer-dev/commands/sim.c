@@ -20,12 +20,13 @@
 #include "../../firedancer/topology.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
+#include "../../../disco/pack/fd_pack.h"
+#include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
-#include "../../../flamenco/runtime/fd_runtime.h"
-#include "../../../flamenco/runtime/fd_txncache.h"
 
 #include <unistd.h> /* pause */
+
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
@@ -71,13 +72,13 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "shred_storei" );
   fd_topob_wksp( topo, "repair_store" );
   fd_topob_wksp( topo, "storei_notif" );
-  fd_topob_wksp( topo, "stake_out"    );
+  fd_topob_wksp( topo, "replay_stake" );
   fd_topob_wksp( topo, "store_replay" );
   /*             topo,  link_name,      wksp_name,     depth,         mtu,                    burst */
   fd_topob_link( topo, "shred_storei", "shred_storei", 65536UL,       4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
   fd_topob_link( topo, "repair_store", "repair_store", 1024UL*1024UL, FD_SHRED_MAX_SZ,        128UL                                          );
   fd_topob_link( topo, "storei_notif", "storei_notif", 65536UL,       4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
-  fd_topob_link( topo, "stake_out",    "stake_out",    128UL,         40UL + 40200UL * 40UL,  1UL                                            );
+  fd_topob_link( topo, "replay_stake", "replay_stake", 128UL,         40UL + 40200UL * 40UL,  1UL                                            );
   fd_topob_link( topo, "store_replay", "store_replay", 32768UL,       sizeof(ulong),          64UL                                           );
 
   /*                 topo, tile_name, tile_kind_id, link_name,      link_kind_id */
@@ -86,7 +87,7 @@ sim_topo( config_t * config ) {
   fd_topob_tile_in(  topo, "arch_p",  0UL,          "metric_in", "storei_notif",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /*                 topo, tile_name, tile_kind_id, fseq_wksp,   link_name,            link_kind_id, reliable,            polled */
-  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "stake_out",          0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "replay_stake",       0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "repair_store",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "shred_storei",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
@@ -98,18 +99,17 @@ sim_topo( config_t * config ) {
   fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "store_replay",       0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
 
   /*                 topo, tile_name, tile_kind_id, link_name,          link_kind_id */
-  fd_topob_tile_out( topo, "replay",  0UL,          "stake_out",        0UL );
+  fd_topob_tile_out( topo, "replay",  0UL,          "replay_stake",     0UL );
 
   /**********************************************************************/
-  /* Setup replay<->exec links in topo                                  */
+  /* Setup replay-->exec links in topo                                  */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_exec" );
+  fd_topob_link( topo, "replay_exec", "replay_exec", 16384UL, 2240UL, 1UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_exec", 0UL );
   for( ulong i=0; i<config->firedancer.layout.exec_tile_count; i++ ) {
-    fd_topob_link( topo, "replay_exec", "replay_exec", 128UL, 10240UL, 1UL );
-    fd_topob_tile_out( topo, "replay", 0UL, "replay_exec", i );
-    fd_topob_tile_in( topo, "exec", i, "metric_in", "replay_exec", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "exec", i, "metric_in", "replay_exec", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
-  fd_topo_tile_t * exec_tile   = &topo->tiles[ fd_topo_find_tile( topo, "exec", 0UL ) ];
 
   /**********************************************************************/
   /* Setup the shared objs used by storei, replay and exec tiles        */
@@ -117,25 +117,19 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "bstore"      );
   fd_topob_wksp( topo, "poh_shred"   );
   fd_topob_wksp( topo, "root_slot"   );
-  fd_topob_wksp( topo, "runtime_pub" );
-  fd_topob_wksp( topo, "tcache"      );
+  fd_topob_wksp( topo, "txncache"    );
   fd_topob_wksp( topo, "poh_slot"    );
   fd_topob_wksp( topo, "bank_busy"   );
-  fd_topob_wksp( topo, "exec_spad"   );
-  fd_topob_wksp( topo, "exec_fseq"   );
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
-  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
-  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
-      config->firedancer.runtime.limits.max_rooted_slots,
-      config->firedancer.runtime.limits.max_live_slots,
-      config->firedancer.runtime.limits.max_transactions_per_slot );
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
+      config->firedancer.runtime.max_live_slots,
+      fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
   fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.limits.max_total_banks, config->firedancer.runtime.limits.max_fork_width );
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, 0 );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, runtime_pub_obj->id, "runtime_pub" ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_slot_obj->id, "poh_slot" ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
@@ -143,7 +137,6 @@ sim_topo( config_t * config ) {
   fd_topob_tile_uses( topo, storei_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topob_tile_uses( topo, storei_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
 
-  fd_topob_tile_uses( topo, replay_tile, runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, poh_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -152,17 +145,6 @@ sim_topo( config_t * config ) {
 
     fd_topob_tile_uses( topo, replay_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
-  }
-
-  for( ulong i=0UL; i<config->firedancer.layout.exec_tile_count; i++ ) {
-    fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
-    fd_topo_obj_t * exec_fseq_obj = fd_topob_obj( topo, "fseq", "exec_fseq" );
-    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, replay_tile, exec_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, exec_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, exec_tile, exec_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, exec_fseq_obj->id, "exec_fseq.%lu", i ) );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -174,14 +156,8 @@ sim_topo( config_t * config ) {
       } else {
         FD_LOG_NOTICE(( "Found archive file from config: %s", tile->archiver.rocksdb_path ));
       }
-    } else if( !fd_topo_configure_tile( tile, config ) ) {
-      FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
-    }
-
-    /* Override */
-    if( !strcmp( tile->name, "replay" ) ) {
-      strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
-      strncpy( tile->replay.status_cache, config->tiles.replay.status_cache, sizeof(tile->replay.status_cache) );
+    } else {
+      fd_topo_configure_tile( tile, config );
     }
   }
 

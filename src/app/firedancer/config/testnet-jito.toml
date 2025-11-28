@@ -1,0 +1,23 @@
+[gossip]
+    entrypoints = [
+        "entrypoint.testnet.solana.com:8001",
+        "entrypoint2.testnet.solana.com:8001",
+    ]
+[consensus]
+    expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
+[funk]
+    heap_size_gib = 40
+    max_account_records = 200_000_000
+[snapshots]
+    [snapshots.sources]
+        servers = [ "http://solana-testnet-rpc.jumpisolated.com:8899" ]
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []
+[tiles.bundle]
+    enabled = true
+    url = "https://dallas.testnet.block-engine.jito.wtf"
+    tip_distribution_program_addr = "F2Zu7QZiTYUhPd7u9ukRVwxh7B71oA3NMJcHuCHc29P2"
+    tip_payment_program_addr = "GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy"
+    tip_distribution_authority = "7heQNXEtxSv3wV8sNbuQsDN5xNGbbpLvHGiyXuJxEf7n"
+    commission_bps = 1000

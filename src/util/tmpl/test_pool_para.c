@@ -12,6 +12,7 @@ typedef struct myele myele_t;
 #define POOL_IDX_T         uint
 #define POOL_NEXT          mynext
 #define POOL_IMPL_STYLE    0
+#define POOL_LAZY          1
 #include "fd_pool_para.c"
 
 FD_STATIC_ASSERT( FD_POOL_SUCCESS    == 0, unit_test );
@@ -212,6 +213,9 @@ main( int     argc,
   mypool_reset( pool, 0UL ); /* all in pool in increasing order */
   FD_TEST(  mypool_peek_const( pool )==(ele_max ? shele : NULL) );
   FD_TEST(  mypool_peek      ( pool )==(ele_max ? shele : NULL) );
+
+  FD_TEST( !mypool_verify  ( pool ) );
+  FD_TEST( !mypool_is_empty( pool ) );
 
   mypool_unlock( pool );
   FD_TEST( !mypool_is_locked( pool ) );

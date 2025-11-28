@@ -1,5 +1,5 @@
 #include "fd_verify_tile.h"
-#include "../fd_txn_m_t.h"
+#include "../fd_txn_m.h"
 #include "../metrics/fd_metrics.h"
 #include "generated/fd_verify_tile_seccomp.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
@@ -30,6 +30,7 @@ metrics_write( fd_verify_ctx_t * ctx ) {
   FD_MCNT_SET( VERIFY, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_fail_cnt );
   FD_MCNT_SET( VERIFY, TRANSACTION_PARSE_FAILURE,       ctx->metrics.parse_fail_cnt );
   FD_MCNT_SET( VERIFY, TRANSACTION_DEDUP_FAILURE,       ctx->metrics.dedup_fail_cnt );
+  FD_MCNT_SET( VERIFY, GOSSIPED_VOTES_RECEIVED,         ctx->metrics.gossiped_votes_cnt );
   FD_MCNT_SET( VERIFY, TRANSACTION_VERIFY_FAILURE,      ctx->metrics.verify_fail_cnt );
 }
 
@@ -91,8 +92,9 @@ during_frag( fd_verify_ctx_t * ctx,
 
     dst->payload_sz = (ushort)msg->vote.txn_sz;
     dst->block_engine.bundle_id = 0UL;
+    dst->source_ipv4 = msg->vote.socket.addr;
+    dst->source_tpu = FD_TXN_M_TPU_SOURCE_GOSSIP;
     fd_memcpy( fd_txn_m_payload( dst ), msg->vote.txn, msg->vote.txn_sz );
-
   }
 }
 
@@ -110,6 +112,8 @@ after_frag( fd_verify_ctx_t *   ctx,
   (void)sig;
   (void)sz;
   (void)_tspub;
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_SEND ) ) ctx->metrics.gossiped_votes_cnt++;
 
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_t *  txnt = fd_txn_m_txn_t( txnm );
@@ -206,7 +210,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if(      !strcmp( link->name, "quic_verify"  ) ) ctx->in_kind[ i ] = IN_KIND_QUIC;
     else if( !strcmp( link->name, "bundle_verif" ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
-    else if( !strcmp( link->name, "send_txns"    ) ) ctx->in_kind[ i ] = IN_KIND_SEND;
+    else if( !strcmp( link->name, "send_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SEND;
     else if( !strcmp( link->name, "gossip_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }

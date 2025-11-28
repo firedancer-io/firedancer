@@ -1,10 +1,11 @@
-#ifndef HEADER_fd_src_flamenco_gossip_fd_crds_h
-#define HEADER_fd_src_flamenco_gossip_fd_crds_h
+#ifndef HEADER_fd_src_flamenco_gossip_crds_fd_crds_h
+#define HEADER_fd_src_flamenco_gossip_crds_fd_crds_h
 
 #include "../fd_gossip_private.h"
 #include "../fd_gossip_out.h"
 
 #include "../../../disco/metrics/generated/fd_metrics_gossip.h"
+#include "../../../ballet/sha256/fd_sha256.h"
 
 struct fd_crds_entry_private;
 typedef struct fd_crds_entry_private fd_crds_entry_t;
@@ -353,4 +354,4 @@ fd_crds_purged_mask_iter_hash( fd_crds_mask_iter_t * it,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_gossip_fd_crds_h */
+#endif /* HEADER_fd_src_flamenco_gossip_crds_fd_crds_h */

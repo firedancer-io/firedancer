@@ -25,17 +25,6 @@ print("", file=body)
 print('size_t LLVMFuzzerMutate(uchar *data, size_t size, size_t max_size);', file=body)
 print("", file=body)
 
-print('void *fd_flamenco_txn_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {', file=body)
-print('  fd_flamenco_txn_t *self = (fd_flamenco_txn_t *) mem;', file=body)
-print('  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_flamenco_txn_t);', file=body)
-print('  fd_flamenco_txn_new(mem);', file=body)
-print('  LLVMFuzzerMutate( &self->txn_buf[0], FD_TXN_MAX_SZ, FD_TXN_MAX_SZ );', file=body)
-print('  self->raw_sz = fd_rng_ulong( rng ) % FD_TXN_MTU;', file=body)
-print('  LLVMFuzzerMutate( &self->raw[0], self->raw_sz, self->raw_sz );', file=body)
-print('  return mem;', file=body)
-print('}', file=body)
-print("", file=body)
-
 preambletypes = set()
 postambletypes = set()
 
@@ -69,7 +58,6 @@ for t,t2 in [("bool",1),
              ("hash",32),
              ("uchar[32]",32),
              ("signature",64),
-             ("uchar[128]",128),
              ("uchar[2048]",2048),]:
     fixedsizetypes[t] = t2
 
@@ -86,7 +74,6 @@ fuzzytypes = {
     "hash",
     "uchar[32]",
     "signature",
-    "uchar[128]",
     "uchar[2048]",
 }
 
@@ -128,7 +115,6 @@ class PrimitiveMember(TypeNode):
         "bool" :      lambda n: print(f'  uchar {n};',     file=header),
         "uchar" :     lambda n: print(f'  uchar {n};',     file=header),
         "uchar[32]" : lambda n: print(f'  uchar {n}[32];', file=header),
-        "uchar[128]" :lambda n: print(f'  uchar {n}[128];', file=header),
         "uchar[2048]":lambda n: print(f'  uchar {n}[2048];', file=header),
         "ulong" :     lambda n: print(f'  ulong {n};',     file=header),
         "ushort" :    lambda n: print(f'  ushort {n};',    file=header)
@@ -172,11 +158,10 @@ class PrimitiveMember(TypeNode):
         "double" :    lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_double_o( rng );', file=body),
         "long" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_long( rng );', file=body),
         "uint" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uint( rng );', file=body),
-        "uint128" :   lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uint128( rng );', file=body),
+        "uint128" :   lambda n, varint, indent: print(f'{indent}  self->{n} = (fd_w_u128_t) {{ .ul={{ fd_rng_ulong( rng ), fd_rng_ulong( rng ) }} }};', file=body),
         "bool" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
         "uchar[32]" : lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
-        "uchar[128]" :lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
         "uchar[2048]":lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
         "ulong" :     lambda n, varint, indent: PrimitiveMember.ulong_generate(n, varint, indent),
         "ushort" :    lambda n, varint, indent: PrimitiveMember.ushort_generate(n, varint, indent),
@@ -727,8 +712,6 @@ class EnumType:
         # FIXME: Annoying, but no other choice than to avoid generating a struct that uses them
         if 'vote_instruction' == self.name:
             print(f'  while( self->discriminant == 14 || self->discriminant == 15 ) {{ self->discriminant = fd_rng_uint( rng ) % { len(self.variants) }; }}', file=body)
-        if 'gossip_msg' == self.name:
-            print(f'  while( self->discriminant == 0 || self->discriminant == 1 || self->discriminant == 2 ) {{ self->discriminant = fd_rng_uint( rng ) % { len(self.variants) }; }}', file=body)
         if not self.isFixedSize():
             print(f'  {n}_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );', file=body)
         print(f'  return mem;', file=body)

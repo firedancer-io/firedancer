@@ -2,7 +2,9 @@
 #include "fd_sysvar_cache_private.h"
 #include "test_sysvar_cache_util.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
+#include "../fd_bank.h"
+#include "../../accdb/fd_accdb_admin.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 #include <errno.h>
 
 test_sysvar_cache_env_t *
@@ -14,14 +16,25 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   ulong const funk_seed = 17UL; /* arbitrary */
   ulong const txn_max   =  2UL;
   ulong const rec_max   = 32UL;
-  void *      funk_mem  = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), funk_tag );
-  fd_funk_t * funk      = fd_funk_join( env->funk, fd_funk_new( funk_mem, funk_tag, funk_seed, txn_max, rec_max ) );
-  FD_TEST( funk );
-  fd_bank_t * bank      = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
-  env->slot_ctx->magic  = FD_EXEC_SLOT_CTX_MAGIC;
-  env->slot_ctx->bank   = bank;
-  env->slot_ctx->funk   = funk;
-  env->sysvar_cache     = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->sysvar_cache ) );
+
+  void * funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), funk_tag );
+  FD_TEST( funk_mem );
+  FD_TEST( fd_funk_new( funk_mem, funk_tag, funk_seed, txn_max, rec_max ) );
+  fd_accdb_user_t * accdb = fd_accdb_user_v1_init( env->accdb, funk_mem );
+  FD_TEST( accdb );
+
+  fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
+
+  env->shfunk       = funk_mem;
+  env->bank         = bank;
+  env->xid          = (fd_funk_txn_xid_t) { .ul={ 0UL, 0UL } };
+  env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->non_cow.sysvar_cache ) );
+
+  fd_accdb_admin_t admin[1];
+  FD_TEST( fd_accdb_admin_join( admin, funk_mem ) );
+  fd_accdb_attach_child( admin, fd_funk_last_publish( admin->funk ), &env->xid );
+  fd_accdb_admin_leave( admin, NULL );
+
   return env;
 }
 
@@ -29,10 +42,9 @@ void
 test_sysvar_cache_env_destroy( test_sysvar_cache_env_t * env ) {
   FD_TEST( env );
   FD_TEST( fd_sysvar_cache_delete( fd_sysvar_cache_leave( env->sysvar_cache ) ) );
-  fd_wksp_free_laddr( env->slot_ctx->bank );
-  void * shfunk = NULL;
-  FD_TEST( fd_funk_leave( env->funk, &shfunk ) );
-  fd_funk_delete_fast( shfunk );
+  fd_wksp_free_laddr( env->bank );
+  fd_accdb_user_fini( env->accdb );
+  fd_funk_delete_fast( env->shfunk );
   memset( env, 0, sizeof(test_sysvar_cache_env_t) );
 }
 
@@ -172,7 +184,7 @@ sysvar_inject( fd_sysvar_cache_t * cache,
   fd_memcpy( (uchar *)cache+pos->data_off, data, data_sz );
   desc->data_sz = (uint)data_sz;
   desc->flags   = 0;
-  return fd_sysvar_obj_restore( cache, desc, pos, 1 );
+  return fd_sysvar_obj_restore( cache, desc, pos );
 }
 
 static void

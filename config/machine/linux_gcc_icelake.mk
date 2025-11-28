@@ -14,7 +14,7 @@ CPPFLAGS+=-march=icelake-server -mtune=icelake-server \
 		-DFD_HAS_SHANI=1 -DFD_HAS_GFNI=1 -DFD_HAS_AESNI=1 \
 		-DFD_USE_ARCH_MEMCPY=1 -DFD_USE_ARCH_MEMSET=1
 
-FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __GNUC__ | awk '{print $$3}')
+FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | $(GREP) __GNUC__ | $(AWK) '{print $$3}')
 ifeq ($(shell test $(FD_COMPILER_MAJOR_VERSION) -lt 10 && echo 1),1)
 	FD_HAS_AVX512:=
 else

@@ -141,7 +141,7 @@ static const float max_priority = 13.5;
 #define TICKS_PER_SLOT (64)
 #define TICK_DURATION_NS (6400)
 #define SLOT_DURATION_NS (TICKS_PER_SLOT * TICK_DURATION_NS)
-#define MAX_MICROBLOCKS_PER_SLOT (32768UL)      /* defined in fd_poh_tile.c */
+#define MAX_MICROBLOCKS_PER_SLOT (131072UL)      /* defined in fd_poh_tile.c */
 
 static ulong epoch       = 0;
 static ulong leader_slot = 1;
@@ -1029,7 +1029,9 @@ pack_reset( fd_topo_t          * topo,
 
   /* TODO: allow waiting between scheduling microblocks.
     Do not change wait_duration_ticks[ 0 ] since we wait for ULONG_MAX if no transactions are available. That's why we start at 1. */
+#if !SMALL_MICROBLOCKS
   for( ulong i=1; i<sizeof(ctx->wait_duration_ticks)/sizeof(ctx->wait_duration_ticks[0]); i++ ) ctx->wait_duration_ticks[ i ]=10;
+#endif
 }
 
 int

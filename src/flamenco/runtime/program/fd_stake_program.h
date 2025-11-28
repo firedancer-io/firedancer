@@ -10,7 +10,6 @@
    Address: Stake11111111111111111111111111111111111111 */
 
 #include "../context/fd_exec_instr_ctx.h"
-#include "../context/fd_exec_txn_ctx.h"
 
 #define FD_STAKE_STATE_V2_SZ (200UL)
 
@@ -36,7 +35,8 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx );
    https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs
  */
 void
-fd_stake_program_config_init( fd_exec_slot_ctx_t * global );
+fd_stake_program_config_init( fd_accdb_user_t *         accdb,
+                              fd_funk_txn_xid_t const * xid );
 
 int
 fd_stake_get_state( fd_txn_account_t const * self,

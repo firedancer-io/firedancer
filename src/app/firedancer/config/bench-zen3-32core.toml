@@ -1,0 +1,32 @@
+# A suggested configuration for benchmarking on a Zen3 CPU like AMD EPYC
+# 7513 or similar.  The configuration expects 64 logical cores, and 32
+# physical cores, numbered 0 and 1 for thread 0 and thread 1 on core 0,
+# 2 and 3 for thread 0 and thread 1 on core 1, and so on.  In
+# production, the configuration would not be correct as cores do not
+# need to be dedicated to generating and sending transactions for
+# benchmarking.
+[layout]
+  net_tile_count = 1
+  quic_tile_count = 1
+  resolv_tile_count = 1
+  verify_tile_count = 31
+  gossvf_tile_count = 1
+  bank_tile_count = 3
+  exec_tile_count = 1
+  shred_tile_count = 1
+  sign_tile_count = 2
+
+[development.genesis]
+  fund_initial_accounts = 32768
+
+[development.bench]
+  benchg_tile_count = 12
+  benchs_tile_count = 2
+  larger_max_cost_per_block = true
+  larger_shred_limits_per_block = true
+
+[tiles.shred]
+  max_pending_shred_sets = 16384
+
+[tiles.pack]
+  schedule_strategy = "perf"

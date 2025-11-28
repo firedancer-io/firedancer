@@ -50,7 +50,6 @@ echo "
     [tiles.replay]
         capture = \"firedancer-dev.solcap\"
         snapshot = \"$FULL_SNAPSHOT\"
-        cluster_version = \"2.0.14\"
     [tiles.gui]
         enabled = false
         gui_listen_address = \"64.130.51.169\"
@@ -61,13 +60,6 @@ echo "
 [paths]
     identity_key = \"fd-identity-keypair.json\"
     vote_account = \"fd-vote-keypair.json\"
-[blockstore]
-    shred_max = 16777216
-    block_max = 4096
-    idx_max = 1024
-    txn_max = 1024
-    alloc_max = 10737418240
-    file = \"/tmp/localnet.blockstore\"
 [funk]
     max_account_records = 10000000
     heap_size_gib = 32
@@ -85,7 +77,7 @@ echo "
 sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init kill --config $(readlink -f firedancer-dev.toml)
 sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init hugetlbfs --config $(readlink -f firedancer-dev.toml)
 sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init ethtool-channels --config $(readlink -f firedancer-dev.toml)
-sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init ethtool-gro ethtool-loopback --config $(readlink -f firedancer-dev.toml)
+sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init ethtool-offloads ethtool-loopback --config $(readlink -f firedancer-dev.toml)
 sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init keys --config $(readlink -f firedancer-dev.toml)
 
 sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/$OBJDIR/bin/firedancer-dev dev --no-configure --log-path $(readlink -f firedancer-dev.log) --config $(readlink -f firedancer-dev.toml)

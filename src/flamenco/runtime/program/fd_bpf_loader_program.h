@@ -6,7 +6,10 @@
 
    Address: BPFLoaderUpgradeab1e11111111111111111111111 */
 
-#include "fd_program_cache.h"
+#include "../../progcache/fd_progcache_rec.h"
+#include "../../features/fd_features.h"
+#include "../../types/fd_types.h"
+#include "../../../funk/fd_funk_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
@@ -58,48 +61,44 @@ FD_PROTOTYPES_BEGIN
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965-L969 */
 
-fd_bpf_upgradeable_loader_state_t *
-fd_bpf_loader_program_get_state( fd_txn_account_t const * acct,
-                                 fd_spad_t *              spad,
-                                 int *                    opt_err );
-
-void
-fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
-                          uint *                sbpf_max_version,
-                          ulong                 slot,
-                          fd_features_t const * features );
+int
+fd_bpf_loader_program_get_state( fd_txn_account_t const *            acct,
+                                 fd_bpf_upgradeable_loader_state_t * state );
 
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    fd_pubkey_t const *   program_key,
                    uchar const *         programdata,
-                   ulong                 programdata_size,
-                   fd_spad_t *           spad );
+                   ulong                 programdata_size );
 
 int
-fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
-                fd_program_cache_entry_t const * cache_entry,
-                uchar                            is_deprecated );
+fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
+                fd_progcache_rec_t const * program,
+                uchar                      is_deprecated );
 
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
 
 /* Public APIs */
 
-/* This function is called from `fd_runtime.c` and only performs the ELF and VM validation checks necessary
-   to deploy a program, specifically for the core native program BPF migration. Since this call is done at
-   the epoch boundary every time a new BPF core migration feature is activated, we need to mock up a transaction
-   and instruction context for execution. We do not do any funk operations here - instead, the BPF cache entry
-   will be created at the end of the block. Because of this, our logic is slightly different than Agave's.
-   See the documentation for our `fd_deploy_program` for more information.
+/* This function is called from `fd_runtime.c` and only performs the ELF
+   and VM validation checks necessary to deploy a program, specifically
+   for the core native program BPF migration. Since this call is done at
+   the epoch boundary every time a new BPF core migration feature is
+   activated, we need to mock up a transaction and instruction context
+   for execution.  We do not do any funk operations here - instead, the
+   BPF cache entry will be created at the end of the block.  Because of
+   this, our logic is slightly different than Agave's.  See the
+   documentation for our `fd_deploy_program` for more information.
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L155-L233 */
 int
-fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
-                                     fd_pubkey_t const *  program_key,
-                                     uchar const *        elf,
-                                     ulong                elf_sz,
-                                     fd_spad_t *          runtime_spad );
+fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
+                                     fd_funk_t *         funk,
+                                     void *              accdb_shfunk,
+                                     fd_pubkey_t const * program_key,
+                                     uchar const *       elf,
+                                     ulong               elf_sz );
 
 FD_PROTOTYPES_END
 

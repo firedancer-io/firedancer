@@ -94,14 +94,16 @@ fd_f25519_mul_121666( fd_f25519_t *       r,
 
 /* fd_f25519_frombytes deserializes a 32-byte buffer buf into a
    fd_f25519_t element r, and returns r.
-   buf is in little endian form, according to RFC 8032. */
+   buf is in little endian form, we accept non-canonical elements
+   unlike RFC 8032. */
 fd_f25519_t *
 fd_f25519_frombytes( fd_f25519_t * r,
                      uchar const   buf[ 32 ] );
 
 /* fd_f25519_tobytes serializes a fd_f25519_t element a into
    a 32-byte buffer out, and returns out.
-   out is in little endian form, according to RFC 8032. */
+   out is in little endian form, according to RFC 8032
+   (we don't output non-canonical elements). */
 uchar *
 fd_f25519_tobytes( uchar               out[ 32 ],
                    fd_f25519_t const * a );
@@ -251,6 +253,11 @@ fd_f25519_pow22523_2( fd_f25519_t * r1, fd_f25519_t const * a1,
 int
 fd_f25519_sqrt_ratio2( fd_f25519_t * r1, fd_f25519_t const * u1, fd_f25519_t const * v1,
                        fd_f25519_t * r2, fd_f25519_t const * u2, fd_f25519_t const * v2 );
+
+/* fd_f25519_debug prints the element a, for debugging purposes. */
+void
+fd_f25519_debug( char const *        name,
+                 fd_f25519_t const * a );
 
 FD_PROTOTYPES_END
 

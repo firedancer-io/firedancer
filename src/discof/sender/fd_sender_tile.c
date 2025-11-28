@@ -27,7 +27,6 @@
 
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <linux/unistd.h>
 #include <sys/random.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -364,7 +363,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->poh_slot = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
 
   /* Set up stake input */
-  ctx->stake_in_idx = fd_topo_find_tile_in_link( topo, tile, "stake_out", 0 );
+  ctx->stake_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_stake", 0 );
   FD_TEST( ctx->stake_in_idx!=ULONG_MAX );
   fd_topo_link_t * stake_in_link = &topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ];
   ctx->stake_in_mem    = topo->workspaces[ topo->objs[ stake_in_link->dcache_obj_id ].wksp_id ].wksp;

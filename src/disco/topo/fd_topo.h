@@ -39,7 +39,8 @@ typedef struct {
 
   ulong numa_idx;     /* The index of the NUMA node on the system that this workspace should be allocated from. */
 
-  int   is_locked;    /* If the workspace should use pages locked and pinned to a specific numa node. */
+  ulong min_part_max; /* Artificially raise part_max */
+  ulong min_loose_sz; /* Artificially raise loose footprint */
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
@@ -118,6 +119,7 @@ typedef struct fd_topo_net_tile fd_topo_net_tile_t;
 struct fd_topo_tile {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
   char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
+  char  metrics_name[ 10UL ];   /* The name of this tile for looking up metrics.  This is used so tiles can share a name but report different metrics, for Frankendancer and Firedancer. */
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
   int   is_agave;               /* If the tile needs to run in the Agave (Anza) address space or not. */
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
@@ -161,7 +163,10 @@ struct fd_topo_tile {
 
     struct {
       fd_topo_net_tile_t net;
-      char interface[ 16 ];
+
+      char if_virt[ 16 ];  /* device name (virtual, for routing) */
+      char if_phys[ 16 ];  /* device name (physical, for RX/TX) */
+      uint if_queue;       /* device queue index */
 
       /* xdp specific options */
       ulong  xdp_rx_queue_size;
@@ -174,8 +179,7 @@ struct fd_topo_tile {
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
-      ulong neigh4_obj_id;         /* neigh4 hash map header */
-      ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
+      ulong neigh4_obj_id;         /* neigh4 hash map */
     } xdp;
 
     struct {
@@ -190,8 +194,7 @@ struct fd_topo_tile {
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
       char  neigh_if[ 16 ];        /* neigh4 interface name */
-      ulong neigh4_obj_id;         /* neigh4 hash map header */
-      ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
+      ulong neigh4_obj_id;         /* neigh4 hash map */
     } netlink;
 
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
@@ -241,7 +244,7 @@ struct fd_topo_tile {
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
       ushort quic_transaction_listen_port;
-      ulong  idle_timeout_millis;
+      long   idle_timeout_millis;
       uint   ack_delay_millis;
       int    retry;
       char   key_log_path[ PATH_MAX ];
@@ -335,7 +338,23 @@ struct fd_topo_tile {
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
       int    schedule_strategy;
+
+      int websocket_compression;
+      int frontend_release_channel;
     } gui;
+
+    struct {
+      uint   listen_addr;
+      ushort listen_port;
+
+      ulong max_http_connections;
+      ulong send_buffer_size_mb;
+      ulong max_http_request_length;
+
+      ulong max_live_slots;
+
+      char identity_key_path[ PATH_MAX ];
+    } rpc;
 
     struct {
       uint   prometheus_listen_addr;
@@ -346,57 +365,57 @@ struct fd_topo_tile {
       ulong fec_max;
       ulong max_vote_accounts;
 
-      int   tx_metadata_storage;
       ulong funk_obj_id;
-      char  funk_checkpt[ PATH_MAX ];
-      char  genesis[ PATH_MAX ];
-      char  slots_replayed[ PATH_MAX ];
+      ulong txncache_obj_id;
+      ulong progcache_obj_id;
+
       char  shred_cap[ PATH_MAX ];
-      char  status_cache[ PATH_MAX ];
-      char  cluster_version[ 32 ];
-      char  tower_checkpt[ PATH_MAX ];
-      int   plugins_enabled;
 
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
 
-      char  blockstore_file[ PATH_MAX ];
-      char  blockstore_checkpt[ PATH_MAX ];
+      ushort expected_shred_version;
+
+      ulong heap_size_gib;
+      ulong max_live_slots;
 
       /* not specified in TOML */
 
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
 
-      ulong enable_bank_hash_cmp;
-
-      ulong max_exec_slices;
+      int   larger_max_cost_per_block;
 
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
 
-      ulong manifest_dcache_obj_id;
+      struct {
+        int   enabled;
+        uchar tip_payment_program_addr[ 32 ];
+        uchar tip_distribution_program_addr[ 32 ];
+        char  vote_account_path[ PATH_MAX ];
+      } bundle;
+
     } replay;
 
     struct {
       ulong funk_obj_id;
+      ulong txncache_obj_id;
+      ulong progcache_obj_id;
+
+      ulong max_live_slots;
 
       ulong capture_start_slot;
+      char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_instr_to_pb;
       int   dump_txn_to_pb;
       int   dump_syscall_to_pb;
       int   dump_elf_to_pb;
     } exec;
-
-    struct {
-      ulong funk_obj_id;
-      char  solcap_capture[ PATH_MAX ];
-      ulong capture_start_slot;
-    } writer;
 
     struct {
       ushort send_to_port;
@@ -420,14 +439,16 @@ struct fd_topo_tile {
     struct {
       ushort  repair_intake_listen_port;
       ushort  repair_serve_listen_port;
-      char    good_peer_cache_file[ PATH_MAX ];
-
-      /* non-config */
-
-      int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
       ulong   slot_max;
+
+      /* non-config */
+
+      ulong   repair_sign_depth;
+      ulong   repair_sign_cnt;
+
+      ulong   end_slot; /* repair profiler mode only */
     } repair;
 
     struct {
@@ -456,19 +477,6 @@ struct fd_topo_tile {
     } send;
 
     struct {
-      ulong   funk_obj_id;
-      ulong   store_obj_id;
-      ushort  rpc_port;
-      ushort  tpu_port;
-      uint    tpu_ip_addr;
-      char    identity_key_path[ PATH_MAX ];
-      uint    block_index_max;
-      uint    txn_index_max;
-      uint    acct_index_max;
-      char    history_file[ PATH_MAX ];
-    } rpcserv;
-
-    struct {
       uint fake_dst_ip;
     } pktgen;
 
@@ -484,10 +492,14 @@ struct fd_topo_tile {
     } archiver;
 
     struct {
-      ulong funk_obj_id;
-      char  identity_key_path[ PATH_MAX ];
-      char  vote_acc_path[ PATH_MAX ];
+      int   hard_fork_fatal;
+      ulong max_live_slots;
+      ulong max_vote_lookahead;
+      char  identity_key[ PATH_MAX ];
+      char  vote_account[ PATH_MAX ];
+      char  base_path[PATH_MAX];
     } tower;
+
     struct {
       char   folder_path[ PATH_MAX ];
       ushort repair_intake_listen_port;
@@ -504,23 +516,64 @@ struct fd_topo_tile {
       int slices_fd;
     } shredcap;
 
-    struct {
-      char  snapshots_path[ PATH_MAX ];
-      char  cluster[ 8UL ];
-      int   incremental_snapshot_fetch;
-      int   do_download;
-      uint  maximum_local_snapshot_age;
-      uint  minimum_download_speed_mib;
-      uint  maximum_download_retry_abort;
-      uint  max_full_snapshots_to_keep;
-      uint  max_incremental_snapshots_to_keep;
-    } snaprd;
+#define FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX      (32UL)
+#define FD_TOPO_SNAPSHOTS_SERVERS_MAX          (16UL)
+#define FD_TOPO_MAX_RESOLVED_ADDRS             ( 4UL)
+#define FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED (FD_TOPO_MAX_RESOLVED_ADDRS*FD_TOPO_SNAPSHOTS_SERVERS_MAX)
+
+    struct fd_topo_tile_snapct {
+      char snapshots_path[ PATH_MAX ];
+
+      struct {
+        uint max_local_full_effective_age;
+        uint max_local_incremental_age;
+
+        struct {
+          int         allow_any;
+          ulong       allow_list_cnt;
+          fd_pubkey_t allow_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ];
+          ulong       block_list_cnt;
+          fd_pubkey_t block_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ];
+        } gossip;
+
+        ulong         servers_cnt;
+        struct {
+          fd_ip4_port_t addr;
+          char          hostname[ 256UL ];
+          int           is_https;
+        } servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED ];
+      } sources;
+
+      int  incremental_snapshots;
+      uint max_full_snapshots_to_keep;
+      uint max_incremental_snapshots_to_keep;
+      uint full_effective_age_cancel_threshold;
+    } snapct;
 
     struct {
+      char snapshots_path[ PATH_MAX ];
+    } snapld;
+
+    struct {
+      ulong max_live_slots;
       ulong funk_obj_id;
+      ulong txncache_obj_id;
+
+      uint  lthash_disabled : 1;
+      uint  use_vinyl : 1;
+      ulong vinyl_meta_map_obj_id;
+      ulong vinyl_meta_pool_obj_id;
+      ulong snapwr_depth;
+      char  vinyl_path[ PATH_MAX ];
     } snapin;
 
     struct {
+      ulong dcache_obj_id;
+      char  vinyl_path[ PATH_MAX ];
+    } snapwr;
+
+    struct {
+
       uint   bind_address;
       ushort bind_port;
 
@@ -529,6 +582,46 @@ struct fd_topo_tile {
       fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
     } ipecho;
 
+    struct {
+      ulong max_live_slots;
+      ulong txncache_obj_id;
+      ulong funk_obj_id;
+      ulong progcache_obj_id;
+    } bank;
+
+    struct {
+      ulong funk_obj_id;
+    } resolv;
+
+    struct {
+      ulong funk_obj_id;
+
+      int allow_download;
+
+      ushort expected_shred_version;
+      ulong entrypoints_cnt;
+      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+
+      int has_expected_genesis_hash;
+      uchar expected_genesis_hash[ 32UL ];
+
+      char genesis_path[ PATH_MAX ];
+
+      uint target_gid;
+      uint target_uid;
+    } genesi;
+
+    struct {
+      ulong vinyl_meta_map_obj_id;
+      ulong vinyl_meta_pool_obj_id;
+      ulong vinyl_line_max;
+      ulong vinyl_cnc_obj_id; /* optional */
+      ulong vinyl_data_obj_id;
+      char  vinyl_bstream_path[ PATH_MAX ];
+
+      int  io_type; /* FD_VINYL_IO_TYPE_* */
+      uint uring_depth;
+    } vinyl;
   };
 };
 
@@ -573,6 +666,7 @@ typedef struct {
 
   int          keep_host_networking;
   int          allow_connect;
+  int          allow_renameat;
   ulong        rlimit_file_cnt;
   ulong        rlimit_address_space;
   ulong        rlimit_data;
@@ -611,14 +705,25 @@ fd_topo_workspace_align( void ) {
   return 4096UL;
 }
 
-static inline void *
+void *
 fd_topo_obj_laddr( fd_topo_t const * topo,
-                   ulong             obj_id ) {
-  fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+                   ulong             obj_id );
+
+/* Returns a pointer in the local address space to the base address of
+   the workspace out of which the given object was allocated. */
+
+static inline void *
+fd_topo_obj_wksp_base( fd_topo_t const * topo,
+                       ulong             obj_id ) {
   FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
+  fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
   FD_TEST( obj->id == obj_id );
-  FD_TEST( obj->offset );
-  return (void *)((ulong)topo->workspaces[ obj->wksp_id ].wksp + obj->offset);
+  ulong const wksp_id = obj->wksp_id;
+
+  FD_TEST( wksp_id<FD_TOPO_MAX_WKSPS );
+  fd_topo_wksp_t const * wksp = &topo->workspaces[ wksp_id ];
+  FD_TEST( wksp->id == wksp_id );
+  return wksp->wksp;
 }
 
 FD_FN_PURE static inline ulong
@@ -886,14 +991,6 @@ void *
 fd_topo_tile_stack_join( char const * app_name,
                          char const * tile_name,
                          ulong        tile_kind_id );
-
-/* Install the XDP program needed by the net tiles into the local device
-   and return the xsk_map_fd.  bind_addr is an optional IPv4 address to
-   used for filtering by dst IP. */
-
-fd_xdp_fds_t
-fd_topo_install_xdp( fd_topo_t const * topo,
-                     uint              bind_addr );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches

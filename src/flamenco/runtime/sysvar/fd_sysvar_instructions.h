@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_sysvar_instructions_h
-#define HEADER_fd_src_flamenco_runtime_sysvar_instructions_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_instructions_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_instructions_h
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
@@ -8,9 +8,11 @@
 FD_PROTOTYPES_BEGIN
 
 void
-fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
-                                          fd_instr_info_t const *  instrs,
-                                          ushort                   instrs_cnt );
+fd_sysvar_instructions_serialize_account( fd_txn_in_t const *     txn_in,
+                                          fd_txn_out_t *          txn_out,
+                                          fd_instr_info_t const * instrs,
+                                          ushort                  instrs_cnt,
+                                          ulong                   txn_idx );
 
 void
 fd_sysvar_instructions_update_current_instr_idx( fd_txn_account_t * rec,
@@ -18,4 +20,4 @@ fd_sysvar_instructions_update_current_instr_idx( fd_txn_account_t * rec,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_sysvar_instructions_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_instructions_h */

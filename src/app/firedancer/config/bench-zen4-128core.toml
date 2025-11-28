@@ -1,0 +1,33 @@
+# A suggested configuration for benchmarking on a Zen4 CPU like AMD EPYC
+# 9754 or similar.
+[layout]
+  net_tile_count = 1
+  quic_tile_count = 1
+  resolv_tile_count = 1
+  verify_tile_count = 42
+  gossvf_tile_count = 1
+  bank_tile_count = 7
+  exec_tile_count = 1
+  shred_tile_count = 1
+  sign_tile_count = 2
+
+[development.genesis]
+  fund_initial_accounts = 32768
+
+[development.bench]
+  benchg_tile_count = 20
+  benchs_tile_count = 3
+  larger_max_cost_per_block = true
+  larger_shred_limits_per_block = true
+
+[tiles.shred]
+  max_pending_shred_sets = 16384
+
+[tiles.pack]
+  schedule_strategy = "perf"
+
+[tiles.gui]
+  gui_listen_address = "0.0.0.0"
+
+[tiles.metric]
+  prometheus_listen_address = "0.0.0.0"

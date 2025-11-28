@@ -33,6 +33,7 @@ fd_active_set_new( void *     shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_active_set_t * as = FD_SCRATCH_ALLOC_APPEND( l, FD_ACTIVE_SET_ALIGN, sizeof(fd_active_set_t) );
   uchar * _blooms = FD_SCRATCH_ALLOC_APPEND( l, FD_BLOOM_ALIGN, 25UL*12UL*bloom_footprint );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_ACTIVE_SET_ALIGN ) == (ulong)shmem + fd_active_set_footprint() );
 
   as->rng = rng;
   for( ulong i=0UL; i<25UL; i++ ) {
@@ -121,25 +122,18 @@ fd_active_set_node_pubkey( fd_active_set_t * active_set,
 }
 
 void
-fd_active_set_prunes( fd_active_set_t * active_set,
-                      uchar const *     identity_pubkey,
-                      ulong             identity_stake,
-                      uchar const *     peers,
-                      ulong             peers_len,
-                      uchar const *     origin,
-                      ulong             origin_stake,
-                      ulong *           opt_out_node_idx ) {
+fd_active_set_prune( fd_active_set_t * active_set,
+                     uchar const *     push_dest,
+                     uchar const *     origin,
+                     ulong             origin_stake,
+                     uchar const *     identity_pubkey,
+                     ulong             identity_stake ) {
   if( FD_UNLIKELY( !memcmp( identity_pubkey, origin, 32UL ) ) ) return;
 
   ulong bucket = fd_active_set_stake_bucket( fd_ulong_min( identity_stake, origin_stake ) );
   for( ulong i=0UL; i<12UL; i++ ) {
-    if( FD_UNLIKELY( !memcmp( active_set->entries[ bucket ]->nodes[ i ]->pubkey, origin, 32UL ) ) ) {
-      for( ulong j=0UL; j<peers_len; j++ ) {
-        fd_bloom_insert( active_set->entries[ bucket ]->nodes[ i ]->bloom, &peers[j*32UL], 32UL );
-      }
-      if( opt_out_node_idx ) {
-        *opt_out_node_idx = bucket*12UL + i;
-      }
+    if( FD_UNLIKELY( !memcmp( active_set->entries[ bucket ]->nodes[ i ]->pubkey, push_dest, 32UL ) ) ) {
+      fd_bloom_insert( active_set->entries[ bucket ]->nodes[ i ]->bloom, origin, 32UL );
       return;
     }
   }
@@ -156,7 +150,8 @@ fd_active_set_rotate( fd_active_set_t * active_set,
   ulong replace_idx;
 
   if( FD_LIKELY( entry->nodes_len==12UL ) ) {
-    replace_idx = fd_rng_ulong_roll( active_set->rng, entry->nodes_len );
+    replace_idx      = entry->nodes_idx;
+    entry->nodes_idx = (entry->nodes_idx+1UL) % 12UL;
     fd_crds_bucket_add( crds, bucket, entry->nodes[ replace_idx ]->pubkey );
   } else {
     replace_idx = entry->nodes_len;

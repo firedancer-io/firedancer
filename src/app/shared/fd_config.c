@@ -4,7 +4,6 @@
 
 #include "../platform/fd_net_util.h"
 #include "../platform/fd_sys_util.h"
-#include "genesis_hash.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 
@@ -91,14 +90,19 @@ fd_config_load_buf( fd_config_t * out,
     }
   }
 
-  fd_config_extract_pod( pod, out );
+  if( FD_UNLIKELY( !fd_config_extract_pod( pod, out ) ) ) FD_LOG_ERR(( "Failed to parse config file (%s): there are unrecognized keys logged above", path ));
 
   fd_pod_delete( fd_pod_leave( pod ) );
 }
 
 static void
 fd_config_fillf( fd_config_t * config ) {
-  (void)config;
+  if( FD_UNLIKELY( strcmp( config->paths.accounts, "" ) ) ) {
+    replace( config->paths.accounts, "{user}", config->user );
+    replace( config->paths.accounts, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.accounts, sizeof(config->paths.accounts), NULL, "%s/accounts.db", config->paths.base ) );
+  }
 }
 
 static void
@@ -108,11 +112,18 @@ fd_config_fillh( fd_config_t * config ) {
     replace( config->frankendancer.paths.accounts_path, "{name}", config->name );
   }
 
+  if( FD_UNLIKELY( strcmp( config->frankendancer.paths.ledger, "" ) ) ) {
+    replace( config->frankendancer.paths.ledger, "{user}", config->user );
+    replace( config->frankendancer.paths.ledger, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->frankendancer.paths.ledger, sizeof(config->frankendancer.paths.ledger), NULL, "%s/ledger", config->paths.base ) );
+  }
+
   if( FD_UNLIKELY( strcmp( config->frankendancer.snapshots.path, "" ) ) ) {
     replace( config->frankendancer.snapshots.path, "{user}", config->user );
     replace( config->frankendancer.snapshots.path, "{name}", config->name );
   } else {
-    strncpy( config->frankendancer.snapshots.path, config->paths.ledger, sizeof(config->frankendancer.snapshots.path) );
+    strncpy( config->frankendancer.snapshots.path, config->frankendancer.paths.ledger, sizeof(config->frankendancer.snapshots.path) );
   }
 
   for( ulong i=0UL; i<config->frankendancer.paths.authorized_voter_paths_cnt; i++ ) {
@@ -217,24 +228,26 @@ fd_config_fill_net( fd_config_t * config ) {
     if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->net.interface, &iface_ip ) ) )
       FD_LOG_ERR(( "could not get IP address for interface `%s`", config->net.interface ));
 
-    if( FD_UNLIKELY( strcmp( config->gossip.host, "" ) ) ) {
-      uint gossip_ip_addr = iface_ip;
-      int  has_gossip_ip4 = 0;
-      if( FD_UNLIKELY( strlen( config->gossip.host )<=15UL ) ) {
-        /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
-        has_gossip_ip4 = fd_cstr_to_ip4_addr( config->gossip.host, &gossip_ip_addr );
+    if( FD_UNLIKELY( config->is_firedancer ) ) {
+      if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
+        uint gossip_ip_addr = iface_ip;
+        int  has_gossip_ip4 = 0;
+        if( FD_UNLIKELY( strlen( config->firedancer.gossip.host )<=15UL ) ) {
+          /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
+          has_gossip_ip4 = fd_cstr_to_ip4_addr( config->firedancer.gossip.host, &gossip_ip_addr );
+        }
+        if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
+          FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
+                      "transactions, but it is part of a private network and will not be routable "
+                      "for other Solana network nodes.", FD_IP4_ADDR_FMT_ARGS( gossip_ip_addr ) ));
+      } else if( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
+        FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
+                    "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
+                    "and will not be routable for other Solana network nodes. If you are running "
+                    "behind a NAT and this interface is publicly reachable, you can continue by "
+                    "manually specifying the IP address to advertise in your configuration under "
+                    "[gossip.host].", config->net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
       }
-      if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
-        FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
-                     "transactions, but it is part of a private network and will not be routable "
-                     "for other Solana network nodes.", FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
-    } else if( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
-      FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
-                   "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
-                   "and will not be routable for other Solana network nodes. If you are running "
-                   "behind a NAT and this interface is publicly reachable, you can continue by "
-                   "manually specifying the IP address to advertise in your configuration under "
-                   "[gossip.host].", config->net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
     }
 
     config->net.ip_addr = iface_ip;
@@ -288,11 +301,6 @@ fd_config_fill( fd_config_t * config,
     NULL,
     "%s/.huge",
     config->hugetlbfs.mount_path ) );
-  FD_TEST( fd_cstr_printf_check( config->hugetlbfs.normal_page_mount_path,
-    sizeof(config->hugetlbfs.normal_page_mount_path),
-    NULL,
-    "%s/.normal",
-    config->hugetlbfs.mount_path ) );
 
   ulong max_page_sz = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   if( FD_UNLIKELY( max_page_sz!=FD_SHMEM_HUGE_PAGE_SZ && max_page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) FD_LOG_ERR(( "[hugetlbfs.max_page_size] must be \"huge\" or \"gigantic\"" ));
@@ -310,27 +318,20 @@ fd_config_fill( fd_config_t * config,
     int truecolor = cstr && !strcmp( cstr, "truecolor" );
 
     cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-    int xterm256color = cstr && !strcmp( cstr, "xterm-256color" );
+    int color256 = cstr && strstr( cstr, "256color" );
 
-    config->log.colorize1 = truecolor || xterm256color;
+    config->log.colorize1 = truecolor || color256;
   }
 
   config->log.level_logfile1 = parse_log_level( config->log.level_logfile );
   config->log.level_stderr1  = parse_log_level( config->log.level_stderr );
   config->log.level_flush1   = parse_log_level( config->log.level_flush );
   if( FD_UNLIKELY( -1==config->log.level_logfile1 ) ) FD_LOG_ERR(( "unrecognized [log.level_logfile] `%s`", config->log.level_logfile ));
-  if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_logfile ));
-  if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_logfile ));
+  if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_stderr ));
+  if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_flush ));
 
   replace( config->paths.base, "{user}", config->user );
   replace( config->paths.base, "{name}", config->name );
-
-  if( FD_UNLIKELY( strcmp( config->paths.ledger, "" ) ) ) {
-    replace( config->paths.ledger, "{user}", config->user );
-    replace( config->paths.ledger, "{name}", config->name );
-  } else {
-    FD_TEST( fd_cstr_printf_check( config->paths.ledger, sizeof(config->paths.ledger), NULL, "%s/ledger", config->paths.base ) );
-  }
 
   if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
     if( FD_UNLIKELY( config->is_live_cluster ) ) FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
@@ -355,6 +356,13 @@ fd_config_fill( fd_config_t * config,
     FD_TEST( fd_cstr_printf_check( config->paths.snapshots, sizeof(config->paths.snapshots), NULL, "%s/snapshots", config->paths.base ) );
   }
 
+  if( FD_UNLIKELY( strcmp( config->paths.genesis, "" ) ) ) {
+    replace( config->paths.genesis, "{user}", config->user );
+    replace( config->paths.genesis, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.genesis, sizeof(config->paths.genesis), NULL, "%s/genesis.bin", config->paths.base ) );
+  }
+
   long ts = -fd_log_wallclock();
   config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
   FD_LOG_INFO(( "calibrating fd_tempo tick_per_ns took %ld ms", (fd_log_wallclock()+ts)/(1000L*1000L) ));
@@ -367,7 +375,10 @@ fd_config_fill( fd_config_t * config,
 
   if(      FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "perf"     ) ) ) config->tiles.pack.schedule_strategy_enum = 0;
   else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "balanced" ) ) ) config->tiles.pack.schedule_strategy_enum = 1;
-  else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "revenue"  ) ) ) config->tiles.pack.schedule_strategy_enum = 2;
+  else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "revenue"  ) ) ) {
+    FD_LOG_WARNING(( "the revenue scheduler is deprecated and will be removed in a future version" ));
+    config->tiles.pack.schedule_strategy_enum = 2;
+  }
   else FD_LOG_ERR(( "[tiles.pack.schedule_strategy] %s not recognized", config->tiles.pack.schedule_strategy ));
 
   fd_config_fill_net( config );
@@ -378,8 +389,14 @@ fd_config_fill( fd_config_t * config,
     fd_config_fillh( config );
   }
 
+
+  if(      FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "stable" ) ) ) config->development.gui.frontend_release_channel_enum = 0;
+  else if( FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "alpha"  ) ) ) config->development.gui.frontend_release_channel_enum = 1;
+  else if( FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "dev"    ) ) ) config->development.gui.frontend_release_channel_enum = 2;
+  else FD_LOG_ERR(( "[development.gui.release_channel] %s not recognized", config->development.gui.frontend_release_channel ));
+
   if( FD_LIKELY( config->is_live_cluster) ) {
-    if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a a development only feature" ));
+    if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));
     if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
     if( FD_UNLIKELY( config->development.netns.enabled ) )                       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_max_cost_per_block ) )     FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
@@ -449,9 +466,29 @@ fd_config_fill( fd_config_t * config,
 static void
 fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.sign_tile_count );
+  CFG_HAS_NON_ZERO( layout.snapla_tile_count );
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
     FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
   }
+
+  if( FD_UNLIKELY( config->snapshots.sources.gossip.allow_any && config->snapshots.sources.gossip.allow_list_cnt>0UL ) ) {
+    FD_LOG_ERR(( "`snapshots.sources.gossip` has an explicit list of %lu allowed peer(s) in `allow_list` "
+                 "but also allows any peer with `allow_any=true`. `allow_list` has no effect and may "
+                 "give a false sense of security. Please modify one of the two options and restart.",
+                 config->snapshots.sources.gossip.allow_list_cnt ));
+  }
+  for( ulong i=0UL; i<config->snapshots.sources.gossip.allow_list_cnt; i++ ) {
+    for( ulong j=0UL; j<config->snapshots.sources.gossip.block_list_cnt; j++ ) {
+      if( FD_UNLIKELY( 0==strcmp( config->snapshots.sources.gossip.allow_list[ i ], config->snapshots.sources.gossip.block_list[ j ] ) ) ) {
+        FD_LOG_ERR(( "`snapshots.sources.gossip` has repeated public key `%s` in both allow[%lu] and block[%lu] lists.  "
+                     "Please modify one of the two options and restart.", config->snapshots.sources.gossip.allow_list[ i ], i, j ));
+
+      }
+    }
+  }
+
+  CFG_HAS_NON_ZERO( vinyl.max_account_records );
+  CFG_HAS_NON_ZERO( vinyl.file_size_gib       );
 }
 
 static void
@@ -492,14 +529,6 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO ( layout.bank_tile_count  );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
 
-  if( 0U!=config->firedancer.layout.writer_tile_count ) {
-    if( FD_UNLIKELY( config->firedancer.layout.writer_tile_count>config->firedancer.layout.exec_tile_count ) ) {
-      /* There can be at most 1 in-flight transaction per exec tile
-         awaiting finalization. */
-      FD_LOG_ERR(( "More writer tiles (%u) than exec tiles (%u)", config->firedancer.layout.writer_tile_count, config->firedancer.layout.exec_tile_count ));
-    }
-  }
-
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
@@ -508,6 +537,12 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
     CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
+    if( 0!=strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) &&
+        0!=strcmp( config->net.xdp.rss_queue_mode, "simple" ) &&
+        0!=strcmp( config->net.xdp.rss_queue_mode, "auto" ) ) {
+      FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\", \"dedicated\", or \"auto\"",
+                   config->net.xdp.rss_queue_mode  ));
+    }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
@@ -537,7 +572,7 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_POW2( tiles.repair.slot_max );
   }
 
-  if( FD_UNLIKELY( config->tiles.bundle.keepalive_interval_millis <    3000 &&
+  if( FD_UNLIKELY( config->tiles.bundle.keepalive_interval_millis <    3000 ||
                    config->tiles.bundle.keepalive_interval_millis > 3600000 ) ) {
     FD_LOG_ERR(( "`tiles.bundle.keepalive_interval_millis` must be in range [3000, 3,600,000]" ));
   }
@@ -582,6 +617,12 @@ fd_config_load( int           is_firedancer,
   config->is_firedancer = is_firedancer;
   config->boot_timestamp_nanos = fd_log_wallclock();
 
+  if( FD_UNLIKELY( is_firedancer ) ) {
+    fd_cstr_printf_check( config->development.gui.frontend_release_channel, sizeof(config->development.gui.frontend_release_channel), NULL, "dev" );
+  } else {
+    fd_cstr_printf_check( config->development.gui.frontend_release_channel, sizeof(config->development.gui.frontend_release_channel), NULL, "stable" );
+  }
+
   fd_config_load_buf( config, default_config, default_config_sz, "default.toml" );
   fd_config_validate( config );
   if( FD_UNLIKELY( override_config ) ) {
@@ -612,7 +653,10 @@ fd_config_to_memfd( fd_config_t const * config ) {
   }
 
   fd_memcpy( bytes, config, sizeof( config_t ) );
-  if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) {
+    FD_LOG_WARNING(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
 
   return config_memfd;
 }

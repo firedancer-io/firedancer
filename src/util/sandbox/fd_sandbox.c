@@ -478,7 +478,8 @@ struct landlock_ruleset_attr {
 };
 
 void
-fd_sandbox_private_landlock_restrict_self( int allow_connect ) {
+fd_sandbox_private_landlock_restrict_self( int allow_connect,
+                                           int allow_renameat ) {
   struct landlock_ruleset_attr attr = {
     .handled_access_fs =
       LANDLOCK_ACCESS_FS_EXECUTE |
@@ -486,10 +487,8 @@ fd_sandbox_private_landlock_restrict_self( int allow_connect ) {
       LANDLOCK_ACCESS_FS_READ_FILE |
       LANDLOCK_ACCESS_FS_READ_DIR |
       LANDLOCK_ACCESS_FS_REMOVE_DIR |
-      LANDLOCK_ACCESS_FS_REMOVE_FILE |
       LANDLOCK_ACCESS_FS_MAKE_CHAR |
       LANDLOCK_ACCESS_FS_MAKE_DIR |
-      LANDLOCK_ACCESS_FS_MAKE_REG |
       LANDLOCK_ACCESS_FS_MAKE_SOCK |
       LANDLOCK_ACCESS_FS_MAKE_FIFO |
       LANDLOCK_ACCESS_FS_MAKE_BLOCK |
@@ -501,7 +500,14 @@ fd_sandbox_private_landlock_restrict_self( int allow_connect ) {
       LANDLOCK_ACCESS_NET_BIND_TCP,
   };
 
-  if( FD_UNLIKELY( !allow_connect ) ) attr.handled_access_net |= LANDLOCK_ACCESS_NET_CONNECT_TCP;
+  if( FD_UNLIKELY( !allow_connect ) ) {
+    attr.handled_access_net |= LANDLOCK_ACCESS_NET_CONNECT_TCP;
+  }
+
+  if( FD_UNLIKELY( !allow_renameat ) ) {
+    attr.handled_access_fs |= LANDLOCK_ACCESS_FS_REMOVE_FILE;
+    attr.handled_access_fs |= LANDLOCK_ACCESS_FS_MAKE_REG;
+  }
 
   long abi = syscall( SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION );
   if( -1L==abi && (errno==ENOSYS || errno==EOPNOTSUPP ) ) return;
@@ -531,6 +537,7 @@ fd_sandbox_private_landlock_restrict_self( int allow_connect ) {
   if( -1L==landlock_fd ) FD_LOG_ERR(( "landlock_create_ruleset() failed (%i-%s).", errno, fd_io_strerror( errno ) ));
 
   if( syscall( SYS_landlock_restrict_self, landlock_fd, 0 ) ) FD_LOG_ERR(( "landlock_restrict_self() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( -1==close( (int)landlock_fd ) ) FD_LOG_ERR(( "close(landlock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void
@@ -568,6 +575,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      uint        desired_gid,
                                      int         keep_host_networking,
                                      int         allow_connect,
+                                     int         allow_renameat,
                                      int         keep_controlling_terminal,
                                      int         dumpable,
                                      ulong       rlimit_file_cnt,
@@ -663,7 +671,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
 
   /* Add an empty landlock restriction to further prevent filesystem
      access. */
-  fd_sandbox_private_landlock_restrict_self( allow_connect );
+  fd_sandbox_private_landlock_restrict_self( allow_connect, allow_renameat );
 
   /* And trim all the resource limits down to zero. */
   fd_sandbox_private_set_rlimits( rlimit_file_cnt, rlimit_address_space, rlimit_data, dumpable );
@@ -679,6 +687,7 @@ fd_sandbox_enter( uint                 desired_uid,
                   uint                 desired_gid,
                   int                  keep_host_networking,
                   int                  allow_connect,
+                  int                  allow_renameat,
                   int                  keep_controlling_terminal,
                   int                  dumpable,
                   ulong                rlimit_file_cnt,
@@ -694,6 +703,7 @@ fd_sandbox_enter( uint                 desired_uid,
                                        desired_gid,
                                        keep_host_networking,
                                        allow_connect,
+                                       allow_renameat,
                                        keep_controlling_terminal,
                                        dumpable,
                                        rlimit_file_cnt,

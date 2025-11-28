@@ -1,12 +1,11 @@
-#ifndef HEADER_fd_src_flamenco_runtime_fd_types_custom
-#define HEADER_fd_src_flamenco_runtime_fd_types_custom
+#ifndef HEADER_fd_src_flamenco_types_fd_types_custom_h
+#define HEADER_fd_src_flamenco_types_fd_types_custom_h
 
 #include "../fd_flamenco_base.h"
 #include "fd_types_meta.h"
 #include "fd_bincode.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
-#include "../../ballet/txn/fd_txn.h"
 
 #define FD_SIGNATURE_ALIGN (8UL)
 
@@ -48,8 +47,16 @@ union fd_signature {
   uchar uc[ 64 ];
   ulong ul[  8 ];
 };
-
 typedef union fd_signature fd_signature_t;
+
+
+FD_FN_PURE
+static inline int
+fd_signature_eq( fd_signature_t const * a,
+                 fd_signature_t const * b ) {
+  return 0==memcmp( a, b, sizeof(fd_signature_t) );
+}
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -83,119 +90,6 @@ struct fd_txnstatusidx {
 };
 typedef struct fd_txnstatusidx fd_txnstatusidx_t;
 
-/* IPv4 ***************************************************************/
-
-typedef uint fd_gossip_ip4_addr_t;
-#define FD_GOSSIP_IP4_ADDR_ALIGN alignof(fd_gossip_ip4_addr_t)
-
-/* IPv6 ***************************************************************/
-
-union fd_gossip_ip6_addr {
-  uchar  uc[ 16 ];
-  ushort us[  8 ];
-  uint   ul[  4 ];
-};
-
-typedef union fd_gossip_ip6_addr fd_gossip_ip6_addr_t;
-#define FD_GOSSIP_IP6_ADDR_ALIGN alignof(fd_gossip_ip6_addr_t)
-
-int
-fd_solana_vote_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-
-int
-fd_solana_vote_account_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-
-void *
-fd_solana_vote_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void
-fd_solana_vote_account_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-
-/* Transaction wrapper ************************************************/
-
-/* fd_flamenco_txn_t is yet another fd_txn_t wrapper.
-   This should die as soon as we have a better stubs generator. */
-
-struct fd_flamenco_txn {
-  union {
-    uchar                  txn_buf[ FD_TXN_MAX_SZ ];
-    __extension__ fd_txn_t txn[0];
-  };
-  uchar raw[ FD_TXN_MTU ];
-  ulong raw_sz;
-};
-
-typedef struct fd_flamenco_txn fd_flamenco_txn_t;
-
-
-static inline void
-fd_flamenco_txn_new( fd_flamenco_txn_t * self FD_FN_UNUSED ) {}
-
-static inline void
-fd_flamenco_txn_destroy( fd_flamenco_txn_t const * self FD_FN_UNUSED ) {}
-
-FD_FN_CONST static inline ulong
-fd_flamenco_txn_size( fd_flamenco_txn_t const * self ) {
-  return self->raw_sz;
-}
-
-static inline int
-fd_flamenco_txn_encode( fd_flamenco_txn_t const * self,
-                        fd_bincode_encode_ctx_t * ctx ) {
-  return fd_bincode_bytes_encode( self->raw, self->raw_sz, ctx );
-}
-
-
-int FD_FN_UNUSED
-fd_flamenco_txn_encode_global( fd_flamenco_txn_t const * self,
-                               fd_bincode_encode_ctx_t * ctx );
-
-void * FD_FN_UNUSED
-fd_flamenco_txn_decode_global( void *                    mem,
-                               fd_bincode_decode_ctx_t * ctx );
-
-static inline void
-fd_flamenco_txn_walk( void *                    w,
-                      fd_flamenco_txn_t const * self,
-                      fd_types_walk_fn_t        fun,
-                      char const *              name,
-                      uint                      level,
-                      uint                      varint ) {
-  (void) varint;
-
-  static uchar const zero[ 64 ]={0};
-  fd_txn_t const *   txn  = self->txn;
-  uchar const *      sig0 = zero;
-
-  if( FD_LIKELY( txn->signature_cnt > 0 ) )
-    sig0 = fd_txn_get_signatures( txn, self->raw )[0];
-
-  /* For now, just print the transaction's signature */
-  fun( w, sig0, name, FD_FLAMENCO_TYPE_SIG512, "txn", level, 0 );
-}
-
-static inline ulong
-fd_flamenco_txn_align( void ) {
-  return alignof(fd_flamenco_txn_t);
-}
-
-static inline ulong
-fd_flamenco_txn_footprint( void ) {
-  return sizeof(fd_flamenco_txn_t);
-}
-
-int
-fd_flamenco_txn_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-
-int
-fd_flamenco_txn_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-
-void *
-fd_flamenco_txn_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void
-fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-
 typedef struct fd_rust_duration fd_rust_duration_t;
 
 void
@@ -227,17 +121,4 @@ struct fd_stake_weight {
 };
 typedef struct fd_stake_weight fd_stake_weight_t;
 
-struct fd_stake_weight_t_mapnode {
-    fd_stake_weight_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
-#define REDBLK_T fd_stake_weight_t_mapnode_t
-#define REDBLK_NAME fd_stake_weight_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-
-#endif /* HEADER_fd_src_flamenco_runtime_fd_types_custom */
+#endif /* HEADER_fd_src_flamenco_types_fd_types_custom_h */

@@ -42,5 +42,14 @@
 #define FD_RUNTIME_TXN_ERR_PROGRAM_EXECUTION_TEMPORARILY_RESTRICTED  -36
 #define FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION                    -37
 #define FD_RUNTIME_TXN_ERR_PROGRAM_CACHE_HIT_MAX_LIMIT               -38
+#define FD_RUNTIME_TXN_ERR_COMMIT_CANCELLED                          -39
+#define FD_RUNTIME_TXN_ERR_BUNDLE_PEER                               -40
+
+/* Transaction error that does not directly map to an Agave error.
+   These all map to FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND (-8) and are
+   just differentiated to provide additional insight into the error.*/
+#define FD_RUNTIME_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED          -50
+#define FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR        -51
+#define FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE                -52
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_err_h */

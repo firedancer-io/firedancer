@@ -1,36 +1,24 @@
 [layout]
-    affinity = "auto"
-    bank_tile_count = 1
     shred_tile_count = 4
-    exec_tile_count = 4
 [tiles]
     [tiles.archiver]
         enabled = true
         end_slot = {end_slot}
         ingest_mode = "rocksdb"
         rocksdb_path = "{ledger}/rocksdb"
-    [tiles.replay]
-        cluster_version = "{cluster_version}"
-        max_exec_slices = 256
     [tiles.gui]
+        enabled = false
+    [tiles.rpc]
         enabled = false
 [funk]
     heap_size_gib = {funk_pages}
     max_account_records = {index_max}
     max_database_transactions = 64
 [runtime]
-    heap_size_gib = {heap_size}
-    [runtime.limits]
-        max_total_banks = 4
-        max_fork_width = 4
-[blockstore]
-    shred_max = 16777216
-    block_max = 8192
-    txn_max = 1048576
-    alloc_max = 10737418240
-    file = "{ledger}/backtest.blockstore"
-[consensus]
-    vote = false
+    max_live_slots = 4
+    max_fork_width = 4
+    [runtime.program_cache]
+        heap_size_mib = 4096
 [development]
     sandbox = false
     no_agave = true
@@ -40,10 +28,13 @@
     path = "{log}"
 [paths]
     snapshots = "{ledger}"
-[hugetlbfs]
-    mount_path = "/data/firedancer/mnt"
 [snapshots]
     incremental_snapshots = false
-    minimum_download_speed_mib = 0
-    maximum_local_snapshot_age = 0
-    maximum_download_retry_abort = 0
+    max_full_snapshots_to_keep = 5
+    [snapshots.sources]
+        servers = []
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []
+[gossip]
+    entrypoints = [ "0.0.0.0:1" ]

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_mib_fd_netdev_h
-#define HEADER_fd_src_waltz_mib_fd_netdev_h
+#ifndef HEADER_fd_src_waltz_mib_fd_netdev_tbl_h
+#define HEADER_fd_src_waltz_mib_fd_netdev_tbl_h
 
 /* fd_netdev_tbl.h provides a network interface table.
    The entrypoint of this API is fd_netlink_tbl_t. */
@@ -23,9 +23,9 @@
 struct fd_netdev {
   ushort mtu;            /* Largest layer-3 payload that fits in a packet */
   uchar  mac_addr[6];    /* MAC address */
-  ushort if_idx;         /* Interface index */
+  uint   if_idx;         /* Interface index */
   short  slave_tbl_idx;  /* index to bond slave table, -1 if not a bond master */
-  short  master_idx;     /* index of bond master, -1 if not a bond slave */
+  int    master_idx;     /* index of bond master, -1 if not a bond slave */
   char   name[16];       /* cstr interface name (max 15 length) */
   uchar  oper_status;    /* one of FD_OPER_STATUS_{...} */
   ushort dev_type;       /* one of ARPHRD_ETHER/_LOOPBACK_/IPGRE*/
@@ -128,6 +128,37 @@ fd_netdev_tbl_delete( void * shtbl );
 void
 fd_netdev_tbl_reset( fd_netdev_tbl_join_t * tbl );
 
+/* fd_netdev_tbl_query queries the netdev table for a device with idx if_idx.
+   Returns pointer to the device object if found, otherwise NULL. */
+
+static inline fd_netdev_t *
+fd_netdev_tbl_query( fd_netdev_tbl_join_t * tbl,
+                     uint                   if_idx ) {
+  fd_netdev_t * dev = tbl->dev_tbl;
+  ulong j;
+  #define UNROLL_FACTOR 8
+  for( j = 0UL; j+UNROLL_FACTOR < tbl->hdr->dev_cnt; j+=UNROLL_FACTOR ) {
+    if( FD_UNLIKELY( dev[j+0].if_idx==if_idx )) return dev+j+0;
+    if( FD_UNLIKELY( dev[j+1].if_idx==if_idx )) return dev+j+1;
+    if( FD_UNLIKELY( dev[j+2].if_idx==if_idx )) return dev+j+2;
+    if( FD_UNLIKELY( dev[j+3].if_idx==if_idx )) return dev+j+3;
+    if( FD_UNLIKELY( dev[j+4].if_idx==if_idx )) return dev+j+4;
+    if( FD_UNLIKELY( dev[j+5].if_idx==if_idx )) return dev+j+5;
+    if( FD_UNLIKELY( dev[j+6].if_idx==if_idx )) return dev+j+6;
+    if( FD_UNLIKELY( dev[j+7].if_idx==if_idx )) return dev+j+7;
+  }
+  #undef UNROLL_FACTOR
+
+  for( ; j<tbl->hdr->dev_cnt; j++ ) {
+    if( dev[j].if_idx==if_idx ) return dev+j;
+  }
+  return NULL;
+}
+
+FD_FN_PURE fd_netdev_t *
+fd_netdev_tbl_query( fd_netdev_tbl_join_t * tbl,
+                     uint                   if_idx );
+
 #if FD_HAS_HOSTED
 
 /* fd_netdev_tbl_fprintf prints the interface table to the given FILE *
@@ -145,4 +176,4 @@ FD_PROTOTYPES_END
 char const *
 fd_oper_status_cstr( uint oper_status );
 
-#endif /* HEADER_fd_src_waltz_mib_fd_netdev_h */
+#endif /* HEADER_fd_src_waltz_mib_fd_netdev_tbl_h */

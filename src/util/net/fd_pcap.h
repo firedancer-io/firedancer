@@ -124,13 +124,46 @@ ulong
 fd_pcap_fwrite_hdr( void * file,
                     uint   link_layer_type );
 
-/* fd_pcap_fwrite_pkt writes the pcap ethernet frame formed by
-   concatenating hdr/payload/fcs to appropriate for a pcap file at time
-   ts (will be encoded with ns resolution).  hdr should start on the
-   first byte of the Ethernet header and payload should end on the last
-   byte of the Ethernet payloaded.  For normal (uncorrupted) frames:
+/* fd_pcap_ostream_hdr behaves exactly like fd_pcap_fwrite_hdr except
+   that the data is written to a fd_io_buffered_ostream_t stream.
+   Returns nonzero on failure. */
+
+int
+fd_pcap_ostream_hdr( fd_io_buffered_ostream_t * out,
+                     uint                       link_layer_type );
+
+/* fd_pcap_pkt_sz returns the number of bytes needed to write a pcap
+   entry for the given hdr_sz + payload_sz.  Returns a negative number
+   if the given hdr/payload are too large for the pcap file. */
+
+long
+fd_pcap_pkt_sz( ulong hdr_sz,
+                ulong payload_sz );
+
+/* fd_pcap_pkt writes the pcap ethernet frame formed by concatenating
+   hdr/payload/fcs as appropriate for a pcap file at time ts (will be
+   encoded with ns resolution).  hdr should start on the first byte of
+   the Ethernet header and payload should end on the last byte of the
+   Ethernet payload.  For normal (uncorrupted) frames:
 
      _fcs = fd_eth_fcs_append( fd_eth_fcs( _hdr, hdr_sz ), _payload, _payload_sz )
+
+   The resulting pcap entry is written to the given pointer, which must
+   have at least fd_pcap_pkt_sz( hdr_sz, payload_sz ) bytes of free
+   space to write into.  Returns pcap entry size on success and negative
+   on failure. */
+
+long
+fd_pcap_pkt( void *       out,
+             long         ts,
+             void const * _hdr,
+             ulong        hdr_sz,
+             void const * _payload,
+             ulong        payload_sz,
+             uint         _fcs );
+
+/* fd_pcap_fwrite_pkt behaves like fd_pcap_pkt except that it writes
+   data to the stream pointed to by file.
 
    Same semantics as fwrite: returns number of packets written -> 1 on
    success and 0 on failure (logs details on failure). */
@@ -143,6 +176,19 @@ fd_pcap_fwrite_pkt( long         ts,
                     ulong        payload_sz,
                     uint         _fcs,
                     void *       file );
+
+/* fd_pcap_ostream_pkt behaves like fd_pcap_pkt except that it writes
+   data to a fd_io_buffered_ostream_t stream.  Returns nonzero on
+   failure. */
+
+int
+fd_pcap_ostream_pkt( fd_io_buffered_ostream_t * out,
+                     long                       ts,
+                     void const *               _hdr,
+                     ulong                      hdr_sz,
+                     void const *               _payload,
+                     ulong                      payload_sz,
+                     uint                       _fcs );
 
 FD_PROTOTYPES_END
 

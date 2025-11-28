@@ -17,6 +17,7 @@ struct fd_configh {
   char dynamic_port_range[ 32 ];
 
   struct {
+    char  ledger[ PATH_MAX ];
     char  accounts_path[ PATH_MAX ];
     ulong authorized_voter_paths_cnt;
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
@@ -61,6 +62,8 @@ struct fd_configh {
   } consensus;
 
   struct {
+    ushort port;
+    int    extended_tx_metadata_storage;
     int    full_api;
     int    private;
     char   bind_address[ 16 ];
@@ -95,55 +98,72 @@ typedef struct fd_configh fd_configh_t;
 
 struct fd_configf {
   struct {
-    ulong shred_max;
-    ulong block_max;
-    ulong idx_max;
-    ulong alloc_max;
-    char  file[PATH_MAX];
-    char  checkpt[PATH_MAX];
-    char  restore[PATH_MAX];
-  } blockstore;
-
-  struct {
     ulong max_account_records;
     ulong heap_size_gib;
     ulong max_database_transactions;
-    int   lock_pages;
   } funk;
 
   struct {
+    int   enabled;
+    ulong max_account_records;
+    ulong file_size_gib;
+    ulong max_cache_entries;
+    ulong cache_size_gib;
+    struct {
+       int  enabled;
+       uint queue_depth;
+    } io_uring;
+  } vinyl;
+
+  struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
-    uint writer_tile_count;
     uint sign_tile_count;
     uint gossvf_tile_count;
+    uint snapla_tile_count;
   } layout;
 
   struct {
-    ulong heap_size_gib;
+    ulong max_live_slots;
+    ulong max_vote_accounts;
+    ulong max_fork_width;
 
     struct {
-      ulong max_rooted_slots;
-      ulong max_live_slots;
-      ulong max_transactions_per_slot;
-      ulong snapshot_grace_period_seconds;
-      ulong max_vote_accounts;
-      ulong max_total_banks;
-      ulong max_fork_width;
-    } limits;
+      ulong heap_size_mib;
+      ulong mean_cache_entry_size;
+    } program_cache;
   } runtime;
 
   struct {
-    int   incremental_snapshots;
-    uint  maximum_local_snapshot_age;
-    int   download;
-    ulong known_validators_cnt;
-    char  known_validators[ 16 ][ 256 ];
-    uint  minimum_download_speed_mib;
-    uint  maximum_download_retry_abort;
-    char  cluster[ 8UL ];
-    uint  max_full_snapshots_to_keep;
-    uint  max_incremental_snapshots_to_keep;
+    char host[ 256 ];
+  } gossip;
+
+  struct {
+    struct {
+      uint max_local_full_effective_age;
+      uint max_local_incremental_age;
+
+      struct {
+        int   allow_any;
+        ulong allow_list_cnt;
+        char  allow_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+        ulong block_list_cnt;
+        char  block_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+      } gossip;
+
+      ulong servers_cnt;
+      char  servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ][ 128 ];
+    } sources;
+
+    int  incremental_snapshots;
+    int  genesis_download;
+    uint max_full_snapshots_to_keep;
+    uint max_incremental_snapshots_to_keep;
+    uint full_effective_age_cancel_threshold;
   } snapshots;
+
+  struct {
+    int hard_fork_fatal;
+  } development;
 
   struct {
     ulong max_completed_shred_sets;
@@ -169,6 +189,8 @@ struct fd_config_net {
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
+    char rss_queue_mode[ 16 ]; /* "simple", "dedicated", or "auto" */
+    int  native_bond;
   } xdp;
 
   struct {
@@ -204,10 +226,11 @@ struct fd_config {
 
   struct {
     char base[ PATH_MAX ];
-    char ledger[ PATH_MAX ];
     char identity_key[ PATH_MAX ];
     char vote_account[ PATH_MAX ];
     char snapshots[ PATH_MAX ];
+    char genesis[ PATH_MAX ];
+    char accounts[ PATH_MAX ];
   } paths;
 
   struct {
@@ -233,6 +256,7 @@ struct fd_config {
 
   struct {
     ushort expected_shred_version;
+    char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
   } consensus;
 
   struct {
@@ -241,17 +265,7 @@ struct fd_config {
     fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
 
     ushort        port;
-    char          host[ 256 ];
   } gossip;
-
-  struct {
-    ushort port;
-    int    extended_tx_metadata_storage;
-    uint   block_index_max;
-    uint   txn_index_max;
-    uint   acct_index_max;
-    char   history_file[ PATH_MAX ];
-  } rpc;
 
   struct {
     char affinity[ AFFINITY_SZ ];
@@ -271,7 +285,6 @@ struct fd_config {
     char  mount_path[ PATH_MAX ];
     char  max_page_size[ 16 ];
     ulong gigantic_page_threshold_mib;
-    int   allow_hugepage_increase;
   } hugetlbfs;
 
   fd_config_net_t net;
@@ -334,8 +347,18 @@ struct fd_config {
     } udpecho;
 
     struct {
+      int disable_lthash_verification;
+    } snapshots;
+
+    struct {
       char affinity[ AFFINITY_SZ ];
     } snapshot_load;
+
+    struct {
+      int websocket_compression;
+      char frontend_release_channel[ 16 ];
+      int  frontend_release_channel_enum;
+    } gui;
   } development;
 
   struct {
@@ -425,22 +448,23 @@ struct fd_config {
     } gui;
 
     struct {
+      int    enabled;
+      char   rpc_listen_address[ 16 ];
+      ushort rpc_listen_port;
+      ulong  max_http_connections;
+      ulong  max_http_request_length;
+      ulong  send_buffer_size_mb;
+    } rpc;
+
+    struct {
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
-      char   good_peer_cache_file[ PATH_MAX ];
       ulong  slot_max;
     } repair;
 
     struct {
-      char  funk_checkpt[ PATH_MAX ];
-      char  genesis[ PATH_MAX ];
-      char  slots_replayed[PATH_MAX ];
-      char  status_cache[ PATH_MAX ];
-      char  cluster_version[ 32 ];
-      char  tower_checkpt[ PATH_MAX ];
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
-      ulong max_exec_slices;
     } replay;
 
     struct {
@@ -464,6 +488,10 @@ struct fd_config {
       char  folder_path[ PATH_MAX ];
       ulong write_buffer_size;
     } shredcap;
+
+    struct {
+      ulong max_vote_lookahead;
+    } tower;
 
   } tiles;
   struct {

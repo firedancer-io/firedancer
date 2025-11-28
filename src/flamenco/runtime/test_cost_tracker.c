@@ -28,11 +28,8 @@ int main( int argc, char ** argv ) {
   FD_TEST( fd_cost_tracker_footprint()<=FD_COST_TRACKER_FOOTPRINT );
   FD_LOG_WARNING(( "fd_cost_tracker_footprint: %lu", fd_cost_tracker_footprint() ));
 
-  fd_features_t features = {0};
-  FD_TEST( !fd_cost_tracker_new( NULL, &features, 999UL, 999UL ) );
-  FD_TEST( !fd_cost_tracker_new( cost_tracker_mem, NULL, 999UL, 999UL ) );
-  void * new_cost_tracker_mem = fd_cost_tracker_new( cost_tracker_mem, &features, 999UL, 999UL );
-  FD_TEST( new_cost_tracker_mem );
+  FD_TEST( !fd_cost_tracker_new( NULL, 0, 999UL ) );
+  void * new_cost_tracker_mem = fd_cost_tracker_new( cost_tracker_mem, 0, 999UL );
 
   FD_TEST( !fd_cost_tracker_join( NULL ) );
   void * junk_mem = fd_wksp_alloc_laddr( wksp, 1UL, 1UL, 999UL );

@@ -9,6 +9,7 @@
 #include "../../../flamenco/gossip/fd_gossip_private.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../util/net/fd_ip4.h" /* fd_cstr_to_ip4_addr */
+#include "../../../util/clock/fd_clock.h"
 
 #include "core_subtopo.h"
 #include "gossip.h"
@@ -25,6 +26,15 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 gossip_cmd_topo( config_t * config ) {
+
+  /* Disable non-gossip listen ports */
+  config->tiles.shred.shred_listen_port = 0U;
+  config->tiles.quic.quic_transaction_listen_port = 0U;
+  config->tiles.quic.regular_transaction_listen_port = 0U;
+  config->tiles.repair.repair_intake_listen_port = 0U;
+  config->tiles.repair.repair_serve_listen_port = 0U;
+  config->tiles.send.send_src_port = 0U;
+
   static ulong tile_to_cpu[ FD_TILE_MAX ] = {0}; /* TODO */
 
   ulong net_tile_cnt = config->layout.net_tile_count;
@@ -57,12 +67,6 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   };
   for( int i=0; i<3; ++i) FD_TEST( fd_topo_find_tile( topo, tiles_to_add[i], 0UL ) == ULONG_MAX );
 
-  ulong net_tile_id = fd_topo_find_tile( topo, "net", 0UL );
-  if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", 0UL );
-  if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
-  fd_topo_tile_t * net_tile = &topo->tiles[ net_tile_id ];
-  net_tile->net.gossip_listen_port = config->gossip.port;
-
   fd_topob_wksp( topo, "gossip" );
   fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 1 /* uses_keyswitch */ );
   strncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
@@ -86,8 +90,8 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
     fd_topo_tile_t * gossvf_tile = fd_topob_tile( topo, "gossvf", "gossvf", "metric_in", 0UL, 0, 1 );
     strncpy( gossvf_tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(gossvf_tile->gossvf.identity_key_path) );
     gossvf_tile->gossvf.tcache_depth = 1UL<<22UL;
-    gossvf_tile->gossvf.shred_version = 0;
-    gossvf_tile->gossvf.allow_private_address = 0;
+    gossvf_tile->gossvf.shred_version = config->consensus.expected_shred_version;
+    gossvf_tile->gossvf.allow_private_address = config->development.gossip.allow_private_address;
     gossvf_tile->gossvf.entrypoints_cnt = config->gossip.entrypoints_cnt;
     gossvf_tile->gossvf.boot_timestamp_nanos = config->boot_timestamp_nanos;
     for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
@@ -164,8 +168,9 @@ configure_args( void ) {
   ulong stage_idx = 0UL;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_sysctl;
+  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_bonding;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_channels;
-  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_gro;
+  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_offloads;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_loopback;
   args.configure.stages[ stage_idx++ ] = NULL;
 
@@ -207,7 +212,7 @@ fmt_bytes( char buf[ static 64 ], ulong bytes ) {
 static char *
 fmt_pct( char buf[ static 64 ], double pct ) {
   char tmp[ 64 ];
-  FD_TEST( fd_cstr_printf_check( tmp, 64UL, NULL, "%.1f", pct ) );
+  FD_TEST( fd_cstr_printf_check( tmp, 64UL, NULL, "%.1f %%", 100.0*pct ) );
   FD_TEST( fd_cstr_printf_check( buf, 64UL, NULL, "%12s", tmp ) );
   return buf;
 }
@@ -737,6 +742,33 @@ rx_deltas( volatile ulong * gossip_metrics,
   return deltas;
 }
 
+static void
+gossip_args( int *    pargc,
+             char *** pargv,
+             args_t * args  ) {
+  if( FD_UNLIKELY( fd_env_strip_cmdline_contains( pargc, pargv, "--help" ) ) ) {
+    fputs(
+      "\nUsage: firedancer-dev gossip [GLOBAL FLAGS] [FLAGS]\n"
+      "\n"
+      "Global Flags:\n"
+      "  --mainnet            Use Solana mainnet-beta defaults\n"
+      "  --testnet            Use Solana testnet defaults\n"
+      "  --devnet             Use Solana devnet defaults\n"
+      "\n"
+      "Flags:\n"
+      "  --max-entries <num>         Exit once we see <num> CRDS entries in table\n"
+      "  --max-contact-infos <num>   Exit once we see <num> contact infos in table\n"
+      "  --compact                   Use compact output format\n"
+      "\n",
+      stderr );
+    exit( EXIT_SUCCESS );
+  }
+
+  args->gossip.max_entries  = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--max-entries", NULL, ULONG_MAX );
+  args->gossip.max_contact  = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--max-contact-infos", NULL, ULONG_MAX );
+  args->gossip.compact_mode = fd_env_strip_cmdline_contains( pargc, pargv, "--compact" );
+}
+
 void
 gossip_cmd_fn( args_t *   args,
                config_t * config ) {
@@ -747,9 +779,8 @@ gossip_cmd_fn( args_t *   args,
 
   run_firedancer_init( config, 1, 1 );
 
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
-  }
+  int const is_xdp = ( 0==strcmp( config->net.provider, "xdp" ) );
+  if( is_xdp ) fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_fill( &config->topo );
 
@@ -761,32 +792,75 @@ gossip_cmd_fn( args_t *   args,
   gossvf_tiles_t gossvf_tiles = collect_gossvf_tiles( &config->topo );
   printf("Found %lu gossvf tiles\n", gossvf_tiles.tile_count);
 
-  ulong net_tile_idx = fd_topo_find_tile( &config->topo, "net", 0UL );
-  FD_TEST( net_tile_idx!=ULONG_MAX );
-  fd_topo_tile_t * net_tile = &config->topo.tiles[ net_tile_idx ];
-
   volatile ulong * gossip_metrics = fd_metrics_tile( gossip_tile->metrics );
   FD_TEST( gossip_metrics );
 
-  volatile ulong * net_metrics = fd_metrics_tile( net_tile->metrics );
+  ulong const net_tile_cnt = config->layout.net_tile_count;
+  volatile ulong const ** net_metrics = aligned_alloc( 8UL, net_tile_cnt * sizeof(volatile ulong const *) );
   FD_TEST( net_metrics );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    ulong net_tile_idx = fd_topo_find_tile( &config->topo, is_xdp ? "net" : "sock", i );
+    FD_TEST( net_tile_idx!=ULONG_MAX );
+    fd_topo_tile_t * net_tile = &config->topo.tiles[ net_tile_idx ];
+    net_metrics[ i ] = fd_metrics_tile( net_tile->metrics );
+    FD_TEST( net_metrics[ i ] );
+  }
 
   /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
 
   /* Use the first gossvf tile's net link for overrun monitoring */
-  volatile ulong * net_link = gossvf_tiles.net_links[0];
-  FD_TEST( net_link );
+  volatile ulong * net0_link = gossvf_tiles.net_links[0];
+  FD_TEST( net0_link );
 
   ulong * gossip_prev = aligned_alloc( 8UL, FD_METRICS_TOTAL_SZ );
   FD_TEST( gossip_prev );
   memset( gossip_prev, 0, FD_METRICS_TOTAL_SZ );
 
-  ulong prev_net_tx1_bytes = 0UL;
-  ulong prev_net_rx1_bytes = 0UL;
-  ulong prev_net_rx_bytes = 0UL;
+  ulong * prev_net_tx1_bytes = aligned_alloc( 8UL, net_tile_cnt * sizeof(ulong) );
+  ulong * prev_net_rx1_bytes = aligned_alloc( 8UL, net_tile_cnt * sizeof(ulong) );
+  FD_TEST( prev_net_tx1_bytes );
+  FD_TEST( prev_net_rx1_bytes );
+  memset( prev_net_tx1_bytes, 0, net_tile_cnt * sizeof(ulong) );
+  memset( prev_net_rx1_bytes, 0, net_tile_cnt * sizeof(ulong) );
+
+  ulong prev_net0_rx_bytes = 0UL;
+
+  fd_clock_t   clock_lmem[1];
+  void       * clock_mem = aligned_alloc( FD_CLOCK_ALIGN, FD_CLOCK_FOOTPRINT );
+  FD_TEST( clock_mem );
+  fd_clock_default_init( clock_lmem, clock_mem );
+
+  long start_time       = fd_clock_now( clock_lmem );
+  long next_report_time = start_time + 1000000000L;
 
   for(;;) {
+    ulong total_crds = 0UL;
+    for( ulong i=0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) total_crds += gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT )+i ];
+    ulong total_contact_infos = gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 ) ];
+
+    long current_time = fd_clock_now( clock_lmem );
+    if( FD_UNLIKELY( total_crds >= args->gossip.max_entries || total_contact_infos >= args->gossip.max_contact ) ) {
+      long elapsed = current_time - start_time;
+      double elapsed_secs = (double)elapsed / 1000000000.0;
+      printf("User defined thresholds reached in %.2fs\n"
+             "  Table Size   : %lu\n"
+             "  Contact Infos: %lu\n",
+             elapsed_secs, total_crds, total_contact_infos );
+      break;
+    }
+
+    if( FD_LIKELY( current_time < next_report_time ) ) {
+      continue;
+    }
+    next_report_time += 1000000000L;
+
+    if( args->gossip.compact_mode ) {
+      printf("Table Size: %lu,\tContact Infos: %lu\n",
+             total_crds,
+             total_contact_infos );
+      continue;
+    }
 #define DIFFC(buf, METRIC) fmt_count( buf, gossip_metrics[ MIDX( COUNTER, GOSSIP, METRIC ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, METRIC ) ] )
 #define DIFFB(buf, METRIC) fmt_bytes( buf, gossip_metrics[ MIDX( COUNTER, GOSSIP, METRIC ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, METRIC ) ] )
 
@@ -804,15 +878,26 @@ gossip_cmd_fn( args_t *   args,
   printf(" Total Overrun: %s\n", fmt_count( buf1, total_overrun ) );
   printf(" Total ping tracked: %lu\n", gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKED_COUNT ) ] );
 
-  printf(" Net RX bw %s, TX bw %s .. %s %s\n", fmt_bytes( buf1, net_metrics[ MIDX( COUNTER, NET, RX_BYTES_TOTAL ) ] - prev_net_rx1_bytes ),
-                                      fmt_bytes( buf2, net_metrics[ MIDX( COUNTER, NET, TX_BYTES_TOTAL ) ] - prev_net_tx1_bytes ),
-                                      fmt_count( buf3, net_metrics[ MIDX( COUNTER, NET, RX_FILL_BLOCKED_CNT ) ] ),
-                                      fmt_count( buf3, net_metrics[ MIDX( COUNTER, NET, RX_BACKPRESSURE_CNT ) ] ) );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    if( FD_LIKELY( is_xdp ) ) {
+      printf(" Net %lu RX bw %s, TX bw %s .. %s %s\n", i,
+               fmt_bytes( buf1, net_metrics[ i ][ MIDX( COUNTER, NET,  RX_BYTES_TOTAL ) ] - prev_net_rx1_bytes[ i ] ),
+               fmt_bytes( buf2, net_metrics[ i ][ MIDX( COUNTER, NET,  TX_BYTES_TOTAL ) ] - prev_net_tx1_bytes[ i ] ),
+               fmt_count( buf3, net_metrics[ i ][ MIDX( COUNTER, NET,  RX_FILL_BLOCKED_CNT ) ] ),
+               fmt_count( buf3, net_metrics[ i ][ MIDX( COUNTER, NET,  RX_BACKPRESSURE_CNT ) ] ) );
+      prev_net_rx1_bytes[ i ] = net_metrics[ i ][ MIDX( COUNTER, NET,  RX_BYTES_TOTAL ) ];
+      prev_net_tx1_bytes[ i ] = net_metrics[ i ][ MIDX( COUNTER, NET,  TX_BYTES_TOTAL ) ];
+    } else {
+      printf(" Net %lu RX bw %s, TX bw %s\n", i,
+               fmt_bytes( buf1, net_metrics[ i ][ MIDX( COUNTER, SOCK, RX_BYTES_TOTAL ) ] - prev_net_rx1_bytes[ i ] ),
+               fmt_bytes( buf2, net_metrics[ i ][ MIDX( COUNTER, SOCK, TX_BYTES_TOTAL ) ] - prev_net_tx1_bytes[ i ] ) );
+      prev_net_rx1_bytes[ i ] = net_metrics[ i ][ MIDX( COUNTER, SOCK, RX_BYTES_TOTAL ) ];
+      prev_net_tx1_bytes[ i ] = net_metrics[ i ][ MIDX( COUNTER, SOCK, TX_BYTES_TOTAL ) ];
+    }
+  }
 
-  printf(" Single Tile RX bw %s\n", fmt_bytes( buf1, net_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ] - prev_net_rx_bytes ) );
-  prev_net_rx_bytes = net_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ];
-  prev_net_rx1_bytes = net_metrics[ MIDX( COUNTER, NET, RX_BYTES_TOTAL ) ];
-  prev_net_tx1_bytes = net_metrics[ MIDX( COUNTER, NET, TX_BYTES_TOTAL ) ];
+  printf(" Single Tile RX bw %s\n", fmt_bytes( buf1, net0_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ] - prev_net0_rx_bytes ) );
+  prev_net0_rx_bytes = net0_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ];
 
   ulong pull_response_drops = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
   ulong pull_response_success = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PULL_RESPONSE ) );
@@ -965,12 +1050,12 @@ gossip_cmd_fn( args_t *   args,
   printf( " | Vote                   | %s |"        "  | Valid      | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VOTE ) ] ),            fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_VALID ) ] ) );
   printf( " | Lowest Slot            | %s |"        "  | Refreshing | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_LOWEST_SLOT ) ] ),     fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_VALID_REFRESHING ) ] ) );
   printf( " | Snapshot Hashes        | %s |"        "  +------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_SNAPSHOT_HASHES ) ] ) );
-  printf( " | Accounts Hashes        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_ACCOUNTS_HASHES ) ] ) );
-  printf( " | Inc Snapshot Hashes    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_INCREMENTAL_SNAPSHOT_HASHES ) ] ) );
-  printf( " | Epoch Slots            | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_EPOCH_SLOTS ) ] ) );
-  printf( " | Version V1             | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V1 ) ] ) );
-  printf( " | Version V2             | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V2 ) ] ) );
-  printf( " | Node Instance          | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_NODE_INSTANCE ) ] ) );
+  printf( " | Accounts Hashes        | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_ACCOUNTS_HASHES ) ] ) );
+  printf( " | Inc Snapshot Hashes    | %s |"        "  | Contact Info Events    | Count        |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_INCREMENTAL_SNAPSHOT_HASHES ) ] ) );
+  printf( " | Epoch Slots            | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_EPOCH_SLOTS ) ] ) );
+  printf( " | Version V1             | %s |"        "  | Unrecognized Socket    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V1 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, CONTACT_INFO_UNRECOGNIZED_SOCKET_TAGS ) ] ) );
+  printf( " | Version V2             | %s |"        "  | IPv6 Address           | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V2 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, CONTACT_INFO_IPV6 ) ] ) );
+  printf( " | Node Instance          | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_NODE_INSTANCE ) ] ) );
   printf( " | Duplicate Shred        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_DUPLICATE_SHRED ) ] ) );
   printf( " | Restart Last Voted     | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_LAST_VOTED_FORK_SLOTS ) ] ) );
   printf( " | Restart Heaviest       | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_HEAVIEST_FORK ) ] ) );
@@ -1014,9 +1099,6 @@ gossip_cmd_fn( args_t *   args,
             gossvf_tiles.tile_count );
 
     // display_gossvf_detailed( &gossvf_tiles );
-
-    ulong total_crds = 0UL;
-    for( ulong i=0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) total_crds += gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT )+i ];
 
     printf( " +--------------+--------------+--------------+--------------+--------------+--------------+\n" );
     printf( " |              | Entries      | Capacity     | Utilization  | Evicted      | Expired      |\n" );
@@ -1072,13 +1154,12 @@ gossip_cmd_fn( args_t *   args,
         gossvf_tiles.prev_metrics[tile_idx][ i ] = gossvf_tiles.metrics[tile_idx][ i ];
       }
     }
-    sleep( 1 );
   }
 }
 
 action_t fd_action_gossip = {
   .name = "gossip",
-  .args = NULL,
+  .args = gossip_args,
   .fn   = gossip_cmd_fn,
   .perm = gossip_cmd_perm,
   .topo = gossip_cmd_topo,

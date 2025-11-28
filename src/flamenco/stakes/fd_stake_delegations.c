@@ -13,7 +13,7 @@
 #define MAP_ELE_T              fd_stake_delegation_t
 #define MAP_KEY                stake_account
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
-#define MAP_KEY_HASH(key,seed) (fd_funk_rec_key_hash1( (uchar *)key, 0, seed ))
+#define MAP_KEY_HASH(key,seed) (fd_funk_rec_key_hash1( key->uc, seed ))
 #define MAP_NEXT               next_
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -201,7 +201,6 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
                              ulong                    deactivation_epoch,
                              ulong                    credits_observed,
                              double                   warmup_cooldown_rate ) {
-
   fd_stake_delegation_t * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
   if( FD_UNLIKELY( !stake_delegation_pool ) ) {
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));
@@ -247,9 +246,6 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
   }
 
   fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele_acquire( stake_delegation_pool );
-  if( FD_UNLIKELY( !stake_delegation ) ) {
-    FD_LOG_CRIT(( "unable to acquire stake delegation" ));
-  }
 
   stake_delegation->stake_account        = *stake_account;
   stake_delegation->vote_account         = *vote_account;
@@ -331,9 +327,9 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
 }
 
 void
-fd_stake_delegations_refresh( fd_stake_delegations_t * stake_delegations,
-                              fd_funk_t *              funk,
-                              fd_funk_txn_t *          funk_txn ) {
+fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
+                              fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid ) {
 
   fd_stake_delegation_map_t * stake_delegation_map = fd_stake_delegations_get_map( stake_delegations );
   if( FD_UNLIKELY( !stake_delegation_map ) ) {
@@ -359,12 +355,12 @@ fd_stake_delegations_refresh( fd_stake_delegations_t * stake_delegations,
       continue;
     }
 
-    FD_TXN_ACCOUNT_DECL( acct_rec );
+    fd_txn_account_t acct_rec[1];
     int err = fd_txn_account_init_from_funk_readonly(
         acct_rec,
         &stake_delegation->stake_account,
         funk,
-        funk_txn );
+        xid );
 
     if( FD_UNLIKELY( err || fd_txn_account_get_lamports( acct_rec )==0UL ) ) {
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );

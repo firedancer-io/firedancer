@@ -1,38 +1,63 @@
-name: Replay Ledgers
+name: Backtest
 on:
   workflow_call:
     inputs:
-      coverage:
-        type: boolean
-        default: false
       machine:
         type: string
         default: linux_gcc_zen2
       extras:
         type: string
         default: "handholding"
+      script:
+        type: string
+        default: src/flamenco/runtime/tests/run_backtest_ci.sh
+      timeout:
+        type: number
+        default: 15
   workflow_dispatch:
+    inputs:
+      machine:
+        type: string
+        default: linux_gcc_zen2
+      extras:
+        type: string
+        default: "handholding"
+      script:
+        type: string
+        default: src/flamenco/runtime/tests/run_backtest_ci.sh
+      timeout:
+        type: number
+        default: 15
 jobs:
   backtest-ledger-replay:
-    timeout-minutes: 15
-    runs-on: [self-hosted, 512G]
+    timeout-minutes: ${{ fromJSON(inputs.timeout) }}
+    runs-on:
+      labels: [self-hosted, 512G]
+      group: fd-public-repo
     env:
       CC: gcc
       MACHINE: ${{ inputs.machine }}
       EXTRAS: ${{ inputs.extras }}
     steps:
-      - uses: actions/checkout@v5
+      - name: cleanup
+        if: always()
+        run: |
+          sudo killall firedancer-dev || true
+
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - uses: ./.github/actions/deps
         with:
           extras: +dev
+
       - uses: ./.github/actions/hugepages
         with:
           # DO NOT CHANGE THESE VALUES - increasing the hugetlbfs reservations on the CI runners too high causes other jobs to be OOM-killed
           count_gigantic: 398
           count_huge: 535
+
       - uses: ./.github/actions/cpusonline
 
       - name: build
@@ -43,13 +68,15 @@ jobs:
         run: |
           echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
 
-      - name: test replay ledgers
+      - name: run backtest
         run: |
+          sudo $OBJDIR/bin/firedancer-dev configure init keys
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
-          DUMP_DIR=../dump HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=false make run-runtime-backtest
+          DUMP_DIR=../dump ${{ inputs.script }}
 
       - name: fini
         if: always()
         run: |
+          sudo killall firedancer-dev || true
           sudo $OBJDIR/bin/firedancer-dev configure fini all --config ../dump/mainnet-308392063-v2.3.0_backtest.toml || true

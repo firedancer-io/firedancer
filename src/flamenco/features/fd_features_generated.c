@@ -1026,7 +1026,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x90\x9d\x8a\x1a\x1b\xdb\xb4\x28\xec\x2a\x7c\xf2\xbc\x76\xaf\x8c\x72\x9e\xbb\xa0\x6f\xee\x98\xa4\x77\xdd\xe8\xc5\x08\x1b\x7f\x53"},
                                  /* AjX3A4Nv2rzUuATEUWLP4rrBaBropyUnHxEvFDj1dKbx */
     .name                      = "bpf_account_data_direct_mapping",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, add_set_tx_loaded_accounts_data_size_instruction)>>3,
     .id                        = {"\xe0\x63\xcf\x92\xc3\xa0\xd3\x55\x49\xd0\x52\xb1\x0c\xaf\xf1\x3f\x56\xfa\x06\x11\x1c\x63\x6f\x69\x75\x42\xd1\x31\x2a\x1e\xe2\x6d"},
@@ -1150,8 +1151,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x17\x6a\x33\xb1\x19\x20\x80\x12\xaa\xff\x40\xb3\x2e\xc5\x22\x69\xbd\x38\x2a\x54\x46\xc6\xdb\x97\xd7\x85\x0c\x5f\x30\x02\x2d\x12"},
                                  /* 2aQJYqER2aKyb3cZw22v4SL2xMX7vwXBRWfvS4pTrtED */
     .name                      = "enable_loader_v4",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
-    .hardcode_for_fuzzing = 1 },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, require_rent_exempt_split_destination)>>3,
     .id                        = {"\xb2\xb3\xf3\xc6\xb4\x1c\x24\x4b\xbf\x84\xd9\x21\x6e\x67\x6e\x0b\x45\x16\xb4\xd6\x0c\x48\xe9\x7a\x45\x26\x74\xbc\x9d\x61\x72\xe0"},
@@ -1476,7 +1476,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x4f\x6e\x58\xf2\xa5\x04\x0c\xd3\x86\x2c\xea\xf5\xe7\x5e\x1a\xc4\x52\x52\xca\xea\xdf\x75\x06\xd3\x0e\xef\x5e\x33\x25\x16\xaf\xcf"},
                                  /* 6M4oQ6eXneVhtLoiAr4yRYQY43eVLjrKbiDZDJc892yk */
     .name                      = "migrate_stake_program_to_core_bpf",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_get_epoch_stake_syscall)>>3,
     .id                        = {"\xd4\xca\x06\xb3\x6d\xa7\x8e\xef\xd9\x92\x66\x67\x6d\xe3\x92\xab\x4e\x56\x31\x5b\xd3\x9e\x97\x15\xd2\xf6\x0d\x3d\x02\x29\xf8\x10"},
@@ -1502,7 +1503,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x08\xe8\xaa\x2e\x13\xc5\xc5\x54\xe2\xc3\xb4\x0e\x26\xb4\x64\x3b\xc7\xcb\x89\x6c\xc0\x06\x05\xaa\x65\x7f\x3a\x3d\x30\xee\xf9\x05"},
                                  /* bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN */
     .name                      = "fix_alt_bn128_multiplication_input_length",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {3, 1, 0},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, lift_cpi_caller_restriction)>>3,
     .id                        = {"\xf6\xd3\x41\xcb\x4b\xa2\x65\x9e\xac\xe7\x83\xef\x30\xe5\xfc\xc1\x9a\x94\x8b\x9b\x00\xba\x8a\xad\xf5\x2a\x6b\x9f\x65\x24\x5e\xc8"},
@@ -1613,7 +1615,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x06\x35\x10\xb8\x8d\xba\x0a\x21\x00\x8d\x28\x53\xaf\xe3\xa7\x61\x15\x06\x67\x97\x6d\x00\x38\x42\x50\xb5\x71\xf9\x6a\x30\x65\xf7"},
                                  /* RENtePQcDLrAbxAsP3k8dwVcnNYQ466hi2uKvALjnXx */
     .name                      = "mask_out_rent_epoch_in_vm_serialization",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {3, 1, 0},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_zk_elgamal_proof_program)>>3,
     .id                        = {"\x0e\xcb\x71\x9e\x06\x4c\x3a\xec\xc3\xa9\x71\xb0\x61\x33\x9b\x7e\xdc\x71\xc0\x35\x81\x8f\xf0\x0a\xb0\x53\x46\xaa\x28\xd7\x0b\xe1"},
@@ -1622,8 +1625,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, reenable_zk_elgamal_proof_program)>>3,
-    .id                        = {"\x0e\xcb\x76\x6d\x26\x21\xec\xbb\xf2\xbc\x2e\x97\x6c\x5b\xa0\x50\x3c\xcc\xe4\xb5\x24\xba\x7b\x74\x4e\xf8\x46\x28\x79\xe1\x8d\x2c"},
-                                 /* zkemPXcuM3G4wpMDZ36Cpw34EjUpvm1nuioiSGbGZPR */
+    .id                        = {"\x0e\xcb\x76\xec\x8b\xf8\x21\x83\x19\x07\xc3\xb3\x5e\xc2\xd0\x13\xcb\xb4\x95\x7e\x6c\x5d\xcb\xcf\xb4\x84\xe3\xc6\xf5\x50\x7f\xbd"},
+                                 /* zkesAyFB19sTkX8i9ReoKaMNDA4YNTPYJpZKPDt7FMW */
     .name                      = "reenable_zk_elgamal_proof_program",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1656,6 +1659,42 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\xe8\xe3\x0a\x1b\x9d\x30\xc1\x5d\x98\x93\xa3\x19\x40\xb4\xc8\x7f\x92\x5b\x24\x5e\x7a\xe6\xec\x6b\xe8\x87\xd5\xaa\x22\xb2\x6d"},
                                  /* sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ */
     .name                      = "enshrine_slashing_program",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, raise_account_cu_limit)>>3,
+    .id                        = {"\x0a\x79\xe3\x9b\x1a\xcc\x64\x5c\x8c\xdf\x47\xad\x61\x25\x63\x73\xdd\xf4\xc7\x34\x54\x57\x6d\x36\x90\xbe\xfd\xd7\x75\x72\x01\x7f"},
+                                 /* htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8 */
+    .name                      = "raise_account_cu_limit",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, stricter_abi_and_runtime_constraints)>>3,
+    .id                        = {"\x0c\xdc\xaa\x60\x4d\xd8\x04\x50\x19\x27\xdb\xa5\x2d\x2a\x39\xcf\x51\xdb\xc9\xae\xd8\x06\xc9\xda\x36\x46\xb8\xf2\x41\x40\x59\xed"},
+                                 /* sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r */
+    .name                      = "stricter_abi_and_runtime_constraints",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, account_data_direct_mapping)>>3,
+    .id                        = {"\xb5\xfa\x43\x42\x67\x5e\x0c\x52\x3d\x10\xad\xbb\x78\x84\x1f\x16\x92\x1f\xf2\xb6\xe7\xcd\xe9\x60\x60\x84\x9a\xfd\x12\xb1\x01\x39"},
+                                 /* DFN8MyKpQqFW31qczcahgnnxcAHQc6P94wtTEX5EP1RA */
+    .name                      = "account_data_direct_mapping",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, fix_alt_bn128_pairing_length_check)>>3,
+    .id                        = {"\x08\xe9\x40\xc0\xc3\x42\x8a\xf0\xbd\x9d\x09\x80\xa6\xce\x78\xcb\x1c\xc6\x57\x4e\x44\xfe\xf5\x52\xe7\x0c\x40\x70\xe9\x51\xec\x74"},
+                                 /* bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm */
+    .name                      = "fix_alt_bn128_pairing_length_check",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, poseidon_enforce_padding)>>3,
+    .id                        = {"\x0c\x3e\xd9\x52\x45\xee\x7b\x8c\x8a\xaf\x88\xa2\x5e\x37\x29\x76\x1d\xa5\xfb\xfa\x47\x48\xfd\xd4\x5a\xff\x2b\xb8\xfa\xd3\x1c\x98"},
+                                 /* poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb */
+    .name                      = "poseidon_enforce_padding",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, relax_intrabatch_account_locks)>>3,
+    .id                        = {"\xc6\xa7\x00\xfe\xbb\x94\x60\x86\xa8\x6e\x35\x1e\xe3\x45\x26\x30\x79\xd9\xef\x65\x88\xe3\x0f\x1d\xc6\x94\x10\x7c\xf8\x74\x15\x35"},
+                                 /* ENTRYnPAoT5Swwx73YDGzMp3XnNH1kxacyvLosRHza1i */
+    .name                      = "relax_intrabatch_account_locks",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index = ULONG_MAX }
@@ -1900,12 +1939,18 @@ fd_feature_id_query( ulong prefix ) {
   case 0x494f963ae12b5106: return &ids[ 233 ];
   case 0x210aba8db8103506: return &ids[ 234 ];
   case 0xec3a4c069e71cb0e: return &ids[ 235 ];
-  case 0xbbec21266d76cb0e: return &ids[ 236 ];
+  case 0x8321f88bec76cb0e: return &ids[ 236 ];
   case 0xe72f76507222e3bb: return &ids[ 237 ];
   case 0x7170cf84367fbb1a: return &ids[ 238 ];
   case 0xa9e3bfbaf8d67260: return &ids[ 239 ];
   case 0x3711b30f40730240: return &ids[ 240 ];
   case 0xc1309d1b0ae3e80c: return &ids[ 241 ];
+  case 0x5c64cc1a9be3790a: return &ids[ 242 ];
+  case 0x5004d84d60aadc0c: return &ids[ 243 ];
+  case 0x520c5e674243fab5: return &ids[ 244 ];
+  case 0xf08a42c3c040e908: return &ids[ 245 ];
+  case 0x8c7bee4552d93e0c: return &ids[ 246 ];
+  case 0x866094bbfe00a7c6: return &ids[ 247 ];
   default: break;
   }
   return NULL;
@@ -2153,4 +2198,10 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enable_extend_program_checked        
 FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account                            )>>3==239UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==240UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==241UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_account_cu_limit                                  )>>3==242UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_abi_and_runtime_constraints                    )>>3==243UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, account_data_direct_mapping                             )>>3==244UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_pairing_length_check                      )>>3==245UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, poseidon_enforce_padding                                )>>3==246UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_intrabatch_account_locks                          )>>3==247UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

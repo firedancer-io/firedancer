@@ -64,7 +64,7 @@ test_adversarial_ack( ulong max_inflight,
     fd_quic_pkt_meta_ds_t * sent_pkt_metas = &conn.pkt_meta_tracker.sent_pkt_metas[fd_quic_enc_level_appdata_id];
 
     ulong highest_known = max_inflight - 1;
-    long start = fd_tickcount();
+    long start = fd_log_wallclock();
     ulong cnt;
     while( ( cnt = fd_quic_pkt_meta_ds_ele_cnt( sent_pkt_metas ) ) > 0) {
     /* let's send the largest range_sz values */
@@ -104,7 +104,7 @@ test_adversarial_ack( ulong max_inflight,
         0
       );
     }
-    long end = fd_tickcount();
+    long end = fd_log_wallclock();
     FD_LOG_NOTICE(( "Very adversarial: Time taken: %ld us", (end - start) / 1000 ));
   } while(0);
 
@@ -114,7 +114,7 @@ test_adversarial_ack( ulong max_inflight,
     fd_quic_pkt_meta_ds_t * sent_pkt_metas = &conn.pkt_meta_tracker.sent_pkt_metas[fd_quic_enc_level_appdata_id];
     fd_quic_pkt_meta_t    * pool           = fd_quic_get_state( quic )->pkt_meta_pool;
 
-    long start = fd_tickcount();
+    long start = fd_log_wallclock();
     ulong cnt;
     while( ( cnt = fd_quic_pkt_meta_ds_ele_cnt( sent_pkt_metas ) ) > 0 ) {
       fd_quic_pkt_meta_ds_fwd_iter_t start = fd_quic_pkt_meta_ds_fwd_iter_init( sent_pkt_metas, pool );
@@ -146,7 +146,7 @@ test_adversarial_ack( ulong max_inflight,
       );
 
     }
-    long end = fd_tickcount();
+    long end = fd_log_wallclock();
     FD_LOG_NOTICE(( "Reasonable reordering: Time taken: %ld us", (end - start) / 1000 ));
   } while(0);
 
@@ -157,7 +157,7 @@ test_adversarial_ack( ulong max_inflight,
     fd_quic_pkt_meta_ds_t * sent_pkt_metas = &conn.pkt_meta_tracker.sent_pkt_metas[fd_quic_enc_level_appdata_id];
     fd_quic_pkt_meta_t    * pool           = fd_quic_get_state( conn.quic )->pkt_meta_pool;
 
-    long start = fd_tickcount();
+    long start = fd_log_wallclock();
     ulong cnt;
     while( ( cnt = fd_quic_pkt_meta_ds_ele_cnt( sent_pkt_metas ) ) > 0 ) {
       fd_quic_pkt_meta_ds_fwd_iter_t start = fd_quic_pkt_meta_ds_fwd_iter_init( sent_pkt_metas, pool );
@@ -176,9 +176,9 @@ test_adversarial_ack( ulong max_inflight,
         0
       );
 
-      }
-      long end = fd_tickcount();
-      FD_LOG_NOTICE(( "Happy case: Time taken: %ld us", (end - start) / 1000 ));
+    }
+    long end = fd_log_wallclock();
+    FD_LOG_NOTICE(( "Happy case: Time taken: %ld us", (end - start) / 1000 ));
   } while(0);
 }
 

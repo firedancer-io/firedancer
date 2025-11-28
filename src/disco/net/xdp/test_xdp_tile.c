@@ -71,15 +71,16 @@ add_neighbor( fd_neigh4_hmap_t * join,
               uint               ip4_addr,
               uchar mac0, uchar mac1, uchar mac2,
               uchar mac3, uchar mac4, uchar mac5 ) {
-  fd_neigh4_hmap_query_t query[1];
-  int prepare_res = fd_neigh4_hmap_prepare( join, &ip4_addr, NULL, query, FD_MAP_FLAG_BLOCKING );
-  FD_TEST( prepare_res==FD_MAP_SUCCESS );
-  fd_neigh4_entry_t * ele = fd_neigh4_hmap_query_ele( query );
-  ele->state    = FD_NEIGH4_STATE_ACTIVE;
-  ele->ip4_addr = ip4_addr;
-  ele->mac_addr[0] = mac0; ele->mac_addr[1] = mac1; ele->mac_addr[2] = mac2;
-  ele->mac_addr[3] = mac3; ele->mac_addr[4] = mac4; ele->mac_addr[5] = mac5;
-  fd_neigh4_hmap_publish( query );
+  fd_neigh4_entry_t * e = fd_neigh4_hmap_upsert( join, &ip4_addr );
+  FD_TEST( e );
+  ulong suppress_until = e->probe_suppress_until;
+  fd_neigh4_entry_t to_insert = (fd_neigh4_entry_t) {
+    .ip4_addr             = ip4_addr,
+    .state                = FD_NEIGH4_STATE_ACTIVE,
+    .mac_addr             = { mac0, mac1, mac2, mac3, mac4, mac5 },
+    .probe_suppress_until = suppress_until&FD_NEIGH4_PROBE_SUPPRESS_MASK
+  };
+  fd_neigh4_entry_atomic_st( e, &to_insert );
 }
 
 static void
@@ -87,8 +88,10 @@ setup_routing_table( fd_net_ctx_t * ctx,
                      void * fib4_local_mem,
                      void * fib4_main_mem ) {
   /* Basic routing tables */
-  fd_fib4_t * fib_local = fd_fib4_join( fib4_local_mem ); FD_TEST( fib_local );
-  fd_fib4_t * fib_main  = fd_fib4_join( fib4_main_mem  ); FD_TEST( fib_main  );
+  fd_fib4_t * fib_local = ctx->fib_local;
+  fd_fib4_t * fib_main = ctx->fib_main;
+  FD_TEST( fd_fib4_join( fib_local, fib4_local_mem ) );
+  FD_TEST( fd_fib4_join( fib_main, fib4_main_mem ) );
 
   fd_fib4_hop_t hop1 = (fd_fib4_hop_t) {
     .if_idx  = IF_IDX_LO,
@@ -133,42 +136,53 @@ setup_routing_table( fd_net_ctx_t * ctx,
   FD_TEST( fd_fib4_insert( fib_main,  banned_ip, 32, 0U, &hop5 ) );
   FD_TEST( fd_fib4_insert( fib_main,  gre1_dst_ip, 32, 0U, &hop6 ) );
   FD_TEST( fd_fib4_insert( fib_main,  gre1_outer_dst_ip, 32, 0U, &hop7 ) );
-  ctx->fib_local = fib_local;
-  ctx->fib_main = fib_main;
+}
+
+static void
+append_netdev( fd_net_ctx_t * ctx,
+               fd_netdev_t     netdev ) {
+  ushort idx = ctx->netdev_tbl.hdr->dev_cnt;
+  FD_TEST( idx < ctx->netdev_tbl.hdr->dev_max );
+  ctx->netdev_tbl.dev_tbl[ idx ] = netdev;
+  ctx->netdev_tbl.hdr->dev_cnt   = (ushort)(idx + (ushort)1);
 }
 
 static void
 setup_netdev_table( fd_net_ctx_t * ctx ) {
-  /* GRE interfaces */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_GRE0] = (fd_netdev_t) {
+  ctx->netdev_tbl.hdr->dev_cnt = 0;
+
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_GRE0,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre0_outer_dst_ip,
     .gre_src_ip = gre0_outer_src_ip
-  };
-  ctx->netdev_tbl.dev_tbl[IF_IDX_GRE1] = (fd_netdev_t) {
+  } );
+
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_GRE1,
     .dev_type = ARPHRD_IPGRE,
     .gre_dst_ip = gre1_outer_dst_ip,
-  };
+  } );
   /* Eth0 interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_ETH0] = (fd_netdev_t) {
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_ETH0,
     .dev_type = ARPHRD_ETHER,
-  };
+  } );
   /* Eth1 interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_ETH1] = (fd_netdev_t) {
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_ETH1,
     .dev_type = ARPHRD_ETHER,
-  };
+  } );
   /* Lo interface */
-  ctx->netdev_tbl.dev_tbl[IF_IDX_LO] = (fd_netdev_t) {
+  append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_LO,
     .dev_type = ARPHRD_LOOPBACK,
-  };
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl.dev_tbl[IF_IDX_ETH0].mac_addr, eth0_src_mac_addr, 6 );
-  fd_memcpy( (fd_netdev_t *)ctx->netdev_tbl.dev_tbl[IF_IDX_ETH1].mac_addr, eth1_src_mac_addr, 6 );
-  ctx->netdev_tbl.hdr->dev_cnt = IF_IDX_GRE1 + 1;
+  } );
+  fd_netdev_t * eth0 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH0 );
+  fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH1 );
+  FD_TEST( eth0 && eth1 );
+  fd_memcpy( eth0->mac_addr, eth0_src_mac_addr, 6 );
+  fd_memcpy( eth1->mac_addr, eth1_src_mac_addr, 6 );
 }
 
 
@@ -256,23 +270,16 @@ main( int     argc,
   topo_tile->xdp.fib4_local_obj_id = topo_fib4_local->id;
   topo_tile->xdp.fib4_main_obj_id  = topo_fib4_main->id;
 
-
   /* Neigh4 table setup */
   ulong const neigh4_ele_max   = 16UL;
   ulong const neigh4_probe_max =  8UL;
-  ulong const neigh4_lock_max  =  4UL;
-  void * neigh4_hmap_mem = fd_wksp_alloc_laddr( wksp, fd_neigh4_hmap_align(), fd_neigh4_hmap_footprint( neigh4_ele_max, neigh4_lock_max, neigh4_probe_max ), WKSP_TAG );
-  void * neigh4_ele_mem  = fd_wksp_alloc_laddr( wksp, alignof(fd_neigh4_entry_t), neigh4_ele_max*sizeof(fd_neigh4_entry_t), WKSP_TAG );
-  FD_TEST( fd_neigh4_hmap_new( neigh4_hmap_mem, neigh4_ele_max, neigh4_lock_max, neigh4_probe_max, 1UL ) );
+  void      * neigh4_hmap_mem = fd_wksp_alloc_laddr( wksp, fd_neigh4_hmap_align(), fd_neigh4_hmap_footprint( neigh4_ele_max ), WKSP_TAG );
+  FD_TEST( fd_neigh4_hmap_new( neigh4_hmap_mem, neigh4_ele_max, 1 ) );
   fd_topo_obj_t * topo_neigh4_hmap = fd_topob_obj( topo, "neigh4_hmap", "wksp" );
-  fd_topo_obj_t * topo_neigh4_ele  = fd_topob_obj( topo, "opaque",      "wksp" );
-  topo_neigh4_hmap->offset = (ulong)neigh4_hmap_mem - (ulong)wksp;
-  topo_neigh4_ele->offset  = (ulong)neigh4_ele_mem  - (ulong)wksp;
-  topo_tile->xdp.neigh4_obj_id     = topo_neigh4_hmap->id;
-  topo_tile->xdp.neigh4_ele_obj_id = topo_neigh4_ele->id;
-  fd_neigh4_hmap_t neigh4_hmap_[1];
-  fd_neigh4_hmap_t * neigh4_hmap   = fd_neigh4_hmap_join( neigh4_hmap_, neigh4_hmap_mem, neigh4_ele_mem );
-  FD_TEST( neigh4_hmap );
+  topo_neigh4_hmap->offset      = (ulong)neigh4_hmap_mem - (ulong)wksp;
+  topo_tile->xdp.neigh4_obj_id  = topo_neigh4_hmap->id;
+  fd_neigh4_hmap_t neigh4_hmap[1];
+  FD_TEST( fd_neigh4_hmap_join( neigh4_hmap, neigh4_hmap_mem, neigh4_ele_max, neigh4_probe_max, 123456UL ) );
 
   /* Netdev table double buffer setup */
   ulong           netdev_mtu               = fd_netdev_tbl_footprint(NETDEV_MAX, BOND_MASTER_MAX);
@@ -302,18 +309,16 @@ main( int     argc,
   init_device_table( ctx, netdev_dbl_buf_mem );
 
   FD_TEST( fd_topo_obj_laddr( topo, topo_tile->net.umem_dcache_obj_id )==umem_dcache_mem );
-  void * const umem_dcache         = fd_dcache_join( umem_dcache_mem );
-  FD_TEST( umem_dcache );
-  ulong  const umem_frame_sz       = 2048UL;
+  void * const umem          = fd_dcache_join( umem_dcache_mem );
+  FD_TEST( umem );
+  ulong  const umem_frame_sz = 2048UL;
 
-  void * const umem_frame0 = (void *)fd_ulong_align_up( (ulong)umem_dcache, 4096UL );
-  ulong        umem_sz     = umem_dcache_data_sz - ( (ulong)umem_frame0 - (ulong)umem_dcache );
-  umem_sz                  = fd_ulong_align_dn( umem_sz, umem_frame_sz );
+  ulong umem_sz = fd_ulong_align_dn( umem_dcache_data_sz, umem_frame_sz );
 
-  ulong  const umem_chunk0    = ( (ulong)umem_frame0 - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
+  ulong  const umem_chunk0    = ( (ulong)umem - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
   ulong  const umem_wmark     = umem_chunk0 + ( ( umem_sz-umem_frame_sz )>>FD_CHUNK_LG_SZ );
 
-  ctx->umem_frame0 = umem_frame0;
+  ctx->umem        = umem;
   ctx->umem_chunk0 = (uint)umem_chunk0;
   ctx->umem_wmark  = (uint)umem_wmark;
   ctx->umem_sz     = umem_sz;
@@ -334,7 +339,7 @@ main( int     argc,
   /* Initialize the free_tx ring */
   ulong const tx_depth  = ctx->free_tx.depth;
   for( ulong j=0; j<tx_depth; j++ ) {
-    ctx->free_tx.queue[ j ] = (ulong)ctx->umem_frame0 + frame_off;
+    ctx->free_tx.queue[ j ] = (ulong)ctx->umem + frame_off;
     frame_off += frame_sz;
   }
   ctx->free_tx.prod = tx_depth;
@@ -397,10 +402,7 @@ main( int     argc,
   add_neighbor( neigh4_hmap, gre0_outer_dst_ip, eth0_dst_mac_addr[0], eth0_dst_mac_addr[1], eth0_dst_mac_addr[2], eth0_dst_mac_addr[3], eth0_dst_mac_addr[4], eth0_dst_mac_addr[5] );
   add_neighbor( neigh4_hmap, gre1_outer_dst_ip, eth1_dst_mac_addr[0], eth1_dst_mac_addr[1], eth1_dst_mac_addr[2], eth1_dst_mac_addr[3], eth1_dst_mac_addr[4], eth1_dst_mac_addr[5] );
   add_neighbor( neigh4_hmap, gw_ip,     eth1_dst_mac_addr[0], eth1_dst_mac_addr[1], eth1_dst_mac_addr[2], eth1_dst_mac_addr[3], eth1_dst_mac_addr[4], eth1_dst_mac_addr[5] );
-  FD_TEST( fd_neigh4_hmap_join(
-    ctx->neigh4,
-    fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_obj_id ),
-    fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_ele_obj_id ) ) );
+  FD_TEST( fd_neigh4_hmap_join( ctx->neigh4, fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_obj_id ), neigh4_ele_max, neigh4_probe_max, 123456UL ) );
 
   /* Netdev table */
   FD_TEST( fd_topo_obj_laddr( topo, topo_tile->xdp.netdev_dbl_buf_obj_id )==netdev_dbl_buf_mem );
@@ -668,7 +670,7 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre,     eth0_dst_mac_addr, 6 );
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth0_src_mac_addr, 6 );
 
-        xsk->if_idx = IF_IDX_ETH0;
+        xsk->if_idx = ctx->if_virt = IF_IDX_ETH0;
         before_credit_input       = &rx_pkt_gre;
         before_credit_input_sz    = sizeof(rx_pkt_gre);
         before_credit_expected    = &rx_pkt;
@@ -707,7 +709,7 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre,     eth1_dst_mac_addr, 6 );
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth1_src_mac_addr, 6 );
 
-        xsk->if_idx = IF_IDX_ETH1;
+        xsk->if_idx = ctx->if_virt = IF_IDX_ETH1;
 
         before_credit_input       = &rx_pkt_gre;
         before_credit_input_sz    = sizeof(rx_pkt_gre);
@@ -744,7 +746,7 @@ main( int     argc,
         break;
       }
       case 2: { // non-gre
-        xsk->if_idx               = IF_IDX_ETH1;
+        xsk->if_idx = ctx->if_virt = IF_IDX_ETH1;
 
         before_credit_input       = &rx_pkt;
         before_credit_input_sz    = sizeof(rx_pkt);
@@ -781,7 +783,7 @@ main( int     argc,
     xdp_fr_ring_cons++;
 
     /* Write packet into frame */
-    uchar * rx_ring_pkt = (uchar *)ctx->umem_frame0 + rx_frame_off;
+    uchar * rx_ring_pkt = (uchar *)ctx->umem + rx_frame_off;
     fd_memcpy( rx_ring_pkt, before_credit_input, before_credit_input_sz );
 
     /* Push frame into RX ring */
@@ -829,9 +831,10 @@ main( int     argc,
     after_frag( ctx, 0, tx_seq, 0, during_frag_expected_sz, 0, 0, NULL );
     ulong tx_metric_after  = ctx->metrics.tx_submit_cnt;
     FD_TEST( tx_metric_before+1==tx_metric_after ); /* assert that XDP tile published a TX frame */
-    struct xdp_desc * tx_ring_entry = &xsk->ring_tx.packet_ring[xdp_tx_ring_prod-1];
+    ulong tx_prod = xsk->ring_tx.cached_prod;
+    struct xdp_desc * tx_ring_entry = &xsk->ring_tx.packet_ring[tx_prod-1];
     FD_TEST( tx_ring_entry->len==after_frag_expected_sz );
-    void * after_frag_output = (void *)((ulong)tx_ring_entry->addr + (ulong)ctx->umem_frame0);
+    void * after_frag_output = (void *)((ulong)tx_ring_entry->addr + (ulong)ctx->umem);
     FD_TEST( fd_memeq( after_frag_output, after_frag_expected, after_frag_expected_sz ) );
     tx_seq++;
     tx_chunk = fd_dcache_compact_next( tx_chunk, during_frag_expected_sz, tx_chunk0, tx_wmark );

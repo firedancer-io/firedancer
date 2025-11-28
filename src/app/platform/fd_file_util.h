@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_shared_fd_file_util_h
-#define HEADER_fd_src_app_shared_fd_file_util_h
+#ifndef HEADER_fd_src_app_platform_fd_file_util_h
+#define HEADER_fd_src_app_platform_fd_file_util_h
 
 #include "../../util/fd_util.h"
 
@@ -49,7 +49,8 @@ fd_file_util_write_uint( char const * path,
 int
 fd_file_util_mkdir_all( const char * path,
                         uint         uid,
-                        uint         gid );
+                        uint         gid,
+                        int          is_dir );
 
 /* fd_file_util_rmtree() recursively removes all the contents of a
    directory, and then (if remove_root is non-zero) also removes the
@@ -86,4 +87,4 @@ char *
 fd_file_util_read_all( char const * path,
                        ulong *      out_sz );
 
-#endif /* HEADER_fd_src_app_shared_fd_file_util_h */
+#endif /* HEADER_fd_src_app_platform_fd_file_util_h */

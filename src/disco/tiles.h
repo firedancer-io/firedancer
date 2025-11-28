@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_fdctl_run_tiles_h
-#define HEADER_fd_src_app_fdctl_run_tiles_h
+#ifndef HEADER_fd_src_disco_tiles_h
+#define HEADER_fd_src_disco_tiles_h
 
 #include "stem/fd_stem.h"
 #include "shred/fd_shredder.h"
@@ -8,7 +8,7 @@
 #include "pack/fd_pack.h"
 #include "topo/fd_topo.h"
 #include "bundle/fd_bundle_crank.h"
-#include "fd_txn_m_t.h"
+#include "../disco/metrics/generated/fd_metrics_pack.h"
 
 #include <linux/filter.h>
 
@@ -37,6 +37,8 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred34 {
 typedef struct fd_shred34 fd_shred34_t;
 
 struct fd_became_leader {
+   ulong slot;
+
   /* Start and end time of the slot in nanoseconds (from
      fd_log_wallclock()). */
   long   slot_start_ns;
@@ -50,6 +52,10 @@ struct fd_became_leader {
      use the bank. */
   void const * bank;
 
+  /* In Firedancer, we just pass around the bank_idx which has already
+     been refcounted by the replay tile, rather than a bank pointer. */
+  ulong bank_idx;
+
   /* The maximum number of microblocks that pack is allowed to put
      into the block. This allows PoH to accurately track and make sure
      microblocks do not need to be dropped. */
@@ -60,10 +66,17 @@ struct fd_became_leader {
      limits. */
   ulong ticks_per_slot;
 
+  ulong tick_duration_ns;
+
   /* The number of ticks that the PoH tile has skipped, but needs to
      publish to show peers they were skipped correctly.  This is used
      to adjust some pack limits. */
   ulong total_skipped_ticks;
+
+  /* The number of hashes per tick.  This is used to update the
+     parameter for the proof of history component in case it has
+     changed. */
+  ulong hashcnt_per_tick;
 
   /* The epoch of the slot for which we are becoming leader. */
   ulong epoch;
@@ -136,8 +149,23 @@ struct fd_microblock_trailer {
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
+#define FD_PACK_END_SLOT_REASON_TIME          (1)
+#define FD_PACK_END_SLOT_REASON_MICROBLOCK    (2)
+#define FD_PACK_END_SLOT_REASON_LEADER_SWITCH (3)
+
 struct fd_done_packing {
-   ulong microblocks_in_slot;
+  ulong microblocks_in_slot;
+
+  fd_pack_limits_usage_t limits_usage[ 1 ];
+  fd_pack_limits_t limits[ 1 ];
+
+  ulong block_results    [ FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT ];
+  ulong end_block_results[ FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT ];
+
+  fd_pack_smallest_t pending_smallest[ 1 ];
+  fd_pack_smallest_t pending_votes_smallest[ 1 ];
+
+  int end_slot_reason;
 };
 typedef struct fd_done_packing fd_done_packing_t;
 
@@ -147,6 +175,12 @@ struct fd_microblock_bank_trailer {
      which guarantees it is valid while pack or bank tiles might be
      using it. */
   void const * bank;
+
+  /* In full Firedancer we just pass an index of the bank in a pool of
+     banks.  The lifetime is fully managed by the replay tile, which has
+     given us a refcount while we are leader for this bank.  bank value
+     above will be NULL. */
+  ulong bank_idx;
 
   /* The sequentially increasing index of the microblock, across all
      banks.  This is used by PoH to ensure microblocks get committed
@@ -175,4 +209,4 @@ typedef struct __attribute__((packed)) {
   uchar  last_entry_hash[32];
 } fd_poh_init_msg_t;
 
-#endif /* HEADER_fd_src_app_fdctl_run_tiles_h */
+#endif /* HEADER_fd_src_disco_tiles_h */

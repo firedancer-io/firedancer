@@ -81,6 +81,9 @@ struct fd_gossip_metrics {
   ulong crds_tx_push_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong crds_tx_pull_response[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong crds_tx_pull_response_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+
+  ulong ci_rx_unrecognized_socket_tag_cnt;
+  ulong ci_rx_ipv6_address_cnt;
 };
 
 typedef struct fd_gossip_metrics fd_gossip_metrics_t;
@@ -98,7 +101,7 @@ void *
 fd_gossip_new( void *                    shmem,
                fd_rng_t *                rng,
                ulong                     max_values,
-               ulong                     entrypoints_cnt,
+               ulong                     entrypoints_len,
                fd_ip4_port_t const *     entrypoints,
                fd_contact_info_t const * my_contact_info,
                long                      now,

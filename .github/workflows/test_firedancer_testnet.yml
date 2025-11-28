@@ -7,11 +7,13 @@ concurrency:
   cancel-in-progress: true
 jobs:
   firedancer-testnet:
-    runs-on: [self-hosted, 512G]
+    runs-on:
+      labels: [self-hosted, 512G]
+      group: fd-public-repo
     env:
       CC: gcc
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 

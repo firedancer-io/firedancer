@@ -2,7 +2,7 @@ BASEDIR?=build
 
 OPT?=opt
 SHELL:=bash
-CPPFLAGS:=-isystem ./$(OPT)/include -DFD_HAS_BACKTRACE=0
+CPPFLAGS:=-isystem ./$(OPT)/include
 RUSTFLAGS:=-C force-frame-pointers=yes
 CC:=gcc
 CFLAGS=-std=c17 -fwrapv
@@ -21,6 +21,8 @@ PATCH:=patch
 MKDIR:=mkdir -pv
 RMDIR:=rm -rfv
 TOUCH:=touch
+AWK:=awk
+GREP:=grep
 SED:=sed
 FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)
@@ -48,3 +50,7 @@ CC_MAJOR_VERSION=$(shell $(CC) -dumpversion | cut -f1 -d.)
 
 # Default _FORTIFY_SOURCE level
 FORTIFY_SOURCE?=2
+
+ifneq ($(CROSS),)
+include config/cross/$(CROSS).mk
+endif

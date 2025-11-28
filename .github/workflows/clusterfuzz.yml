@@ -5,16 +5,15 @@ on:
 jobs:
   solfuzz-build-and-publish:
     timeout-minutes: 30
-    runs-on:
-      group: github-v1
+    runs-on: ubuntu-latest
     env:
-      MACHINE: linux_clang_haswell
-      OBJ_DIR: build/linux/clang/haswell
+      MACHINE: linux_clang_icelake
+      OBJ_DIR: build/linux/clang/icelake
       COV_BUILD_DIR: cov
       COV_OBJ_DIR: build/cov
       EXTRAS: fuzz # asan
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -23,7 +22,7 @@ jobs:
           compiler: clang
           extras: +dev
 
-      - run: sudo apt update && sudo apt install -y zip
+      - run: sudo apt update && sudo apt install -y zip zstd
 
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
         name: Build shared object for fd_exec_sol_compat*.so
@@ -35,7 +34,7 @@ jobs:
         env:
           BUILDDIR: ${{ env.COV_BUILD_DIR }}
           EXTRAS: fuzz llvm-cov
-          MACHINE: linux_clang_haswell
+          MACHINE: linux_clang_icelake
         with:
           command: cd src && pwd > buildpwd && cd - && make -j -Otarget lib && llvm-config --version | cut -d '.' -f 1 > llvm_version
 
@@ -56,14 +55,14 @@ jobs:
 
 
       - name: upload so artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           path: ${{ env.OBJ_DIR }}/lib/libfd_exec_sol_compat*.so
           name: libfd_exec_sol_compat
           retention-days: 14
 
       - name: upload .so with cov
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           path: ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat* # includes ${{ env.COV_OBJ_DIR}}/lib/libfd_exec_sol_compat_src/
           name: libfd_exec_sol_compat_cov
@@ -84,13 +83,12 @@ jobs:
           # - machine: linux_clang_icelake
           #   artifact_dir: build/linux/clang/icelake
           #   qualifier: highend
-    runs-on:
-      group: github-v1
+    runs-on: ubuntu-latest
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: fuzz asan ubsan
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -98,7 +96,7 @@ jobs:
         with:
           extras: +dev
 
-      - run: sudo apt update && sudo apt install -y zip
+      - run: sudo apt update && sudo apt install -y zip zstd
 
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
         name: Build M1 fuzz tests
@@ -110,7 +108,7 @@ jobs:
           ls ${{ matrix.artifact_dir }}/fuzz-test
           ls ${{ matrix.artifact_dir }}/lib
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         name: Zip and upload to GitHub Artifacts
         id: artifact-zip-m1
         with:

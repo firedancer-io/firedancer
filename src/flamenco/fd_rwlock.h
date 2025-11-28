@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_rwlock_h
-#define HEADER_fd_src_flamenco_rwlock_h
+#ifndef HEADER_fd_src_flamenco_fd_rwlock_h
+#define HEADER_fd_src_flamenco_fd_rwlock_h
 
 /* A very simple read-write spin lock. */
 
@@ -14,6 +14,12 @@ struct fd_rwlock {
 };
 
 typedef struct fd_rwlock fd_rwlock_t;
+
+static inline fd_rwlock_t *
+fd_rwlock_new( fd_rwlock_t * lock ) {
+  lock->value = 0;
+  return 0;
+}
 
 static inline void
 fd_rwlock_write( fd_rwlock_t * lock ) {
@@ -65,4 +71,4 @@ fd_rwlock_unread( fd_rwlock_t * lock ) {
 # endif
 }
 
-#endif /* HEADER_fd_src_flamenco_rwlock_h */
+#endif /* HEADER_fd_src_flamenco_fd_rwlock_h */

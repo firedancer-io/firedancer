@@ -3,6 +3,7 @@
 #include "../../../ballet/bn254/fd_bn254.h"
 #include "../../../ballet/bn254/fd_poseidon.h"
 #include "../../../ballet/secp256k1/fd_secp256k1.h"
+#include "../../runtime/fd_bank.h"
 
 int
 fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
@@ -81,14 +82,16 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
   case FD_VM_SYSCALL_SOL_ALT_BN128_MUL:
     /* Compute scalar mul */
     if( FD_LIKELY( fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz,
-                                                   FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot, &vm->instr_ctx->txn_ctx->features, fix_alt_bn128_multiplication_input_length ) )==0 ) ) {
+                                                   FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, fix_alt_bn128_multiplication_input_length ) )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING:
-    /* Compute pairing */
-    if( FD_LIKELY( fd_bn254_pairing_is_one_syscall( call_result, input, input_sz )==0 ) ) {
+    /* Compute pairing with length check based on feature gate.
+       https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.1.2/bn254/src/pairing.rs#L76-L82 */
+    if( FD_LIKELY( fd_bn254_pairing_is_one_syscall( call_result, input, input_sz,
+                                                    FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, fix_alt_bn128_pairing_length_check ) )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;
@@ -314,11 +317,12 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
 
   /* Second loop to computed Poseidon. This can return a soft error. */
   int big_endian = endianness==0;
+  int enforce_padding = FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, poseidon_enforce_padding );
   fd_poseidon_t pos[1];
   fd_poseidon_init( pos, big_endian );
 
   for( ulong i=0UL; i<vals_len; i++ ) {
-    if( FD_UNLIKELY( fd_poseidon_append( pos, inputs_haddr[ i ], input_vec_haddr[i].len )==NULL ) ) {
+    if( FD_UNLIKELY( fd_poseidon_append( pos, inputs_haddr[ i ], input_vec_haddr[i].len, enforce_padding )==NULL ) ) {
       goto soft_error;
     }
   }

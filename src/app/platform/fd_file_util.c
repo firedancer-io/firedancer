@@ -87,7 +87,8 @@ fd_file_util_write_ulong( char const * path,
 int
 fd_file_util_mkdir_all( const char * _path,
                         uint         uid,
-                        uint         gid ) {
+                        uint         gid,
+                        int          is_dir ) {
   char path[ PATH_MAX+1UL ] = {0};
   strncpy( path, _path, PATH_MAX );
 
@@ -112,13 +113,14 @@ fd_file_util_mkdir_all( const char * _path,
     p++;
   }
 
-  int error = mkdir( path, 0777 );
-  if( FD_UNLIKELY( error && errno!=EEXIST ) ) return -1;
-  if( FD_LIKELY( !error ) ) {
-    if( FD_UNLIKELY( chown( path, uid, gid ) ) ) return -1;
-    if( FD_UNLIKELY( chmod( path, S_IRUSR | S_IWUSR | S_IXUSR ) ) ) return -1;
+  if( FD_LIKELY( is_dir ) ) {
+    int error = mkdir( path, 0777 );
+    if( FD_UNLIKELY( error && errno!=EEXIST ) ) return -1;
+    if( FD_LIKELY( !error ) ) {
+      if( FD_UNLIKELY( chown( path, uid, gid ) ) ) return -1;
+      if( FD_UNLIKELY( chmod( path, S_IRUSR | S_IWUSR | S_IXUSR ) ) ) return -1;
+    }
   }
-
   return 0;
 }
 

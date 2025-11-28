@@ -6,130 +6,7 @@
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
 
-#include "../runtime/fd_system_ids.h"
-#include "../runtime/fd_executor_err.h"
-
 #include <stdio.h>
-
-int
-fd_flamenco_txn_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_flamenco_txn_t);
-  void const * start_data = ctx->data;
-  int err = fd_flamenco_txn_decode_footprint_inner( ctx, total_sz );
-  ctx->data = start_data;
-  return err;
-}
-
-int
-fd_flamenco_txn_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
-  ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
-  fd_flamenco_txn_t self;
-  ulong sz  = 0UL;
-  ulong res = fd_txn_parse_core( ctx->data,
-                                 bufsz,
-                                 self.txn,
-                                 NULL,
-                                 &sz );
-  if( FD_UNLIKELY( !res ) ) {
-    return -1000001;
-  }
-  ctx->data  = (void *)( (ulong)ctx->data + sz );
-  *total_sz += sz;
-  return 0;
-}
-
-int FD_FN_UNUSED
-fd_flamenco_txn_encode_global( fd_flamenco_txn_t const * self,
-                               fd_bincode_encode_ctx_t * ctx ) {
-  (void)self;
-  (void)ctx;
-  FD_LOG_ERR(( "only exists for testing" ));
-}
-
-void * FD_FN_UNUSED
-fd_flamenco_txn_decode_global( void *                    mem,
-                               fd_bincode_decode_ctx_t * ctx ) {
-  (void)mem;
-  (void)ctx;
-  FD_LOG_ERR(( "only exists for testing" ));
-}
-
-void *
-fd_flamenco_txn_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_flamenco_txn_t * self = (fd_flamenco_txn_t *)mem;
-  fd_flamenco_txn_new( self );
-  void *   alloc_region = (uchar *)mem + sizeof(fd_flamenco_txn_t);
-  void * * alloc_mem    = &alloc_region;
-  fd_flamenco_txn_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-
-void
-fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_flamenco_txn_t * self = (fd_flamenco_txn_t *)struct_mem;
-  static FD_TL fd_txn_parse_counters_t counters[1];
-  ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
-  ulong sz    = 0UL;
-  ulong res   = fd_txn_parse_core( ctx->data,
-                                   bufsz,
-                                   self->txn,
-                                   counters,
-                                   &sz );
-  if( FD_UNLIKELY( !res ) ) {
-    FD_LOG_ERR(( "Failed to decode txn (fd_txn.c:%lu)",
-                 counters->failure_ring[ counters->failure_cnt % FD_TXN_PARSE_COUNTERS_RING_SZ ] ));
-    return;
-  }
-  fd_memcpy( self->raw, ctx->data, sz );
-  self->raw_sz = sz;
-  ctx->data = (void *)( (ulong)ctx->data + sz );
-}
-
-void
-fd_gossip_ip4_addr_walk( void *                       w,
-                         fd_gossip_ip4_addr_t const * self,
-                         fd_types_walk_fn_t           fun,
-                         char const *                 name,
-                         uint                         level,
-                         uint                         varint ) {
-  (void) varint;
-
-  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip4_addr", level++, 0 );
-  uchar * octet = (uchar *)self;
-  for( uchar i = 0; i < 4; ++i ) {
-    fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );
-  }
-  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip4_addr", level--, 0 );
-  /* TODO: Add support for optional pretty-printing like serde?
-     Saving this in the meantime */
-  // char buf[ 16 ];
-  // sprintf( buf, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( *self ) );
-  // fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip4_addr", level );
-}
-
-void
-fd_gossip_ip6_addr_walk( void *                       w,
-                         fd_gossip_ip6_addr_t const * self,
-                         fd_types_walk_fn_t           fun,
-                         char const *                 name,
-                         uint                         level,
-                         uint                         varint ) {
-  (void) varint;
-
-  fun( w, self, name, FD_FLAMENCO_TYPE_ARR, "ip6_addr", level++, 0 );
-  uchar * octet = (uchar *)self;
-  for( uchar i = 0; i < 16; ++i ) {
-    fun( w, &octet[i], name, FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );
-  }
-  fun( w, self, name, FD_FLAMENCO_TYPE_ARR_END, "ip6_addr", level--, 0 );
-  /* Saving this for when we support configurable pretty-printing mode */
-  // char buf[ 40 ];
-  // sprintf( buf,
-  //          "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
-  //          FD_LOG_HEX16_FMT_ARGS( self->us ) );
-  // fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip6_addr", level );
-}
 
 int fd_tower_sync_encode( fd_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   FD_LOG_ERR(( "todo"));
@@ -284,19 +161,16 @@ fd_rust_duration_normalize ( fd_rust_duration_t * self ) {
 //
 int
 fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
-  fd_rust_duration_t *d = (fd_rust_duration_t *) ctx->data;
-  if( d->nanoseconds < 1000000000U )
+  if( (ulong)ctx->data + ( sizeof(ulong) + sizeof(uint) ) > (ulong)ctx->dataend )
+    return FD_BINCODE_ERR_OVERFLOW;
+
+  ulong seconds    = FD_LOAD( ulong, ctx->data );
+  uint nanoseconds = FD_LOAD( uint, (uchar*)ctx->data + sizeof(ulong) );
+
+  if( nanoseconds < 1000000000U )
     return FD_BINCODE_SUCCESS;
   ulong out;
-  if( __builtin_uaddl_overflow( d->seconds, d->nanoseconds/1000000000U, &out ) )
+  if( __builtin_uaddl_overflow( seconds, nanoseconds/1000000000U, &out ) )
     return FD_BINCODE_ERR_ENCODING;
   return FD_BINCODE_SUCCESS;
-}
-
-#define REDBLK_T fd_stake_weight_t_mapnode_t
-#define REDBLK_NAME fd_stake_weight_t_map
-#define REDBLK_IMPL_STYLE 2
-#include "../../util/tmpl/fd_redblack.c"
-long fd_stake_weight_t_map_compare( fd_stake_weight_t_mapnode_t * left, fd_stake_weight_t_mapnode_t * right ) {
-  return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }

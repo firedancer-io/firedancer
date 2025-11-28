@@ -3,14 +3,14 @@
 #include "../../../shared/commands/configure/configure.h"
 
 #include "../../../platform/fd_file_util.h"
-#include "../../../shared/genesis_hash.h"
 #include "../../../../ballet/poh/fd_poh.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../discof/genesis/genesis_hash.h"
 #include "../../../../flamenco/features/fd_features.h"
 #include "../../../../flamenco/genesis/fd_genesis_create.h"
 #include "../../../../flamenco/types/fd_types_custom.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
-
+#include "../../../../flamenco/runtime/fd_runtime_const.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -62,6 +62,8 @@ default_enable_features( fd_features_t * features ) {
   features->enable_big_mod_exp_syscall = 0UL;
   features->enable_alt_bn128_compression_syscall = 0UL;
   features->update_hashes_per_tick2 = 0UL;
+  features->account_data_direct_mapping = 0UL;
+  features->stricter_abi_and_runtime_constraints = 0UL;
   features->bpf_account_data_direct_mapping = 0UL;
   features->relax_authority_signer_check_for_lookup_table_creation = 0UL;
   features->update_hashes_per_tick6 = 0UL;
@@ -142,7 +144,7 @@ create_genesis( config_t const * config,
   if( !strcmp( config->paths.vote_account, "" ) ) {
     FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->paths.base ) );
   } else {
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( file_path ), config->paths.vote_account, PATH_MAX-1 ) );
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( file_path ), config->paths.vote_account, PATH_MAX-1UL ) );
   }
 
   uchar const * vote_pubkey_ = fd_keyload_load( file_path, 1 );
@@ -193,19 +195,14 @@ create_genesis( config_t const * config,
 
   fd_features_t features[1];
   fd_features_disable_all( features );
-  fd_cluster_version_t cluster_version = {
-    .major = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR,
-    .minor = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR,
-    .patch = FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH
-  };
-  fd_features_enable_cleaned_up( features, &cluster_version );
+  fd_features_enable_cleaned_up( features, &FD_RUNTIME_CLUSTER_VERSION );
   default_enable_features( features );
 
   options->features = features;
 
   /* Serialize blob */
 
-  static uchar scratch_smem[ 16<<20UL ];  /* fits at least 32k accounts */
+  static uchar scratch_smem[ 1<<24UL ];  /* fits at least 32k accounts */
          ulong scratch_fmem[ 4 ];
   fd_scratch_attach( scratch_smem, scratch_fmem,
                      sizeof(scratch_smem), sizeof(scratch_fmem)/sizeof(ulong) );
@@ -220,10 +217,21 @@ create_genesis( config_t const * config,
 
 static void
 init( config_t const * config ) {
-  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->paths.ledger, config->uid, config->gid ) ) )
-    FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", config->paths.ledger, errno, fd_io_strerror( errno ) ));
+  int bootstrap = !config->gossip.entrypoints_cnt;
+  if( FD_LIKELY( !bootstrap ) ) return;
 
-  static uchar blob[ 16<<20UL ];
+  char _genesis_path[ PATH_MAX ];
+  char const * genesis_path;
+  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
+  else {
+    genesis_path = _genesis_path;
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
+  }
+
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( genesis_path, config->uid, config->gid, 0 ) ) )
+    FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+
+  static uchar blob[ 1UL<<24UL ];
   ulong blob_sz = create_genesis( config, blob, sizeof(blob) );
 
   /* Switch to target user in the configuration when creating the
@@ -238,8 +246,6 @@ init( config_t const * config ) {
 
   mode_t previous = umask( S_IRWXO | S_IRWXG );
 
-  char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
   do {
     FILE * genesis_file = fopen( genesis_path, "w" );
     FD_TEST( genesis_file );
@@ -254,7 +260,10 @@ init( config_t const * config ) {
 
   uchar genesis_hash[ 32 ];
   char  genesis_hash_cstr[ FD_BASE58_ENCODED_32_SZ ];
-  ushort shred_version = compute_shred_version( genesis_path, genesis_hash );
+
+  ushort shred_version;
+  int result = compute_shred_version( genesis_path, &shred_version, genesis_hash );
+  if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
   FD_LOG_INFO(( "Created %s:  genesis_hash=%s sz=%lu",
                 genesis_path,
@@ -263,43 +272,182 @@ init( config_t const * config ) {
   FD_LOG_INFO(( "Shred version: %hu", shred_version ));
 }
 
-static void
+static int
 fini( config_t const * config,
       int              pre_init ) {
   (void)pre_init;
 
-  char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
-  if( FD_UNLIKELY( unlink( genesis_path ) && errno!=ENOENT ) )
+  char _genesis_path[ PATH_MAX ];
+  char const * genesis_path;
+  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
+  else {
+    genesis_path = _genesis_path;
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
+  }
+
+  if( FD_UNLIKELY( -1==unlink( genesis_path ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "could not remove genesis.bin file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+  return 0;
 }
 
 static configure_result_t
-check( config_t const * config ) {
-  char genesis_path[ PATH_MAX ];
-  fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger );
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
+  if( FD_LIKELY( config->gossip.entrypoints_cnt ) ) CONFIGURE_OK();
+
+  char _genesis_path[ PATH_MAX ];
+  char const * genesis_path;
+  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
+  else {
+    genesis_path = _genesis_path;
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
+  }
 
   struct stat st;
-  if( FD_UNLIKELY( stat( genesis_path, &st ) && errno==ENOENT ) )
-    NOT_CONFIGURED( "`%s` does not exist", genesis_path );
+  int err = stat( genesis_path, &st );
+  if( FD_UNLIKELY( -1==err && errno!=ENOENT ) ) FD_LOG_ERR(( "could not stat genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+  else if( FD_UNLIKELY( -1==err ) ) NOT_CONFIGURED( "`%s` does not exist", genesis_path );
 
-  CHECK( check_dir( config->paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
+  if( FD_UNLIKELY( !config->is_firedancer ) ) CHECK( check_dir( config->frankendancer.paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   CHECK( check_file( genesis_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
 
-  PARTIALLY_CONFIGURED( "`%s` already exists", genesis_path );
+  static uchar buffer[ 1UL<<24UL ]; /* 16 MiB buffer should be enough for genesis */
+  if( FD_UNLIKELY( (ulong)st.st_size>sizeof(buffer) ) ) FD_LOG_ERR(( "genesis file at `%s` too large (%lu bytes, max %lu)", genesis_path, (ulong)st.st_size, sizeof(buffer) ));
+
+  ulong bytes_read = 0UL;
+  int fd = open( genesis_path, O_RDONLY );
+  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "could not open genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+
+  while( bytes_read < (ulong)st.st_size ) {
+    long result = read( fd, buffer + bytes_read, (ulong)st.st_size - bytes_read );
+    if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "could not read genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( !result ) )  FD_LOG_ERR(( "read() returned 0 before reading full genesis.bin file at `%s`", genesis_path ));
+    bytes_read += (ulong)result;
+  }
+
+  fd_bincode_decode_ctx_t decode_ctx = {
+    .data    = buffer,
+    .dataend = buffer+st.st_size,
+  };
+
+  if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "could not close genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+
+  ulong genesis_sz = 0UL;
+  err = fd_genesis_solana_decode_footprint( &decode_ctx, &genesis_sz );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "malformed genesis file at `%s`", genesis_path ));
+
+  static char _genesis[ 1UL<<24UL ] __attribute__((aligned(alignof(fd_genesis_solana_global_t)))); /* 16 MiB for decoded genesis */
+  if( FD_UNLIKELY( genesis_sz>sizeof(_genesis) ) ) FD_LOG_ERR(( "genesis file at `%s` decode footprint too large (%lu bytes, max %lu)", genesis_path, genesis_sz, sizeof(_genesis) ));
+
+  fd_genesis_solana_global_t * genesis = fd_genesis_solana_decode_global( _genesis, &decode_ctx );
+
+  ulong tmp_genesis_sz = create_genesis( config, buffer, sizeof(buffer) );
+
+  decode_ctx = (fd_bincode_decode_ctx_t){
+    .data    = buffer,
+    .dataend = buffer+tmp_genesis_sz,
+  };
+
+  genesis_sz = 0UL;
+  err = fd_genesis_solana_decode_footprint( &decode_ctx, &genesis_sz );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "malformed genesis file generated for comparison for `%s`", genesis_path ));
+
+  static char _tmp_genesis[ 1UL<<24UL ] __attribute__((aligned(alignof(fd_genesis_solana_global_t)))); /* 16 MiB for decoded genesis */
+  if( FD_UNLIKELY( genesis_sz>sizeof(_tmp_genesis) ) ) FD_LOG_ERR(( "genesis file generated for comparison for `%s` decode footprint too large (%lu bytes, max %lu)", genesis_path, genesis_sz, sizeof(_tmp_genesis) ));
+
+  fd_genesis_solana_global_t * tmp_genesis = fd_genesis_solana_decode_global( _tmp_genesis, &decode_ctx );
+
+  // ulong creation_time;
+
+  if( FD_UNLIKELY( tmp_genesis->accounts_len!=genesis->accounts_len ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected accounts_len", genesis_path );
+  fd_pubkey_account_pair_global_t * accounts = fd_genesis_solana_accounts_join( genesis );
+  fd_pubkey_account_pair_global_t * tmp_accounts = fd_genesis_solana_accounts_join( tmp_genesis );
+  for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
+    if( FD_UNLIKELY( memcmp( accounts[ i ].key.uc, tmp_accounts[ i ].key.uc, 32 ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected account key at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( accounts[ i ].account.lamports!=tmp_accounts[ i ].account.lamports ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected account lamports at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( accounts[ i ].account.data_len!=tmp_accounts[ i ].account.data_len ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected account data_len at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( memcmp( accounts[ i ].account.owner.uc, tmp_accounts[ i ].account.owner.uc, 32 ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected account owner at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( accounts[ i ].account.executable!=tmp_accounts[ i ].account.executable ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected account executable flag at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( accounts[ i ].account.rent_epoch!=tmp_accounts[ i ].account.rent_epoch ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected account rent_epoch at index %lu", genesis_path, i );
+
+    uchar const * data = fd_solana_account_data_join( &accounts[ i ].account );
+    uchar const * tmp_data = fd_solana_account_data_join( &tmp_accounts[ i ].account );
+    if( FD_UNLIKELY( memcmp( data, tmp_data, accounts[ i ].account.data_len ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected account data at index %lu", genesis_path, i );
+  }
+
+  if( FD_UNLIKELY( tmp_genesis->native_instruction_processors_len!=genesis->native_instruction_processors_len ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors_len", genesis_path );
+  fd_string_pubkey_pair_global_t * native_instruction_processors = fd_genesis_solana_native_instruction_processors_join( genesis );
+  fd_string_pubkey_pair_global_t * tmp_native_instruction_processors = fd_genesis_solana_native_instruction_processors_join( tmp_genesis );
+  for( ulong i=0UL; i<genesis->native_instruction_processors_len; i++ ) {
+    if( FD_UNLIKELY( memcmp( native_instruction_processors[ i ].pubkey.uc, tmp_native_instruction_processors[ i ].pubkey.uc, 32 ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors pubkey at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( native_instruction_processors[ i ].string_len!=tmp_native_instruction_processors[ i ].string_len ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors string_len at index %lu", genesis_path, i );
+    uchar const * str = fd_string_pubkey_pair_string_join( &native_instruction_processors[ i ] );
+    uchar const * tmp_str = fd_string_pubkey_pair_string_join( &tmp_native_instruction_processors[ i ] );
+    if( FD_UNLIKELY( memcmp( str, tmp_str, native_instruction_processors[ i ].string_len ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors string at index %lu", genesis_path, i );
+  }
+
+  if( FD_UNLIKELY( tmp_genesis->rewards_pools_len!=genesis->rewards_pools_len ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rewards_pools_len", genesis_path );
+  fd_pubkey_account_pair_global_t * rewards_pool = fd_genesis_solana_rewards_pools_join( genesis );
+  fd_pubkey_account_pair_global_t * tmp_rewards_pool = fd_genesis_solana_rewards_pools_join( tmp_genesis );
+  for( ulong i=0UL; i<genesis->rewards_pools_len; i++ ) {
+    if( FD_UNLIKELY( memcmp( rewards_pool[ i ].key.uc, tmp_rewards_pool[ i ].key.uc, 32 ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rewards_pool key at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( rewards_pool[ i ].account.lamports!=tmp_rewards_pool[ i ].account.lamports ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rewards_pool account lamports at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( rewards_pool[ i ].account.data_len!=tmp_rewards_pool[ i ].account.data_len ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rewards_pool account data_len at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( memcmp( rewards_pool[ i ].account.owner.uc, tmp_rewards_pool[ i ].account.owner.uc, 32 ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rewards_pool account owner at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( rewards_pool[ i ].account.executable!=tmp_rewards_pool[ i ].account.executable ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rewards_pool account executable flag at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( rewards_pool[ i ].account.rent_epoch!=tmp_rewards_pool[ i ].account.rent_epoch ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rewards_pool account rent_epoch at index %lu", genesis_path, i );
+
+    uchar const * data = fd_solana_account_data_join( &rewards_pool[ i ].account );
+    uchar const * tmp_data = fd_solana_account_data_join( &tmp_rewards_pool[ i ].account );
+    if( FD_UNLIKELY( memcmp( data, tmp_data, rewards_pool[ i ].account.data_len ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rewards_pool account data at index %lu", genesis_path, i );
+  }
+
+  if( FD_UNLIKELY( tmp_genesis->ticks_per_slot!=config->development.genesis.ticks_per_slot ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected ticks_per_slot", genesis_path );
+
+  // ulong unused;
+
+  if( FD_UNLIKELY( tmp_genesis->poh_config.target_tick_duration.seconds!=genesis->poh_config.target_tick_duration.seconds ) )  PARTIALLY_CONFIGURED( "`%s` has unexpected poh_config.target_tick_duration.seconds", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->poh_config.target_tick_duration.nanoseconds!=genesis->poh_config.target_tick_duration.nanoseconds ) )  PARTIALLY_CONFIGURED( "`%s` has unexpected poh_config.target_tick_duration.nanoseconds", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->poh_config.target_tick_count!=genesis->poh_config.target_tick_count ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected poh_config.target_tick_count", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->poh_config.has_target_tick_count!=genesis->poh_config.has_target_tick_count ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected poh_config.has_target_tick_count", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->poh_config.hashes_per_tick!=genesis->poh_config.hashes_per_tick ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected poh_config.hashes_per_tick", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->poh_config.has_hashes_per_tick!=genesis->poh_config.has_hashes_per_tick ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected poh_config.has_hashes_per_tick", genesis_path );
+
+  // ulong __backwards_compat_with_v0_23;
+
+  if( FD_UNLIKELY( tmp_genesis->fee_rate_governor.target_lamports_per_signature!=genesis->fee_rate_governor.target_lamports_per_signature ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected fee_rate_governor.target_lamports_per_signature", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->fee_rate_governor.target_signatures_per_slot!=genesis->fee_rate_governor.target_signatures_per_slot ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected fee_rate_governor.target_signatures_per_slot", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->fee_rate_governor.min_lamports_per_signature!=genesis->fee_rate_governor.min_lamports_per_signature ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected fee_rate_governor.min_lamports_per_signature", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->fee_rate_governor.max_lamports_per_signature!=genesis->fee_rate_governor.max_lamports_per_signature ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected fee_rate_governor.max_lamports_per_signature", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->fee_rate_governor.burn_percent!=genesis->fee_rate_governor.burn_percent ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected fee_rate_governor.burn_percent", genesis_path );
+
+  if( FD_UNLIKELY( tmp_genesis->rent.lamports_per_uint8_year!=genesis->rent.lamports_per_uint8_year ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rent.lamports_per_uint8_year", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->rent.exemption_threshold!=genesis->rent.exemption_threshold ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rent.exemption_threshold", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->rent.burn_percent!=genesis->rent.burn_percent ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected rent.burn_percent", genesis_path );
+
+  if( FD_UNLIKELY( tmp_genesis->inflation.initial!=genesis->inflation.initial ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected inflation.initial", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->inflation.terminal!=genesis->inflation.terminal ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected inflation.terminal", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->inflation.taper!=genesis->inflation.taper ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected inflation.taper", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->inflation.foundation!=genesis->inflation.foundation ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected inflation.foundation", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->inflation.foundation_term!=genesis->inflation.foundation_term ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected inflation.foundation_term", genesis_path );
+  // double inflation.unused
+
+  if( FD_UNLIKELY( tmp_genesis->epoch_schedule.slots_per_epoch!=genesis->epoch_schedule.slots_per_epoch ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected epoch_schedule.slots_per_epoch", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->epoch_schedule.leader_schedule_slot_offset!=genesis->epoch_schedule.leader_schedule_slot_offset ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected epoch_schedule.leader_schedule_slot_offset", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->epoch_schedule.warmup!=genesis->epoch_schedule.warmup ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected epoch_schedule.warmup", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->epoch_schedule.first_normal_epoch!=genesis->epoch_schedule.first_normal_epoch ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected epoch_schedule.first_normal_epoch", genesis_path );
+  if( FD_UNLIKELY( tmp_genesis->epoch_schedule.first_normal_slot!=genesis->epoch_schedule.first_normal_slot ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected epoch_schedule.first_normal_slot", genesis_path );
+
+  if( FD_UNLIKELY( tmp_genesis->cluster_type!=genesis->cluster_type ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected cluster_type", genesis_path );
+
+  CONFIGURE_OK();
 }
 
 configure_stage_t fd_cfg_stage_genesis = {
-  .name            = NAME,
-  .init            = init,
-  .fini            = fini,
-  .check           = check,
-  /* It might be nice to not regenerate the genesis.bin if the
-     parameters didn't change here, but it has a timestamp in it and
-     also a variable number of hashes per tick in some configurations,
-     which we would need to pull out and skip in the comparison, so we
-     just always recreate it for now. */
-  .always_recreate = 1,
+  .name  = NAME,
+  .init  = init,
+  .fini  = fini,
+  .check = check,
 };
 
 #undef NAME

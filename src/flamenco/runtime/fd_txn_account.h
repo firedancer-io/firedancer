@@ -1,10 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_txn_account_h
 #define HEADER_fd_src_flamenco_runtime_fd_txn_account_h
 
-#include "../../ballet/txn/fd_txn.h"
-#include "../fd_flamenco_base.h"
-#include "program/fd_program_util.h"
-#include "fd_executor_err.h"
+#include "../accdb/fd_accdb_sync.h"
 #include "../types/fd_types.h"
 #include "../../funk/fd_funk_rec.h"
 
@@ -36,9 +33,7 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
   uchar *                         data;
 
   int                             is_mutable;
-
-  ulong                           meta_gaddr;
-  ulong                           data_gaddr;
+  long                            meta_soff;
 
   ulong                           starting_dlen;
   ulong                           starting_lamports;
@@ -52,8 +47,6 @@ typedef struct fd_txn_account fd_txn_account_t;
 #define FD_TXN_ACCOUNT_FOOTPRINT (sizeof(fd_txn_account_t))
 #define FD_TXN_ACCOUNT_ALIGN     (8UL)
 #define FD_TXN_ACCOUNT_MAGIC     (0xF15EDF1C51F51AA1UL)
-
-#define FD_TXN_ACCOUNT_DECL(_x)  fd_txn_account_t _x[1];
 
 FD_PROTOTYPES_BEGIN
 
@@ -80,7 +73,7 @@ fd_txn_account_new( void *              mem,
    removed in favor of using offsets into other data structures. */
 
 fd_txn_account_t *
-fd_txn_account_join( void * mem, fd_wksp_t * data_wksp );
+fd_txn_account_join( void * mem );
 
 /* fd_txn_account_leave leaves a current local join and returns a
    pointer to the underlying shared memory region. The fd_txn_account_t
@@ -114,24 +107,24 @@ fd_txn_account_delete( void * mem );
    account, since we are inside a Solana transaction. */
 
 int
-fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
-                                        fd_pubkey_t const *   pubkey,
-                                        fd_funk_t const *     funk,
-                                        fd_funk_txn_t const * funk_txn );
+fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
+                                        fd_pubkey_t const *       pubkey,
+                                        fd_funk_t const *         funk,
+                                        fd_funk_txn_xid_t const * xid );
 
 /* fd_txn_account_init_from_funk_mutable initializes a fd_txn_account_t
    object with a mutable handle into its funk record.
 
    IMPORTANT: Cannot be called in the executor tile. */
 
-int
-fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
-                                       fd_pubkey_t const *     pubkey,
-                                       fd_funk_t *             funk,
-                                       fd_funk_txn_t *         funk_txn,
-                                       int                     do_create,
-                                       ulong                   min_data_sz,
-                                       fd_funk_rec_prepare_t * prepare_out );
+fd_account_meta_t *
+fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
+                                       fd_pubkey_t const *       pubkey,
+                                       fd_accdb_user_t *         accdb,
+                                       fd_funk_txn_xid_t const * xid,
+                                       int                       do_create,
+                                       ulong                     min_data_sz,
+                                       fd_funk_rec_prepare_t *   prepare_out );
 
 /* Publishes the record contents of a mutable fd_txn_account_t object
    obtained from fd_txn_account_init_from_funk_mutable into funk
@@ -140,10 +133,9 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
    by fd_txn_account_init_from_funk_mutable. */
 
 void
-fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
-                             fd_funk_t *             funk,
-                             fd_funk_txn_t *         txn,
-                             fd_funk_rec_prepare_t * prepare );
+fd_txn_account_mutable_fini( fd_txn_account_t *        acct,
+                             fd_accdb_user_t *         funk,
+                             fd_funk_rec_prepare_t *   prepare );
 
 /* Simple accesssors and mutators. */
 
@@ -171,9 +163,6 @@ fd_txn_account_get_lamports( fd_txn_account_t const * acct );
 ulong
 fd_txn_account_get_rent_epoch( fd_txn_account_t const * acct );
 
-fd_solana_account_meta_t const *
-fd_txn_account_get_info( fd_txn_account_t const * acct );
-
 void
 fd_txn_account_set_meta( fd_txn_account_t * acct, fd_account_meta_t * meta );
 
@@ -193,9 +182,6 @@ int
 fd_txn_account_checked_sub_lamports( fd_txn_account_t * acct, ulong lamports );
 
 void
-fd_txn_account_set_rent_epoch( fd_txn_account_t * acct, ulong rent_epoch );
-
-void
 fd_txn_account_set_data( fd_txn_account_t * acct,
                          void const *       data,
                          ulong              data_sz );
@@ -209,10 +195,6 @@ fd_txn_account_set_slot( fd_txn_account_t * acct,
 
 void
 fd_txn_account_clear_owner( fd_txn_account_t * acct );
-
-void
-fd_txn_account_set_meta_info( fd_txn_account_t *               acct,
-                              fd_solana_account_meta_t const * info );
 
 void
 fd_txn_account_resize( fd_txn_account_t * acct, ulong dlen );

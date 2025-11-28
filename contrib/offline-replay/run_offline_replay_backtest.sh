@@ -40,7 +40,7 @@ EOF
     curl -X POST -H 'Content-type: application/json' --data "$json_payload" $SLACK_DEBUG_WEBHOOK_URL
 }
 
-send_slack_message "Starting $NETWORK-offline-replay run on \`$(hostname)\` in \`$(pwd)\` with agave tag \`$AGAVE_TAG\` and firedancer cluster version \`$FD_CLUSTER_VERSION\`"
+send_slack_message "Starting $NETWORK-offline-replay run on \`$(hostname)\` in \`$(pwd)\` with agave tag \`$AGAVE_TAG\`"
 CURRENT_MISMATCH_COUNT=0
 CURRENT_FAILURE_COUNT=0
 
@@ -59,7 +59,17 @@ while true; do
         cd $AGAVE_REPO
         git pull
         git checkout $AGAVE_TAG
-        cargo build --release
+
+        AGAVE_VERSION=$(echo "$AGAVE_TAG" | sed 's/^v//')
+        if [ "$(printf '%s\n' "$AGAVE_VERSION" "3.1.0" | sort -V | head -n1)" = "3.1.0" ]; then
+            cargo clean
+            cargo build --manifest-path dev-bins/Cargo.toml -p agave-ledger-tool --release
+            AGAVE_LEDGER_TOOL="${AGAVE_REPO}/dev-bins/target/release/agave-ledger-tool"
+        else
+            cargo clean
+            cargo build --release
+            AGAVE_LEDGER_TOOL="${AGAVE_REPO}/target/release/agave-ledger-tool"
+        fi
 
         send_slack_message "Bucket Slot \`$NEWEST_BUCKET_SLOT\` is greater than the last run bucket slot \`$LATEST_RUN_BUCKET_SLOT\`"
 
@@ -165,7 +175,7 @@ while true; do
 
         while [ $DONE -eq 0 ]; do
             cd $FIREDANCER_REPO
-            send_slack_message "Starting ledger replay with commit \`$FD_COMMIT\` and cluster version \`$FD_CLUSTER_VERSION\`"
+            send_slack_message "Starting ledger replay with commit \`$FD_COMMIT\`"
             set +e
 
             cp $FIREDANCER_REPO/contrib/offline-replay/offline_replay.toml $LEDGER_DIR
@@ -175,7 +185,6 @@ while true; do
             export end_slot=$ROCKSDB_ROOTED_MAX
             export funk_pages=$BACKTEST_FUNK_PAGES
             export index_max=$INDEX_MAX
-            export cluster_version=$FD_CLUSTER_VERSION
             export heap_size=$HEAP_SIZE
             export log=$TEMP_LOG
 
@@ -183,7 +192,6 @@ while true; do
             sed -i "s#{end_slot}#${end_slot}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{funk_pages}#${funk_pages}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{index_max}#${index_max}#g" "$LEDGER_DIR/offline_replay.toml"
-            sed -i "s#{cluster_version}#${cluster_version}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{heap_size}#${heap_size}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{log}#${log}#g" "$LEDGER_DIR/offline_replay.toml"
 
@@ -295,7 +303,7 @@ while true; do
                 # create new snapshot at that slot
                 if [ "$PREVIOUS_ROOTED_SLOT" -gt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
                     echo "Creating new snapshot at $PREVIOUS_ROOTED_SLOT"
-                    $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR
+                    $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change
                     sleep 10
                     rm $LEDGER_DIR/ledger_tool -rf
                     # delete old snapshot (LEADER_REPLAY_SNAPSHOT)
@@ -308,7 +316,7 @@ while true; do
 
                 # create a new base snapshot for rooted slot right after the mismatch slot
                 echo "Creating new snapshot at $NEXT_ROOTED_SLOT"
-                $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR
+                $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change
                 sleep 10
                 rm $LEDGER_DIR/ledger_tool -rf
 
@@ -341,7 +349,7 @@ while true; do
 
                 mv $LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
                 echo "Creating minimized snapshot for mismatch"
-                $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT
+                $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT --enable-capitalization-change
                 sleep 10
                 rm $LEDGER_DIR/ledger_tool -rf
                 mv $LEDGER_DIR/snapshot-${PREVIOUS_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
@@ -365,7 +373,7 @@ while true; do
 
                 ledger_name=$(basename $MISMATCH_DIR)
                 end_slot=$((NEXT_ROOTED_SLOT+5))
-                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -y 10 -m 2000000 -e $end_slot -c $FD_CLUSTER_VERSION\`\`\`"
+                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -y 10 -m 2000000 -e $end_slot\`\`\`"
 
             fi
         done

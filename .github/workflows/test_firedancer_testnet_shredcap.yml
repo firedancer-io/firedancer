@@ -9,13 +9,15 @@ on:
 jobs:
   firedancer-testnet-shredcap:
     timeout-minutes: 30
-    runs-on: [self-hosted, 512G]
+    runs-on:
+      labels: [self-hosted, 512G]
+      group: fd-public-repo
     env:
       CC: gcc
       MACHINE: ${{ inputs.machine }}
       AGAVE_VERSION: v2.0.3
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 

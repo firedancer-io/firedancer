@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_fdctl_run_tiles_fd_stake_ci_h
-#define HEADER_fd_src_app_fdctl_run_tiles_fd_stake_ci_h
+#ifndef HEADER_fd_src_disco_shred_fd_stake_ci_h
+#define HEADER_fd_src_disco_shred_fd_stake_ci_h
 
 /* fd_stake_ci handles the thorny problem of keeping track of leader
    schedules and shred destinations, which are epoch specific.  Around
@@ -231,4 +231,4 @@ compute_id_weights_from_vote_weights( fd_stake_weight_t *            stake_weigh
                                       fd_vote_stake_weight_t const * vote_stake_weight,
                                       ulong                          staked_cnt );
 
-#endif /* HEADER_fd_src_app_fdctl_run_tiles_fd_stake_ci_h */
+#endif /* HEADER_fd_src_disco_shred_fd_stake_ci_h */

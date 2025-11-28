@@ -81,7 +81,7 @@ fd_ip4_igmp( void * _msg,
              uint   igmp_group ) {
   fd_ip4_igmp_t * msg = (fd_ip4_igmp_t *)_msg;
 
-  msg->ip4->verihl       = FD_IP4_VERIHL(6U,4U);
+  msg->ip4->verihl       = FD_IP4_VERIHL(4U,6U);
   msg->ip4->tos          = FD_IP4_HDR_TOS_PREC_INTERNETCONTROL;
   msg->ip4->net_tot_len  = fd_ushort_bswap( (ushort)32 );
   msg->ip4->net_id       = (ushort)0;

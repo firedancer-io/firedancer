@@ -205,15 +205,18 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
-  configure_stage( &fd_cfg_stage_ethtool_gro,      CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_ethtool_offloads, CONFIGURE_CMD_INIT, config );
 
   fdctl_check_configure( config );
   /* FIXME this allocates lots of memory unnecessarily */
   initialize_workspaces( config );
   initialize_stacks( config );
   fdctl_setup_netns( config, 1 );
-  (void)fd_topo_install_xdp( topo, config->net.bind_address_parsed );
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+    fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
+  }
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /* FIXME allow running sandboxed/multiprocess */

@@ -1,9 +1,8 @@
 #include "fd_builtin_programs.h"
 #include "fd_precompiles.h"
-#include "../fd_runtime.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../fd_system_ids_pp.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 
 #define BUILTIN_PROGRAM(program_id, name, feature_offset, migration_config) \
     {                                                                       \
@@ -149,8 +148,7 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 };
 #define MIGRATING_BUILTINS_COUNT (sizeof(migrating_builtins) / sizeof(fd_core_bpf_migration_config_t const *))
 
-/* Using MAP_PERFECT instead of a list for optimization
-   https://github.com/anza-xyz/agave/blob/v2.1.13/builtins-default-costs/src/lib.rs#L141-L193 */
+/* https://github.com/anza-xyz/agave/blob/v2.1.13/builtins-default-costs/src/lib.rs#L141-L193 */
 #define MAP_PERFECT_NAME fd_non_migrating_builtins_tbl
 #define MAP_PERFECT_LG_TBL_SZ 4
 #define MAP_PERFECT_T fd_pubkey_t
@@ -183,15 +181,11 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 
 // https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4944
 static int
-fd_builtin_is_bpf( fd_exec_slot_ctx_t * slot_ctx,
-                   fd_pubkey_t const  * pubkey ) {
-
-
-  fd_funk_t *     funk = slot_ctx->funk;
-  fd_funk_txn_t * txn  = slot_ctx->funk_txn;
-  FD_TXN_ACCOUNT_DECL( rec );
-
-  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, funk, txn );
+fd_builtin_is_bpf( fd_funk_t *               funk,
+                   fd_funk_txn_xid_t const * xid,
+                   fd_pubkey_t const  *      pubkey ) {
+  fd_txn_account_t rec[1];
+  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, funk, xid );
   if( !!err ) {
     return 0;
   }
@@ -209,18 +203,19 @@ fd_builtin_is_bpf( fd_exec_slot_ctx_t * slot_ctx,
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/native_loader.rs#L19 */
 void
-fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
-                          fd_pubkey_t const    pubkey,
-                          char const *         data,
-                          ulong                sz ) {
+fd_write_builtin_account( fd_bank_t  *              bank,
+                          fd_accdb_user_t *         accdb,
+                          fd_funk_txn_xid_t const * xid,
+                          fd_capture_ctx_t *        capture_ctx,
+                          fd_pubkey_t const         pubkey,
+                          char const *              data,
+                          ulong                     sz ) {
 
-  fd_funk_t *         funk = slot_ctx->funk;
-  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
   fd_funk_rec_prepare_t prepare = {0};
 
-  int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz, &prepare );
-  FD_TEST( !err );
+  int ok = !!fd_txn_account_init_from_funk_mutable( rec, &pubkey, accdb, xid, 1, sz, &prepare );
+  FD_TEST( ok );
 
   fd_lthash_value_t prev_hash[1];
   fd_hashes_account_lthash(
@@ -231,24 +226,21 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_txn_account_set_data( rec, data, sz );
   fd_txn_account_set_lamports( rec, 1UL );
-  fd_txn_account_set_rent_epoch( rec, 0UL );
   fd_txn_account_set_executable( rec, 1 );
   fd_txn_account_set_owner( rec, &fd_solana_native_loader_id );
 
-  fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
+  fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
 
-  fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
+  fd_txn_account_mutable_fini( rec, accdb, &prepare );
 
-  fd_bank_capitalization_set( slot_ctx->bank, fd_bank_capitalization_get( slot_ctx->bank ) + 1UL );
-
-  // err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
-  FD_TEST( !err );
+  fd_bank_capitalization_set( bank, fd_bank_capitalization_get( bank ) + 1UL );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L74 */
 /* TODO: move this somewhere more appropiate */
 static void
-write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
+write_inline_spl_native_mint_program_account( fd_accdb_user_t *         accdb,
+                                              fd_funk_txn_xid_t const * xid ) {
 
   if( true ) {
     /* FIXME: This is a hack that corresponds to the cluster type field
@@ -256,10 +248,8 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  fd_funk_t *         funk = slot_ctx->funk;
-  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
   fd_pubkey_t const * key  = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
   static uchar const data[] = {
@@ -268,56 +258,51 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
   fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( rec, key, funk, txn, 1, sizeof(data), &prepare );
-  FD_TEST( !err );
+  int ok = !!fd_txn_account_init_from_funk_mutable( rec, key, accdb, xid, 1, sizeof(data), &prepare );
+  FD_TEST( ok );
 
   fd_txn_account_set_lamports( rec, 1000000000UL );
-  fd_txn_account_set_rent_epoch( rec, 1UL );
   fd_txn_account_set_executable( rec, 0 );
   fd_txn_account_set_owner( rec, &fd_solana_spl_token_id );
   fd_txn_account_set_data( rec, data, sizeof(data) );
 
-  fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
-
-  FD_TEST( !err );
+  fd_txn_account_mutable_fini( rec, accdb, &prepare );
 }
 
 // <rant> Why are these not in the genesis block themselves?! the hackery to deal with subtle solana variants
 //        because of the "special knowledge" required for these accounts is counter productive... </rant>
 
-void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
+void
+fd_builtin_programs_init( fd_bank_t *               bank,
+                          fd_accdb_user_t *         accdb,
+                          fd_funk_txn_xid_t const * xid,
+                          fd_capture_ctx_t *        capture_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/builtins/src/lib.rs#L52 */
   fd_builtin_program_t const * builtins = fd_builtins();
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
     /** https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4949 */
-    if( fd_bank_slot_get( slot_ctx->bank )==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( slot_ctx, builtins[i].pubkey ) ) {
-      fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data, strlen( builtins[i].data ) );
-    } else if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_get( slot_ctx->bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
+    if( fd_bank_slot_get( bank )==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( funk, xid, builtins[i].pubkey ) ) {
+      fd_write_builtin_account( bank, accdb, xid, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen( builtins[i].data ) );
+    } else if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       continue;
-    } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_get( slot_ctx->bank ), builtins[i].enable_feature_offset ) ) {
+    } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), builtins[i].enable_feature_offset ) ) {
       continue;
     } else {
-      fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
+      fd_write_builtin_account( bank, accdb, xid, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
     }
   }
 
   /* Precompiles have empty account data */
-  if( fd_bank_cluster_version_get( slot_ctx->bank ).major == 1 ) {
-    char data[1] = {1};
-    fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, data, 1 );
-    fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, data, 1 );
-    if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, enable_secp256r1_precompile ) )
-      fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, data, 1 );
-  } else {
-    fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, "", 0 );
-    fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, "", 0 );
-    if( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, enable_secp256r1_precompile ) )
-      fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, "", 0 );
+  fd_write_builtin_account( bank, accdb, xid, capture_ctx, fd_solana_keccak_secp_256k_program_id, "", 0 );
+  fd_write_builtin_account( bank, accdb, xid, capture_ctx, fd_solana_ed25519_sig_verify_program_id, "", 0 );
+  if( FD_FEATURE_ACTIVE_BANK( bank, enable_secp256r1_precompile ) ) {
+    fd_write_builtin_account( bank, accdb, xid, capture_ctx, fd_solana_secp256r1_program_id, "", 0 );
   }
 
   /* Inline SPL token mint program ("inlined to avoid an external dependency on the spl-token crate") */
-  write_inline_spl_native_mint_program_account( slot_ctx );
+  write_inline_spl_native_mint_program_account( accdb, xid );
 }
 
 fd_builtin_program_t const *
@@ -351,16 +336,16 @@ fd_num_precompiles( void ) {
 }
 
 uchar
-fd_is_migrating_builtin_program( fd_exec_txn_ctx_t const * txn_ctx,
-                                 fd_pubkey_t const *       pubkey,
-                                 uchar *                   migrated_yet ) {
+fd_is_migrating_builtin_program( fd_bank_t *         bank,
+                                 fd_pubkey_t const * pubkey,
+                                 uchar *             migrated_yet ) {
   *migrated_yet = 0;
 
   for( ulong i=0; i<MIGRATING_BUILTINS_COUNT; i++ ) {
     fd_core_bpf_migration_config_t const * config = migrating_builtins[i];
     if( !memcmp( pubkey->uc, config->builtin_program_id->key, sizeof(fd_pubkey_t) ) ) {
       if( config->enable_feature_offset!=NO_ENABLE_FEATURE_ID &&
-        FD_FEATURE_ACTIVE_OFFSET( txn_ctx->slot, txn_ctx->features, config->enable_feature_offset ) ) {
+        FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), config->enable_feature_offset ) ) {
         /* The program has been migrated to BPF. */
         *migrated_yet = 1;
       }

@@ -1,15 +1,15 @@
 #define _GNU_SOURCE
-#include "../dev.h"
 #include "../../../shared/commands/configure/configure.h"
 #include "../../../shared/commands/run/run.h"
 
+#include "../../../shared/commands/watch/watch.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
-#include "../../../../util/shmem/fd_shmem_private.h"
+#include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../util/tile/fd_tile_private.h"
 
+#include <errno.h>
 #include <unistd.h>
-#include <stdio.h>
 #include <sched.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -124,15 +124,25 @@ extern int * fd_log_private_shared_lock;
 
 void
 bench_cmd_fn( args_t *   args,
-              config_t * config ) {
+              config_t * config,
+              int        watch ) {
 
   ushort dest_port = fd_ushort_if( args->load.no_quic,
                                    config->tiles.quic.regular_transaction_listen_port,
                                    config->tiles.quic.quic_transaction_listen_port );
 
-  config->rpc.port     = fd_ushort_if( config->rpc.port, config->rpc.port, 8899 );
+  ushort rpc_port;
+  uint rpc_ip_addr;
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
+    config->frankendancer.rpc.port     = fd_ushort_if( config->frankendancer.rpc.port, config->frankendancer.rpc.port, 8899 );
     config->frankendancer.rpc.full_api = 1;
+    rpc_port = config->frankendancer.rpc.port;
+    rpc_ip_addr = config->net.ip_addr;
+  } else {
+    if( FD_UNLIKELY( !config->tiles.rpc.enabled ) ) FD_LOG_ERR(( "RPC tile must be enabled to run bench" ));
+    rpc_port = config->tiles.rpc.rpc_listen_port;
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.rpc.rpc_listen_address, &rpc_ip_addr ) ) )
+      FD_LOG_ERR(( "failed to parse rpc listen address `%s`", config->tiles.rpc.rpc_listen_address ));
   }
 
   int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
@@ -158,8 +168,8 @@ bench_cmd_fn( args_t *   args,
                   config->layout.quic_tile_count,
                   dest_port,
                   config->net.ip_addr,
-                  config->rpc.port,
-                  config->net.ip_addr,
+                  rpc_port,
+                  rpc_ip_addr,
                   args->load.no_quic,
                   !config->is_firedancer );
 
@@ -177,13 +187,25 @@ bench_cmd_fn( args_t *   args,
   fdctl_setup_netns( config, 1 );
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
-    (void)fds;
+    fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  if( watch ) {
+    int pipefd[2];
+    if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    args_t watch_args;
+    watch_args.watch.drain_output_fd = pipefd[0];
+    if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    /* FIXME allow running sandboxed/multiprocess */
+    fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+    watch_cmd_fn( &watch_args, config );
+  } else {
+    /* FIXME allow running sandboxed/multiprocess */
+    fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  }
 }

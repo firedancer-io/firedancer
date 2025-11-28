@@ -6,6 +6,8 @@
 #include "../../util/fd_util.h"
 #include "../../disco/fd_disco_base.h"
 
+#include <stddef.h> // offsetof
+
 /* Constants used in deriving size bounds
    - 1232b (MTU)
    - 1188b = 1232b-4b(discriminant)-32b(pubkey)-8(crds len) max CRDS sz
@@ -74,12 +76,12 @@ FD_STATIC_ASSERT( FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL==25UL,
                  "FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL must be 25" );
 
 
-#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (49UL + sizeof(ulong) + sizeof(fd_contact_info_t))
-#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (49UL + sizeof(ulong))
-#define FD_GOSSIP_UPDATE_SZ_LOWEST_SLOT         (49UL + sizeof(ulong))
-#define FD_GOSSIP_UPDATE_SZ_VOTE                (49UL + sizeof(fd_gossip_vote_t))
-#define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (49UL + sizeof(fd_gossip_duplicate_shred_t))
-#define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (49UL + sizeof(fd_gossip_snapshot_hashes_t))
+#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (offsetof(fd_gossip_update_message_t, contact_info)        + sizeof(ulong) + sizeof(fd_contact_info_t))
+#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (offsetof(fd_gossip_update_message_t, contact_info_remove) + sizeof(ulong))
+#define FD_GOSSIP_UPDATE_SZ_LOWEST_SLOT         (offsetof(fd_gossip_update_message_t, lowest_slot)         + sizeof(ulong))
+#define FD_GOSSIP_UPDATE_SZ_VOTE                (offsetof(fd_gossip_update_message_t, vote)                + sizeof(fd_gossip_vote_t))
+#define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (offsetof(fd_gossip_update_message_t, duplicate_shred)     + sizeof(fd_gossip_duplicate_shred_t))
+#define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (offsetof(fd_gossip_update_message_t, snapshot_hashes)     + sizeof(fd_gossip_snapshot_hashes_t))
 
 struct fd_gossip_view_ipaddr {
   uchar   is_ip6;
@@ -167,18 +169,12 @@ typedef struct fd_gossip_view_version fd_gossip_view_version_t;
 #define FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS   (256UL)
 
 struct fd_gossip_view_contact_info {
-  long                     instance_creation_wallclock_nanos;
-  ushort                   shred_version;
-  fd_gossip_view_version_t version[ 1 ];
+  fd_contact_info_t contact_info[1];
+  ulong             ip6_cnt;
+  ulong             unrecognized_socket_tag_cnt;
 
-  ushort                   addrs_len;
-  fd_gossip_view_ipaddr_t  addrs[ FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES ];
-
-  ushort                   sockets_len;
-  fd_gossip_view_socket_t  sockets[ FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS ];
-
-  ushort                   ext_len;
-  ushort                   ext_off;
+  ushort            ext_len;
+  ushort            ext_off;
 };
 
 typedef struct fd_gossip_view_contact_info fd_gossip_view_contact_info_t;
@@ -189,6 +185,7 @@ struct fd_gossip_view_node_instance {
 
 typedef struct fd_gossip_view_node_instance fd_gossip_view_node_instance_t;
 
+#define FD_GOSSIP_VOTE_IDX_MAX (32U)
 struct fd_gossip_view_vote {
   uchar  index;
   ulong  txn_sz;
@@ -197,12 +194,14 @@ struct fd_gossip_view_vote {
 
 typedef struct fd_gossip_view_vote fd_gossip_view_vote_t;
 
+#define FD_GOSSIP_EPOCH_SLOTS_IDX_MAX (255U)
 struct fd_gossip_view_epoch_slots {
   uchar  index;
 };
 
 typedef struct fd_gossip_view_epoch_slots fd_gossip_view_epoch_slots_t;
 
+#define FD_GOSSIP_DUPLICATE_SHRED_IDX_MAX (512U)
 struct fd_gossip_view_duplicate_shred {
   ushort index;
   ulong  slot;
@@ -236,7 +235,7 @@ struct fd_gossip_view_crds_value {
 
   uchar tag;
   union{
-    fd_gossip_view_contact_info_t    contact_info[ 1 ];
+    fd_gossip_view_contact_info_t    ci_view[ 1 ];
     fd_gossip_view_node_instance_t   node_instance[ 1 ];
     fd_gossip_view_vote_t            vote[ 1 ];
     fd_gossip_view_epoch_slots_t     epoch_slots[ 1 ];
@@ -270,15 +269,15 @@ struct fd_gossip_view_pull_request {
   ulong mask;
   uint  mask_bits;
 
-  fd_gossip_view_crds_value_t contact_info[ 1 ];
+  fd_gossip_view_crds_value_t pr_ci[ 1 ];
 };
 
 typedef struct fd_gossip_view_pull_request fd_gossip_view_pull_request_t;
 
 struct fd_gossip_view_prune {
-  ushort origin_off;
-  ulong  prunes_len;
-  ushort prunes_off;
+  ushort pubkey_off;
+  ulong  origins_len;
+  ushort origins_off;
   ushort destination_off;
   ulong  wallclock;
   ushort signature_off;
@@ -322,7 +321,7 @@ typedef struct fd_gossip_view fd_gossip_view_t;
 static inline fd_ip4_port_t
 fd_contact_info_get_socket( fd_contact_info_t const * ci,
                             uchar                     tag ) {
-  if( FD_UNLIKELY( tag>FD_CONTACT_INFO_SOCKET_LAST ) ) {
+  if( FD_UNLIKELY( tag>=FD_CONTACT_INFO_SOCKET_CNT ) ) {
     FD_LOG_ERR(( "Invalid socket tag %u", tag ));
   }
   return ci->sockets[ tag ];
@@ -376,11 +375,12 @@ fd_gossip_contact_info_encode( fd_contact_info_t const * contact_info,
                                ulong *                   opt_encoded_sz );
 
 int
-fd_gossip_crds_vote_encode( uchar *       out_buf,
-                            ulong         out_buf_sz,
-                            uchar const * txn,
-                            ulong         txn_sz,
-                            uchar const * identity_pubkey,
-                            long          now,
-                            ulong *       opt_encoded_sz );
+fd_gossip_crds_vote_encode( uchar *                       out_buf,
+                            ulong                         out_buf_sz,
+                            uchar const *                 txn,
+                            ulong                         txn_sz,
+                            uchar const *                 identity_pubkey,
+                            long                          now,
+                            uchar                         vote_index,
+                            fd_gossip_view_crds_value_t * out_view );
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_private_h */

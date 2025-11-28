@@ -3,8 +3,6 @@
 
 /* fd_acc_mgr provides APIs for the Solana account database. */
 
-#include "../fd_flamenco_base.h"
-#include "../../ballet/txn/fd_txn.h"
 #include "fd_txn_account.h"
 
 #if FD_HAS_AVX
@@ -16,9 +14,6 @@
 
 #define FD_ACC_MGR_SUCCESS             (0)
 #define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
-#define FD_ACC_MGR_ERR_WRITE_FAILED    (-2)
-#define FD_ACC_MGR_ERR_READ_FAILED     (-3)
-#define FD_ACC_MGR_ERR_WRONG_MAGIC     (-4)
 
 #define FD_ACC_NONCE_SZ_MAX (80UL)     /* 80 bytes */
 
@@ -26,7 +21,7 @@
    client. This means that it includes the max size of the account (10MiB)
    and the associated metadata. */
 
-#define FD_ACC_TOT_SZ_MAX       (FD_ACC_SZ_MAX + sizeof(fd_account_meta_t))
+#define FD_ACC_TOT_SZ_MAX       (FD_RUNTIME_ACC_SZ_MAX + sizeof(fd_account_meta_t))
 
 #define FD_ACC_NONCE_TOT_SZ_MAX (FD_ACC_NONCE_SZ_MAX + sizeof(fd_account_meta_t))
 
@@ -40,9 +35,6 @@ FD_PROTOTYPES_BEGIN
 static inline void
 fd_account_meta_init( fd_account_meta_t * m ) {
   fd_memset( m, 0, sizeof(fd_account_meta_t) );
-  m->magic           = FD_ACCOUNT_META_MAGIC;
-  m->hlen            = sizeof(fd_account_meta_t);
-  m->info.rent_epoch = ULONG_MAX;
 }
 
 /* fd_account_meta_exists checks if the account in a funk record exists or was
@@ -56,30 +48,30 @@ fd_account_meta_exists( fd_account_meta_t const * m ) {
   if( !m ) return 0;
 
 # if FD_HAS_AVX
-  wl_t o = wl_ldu( m->info.owner );
+  wl_t o = wl_ldu( m->owner );
   int has_owner = !_mm256_testz_si256( o, o );
 # else
   int has_owner = 0;
   for( ulong i=0UL; i<32UL; i++ )
-    has_owner |= m->info.owner[i];
+    has_owner |= m->owner[i];
   has_owner = !!has_owner;
 # endif
 
-  return ((m->info.lamports > 0UL) |
-          (m->dlen          > 0UL) |
-          (has_owner             ) );
+  return ((m->lamports > 0UL) |
+          (m->dlen     > 0UL) |
+          (has_owner        ) );
 
 }
 
 /* Account meta helpers */
 static inline void *
 fd_account_meta_get_data( fd_account_meta_t * m ) {
-  return ((uchar *) m) + m->hlen;
+  return ((uchar *) m) + sizeof(fd_account_meta_t);
 }
 
 static inline void const *
 fd_account_meta_get_data_const( fd_account_meta_t const * m ) {
-  return ((uchar const *) m) + m->hlen;
+  return ((uchar const *) m) + sizeof(fd_account_meta_t);
 }
 
 static inline ulong
@@ -96,16 +88,7 @@ FD_FN_PURE static inline fd_funk_rec_key_t
 fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
   fd_funk_rec_key_t key = {0};
   memcpy( key.uc, pubkey, sizeof(fd_pubkey_t) );
-  key.uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ACC;
   return key;
-}
-
-/* fd_funk_key_is_acc returns 1 if given fd_funk key is an account
-   and 0 otherwise. */
-
-FD_FN_PURE static inline int
-fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
-  return id->uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;
 }
 
 /* Account Access from Funk APIs *************************************************/
@@ -134,7 +117,7 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
    - notably, leaves *opt_err untouched, even if opt_err!=NULL
 
    First byte of returned pointer is first byte of fd_account_meta_t.
-   To find data region of account, add (fd_account_meta_t)->hlen.
+   To find data region of account, add sizeof(fd_account_meta_t).
 
    Lifetime of returned fd_funk_rec_t and account record pointers ends
    when user calls modify_data for same account, or tranasction ends.
@@ -148,66 +131,19 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
    It is always wrong to cast return value to a non-const pointer.
    Instead, use fd_funk_get_acc_meta_mutable to acquire a mutable handle.
 
-   if txn_out is supplied (non-null), the txn the key was found in
-   is returned. If *txn_out == NULL, the key was found in the root
-   context.
+   If xid_out is supplied (non-null), sets *xid_out to the xid in which
+   the found record was created.
 
    IMPORTANT: fd_funk_get_acc_meta_readonly is only safe if it
    is guaranteed there are no other modifying accesses to the account. */
 
 fd_account_meta_t const *
-fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
-                               fd_funk_txn_t const *  txn,
-                               fd_pubkey_t const *    pubkey,
-                               fd_funk_rec_t const ** opt_out_rec,
-                               int *                  opt_err,
-                               fd_funk_txn_t const ** txn_out );
-
-/* fd_funk_get_acc_meta_mutable requests a writable handle to an account.
-   Follows interface of fd_funk_get_account_meta_readonly with the following
-   changes:
-
-   - do_create controls behavior if account does not exist.  If set to
-     0, returns error.  If set to 1, creates account with given size
-     and zero-initializes metadata.  Caller must initialize metadata of
-     returned handle in this case.
-   - min_data_sz is the minimum writable data size that the caller will
-     accept.  This parameter will never shrink an existing account.  If
-     do_create, specifies the new account's size.  Otherwise, increases
-     record size if necessary.
-   - When resizing or creating an account, the caller should also always
-     set the account meta's size field.  This is not done automatically.
-   - If caller already has a read-only handle to the requested account,
-     opt_con_rec can be used to skip query by pubkey.
-   - In most cases, account is copied to "dirty cache".
-
-   On success:
-   - If opt_out_rec!=NULL, sets *opt_out_rec to a pointer to writable
-     funk rec.
-   - If a record was cloned from an ancestor funk txn or created,
-     out_prepare is populated with the prepared record object.
-   - Returns pointer to mutable account metadata and data analogous to
-     fd_funk_get_acc_meta_readonly.
-   - IMPORTANT:  Return value may point to the same memory region as a
-     previous calls to fd_funk_get_acc_meta_readonly or fd_funk_get_acc_meta_mutable do,
-     for the same funk rec (account/txn pair).  fd_funk_acc_mgr APIs only promises
-     that account handles requested for different funk txns will not
-     alias. Generally, for each funk txn, the user should only ever
-     access the latest handle returned by view/modify.
-
-   IMPORTANT: fd_funk_get_acc_meta_mutable can only be called if
-   it is guaranteed that there are no other modifying accesses to
-   that account. */
-
-fd_account_meta_t *
-fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
-                              fd_funk_txn_t *         txn,
-                              fd_pubkey_t const *     pubkey,
-                              int                     do_create,
-                              ulong                   min_data_sz,
-                              fd_funk_rec_t **        opt_out_rec,
-                              fd_funk_rec_prepare_t * out_prepare,
-                              int *                   opt_err );
+fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
+                               fd_funk_txn_xid_t const * xid,
+                               fd_pubkey_t const *       pubkey,
+                               fd_funk_rec_t const **    orec,
+                               int *                     opt_err,
+                               fd_funk_txn_xid_t *       xid_out );
 
 /* fd_acc_mgr_strerror converts an fd_acc_mgr error code into a human
    readable cstr.  The lifetime of the returned pointer is infinite and

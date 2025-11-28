@@ -3,7 +3,7 @@ send_test is a firedancer-dev command that tests the send tile.
 It uses the net, send, metrics, and sign tiles, just like in prod.
 The main test function writes contact info to the gossip_out link,
 stake info to the stake_out link, and triggers mock votes on the
-tower_send link.
+tower_out link.
 
 It takes two required arguments:
 --gossip-file: the path to the gossip file
@@ -24,8 +24,8 @@ up the entire gossip subtopo.
 #include "../../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus_t */
 #include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../disco/net/fd_net_tile.h" /* fd_topos_net_tiles */
+#include "../../../../discof/tower/fd_tower_tile.h"
 #include "../../../../flamenco/leaders/fd_leaders_base.h" /* FD_STAKE_OUT_MTU */
-#include "../../../../disco/pack/fd_microblock.h" /* fd_txn_p_t */
 #include "../../../../app/firedancer/topology.h" /* fd_topo_configure_tile */
 #include "../../../../disco/keyguard/fd_keyload.h"
 
@@ -99,37 +99,37 @@ send_test_topo( config_t * config ) {
   /* mock links */
   /* braces shut up clang's 'misleading identation' warning */
   if( !use_live_gossip ) {fd_topob_wksp( topo, "gossip_out" ); }
-  /**/                    fd_topob_wksp( topo, "stake_out"  );
-  /**/                    fd_topob_wksp( topo, "tower_send" );
-  /**/                    fd_topob_wksp( topo, "send_txns"  );
+  /**/                    fd_topob_wksp( topo, "replay_stake"  );
+  /**/                    fd_topob_wksp( topo, "tower_out" );
+  /**/                    fd_topob_wksp( topo, "send_out"  );
 
-  if( !use_live_gossip ) {fd_topob_link( topo, "gossip_out", "gossip_out", 65536UL*4UL, sizeof(fd_gossip_update_message_t), 1UL ); }
-  /**/                    fd_topob_link( topo, "stake_out",  "stake_out",  128UL,       FD_STAKE_OUT_MTU,                   1UL );
-  /**/                    fd_topob_link( topo, "tower_send", "tower_send", 65536UL,     sizeof(fd_txn_p_t),                 1UL );
-  /**/                    fd_topob_link( topo, "send_txns",  "send_txns",  128UL,       40200UL * 38UL,                     1UL );
+  if( !use_live_gossip ) {fd_topob_link( topo, "gossip_out",   "gossip_out",   65536UL*4UL, sizeof(fd_gossip_update_message_t), 1UL ); }
+  /**/                    fd_topob_link( topo, "replay_stake", "replay_stake", 128UL,       FD_STAKE_OUT_MTU,                   1UL );
+  /**/                    fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,      sizeof(fd_tower_slot_done_t),       1UL );
+  /**/                    fd_topob_link( topo, "send_out",     "send_out",     128UL,       40200UL * 38UL,                     1UL );
 
   if( !use_live_gossip ) {fd_link_permit_no_producers( topo, "gossip_out" ); }
-  if( !use_live_gossip ) {fd_link_permit_no_consumers( topo, "send_txns"  ); }
-  /**/                    fd_link_permit_no_producers( topo, "stake_out"  );
-  /**/                    fd_link_permit_no_producers( topo, "tower_send" );
+  if( !use_live_gossip ) {fd_link_permit_no_consumers( topo, "send_out"   ); }
+  /**/                    fd_link_permit_no_producers( topo, "replay_stake"  );
+  /**/                    fd_link_permit_no_producers( topo, "tower_out" );
 
   if( use_live_gossip ) {
     /* finish off gossip in_links */
-    fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "send_txns",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "send_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "sign_gossip", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   }
 
   /* attach send in links */
-  fd_topos_tile_in_net( topo, /* ***** */  "metric_in", "send_net",   0UL,  FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_in (    topo, "send", 0UL, "metric_in", "net_send",   0UL,  FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topos_tile_in_net( topo, /* ***** */  "metric_in", "send_net",     0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in (    topo, "send", 0UL, "metric_in", "net_send",     0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
-  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "gossip_out",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "stake_out",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "tower_send",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "gossip_out",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "replay_stake", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "tower_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /* attach out links */
   fd_topob_tile_out( topo, "send", 0UL, "send_net", 0UL );
-  fd_topob_tile_out( topo, "send", 0UL, "send_txns", 0UL );
+  fd_topob_tile_out( topo, "send", 0UL, "send_out", 0UL );
 
   /* unpolled links have to be last! */
   fd_topob_tile_in ( topo, "sign", 0UL, "metric_in", "send_sign", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -141,9 +141,7 @@ send_test_topo( config_t * config ) {
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    if( !fd_topo_configure_tile( tile, config ) ) {
-      FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
-    }
+    fd_topo_configure_tile( tile, config );
   }
 
   /* Finish topology setup */
@@ -204,8 +202,8 @@ init( send_test_ctx_t * ctx, config_t * config ) {
   ctx->vote_acct_addr[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( config->paths.vote_account, /* pubkey only: */ 1 ) );
 
   ctx->out_links[    MOCK_CI_IDX   ] = setup_test_out_link( topo, "gossip_out" );
-  ctx->out_links[  MOCK_STAKE_IDX  ] = setup_test_out_link( topo, "stake_out" );
-  ctx->out_links[ MOCK_TRIGGER_IDX ] = setup_test_out_link( topo, "tower_send" );
+  ctx->out_links[  MOCK_STAKE_IDX  ] = setup_test_out_link( topo, "replay_stake" );
+  ctx->out_links[ MOCK_TRIGGER_IDX ] = setup_test_out_link( topo, "tower_out" );
 
   ctx->out_fns  [    MOCK_CI_IDX   ] = send_test_ci;
   ctx->out_fns  [  MOCK_STAKE_IDX  ] = send_test_stake;
@@ -223,7 +221,7 @@ init( send_test_ctx_t * ctx, config_t * config ) {
     ctx->delay[ MOCK_CI_IDX ] = LONG_MAX;
   }
 
-  encode_vote( ctx, ctx->txn_buf );
+  encode_vote( ctx, ctx->twr_buf );
 
   /* send first epoch of stake info */
   send_test_stake( ctx, &ctx->out_links[ MOCK_STAKE_IDX ] );
@@ -249,8 +247,9 @@ send_test_cmd_fn( args_t *   args ,
 
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
-  configure_stage( &fd_cfg_stage_ethtool_gro,      CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_ethtool_offloads, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_loopback, CONFIGURE_CMD_INIT, config );
 
   fd_topo_print_log( 0, &config->topo );
@@ -258,7 +257,9 @@ send_test_cmd_fn( args_t *   args ,
   run_firedancer_init( config, !args->dev.no_init_workspaces, 1 );
   fdctl_setup_netns( config, 1 );
 
-  if( 0==strcmp( config->net.provider, "xdp" ) ) fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+    fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
+  }
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
@@ -273,7 +274,7 @@ configure_stage_perm( configure_stage_t const * stage,
                       fd_cap_chk_t *            chk,
                       config_t const *          config ) {
   int enabled = !stage->enabled || stage->enabled( config );
-  if( enabled && stage->check( config ).result != CONFIGURE_OK )
+  if( enabled && stage->check( config, FD_CONFIGURE_CHECK_TYPE_INIT_PERM ).result != CONFIGURE_OK )
     if( stage->init_perm ) stage->init_perm( chk, config );
 }
 
@@ -283,8 +284,9 @@ send_test_cmd_perm( args_t *         args FD_PARAM_UNUSED,
                     config_t const * config ) {
   configure_stage_perm( &fd_cfg_stage_sysctl,           chk, config );
   configure_stage_perm( &fd_cfg_stage_hugetlbfs,        chk, config );
+  configure_stage_perm( &fd_cfg_stage_bonding,          chk, config );
   configure_stage_perm( &fd_cfg_stage_ethtool_channels, chk, config );
-  configure_stage_perm( &fd_cfg_stage_ethtool_gro,      chk, config );
+  configure_stage_perm( &fd_cfg_stage_ethtool_offloads, chk, config );
   configure_stage_perm( &fd_cfg_stage_ethtool_loopback, chk, config );
 }
 

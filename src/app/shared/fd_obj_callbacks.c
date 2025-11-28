@@ -127,31 +127,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_metrics = {
 };
 
 static ulong
-opaque_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
-                  fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return VAL("footprint");
-}
-
-static ulong
-opaque_align( fd_topo_t const *     topo FD_FN_UNUSED,
-              fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return VAL("align");
-}
-
-static void
-opaque_new( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  fd_memset( fd_topo_obj_laddr( topo, obj->id ), 0, VAL("footprint") );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_opaque = {
-  .name      = "opaque",
-  .footprint = opaque_footprint,
-  .align     = opaque_align,
-  .new       = opaque_new,
-};
-
-static ulong
 dbl_buf_footprint( fd_topo_t const *     topo,
                    fd_topo_obj_t const * obj ) {
   return fd_dbl_buf_footprint( VAL("mtu") );
@@ -177,9 +152,11 @@ fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf = {
 };
 
 static ulong
-neigh4_hmap_footprint( fd_topo_t const *     topo,
+neigh4_hmap_footprint( fd_topo_t const * topo,
                    fd_topo_obj_t const * obj ) {
-  return fd_neigh4_hmap_footprint( VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max") );
+  ulong slot_cnt = fd_neigh4_hmap_est_slot_cnt( VAL("ele_max") );
+  FD_TEST( (slot_cnt!=ULONG_MAX) & (slot_cnt!=0) );
+  return fd_neigh4_hmap_footprint( slot_cnt );
 }
 
 static ulong
@@ -191,7 +168,8 @@ neigh4_hmap_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 neigh4_hmap_new( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_neigh4_hmap_new( fd_topo_obj_laddr( topo, obj->id ), VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max"), VAL("seed") ) );
+  ulong slot_cnt = fd_neigh4_hmap_est_slot_cnt( VAL("ele_max") );
+  FD_TEST( fd_neigh4_hmap_new( fd_topo_obj_laddr( topo, obj->id ), slot_cnt, 1 ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap = {

@@ -1,4 +1,4 @@
-#include "../fd_quic.h"
+#include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
 #include "fd_quic_stream_spam.h"
 
@@ -70,28 +70,7 @@ my_handshake_complete( fd_quic_conn_t * conn,
 
 
 /* global "clock" */
-ulong now = 123;
-
-ulong test_clock( void * ctx ) {
-  (void)ctx;
-  return now;
-}
-
-static void
-test_invalid_tx_buf_sz( fd_wksp_t * wksp ) {
-  FD_LOG_NOTICE(( "Testing invalid tx_buf_sz" ));
-  FD_TEST( !fd_ulong_pow2( FD_TXN_MTU ) );
-
-  fd_quic_limits_t const bad_limits = {
-    .conn_cnt           = 2,
-    .conn_id_cnt        = 4,
-    .handshake_cnt      = 10,
-    .inflight_frame_cnt = 100 * 2,
-    .tx_buf_sz          = FD_TXN_MTU,
-    .stream_pool_cnt    = 512
-  };
-  FD_TEST( !fd_quic_new( wksp, &bad_limits ) );
-}
+long now = 123;
 
 int
 main( int     argc,
@@ -115,8 +94,6 @@ main( int     argc,
   FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
-
-  test_invalid_tx_buf_sz( wksp );
 
   FD_LOG_NOTICE(( "Creating server QUIC" ));
 
@@ -145,11 +122,9 @@ main( int     argc,
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_client_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
-  server_quic->cb.now              = test_clock;
   server_quic->cb.conn_new         = my_connection_new;
   server_quic->cb.stream_rx        = my_stream_rx_cb;
 
-  client_quic->cb.now              = test_clock;
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.stream_notify    = fd_quic_stream_spam_notify;
 
@@ -168,16 +143,17 @@ main( int     argc,
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
+  fd_quic_get_state( server_quic )->now = fd_quic_get_state( client_quic )->now = now;
 
   FD_LOG_NOTICE(( "Creating connection" ));
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
   FD_TEST( client_conn );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
     FD_LOG_INFO(( "running services" ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
 
     if( server_complete && client_complete ) {
       FD_LOG_INFO(( "***** both handshakes complete *****" ));
@@ -197,8 +173,8 @@ main( int     argc,
 
     FD_LOG_DEBUG(( "running services" ));
 
-    fd_quic_service( server_quic );
-    fd_quic_service( client_quic );
+    fd_quic_service( server_quic, now );
+    fd_quic_service( client_quic, now );
   }
 
   FD_LOG_NOTICE(( "received: %lu", recvd ));
@@ -211,8 +187,8 @@ main( int     argc,
 
   for( unsigned j = 0; j < 10; ++j ) {
     FD_LOG_INFO(( "running services" ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
   }
 
   FD_LOG_NOTICE(( "Cleaning up" ));

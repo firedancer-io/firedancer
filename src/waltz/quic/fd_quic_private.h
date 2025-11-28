@@ -10,6 +10,7 @@
 #include "tls/fd_quic_tls.h"
 #include "fd_quic_stream_pool.h"
 #include "fd_quic_pretty_print.h"
+#include "fd_quic_svc_q.h"
 #include <math.h>
 
 #include "../../util/log/fd_dtrace.h"
@@ -41,24 +42,6 @@
 
 #define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
 
-/* FD_QUIC_SVC_{...} specify connection timer types. */
-
-#define FD_QUIC_SVC_INSTANT (0U)  /* as soon as possible */
-#define FD_QUIC_SVC_ACK_TX  (1U)  /* within local max_ack_delay (ACK TX coalesce) */
-#define FD_QUIC_SVC_WAIT    (2U)  /* within min(idle_timeout, peer max_ack_delay) */
-#define FD_QUIC_SVC_CNT     (3U)  /* number of FD_QUIC_SVC_{...} levels */
-
-/* fd_quic_svc_queue_t is a simple doubly linked list. */
-
-struct fd_quic_svc_queue {
-  /* FIXME track count */ // uint cnt;
-  uint head;
-  uint tail;
-};
-
-typedef struct fd_quic_svc_queue fd_quic_svc_queue_t;
-
-
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
 
@@ -66,7 +49,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* Flags */
   ulong flags;
 
-  ulong now; /* the time we entered into fd_quic_service, or fd_quic_aio_cb_receive */
+  long now; /* recent timestamp, assumed in ns */
 
   /* transport_params: Template for QUIC-TLS transport params extension.
      Contains a mix of mutable and immutable fields.  Immutable fields
@@ -96,8 +79,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_stream_pool_t * stream_pool;    /* stream pool, nullable */
   fd_quic_pkt_meta_t    * pkt_meta_pool;
   fd_rng_t                _rng[1];        /* random number generator */
-  fd_quic_svc_queue_t     svc_queue[ FD_QUIC_SVC_CNT ]; /* dlists */
-  ulong                   svc_delay[ FD_QUIC_SVC_CNT ]; /* target service delay */
 
   /* need to be able to access connections by index */
   ulong                   conn_base;      /* address of array of all connections */
@@ -118,6 +99,9 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* Scratch space for packet protection */
   uchar                   crypt_scratch[FD_QUIC_MTU];
+
+  /* the timer structs, large private fields / data follow */
+  fd_quic_svc_timers_t  * svc_timers;
 };
 
 /* FD_QUIC_STATE_OFF is the offset of fd_quic_state_t within fd_quic_t. */
@@ -130,7 +114,7 @@ struct fd_quic_pkt {
   /* the following are the "current" values only. There may be more QUIC packets
      in a UDP datagram */
   ulong              pkt_number;  /* quic packet number currently being decoded/parsed */
-  ulong              rcv_time;    /* time packet was received */
+  long               rcv_time;    /* time packet was received */
   uint               enc_level;   /* encryption level */
   uint               datagram_sz; /* length of the original datagram */
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
@@ -138,7 +122,7 @@ struct fd_quic_pkt {
 # define ACK_FLAG_CANCEL  2
 
   ulong              rtt_pkt_number; /* packet number used for rtt */
-  ulong              rtt_ack_time;
+  long               rtt_ack_time;
   ulong              rtt_ack_delay;
 };
 
@@ -165,24 +149,6 @@ fd_quic_get_state_const( fd_quic_t const * quic ) {
   return (fd_quic_state_t const *)( (ulong)quic + FD_QUIC_STATE_OFF );
 }
 
-static inline fd_quic_conn_map_t *
-fd_quic_conn_query1( fd_quic_conn_map_t * map,
-                     ulong                conn_id,
-                     fd_quic_conn_map_t * sentinel ) {
-  if( !conn_id ) return sentinel;
-  return fd_quic_conn_map_query( map, conn_id, sentinel );
-}
-
-static inline fd_quic_conn_t *
-fd_quic_conn_query( fd_quic_conn_map_t * map,
-                    ulong                conn_id ) {
-  fd_quic_conn_map_t sentinel = {0};
-  if( !conn_id ) return NULL;
-  fd_quic_conn_map_t * entry = fd_quic_conn_map_query( map, conn_id, &sentinel );
-  if( entry->conn && entry->conn->state==FD_QUIC_CONN_STATE_INVALID ) return NULL;
-  return entry->conn;
-}
-
 /* fd_quic_conn_service is called periodically to perform pending
    operations and time based operations.
 
@@ -193,22 +159,8 @@ fd_quic_conn_query( fd_quic_conn_map_t * map,
 void
 fd_quic_conn_service( fd_quic_t *      quic,
                       fd_quic_conn_t * conn,
-                      ulong            now );
+                      long             now );
 
-/* fd_quic_svc_schedule installs a connection timer.  svc_type is in
-   [0,FD_QUIC_SVC_CNT) and specifies the timer delay.  Lower timers
-   override higher ones. */
-
-void
-fd_quic_svc_schedule( fd_quic_state_t * state,
-                      fd_quic_conn_t *  conn,
-                      uint              svc_type );
-
-static inline void
-fd_quic_svc_schedule1( fd_quic_conn_t * conn,
-                       uint             svc_type ) {
-  fd_quic_svc_schedule( fd_quic_get_state( conn->quic ), conn, svc_type );
-}
 
 /* Memory management **************************************************/
 
@@ -222,9 +174,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
                      ushort                    self_udp_port,
                      int                       server );
 
-/* fd_quic_conn_free frees up most resources related to the connection
-   and returns it to the connection free list.  The dead conn remains in
-   the conn_id_map to catch inflight packets by the peer. */
+/* fd_quic_conn_free frees up resources related to the connection and
+   returns it to the connection free list. */
 void
 fd_quic_conn_free( fd_quic_t *      quic,
                    fd_quic_conn_t * conn );
@@ -281,11 +232,6 @@ fd_quic_apply_peer_params( fd_quic_conn_t *                   conn,
                            fd_quic_transport_params_t const * peer_tp );
 
 /* Helpers for calling callbacks **************************************/
-
-static inline ulong
-fd_quic_now( fd_quic_t * quic ) {
-  return quic->cb.now( quic->cb.now_ctx );
-}
 
 static inline void
 fd_quic_cb_conn_new( fd_quic_t *      quic,
@@ -347,7 +293,7 @@ fd_quic_reconstruct_pkt_num( ulong pktnum_comp,
 void
 fd_quic_pkt_meta_retry( fd_quic_t *          quic,
                         fd_quic_conn_t *     conn,
-                        int                  force,
+                        ulong                force_below_pkt_num,
                         uint                 arg_enc_level );
 
 /* reclaim resources associated with packet metadata
@@ -371,14 +317,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            fd_quic_conn_id_t const * scid,
                            uchar *                   cur_ptr,
                            ulong                     cur_sz );
+
 ulong
-fd_quic_handle_v1_handshake(
-    fd_quic_t *      quic,
-    fd_quic_conn_t * conn,
-    fd_quic_pkt_t *  pkt,
-    uchar *          cur_ptr,
-    ulong            cur_sz
-);
+fd_quic_handle_v1_handshake( fd_quic_t *      quic,
+                             fd_quic_conn_t * conn,
+                             fd_quic_pkt_t *  pkt,
+                             uchar *          cur_ptr,
+                             ulong            cur_sz );
 
 ulong
 fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
@@ -427,54 +372,69 @@ fd_quic_conn_at_idx( fd_quic_state_t * quic_state, ulong idx ) {
 /* called with round-trip-time (rtt) and the ack delay (from the spec)
    to sample the round trip times. */
 static inline void
-fd_quic_sample_rtt( fd_quic_conn_t * conn, long rtt_ticks, long ack_delay ) {
+fd_quic_sample_rtt( fd_quic_conn_t * conn, long rtt_ns, long ack_delay ) {
   /* for convenience */
   fd_rtt_estimate_t * rtt = conn->rtt;
 
-  /* ack_delay is in peer units, so scale to put in ticks */
-  float ack_delay_ticks = (float)ack_delay * conn->peer_ack_delay_scale;
+  /* scale ack delay using peer exponent - rfc9000 19.3 */
+  float ack_delay_ns = (float)ack_delay * conn->peer_ack_delay_scale;
 
   /* bound ack_delay by peer_max_ack_delay */
-  ack_delay_ticks = fminf( ack_delay_ticks, conn->peer_max_ack_delay_ticks );
+  ack_delay_ns = fminf( ack_delay_ns, conn->peer_max_ack_delay_ns );
 
-  fd_rtt_sample( rtt, (float)rtt_ticks, ack_delay_ticks );
+  fd_rtt_sample( rtt, (float)rtt_ns, ack_delay_ns );
 
   FD_DEBUG({
-    double us_per_tick = 1.0 / (double)conn->quic->config.tick_per_us;
-    FD_LOG_NOTICE(( "conn_idx: %u  min_rtt: %f  smoothed_rtt: %f  var_rtt: %f  adj_rtt: %f  rtt_ticks: %f  ack_delay_ticks: %f  diff: %f",
-                      (uint)conn->conn_idx,
-                      us_per_tick * (double)rtt->min_rtt,
-                      us_per_tick * (double)rtt->smoothed_rtt,
-                      us_per_tick * (double)rtt->var_rtt,
-                      us_per_tick * (double)adj_rtt,
-                      us_per_tick * (double)rtt_ticks,
-                      us_per_tick * (double)ack_delay_ticks,
-                      us_per_tick * ( (double)rtt_ticks - (double)ack_delay_ticks ) ));
+    FD_LOG_NOTICE(( "conn_idx: %u  min_rtt: %f  smoothed_rtt: %f  var_rtt: %f  rtt_ns: %f  ack_delay_ns: %f  diff: %f",
+                    (uint)conn->conn_idx,
+                    (double)rtt->min_rtt,
+                    (double)rtt->smoothed_rtt,
+                    (double)rtt->var_rtt,
+                    (double)rtt_ns,
+                    (double)ack_delay_ns,
+                    ( (double)rtt_ns - (double)ack_delay_ns ) ));
   })
 }
 
-/* fd_quic_calc_expiry returns the timestamp of the next expiry event. */
+/* fd_quic_calc_expiry_duration returns the duration to the next expiry event.
+   User should add the result to the base time to obtain the expiry timestamp.
+   Uses the loss detection timeout if 'ack_driven', otherwise uses the PTO. */
 
-static inline ulong
-fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
-  /* Instead of a full implementation of PTO, we're setting an expiry
-     time per sent QUIC packet
-     This calculates the expiry time according to the PTO spec
+static inline long
+fd_quic_calc_expiry_duration( fd_quic_conn_t * conn, int ack_driven, int is_server ) {
+  /*  For server, we want to be conservative and minimize spam risk, so we stick
+      with the hardcoded 500ms expiry. The following only applies to client.
+
+     If this calculation is ack-driven, use the time threshold:
+     6.1.2 Time Threshold
+     max(kTimeThreshold * max(smoothed_rtt, latest_rtt), kGranularity)
+     The RECOMMENDED time threshold (kTimeThreshold), expressed as an RTT multiplier, is 9/8 */
+     #define FD_QUIC_K_TIME_THRESHOLD 1.125f
+  /* Otherwise, calculate the expiry time according to the PTO spec
      6.2.1. Computing PTO
      When an ack-eliciting packet is transmitted, the sender schedules
      a timer for the PTO period as follows:
-     PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay  */
+     PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay
+
+     Our granularity is O(ns), while recommended is 1ms --> We don't
+     have to worry about kGranularity.
+*/
+
+  if( is_server ) return 500e6L;
 
   fd_rtt_estimate_t * rtt = conn->rtt;
 
-  ulong duration = (ulong)
-    ( rtt->smoothed_rtt
-        + (4.0f * rtt->var_rtt)
-        + conn->peer_max_ack_delay_ticks );
+  long pto_duration  = (long)( rtt->smoothed_rtt     +
+                                (4.0f * rtt->var_rtt) +
+                                conn->peer_max_ack_delay_ns );
 
-  FD_DTRACE_PROBE_2( quic_calc_expiry, conn->our_conn_id, duration );
+  long loss_duration = (long)( FD_QUIC_K_TIME_THRESHOLD * fmaxf( rtt->smoothed_rtt, rtt->latest_rtt ) );
 
-  return now + (ulong)500e6; /* 500ms */
+  long duration = fd_long_if( ack_driven, loss_duration, pto_duration );
+
+  FD_DTRACE_PROBE_3( quic_calc_expiry, conn->our_conn_id, duration, ack_driven );
+
+  return duration;
 }
 
 uchar *
@@ -491,7 +451,7 @@ fd_quic_process_ack_range( fd_quic_conn_t      *      conn,
                            ulong                      largest_ack,
                            ulong                      ack_range,
                            int                        is_largest,
-                           ulong                      now,
+                           long                       now,
                            ulong                      ack_delay );
 
 FD_PROTOTYPES_END

@@ -73,7 +73,7 @@
    ### Authentication
 
    Shreds are signed by the block producer.
-   Consequentially, only the block producer is able to create valid shreds for any given block. */
+   Consequently, only the block producer is able to create valid shreds for any given block. */
 
 #include "../fd_ballet.h"
 
@@ -159,18 +159,8 @@ FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == FD_SHRED_MERKLE_ROOT_SZ, update FD
 
 FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing this limit! );
 
-/* Many static bounds are specified around the assumption that this is a
-   protocol limit on the max number of shreds in a slot. If this limit
-   changes, all the relevant usages in other areas of the Firedancer
-   codebase should be updated before modifying this assertion. */
-
-FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing this limit! );
-
 /* 36,536,320 bytes per slot */
 #define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_BLK_MAX)
-
-/* 32,856 bytes per slot */
-#define FD_SHRED_DATA_HEADER_MAX_PER_SLOT (FD_SHRED_DATA_HEADER_SZ * FD_SHRED_BLK_MAX)
 
 /* Offset of the shred variant. Used for parsing. */
 #define FD_SHRED_VARIANT_OFF 0x40
@@ -259,7 +249,7 @@ struct __attribute__((packed)) fd_shred {
       /* Total number of coding shreds in FEC set. Must be positive <= FD_REEDSOL_CODE_SHREDS_MAX. */
       /* 0x55 */ ushort code_cnt;
 
-      /* Index within the vector of coding shreds in slot. In [0,
+      /* Index within the vector of coding shreds in FEC set. In [0,
          code_cnt).  Also, shred.code.idx <= shred.idx. */
       /* 0x57 */ ushort idx;
     } code;

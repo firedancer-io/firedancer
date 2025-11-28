@@ -12,6 +12,7 @@
 #include "../../../platform/fd_sys_util.h"
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_net_util.h"
+#include "../../../../disco/net/fd_net_tile.h"
 
 #include "../configure/configure.h"
 
@@ -28,7 +29,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/capability.h>
-#include <linux/unistd.h>
 
 #include "../../../../util/tile/fd_tile_private.h"
 
@@ -255,7 +255,10 @@ main_pid_namespace( void * _args ) {
     FD_LOG_ERR(( "fd_cpuset_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
+  ulong actual_pids[ FD_TOPO_MAX_TILES+1 ];
+  for( ulong i=0UL; i<FD_TOPO_MAX_TILES+1; i++ ) actual_pids[ i ] = ULONG_MAX;
   char  child_names[ FD_TOPO_MAX_TILES+1 ][ 32 ];
+  ulong child_idxs[ FD_TOPO_MAX_TILES+1 ];
   struct pollfd fds[ FD_TOPO_MAX_TILES+2 ];
 
   int config_memfd = fd_config_to_memfd( config );
@@ -271,6 +274,9 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
     child_pids[ child_cnt ] = execve_agave( config_memfd, pipefd[ 1 ] );
+    FD_TEST( child_pids[ child_cnt ]>0 );
+    actual_pids[ child_cnt ] = (ulong)child_pids[ child_cnt ];
+    child_idxs[ child_cnt ] = ULONG_MAX;
     if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     strncpy( child_names[ child_cnt ], "agave", 32 );
     child_cnt++;
@@ -286,9 +292,10 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int need_xdp = 0==strcmp( config->net.provider, "xdp" );
-  fd_xdp_fds_t xdp_fds = {0};
+  fd_xdp_fds_t xdp_fds[ FD_TOPO_XDP_FDS_MAX ];
+  uint         xdp_fds_cnt = FD_TOPO_XDP_FDS_MAX;
   if( need_xdp ) {
-    xdp_fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
+    fd_topo_install_xdp( &config->topo, xdp_fds, &xdp_fds_cnt, config->net.bind_address_parsed, 0 );
   }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
@@ -297,12 +304,16 @@ main_pid_namespace( void * _args ) {
 
     if( need_xdp ) {
       if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
-        /* close XDP related file descriptors */
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+          /* close XDP related file descriptors */
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
       } else {
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
       }
     }
 
@@ -310,9 +321,16 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
     child_pids[ child_cnt ] = execve_tile( tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ] );
+    child_idxs[ child_cnt ] = i;
     if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     strncpy( child_names[ child_cnt ], tile->name, 32 );
     child_cnt++;
+  }
+
+  /* Obtain the actual grandchild PID from the pipe */
+  for( ulong i=0UL; i<child_cnt; i++ ) {
+    if( FD_UNLIKELY( actual_pids[ i ]!=ULONG_MAX ) ) continue;
+    FD_TEST( 8UL==read( fds[ i ].fd, &actual_pids[ i ], 8UL ) );
   }
 
   if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, save_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -322,8 +340,10 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( need_xdp ) {
-    if( FD_UNLIKELY( close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+      if( FD_UNLIKELY( close( xdp_fds[i].xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( close( xdp_fds[i].prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
@@ -332,7 +352,7 @@ main_pid_namespace( void * _args ) {
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   allow_fds[ allow_fds_cnt++ ] = args->pipefd[ 1 ]; /* write end of main pipe */
-  for( ulong i=0; i<child_cnt; i++ )
+  for( ulong i=0UL; i<child_cnt; i++ )
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
 
   struct sock_filter seccomp_filter[ 128UL ];
@@ -348,6 +368,7 @@ main_pid_namespace( void * _args ) {
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,
                       config->gid,
+                      0,
                       0,
                       0,
                       0,
@@ -372,7 +393,7 @@ main_pid_namespace( void * _args ) {
   /* Reap child process PIDs so they don't show up in `ps` etc.  All of
      these children should have exited immediately after clone(2)'ing
      another child with a huge page based stack. */
-  for( ulong i=0; i<child_cnt; i++ ) {
+  for( ulong i=0UL; i<child_cnt; i++ ) {
     int wstatus;
     int exited_pid = wait4( child_pids[ i ], &wstatus, (int)__WALL, NULL );
     if( FD_UNLIKELY( -1==exited_pid ) ) {
@@ -390,6 +411,8 @@ main_pid_namespace( void * _args ) {
   }
 
   fds[ child_cnt ] = (struct pollfd){ .fd = args->pipefd[ 1 ], .events = 0 };
+  strncpy( child_names[ child_cnt ], "parent", 32UL );
+  child_idxs[ child_cnt ] = ULONG_MAX;
 
   /* We are now the init process of the pid namespace.  If the init
      process dies, all children are terminated.  If any child dies, we
@@ -398,46 +421,52 @@ main_pid_namespace( void * _args ) {
      a group.  The parent process will also die if this process dies,
      due to getting SIGHUP on the pipe. */
   while( 1 ) {
-    if( FD_UNLIKELY( -1==poll( fds, 1+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==poll( fds, 1UL+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    for( ulong i=0UL; i<1UL+child_cnt; i++ ) {
-      if( FD_UNLIKELY( fds[ i ].revents ) ) {
-        /* Must have been POLLHUP, POLLERR and POLLNVAL are not possible. */
-        if( FD_UNLIKELY( i==child_cnt ) ) {
-          /* Parent process died, probably SIGINT, exit gracefully. */
-          fd_sys_util_exit_group( 0 );
-        }
+    /* Parent process died, probably SIGINT, exit gracefully. */
+    if( FD_UNLIKELY( fds[ child_cnt ].revents ) ) fd_sys_util_exit_group( 0 );
 
-        char * tile_name = child_names[ i ];
-        ulong  tile_idx = 0UL;
-        if( FD_LIKELY( i>0UL ) ) tile_idx = (!config->is_firedancer && config->development.no_agave) ? i : i-1UL;
-        ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
+    /* Child process died, reap it to figure out exit code. */
+    int wstatus;
+    int exited_pid = wait4( -1, &wstatus, (int)__WALL | (int)WNOHANG, NULL );
+    if( FD_UNLIKELY( -1==exited_pid ) ) {
+      FD_LOG_ERR(( "pidns wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    } else if( FD_UNLIKELY( !exited_pid ) ) {
+      /* Spurious wakeup, no child actually dead yet. */
+      continue;
+    }
 
-        /* Child process died, reap it to figure out exit code. */
-        int wstatus;
-        int exited_pid = wait4( -1, &wstatus, (int)__WALL | (int)WNOHANG, NULL );
-        if( FD_UNLIKELY( -1==exited_pid ) ) {
-          FD_LOG_ERR(( "pidns wait4() failed (%i-%s) %lu %hu", errno, fd_io_strerror( errno ), i, fds[ i ].revents ));
-        } else if( FD_UNLIKELY( !exited_pid ) ) {
-          /* Spurious wakeup, no child actually dead yet. */
-          continue;
-        }
+    /* Now find the tile corresponding to that PID */
+    FD_TEST( exited_pid>0 );
+    int found = 0;
+    for( ulong i=0UL; i<child_cnt; i++ ) {
+      if( FD_LIKELY( actual_pids[ i ]!=(ulong)exited_pid ) ) continue;
 
-        if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-          fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+      found = 1;
+      fds[ i ].fd = -1; /* Don't poll on this tile anymore */
+
+      char * tile_name = child_names[ i ];
+      ulong  tile_idx = child_idxs[ i ];
+      ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
+
+      if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
+        FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+        fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+      } else {
+        int exit_code = WEXITSTATUS( wstatus );
+        if( FD_LIKELY( !exit_code && tile_idx!=ULONG_MAX && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
+          found = 1;
+          FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
         } else {
-          int exit_code = WEXITSTATUS( wstatus );
-          if( FD_LIKELY( !exit_code && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
-            FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
-          } else {
-            FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, exit_code ));
-            fd_sys_util_exit_group( exit_code ? exit_code : 1 );
-          }
+          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, exit_code ));
+          fd_sys_util_exit_group( exit_code ? exit_code : 1 );
         }
       }
     }
+
+    if( FD_UNLIKELY( !found ) ) FD_LOG_ERR(( "wait4() returned unexpected pid %d", exited_pid ));
   }
+
   return 0;
 }
 
@@ -519,7 +548,6 @@ warn_unknown_files( config_t const * config,
     int known_file = 0;
     for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
       fd_topo_wksp_t const * wksp = &config->topo.workspaces[ i ];
-      if( !wksp->is_locked ) continue;
 
       char expected_path[ PATH_MAX ];
       workspace_path( config, wksp, expected_path );
@@ -690,44 +718,44 @@ initialize_stacks( config_t const * config ) {
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-extern configure_stage_t fd_cfg_stage_hugetlbfs;
-extern configure_stage_t fd_cfg_stage_ethtool_channels;
-extern configure_stage_t fd_cfg_stage_ethtool_gro;
-extern configure_stage_t fd_cfg_stage_ethtool_loopback;
-extern configure_stage_t fd_cfg_stage_sysctl;
-extern configure_stage_t fd_cfg_stage_hyperthreads;
-
 void
 fdctl_check_configure( config_t const * config ) {
-  configure_result_t check = fd_cfg_stage_hugetlbfs.check( config );
+  configure_result_t check = fd_cfg_stage_hugetlbfs.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `fdctl configure init hugetlbfs` "
                  "to create the mounts correctly. This must be done after every system restart before running "
                  "Firedancer.", check.message ));
 
   if( FD_LIKELY( !config->development.netns.enabled && 0==strcmp( config->net.provider, "xdp" ) ) ) {
-    check = fd_cfg_stage_ethtool_channels.check( config );
+    if( fd_cfg_stage_bonding.enabled( config ) ) {
+      check = fd_cfg_stage_bonding.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+      if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+        FD_LOG_ERR(( "Bonded network device is not configured correctly: %s. You can run `fdctl configure init bonding` "
+                    "to configure the bonding driver.", check.message ));
+    }
+
+    check = fd_cfg_stage_ethtool_channels.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-channels` to set the number of channels on the "
                   "network device correctly.", check.message ));
 
-    check = fd_cfg_stage_ethtool_gro.check( config );
+    check = fd_cfg_stage_ethtool_offloads.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-gro` to disable generic-receive-offload "
+      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-offloads` to disable features "
                   "as required.", check.message ));
 
-    check = fd_cfg_stage_ethtool_loopback.check( config );
+    check = fd_cfg_stage_ethtool_loopback.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-loopback` to disable tx-udp-segmentation "
                   "on the loopback device.", check.message ));
   }
 
-  check = fd_cfg_stage_sysctl.check( config );
+  check = fd_cfg_stage_sysctl.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `fdctl configure init sysctl` "
                  "to set kernel parameters correctly.", check.message ));
 
-  check = fd_cfg_stage_hyperthreads.check( config );
+  check = fd_cfg_stage_hyperthreads.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthreads` "
                  "to configure hyperthreading correctly.", check.message ));
@@ -770,7 +798,7 @@ fdctl_setup_netns( config_t * config,
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_cfg_stage_ethtool_channels.init( config );
-    fd_cfg_stage_ethtool_gro     .init( config );
+    fd_cfg_stage_ethtool_offloads.init( config );
     fd_cfg_stage_ethtool_loopback.init( config );
   }
 
@@ -869,6 +897,7 @@ run_firedancer( config_t * config,
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,
                       config->gid,
+                      0,
                       0,
                       0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */

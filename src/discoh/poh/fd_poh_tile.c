@@ -307,8 +307,10 @@
         will always be 420,000. */
 
 #include "../../disco/tiles.h"
+#include "../../disco/fd_txn_m.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/pack/fd_pack.h"
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../util/pod/fd_pod.h"
@@ -333,7 +335,7 @@
    microblocks from pack, so this upper bound is a coordination
    mechanism so that PoH can progress hashcnts while the slot is active,
    and know that pack will not need those hashcnts later to do mixins. */
-#define MAX_MICROBLOCKS_PER_SLOT (32768UL)
+#define MAX_MICROBLOCKS_PER_SLOT (131072UL)
 
 /* When we are hashing in the background in case a prior leader skips
    their slot, we need to store the result of each tick hash so we can
@@ -1047,7 +1049,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
     FD_LOG_ERR(( "Too many skipped ticks %lu for slot %lu, chain must halt", leader->ticks_per_slot+leader->total_skipped_ticks, slot ));
 
   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
-  fd_stem_publish( ctx->stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, 0UL );
+  fd_stem_publish( ctx->stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_became_leader_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
 
   /* increment refcount for pack's reference to the current leader bank */
@@ -1763,7 +1765,7 @@ after_credit( fd_poh_ctx_t *      ctx,
     ctx->expect_sequential_leader_slot = ctx->slot;
 
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-    fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+    fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)*tick_per_ns) );
     ctx->next_leader_slot = next_leader_slot( ctx );
 
     if( FD_UNLIKELY( ctx->slot>=ctx->next_leader_slot ) ) {

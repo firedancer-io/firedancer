@@ -5,6 +5,7 @@
 #include "../keyguard/fd_keyload.h"
 #include "../plugin/fd_plugin.h"
 #include "../../waltz/http/fd_url.h"
+#include "../../waltz/openssl/fd_openssl_tile.h"
 
 #include <errno.h>
 #include <dirent.h> /* opendir */
@@ -49,11 +50,15 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MCNT_SET( BUNDLE, TRANSACTION_RECEIVED,   ctx->metrics.txn_received_cnt          );
   FD_MCNT_SET( BUNDLE, BUNDLE_RECEIVED,        ctx->metrics.bundle_received_cnt       );
   FD_MCNT_SET( BUNDLE, PACKET_RECEIVED,        ctx->metrics.packet_received_cnt       );
+  FD_MCNT_SET( BUNDLE, PROTO_RECEIVED_BYTES,   ctx->metrics.proto_received_bytes      );
   FD_MCNT_SET( BUNDLE, SHREDSTREAM_HEARTBEATS, ctx->metrics.shredstream_heartbeat_cnt );
   FD_MCNT_SET( BUNDLE, KEEPALIVES,             ctx->metrics.ping_ack_cnt              );
   FD_MCNT_SET( BUNDLE, ERRORS_PROTOBUF,        ctx->metrics.decode_fail_cnt           );
   FD_MCNT_SET( BUNDLE, ERRORS_TRANSPORT,       ctx->metrics.transport_fail_cnt        );
   FD_MCNT_SET( BUNDLE, ERRORS_NO_FEE_INFO,     ctx->metrics.missing_builder_info_fail_cnt );
+#if FD_HAS_OPENSSL
+  FD_MCNT_SET( BUNDLE, ERRORS_SSL_ALLOC,       fd_ossl_alloc_errors                 );
+#endif
 
   FD_MGAUGE_SET( BUNDLE, RTT_SAMPLE,   (ulong)ctx->rtt->latest_rtt   );
   FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED, (ulong)ctx->rtt->smoothed_rtt );
@@ -68,7 +73,7 @@ metrics_write( fd_bundle_tile_t * ctx ) {
     FD_LOG_ERR(( "fd_wksp_usage failed" )); /* unreachable */
   }
   FD_MGAUGE_SET( BUNDLE, HEAP_SIZE,       usage->total_sz );
-  FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->used_sz  );
+  FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->free_sz  );
 
   int bundle_status = fd_bundle_client_status( ctx );
   FD_MGAUGE_SET( BUNDLE, CONNECTED, bundle_status==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
@@ -246,65 +251,6 @@ fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
 
 #if FD_HAS_OPENSSL
 
-/* OpenSSL allows us to specify custom memory allocation functions,
-   which we want to point to an fd_alloc_t, but it does not let us use a
-   context object.  Instead we stash it in this thread local, which is
-   OK because the parent workspace exists for the duration of the SSL
-   context, and the process only has one thread.
-
-   Currently fd_alloc doesn't support realloc, so it's implemented on
-   top of malloc and free, and then also it doesn't support getting the
-   size of an allocation from the pointer, which we need for realloc, so
-   we pad each alloc by 8 bytes and stuff the size into the first 8
-   bytes. */
-static FD_TL fd_alloc_t * fd_quic_ssl_mem_function_ctx = NULL;
-
-static void *
-crypto_malloc( ulong        num,
-               char const * file,
-               int          line ) {
-  (void)file; (void)line;
-  void * result = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 16UL, num + 8UL );
-  if( FD_UNLIKELY( !result ) ) {
-    FD_MCNT_INC( BUNDLE, ERRORS_SSL_ALLOC, 1UL );
-    return NULL;
-  }
-  *(ulong *)result = num;
-  return (uchar *)result + 8UL;
-}
-
-static void
-crypto_free( void *       addr,
-             char const * file,
-             int          line ) {
-  (void)file;
-  (void)line;
-
-  if( FD_UNLIKELY( !addr ) ) return;
-  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar *)addr - 8UL );
-}
-
-static void *
-crypto_realloc( void *       addr,
-                ulong        num,
-                char const * file,
-                int          line ) {
-  if( FD_UNLIKELY( !addr ) ) return crypto_malloc( num, file, line );
-  if( FD_UNLIKELY( !num ) ) {
-    crypto_free( addr, file, line );
-    return NULL;
-  }
-
-  void * new = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 16UL, num + 8UL );
-  if( FD_UNLIKELY( !new ) ) return NULL;
-
-  ulong old_num = *(ulong *)( (uchar *)addr - 8UL );
-  fd_memcpy( (uchar*)new + 8, (uchar*)addr, fd_ulong_min( old_num, num ) );
-  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar *)addr - 8UL );
-  *(ulong *)new = num;
-  return (uchar*)new + 8UL;
-}
-
 static void
 fd_ossl_keylog_callback( SSL const *  ssl,
                          char const * line ) {
@@ -321,56 +267,6 @@ fd_ossl_keylog_callback( SSL const *  ssl,
 }
 
 static void
-fd_bundle_tile_load_certs( SSL_CTX * ssl_ctx ) {
-  X509_STORE * ca_certs = X509_STORE_new();
-  if( FD_UNLIKELY( !ca_certs ) ) {
-    FD_LOG_ERR(( "X509_STORE_new failed" ));
-  }
-
-  static char const default_dir[] = "/etc/ssl/certs/";
-  DIR * dir = opendir( default_dir );
-  if( FD_UNLIKELY( !dir ) ) {
-    FD_LOG_ERR(( "opendir(%s) failed (%i-%s)", default_dir, errno, fd_io_strerror( errno ) ));
-  }
-
-  struct dirent * entry;
-  while( (entry = readdir( dir )) ) {
-    if( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) continue;
-
-    char cert_path[ PATH_MAX ];
-    char * p = fd_cstr_init( cert_path );
-    p = fd_cstr_append_text( p, default_dir, sizeof(default_dir)-1 );
-    p = fd_cstr_append_cstr_safe( p, entry->d_name, (ulong)(cert_path+sizeof(cert_path)-1) - (ulong)p );
-    fd_cstr_fini( p );
-
-    if( !X509_STORE_load_locations( ca_certs, cert_path, NULL ) ) {
-      /* Not all files in /etc/ssl/certs are valid certs, so ignore errors */
-      continue;
-    }
-  }
-
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) {
-    FD_LOG_ERR(( "readdir(%s) failed (%i-%s)", default_dir, errno, fd_io_strerror( errno ) ));
-  }
-
-  STACK_OF(X509) * cert_list = X509_STORE_get1_all_certs( ca_certs );
-  FD_LOG_INFO(( "Loaded %d CA certs from %s into OpenSSL", sk_X509_num( cert_list ), default_dir ));
-  if( fd_log_level_logfile()==0 ) {
-    for( int i=0; i<sk_X509_num( cert_list ); i++ ) {
-      X509 * cert = sk_X509_value( cert_list, i );
-      FD_LOG_DEBUG(( "Loaded CA cert \"%s\"", X509_NAME_oneline( X509_get_subject_name( cert ), NULL, 0 ) ));
-    }
-  }
-  sk_X509_pop_free( cert_list, X509_free );
-
-  SSL_CTX_set_cert_store( ssl_ctx, ca_certs );
-
-  if( FD_UNLIKELY( 0!=closedir( dir ) ) ) {
-    FD_LOG_ERR(( "closedir(%s) failed (%i-%s)", default_dir, errno, fd_io_strerror( errno ) ));
-  }
-}
-
-static void
 fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
                              void *             alloc_mem,
                              int                tls_cert_verify ) {
@@ -378,19 +274,8 @@ fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
   if( FD_UNLIKELY( !alloc ) ) {
     FD_LOG_ERR(( "fd_alloc_new failed" ));
   }
-  ctx->ssl_alloc               = alloc;
-  fd_quic_ssl_mem_function_ctx = alloc;
-
-  if( FD_UNLIKELY( !CRYPTO_set_mem_functions( crypto_malloc, crypto_realloc, crypto_free ) ) ) {
-    FD_LOG_ERR(( "CRYPTO_set_mem_functions failed" ));
-  }
-
-  OPENSSL_init_ssl(
-      OPENSSL_INIT_LOAD_SSL_STRINGS |
-      OPENSSL_INIT_LOAD_CRYPTO_STRINGS |
-      OPENSSL_INIT_NO_LOAD_CONFIG,
-      NULL
-  );
+  ctx->ssl_alloc = alloc;
+  fd_ossl_tile_init( alloc );
 
   SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
   if( FD_UNLIKELY( !ssl_ctx ) ) {
@@ -414,8 +299,7 @@ fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
   }
 
   if( tls_cert_verify ) {
-    fd_bundle_tile_load_certs( ssl_ctx );
-    SSL_CTX_set_verify( ssl_ctx, SSL_VERIFY_PEER, NULL );
+    fd_ossl_load_certs( ssl_ctx );
   }
 
   if( FD_LIKELY( ctx->keylog_fd >= 0 ) ) {

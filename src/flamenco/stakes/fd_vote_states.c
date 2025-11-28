@@ -1,5 +1,6 @@
 #include "fd_vote_states.h"
 #include "../types/fd_types.h"
+#include "../runtime/program/fd_vote_program.h"
 
 #define POOL_NAME fd_vote_state_pool
 #define POOL_T    fd_vote_state_ele_t
@@ -81,9 +82,15 @@ fd_vote_states_new( void * mem,
   vote_states->pool_offset_       = (ulong)pool_mem - (ulong)mem;
   vote_states->map_offset_        = (ulong)map_mem - (ulong)mem;
 
-  if( FD_UNLIKELY( !fd_vote_state_pool_join( fd_vote_state_pool_new( pool_mem, max_vote_accounts ) ) ) ) {
+  fd_vote_state_ele_t * vote_states_pool = fd_vote_state_pool_join( fd_vote_state_pool_new( pool_mem, max_vote_accounts ) );
+  if( FD_UNLIKELY( !vote_states_pool ) ) {
     FD_LOG_WARNING(( "Failed to create vote states pool" ));
     return NULL;
+  }
+
+  for( ulong i=0UL; i<max_vote_accounts; i++ ) {
+    fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( vote_states_pool, i );
+    vote_state->idx = i;
   }
 
   if( FD_UNLIKELY( !fd_vote_state_map_join( fd_vote_state_map_new( map_mem, map_chain_cnt, seed ) ) ) ) {
@@ -141,17 +148,10 @@ fd_vote_states_join( void * mem ) {
   return vote_states;
 }
 
-void
+fd_vote_state_ele_t *
 fd_vote_states_update( fd_vote_states_t *  vote_states,
-                       fd_pubkey_t const * vote_account,
-                       fd_pubkey_t const * node_account,
-                       uchar               commission,
-                       long                last_vote_timestamp,
-                       ulong               last_vote_slot,
-                       ulong               credits_cnt,
-                       ushort *            epoch,
-                       ulong *             credits,
-                       ulong *             prev_credits ) {
+                       fd_pubkey_t const * vote_account ) {
+
   fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
   fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
 
@@ -176,7 +176,6 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
       vote_state_pool );
 
   if( idx!=ULONG_MAX ) {
-
     fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( vote_state_pool, idx );
     if( FD_UNLIKELY( !vote_state ) ) {
       FD_LOG_CRIT(( "unable to retrieve vote state" ));
@@ -184,17 +183,7 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
 
     /* TODO: can do something smarter where we only update the
        comission and the credits coresponding to the new epoch. */
-    vote_state->commission          = commission;
-    vote_state->credits_cnt         = credits_cnt;
-    vote_state->last_vote_timestamp = last_vote_timestamp;
-    vote_state->last_vote_slot      = last_vote_slot;
-    vote_state->node_account        = *node_account;
-    for( ulong i=0UL; i<credits_cnt; i++ ) {
-      vote_state->epoch[i]        = epoch[i];
-      vote_state->credits[i]      = credits[i];
-      vote_state->prev_credits[i] = prev_credits[i];
-    }
-    return;
+    return vote_state;
   }
 
   /* If the vote state does not exist, we need to create a new entry. */
@@ -204,21 +193,11 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
   }
 
   fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele_acquire( vote_state_pool );
-  if( FD_UNLIKELY( !vote_state ) ) {
-    FD_LOG_CRIT(( "unable to acquire vote state" ));
-  }
 
-  vote_state->vote_account        = *vote_account;
-  vote_state->node_account        = *node_account;
-  vote_state->commission          = commission;
-  vote_state->last_vote_timestamp = last_vote_timestamp;
-  vote_state->last_vote_slot      = last_vote_slot;
-  vote_state->credits_cnt         = credits_cnt;
-  for( ulong i=0UL; i<credits_cnt; i++ ) {
-    vote_state->epoch[i]        = epoch[i];
-    vote_state->credits[i]      = credits[i];
-    vote_state->prev_credits[i] = prev_credits[i];
-  }
+  vote_state->vote_account = *vote_account;
+  vote_state->stake        = 0UL;
+  vote_state->stake_t_1    = 0UL;
+  vote_state->stake_t_2    = 0UL;
 
   if( FD_UNLIKELY( !fd_vote_state_map_ele_insert(
         vote_state_map,
@@ -226,6 +205,7 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
         vote_state_pool ) ) ) {
     FD_LOG_CRIT(( "unable to insert stake delegation into map" ));
   }
+  return vote_state;
 }
 
 void
@@ -266,7 +246,7 @@ fd_vote_states_remove( fd_vote_states_t *  vote_states,
   fd_vote_state_pool_idx_release( vote_state_pool, vote_state_idx );
 }
 
-void
+fd_vote_state_ele_t *
 fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
                                     fd_pubkey_t const * vote_account,
                                     uchar const *       account_data,
@@ -281,13 +261,7 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     .dataend = account_data + account_data_len,
   };
 
-  ulong total_sz = 0UL;
-  int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_CRIT(( "unable to decode vote state versioned" ));
-  }
-
-  uchar vote_state_versioned[total_sz];
+  uchar __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN))) vote_state_versioned[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
   fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( vote_state_versioned, &ctx );
   if( FD_UNLIKELY( vsv==NULL ) ) {
@@ -298,12 +272,6 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
   uchar       commission;
   long        last_vote_timestamp;
   ulong       last_vote_slot;
-  ulong       credits_cnt = 0UL;
-  ushort      epoch[EPOCH_CREDITS_MAX];
-  ulong       credits[EPOCH_CREDITS_MAX];
-  ulong       prev_credits[EPOCH_CREDITS_MAX];
-
-  fd_vote_epoch_credits_t * epoch_credits = NULL;
 
   switch( vsv->discriminant ) {
   case fd_vote_state_versioned_enum_v0_23_5:
@@ -311,74 +279,31 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     commission          = vsv->inner.v0_23_5.commission;
     last_vote_timestamp = vsv->inner.v0_23_5.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.v0_23_5.last_timestamp.slot;
-    epoch_credits       = vsv->inner.v0_23_5.epoch_credits;
-
-    for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
-      !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
-      iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
-
-      fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
-
-      epoch[credits_cnt]        = (ushort)ele->epoch;
-      credits[credits_cnt]      = ele->credits;
-      prev_credits[credits_cnt] = ele->prev_credits;
-      credits_cnt++;
-    }
-
     break;
   case fd_vote_state_versioned_enum_v1_14_11:
     node_account        = vsv->inner.v1_14_11.node_pubkey;
     commission          = vsv->inner.v1_14_11.commission;
     last_vote_timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.v1_14_11.last_timestamp.slot;
-    epoch_credits       = vsv->inner.v1_14_11.epoch_credits;
-
-    for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
-      !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
-      iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
-
-      fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
-
-      epoch[credits_cnt]        = (ushort)ele->epoch;
-      credits[credits_cnt]      = ele->credits;
-      prev_credits[credits_cnt] = ele->prev_credits;
-      credits_cnt++;
-    }
     break;
   case fd_vote_state_versioned_enum_current:
     node_account        = vsv->inner.current.node_pubkey;
     commission          = vsv->inner.current.commission;
     last_vote_timestamp = vsv->inner.current.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.current.last_timestamp.slot;
-    epoch_credits       = vsv->inner.current.epoch_credits;
-
-    for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
-      !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
-      iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
-
-      fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
-
-      epoch[credits_cnt]        = (ushort)ele->epoch;
-      credits[credits_cnt]      = ele->credits;
-      prev_credits[credits_cnt] = ele->prev_credits;
-      credits_cnt++;
-    }
     break;
   default:
     __builtin_unreachable();
   }
 
-  fd_vote_states_update(
-      vote_states,
-      vote_account,
-      &node_account,
-      commission,
-      last_vote_timestamp,
-      last_vote_slot,
-      credits_cnt,
-      epoch,
-      credits,
-      prev_credits );
+  fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_states, vote_account );
+
+  vote_state->node_account        = node_account;
+  vote_state->commission          = commission;
+  vote_state->last_vote_timestamp = last_vote_timestamp;
+  vote_state->last_vote_slot      = last_vote_slot;
+
+  return vote_state;
 }
 
 void
@@ -404,26 +329,6 @@ fd_vote_states_reset_stakes( fd_vote_states_t * vote_states ) {
 
     vote_state->stake = 0UL;
   }
-}
-
-void
-fd_vote_states_update_stake( fd_vote_states_t *  vote_states,
-                             fd_pubkey_t const * vote_account,
-                             ulong               stake ) {
-  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
-  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
-
-  fd_vote_state_ele_t * vote_state = fd_vote_state_map_ele_query(
-      vote_state_map,
-      vote_account,
-      NULL,
-      vote_state_pool );
-  if( FD_UNLIKELY( !vote_state ) ) {
-    FD_LOG_WARNING(( "unable to retrieve vote state" ));
-    return;
-  }
-
-  vote_state->stake = stake;
 }
 
 fd_vote_state_ele_t *

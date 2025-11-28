@@ -108,6 +108,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( ldxb, r4, r2, 0                          );  // r4 = ip4_hdr->verihl
   *(code++) = FD_EBPF( and64_imm, r4, 0x0f                      );  // r4 = ip4_hdr->ihl (lsb of ip4_hrd->verihl)
   *(code++) = FD_EBPF( lsh64_imm, r4, 2                         );  // r4 = ip4_hdr->ihl*4 (length of ipv4 header)
+  *(code++) = FD_EBPF( jlt_imm, r4, 20, LBL_PASS                );  // if r4<20 goto LBL_PASS
   *(code++) = FD_EBPF( add64_reg, r4, r2                        );  // r4 = &ip4_hdr + length of ip4_hdr = start of next hdr
 
   /* Check if the next hdr is udp or gre */
@@ -146,7 +147,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( ldxh, r5, r2, 0                          );  // r5 = gre_hdr->flags/version
   *(code++) = FD_EBPF( jne_imm, r5, 0x0000, LBL_PASS            );  // if gre_hdr->flags/version != 0, goto LBL_PASS
   *(code++) = FD_EBPF( ldxh, r5, r2, 2                          );  // r5 = gre_hdr->protocol
-  *(code++) = FD_EBPF( jne_imm, r5, 0x0008, LBL_PASS            );  // if gre_hdr->protocl != IP, goto LBL_PASS
+  *(code++) = FD_EBPF( jne_imm, r5, 0x0008, LBL_PASS            );  // if gre_hdr->protocol != IP, goto LBL_PASS
 
 
   /* Advance r2 to start of inner ip4_hdr */
@@ -160,6 +161,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( ldxb, r4, r2, 0                          );  // r4 = inner ip4_hdr->verihl
   *(code++) = FD_EBPF( and64_imm, r4, 0x0f                      );  // r4 = inner ip4_hdr->ihl
   *(code++) = FD_EBPF( lsh64_imm, r4, 2                         );  // r4 = ip4_hdr->ihl*4 (length of ipv4 header)
+  *(code++) = FD_EBPF( jlt_imm, r4, 20, LBL_PASS                );  // if r4<20 goto LBL_PASS
   *(code++) = FD_EBPF( add64_reg, r4, r2                        );  // r4 = start of udp_hdr
 
   /*
@@ -174,7 +176,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   /* udp check */
   ulong * udp_check = code;
 
-  /* check ip4's dst port */
+  /* check ip4's dst addr */
   if( listen_ip4_addr!=0 ) {
     *(code++) = FD_EBPF( ldxw, r5, r2, 16                       );
     *(code++) = FD_EBPF( jne_imm, r5, listen_ip4_addr, LBL_PASS );  // if ip4->daddr != listen_ip4_addr goto LBL_PASS
@@ -216,7 +218,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   /* Fill in jump labels */
 
   for( ulong i=0UL; i<code_cnt; i++ ) {
-    if( (code_buf[ i ] & 0x05)==0x05 ) {
+    if( (code_buf[ i ] & 0x07)==0x05 ) {
       ulong * jmp_target = 0;
       uint    jmp_label = (code_buf[ i ]>>16) & 0xFFFF;
       switch( jmp_label ) {
@@ -253,7 +255,7 @@ fd_xdp_install( uint           if_idx,
   if(      !strcmp( xdp_mode, "skb"     ) ) uxdp_mode = XDP_FLAGS_SKB_MODE;
   else if( !strcmp( xdp_mode, "drv"     ) ) uxdp_mode = XDP_FLAGS_DRV_MODE;
   else if( !strcmp( xdp_mode, "hw"      ) ) uxdp_mode = XDP_FLAGS_HW_MODE;
-  else if( !strcmp( xdp_mode, "generic" ) ) uxdp_mode = 0U;
+  else if( !strcmp( xdp_mode, "default" ) ) uxdp_mode = 0U;
   else FD_LOG_ERR(( "unknown XDP mode `%s`", xdp_mode ));
 
   uint true_port_cnt = 0U;
@@ -278,16 +280,20 @@ fd_xdp_install( uint           if_idx,
   ulong code_cnt = fd_xdp_gen_program( code_buf, xsk_map_fd, listen_ip4_addr, ports, ports_cnt, 1 );
 
   char ebpf_kern_log[ 32768UL ];
-  union bpf_attr attr = {
-    .prog_type = BPF_PROG_TYPE_XDP,
-    .insn_cnt  = (uint)code_cnt,
-    .insns     = (ulong)code_buf,
-    .license   = (ulong)FD_LICENSE,
-    /* Verifier logs */
-    .log_level = 6,
-    .log_size  = 32768UL,
-    .log_buf   = (ulong)ebpf_kern_log
-  };
+
+  /* Work around a compiler bug: Clang+ASan fails to zero-initialize the
+     entire struct if we use union assignment syntax.  (It memsets 148
+     bytes instead of 152, leaving 4 trailing bytes uninitialized, which
+     fails in BPF_PROG_LOAD) */
+  union bpf_attr attr = {0};
+  attr.prog_type = BPF_PROG_TYPE_XDP;
+  attr.insn_cnt  = (uint)code_cnt;
+  attr.insns     = (ulong)code_buf;
+  attr.license   = (ulong)FD_LICENSE;
+  attr.log_level = 6;
+  attr.log_size  = 32768UL;
+  attr.log_buf   = (ulong)ebpf_kern_log;
+
   int prog_fd = (int)bpf( BPF_PROG_LOAD, &attr, sizeof(union bpf_attr) );
   if( FD_UNLIKELY( -1==prog_fd ) ) {
     FD_LOG_WARNING(( "bpf(BPF_PROG_LOAD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -317,11 +323,11 @@ fd_xdp_install( uint           if_idx,
                    "support at https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md#xdp",
                    if_indextoname( if_idx, if_name ), errno, fd_io_strerror( errno ) ));
     } else {
-      FD_LOG_ERR(( "BPF_LINK_CREATE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_ERR(( "BPF_LINK_CREATE(if_idx=%u) failed (%i-%s)", if_idx, errno, fd_io_strerror( errno ) ));
     }
   }
 
-  if( FD_UNLIKELY( -1==close( prog_fd ) ) ) FD_LOG_ERR(( "close(%d) failed (%i-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( prog_fd ) ) ) FD_LOG_ERR(( "close(%d) failed (%i-%s)", prog_fd, errno, fd_io_strerror( errno ) ));
 
   return (fd_xdp_fds_t){
     .xsk_map_fd   = xsk_map_fd,

@@ -186,6 +186,10 @@
 #error "STEM_CALLBACK_CONTEXT_TYPE must be defined"
 #endif
 
+#ifndef STEM_CALLBACK_CONTEXT_ALIGN
+#error "STEM_CALLBACK_CONTEXT_ALIGN must be defined"
+#endif
+
 #ifndef STEM_LAZY
 #define STEM_LAZY (0L)
 #endif
@@ -274,7 +278,7 @@ STEM_(run1)( ulong                        in_cnt,
   ulong metric_in_backp;  /* is the run loop currently backpressured by one or more of the outs, in [0,1] */
   ulong metric_backp_cnt; /* Accumulates number of transitions of tile to backpressured between housekeeping events */
 
-  ulong metric_regime_ticks[9];    /* How many ticks the tile has spent in each regime */
+  ulong metric_regime_ticks[ FD_METRICS_ENUM_TILE_REGIME_CNT ]; /* How many ticks the tile has spent in each regime */
 
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "NULL scratch" ));
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, STEM_(scratch_align)() ) ) ) FD_LOG_ERR(( "misaligned scratch" ));
@@ -352,9 +356,12 @@ STEM_(run1)( ulong                        in_cnt,
     cr_max = fd_ulong_min( cr_max, out_depth[ cons_out[ cons_idx ] ] );
   }
 
+  if( FD_UNLIKELY( burst>cr_max ) ) FD_LOG_ERR(( "one or more out links have insufficient depth for STEM_BURST %lu. cr_max is %lu", burst, cr_max ));
+
   /* housekeeping init */
 
   if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
+  if( FD_UNLIKELY( lazy>(long)1e9 ) ) FD_LOG_ERR(( "excessive stem lazy value: %li", lazy ));
   FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
   /* Initialize the initial event sequence to immediately update
@@ -686,7 +693,7 @@ STEM_(run1)( ulong                        in_cnt,
     }
 
 #ifdef STEM_CALLBACK_RETURNABLE_FRAG
-    int return_frag = STEM_CALLBACK_RETURNABLE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, tsorig, tspub, &stem );
+    int return_frag = STEM_CALLBACK_RETURNABLE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl, tsorig, tspub, &stem );
     if( FD_UNLIKELY( return_frag ) ) {
       metric_regime_ticks[1] += housekeeping_ticks;
       long next = fd_tickcount();
@@ -780,6 +787,13 @@ STEM_(run)( fd_topo_t *      topo,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
                ctx );
 
+#ifdef STEM_CALLBACK_METRICS_WRITE
+  /* Write final metrics state before shutting down */
+  FD_COMPILER_MFENCE();
+  STEM_CALLBACK_METRICS_WRITE( ctx );
+  FD_COMPILER_MFENCE();
+#endif
+
   if( FD_LIKELY( tile->allow_shutdown ) ) {
     for( ulong i=0UL; i<tile->in_cnt; i++ ) {
       if( FD_UNLIKELY( !tile->in_link_poll[ i ] || !tile->in_link_reliable[ i ] ) ) continue;
@@ -798,6 +812,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_
 #undef STEM_BURST
 #undef STEM_CALLBACK_CONTEXT_TYPE
+#undef STEM_CALLBACK_CONTEXT_ALIGN
 #undef STEM_LAZY
 #undef STEM_CALLBACK_SHOULD_SHUTDOWN
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING
@@ -808,3 +823,4 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_DURING_FRAG
 #undef STEM_CALLBACK_RETURNABLE_FRAG
 #undef STEM_CALLBACK_AFTER_FRAG
+#undef STEM_CALLBACK_AFTER_POLL_OVERRUN

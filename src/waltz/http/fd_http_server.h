@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_http_fd_http_server_h
-#define HEADER_fd_src_ballet_http_fd_http_server_h
+#ifndef HEADER_fd_src_waltz_http_fd_http_server_h
+#define HEADER_fd_src_waltz_http_fd_http_server_h
 
 /* An fd_http_server is a WebSocket capable HTTP server designed to
    stream output messages quickly to many connected clients, where each
@@ -11,10 +11,10 @@
 
    The server does not allocate and has a built in allocation strategy
    and memory region for outgoing messages which the caller should use.
-   HTTP repsonse bodies and WebSocket frames are placed into an outgoing
+   HTTP response bodies and WebSocket frames are placed into an outgoing
    ring buffer, wrapping around when reaching the end, and the server
    will automatically evict slow clients that do not read their messages
-   in time and would be overwriten when the buffer has wrapped fully
+   in time and would be overwritten when the buffer has wrapped fully
    around.
 
    Using the outgoing ring has two steps,
@@ -84,6 +84,7 @@ struct fd_http_server_params {
   ulong max_ws_recv_frame_len; /* Maximum size of an incoming websocket frame from the client.  Must be >= max_request_len */
   ulong max_ws_send_frame_cnt; /* Maximum number of outgoing websocket frames that can be queued before the client is disconnected */
   ulong outgoing_buffer_sz;    /* Size of the outgoing data ring, which is used to stage outgoing HTTP response bodies and WebSocket frames */
+  int   compress_websocket;    /* True if large websocket messages are compressed and sent as binary websocket frames */
 };
 
 typedef struct fd_http_server_params fd_http_server_params_t;
@@ -99,10 +100,11 @@ struct fd_http_server_request {
   void *       ctx;           /* The user provided context pointer passed when constructing the HTTP server */
 
   struct {
-    char const * content_type;      /* The NUL terminated value of the Content-Type header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
-    char const * accept_encoding;   /* The NUL terminated value of the Accept-Encoding header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
-    int          upgrade_websocket; /* True if the client has provided an `Upgrade: websocket` header, valid `Sec-WebSocket-Key` and supported `Sec-Websocket-Version`, indicating that the
-                                       responder should upgrade the connection to a WebSocket by setting `upgrade_websocket` to 1 in the response */
+    char const * content_type;         /* The NUL terminated value of the Content-Type header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
+    char const * accept_encoding;      /* The NUL terminated value of the Accept-Encoding header of the request.  Not sanitized and may contain arbitrary content.  May be NULL if the header was not present */
+    int          compress_websocket;   /* True if the client has provided an `Sec-WebSocket-Protocol: compress-zstd` header indicating that the responder can choose to compress WebSocket frames with ZStandard.  Only large (>200 bytes) Server -> Client messages are compressed */
+    int          upgrade_websocket;    /* True if the client has provided an `Upgrade: websocket` header, valid `Sec-WebSocket-Key` and supported `Sec-Websocket-Version`, indicating that the
+                                          responder should upgrade the connection to a WebSocket by setting `upgrade_websocket` to 1 in the response */
   } headers;
 
   union {
@@ -140,6 +142,7 @@ typedef struct fd_http_server_request fd_http_server_request_t;
 struct fd_http_server_response {
   ulong status;                  /* Status code of the HTTP response */
   int   upgrade_websocket;       /* 1 if we should send a websocket upgrade response */
+  int   compress_websocket;      /* 1 if we should add a `Sec-WebSocket-Protocol: compress-zstd` header to the response  */
 
   char const * content_type;     /* Content-Type to set in the HTTP response */
   char const * cache_control;    /* Cache-Control to set in the HTTP response */
@@ -301,7 +304,7 @@ fd_http_server_close( fd_http_server_t * http,
                       ulong              conn_id,
                       int                reason );
 
-/* Close an active WebSocket conection.  The connection ID must be an
+/* Close an active WebSocket connection.  The connection ID must be an
    open WebSocket connection ID in [0, max_ws_connection_cnt).  The
    connection will be forcibly (ungracefully) terminated.  The
    connection ID is released and should not be used again, as it may be
@@ -433,4 +436,4 @@ fd_http_server_poll( fd_http_server_t * http,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_http_fd_http_server_h */
+#endif /* HEADER_fd_src_waltz_http_fd_http_server_h */

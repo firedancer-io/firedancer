@@ -49,10 +49,6 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-    -c|--cluster-version)
-        CLUSTER_VERSION="$2"
-        shift
-        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -95,7 +91,6 @@ echo "
         archiver_path = \"dump/$LEDGER/rocksdb\"
     [tiles.replay]
         snapshot = \"$SNAPSHOT\"
-        cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ \"$ONE_OFFS\" ]
     [tiles.gui]
         enabled = false
@@ -104,16 +99,8 @@ echo "
     max_account_records = $INDEX_MAX
     max_database_transactions = 1024
 [runtime]
-    heap_size_gib = 200
-    [runtime.limits]
-        max_total_banks = 128
-        max_fork_width = 32
-[blockstore]
-    shred_max = 16777216
-    block_max = 8192
-    txn_max = 1048576
-    alloc_max = 10737418240
-    file = \"dump/$LEDGER/backtest.blockstore\"
+    max_live_slots = 128
+    max_fork_width = 32
 [consensus]
     vote = false
 [development]

@@ -1,9 +1,8 @@
 #include "../../rpc_client/fd_rpc_client.h"
 #include "../../rpc_client/fd_rpc_client_private.h"
 #include "../../../../disco/topo/fd_topo.h"
+#include "../../../../ballet/json/cJSON_alloc.h"
 #include "../../../../util/net/fd_ip4.h"
-
-#include <linux/unistd.h>
 
 #define FD_BENCHO_STATE_INIT  0UL
 #define FD_BENCHO_STATE_WAIT  1UL
@@ -19,14 +18,6 @@ typedef struct {
   long  blockhash_request;
   ulong blockhash_state;
   long  blockhash_deadline;
-
-  int   txncount_measured1;
-  long  txncount_request;
-  ulong txncount_state;
-  long  txncount_nextprint;
-  long  txncount_deadline;
-
-  ulong txncount_prev;
 
   fd_rpc_client_t rpc[ 1 ];
 
@@ -46,7 +37,13 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_bencho_ctx_t ), sizeof( fd_bencho_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()      );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+FD_FN_PURE static inline ulong
+loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return 256UL * (1UL<<20UL); /* 256MiB of heap space for the cJSON allocator */
 }
 
 static int
@@ -86,7 +83,7 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
     }
 
     if( FD_UNLIKELY( response->status!=FD_RPC_CLIENT_SUCCESS ) )
-      FD_LOG_ERR(( "RPC server returned error %ld", response->status ));
+      FD_LOG_ERR(( "RPC server returned error %ld-%s", response->status, fd_rpc_client_strerror( response->status ) ));
 
     ctx->blockhash_state = FD_BENCHO_STATE_WAIT;
     ctx->blockhash_deadline = fd_log_wallclock() + 400L * 1000L * 1000L; /* 400 millis til we fetch new blockhash */
@@ -95,58 +92,6 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, 32, ctx->out_chunk0, ctx->out_wmark );
 
     fd_rpc_client_close( ctx->rpc, ctx->blockhash_request );
-    if( FD_UNLIKELY( !ctx->txncount_nextprint ) ) {
-      ctx->txncount_nextprint = fd_log_wallclock();
-    }
-
-    did_work = 1;
-  }
-
-  return did_work;
-}
-
-static int
-service_txn_count( fd_bencho_ctx_t * ctx ) {
-  if( FD_UNLIKELY( !ctx->txncount_nextprint ) ) return 0;
-
-  int did_work = 0;
-
-  if( FD_UNLIKELY( ctx->txncount_state==FD_BENCHO_STATE_WAIT ) ) {
-    if( FD_LIKELY( fd_log_wallclock()>=ctx->txncount_deadline ) )
-      ctx->txncount_state = FD_BENCHO_STATE_READY;
-  }
-
-  if( FD_UNLIKELY( ctx->txncount_state==FD_BENCHO_STATE_READY ) ) {
-    ctx->txncount_request  = fd_rpc_client_request_transaction_count( ctx->rpc );
-    if( FD_UNLIKELY( ctx->txncount_request<0L ) ) FD_LOG_ERR(( "failed to send RPC request" ));
-
-    ctx->txncount_state    = FD_BENCHO_STATE_SENT;
-    ctx->txncount_deadline = fd_log_wallclock() + FD_BENCHO_RPC_RESPONSE_TIMEOUT;
-
-    did_work = 1;
-  }
-
-  if( FD_UNLIKELY( ctx->txncount_state==FD_BENCHO_STATE_SENT ) ) {
-    fd_rpc_client_response_t * response = fd_rpc_client_status( ctx->rpc, ctx->txncount_request, 0 );
-    if( FD_UNLIKELY( response->status==FD_RPC_CLIENT_PENDING ) ) {
-      if( FD_UNLIKELY( fd_log_wallclock()>=ctx->txncount_deadline ) )
-        FD_LOG_ERR(( "timed out waiting for RPC server to respond" ));
-      return did_work;
-    }
-
-    if( FD_UNLIKELY( response->status!=FD_RPC_CLIENT_SUCCESS ) )
-      FD_LOG_ERR(( "RPC server returned error %ld", response->status ));
-
-    ulong txns = response->result.transaction_count.transaction_count;
-    if( FD_LIKELY( ctx->txncount_measured1 ) )
-      FD_LOG_NOTICE(( "%lu txn/s", (ulong)((double)(txns - ctx->txncount_prev)/1.2 )));
-    ctx->txncount_measured1 = 1;
-    ctx->txncount_prev      = txns;
-    ctx->txncount_nextprint += 1200L * 1000L * 1000L; /* 1.2 seconds til we print again, multiple of slot duration to prevent jitter */
-
-    fd_rpc_client_close( ctx->rpc, ctx->txncount_request );
-    ctx->txncount_state = FD_BENCHO_STATE_WAIT;
-    ctx->txncount_deadline = ctx->txncount_nextprint;
 
     did_work = 1;
   }
@@ -163,10 +108,11 @@ after_credit( fd_bencho_ctx_t *   ctx,
 
   int did_work_rpc                = fd_rpc_client_service( ctx->rpc, 0 );
   int did_work_service_block_hash = service_block_hash( ctx, stem );
-  int did_work_service_txn_count  = service_txn_count( ctx );
 
-  *charge_busy = did_work_rpc | did_work_service_block_hash | did_work_service_txn_count;
+  *charge_busy = did_work_rpc | did_work_service_block_hash;
 }
+
+extern FD_TL fd_alloc_t * g_cjson_alloc_ctx;
 
 static void
 unprivileged_init( fd_topo_t *      topo,
@@ -175,6 +121,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bencho_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bencho_ctx_t ), sizeof( fd_bencho_ctx_t ) );
+  void * _alloc         = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),           fd_alloc_footprint() );
+
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
+  FD_TEST( alloc );
+  cJSON_alloc_install( alloc );
 
   ctx->mem        = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
@@ -183,9 +134,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->rpc_ready_deadline = fd_log_wallclock() + FD_BENCHO_RPC_INITIALIZE_TIMEOUT;
   ctx->blockhash_state    = FD_BENCHO_STATE_READY;
-  ctx->txncount_nextprint = 0;
-  ctx->txncount_state     = FD_BENCHO_STATE_READY;
-  ctx->txncount_measured1 = 0;
 
   FD_LOG_NOTICE(( "connecting to RPC server " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->bencho.rpc_ip_addr ), tile->bencho.rpc_port ));
   FD_TEST( fd_rpc_client_join( fd_rpc_client_new( ctx->rpc, tile->bencho.rpc_ip_addr, tile->bencho.rpc_port ) ) );
@@ -208,6 +156,7 @@ fd_topo_run_tile_t fd_tile_bencho = {
   .name              = "bencho",
   .scratch_align     = scratch_align,
   .scratch_footprint = scratch_footprint,
+  .loose_footprint   = loose_footprint,
   .unprivileged_init = unprivileged_init,
   .run               = stem_run,
 };

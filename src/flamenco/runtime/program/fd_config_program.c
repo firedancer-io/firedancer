@@ -1,17 +1,23 @@
 #include "fd_config_program.h"
 #include "../fd_borrowed_account.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_executor.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../context/fd_exec_txn_ctx.h"
 #include "../context/fd_exec_instr_ctx.h"
+#include "../../log_collector/fd_log_collector.h"
 
 /* Useful links:
 
    https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs */
 
 #define DEFAULT_COMPUTE_UNITS 450UL
+
+/* The bound on the number of keys that could get passed into the config
+   program is bounded by the TXN_MTU of 1232 bytes.  Assuming that the
+   vector of config keys comprises the entire transaction, then we can
+   have 1232(bytes)/(33 bytes/key) = 37 keys.  So our bound is equal to
+   sizeof(fd_config_keys_t) + 37*sizeof(fd_config_keys_pair_t) = 1237 bytes. */
+
+#define CONFIG_INSTRUCTION_KEYS_FOOTPRINT (1237UL)
 
 /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L16 */
 
@@ -27,17 +33,18 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->instr->data==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
+  if( FD_UNLIKELY( ctx->instr->data_sz>FD_TXN_MTU ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
   int decode_result;
-  ulong decoded_sz = 0UL;
-  fd_config_keys_t * key_list = fd_bincode_decode1_spad(
-      config_keys, ctx->txn_ctx->spad,
+  uchar key_list_mem[ CONFIG_INSTRUCTION_KEYS_FOOTPRINT ] __attribute__((aligned(FD_CONFIG_KEYS_ALIGN)));
+  fd_config_keys_t * key_list = fd_bincode_decode_static(
+      config_keys, key_list_mem,
       ctx->instr->data,
       ctx->instr->data_sz,
-      &decode_result,
-      &decoded_sz );
-  if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ||
-                   decoded_sz > FD_TXN_MTU ) ) {
+      &decode_result );
+  if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -47,14 +54,14 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   fd_pubkey_t const * config_account_key       = NULL;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/config/src/config_processor.rs#L26 */
-  fd_guarded_borrowed_account_t config_acc_rec;
+  fd_guarded_borrowed_account_t config_acc_rec = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_CONFIG, &config_acc_rec );
 
   config_account_key = config_acc_rec.acct->pubkey;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L27 */
 
-  is_config_account_signer = fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_CONFIG );
+  is_config_account_signer = fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_CONFIG, NULL );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L29-L31 */
 
@@ -64,8 +71,9 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L33-L40 */
 
-  fd_config_keys_t * current_data = fd_bincode_decode_spad(
-      config_keys, ctx->txn_ctx->spad,
+  uchar current_data_mem[ CONFIG_INSTRUCTION_KEYS_FOOTPRINT ] __attribute__((aligned(FD_CONFIG_KEYS_ALIGN)));
+  fd_config_keys_t * current_data = fd_bincode_decode_static(
+      config_keys, current_data_mem,
       fd_borrowed_account_get_data( &config_acc_rec ),
       fd_borrowed_account_get_data_len( &config_acc_rec ),
       &decode_result );
@@ -81,10 +89,8 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L44-L49 */
 
-  fd_pubkey_t * current_signer_keys    = fd_spad_alloc( ctx->txn_ctx->spad,
-                                                        alignof(fd_pubkey_t),
-                                                        sizeof(fd_pubkey_t) * current_data->keys_len );
-  ulong         current_signer_key_cnt = 0UL;
+  fd_pubkey_t current_signer_keys[ 37UL ];
+  ulong       current_signer_key_cnt = 0UL;
 
   for( ulong i=0UL; i < current_data->keys_len; i++ ) {
     if( current_data->keys[i].signer ) {
@@ -124,17 +130,19 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
       int borrow_err = fd_exec_instr_ctx_try_borrow_instr_account( ctx, (uchar)counter, &signer_account );
       if( FD_UNLIKELY( borrow_err ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
+        FD_BASE58_ENCODE_32_BYTES( signer->uc, signer_b58 );
         fd_log_collector_printf_dangerous_max_127( ctx,
-          "account %s is not in account list", FD_BASE58_ENC_32_ALLOCA( signer ) );
+          "account %s is not in account list", signer_b58 );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L72-L79 */
 
-      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, (uchar)counter ) ) ) {
+      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, (uchar)counter, NULL ) ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
+        FD_BASE58_ENCODE_32_BYTES( signer->uc, signer_b58 );
         fd_log_collector_printf_dangerous_max_127( ctx,
-          "account %s signer_key().is_none()", FD_BASE58_ENC_32_ALLOCA( signer ) );
+          "account %s signer_key().is_none()", signer_b58 );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
@@ -161,8 +169,9 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
         /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L97 */
         if( FD_UNLIKELY( !is_signer ) ) {
           /* Max msg_sz: 39 - 2 + 45 = 82 < 127 => we can use printf */
+          FD_BASE58_ENCODE_32_BYTES( signer->uc, signer_b58 );
           fd_log_collector_printf_dangerous_max_127( ctx,
-            "account %s is not in stored signer list", FD_BASE58_ENC_32_ALLOCA( signer ) );
+            "account %s is not in stored signer list", signer_b58 );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
       }
@@ -236,7 +245,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Prevent execution of migrated native programs */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, migrate_config_program_to_core_bpf ) ) ) {
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->bank, migrate_config_program_to_core_bpf ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
@@ -244,10 +253,6 @@ fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
      See DEFAULT_COMPUTE_UNITS */
   FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
 
-  FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
-
   int ret = _process_config_instr( ctx );
   return ret;
-
-  } FD_SPAD_FRAME_END;
 }

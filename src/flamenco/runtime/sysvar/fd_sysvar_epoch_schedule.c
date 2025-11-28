@@ -33,7 +33,10 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
 }
 
 void
-fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
+fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
+                                fd_accdb_user_t *           accdb,
+                                fd_funk_txn_xid_t const *   xid,
+                                fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule ) {
   ulong sz = fd_epoch_schedule_size( epoch_schedule );
   /* TODO remove alloca */
@@ -47,16 +50,16 @@ fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
     FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
   }
 
-  fd_sysvar_account_update( slot_ctx, &fd_sysvar_epoch_schedule_id, enc, sz );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_schedule_id, enc, sz );
 }
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *           funk,
-                               fd_funk_txn_t *       funk_txn,
-                               fd_epoch_schedule_t * out ) {
+fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
+                               fd_funk_txn_xid_t const * xid,
+                               fd_epoch_schedule_t *     out ) {
 
-  FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, funk_txn );
+  fd_txn_account_t acc[1];
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }
@@ -77,9 +80,12 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *           funk,
 }
 
 void
-fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  fd_sysvar_epoch_schedule_write( slot_ctx, epoch_schedule );
+fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
+                               fd_accdb_user_t *         accdb,
+                               fd_funk_txn_xid_t const * xid,
+                               fd_capture_ctx_t *        capture_ctx ) {
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_sysvar_epoch_schedule_write( bank, accdb, xid, capture_ctx, epoch_schedule );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */
@@ -167,17 +173,16 @@ ulong
 fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
                                   ulong                       slot ) {
 
-  if( slot < schedule->first_normal_slot )
+  if( FD_UNLIKELY( slot<schedule->first_normal_slot ) ) {
     return fd_slot_to_epoch( schedule, slot, NULL ) + 1UL;
-
-  /* These variable names ... sigh */
+  }
 
   ulong new_slots_since_first_normal_slot =
-    slot - schedule->first_normal_slot;
+      slot - schedule->first_normal_slot;
   ulong new_first_normal_leader_schedule_slot =
-    new_slots_since_first_normal_slot + schedule->leader_schedule_slot_offset;
+      new_slots_since_first_normal_slot + schedule->leader_schedule_slot_offset;
   ulong new_epochs_since_first_normal_leader_schedule =
-    new_first_normal_leader_schedule_slot / schedule->slots_per_epoch;
+      new_first_normal_leader_schedule_slot / schedule->slots_per_epoch;
 
   return schedule->first_normal_epoch + new_epochs_since_first_normal_leader_schedule;
 }

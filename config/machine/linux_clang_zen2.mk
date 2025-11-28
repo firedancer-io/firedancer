@@ -9,8 +9,7 @@ include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-threads.mk
 
-# Clang 15 does not support znver2 yet.
-CPPFLAGS+=-march=znver1 -mtune=znver1
+CPPFLAGS+=-march=znver2 -mtune=znver2
 
 CPPFLAGS+=\
   -DFD_HAS_INT128=1 \

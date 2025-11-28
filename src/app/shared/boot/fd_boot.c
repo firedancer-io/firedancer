@@ -67,7 +67,7 @@ should_colorize( void ) {
   if( cstr && !strcmp( cstr, "truecolor" ) ) return 1;
 
   cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-  if( cstr && !strcmp( cstr, "xterm-256color" ) ) return 1;
+  if( cstr && strstr( cstr, "256color" ) ) return 1;
   return 0;
 }
 
@@ -85,11 +85,11 @@ determine_override_config( int *                      pargc,
         *override_config = (char const *)configs[ i ]->data;
         *override_config_path = configs[ i ]->name;
         *override_config_sz = configs[ i ]->data_sz;
-        break;
+        return;
       }
     }
 
-    if( FD_UNLIKELY( !override_config ) ) FD_LOG_ERR(( "no testnet config found" ));
+    if( FD_UNLIKELY( !*override_config ) ) FD_LOG_ERR(( "no testnet config found" ));
   }
 
   int devnet = fd_env_strip_cmdline_contains( pargc, pargv, "--devnet" );
@@ -100,11 +100,11 @@ determine_override_config( int *                      pargc,
         *override_config = (char const *)configs[ i ]->data;
         *override_config_path = configs[ i ]->name;
         *override_config_sz = configs[ i ]->data_sz;
-        break;
+        return;
       }
     }
 
-    if( FD_UNLIKELY( !override_config ) ) FD_LOG_ERR(( "no devnet config found" ));
+    if( FD_UNLIKELY( !*override_config ) ) FD_LOG_ERR(( "no devnet config found" ));
   }
 
   int mainnet = fd_env_strip_cmdline_contains( pargc, pargv, "--mainnet" );
@@ -115,11 +115,39 @@ determine_override_config( int *                      pargc,
         *override_config = (char const *)configs[ i ]->data;
         *override_config_path = configs[ i ]->name;
         *override_config_sz = configs[ i ]->data_sz;
-        break;
+        return;
       }
     }
 
-    if( FD_UNLIKELY( !override_config ) ) FD_LOG_ERR(( "no mainnet config found" ));
+    if( FD_UNLIKELY( !*override_config ) ) FD_LOG_ERR(( "no mainnet config found" ));
+  }
+
+  int testnet_jito = fd_env_strip_cmdline_contains( pargc, pargv, "--testnet-jito" );
+  if( FD_UNLIKELY( testnet_jito ) ) {
+    for( ulong i=0UL; configs[ i ]; i++ ) {
+      if( FD_UNLIKELY( !strcmp( configs[ i ]->name, "testnet-jito" ) ) ) {
+        *override_config = (char const *)configs[ i ]->data;
+        *override_config_path = configs[ i ]->name;
+        *override_config_sz = configs[ i ]->data_sz;
+        return;
+      }
+    }
+
+    if( FD_UNLIKELY( !*override_config ) ) FD_LOG_ERR(( "no testnet-jito config found" ));
+  }
+
+  int mainnet_jito = fd_env_strip_cmdline_contains( pargc, pargv, "--mainnet-jito" );
+  if( FD_UNLIKELY( mainnet_jito ) ) {
+    for( ulong i=0UL; configs[ i ]; i++ ) {
+      if( FD_UNLIKELY( !strcmp( configs[ i ]->name, "mainnet-jito" ) ) ) {
+        *override_config = (char const *)configs[ i ]->data;
+        *override_config_path = configs[ i ]->name;
+        *override_config_sz = configs[ i ]->data_sz;
+        return;
+      }
+    }
+
+    if( FD_UNLIKELY( !*override_config ) ) FD_LOG_ERR(( "no mainnet-jito config found" ));
   }
 }
 

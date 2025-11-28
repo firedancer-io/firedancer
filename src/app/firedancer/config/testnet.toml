@@ -1,12 +1,16 @@
-[snapshots]
-    cluster = "testnet"
 [gossip]
     entrypoints = [
         "entrypoint.testnet.solana.com:8001",
         "entrypoint2.testnet.solana.com:8001",
     ]
+[consensus]
+    expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
 [funk]
     heap_size_gib = 40
     max_account_records = 200_000_000
-[layout]
-    gossvf_tile_count = 4
+[snapshots]
+    [snapshots.sources]
+        servers = [ "http://solana-testnet-rpc.jumpisolated.com:8899", "https://solana-testnet-tls.jumpisolated.com" ]
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []

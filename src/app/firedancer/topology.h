@@ -14,26 +14,25 @@ void
 fd_topo_initialize( fd_config_t * config );
 
 fd_topo_obj_t *
-setup_topo_bank_hash_cmp( fd_topo_t * topo, char const * wksp_name );
-
-fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
-                  ulong        max_total_banks,
-                  ulong        max_fork_width );
+                  ulong        max_live_slots,
+                  ulong        max_fork_width,
+                  int          larger_max_cost_per_block );
 
 fd_topo_obj_t *
 setup_topo_funk( fd_topo_t *  topo,
                  char const * wksp_name,
                  ulong        max_account_records,
                  ulong        max_database_transactions,
-                 ulong        heap_size_gib,
-                 int          lock_pages );
+                 ulong        heap_size_gib );
 
 fd_topo_obj_t *
-setup_topo_runtime_pub( fd_topo_t *  topo,
-                        char const * wksp_name,
-                        ulong        mem_max );
+setup_topo_progcache( fd_topo_t *  topo,
+                      char const * wksp_name,
+                      ulong        max_cache_entries,
+                      ulong        max_database_transactions,
+                      ulong        heap_size_gib );
 
 fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
@@ -44,11 +43,18 @@ setup_topo_store( fd_topo_t *  topo,
 fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
-                     ulong        max_rooted_slots,
                      ulong        max_live_slots,
                      ulong        max_txn_per_slot );
 
-int
+void
+setup_topo_vinyl_meta( fd_topo_t *    topo,
+                       fd_configf_t * config );
+
+fd_topo_obj_t *
+setup_topo_vinyl_cache( fd_topo_t *    topo,
+                        fd_configf_t * config );
+
+void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config );
 

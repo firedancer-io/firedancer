@@ -41,35 +41,35 @@ test_insert( fd_wksp_t * wksp ) {
   fd_hash_t mr3_32[1] = {{{ 6 }}};
   fd_hash_t mr3_64[1] = {{{ 7 }}};
 
-  fd_reasm_init( reasm, mr0_64, 0 );
+  fd_reasm_insert( reasm, mr0_64, NULL, 0, 0, 0, 0, 0, 0, 0 );
   fd_reasm_fec_t * f0_64 = fd_reasm_query( reasm, mr0_64 );
   FD_TEST( f0_64 );
   FD_TEST( frontier_ele_query( frontier, &f0_64->key, NULL, pool ) == f0_64 );
 
-  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, mr1_32, mr1_00, 1, 32, 1, 32, 1, 1 );
+  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, mr1_32, mr1_00, 1, 32, 1, 32, 1, 1, 0 );
   FD_TEST( subtrees_ele_query( subtrees, &f1_32->key, NULL, pool ) == f1_32 );
 
-  fd_reasm_fec_t * f1_00 = fd_reasm_insert( reasm, mr1_00, mr0_64, 1, 0, 1, 32, 0, 0 );
+  fd_reasm_fec_t * f1_00 = fd_reasm_insert( reasm, mr1_00, mr0_64, 1, 0, 1, 32, 0, 0, 0 );
   FD_TEST( ancestry_ele_query( ancestry, &f1_00->key, NULL, pool ) );
   FD_TEST( ancestry_ele_query( ancestry, &f0_64->key, NULL, pool ) );
   FD_TEST( frontier_ele_query( frontier, &f1_32->key, NULL, pool ) );
 
-  fd_reasm_fec_t * f2_00 = fd_reasm_insert( reasm, mr2_00, mr1_32, 2, 0, 1, 32, 0, 0 );
+  fd_reasm_fec_t * f2_00 = fd_reasm_insert( reasm, mr2_00, mr1_32, 2, 0, 1, 32, 0, 0, 0 );
   FD_TEST( frontier_ele_query( frontier, &f2_00->key, NULL, pool ) );
   FD_TEST( ancestry_ele_query( ancestry, &f1_32->key, NULL, pool ) );
 
-  fd_reasm_fec_t * f3_64 = fd_reasm_insert( reasm, mr3_64, mr3_32, 3, 64, 2, 32, 1, 1 );
+  fd_reasm_fec_t * f3_64 = fd_reasm_insert( reasm, mr3_64, mr3_32, 3, 64, 2, 32, 1, 1, 0 );
   FD_TEST( subtrees_ele_query( subtrees, &f3_64->key, NULL, pool ) );
 
-  fd_reasm_fec_t * f2_32 = fd_reasm_insert( reasm, mr2_32, mr2_00, 2, 32, 1, 32, 1, 1 );
+  fd_reasm_fec_t * f2_32 = fd_reasm_insert( reasm, mr2_32, mr2_00, 2, 32, 1, 32, 1, 1, 0 );
   FD_TEST( frontier_ele_query( frontier, &f2_32->key, NULL, pool ) );
   FD_TEST( ancestry_ele_query( ancestry, &f2_00->key, NULL, pool ) );
 
-  fd_reasm_fec_t * f3_32 = fd_reasm_insert( reasm, mr3_32, mr3_00, 3, 32, 2, 32, 0, 0 );
+  fd_reasm_fec_t * f3_32 = fd_reasm_insert( reasm, mr3_32, mr3_00, 3, 32, 2, 32, 0, 0, 0 );
   FD_TEST( subtrees_ele_query( subtrees, &f3_32->key, NULL, pool ) );
   FD_TEST( orphaned_ele_query( orphaned, &f3_64->key, NULL, pool ) );
 
-  fd_reasm_fec_t * f3_00 = fd_reasm_insert( reasm, mr3_00, mr1_32, 3, 0, 2, 32, 0, 0 );
+  fd_reasm_fec_t * f3_00 = fd_reasm_insert( reasm, mr3_00, mr1_32, 3, 0, 2, 32, 0, 0, 0 );
   FD_TEST( ancestry_ele_query( ancestry, &f3_00->key,  NULL, pool ) );
   FD_TEST( frontier_ele_query( frontier, &f2_32->key, NULL, pool ) );
   FD_TEST( ancestry_ele_query( ancestry, &f3_32->key, NULL, pool ) );
@@ -85,14 +85,14 @@ test_insert( fd_wksp_t * wksp ) {
       f3_64->key,
   };
   fd_reasm_fec_t * fec = NULL; ulong i = 0;
-  while( FD_LIKELY( fec = fd_reasm_next( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
+  while( FD_LIKELY( fec = fd_reasm_out( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
   FD_TEST( i==sizeof(order) / sizeof(fd_hash_t) );
 
   /* Equivocating last FEC set for slot 3 (mr3_64a), child (3, 64) of
      parent (3, 32). */
 
   fd_hash_t        mr3_64a[1] = { { { 9 } } }; /* equivocating  */
-  fd_reasm_fec_t * f3_64a     = fd_reasm_insert( reasm, mr3_64a, mr3_32, 3, 64, 2, 32, 1, 1 );
+  fd_reasm_fec_t * f3_64a     = fd_reasm_insert( reasm, mr3_64a, mr3_32, 3, 64, 2, 32, 1, 1, 0 );
   FD_TEST( frontier_ele_query( frontier, &f3_64a->key, NULL, pool ) );
 
   /* Equivocating first FEC set for slot 3 (mr3_0a) that chains of a
@@ -100,7 +100,7 @@ test_insert( fd_wksp_t * wksp ) {
      off mr1_32). */
 
   fd_hash_t        mr3_0a[1] = { { { 10 } } };
-  fd_reasm_fec_t * f3_0a     = fd_reasm_insert( reasm, mr3_0a, mr2_32, 3, 0, 1, 32, 0, 0 );
+  fd_reasm_fec_t * f3_0a     = fd_reasm_insert( reasm, mr3_0a, mr2_32, 3, 0, 1, 32, 0, 0, 0 );
   FD_TEST( frontier_ele_query( frontier, &f3_0a->key, NULL, pool ) );
 
   fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
@@ -136,25 +136,25 @@ test_publish( fd_wksp_t * wksp ) {
 
   /* Set the root (snapshot slot). */
 
-  fd_reasm_init( reasm, mr0, 0 );
+  fd_reasm_insert( reasm, mr0, NULL, 0, 0, 0, 0, 0, 1, 0 );
 
   /* Typical startup behavior, turbine orphan FECs added. */
 
-  fd_reasm_insert( reasm, mr4, mr2, 4, 0, 2, 0, 1, 1 );
-  fd_reasm_insert( reasm, mr6, mr5, 6, 0, 1, 0, 1, 1 );
+  fd_reasm_insert( reasm, mr4, mr2, 4, 0, 2, 0, 1, 1, 0 );
+  fd_reasm_insert( reasm, mr6, mr5, 6, 0, 1, 0, 1, 1, 0 );
 
   /* Repairing backwards, interleaved. */
 
-  fd_reasm_insert( reasm, mr5, mr3, 5, 0, 2, 0, 1, 1 );
-  fd_reasm_insert( reasm, mr2, mr1, 2, 0, 1, 0, 1, 1 );
-  fd_reasm_insert( reasm, mr3, mr1, 3, 0, 2, 0, 1, 1 );
-  fd_reasm_insert( reasm, mr1, mr0, 1, 0, 1, 0, 1, 1 );
+  fd_reasm_insert( reasm, mr5, mr3, 5, 0, 2, 0, 1, 1, 0 );
+  fd_reasm_insert( reasm, mr2, mr1, 2, 0, 1, 0, 1, 1, 0 );
+  fd_reasm_insert( reasm, mr3, mr1, 3, 0, 2, 0, 1, 1, 0 );
+  fd_reasm_insert( reasm, mr1, mr0, 1, 0, 1, 0, 1, 1, 0 );
 
   /* Check in-order delivery. */
 
   fd_reasm_fec_t * fec = NULL;
   while( FD_LIKELY( fec ) ) {
-    fec = fd_reasm_next( reasm );
+    fec = fd_reasm_out( reasm );
     FD_TEST( 0==memcmp( &fec->key, &mr0, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr1, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr2, sizeof(fd_hash_t) ) );
@@ -202,21 +202,21 @@ test_slot_mr( fd_wksp_t * wksp ) {
   fd_hash_t mr3[1] = {{{ 3 }}};
   fd_hash_t mr4[1] = {{{ 4 }}};
 
-  fd_reasm_init( reasm, mr1, 1 );
+  fd_reasm_insert( reasm, mr1, NULL, 1, 0, 0, 0, 0, 1, 0 ); /* set root */
   fd_reasm_fec_t * fec1 = fd_reasm_query( reasm, mr1 );
   FD_TEST( fec1 );
   FD_TEST( frontier_ele_query( frontier, &fec1->key, NULL, pool ) == fec1 );
 
-  fd_reasm_fec_t * fec2 = fd_reasm_insert( reasm, mr2, mr0, 2, 0, 1, 32, 0, 1 ); /* insert with bad mr0 should be mr1 */
-  FD_TEST( ancestry_ele_query( ancestry, &fec1->key, NULL, pool ) );             /* successfully chains anyways */
+  fd_reasm_fec_t * fec2 = fd_reasm_insert( reasm, mr2, mr0, 2, 0, 1, 32, 0, 1, 0 ); /* insert with bad mr0 should be mr1 */
+  FD_TEST( ancestry_ele_query( ancestry, &fec1->key, NULL, pool ) );                /* successfully chains anyways */
   FD_TEST( frontier_ele_query( frontier, &fec2->key, NULL, pool ) );
 
-  fd_reasm_fec_t * fec4 = fd_reasm_insert( reasm, mr4, mr0, 4, 0, 1, 32, 0, 1 ); /* insert with bad mr0 should be mr3 */
-  FD_TEST( subtrees_ele_query( subtrees, &fec4->key, NULL, pool ) );             /* orphaned */
+  fd_reasm_fec_t * fec4 = fd_reasm_insert( reasm, mr4, mr0, 4, 0, 1, 32, 0, 1, 0 ); /* insert with bad mr0 should be mr3 */
+  FD_TEST( subtrees_ele_query( subtrees, &fec4->key, NULL, pool ) );                /* orphaned */
 
-  fd_reasm_fec_t * fec3 = fd_reasm_insert( reasm, mr3, mr2, 3, 0, 1, 32, 0, 1 );
-  FD_TEST( ancestry_ele_query( ancestry, &fec3->key, NULL, pool ) );             /* mr3 should chain to 2 */
-  FD_TEST( frontier_ele_query( frontier, &fec4->key, NULL, pool ) );             /* mr4 should have chained */
+  fd_reasm_fec_t * fec3 = fd_reasm_insert( reasm, mr3, mr2, 3, 0, 1, 32, 0, 1, 0 );
+  FD_TEST( ancestry_ele_query( ancestry, &fec3->key, NULL, pool ) );                /* mr3 should chain to 2 */
+  FD_TEST( frontier_ele_query( frontier, &fec4->key, NULL, pool ) );                /* mr4 should have chained */
 }
 
 int

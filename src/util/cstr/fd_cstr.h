@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_cstr_fd_cstr_h
-#define HEADER_fd_src_cstr_fd_cstr_h
+#ifndef HEADER_fd_src_util_cstr_fd_cstr_h
+#define HEADER_fd_src_util_cstr_fd_cstr_h
 
 /* APIs for manipulating '\0'-terminated character strings ("cstr") */
 
@@ -115,6 +115,23 @@ FD_FN_PURE ulong
 fd_cstr_nlen( char const * s,
               ulong        m );
 
+/* fd_cstr_ncpy is a safe version of strncpy.  d is the destination cstr
+   and s is the source cstr.  d and s should not overlap.  Assumes d has
+   space for up to m bytes.  Always returns d.  All bytes of d will be
+   initialized.  Further, if m is not zero, d will _always_ be properly
+   '\0' terminated.
+
+   Specifically, if m is 0 (i.e. d has zero bytes of storage), this
+   returns d.  Otherwise, if s is NULL, this will zero out all m bytes
+   of d and return d.  Otherwise, this will copy up to m-1 of the
+   leading non-zero bytes in s into d.  All remaining bytes of d (there
+   will be at least 1) will be initialized to zero. */
+
+char *
+fd_cstr_ncpy( char *       d,
+              char const * s,
+              ulong        m );
+
 /* cstr output ********************************************************/
 
 /* fd_cstr_printf printf a cstr into the sz byte memory region pointed
@@ -227,9 +244,11 @@ fd_cstr_append_printf( char *       p,
    (non-NULL and room for at least n characters and a final terminating
    '\0'), x is small enough to pretty print to n chars (which implies
    that n is at least 1).  ws is the character to left pad the converted
-   value with.  pfx is prefix character to use (e.g. '+', '-'), '\0'
+   value with.  pm is prefix character to use (e.g. '+', '-'), '\0'
    indicates no prefix.  If a prefix is requested, it will be
-   immediately before the most significant converted character. */
+   immediately before the most significant converted character.
+
+   fd_cstr_append_ulong_as_hex is the base-16 equivalent of the above. */
 
 static inline char *
 fd_cstr_append_uint_as_text( char * p,
@@ -247,6 +266,22 @@ fd_cstr_append_uint_as_text( char * p,
 }
 
 static inline char *
+fd_cstr_append_uint_as_hex( char * p,
+                            char   ws,
+                            uint   x,
+                            ulong  n ) {
+  static char const bin2hex[ 16 ] = {
+    '0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'
+  };
+  char * p0 = p;
+  p += n;
+  char * q = p;
+  do { uint d = x & 0xFU; x >>= 4; *(--q) = bin2hex[ d ]; } while( x );
+  while( p0<q ) *(p0++) = ws;
+  return p;
+}
+
+static inline char *
 fd_cstr_append_ulong_as_text( char * p,
                               char   ws,
                               char   pm,
@@ -257,6 +292,22 @@ fd_cstr_append_ulong_as_text( char * p,
   char * q = p;
   do { ulong d = x % 10UL; x /= 10UL; *(--q) = (char)( d + (ulong)'0' ); } while( x );
   if( pm ) *(--q) = pm;
+  while( p0<q ) *(p0++) = ws;
+  return p;
+}
+
+static inline char *
+fd_cstr_append_ulong_as_hex( char * p,
+                             char   ws,
+                             ulong  x,
+                             ulong  n ) {
+  static char const bin2hex[ 16 ] = {
+    '0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'
+  };
+  char * p0 = p;
+  p += n;
+  char * q = p;
+  do { ulong d = x & 0xFUL; x >>= 4; *(--q) = bin2hex[ d ]; } while( x );
   while( p0<q ) *(p0++) = ws;
   return p;
 }
@@ -278,14 +329,30 @@ fd_cstr_append_uint128_as_text( char *  p,
   return p;
 }
 
+static inline char *
+fd_cstr_append_uint128_as_hex( char * p,
+                               char   ws,
+                               ulong  x,
+                               ulong  n ) {
+  static char const bin2hex[ 16 ] = {
+    '0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'
+  };
+  char * p0 = p;
+  p += n;
+  char * q = p;
+  do { uint d = (uint)x & 0xFU; x >>= 4; *(--q) = bin2hex[ d ]; } while( x );
+  while( p0<q ) *(p0++) = ws;
+  return p;
+}
+
 #endif
 
 static inline char *
-fd_cstr_append_uchar_as_text ( char * p,
-                               char   ws,
-                               char   pm,
-                               uchar  x,
-                               ulong  n ) {
+fd_cstr_append_uchar_as_text( char * p,
+                              char   ws,
+                              char   pm,
+                              uchar  x,
+                              ulong  n ) {
   return fd_cstr_append_uint_as_text( p, ws, pm, (uint)x, n );
 }
 
@@ -304,7 +371,7 @@ fd_cstr_append_ushort_as_text( char * p,
    Assumes p is valid (non-NULL and room for at least n characters and a
    final terminating '\0'), x / 10^f is not too large to fit within n
    characters (which implies that n is at least f+2).  ws is the
-   character to left pad the converted value with.  pfx is prefix
+   character to left pad the converted value with.  pm is prefix
    character to use (e.g. '+', '-'), '\0' indicates no prefix.  If a
    prefix is requested, it will be immediately before the most
    significant converted character. */
@@ -481,4 +548,4 @@ FD_PROTOTYPES_END
 #define fd_isascii(c)  (!!isascii((c)))
 #define fd_isblank(c)  (!!isblank((c)))
 
-#endif /* HEADER_fd_src_cstr_fd_cstr_h */
+#endif /* HEADER_fd_src_util_cstr_fd_cstr_h */

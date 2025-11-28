@@ -79,11 +79,6 @@ init( config_t const * config ) {
 
         ulong additional_pages_needed = required_pages[ j ]-free_pages;
 
-        if( FD_UNLIKELY( !config->hugetlbfs.allow_hugepage_increase && additional_pages_needed>0 ) ) {
-          FD_LOG_ERR(( "trying to increase the number of %s pages on NUMA node %lu by %lu to %lu. increasing hugepage reservations is not allowed when hugetlbfs.allow_hugepage_increase is false",
-            PAGE_NAMES[ j ], i, additional_pages_needed, required_pages[ j ] ));
-        }
-
         FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", (uint)(total_pages+additional_pages_needed), total_page_path ));
         if( FD_UNLIKELY( -1==fd_file_util_write_uint( total_page_path, (uint)(total_pages+additional_pages_needed) ) ) )
           FD_LOG_ERR(( "could not increase the number of %s pages on NUMA node %lu (%i-%s)", PAGE_NAMES[ j ], i, errno, fd_io_strerror( errno ) ));
@@ -164,7 +159,7 @@ init( config_t const * config ) {
 
   for( ulong i=0UL; i<2UL; i++ ) {
     FD_LOG_NOTICE(( "RUN: `mkdir -p %s`", mount_path[ i ] ));
-    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( mount_path[ i ], config->uid, config->gid ) ) ) {
+    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( mount_path[ i ], config->uid, config->gid, 1 ) ) ) {
       FD_LOG_ERR(( "could not create hugetlbfs mount directory `%s` (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
     }
 
@@ -231,7 +226,7 @@ warn_mount_users( char const * mount_path ) {
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-static void
+static int
 fini( config_t const * config,
       int              pre_init ) {
   (void)pre_init;
@@ -285,10 +280,13 @@ fini( config_t const * config,
   FD_LOG_NOTICE(( "RUN: `rmdir %s`", config->hugetlbfs.mount_path ));
   if( FD_UNLIKELY( rmdir( config->hugetlbfs.mount_path ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "error removing hugetlbfs directory at `%s` (%i-%s)", config->hugetlbfs.mount_path, errno, fd_io_strerror( errno ) ));
+
+  return 1;
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
   char const * mount_path[ 2 ] = {
     config->hugetlbfs.huge_page_mount_path,
     config->hugetlbfs.gigantic_page_mount_path,
@@ -408,8 +406,7 @@ check( config_t const * config ) {
         }
 
         char * _min_size = strtok_r( NULL, ",", &saveptr2 );
-        if( FD_UNLIKELY( !_min_size ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
-        if( FD_UNLIKELY( strncmp( "min_size=", _min_size, 9UL ) ) ) {
+        if( FD_UNLIKELY( !_min_size || strncmp( "min_size=", _min_size, 9UL ) ) ) {
           if( FD_UNLIKELY( fclose( fp ) ) )
             FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
           PARTIALLY_CONFIGURED( "mount `%s` has unrecognized min_size, expected at least `min_size=%lu`", mount_path[ i ], required_min_size[ i ] );

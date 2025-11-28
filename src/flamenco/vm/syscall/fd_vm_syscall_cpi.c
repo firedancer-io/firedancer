@@ -1,9 +1,6 @@
 #include "fd_vm_syscall.h"
-#include "../../../ballet/ed25519/fd_curve25519.h"
-#include "../../../util/bits/fd_uwide.h"
 #include "../../runtime/fd_borrowed_account.h"
-#include "../../runtime/fd_executor.h"
-#include <stdio.h>
+#include "../../runtime/fd_system_ids.h"
 
 /* FIXME: ALGO EFFICIENCY */
 static inline int
@@ -85,7 +82,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
          transactions accounts. */
       FD_BASE58_ENCODE_32_BYTES( instr_acct_keys[i].uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
@@ -108,8 +105,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     /* TODO: this code would maybe be easier to read if we inverted the branches */
     if( duplicate_index!=ULONG_MAX ) {
       if ( FD_UNLIKELY( duplicate_index >= deduplicated_instruction_accounts_cnt ) ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->instr_err_idx );
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       duplicate_indices[duplicate_indicies_cnt++] = duplicate_index;
@@ -139,14 +136,14 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L390-L393 */
-    fd_guarded_borrowed_account_t borrowed_caller_acct;
+    fd_guarded_borrowed_account_t borrowed_caller_acct = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, instruction_account->index_in_caller, &borrowed_caller_acct );
 
     /* Check that the account is not read-only in the caller but writable in the callee */
     if( FD_UNLIKELY( instruction_account->is_writable && !fd_borrowed_account_is_writable( &borrowed_caller_acct ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->instr_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
@@ -154,7 +151,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.acct->pubkey, signers, signers_cnt) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->instr_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
   }
@@ -173,8 +170,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
       callee_instr->accounts[i].is_writable = !!(instruction_accounts[i].is_writable);
       callee_instr->accounts[i].is_signer   = !!(instruction_accounts[i].is_signer);
     } else {
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->instr_err_idx );
-      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
   }
 
@@ -184,17 +181,17 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
   if( FD_UNLIKELY( program_idx == -1 ) ) {
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   /* Caller is in charge of setting an appropriate sentinel value (i.e., UCHAR_MAX) for callee_instr->program_id if not found.
     Borrow the program account here.
     https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L436-L437 */
-  fd_guarded_borrowed_account_t borrowed_program_account;
+  fd_guarded_borrowed_account_t borrowed_program_account = {0};
   int err = fd_exec_instr_ctx_try_borrow_instr_account( instr_ctx, (ushort)program_idx, &borrowed_program_account );
   if( FD_UNLIKELY( err ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, err, instr_ctx->txn_ctx->instr_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, err, instr_ctx->txn_out->err.exec_err_idx );
     return err;
   }
 
@@ -202,17 +199,17 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
   /* Check that the program account is executable. We need to ensure that the
     program account is a valid instruction account.
     https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L438 */
-  if( !FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
+  if( !FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, remove_accounts_executable_flag_checks ) ) {
     if( FD_UNLIKELY( !fd_borrowed_account_is_executable( &borrowed_program_account ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 3, "Account ", 8UL, id_b58, id_b58_len, " is not executable", 18UL );
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_ctx->instr_err_idx );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
     }
   }
@@ -247,8 +244,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
    the limits, they will have to take a look. */
 FD_STATIC_ASSERT( FD_CPI_MAX_ACCOUNT_INFOS==MAX_TX_ACCOUNT_LOCKS, cpi_max_account_info );
 static inline ulong
-get_cpi_max_account_infos( fd_exec_txn_ctx_t const * txn_ctx ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE( txn_ctx->slot, &txn_ctx->features, increase_tx_account_lock_limit ), FD_CPI_MAX_ACCOUNT_INFOS, 64UL );
+get_cpi_max_account_infos( fd_bank_t * bank ) {
+  return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( bank, increase_tx_account_lock_limit ), FD_CPI_MAX_ACCOUNT_INFOS, 64UL );
 }
 
 /* Maximum CPI instruction data size. 10 KiB was chosen to ensure that CPI
@@ -277,17 +274,17 @@ static int
 fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
                                      ulong           acct_cnt,
                                      ulong           data_sz ) {
-  /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L958-L959 */
-  if( FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot, &vm->instr_ctx->txn_ctx->features, loosen_cpi_size_restriction ) ) {
-    if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
-      FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
-      // SyscallError::MaxInstructionDataLenExceeded
-      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
-    }
+  /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L146-L161 */
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( acct_cnt > FD_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
       FD_LOG_WARNING(( "cpi: too many accounts (%#lx)", acct_cnt ));
       // SyscallError::MaxInstructionAccountsExceeded
       return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
+    }
+    if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
+      FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
+      // SyscallError::MaxInstructionDataLenExceeded
+      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
     }
   } else {
     // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1114
@@ -297,6 +294,47 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
       // SyscallError::InstructionTooLarge
       return FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE;
     }
+  }
+
+  return FD_VM_SUCCESS;
+}
+
+/* https://github.com/anza-xyz/agave/blob/v3.0.1/syscalls/src/cpi.rs#L1134-L1169 */
+static inline int
+fd_vm_cpi_update_caller_account_region( fd_vm_t *                    vm,
+                                        ulong                        instr_acc_idx,
+                                        fd_vm_cpi_caller_account_t * caller_account,
+                                        fd_borrowed_account_t *      borrowed_account ) {
+  /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1141-L1148 */
+  ulong address_space_reserved_for_account;
+  if( vm->stricter_abi_and_runtime_constraints && vm->is_deprecated ) {
+    address_space_reserved_for_account = caller_account->orig_data_len;
+  } else {
+    address_space_reserved_for_account = fd_ulong_sat_add( caller_account->orig_data_len, MAX_PERMITTED_DATA_INCREASE );
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1159-L1164 */
+  if( address_space_reserved_for_account > 0UL ) {
+    /* Note that we don't special-case direct mapping here, as Agave does,
+       because we do not create regions using CoW upon resize like Agave does.
+
+       Therefore we do not need the logic in the Agave code to create a new
+       region, as we have already created all the regions for each account.
+
+       Therefore we do not have equivalents of Agave's
+       modify_memory_region_of_account and create_memory_region_of_account
+       functions, but we instead inline this logic directly below. */
+    fd_vm_acc_region_meta_t * acc_region_meta = &vm->acc_region_metas[instr_acc_idx];
+    fd_vm_input_region_t *    region          = &vm->input_mem_regions[acc_region_meta->region_idx + 1UL];
+
+    /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1159-L1165 */
+    /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L23-L35 */
+    region->region_sz = (uint)fd_borrowed_account_get_data_len( borrowed_account );
+
+    int err;
+    int is_writable = fd_borrowed_account_can_data_be_changed( borrowed_account, &err );
+
+    region->is_writable = (uchar)is_writable && ( err == FD_EXECUTOR_INSTR_SUCCESS );
   }
 
   return FD_VM_SUCCESS;
@@ -320,11 +358,11 @@ fd_vm_syscall_cpi_check_id( fd_pubkey_t const * program_id,
    https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/src/precompiles.rs#L93
  */
 static inline int
-fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id, fd_exec_txn_ctx_t const * txn_ctx ) {
+fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id, fd_bank_t * bank ) {
   return fd_vm_syscall_cpi_check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) |
          fd_vm_syscall_cpi_check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key) |
          ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_secp256r1_program_id.key) &&
-           FD_FEATURE_ACTIVE( txn_ctx->slot, &txn_ctx->features, enable_secp256r1_precompile ) );
+           FD_FEATURE_ACTIVE_BANK( bank, enable_secp256r1_precompile ) );
 }
 
 /* fd_vm_syscall_cpi_check_authorized_program corresponds to
@@ -336,10 +374,10 @@ It determines if the given program_id is authorized to execute a CPI call.
 FIXME: return type
  */
 static inline ulong
-fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *       program_id,
-                                            fd_exec_txn_ctx_t const * txn_ctx,
-                                            uchar const *             instruction_data,
-                                            ulong                     instruction_data_len ) {
+fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
+                                            fd_bank_t *         bank,
+                                            uchar const *       instruction_data,
+                                            ulong               instruction_data_len ) {
   /* FIXME: do this in a branchless manner? using bitwise comparison would probably be faster */
   return ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_native_loader_id.key) ||
            fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_program_id.key) ||
@@ -347,57 +385,12 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *       program_id
            ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key) &&
              !(( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_upgrade ) ||
                ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_set_authority ) ||
-               ( FD_FEATURE_ACTIVE( txn_ctx->slot, &txn_ctx->features, enable_bpf_loader_set_authority_checked_ix ) &&
+               ( FD_FEATURE_ACTIVE_BANK( bank, enable_bpf_loader_set_authority_checked_ix ) &&
                  ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_set_authority_checked )) ||
-               ( FD_FEATURE_ACTIVE( txn_ctx->slot, &txn_ctx->features, enable_extend_program_checked ) &&
+               ( FD_FEATURE_ACTIVE_BANK( bank, enable_extend_program_checked ) &&
                  ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_extend_program_checked )) ||
                ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_close ))) ||
-           fd_vm_syscall_cpi_is_precompile( program_id, txn_ctx ) );
-}
-
-/* Helper functions to get the absolute vaddrs of the serialized accounts pubkey, lamports and owner.
-
-   For the accounts not owned by the deprecated loader, all of these offsets into the accounts metadata region
-   are static from fd_vm_acc_region_meta->metadata_region_offset.
-
-   For accounts owned by the deprecated loader, the unaligned serializer is used, which means only the pubkey
-   and lamports offsets are static from the metadata_region_offset. The owner is serialized into the region
-   immediately following the account data region (if present) at a fixed offset.
- */
-#define VM_SERIALIZED_PUBKEY_OFFSET   (8UL)
-#define VM_SERIALIZED_OWNER_OFFSET    (40UL)
-#define VM_SERIALIZED_LAMPORTS_OFFSET (72UL)
-
-#define VM_SERIALIZED_UNALIGNED_PUBKEY_OFFSET   (3UL)
-#define VM_SERIALIZED_UNALIGNED_LAMPORTS_OFFSET (35UL)
-
-static inline
-ulong serialized_pubkey_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region_meta ) {
-  return FD_VM_MEM_MAP_INPUT_REGION_START + acc_region_meta->metadata_region_offset +
-    (vm->is_deprecated ? VM_SERIALIZED_UNALIGNED_PUBKEY_OFFSET : VM_SERIALIZED_PUBKEY_OFFSET);
-}
-
-static inline
-ulong serialized_owner_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region_meta ) {
-  if ( vm->is_deprecated ) {
-    /* For deprecated loader programs, the owner is serialized into the start of the region
-       following the account data region (if present) at a fixed offset.
-       If the account data region is not present, the owner is
-       serialized into the same fixed offset following the account's
-       metadata region.
-     */
-    return FD_VM_MEM_MAP_INPUT_REGION_START + vm->input_mem_regions[
-      acc_region_meta->has_data_region ? acc_region_meta->region_idx+1U : acc_region_meta->region_idx
-    ].vaddr_offset;
-  }
-
-  return FD_VM_MEM_MAP_INPUT_REGION_START + acc_region_meta->metadata_region_offset + VM_SERIALIZED_OWNER_OFFSET;
-}
-
-static inline
-ulong serialized_lamports_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region_meta ) {
-  return FD_VM_MEM_MAP_INPUT_REGION_START + acc_region_meta->metadata_region_offset +
-    (vm->is_deprecated ? VM_SERIALIZED_UNALIGNED_LAMPORTS_OFFSET : VM_SERIALIZED_LAMPORTS_OFFSET);
+           fd_vm_syscall_cpi_is_precompile( program_id, bank ) );
 }
 
 /* The data and lamports fields are in an Rc<Refcell<T>> in the Rust ABI AccountInfo.
@@ -410,7 +403,7 @@ ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
   return (ulong) &(((fd_vm_rc_refcell_t *)rc_refcell_vaddr)->payload);
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L327
+/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L310-L316
  */
 FD_FN_CONST static inline
 ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_haddr, ulong acct_info_haddr ) {
@@ -452,6 +445,7 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
   ulong * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_addr, alignof(ulong), sizeof(ulong) );
 
+/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L304 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl ) \
   ulong decl = acc_info->data_addr;
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
@@ -530,18 +524,25 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
     /* Extract the vaddr embedded in the RefCell */                                                                                              \
     ulong decl = *FD_EXPAND_THEN_CONCAT2(decl, _hptr_);
 
+/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L184-L195 */
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                                                                     \
     ulong FD_EXPAND_THEN_CONCAT2(decl, _vaddr_) =                                                                                                                  \
       *((ulong const *)FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) )); \
     ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _vaddr_), alignof(ulong), sizeof(ulong) );
 
+/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L184-L195 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                                                   \
+    if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && acc_info->data_box_addr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {                 \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );                                                                          \
+      return FD_VM_SYSCALL_ERR_INVALID_POINTER;                                                                                                    \
+    }                                                                                                                                              \
     /* Translate the vaddr to the slice */                                                                                                         \
     fd_vm_vec_t const * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                     \
       FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_vec_t) ); \
     /* Extract the vaddr embedded in the slice */                                                                                                  \
     ulong decl = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr;
 
+/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L212-L221 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_LEN_VADDR( vm, acc_info, decl ) \
     ulong decl = fd_ulong_sat_add( vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), sizeof(ulong) );
 

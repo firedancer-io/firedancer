@@ -1,8 +1,9 @@
-#ifndef HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h
-#define HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h
+#ifndef HEADER_fd_src_app_shared_dev_commands_quic_trace_fd_quic_trace_h
+#define HEADER_fd_src_app_shared_dev_commands_quic_trace_fd_quic_trace_h
 
 #include "../../../shared/fd_config.h"
 #include "../../../shared/fd_action.h"
+#include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../disco/quic/fd_quic_tile.h"
 #include "../../../../waltz/quic/fd_quic_private.h"
 
@@ -24,15 +25,12 @@ typedef struct peer_conn_id_map peer_conn_id_map_t;
 #define MAP_LG_SLOT_CNT       PEER_MAP_LG_SLOT_CNT
 #include "../../../../util/tmpl/fd_map.c"
 
-/* fd_quic_trace_ctx is the relocated fd_quic_ctx_t of the target quic
-   tile.  fd_quic_trace_ctx_remote is the original fd_quic_ctx_t, but
-   the pointer itself is in the local address space. */
-
-extern fd_quic_ctx_t         fd_quic_trace_ctx;
-extern fd_quic_ctx_t const * fd_quic_trace_ctx_remote;
-extern ulong                 fd_quic_trace_ctx_raddr;
-extern ulong volatile *      fd_quic_trace_link_metrics;
-extern void const *          fd_quic_trace_log_base;
+/* fd_quic_trace_ctx_remote is the original fd_quic_ctx_t, but the
+   pointer itself is in the local address space. */
+extern void const         *  fd_quic_trace_tile_ctx_remote; /* local ptr to remote ctx */
+extern ulong                 fd_quic_trace_tile_ctx_raddr;  /* remote addr of remote ctx */
+extern ulong volatile     *  fd_quic_trace_link_metrics;
+extern void const         *  fd_quic_trace_log_base;
 extern peer_conn_id_map_t    _fd_quic_trace_peer_map[1UL<<PEER_MAP_LG_SLOT_CNT];
 extern peer_conn_id_map_t *  fd_quic_trace_peer_map;
 
@@ -45,8 +43,12 @@ struct fd_quic_trace_ctx {
   int   dump;         /* whether the user requested --dump */
   int   dump_config;  /* whether the user requested --dump-config */
   int   dump_conns;   /* whether the user requested --dump-conns */
-  int   net_out;      /* whether to include tx (net-out) packets */
+  int   trace_send;   /* whether the user requested tracing send tile (1) or quic tile (0) */
   ulong net_out_base; /* base address of net-out chunks in local addr space */
+
+  fd_quic_t * quic;  /* local join to remote quic */
+  fd_net_rx_bounds_t net_in_bounds[1]; /* bounds of net-in chunks in local addr space */
+  uchar buffer[ FD_NET_MTU ];
 };
 
 typedef struct fd_quic_trace_ctx fd_quic_trace_ctx_t;
@@ -61,30 +63,42 @@ struct fd_quic_trace_frame_ctx {
 
 typedef struct fd_quic_trace_frame_ctx fd_quic_trace_frame_ctx_t;
 
+#define translate_ptr( ptr ) __extension__({                   \
+  ulong rel   = (ulong)(ptr) - fd_quic_trace_tile_ctx_raddr; \
+  ulong laddr = (ulong)fd_quic_trace_tile_ctx_remote + rel;  \
+  (__typeof__(ptr))(laddr);                                  \
+})
+
+#define tile_member( ctx_ptr, field, is_send ) \
+*fd_ptr_if( is_send, &(((fd_send_tile_ctx_t*)(ctx_ptr))->field), &(((fd_quic_ctx_t*)(ctx_ptr))->field))
+
+
 FD_PROTOTYPES_BEGIN
 
 void
 fd_quic_trace_frames( fd_quic_trace_frame_ctx_t * context,
-                      uchar const * data,
-                      ulong         data_sz );
+                      uchar               const * data,
+                      ulong                       data_sz );
 
 void
-fd_quic_trace_rx_tile( fd_quic_trace_ctx_t *  trace_ctx,
+fd_quic_trace_rx_tile( fd_quic_trace_ctx_t  * trace_ctx,
                        fd_frag_meta_t const * rx_mcache,
                        fd_frag_meta_t const * tx_mcache );
 
 void
-fd_quic_trace_log_tile( fd_frag_meta_t const * in_mcache );
+fd_quic_trace_log_tile( fd_quic_trace_ctx_t  * ctx,
+                        fd_frag_meta_t const * in_mcache );
+
+static inline fd_quic_conn_t const *
+fd_quic_trace_conn_at_idx( fd_quic_t const * quic, ulong idx ) {
+  fd_quic_state_t const * state = fd_quic_get_state_const( quic );
+  ulong const local_conn_base   = translate_ptr( state->conn_base );
+  return (fd_quic_conn_t *)( local_conn_base + idx * state->conn_sz );
+}
 
 FD_PROTOTYPES_END
 
 
-#define translate_ptr( ptr ) __extension__({              \
-    ulong rel   = (ulong)(ptr) - fd_quic_trace_ctx_raddr; \
-    ulong laddr = (ulong)fd_quic_trace_ctx_remote + rel;  \
-    (__typeof__(ptr))(laddr);                             \
-  })
-
 extern action_t fd_action_quic_trace;
 
-#endif /* HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h */
+#endif /* HEADER_fd_src_app_shared_dev_commands_quic_trace_fd_quic_trace_h */

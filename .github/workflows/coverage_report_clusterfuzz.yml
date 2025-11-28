@@ -15,7 +15,7 @@ jobs:
       MACHINE: linux_clang_haswell
       EXTRAS: llvm-cov
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 

@@ -1,15 +1,13 @@
 #include "fd_send_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../disco/fd_txn_m_t.h"
+#include "../../disco/fd_txn_m.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include "../../discof/tower/fd_tower_tile.h"
 #include "generated/fd_send_tile_seccomp.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
 
 #include <sys/random.h>
-
-/* 'Staleness' is currently just for debugging - we don't act on it */
-#define CONTACT_INFO_STALE_TICKS (120e9L) /* ~60 seconds */
 
 /* map leader pubkey to contact/conn info
    A map entry is created only for staked peers. On receiving contact info, we update
@@ -44,7 +42,7 @@ fd_quic_limits_t quic_limits = {
   .inflight_frame_cnt          = 16UL * MAX_STAKED_LEADERS,
   .min_inflight_frame_cnt_conn = 4UL,
   .stream_id_cnt               = 64UL,
-  .tx_buf_sz                   = 1UL<<11,
+  .tx_buf_sz                   = FD_TXN_MTU,
   .stream_pool_cnt             = 1UL<<13
 };
 
@@ -69,17 +67,10 @@ quic_tls_cv_sign( void *      signer_ctx,
                   uchar       signature[ static 64 ],
                   uchar const payload[ static 130 ] ) {
   fd_send_tile_ctx_t * ctx = signer_ctx;
-  long dt = -fd_tickcount();
+  long dt = -fd_clock_now( ctx->clock );
   fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-  dt += ( ctx->now = fd_tickcount() );
+  dt += ( ctx->now = fd_clock_now( ctx->clock ) );
   fd_histf_sample( ctx->metrics.sign_duration, (ulong)dt );
-}
-
-/* quic_now is used by quic to get current time */
-static ulong
-quic_now( void * _ctx ) {
-  fd_send_tile_ctx_t const * ctx = fd_type_pun_const( _ctx );
-  return (ulong)ctx->now;
 }
 
 /* quic_hs_complete is called when the QUIC handshake is complete
@@ -94,14 +85,12 @@ quic_hs_complete( fd_quic_conn_t * conn,
   for( ulong i=0; i<FD_SEND_PORT_QUIC_CNT; i++ ) {
     if( entry->conn[i] == conn ) { ctx->metrics.quic_hs_complete[i]++; break; }
   }
-  FD_LOG_DEBUG(("send_tile: QUIC handshake complete for leader %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
+  FD_DEBUG( FD_LOG_DEBUG(("QUIC handshake complete for leader %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key ))); )
 }
-
 
 inline static int
 port_idx_is_quic( ulong port_idx ) {
-  return !!(port_idx == FD_SEND_PORT_QUIC_VOTE_IDX) |
-         !!(port_idx == FD_SEND_PORT_QUIC_TPU_IDX);
+  return (port_idx==FD_SEND_PORT_QUIC_VOTE_IDX) | (port_idx==FD_SEND_PORT_QUIC_TPU_IDX);
 }
 
 /* quic_conn_final is called when the QUIC connection dies. */
@@ -110,25 +99,24 @@ quic_conn_final( fd_quic_conn_t * conn,
                  void *           quic_ctx ) {
   fd_send_conn_entry_t * entry = fd_type_pun( fd_quic_conn_get_context( conn ) );
   if( FD_UNLIKELY( !entry ) ) {
-    FD_LOG_CRIT(( "send_tile: Conn map entry not found in conn_final" ));
+    FD_LOG_CRIT(( "Conn map entry not found in conn_final" ));
   }
 
   fd_send_tile_ctx_t * ctx = fd_type_pun( quic_ctx );
 
-  ulong clr_idx = ~0UL;
   for( ulong i=0UL; i<FD_SEND_PORT_QUIC_CNT; i++ ) {
     if( entry->conn[i] == conn ) {
       entry->conn[i] = NULL;
-      clr_idx = i;
-      FD_LOG_DEBUG(("send_tile: Quic conn final: %p to peer " FD_IP4_ADDR_FMT ":%u", (void*)conn, FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i]));
+      FD_DEBUG( FD_LOG_DEBUG(("Quic final for conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
+                              (void*)conn, FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i], (void*)entry,
+                              FD_BASE58_ENC_32_ALLOCA(entry->pubkey.key))); )
       ctx->metrics.quic_conn_final[i]++;
-      break;
+      if( i==FD_SEND_PORT_QUIC_VOTE_IDX ) entry->last_quic_vote_close = ctx->now;
+      return;
     }
   }
 
-  if( FD_UNLIKELY( clr_idx == ~0UL ) ) {
-    FD_LOG_CRIT(( "conn not found in entry for peer %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
-  }
+  FD_LOG_CRIT(( "conn not found in entry for peer %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
 }
 
 /* send_to_net sends a packet to the net tile.
@@ -155,7 +143,6 @@ send_to_net( fd_send_tile_ctx_t * ctx,
   fd_memcpy( packet_l4, udp_hdr,              sizeof(fd_udp_hdr_t) );
   fd_memcpy( packet_l5, payload,              payload_sz           );
 
-  FD_LOG_DEBUG(("voting: sending packet to " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(ip_dst), fd_ushort_bswap(udp_hdr->net_dport) ));
   ulong sig   = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
   ulong tspub = (ulong)ctx->now;
   ulong sz_l2 = sizeof(fd_eth_hdr_t) + ip_sz + sizeof(fd_udp_hdr_t) + payload_sz;
@@ -191,28 +178,9 @@ quic_tx_aio_send( void *                    _ctx,
 
 static void
 during_housekeeping( fd_send_tile_ctx_t * ctx ) {
-  #define MAP_STATS_PERIOD (32UL)
-  if( ctx->housekeeping_ctr++ % MAP_STATS_PERIOD == 0UL ) {
-    ulong const map_cnt = fd_send_conn_map_slot_cnt();
-    ulong staked_no_ci = 0UL;
-    ulong stale_ci = 0UL;
-    ulong map_real_cnt = 0UL;
-    for( ulong i=0UL; i<map_cnt; i++ ) {
-      fd_send_conn_entry_t * entry = &ctx->conn_map[i];
-      if( !fd_send_conn_map_key_equal( entry->pubkey, fd_send_conn_map_key_null() ) ) {
-        map_real_cnt++;
-        if( !entry->got_ci_msg ) {
-          staked_no_ci++;
-        } else if( ctx->now - entry->last_ci_ticks > CONTACT_INFO_STALE_TICKS ) {
-          stale_ci++;
-        }
-      }
-    }
-    ctx->metrics.staked_no_ci = staked_no_ci;
-    ctx->metrics.stale_ci = stale_ci;
-    FD_LOG_DEBUG(("send_tile map check: %lu no ci and %lu stale out of %lu staked", staked_no_ci, stale_ci, map_real_cnt ));
+  if( FD_UNLIKELY( ctx->recal_next <= ctx->now ) ) {
+    ctx->recal_next = fd_clock_default_recal( ctx->clock );
   }
-  #undef MAP_STATS_PERIOD
 }
 
 /* quic_connect initiates quic connections for a given entry and port. It uses the
@@ -230,13 +198,15 @@ quic_connect( fd_send_tile_ctx_t   * ctx,
 
   FD_TEST( entry->conn[conn_idx] == NULL );
 
-  fd_quic_conn_t * conn = fd_quic_connect( ctx->quic, dst_ip, dst_port, ctx->src_ip_addr, ctx->src_port );
+  fd_quic_conn_t * conn = fd_quic_connect( ctx->quic, dst_ip, dst_port, ctx->src_ip_addr, ctx->src_port, ctx->now );
   if( FD_UNLIKELY( !conn ) ) {
-    FD_LOG_WARNING(( "send_tile: Failed to create QUIC connection to " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port ));
+    FD_LOG_WARNING(( "Failed to create QUIC connection to " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port ));
     return NULL;
   }
 
-  FD_LOG_DEBUG(("send_tile: Quic conn created: %p to peer " FD_IP4_ADDR_FMT ":%u", (void*)conn, FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port));
+  FD_DEBUG( FD_LOG_DEBUG(("Quic created conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
+                          (void*)conn, FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port, (void*)entry,
+                          FD_BASE58_ENC_32_ALLOCA(entry->pubkey.key))); )
 
   entry->conn[conn_idx] = conn;
   fd_quic_conn_set_context( conn, entry );
@@ -249,7 +219,7 @@ quic_connect( fd_send_tile_ctx_t   * ctx,
 static void
 ensure_conn_for_slot( fd_send_tile_ctx_t * ctx,
                       ulong                target_slot,
-                      ulong                keep_alive_ticks ) {
+                      long                 lifespan ) {
   fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
   if( FD_UNLIKELY( !leader ) ) {
     /* Track NoLeader outcome for both QUIC ports */
@@ -270,14 +240,23 @@ ensure_conn_for_slot( fd_send_tile_ctx_t * ctx,
 
     if( !entry->conn[i] ) {
       /* Attempting to create new connection */
-      fd_quic_conn_t * conn  = quic_connect( ctx, entry, i );
-      if( FD_UNLIKELY( !conn ) ) continue;
+      if( (i==FD_SEND_PORT_QUIC_VOTE_IDX) & (ctx->now<entry->last_quic_vote_close+1e9L*FD_SEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS) ) {
+        FD_LOG_DEBUG(("Skipping QUIC connection to " FD_IP4_ADDR_FMT ":%u bc of cooldown", FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i] ));
+        ctx->metrics.ensure_conn_result[i][FD_METRICS_ENUM_SEND_ENSURE_CONN_RESULT_V_COOLDOWN_IDX]++;
+        continue;
+      }
+      fd_quic_conn_t * conn = quic_connect( ctx, entry, i );
+      if( FD_UNLIKELY( !conn ) ) {
+        ctx->metrics.ensure_conn_result[i][FD_METRICS_ENUM_SEND_ENSURE_CONN_RESULT_V_CONN_FAILED_IDX]++;
+        continue;
+      }
       ctx->metrics.ensure_conn_result[i][FD_METRICS_ENUM_SEND_ENSURE_CONN_RESULT_V_NEW_CONNECTION_IDX]++;
-      fd_quic_service( ctx->quic );
+      fd_quic_service( ctx->quic, ctx->now );
     } else {
       /* Connection already exists */
       ctx->metrics.ensure_conn_result[i][FD_METRICS_ENUM_SEND_ENSURE_CONN_RESULT_V_CONNECTED_IDX]++;
-      fd_quic_conn_let_die( entry->conn[i], keep_alive_ticks );
+      fd_quic_conn_let_die( entry->conn[i], lifespan, ctx->now );
+      fd_quic_service( ctx->quic, ctx->now );
     }
   }
 }
@@ -285,10 +264,10 @@ ensure_conn_for_slot( fd_send_tile_ctx_t * ctx,
 /* leader_send sends a payload to 'pubkey' in all possible ways. For quic targets,
    it relies on quic connections that are already established. */
 static void
-leader_send( fd_send_tile_ctx_t  *  ctx,
-             fd_pubkey_t const   *  pubkey,
-             uchar const         *  payload,
-             ulong                  payload_sz ) {
+leader_send( fd_send_tile_ctx_t * ctx,
+             fd_pubkey_t const  * pubkey,
+             uchar const        * payload,
+             ulong                payload_sz ) {
 
   fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, *pubkey, NULL );
   if( FD_UNLIKELY( !entry ) ) {
@@ -320,7 +299,7 @@ leader_send( fd_send_tile_ctx_t  *  ctx,
       ctx->metrics.send_result_cnt[i][FD_METRICS_ENUM_TXN_SEND_RESULT_V_SUCCESS_IDX]++;
 
       fd_quic_stream_send( stream, payload, payload_sz, 1 );
-      fd_quic_service( ctx->quic ); /* trigger send ASAP */
+      fd_quic_service( ctx->quic, ctx->now ); /* trigger send ASAP */
     } else {
 
       fd_ip4_hdr_t * ip4_hdr = ctx->packet_hdr->ip4;
@@ -356,7 +335,6 @@ handle_contact_info_update( fd_send_tile_ctx_t *               ctx,
   fd_send_conn_entry_t * entry  = fd_send_conn_map_query( ctx->conn_map, *(fd_pubkey_t *)(msg->origin_pubkey), NULL );
   if( FD_UNLIKELY( !entry ) ) {
     /* Skip if UNSTAKED */
-    FD_LOG_DEBUG(("send_tile: Skipping unstaked pubkey %s", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey )));
     ctx->metrics.unstaked_ci_rcvd++;
     return;
   }
@@ -370,7 +348,7 @@ handle_contact_info_update( fd_send_tile_ctx_t *               ctx,
     ushort                old_port = entry->ports[i];
 
     if( FD_UNLIKELY( !new_ip || !new_port ) ) {
-      FD_LOG_DEBUG(( "send_tile: Unroutable contact info for pubkey %s", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey )));
+      FD_LOG_DEBUG(( "Unroutable contact info for pubkey %s", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey )));
       ctx->metrics.new_contact_info[i][FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_UNROUTABLE_IDX]++;
       continue;
     }
@@ -395,9 +373,6 @@ handle_contact_info_update( fd_send_tile_ctx_t *               ctx,
     ulong metric_idx = metric_idx_map[ !!info_changed<<(!!old_port) ];
     ctx->metrics.new_contact_info[i][metric_idx]++;
   }
-
-  entry->got_ci_msg    = 1;
-  entry->last_ci_ticks = ctx->now;
 }
 
 static inline void
@@ -436,7 +411,6 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
     fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, pubkey, NULL );
     /* UNSTAKED -> NO_CONN: create new entry in NO_CONN state */
     if( FD_UNLIKELY( !entry ) ) {
-      FD_LOG_DEBUG(("send_tile: creating new entry for pubkey %s", FD_BASE58_ENC_32_ALLOCA( pubkey.key )));
       /* insert and initialize entry */
       entry = fd_send_conn_map_insert( ctx->conn_map, pubkey );
       *entry = (fd_send_conn_entry_t){.pubkey = entry->pubkey, .hash = entry->hash };
@@ -446,14 +420,18 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
 
 static void
 handle_vote_msg( fd_send_tile_ctx_t * ctx,
-                 ulong                vote_slot ) {
+                 ulong                vote_slot,
+                 uchar *              signed_vote_txn,
+                 ulong                vote_txn_sz ) {
 
-  fd_txn_p_t * txn = fd_type_pun( ctx->txn_buf );
+  uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  fd_txn_t * txn = (fd_txn_t *)txn_mem;
+  FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
 
   /* sign the txn */
-  uchar * signature = txn->payload + TXN(txn)->signature_off;
-  uchar * message   = txn->payload + TXN(txn)->message_off;
-  ulong message_sz  = txn->payload_sz - TXN(txn)->message_off;
+  uchar * signature = signed_vote_txn + txn->signature_off;
+  uchar const * message   = signed_vote_txn + txn->message_off;
+  ulong message_sz  = vote_txn_sz - txn->message_off;
   fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   ulong poh_slot  = vote_slot+1;
@@ -464,17 +442,18 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
     ulong target_slot = poh_slot + i*FD_EPOCH_SLOTS_PER_ROTATION;
     fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
     if( FD_LIKELY( leader ) ) {
-      leader_send( ctx, leader, txn->payload, txn->payload_sz );
+      leader_send( ctx, leader, signed_vote_txn, vote_txn_sz );
     } else {
+      /* TODO: eventually make this CRIT, rm metrics */
       ctx->metrics.leader_not_found++;
-      FD_LOG_DEBUG(("send_tile: Failed to get leader contact for slot %lu", target_slot));
+      FD_LOG_DEBUG(("Failed to get leader contact for slot %lu", target_slot));
     }
   }
 
   for( ulong i=0; i<FD_SEND_CONNECT_AHEAD_LEADER_CNT; i++ ) {
     ulong connect_slot = poh_slot + i*FD_EPOCH_SLOTS_PER_ROTATION;
     /* keep alive for at least as long as needed */
-    ensure_conn_for_slot( ctx, connect_slot, ctx->ticks_per_sec * FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS );
+    ensure_conn_for_slot( ctx, connect_slot, FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS * (long)1e9 );
   }
 
   /* send to gossip and dedup */
@@ -482,13 +461,17 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   uchar * msg_to_gossip = fd_chunk_to_laddr( gossip_verify_out->mem, gossip_verify_out->chunk );
   fd_txn_m_t * txnm = (fd_txn_m_t *)msg_to_gossip;
   *txnm = (fd_txn_m_t) { 0UL };
-  txnm->payload_sz = (ushort)txn->payload_sz;
+  txnm->payload_sz = (ushort)vote_txn_sz;
   txnm->source_ipv4 = ctx->src_ip_addr;
   txnm->source_tpu  = FD_TXN_M_TPU_SOURCE_SEND;
-  fd_memcpy( msg_to_gossip+sizeof(fd_txn_m_t), txn->payload, txn->payload_sz );
-  fd_stem_publish( ctx->stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), 0UL, 0, 0 );
-  gossip_verify_out->chunk = fd_dcache_compact_next( gossip_verify_out->chunk, txn->payload_sz, gossip_verify_out->chunk0,
-      gossip_verify_out->wmark );
+  fd_memcpy( msg_to_gossip+sizeof(fd_txn_m_t), signed_vote_txn, vote_txn_sz );
+  ulong msg_sz = fd_txn_m_realized_footprint( txnm, 0, 0 );
+  fd_stem_publish( ctx->stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, msg_sz, 0UL, 0, 0 );
+  gossip_verify_out->chunk = fd_dcache_compact_next(
+    gossip_verify_out->chunk,
+    msg_sz,
+    gossip_verify_out->chunk0,
+    gossip_verify_out->wmark );
 }
 
 /* Stem callbacks */
@@ -499,9 +482,9 @@ before_credit( fd_send_tile_ctx_t * ctx,
                int *                charge_busy ) {
   ctx->stem = stem;
 
-  ctx->now = fd_tickcount();
+  ctx->now = fd_clock_now( ctx->clock );
   /* Publishes to mcache via callbacks */
-  *charge_busy = fd_quic_service( ctx->quic );
+  *charge_busy = fd_quic_service( ctx->quic, ctx->now );
 }
 
 static inline int
@@ -534,7 +517,7 @@ during_frag( fd_send_tile_ctx_t * ctx,
   ulong         kind         = in_link->kind;
 
   if( FD_UNLIKELY( kind==IN_KIND_NET ) ) {
-    void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz );
+    void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
     fd_memcpy( ctx->quic_buf, src, sz );
   }
 
@@ -545,15 +528,25 @@ during_frag( fd_send_tile_ctx_t * ctx,
     fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( dcache_entry ) );
   }
 
-  if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {
+  if( FD_LIKELY( kind==IN_KIND_GOSSIP ) ) {
     fd_memcpy( ctx->contact_buf, dcache_entry, sz );
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
-    if( sz!=sizeof(fd_txn_p_t) ) {
-      FD_LOG_ERR(( "sz %lu != expected txn size %lu", sz, sizeof(fd_txn_p_t) ));
+      if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
+        FD_TEST( sz==sizeof(fd_tower_slot_done_t) );
+
+        fd_tower_slot_done_t const * slot_done = fd_type_pun_const( dcache_entry );
+
+        ulong const vote_slot   = slot_done->vote_slot;
+        ulong const vote_txn_sz = slot_done->vote_txn_sz;
+        if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return; /* no new vote to send */
+
+        uchar vote_txn[ FD_TPU_MTU ];
+        fd_memcpy( vote_txn, slot_done->vote_txn, vote_txn_sz );
+
+        handle_vote_msg( ctx, vote_slot, vote_txn, vote_txn_sz );
     }
-    fd_memcpy( ctx->txn_buf, dcache_entry, sz );
   }
 }
 
@@ -561,7 +554,7 @@ static void
 after_frag( fd_send_tile_ctx_t * ctx,
             ulong                in_idx,
             ulong                seq FD_PARAM_UNUSED,
-            ulong                sig,
+            ulong                sig FD_PARAM_UNUSED,
             ulong                sz,
             ulong                tsorig FD_PARAM_UNUSED,
             ulong                tspub FD_PARAM_UNUSED,
@@ -577,7 +570,7 @@ after_frag( fd_send_tile_ctx_t * ctx,
     ulong       ip_sz  = sz - sizeof(fd_eth_hdr_t);
     fd_quic_t * quic   = ctx->quic;
 
-    fd_quic_process_packet( quic, ip_pkt, ip_sz );
+    fd_quic_process_packet( quic, ip_pkt, ip_sz, ctx->now );
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {
@@ -591,10 +584,6 @@ after_frag( fd_send_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( kind==IN_KIND_STAKE ) ) {
     finalize_stake_msg( ctx );
-  }
-
-  if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
-    handle_vote_msg( ctx, sig );
   }
 }
 
@@ -611,7 +600,6 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( tile->send.identity_key_path, /* pubkey only: */ 1 ) );
-  FD_LOG_NOTICE(("send_tile: identity key %s", FD_BASE58_ENC_32_ALLOCA( ctx->identity_key[ 0 ].key )));
 }
 
 static fd_send_link_in_t *
@@ -619,9 +607,7 @@ setup_input_link( fd_send_tile_ctx_t * ctx,
                   fd_topo_t          * topo,
                   fd_topo_tile_t     * tile,
                   ulong                kind,
-                  const char         * name ) {
-  ulong in_idx = fd_topo_find_tile_in_link( topo, tile, name, 0 );
-  FD_TEST( in_idx!=ULONG_MAX );
+                  ulong                in_idx) {
   fd_topo_link_t    * in_link      = &topo->links[ tile->in_link_id[ in_idx ] ];
   fd_send_link_in_t * in_link_desc = &ctx->in_links[ in_idx ];
 
@@ -683,17 +669,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   quic->cb.conn_hs_complete  = quic_hs_complete;
   quic->cb.conn_final        = quic_conn_final;
-  quic->cb.now               = quic_now;
-  quic->cb.now_ctx           = ctx;
   quic->cb.quic_ctx          = ctx;
 
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
-  fd_quic_set_clock_tickcount( quic );
   FD_TEST_CUSTOM( fd_quic_init( quic ), "fd_quic_init failed" );
 
   ctx->quic = quic;
-
-  ctx->ticks_per_sec = (ulong)(quic->config.tick_per_us * 1e6);
 
   /* Initialize connection map */
   void * conn_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_send_conn_map_align(), fd_send_conn_map_footprint() );
@@ -704,14 +685,22 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->src_port    = tile->send.send_src_port;
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
 
-  setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_out" );
-  setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "stake_out"   );
-  setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_send"  );
+  /* Initialize input links */
+  for( ulong i=0; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( 0==strcmp( link->name, "net_send" ) ) {
+      setup_input_link( ctx, topo, tile, IN_KIND_NET, i );
+      fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
+    } else if( 0==strcmp( link->name, "gossip_out" ) ) {
+      setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, i );
+    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
+      setup_input_link( ctx, topo, tile, IN_KIND_STAKE, i );
+    } else if( 0==strcmp( link->name, "tower_out" ) ) {
+      setup_input_link( ctx, topo, tile, IN_KIND_TOWER, i );
+    }
+  }
 
-  fd_send_link_in_t * net_in = setup_input_link( ctx, topo, tile, IN_KIND_NET, "net_send" );
-  fd_net_rx_bounds_init( &ctx->net_in_bounds, net_in->dcache );
-
-  setup_output_link( ctx->gossip_verify_out, topo, tile, "send_txns" );
+  setup_output_link( ctx->gossip_verify_out, topo, tile, "send_out"  );
   setup_output_link( ctx->net_out,           topo, tile, "send_net"  );
 
   /* Set up keyguard(s) */
@@ -732,8 +721,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* init metrics */
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
   fd_histf_join( fd_histf_new( ctx->metrics.sign_duration,
-                                  FD_MHIST_SECONDS_MIN( SEND, SIGN_DURATION_SECONDS    ),
-                                  FD_MHIST_SECONDS_MAX( SEND, SIGN_DURATION_SECONDS    ) ) );
+                                  FD_MHIST_MIN( SEND, SIGN_DURATION_NANOS    ),
+                                  FD_MHIST_MAX( SEND, SIGN_DURATION_NANOS    ) ) );
 
   /* Call new/join here rather than in fd_quic so min/max can differ across uses */
   fd_histf_join( fd_histf_new( quic->metrics.service_duration,
@@ -747,6 +736,11 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top != (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
   }
+
+  fd_clock_t * clock = ctx->clock;
+  fd_clock_default_init( clock, ctx->clock_mem );
+  ctx->recal_next    = fd_clock_recal_next( clock );
+  ctx->now           = fd_clock_now( clock );
 }
 
 static ulong
@@ -799,11 +793,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( SEND, ENSURE_CONN_RESULT_QUIC_VOTE, ctx->metrics.ensure_conn_result[FD_METRICS_ENUM_SEND_QUIC_PORTS_V_QUIC_VOTE_IDX] );
   FD_MCNT_ENUM_COPY( SEND, ENSURE_CONN_RESULT_QUIC_TPU,  ctx->metrics.ensure_conn_result[FD_METRICS_ENUM_SEND_QUIC_PORTS_V_QUIC_TPU_IDX] );
 
-  /* Gauges */
-  FD_MGAUGE_SET(     SEND, STAKED_NO_CI,                 ctx->metrics.staked_no_ci                                 );
-  FD_MGAUGE_SET(     SEND, STALE_CI,                     ctx->metrics.stale_ci                                     );
-
-  FD_MHIST_COPY(     SEND, SIGN_DURATION_SECONDS,        ctx->metrics.sign_duration                                );
+  FD_MHIST_COPY(     SEND, SIGN_DURATION_NANOS,          ctx->metrics.sign_duration                                );
 
   /* General QUIC metrics */
   FD_MCNT_SET(         SEND, RECEIVED_BYTES,              ctx->quic->metrics.net_rx_byte_cnt         );
@@ -829,14 +819,14 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 
   FD_MCNT_ENUM_COPY(   SEND, PKT_CRYPTO_FAILED,           ctx->quic->metrics.pkt_decrypt_fail_cnt    );
   FD_MCNT_ENUM_COPY(   SEND, PKT_NO_KEY,                  ctx->quic->metrics.pkt_no_key_cnt          );
-  FD_MCNT_SET(         SEND, PKT_NO_CONN,                 ctx->quic->metrics.pkt_no_conn_cnt         );
+  FD_MCNT_ENUM_COPY(   SEND, PKT_NO_CONN,                 ctx->quic->metrics.pkt_no_conn_cnt         );
   FD_MCNT_ENUM_COPY(   SEND, FRAME_TX_ALLOC,              ctx->quic->metrics.frame_tx_alloc_cnt      );
   FD_MCNT_SET(         SEND, PKT_NET_HEADER_INVALID,      ctx->quic->metrics.pkt_net_hdr_err_cnt     );
   FD_MCNT_SET(         SEND, PKT_QUIC_HEADER_INVALID,     ctx->quic->metrics.pkt_quic_hdr_err_cnt    );
   FD_MCNT_SET(         SEND, PKT_UNDERSZ,                 ctx->quic->metrics.pkt_undersz_cnt         );
   FD_MCNT_SET(         SEND, PKT_OVERSZ,                  ctx->quic->metrics.pkt_oversz_cnt          );
   FD_MCNT_SET(         SEND, PKT_VERNEG,                  ctx->quic->metrics.pkt_verneg_cnt          );
-  FD_MCNT_SET(         SEND, PKT_RETRANSMISSIONS,         ctx->quic->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_ENUM_COPY(   SEND, PKT_RETRANSMISSIONS,         ctx->quic->metrics.pkt_retransmissions_cnt            );
 
   FD_MCNT_SET(         SEND, HANDSHAKES_CREATED,          ctx->quic->metrics.hs_created_cnt          );
   FD_MCNT_SET(         SEND, HANDSHAKE_ERROR_ALLOC_FAIL,  ctx->quic->metrics.hs_err_alloc_fail_cnt   );
@@ -849,8 +839,8 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 }
 
 
-#define STEM_BURST                        1UL /* send_txns */
-#define STEM_LAZY                         100000000UL /* 100ms */
+#define STEM_BURST 1UL
+#define STEM_LAZY  (10e3L) /* 10us */
 
 #define STEM_CALLBACK_CONTEXT_TYPE        fd_send_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN       alignof(fd_send_tile_ctx_t)

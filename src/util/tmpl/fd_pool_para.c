@@ -323,6 +323,14 @@
 #define POOL_IMPL_STYLE 0
 #endif
 
+/* POOL_LAZY enables lazy initialization for faster startup if defined
+   to non-zero.  Decreases pool_reset cost from O(ele_max) to O(1), at
+   the cost of more complex allocation logic. */
+
+#ifndef POOL_LAZY
+#define POOL_LAZY 0
+#endif
+
 /* Common pool error codes (FIXME: probably should get around to making
    unified error codes and string handling across all util at least so
    we don't have to do this in the generator itself) */
@@ -360,6 +368,11 @@ struct __attribute__((aligned(POOL_ALIGN))) POOL_(shmem_private) {
 
   ulong magic;   /* == POOL_MAGIC */
   ulong ver_top; /* Versioned index of the free stack top, top is in [0,ele_max) (not-empty) or is idx_null (empty) */
+
+# if POOL_LAZY
+  ulong ver_lazy; /* Versioned index of the lazy init, lazy is in [0,ele_max] (not-empty) or is idx_null (empty) */
+# endif
+
 };
 
 typedef struct POOL_(shmem_private) POOL_(shmem_t);
@@ -471,10 +484,22 @@ POOL_(peek_const)( POOL_(t) const * join ) {
   POOL_ELE_T     const * ele     = join->ele;
   ulong                  ele_max = join->ele_max;
   FD_COMPILER_MFENCE();
-  ulong ver_top = pool->ver_top;
+  ulong ver_top  = pool->ver_top;
+# if POOL_LAZY
+  ulong ver_lazy = pool->ver_lazy;
+# endif
   FD_COMPILER_MFENCE();
   ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
+# if POOL_LAZY
+  if( ele_idx<ele_max ) {
+    return ele + ele_idx;
+  } else {
+    ulong lazy_idx = POOL_(private_vidx_idx)( ver_lazy );
+    return (lazy_idx<ele_max) ? ele + lazy_idx : NULL;
+  }
+# else
   return (ele_idx<ele_max) ? ele + ele_idx : NULL;
+# endif
 }
 
 static inline POOL_ELE_T * POOL_(peek)( POOL_(t) * join ) { return (POOL_ELE_T *)POOL_(peek_const)( join ); }
@@ -483,16 +508,27 @@ static inline int
 POOL_(is_locked)( POOL_(t) const * join ) {
   POOL_(shmem_t) const * pool = join->pool;
   FD_COMPILER_MFENCE();
-  ulong ver_top = pool->ver_top;
+  ulong ver_top  = pool->ver_top;
+# if POOL_LAZY
+  ulong ver_lazy = pool->ver_lazy;
+# endif
   FD_COMPILER_MFENCE();
-  return (int)(POOL_(private_vidx_ver)( ver_top ) & 1UL);
+  return
+      (int)(POOL_(private_vidx_ver)( ver_top  ) & 1UL)
+# if POOL_LAZY
+    | (int)(POOL_(private_vidx_ver)( ver_lazy ) & 1UL)
+# endif
+  ;
 }
 
 static inline void
 POOL_(unlock)( POOL_(t) * join ) {
   POOL_(shmem_t) * pool = join->pool;
   FD_COMPILER_MFENCE();
-  pool->ver_top += 1UL<<POOL_IDX_WIDTH;
+  pool->ver_top  += 1UL<<POOL_IDX_WIDTH;
+# if POOL_LAZY
+  pool->ver_lazy += 1UL<<POOL_IDX_WIDTH;
+# endif
   FD_COMPILER_MFENCE();
 }
 
@@ -537,7 +573,10 @@ POOL_(new)( void * shmem ) {
     return NULL;
   }
 
-  pool->ver_top = POOL_(private_vidx)( 0UL, POOL_(idx_null)() );
+  pool->ver_top  = POOL_(private_vidx)( 0UL, POOL_(idx_null)() );
+# if POOL_LAZY
+  pool->ver_lazy = POOL_(private_vidx)( 0UL, POOL_(idx_null)() );
+# endif
 
   FD_COMPILER_MFENCE();
   pool->magic = POOL_MAGIC;
@@ -639,6 +678,66 @@ POOL_(delete)( void * shpool ) {
   return (void *)pool;
 }
 
+#if POOL_LAZY
+
+static inline POOL_ELE_T *
+POOL_(acquire_lazy)( POOL_(t) *   join,
+                     POOL_ELE_T * sentinel,
+                     int          blocking,
+                     int *        _opt_err ) {
+  POOL_ELE_T *     ele0    = join->ele;
+  ulong            ele_max = join->ele_max;
+  ulong volatile * _l      = (ulong volatile *)&join->pool->ver_lazy;
+
+  POOL_ELE_T * ele = sentinel;
+  int          err = FD_POOL_SUCCESS;
+
+  FD_COMPILER_MFENCE();
+
+  for(;;) {
+    ulong ver_lazy = *_l;
+
+    ulong ver     = POOL_(private_vidx_ver)( ver_lazy );
+    ulong ele_idx = POOL_(private_vidx_idx)( ver_lazy );
+
+    if( FD_LIKELY( !(ver & 1UL) ) ) { /* opt for unlocked */
+
+      if( FD_UNLIKELY( POOL_(idx_is_null)( ele_idx ) ) ) { /* opt for not empty */
+        err = FD_POOL_ERR_EMPTY;
+        break;
+      }
+
+      if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* opt for not corrupt */
+        err = FD_POOL_ERR_CORRUPT;
+        break;
+      }
+
+      ulong ele_nxt = ele_idx+1UL;
+      if( FD_UNLIKELY( ele_nxt>=ele_max ) ) ele_nxt = POOL_(idx_null)();
+
+      ulong new_ver_lazy = POOL_(private_vidx)( ver+2UL, ele_nxt );
+      if( FD_LIKELY( POOL_(private_cas)( _l, ver_lazy, new_ver_lazy )==ver_lazy ) ) { /* opt for low contention */
+        ele = ele0 + ele_idx;
+        break;
+      }
+    } else if( FD_UNLIKELY( !blocking ) ) { /* opt for blocking */
+
+      err = FD_POOL_ERR_AGAIN;
+      break; /* opt for blocking */
+
+    }
+
+    FD_SPIN_PAUSE();
+  }
+
+  FD_COMPILER_MFENCE();
+
+  fd_int_store_if( !!_opt_err, _opt_err, err );
+  return ele;
+}
+
+#endif /* POOL_LAZY */
+
 POOL_STATIC POOL_ELE_T *
 POOL_(acquire)( POOL_(t) *   join,
                 POOL_ELE_T * sentinel,
@@ -662,6 +761,9 @@ POOL_(acquire)( POOL_(t) *   join,
     if( FD_LIKELY( !(ver & 1UL) ) ) { /* opt for unlocked */
 
       if( FD_UNLIKELY( POOL_(idx_is_null)( ele_idx ) ) ) { /* opt for not empty */
+#       if POOL_LAZY
+        return POOL_(acquire_lazy)( join, sentinel, blocking, _opt_err );
+#       endif
         err = FD_POOL_ERR_EMPTY;
         break;
       }
@@ -707,9 +809,6 @@ POOL_(acquire)( POOL_(t) *   join,
   FD_COMPILER_MFENCE();
 
   fd_int_store_if( !!_opt_err, _opt_err, err );
-  #ifdef POOL_MARK_NOT_IN_POOL
-  if( ele != sentinel ) POOL_MARK_NOT_IN_POOL( ele );
-  #endif
   return ele;
 }
 
@@ -722,10 +821,6 @@ POOL_(release)( POOL_(t) *   join,
 
   ulong ele_idx = (ulong)(ele - join->ele);
   if( FD_UNLIKELY( ele_idx>=ele_max ) ) return FD_POOL_ERR_INVAL; /* opt for valid call */
-
-  #ifdef POOL_MARK_IN_POOL
-  POOL_MARK_IN_POOL( ele );
-  #endif
 
   int err = FD_POOL_SUCCESS;
 
@@ -767,25 +862,43 @@ POOL_(release)( POOL_(t) *   join,
 
 POOL_STATIC int
 POOL_(is_empty)( POOL_(t) * join ) {
-  ulong ver_top = join->pool->ver_top;
-  ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
-  return POOL_(idx_is_null)( ele_idx );
+  POOL_(shmem_t) const * pool = join->pool;
+  FD_COMPILER_MFENCE();
+  ulong ver_top  = pool->ver_top;
+# if POOL_LAZY
+  ulong ver_lazy = pool->ver_lazy;
+# endif
+  FD_COMPILER_MFENCE();
+
+  ulong top_idx = POOL_(private_vidx_idx)( ver_top );
+# if POOL_LAZY
+  ulong  ele_max = join->ele_max;
+  if( FD_LIKELY( top_idx<ele_max ) ) return 0;  /* explicit stack non-empty */
+  ulong lazy_idx = POOL_(private_vidx_idx)( ver_lazy );
+  return !(lazy_idx<ele_max);                   /* empty only if lazy also empty */
+# else
+  return POOL_(idx_is_null)( top_idx );
+# endif
 }
 
 POOL_STATIC int
 POOL_(lock)( POOL_(t) * join,
              int        blocking ) {
   ulong volatile * _v = (ulong volatile *)&join->pool->ver_top;
+# if POOL_LAZY
+  ulong volatile * _l = (ulong volatile *)&join->pool->ver_lazy;
+# endif
 
   int err = FD_POOL_SUCCESS;
 
   FD_COMPILER_MFENCE();
 
+  ulong ver_top;
   for(;;) {
 
     /* use a test-and-test-and-set style for reduced contention */
 
-    ulong ver_top = *_v;
+    ver_top = *_v;
     if( FD_LIKELY( !(ver_top & (1UL<<POOL_IDX_WIDTH)) ) ) { /* opt for low contention */
       ver_top = POOL_(private_fetch_and_or)( _v, 1UL<<POOL_IDX_WIDTH );
       if( FD_LIKELY( !(ver_top & (1UL<<POOL_IDX_WIDTH)) ) ) break; /* opt for low contention */
@@ -793,7 +906,7 @@ POOL_(lock)( POOL_(t) * join,
 
     if( FD_UNLIKELY( !blocking ) ) { /* opt for blocking */
       err = FD_POOL_ERR_AGAIN;
-      break;
+      goto fail;
     }
 
     FD_SPIN_PAUSE();
@@ -801,8 +914,36 @@ POOL_(lock)( POOL_(t) * join,
 
   FD_COMPILER_MFENCE();
 
+# if POOL_LAZY
+
+  for(;;) {
+
+    /* use a test-and-test-and-set style for reduced contention */
+
+    ulong ver_lazy = *_l;
+    if( FD_LIKELY( !(ver_lazy & (1UL<<POOL_IDX_WIDTH)) ) ) { /* opt for low contention */
+      ver_lazy = POOL_(private_fetch_and_or)( _l, 1UL<<POOL_IDX_WIDTH );
+      if( FD_LIKELY( !(ver_lazy & (1UL<<POOL_IDX_WIDTH)) ) ) break; /* opt for low contention */
+    }
+
+    if( FD_UNLIKELY( !blocking ) ) { /* opt for blocking */
+      *_v = POOL_(private_vidx)( POOL_(private_vidx_ver)( ver_top )+2UL, POOL_(private_vidx_idx)( ver_top ) ); /* unlock */
+      err = FD_POOL_ERR_AGAIN;
+      goto fail;
+    }
+
+    FD_SPIN_PAUSE();
+  }
+
+  FD_COMPILER_MFENCE();
+
+# endif
+
+fail:
   return err;
 }
+
+#if !POOL_LAZY
 
 POOL_STATIC void
 POOL_(reset)( POOL_(t) * join,
@@ -820,14 +961,8 @@ POOL_(reset)( POOL_(t) * join,
   else { /* Note: ele_max at least 1 here */
     ele_top = sentinel_cnt;
     for( ulong ele_idx=ele_top; ele_idx<(ele_max-1UL); ele_idx++ ) {
-      #ifdef POOL_MARK_IN_POOL
-      POOL_MARK_IN_POOL( &ele[ ele_idx ] );
-      #endif
       ele[ ele_idx ].POOL_NEXT = POOL_(private_cidx)( ele_idx+1UL );
     }
-    #ifdef POOL_MARK_IN_POOL
-    POOL_MARK_IN_POOL( &ele[ ele_max-1UL ] );
-    #endif
     ele[ ele_max-1UL ].POOL_NEXT = POOL_(private_cidx)( POOL_(idx_null)() );
   }
 
@@ -835,6 +970,28 @@ POOL_(reset)( POOL_(t) * join,
   ulong ver     = POOL_(private_vidx_ver)( ver_top );
   pool->ver_top = POOL_(private_vidx)( ver, ele_top );
 }
+
+#else
+
+POOL_STATIC void
+POOL_(reset)( POOL_(t) * join,
+              ulong      sentinel_cnt ) {
+  POOL_(shmem_t) * pool    = join->pool;
+  ulong            ele_max = join->ele_max;
+
+  /* Assign all but the leading sentinel_cnt elements to the bump
+     allocator */
+
+  ulong ele_top  = POOL_(idx_null)();
+  ulong ele_lazy = sentinel_cnt<ele_max ? sentinel_cnt : POOL_(idx_null)();
+
+  ulong ver_top  = pool->ver_top;
+  ulong ver_lazy = pool->ver_lazy;
+  pool->ver_top  = POOL_(private_vidx)( POOL_(private_vidx_ver)( ver_top  ), ele_top  );
+  pool->ver_lazy = POOL_(private_vidx)( POOL_(private_vidx_ver)( ver_lazy ), ele_lazy );
+}
+
+#endif
 
 POOL_STATIC int
 POOL_(verify)( POOL_(t) const * join ) {
@@ -870,7 +1027,7 @@ POOL_(verify)( POOL_(t) const * join ) {
 
   POOL_TEST( magic==POOL_MAGIC );
 
-  /*  Validate pool elements */
+  /* Validate pool elements */
 
   ulong ele_rem = ele_max;
   while( ele_idx<ele_max ) {
@@ -879,6 +1036,12 @@ POOL_(verify)( POOL_(t) const * join ) {
   }
 
   POOL_TEST( POOL_(idx_is_null)( ele_idx ) );
+
+# if POOL_LAZY
+  ulong lazy_idx  = POOL_(private_vidx_idx)( pool->ver_lazy );
+  ulong lazy_free = POOL_(idx_is_null)( lazy_idx ) ? 0UL : (ele_max-lazy_idx);
+  POOL_TEST( lazy_free<=ele_rem );
+# endif
 
 # undef POOL_TEST
 
@@ -904,6 +1067,7 @@ POOL_(strerror)( int err ) {
 #undef POOL_STATIC
 #undef POOL_VER_WIDTH
 
+#undef POOL_LAZY
 #undef POOL_IMPL_STYLE
 #undef POOL_MAGIC
 #undef POOL_IDX_WIDTH

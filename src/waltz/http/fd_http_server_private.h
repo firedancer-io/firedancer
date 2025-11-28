@@ -1,7 +1,12 @@
-#ifndef HEADER_fd_src_ballet_http_fd_http_server_private_h
-#define HEADER_fd_src_ballet_http_fd_http_server_private_h
+#ifndef HEADER_fd_src_waltz_http_fd_http_server_private_h
+#define HEADER_fd_src_waltz_http_fd_http_server_private_h
 
 #include "fd_http_server.h"
+
+#if FD_HAS_ZSTD
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#endif
 
 #define FD_HTTP_SERVER_MAGIC (0xF17EDA2CE50A11D0) /* FIREDANCER HTTP V0 */
 
@@ -20,6 +25,7 @@ struct fd_http_server_connection {
   int          state;
 
   int          upgrade_websocket;
+  int          compress_websocket;
   ulong        request_bytes_len;
   char const * sec_websocket_key;
 
@@ -44,6 +50,7 @@ struct fd_http_server_connection {
 struct fd_http_server_ws_frame {
   ulong off;
   ulong len;
+  int compressed;
 };
 
 typedef struct fd_http_server_ws_frame fd_http_server_ws_frame_t;
@@ -65,6 +72,8 @@ struct fd_http_server_ws_connection {
   ulong                       send_frame_cnt;
   ulong                       send_frame_idx;
   fd_http_server_ws_frame_t * send_frames;
+
+  int compress_websocket;
 
   /* The treap fields */
   ushort left;
@@ -88,9 +97,32 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   uchar * oring;
   ulong   oring_sz;
 
+  int compress_websocket;
+#if FD_HAS_ZSTD
+  uchar * zstd_scratch;
+  ulong   zstd_scratch_sz;
+  ZSTD_CCtx * zstd_ctx;
+#endif
+
   int   stage_err;
   ulong stage_off;
   ulong stage_len;
+
+  /* The server needs to maintain two copies of the data (one
+     compressed, one uncompressed), since a broadcast message may need
+     to send compressed data to some clients and uncompressed data to
+     others.  The server will only compress outgoing messages after they
+     have been fully staged. The memory layout will look like this:
+
+                     uncompressed           compressed
+     |------------|----------------|-------------------------|-----|
+     ^oring       ^                ^                         ^
+                  |                |                         |
+     oring+(stage_off%oring_sz)    |                         |
+                       oring+(stage_off%oring_sz)+stage_len  |
+                                 oring+(stage_off%oring_sz)+stage_len+stage_comp_len
+  */
+  ulong stage_comp_len;
 
   ulong max_conns;
   ulong max_ws_conns;
@@ -104,15 +136,25 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   void * callback_ctx;
   fd_http_server_callbacks_t callbacks;
 
-  ulong magic;      /* ==FD_HTTP_SERVER_MAGIC */
-
-
   struct fd_http_server_connection *    conns;
   struct fd_http_server_ws_connection * ws_conns;
   struct pollfd *                       pollfds;
 
   void * conn_treap;
   void * ws_conn_treap;
+
+  struct {
+    ulong connection_cnt;
+    ulong ws_connection_cnt;
+
+    ulong bytes_written;
+    ulong bytes_read;
+
+    ulong frames_written;
+    ulong frames_read;
+  } metrics;
+
+  ulong magic;      /* ==FD_HTTP_SERVER_MAGIC */
 
   /* The memory for conns and pollfds is placed at the end of the struct
      here...
@@ -122,4 +164,4 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   struct pollfd                       pollfds[ ]; */
 };
 
-#endif /* HEADER_fd_src_ballet_http_fd_http_server_private_h */
+#endif /* HEADER_fd_src_waltz_http_fd_http_server_private_h */

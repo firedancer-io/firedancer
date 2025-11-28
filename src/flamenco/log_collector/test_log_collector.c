@@ -11,10 +11,10 @@
    version: test_log_messages_bytes_limit().
    To run this, set FD_LOG_COLLECTOR_EXTRA to 20008+. */
 void
-test_log_messages_bytes_limit_agave( void ) {
+test_log_messages_bytes_limit_agave( fd_runtime_t * runtime ) {
   fd_exec_instr_ctx_t ctx[1];
-  fd_exec_txn_ctx_t txn[1]; ctx->txn_ctx = txn;
-  fd_log_collector_t * log = &txn->log_collector;
+  ctx->runtime = runtime;
+  fd_log_collector_t * log = runtime->log.log_collector;
   fd_log_collector_init( log, 1 );
 
   for( ulong i=0; i<20000; i++ ) {
@@ -29,10 +29,11 @@ test_log_messages_bytes_limit_agave( void ) {
 }
 
 static void
-test_log_messages_bytes_limit( void ) {
+test_log_messages_bytes_limit( fd_runtime_t * runtime ) {
   fd_exec_instr_ctx_t ctx[1];
-  fd_exec_txn_ctx_t txn[1]; ctx->txn_ctx = txn;
-  fd_log_collector_t * log = &txn->log_collector;
+  ctx->runtime = runtime;
+  fd_log_collector_t * log = runtime->log.log_collector;
+
   fd_log_collector_init( log, 1 );
 
   for( ulong i=0; i<10000; i++ ) {
@@ -47,10 +48,10 @@ test_log_messages_bytes_limit( void ) {
 }
 
 static void
-test_log_messages_single_log_limit( void ) {
+test_log_messages_single_log_limit( fd_runtime_t * runtime ) {
   fd_exec_instr_ctx_t ctx[1];
-  fd_exec_txn_ctx_t txn[1]; ctx->txn_ctx = txn;
-  fd_log_collector_t * log = &txn->log_collector;
+  ctx->runtime = runtime;
+  fd_log_collector_t * log = runtime->log.log_collector;
 
   char msg10k[ 10000+1 ]; sprintf( msg10k, "%0*d", 10000, 0 );
   char msg9999[ 9999+1 ]; sprintf( msg9999, "%0*d", 9999, 0 );
@@ -71,10 +72,11 @@ test_log_messages_single_log_limit( void ) {
 }
 
 static void
-test_log_messages_weird_behavior( void ) {
+test_log_messages_weird_behavior( fd_runtime_t * runtime ) {
   fd_exec_instr_ctx_t ctx[1];
-  fd_exec_txn_ctx_t txn[1]; ctx->txn_ctx = txn;
-  fd_log_collector_t * log = &txn->log_collector;
+  fd_log_collector_t  log[1];
+  ctx->runtime = runtime;
+  runtime->log.log_collector = log;
 
   char msg9999[ 9999+1 ]; sprintf( msg9999, "%0*d", 9999, 0 );
 
@@ -92,10 +94,10 @@ test_log_messages_weird_behavior( void ) {
 }
 
 static void
-test_log_messages_equivalences( void ) {
+test_log_messages_equivalences( fd_runtime_t * runtime ) {
   fd_exec_instr_ctx_t ctx[1];
-  fd_exec_txn_ctx_t txn[1]; ctx->txn_ctx = txn;
-  fd_log_collector_t * log = &txn->log_collector;
+  ctx->runtime = runtime;
+  fd_log_collector_t * log = runtime->log.log_collector;
 
   uchar msg[17] = { 0x67, 0x72, 0xc3, 0xbc, 0x65, 0x7a, 0x69, 0x00, 0x0a, 0xf0, 0x9f, 0x94, 0xa5, 0xf0, 0x9f, 0x92, 0x83 };
 
@@ -131,11 +133,32 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  // test_log_messages_bytes_limit_agave();
-  test_log_messages_bytes_limit();
-  test_log_messages_single_log_limit();
-  test_log_messages_weird_behavior();
-  test_log_messages_equivalences();
+  char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 4UL             );
+  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
+  ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
+
+  fd_wksp_t * wksp;
+  if( name ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
+    wksp = fd_wksp_attach( name );
+  } else {
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace, --page-sz %s, --page-cnt %lu, --near-cpu %lu",
+                    _page_sz, page_cnt, near_cpu ));
+    wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
+  }
+
+  fd_runtime_t * runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
+  FD_TEST( runtime );
+
+  fd_log_collector_t log[1];
+  runtime->log.log_collector = log;
+
+  test_log_messages_bytes_limit( runtime );
+  test_log_messages_single_log_limit( runtime );
+  test_log_messages_weird_behavior( runtime );
+  test_log_messages_equivalences( runtime );
   FD_LOG_NOTICE(( "pass" ));
 
   fd_halt();

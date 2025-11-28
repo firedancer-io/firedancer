@@ -35,9 +35,10 @@ PREFIX="$(pwd)/opt"
 
 DEVMODE=0
 MSAN=0
+LIBURING=0
 _CC="${CC:=gcc}"
 _CXX="${CXX:=g++}"
-EXTRA_CFLAGS=""
+EXTRA_CFLAGS="-g3 -fno-omit-frame-pointer"
 EXTRA_CXXFLAGS=""
 EXTRA_LDFLAGS=""
 
@@ -133,15 +134,17 @@ fetch () {
   if [[ $MSAN == 1 ]]; then
     checkout_llvm
   fi
-  checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.7"
-  checkout_repo lz4       https://github.com/lz4/lz4                "v1.10.0"
-  checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "4d2e22a"
-  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.5.0"
-  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.6.0"
+  checkout_repo zstd      https://github.com/facebook/zstd            "v1.5.7"
+  checkout_repo lz4       https://github.com/lz4/lz4                  "v1.10.0"
+  checkout_repo liburing  https://github.com/axboe/liburing           "liburing-2.12"
+  checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "4d2e22a"
+  checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.0"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1   "v0.7.0"
+  checkout_repo flatcc    https://github.com/dvidelabs/flatcc.git     "" "3ae5eda"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo blst      https://github.com/supranational/blst     "v0.3.14"
-    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v10.2.1"
-    checkout_repo snappy    https://github.com/google/snappy          "1.2.2"
+    checkout_repo bzip2   https://gitlab.com/bzip2/bzip2              "bzip2-1.0.8"
+    checkout_repo rocksdb https://github.com/facebook/rocksdb         "v10.5.1"
+    checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
   fi
 }
 
@@ -152,6 +155,8 @@ check_fedora_pkgs () {
     make               # build system
     pkgconf            # build system
     patch              # build system
+    zstd               # build system
+    gzip               # build system
     gcc                # compiler
     gcc-c++            # compiler
 
@@ -195,6 +200,8 @@ check_debian_pkgs () {
     diffutils          # build system
     build-essential    # C/C++ compiler
     pkgconf            # build system
+    zstd               # build system
+    gzip               # build system
 
     cmake              # Agave (protobuf-src)
     libclang-dev       # Agave (bindgen)
@@ -233,6 +240,8 @@ check_alpine_pkgs () {
     linux-headers    # base dependency
     libucontext-dev  # base dependency
     patch            # build system
+    zstd             # build system
+    gzip             # build system
   )
   if [[ $DEVMODE == 1 ]]; then
     REQUIRED_APKS+=( autoconf automake bison flex gettext perl protobuf-dev )
@@ -260,13 +269,13 @@ check_alpine_pkgs () {
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf )
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf coreutils )
 
   echo "[~] Checking for required brew formulae"
 
   local MISSING_FORMULAE=( )
   for formula in "${REQUIRED_FORMULAE[@]}"; do
-    if [[ ! -d "/usr/local/Cellar/$formula" ]]; then
+    if ! brew ls --versions "$formula" >/dev/null 2>&1; then
       MISSING_FORMULAE+=( "$formula" )
     fi
   done
@@ -279,11 +288,47 @@ check_macos_pkgs () {
   PACKAGE_INSTALL_CMD=( brew install ${MISSING_FORMULAE[*]} )
 }
 
+check_arch_pkgs () {
+  local REQUIRED_PKGS=(
+    base-devel        # C/C++ compiler, make, etc.
+    curl              # download rustup
+    zstd              # build system
+    cmake             # Agave (protobuf-src)
+    clang             # Agave (bindgen)
+    perl              # Agave (OpenSSL)
+    protobuf          # Agave, solfuzz
+    systemd-libs      # Agave
+  )
+  if [[ $DEVMODE == 1 ]]; then
+    REQUIRED_PKGS+=( gmp lcov )
+  fi
+
+  echo "[~] Checking for required Arch Linux packages"
+
+  local MISSING_PKGS=( )
+  for pkg in "${REQUIRED_PKGS[@]}"; do
+    if ! pacman -Q "$pkg" &>/dev/null; then
+      MISSING_PKGS+=( "$pkg" )
+    fi
+  done
+
+  if [[ ${#MISSING_PKGS[@]} -eq 0 ]]; then
+    echo "[~] OK: Arch Linux packages required for build are installed"
+    return 0
+  fi
+
+  if [[ -z "${SUDO}" ]]; then
+    PACKAGE_INSTALL_CMD=( pacman -S --needed --noconfirm ${MISSING_PKGS[*]} )
+  else
+    PACKAGE_INSTALL_CMD=( "${SUDO}" pacman -S --needed --noconfirm ${MISSING_PKGS[*]} )
+  fi
+}
+
 check () {
   DISTRO="${ID_LIKE:-${ID:-}}"
   for word in $DISTRO ; do
     case "$word" in
-      fedora|debian|alpine|macos)
+      fedora|debian|alpine|macos|arch)
         check_${word}_pkgs
         ;;
       rhel|centos)
@@ -379,12 +424,31 @@ install_zstd () {
   echo "[+] Successfully installed zstd"
 }
 
+install_bzip2 () {
+  cd "$PREFIX/git/bzip2"
+
+  echo "[+] Installing bzip2 to $PREFIX"
+  # Not building bzip2 here, see src/ballet/bzip2/Local.mk
+  cp bzlib.h "$PREFIX/include"
+  echo "[+] Successfully installed bzip2"
+}
+
 install_lz4 () {
   cd "$PREFIX/git/lz4/lib"
 
   echo "[+] Installing lz4 to $PREFIX"
   "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no CFLAGS="-fPIC $EXTRA_CFLAGS" install
   echo "[+] Successfully installed lz4"
+}
+
+install_liburing () {
+  cd "$PREFIX/git/liburing"
+
+  echo "[+] Installing liburing to $PREFIX"
+  ./configure --prefix="$PREFIX" --cc="$CC -fPIC $EXTRA_CFLAGS"
+  "${MAKE[@]}"
+  "${MAKE[@]}" install
+  echo "[+] Successfully installed liburing"
 }
 
 install_s2n () {
@@ -395,22 +459,6 @@ install_s2n () {
   cp x86/libs2nbignum.a "$PREFIX/lib"
   cp include/* "$PREFIX/include"
   echo "[+] Successfully installed s2n-bignum"
-}
-
-install_blst () {
-  cd "$PREFIX/git/blst"
-
-  echo "[+] Installing blst to $PREFIX"
-
-  # this is copied from ./build.sh:27
-  CFLAGS=${CFLAGS:--O2 -fno-builtin -fPIC -Wall -Wextra -Werror}
-  # this adds our flags, e.g. for MSAN
-  CFLAGS+=" $EXTRA_CFLAGS"
-
-  CFLAGS=$CFLAGS ./build.sh
-  cp libblst.a "$PREFIX/lib"
-  cp bindings/*.h "$PREFIX/include"
-  echo "[+] Successfully installed blst"
 }
 
 install_secp256k1 () {
@@ -457,10 +505,10 @@ install_openssl () {
 
   echo "[+] Configuring OpenSSL"
   ./config \
-    -static \
     -fPIC \
     --prefix="$PREFIX" \
     --libdir=lib \
+    threads \
     no-engine \
     no-static-engine \
     no-weak-ssl-ciphers \
@@ -532,24 +580,7 @@ install_rocksdb () {
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
   NJOBS=$((NJOBS>0 ? NJOBS : 1))
-  make clean
-
-  # Fix a random build failure
-  git checkout HEAD -- db/blob/blob_file_meta.h
-  git apply << EOF
-diff --git a/db/blob/blob_file_meta.h b/db/blob/blob_file_meta.h
-index d7c8a12..8cfff9b 100644
---- a/db/blob/blob_file_meta.h
-+++ b/db/blob/blob_file_meta.h
-@@ -5,6 +5,7 @@
- 
- #pragma once
- 
-+#include <cstdint>
- #include <cassert>
- #include <iosfwd>
- #include <memory>
-EOF
+  make clean-ext-libraries-all clean-rocks
 
   ROCKSDB_DISABLE_NUMA=1 \
   ROCKSDB_DISABLE_ZLIB=1 \
@@ -592,6 +623,21 @@ install_snappy () {
   echo "[+] Successfully installed snappy"
 }
 
+install_flatcc () {
+  echo "[+] Installing flatcc"
+  cd "$PREFIX/git/flatcc"
+  cmake -B build \
+    -DCMAKE_INSTALL_PREFIX=$PREFIX \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DFLATCC_INSTALL=ON \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_CXX_FLAGS="$EXTRA_CXXFLAGS" \
+    -DCMAKE_EXE_LINKER_FLAGS="$EXTRA_LDFLAGS"
+  cmake --build build -j
+  cmake --install build
+  echo "[+] Successfully installed flatcc"
+}
+
 install () {
   CC="$(command -v $_CC)"
   cc="$CC"
@@ -611,15 +657,21 @@ install () {
   fi
   ( install_zstd      )
   ( install_lz4       )
+  if [[ $LIBURING == 1 ]]; then
+    if [[ "$OS" == "Linux" ]]; then
+      ( install_liburing )
+    fi
+  fi
   if [[ "$(uname -m)" == x86_64 ]]; then
     ( install_s2n )
   fi
   ( install_openssl   )
   ( install_secp256k1 )
   if [[ $DEVMODE == 1 ]]; then
-    ( install_blst      )
+    ( install_bzip2     )
     ( install_snappy    )
     ( install_rocksdb   )
+    ( install_flatcc    )
   fi
 
   # Merge lib64 with lib
@@ -647,13 +699,17 @@ while [[ $# -gt 0 ]]; do
       PREFIX="$(pwd)/opt-msan"
       _CC=clang
       _CXX=clang++
-      EXTRA_CFLAGS+="-fsanitize=memory -fno-omit-frame-pointer"
-      EXTRA_CXXFLAGS+="$EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
-      EXTRA_LDFLAGS+="$PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a"
+      EXTRA_CFLAGS+=" -fsanitize=memory"
+      EXTRA_CXXFLAGS+=" $EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
+      EXTRA_LDFLAGS+=" $PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a"
       ;;
     "+dev")
       shift
       DEVMODE=1
+      ;;
+    "+uring")
+      shift
+      LIBURING=1
       ;;
     nuke)
       shift

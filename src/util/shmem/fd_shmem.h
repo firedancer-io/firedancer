@@ -165,23 +165,14 @@ FD_PROTOTYPES_BEGIN
    region1_join("region1") which calls fd_shmem_join("region2") which
    calls join_func region2_join("region2") which calls
    shmem_join("region1")).  Such cycles will be detected, logged and
-   failed.
-
-   If lock_pages is 1, the mapped region will be locked to physical DRAM
-   when it is mapped in, ensuring that the memory pages will not be swapped
-   out.  Most callers of this function should lock their pages, unless the
-   region is larger than the physical memory available.
-
-   IMPORTANT: not locking pages can lead to unexpected behaviour and
-   performance degradation, so is is highly recommended to lock pages. */
+   failed. */
 
 void *
 fd_shmem_join( char const *               name,
                int                        mode,
                fd_shmem_joinleave_func_t  join_func,
                void *                     context,
-               fd_shmem_join_info_t *     opt_info,
-               int                        lock_pages );
+               fd_shmem_join_info_t *     opt_info );
 
 int
 fd_shmem_leave( void *                    join,
@@ -354,30 +345,6 @@ fd_shmem_create_multi( char const *  name,         /* Should point to cstr with 
                        ulong const * sub_page_cnt, /* Indexed [0,sub_cnt), 0 < sum(page_cnt)*page_sz <= ULONG_MAX */
                        ulong const * sub_cpu_idx,  /* Indexed [0,sub_cnt), each should be in [0,fd_shmem_cpu_cnt()) */
                        ulong         mode );       /* E.g. 0660 for user rw, group rw, world none */
-
-/* fd_shmem_create_multi_unlocked creates a shared memory region whose
-   name is given by the cstr pointed to by name backed by page_sz pages.
-   It functions the same as fd_shmem_create_multi, but the pages are not
-   locked, not pinned to any particular numa node, and have the default numa
-   mempolicy.
-
-   mode specifies the permissions for this region (the usual POSIX open
-   umask caveats apply).
-
-   Returns 0 on success and an strerror friendly error code on failure
-   (also logs extensive details on error).  Reasons for failure include
-   name is invalid (EINVAL), page_sz is invalid (EINVAL), page_cnt is
-   zero (EINVAL), cnt*page_sz overflows an off_t (EINVAL), open fails
-   (errno of the open, e.g. region with the same name and page_sz in the
-   thread domain already exists), ftruncate fails (errno of ftruncate,
-   e.g. no suitable memory available near cpu_idx), etc.
-*/
-
-int
-fd_shmem_create_multi_unlocked( char const * name,
-                                ulong        page_sz,
-                                ulong        page_cnt,
-                                ulong        mode );
 
 /* fd_shmem_update_multi updates a shared memory region created by
    fd_shmem_create_multi in place, to be as-if it was created with
@@ -577,4 +544,3 @@ fd_shmem_private_halt( void );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_shmem_fd_shmem_h */
-

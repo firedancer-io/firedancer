@@ -22,6 +22,10 @@ union fdctl_args {
   } monitor;
 
   struct {
+    int drain_output_fd;
+  } watch;
+
+  struct {
     int                      command;
     struct configure_stage * stages[ CONFIGURE_STAGE_COUNT ];
   } configure;
@@ -34,12 +38,16 @@ union fdctl_args {
 
   struct {
     int  parent_pipefd;
-    int  monitor;
+    int  no_watch;
     int  no_configure;
     int  no_init_workspaces;
     int  no_agave;
     char debug_tile[ 32 ];
   } dev;
+
+  struct {
+    int no_watch;
+  } backtest;
 
   struct {
     char tile_name[ 7UL ];
@@ -59,8 +67,9 @@ union fdctl_args {
   } txn;
 
   struct {
-    char link_name[ 64UL ];
+    char link_name[ 128UL ];
     char pcap_path[ 256UL ];
+    int  once;
   } dump;
 
   struct {
@@ -68,7 +77,16 @@ union fdctl_args {
   } flame;
 
   struct {
-    char manifest_path[ 256UL ];
+    char const * pos_arg;
+    int          help;
+
+    /* options */
+
+    char         manifest_path[256UL];
+    char         iptable_path[256UL];
+    ulong        end_slot;
+    ulong        slot;
+    int          sort_by_slot;
   } repair;
 
   struct {
@@ -92,16 +110,43 @@ union fdctl_args {
     int dump; /* whether the user requested --dump */
     int dump_config; /* whether the user requested to dump the quic config */
     int dump_conns;  /* whether the user requested to dump the quic connections */
+    int trace_send;  /* whether the user requested tracing send tile (1) or quic tile (0) */
   } quic_trace;
-
-  struct {
-    char tile_cpus[ 256UL ];
-  } snapshot_load;
 
   struct {
     ushort listen_port;
   } udpecho;
 
+  struct {
+    char topo[ 64 ];
+  } metrics;
+
+  struct {
+    uint fsck : 1;
+    uint fsck_lthash : 1;
+    uint lthash : 1;
+    uint accounts_hist : 1;
+    uint offline : 1;
+    uint no_incremental : 1;
+    uint no_watch : 1;
+    uint is_vinyl : 1;
+    uint vinyl_server : 1;
+
+    char snapshot_dir[ PATH_MAX ];
+    char vinyl_path  [ PATH_MAX ];
+    char vinyl_io    [ 3 ];
+
+    ulong db_sz;
+    ulong db_rec_max;
+    ulong cache_sz;
+    ulong cache_rec_max;
+  } snapshot_load;
+
+  struct {
+    ulong max_entries;
+    ulong max_contact;
+    int   compact_mode;
+  } gossip;
 };
 
 typedef union fdctl_args args_t;

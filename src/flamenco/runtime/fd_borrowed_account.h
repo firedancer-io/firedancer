@@ -3,12 +3,12 @@
 
 #include "fd_bank.h"
 #include "fd_executor_err.h"
+#include "context/fd_exec_instr_ctx.h"
 #include "sysvar/fd_sysvar_rent.h"
+#include "program/fd_program_util.h"
 
-/* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
-
-#define MAX_PERMITTED_DATA_LENGTH                 (10UL<<20) /* 10MiB */
-#define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10L<<21 ) /* 20MiB */
+#define MAX_PERMITTED_DATA_LENGTH                 (FD_RUNTIME_ACC_SZ_MAX) /* 10MiB */
+#define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10UL<<21) /* 20MiB */
 
 /* TODO: Not all Agave Borrowed Account API functions are implemented here */
 
@@ -269,7 +269,7 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
 
   /* TODO: Add an is_exempt rent API to better match Agave and clean up code
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L990 */
-  fd_rent_t const * rent        = fd_bank_rent_query( borrowed_acct->instr_ctx->txn_ctx->bank );
+  fd_rent_t const * rent        = fd_bank_rent_query( borrowed_acct->instr_ctx->bank );
   ulong             min_balance = fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( acct ) );
   return fd_txn_account_get_lamports( acct )>=min_balance;
 }
@@ -296,7 +296,7 @@ fd_borrowed_account_is_executable( fd_borrowed_account_t const * borrowed_acct )
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_executable_internal( fd_borrowed_account_t const * borrowed_acct ) {
-  return !FD_FEATURE_ACTIVE( borrowed_acct->instr_ctx->txn_ctx->slot, &borrowed_acct->instr_ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) &&
+  return !FD_FEATURE_ACTIVE_BANK( borrowed_acct->instr_ctx->bank, remove_accounts_executable_flag_checks ) &&
           fd_borrowed_account_is_executable( borrowed_acct );
 }
 
@@ -320,7 +320,7 @@ fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
     return 0;
   }
 
-  return fd_instr_acc_is_signer_idx( instr, borrowed_acct->index_in_instruction );
+  return fd_instr_acc_is_signer_idx( instr, borrowed_acct->index_in_instruction, NULL );
 }
 
 /* fd_borrowed_account_is_writer mirrors the Agave function
@@ -400,39 +400,10 @@ fd_borrowed_account_can_data_be_changed( fd_borrowed_account_t const * borrowed_
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1092 */
 
-static inline int
+int
 fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_acct,
                                          ulong                         new_length,
-                                         int *                         err ) {
-  fd_txn_account_t * acct = borrowed_acct->acct;
-
-  /* Only the owner can change the length of the data
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1095 */
-  if( FD_UNLIKELY( (fd_txn_account_get_data_len( acct )!=new_length) &
-                   (!fd_borrowed_account_is_owned_by_current_program( borrowed_acct )) ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
-    return 0;
-  }
-
-  /* The new length can not exceed the maximum permitted length
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1099 */
-  if( FD_UNLIKELY( new_length>MAX_PERMITTED_DATA_LENGTH ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
-    return 0;
-  }
-
-  /* The resize can not exceed the per-transaction maximum
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1104-L1108 */
-  long length_delta = fd_long_sat_sub( (long)new_length, (long)fd_txn_account_get_data_len( acct ) );
-  long new_accounts_resize_delta = fd_long_sat_add( (long)borrowed_acct->instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
-  if( FD_UNLIKELY( new_accounts_resize_delta > MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
-    return 0;
-  }
-
-  *err = FD_EXECUTOR_INSTR_SUCCESS;
-  return 1;
-}
+                                         int *                         err );
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {

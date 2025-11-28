@@ -3,6 +3,8 @@
 
 #include "../rewards/fd_rewards_base.h"
 #include "../runtime/fd_cost_tracker.h"
+#include "../../disco/pack/fd_pack.h" /* TODO: Layering violation */
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../../util/tmpl/fd_map.h"
 
 #define FD_STAKE_DELEGATIONS_MAGIC (0xF17EDA2CE757A3E0) /* FIREDANCER STAKE V0 */
@@ -176,11 +178,6 @@ struct fd_stake_delegations_iter {
 };
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 
-struct fd_funk_private;
-typedef struct fd_funk_private fd_funk_t;
-struct fd_funk_txn_private;
-typedef struct fd_funk_txn_private fd_funk_txn_t;
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_stake_delegations_align returns the alignment of the stake
@@ -288,9 +285,9 @@ fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
    No new entries are added to the struct at this point. */
 
 void
-fd_stake_delegations_refresh( fd_stake_delegations_t * stake_delegations,
-                              fd_funk_t *              funk,
-                              fd_funk_txn_t *          funk_txn );
+fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
+                              fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid );
 
 /* fd_stake_delegations_cnt returns the number of stake delegations
    in the stake delegations struct. fd_stake_delegations_t must be a

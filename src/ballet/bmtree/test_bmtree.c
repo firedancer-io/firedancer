@@ -1,5 +1,7 @@
 #include "../fd_ballet.h"
 
+#include "../sha256/fd_sha256.h"
+
 #define REFERENCE_PROOF_SZ  (80UL)
 #define REFERENCE_PROOF_CNT (11UL)
 

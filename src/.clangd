@@ -11,10 +11,27 @@ CompileFlags:
   - -DFD_USING_CLANG=1
 ---
 If:
+  PathMatch: .*\.h
+CompileFlags:
+  Add:
+  - -xc-header
+---
+If:
   PathMatch: .*\.[hc]
 CompileFlags:
   Add:
   - -std=c17
+---
+If:
+  PathMatch: .*\.[hc]xx
+CompileFlags:
+  Add:
+  - -std=c++17
+---
+If:
+  PathMatch: .*\.([hc]|[hc]xx)
+CompileFlags:
+  Add:
   - -Wall
   - -Wextra
   - -Wpedantic
@@ -23,9 +40,3 @@ CompileFlags:
   - -Wdouble-promotion
   - -Wformat-security
   - -Wimplicit-fallthrough
----
-If:
-  PathMatch: .*\.h
-CompileFlags:
-  Add:
-  - -xc-header

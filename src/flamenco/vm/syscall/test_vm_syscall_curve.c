@@ -1,5 +1,6 @@
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
+#include "../../runtime/fd_bank.h"
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
@@ -20,7 +21,7 @@ test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
     if( syscall_ret==FD_VM_SUCCESS ) {
       FD_TEST( ret_code == expected_ret_code );
     }
-    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
     const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, 32 );
     if (ret_code == 0 && syscall_ret == 0) {
@@ -47,7 +48,7 @@ test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
     int   syscall_ret = fd_vm_syscall_sol_curve_group_op((void *) vm, curve_id, op_id, in0_vaddr, in1_vaddr, result_point_vaddr, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
     FD_TEST( syscall_ret == expected_syscall_ret );
-    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
     const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, 32 );
     if (ret_code == 0 && syscall_ret == 0) {
@@ -64,6 +65,25 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 5UL             );
+  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
+  ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
+
+  fd_wksp_t * wksp;
+  if( name ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
+    wksp = fd_wksp_attach( name );
+  } else {
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace, --page-sz %s, --page-cnt %lu, --near-cpu %lu",
+                    _page_sz, page_cnt, near_cpu ));
+    wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
+  }
+
+  fd_runtime_t * runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
+  FD_TEST( runtime );
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   fd_sha256_t _sha[1];
@@ -78,32 +98,35 @@ main( int     argc,
   set_memory_region( rodata, rodata_sz );
 
   fd_exec_instr_ctx_t instr_ctx[1];
-  fd_exec_txn_ctx_t   txn_ctx[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
-  fd_features_enable_all( &((fd_exec_txn_ctx_t *)instr_ctx->txn_ctx)->features );
+  fd_bank_t           bank[1];
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
+
+  fd_features_enable_all( fd_bank_features_modify( bank ) );
 
   int vm_ok = !!fd_vm_init(
-      /* vm                 */ vm,
-      /* instr_ctx          */ instr_ctx,  /* required for FD_FEATURE_ACTIVE */
-      /* heap_max           */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu           */ FD_VM_COMPUTE_UNIT_LIMIT,
-      /* rodata             */ rodata,
-      /* rodata_sz          */ rodata_sz,
-      /* text               */ NULL,
-      /* text_cnt           */ 0UL,
-      /* text_off           */ 0UL,
-      /* text_sz            */ 0UL,
-      /* entry_pc           */ 0UL,
-      /* calldests          */ NULL,
-      /* sbpf_version       */ TEST_VM_DEFAULT_SBPF_VERSION,
-      /* syscalls           */ NULL,
-      /* trace              */ NULL,
-      /* sha                */ sha,
-      /* mem_regions        */ NULL,
-      /* mem_regions_cnt    */ 0UL,
-      /* mem_regions_accs   */ NULL,
-      /* is_deprecated      */ 0,
-      /* direct mapping     */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
+      /* vm                                   */ vm,
+      /* instr_ctx                            */ instr_ctx,  /* required for FD_FEATURE_ACTIVE */
+      /* heap_max                             */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu                             */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* rodata                               */ rodata,
+      /* rodata_sz                            */ rodata_sz,
+      /* text                                 */ NULL,
+      /* text_cnt                             */ 0UL,
+      /* text_off                             */ 0UL,
+      /* text_sz                              */ 0UL,
+      /* entry_pc                             */ 0UL,
+      /* calldests                            */ NULL,
+      /* sbpf_version                         */ TEST_VM_DEFAULT_SBPF_VERSION,
+      /* syscalls                             */ NULL,
+      /* trace                                */ NULL,
+      /* sha                                  */ sha,
+      /* mem_regions                          */ NULL,
+      /* mem_regions_cnt                      */ 0UL,
+      /* mem_regions_accs                     */ NULL,
+      /* is_deprecated                        */ 0,
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );
@@ -128,7 +151,7 @@ main( int     argc,
     FD_VM_SYSCALL_ERR_SEGFAULT, // syscall_ret
     expected_result_host_ptr
   ) );
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
   // invalid (max 512 points)
   FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
@@ -143,7 +166,7 @@ main( int     argc,
     FD_VM_SYSCALL_ERR_INVALID_LENGTH, // syscall_ret
     expected_result_host_ptr
   ) );
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
   // invalid (max 512 points)
   FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
@@ -158,7 +181,7 @@ main( int     argc,
     FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE, // syscall_ret
     expected_result_host_ptr
   ) );
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
   // success
   // https://github.com/solana-labs/solana/blob/v1.17.15/programs/bpf_loader/src/syscalls/mod.rs#L3107

@@ -31,8 +31,11 @@ determine_cpu_used( config_t const * config,
 }
 
 static configure_result_t
-check( config_t const * config ) {
-  static int has_warned = 0;
+check( config_t const * config,
+       int              check_type ) {
+  if( !( check_type==FD_CONFIGURE_CHECK_TYPE_PRE_INIT ||
+         check_type==FD_CONFIGURE_CHECK_TYPE_CHECK ||
+         check_type==FD_CONFIGURE_CHECK_TYPE_RUN ) ) CONFIGURE_OK();
 
   fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
@@ -56,14 +59,10 @@ check( config_t const * config ) {
     }
   }
 
-  if( FD_LIKELY( !has_warned ) ) {
-    if( FD_UNLIKELY( pack_pair_used ) )        FD_LOG_WARNING(( "pack cpu %lu has hyperthread pair cpu %lu which is used by another tile. Proceeding but performance may be reduced.", config->topo.tiles[ pack_tile_idx ].cpu_idx, pack_pair ));
-    else if( FD_UNLIKELY( pack_pair_online ) ) FD_LOG_WARNING(( "pack cpu %lu has hyperthread pair cpu %lu which should be offline. Proceeding but performance may be reduced.", config->topo.tiles[ pack_tile_idx ].cpu_idx, pack_pair ));
-    if( FD_UNLIKELY( poh_pair_used  ) )        FD_LOG_WARNING(( "poh cpu %lu has hyperthread pair cpu %lu which is used by another tile. Proceeding but performance may be reduced.", config->topo.tiles[ poh_tile_idx ].cpu_idx, poh_pair ));
-    else if( FD_UNLIKELY( poh_pair_online ) )  FD_LOG_WARNING(( "poh cpu %lu has hyperthread pair cpu %lu which should be offline. Proceeding but performance may be reduced.", config->topo.tiles[ poh_tile_idx ].cpu_idx, poh_pair ));
-  }
-
-  has_warned = 1;
+  if( FD_UNLIKELY( pack_pair_used ) )        FD_LOG_WARNING(( "pack cpu %lu has hyperthread pair cpu %lu which is used by another tile. Proceeding but performance may be reduced.", config->topo.tiles[ pack_tile_idx ].cpu_idx, pack_pair ));
+  else if( FD_UNLIKELY( pack_pair_online ) ) FD_LOG_WARNING(( "pack cpu %lu has hyperthread pair cpu %lu which should be offline. Proceeding but performance may be reduced.", config->topo.tiles[ pack_tile_idx ].cpu_idx, pack_pair ));
+  if( FD_UNLIKELY( poh_pair_used  ) )        FD_LOG_WARNING(( "poh cpu %lu has hyperthread pair cpu %lu which is used by another tile. Proceeding but performance may be reduced.", config->topo.tiles[ poh_tile_idx ].cpu_idx, poh_pair ));
+  else if( FD_UNLIKELY( poh_pair_online ) )  FD_LOG_WARNING(( "poh cpu %lu has hyperthread pair cpu %lu which should be offline. Proceeding but performance may be reduced.", config->topo.tiles[ poh_tile_idx ].cpu_idx, poh_pair ));
 
   CONFIGURE_OK();
 }

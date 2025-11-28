@@ -1,0 +1,83 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+unsigned int logfile_fd, uint in_genesis_fd, uint out_genesis_fd, uint out_dir_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all
+# messages are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) out_genesis_fd)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# genesis: obtain information about the genesis file
+#
+# arg 0 is the file descriptor for the genesis file
+fstat: (eq (arg 0) in_genesis_fd)
+
+# genesis: close the file after we are done reading from it
+#
+# arg 0 is the file descriptor for the genesis file
+close: (not (or (eq (arg 0) logfile_fd)
+                (eq (arg 0) out_dir_fd)
+                (eq (arg 0) out_genesis_fd)
+                (eq (arg 0) 2)))
+
+# read: read data in from the genesis file
+#
+# arg 0 is the file descriptor for the genesis file
+read: (eq (arg 0) in_genesis_fd)
+
+# shutdown: exit is called on shutdown
+exit: (eq (arg 0) 0)
+
+# client: requires polling existing connections
+ppoll
+
+# client: need to send messages
+#
+# arg 0 is the file descriptor that we want to send messages to.  We
+# will allow sending to any of the descriptors opened in the client.
+# Only restrict from sending to the logfile and STDERR
+sendto: (and (not (or (eq (arg 0) logfile_fd)
+                      (eq (arg 0) in_genesis_fd)
+                      (eq (arg 0) out_dir_fd)
+                      (eq (arg 0) out_genesis_fd)
+                      (eq (arg 0) 2)))
+             (eq (arg 3) "MSG_NOSIGNAL")
+             (eq (arg 4) 0)
+             (eq (arg 5) 0))
+
+# client: need to read from connections established by the client
+#
+# arg 0 is the file descriptor that we recieve messages from.  We will
+# allow receiving to any of the descriptors opened in the client.  Only
+# restrict from receiving to the logfile and STDERR
+recvfrom: (and (not (or (eq (arg 0) logfile_fd)
+                        (eq (arg 0) in_genesis_fd)
+                        (eq (arg 0) out_dir_fd)
+                        (eq (arg 0) out_genesis_fd)
+                        (eq (arg 0) 2)))
+               (eq (arg 3) 0)
+               (eq (arg 4) 0)
+               (eq (arg 5) 0))
+
+# genesis: after a genesis file has been downloaded, it is renamed from
+# a path like 'genesis.bin.partial' to its proper name, 'genesis.bin'.
+#
+# arg 0 is the file descriptor for the directory that the file is being
+# renamed from
+#
+# arg 2 is the file descriptor for the directory that the file is being
+# renamed to.  This should be the same file descriptor as the one used
+# in arg 0
+renameat2: (and (eq (arg 0) out_dir_fd)
+                (eq (arg 2) out_dir_fd))

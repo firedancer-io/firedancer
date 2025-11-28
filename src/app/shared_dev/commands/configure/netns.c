@@ -94,7 +94,7 @@ init( config_t const * config ) {
        interface1, interface1 );
 }
 
-static void
+static int
 fini( config_t const * config,
       int              pre_init FD_PARAM_UNUSED ) {
   const char * interface0 = config->development.netns.interface0;
@@ -113,10 +113,13 @@ fini( config_t const * config,
   /* if neither of them was present, we wouldn't get to the undo step so make sure we were
      able to delete whatever is there */
   if( FD_UNLIKELY( status1 && status2 ) ) FD_LOG_ERR(( "failed to delete network namespaces" ));
+
+  return 1;
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
   const char * interface0 = config->development.netns.interface0;
   const char * interface1 = config->development.netns.interface1;
 

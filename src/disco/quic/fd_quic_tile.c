@@ -10,7 +10,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/unistd.h>
 #include <sys/random.h>
 
 #define OUT_IDX_VERIFY 0
@@ -83,7 +82,7 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
                       ulong           packet_sz,
                       uint            ipv4 ) {
 
-  long                tspub    = fd_tickcount();
+  long                tspub    = ctx->now;
   fd_tpu_reasm_t *    reasm    = ctx->reasm;
   fd_stem_context_t * stem     = ctx->stem;
   fd_frag_meta_t *    mcache   = stem->mcaches[0];
@@ -110,7 +109,9 @@ before_credit( fd_quic_ctx_t *     ctx,
   ctx->stem = stem;
 
   /* Publishes to mcache via callbacks */
-  *charge_busy = fd_quic_service( ctx->quic );
+  long now = fd_clock_now( ctx->clock );
+  ctx->now = now;
+  *charge_busy = fd_quic_service( ctx->quic, now );
 }
 
 static inline void
@@ -150,14 +151,14 @@ metrics_write( fd_quic_ctx_t * ctx ) {
 
   FD_MCNT_ENUM_COPY( QUIC, PKT_CRYPTO_FAILED,   ctx->quic->metrics.pkt_decrypt_fail_cnt );
   FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY,          ctx->quic->metrics.pkt_no_key_cnt );
-  FD_MCNT_SET(       QUIC, PKT_NO_CONN,         ctx->quic->metrics.pkt_no_conn_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_CONN,         ctx->quic->metrics.pkt_no_conn_cnt );
   FD_MCNT_ENUM_COPY( QUIC, FRAME_TX_ALLOC,        ctx->quic->metrics.frame_tx_alloc_cnt );
   FD_MCNT_SET(       QUIC, PKT_NET_HEADER_INVALID,  ctx->quic->metrics.pkt_net_hdr_err_cnt );
   FD_MCNT_SET(       QUIC, PKT_QUIC_HEADER_INVALID, ctx->quic->metrics.pkt_quic_hdr_err_cnt );
   FD_MCNT_SET(       QUIC, PKT_UNDERSZ,         ctx->quic->metrics.pkt_undersz_cnt );
   FD_MCNT_SET(       QUIC, PKT_OVERSZ,          ctx->quic->metrics.pkt_oversz_cnt );
   FD_MCNT_SET(       QUIC, PKT_VERNEG,          ctx->quic->metrics.pkt_verneg_cnt );
-  FD_MCNT_SET(       QUIC, PKT_RETRANSMISSIONS, ctx->quic->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_RETRANSMISSIONS, ctx->quic->metrics.pkt_retransmissions_cnt );
   FD_MCNT_ENUM_COPY( QUIC, INITIAL_TOKEN_LEN,   ctx->quic->metrics.initial_token_len_cnt );
 
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
@@ -230,7 +231,7 @@ after_frag( fd_quic_ctx_t *     ctx,
     ulong   ip_sz  = sz - sizeof(fd_eth_hdr_t);
 
     fd_quic_t * quic = ctx->quic;
-    fd_quic_process_packet( quic, ip_pkt, ip_sz );
+    fd_quic_process_packet( quic, ip_pkt, ip_sz, ctx->now );
   } else if( FD_LIKELY( proto==DST_PROTO_TPU_UDP ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     if( FD_UNLIKELY( sz<=network_hdr_sz ) ) {
@@ -259,11 +260,6 @@ after_frag( fd_quic_ctx_t *     ctx,
   }
 }
 
-static ulong
-quic_now( void * ctx FD_PARAM_UNUSED ) {
-  return (ulong)fd_tickcount();
-}
-
 static void
 quic_conn_final( fd_quic_conn_t * conn,
                  void *           quic_ctx ) {
@@ -281,10 +277,10 @@ quic_stream_rx( fd_quic_conn_t * conn,
                 ulong            data_sz,
                 int              fin ) {
 
-  long                tspub    = fd_tickcount();
   fd_quic_t *         quic     = conn->quic;
   fd_quic_state_t *   state    = fd_quic_get_state( quic );  /* ugly */
   fd_quic_ctx_t *     ctx      = quic->cb.quic_ctx;
+  long                tspub    = ctx->now;
   fd_tpu_reasm_t *    reasm    = ctx->reasm;
   ulong               conn_uid = fd_quic_conn_uid( conn );
   fd_stem_context_t * stem     = ctx->stem;
@@ -449,8 +445,12 @@ quic_tls_keylog( void *       _ctx,
 
 static void
 during_housekeeping( fd_quic_ctx_t * ctx ) {
+  if( FD_UNLIKELY( ctx->recal_next <= ctx->now ) ) {
+    ctx->recal_next = fd_clock_default_recal( ctx->clock );
+  }
+
   if( FD_UNLIKELY( ctx->keylog_stream.wbuf ) ) {
-    long now = fd_log_wallclock();
+    long now = ctx->now = fd_clock_now( ctx->clock );
     if( FD_UNLIKELY( now > ctx->keylog_next_flush ) ) {
       int err = fd_io_buffered_ostream_flush( &ctx->keylog_stream );
       if( FD_UNLIKELY( err ) ) {
@@ -542,6 +542,11 @@ unprivileged_init( fd_topo_t *      topo,
     fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
   }
 
+  fd_clock_t * clock = ctx->clock;
+  fd_clock_default_init( clock, ctx->clock_mem );
+  ctx->recal_next = fd_clock_recal_next( clock );
+  ctx->now        = fd_clock_now( clock );
+
   if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) ) {
     FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -570,8 +575,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
-  quic->config.idle_timeout               = tile->quic.idle_timeout_millis * (ulong)1e6;
-  quic->config.ack_delay                  = tile->quic.ack_delay_millis * (ulong)1e6;
+  quic->config.idle_timeout               = tile->quic.idle_timeout_millis * (long)1e6;
+  quic->config.ack_delay                  = tile->quic.ack_delay_millis    * (long)1e6;
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;
   fd_memcpy( quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
@@ -581,8 +586,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   quic->cb.conn_final       = quic_conn_final;
   quic->cb.stream_rx        = quic_stream_rx;
-  quic->cb.now              = quic_now;
-  quic->cb.now_ctx          = ctx;
   quic->cb.quic_ctx         = ctx;
   if( ctx->keylog_fd>=0 ) {
     quic->cb.tls_keylog = quic_tls_keylog;
@@ -590,7 +593,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
-  fd_quic_set_clock_tickcount( quic );
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 1 ] ];

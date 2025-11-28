@@ -41,7 +41,6 @@ fd_topob_wksp( fd_topo_t *  topo,
   fd_topo_wksp_t * wksp = &topo->workspaces[ topo->wksp_cnt ];
   strncpy( wksp->name, name, sizeof(wksp->name) );
   wksp->id = topo->wksp_cnt;
-  wksp->is_locked = 1;
   topo->wksp_cnt++;
   return wksp;
 }
@@ -139,6 +138,7 @@ fd_topob_tile( fd_topo_t *    topo,
 
   fd_topo_tile_t * tile = &topo->tiles[ topo->tile_cnt ];
   strncpy( tile->name, tile_name, sizeof(tile->name) );
+  tile->metrics_name[ 0 ]   = 0;
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
   tile->is_agave            = is_agave;
@@ -301,7 +301,7 @@ validate( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     for( ulong j=0UL; j<topo->wksp_cnt; j++ ) {
       if( FD_UNLIKELY( i==j ) ) continue;
-      if( FD_UNLIKELY( !strcmp( topo->workspaces[ i ].name,  topo->workspaces[ j ].name ) ) )
+      if( FD_UNLIKELY( !strcmp( topo->workspaces[ i ].name, topo->workspaces[ j ].name ) ) )
         FD_LOG_ERR(( "duplicate workspace name %s", topo->workspaces[ i ].name ));
     }
   }
@@ -345,10 +345,13 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "metric",
     "cswtch",
     "bencho",
+    "genesi", /* FIREDANCER ONLY */
     "ipecho", /* FIREDANCER ONLY */
+    "snapwr", /* FIREDANCER ONLY */
   };
 
   char const * ORDERED[] = {
+    "backt",
     "benchg",
     "benchs",
     "net",
@@ -368,26 +371,34 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "sign",
     "plugin",
     "gui",
+    "rpc",    /* FIREDANCER only */
     "gossvf", /* FIREDANCER only */
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
     "exec",   /* FIREDANCER only */
-    "writer", /* FIREDANCER only */
     "send",   /* FIREDANCER only */
     "tower",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
     "pktgen",
-    "snaprd", /* FIREDANCER only */
+    "snapct", /* FIREDANCER only */
+    "snapld", /* FIREDANCER only */
     "snapdc", /* FIREDANCER only */
     "snapin", /* FIREDANCER only */
+    "snapwh", /* FIREDANCER only */
+    "snapla", /* FIREDANCER only */
+    "snapls", /* FIREDANCER only */
     "arch_f", /* FIREDANCER only */
     "arch_w", /* FIREDANCER only */
+    "vinyl",  /* FIREDANCER only */
   };
 
   char const * CRITICAL_TILES[] = {
     "pack",
     "poh",
+    "gui",
+    "snapdc", /* TODO: Snapshot loading speed depends on having full core */
+    "snapin", /* TODO: Snapshot loading speed depends on having full core */
   };
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -645,6 +656,9 @@ fd_topob_finish( fd_topo_t *                topo,
 
     ulong footprint = fd_ulong_align_up( offset, fd_topo_workspace_align() );
 
+    part_max = fd_ulong_max( part_max, wksp->min_part_max );
+    loose_sz = fd_ulong_max( loose_sz, wksp->min_loose_sz );
+
     /* Compute footprint for a workspace that can store our footprint,
        with an extra align of padding incase gaddr_lo is not aligned. */
     ulong total_wksp_footprint = fd_wksp_footprint( part_max, footprint + fd_topo_workspace_align() + loose_sz );
@@ -652,11 +666,6 @@ fd_topob_finish( fd_topo_t *                topo,
     ulong page_sz = topo->max_page_size;
     if( total_wksp_footprint < topo->gigantic_page_threshold ) page_sz = FD_SHMEM_HUGE_PAGE_SZ;
     if( FD_UNLIKELY( page_sz!=FD_SHMEM_HUGE_PAGE_SZ && page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) FD_LOG_ERR(( "invalid page_sz" ));
-
-    /* If the workspace is not locked, we can't use huge pages. */
-    if( FD_UNLIKELY( !wksp->is_locked ) ) {
-      page_sz = FD_SHMEM_NORMAL_PAGE_SZ;
-    }
 
     ulong wksp_aligned_footprint = fd_ulong_align_up( total_wksp_footprint, page_sz );
 

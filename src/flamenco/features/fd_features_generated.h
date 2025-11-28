@@ -8,7 +8,11 @@
 #endif
 
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (242UL)
+#define FD_FEATURE_ID_CNT (248UL)
+
+/* Feature set ID calculated from all feature names */
+#define FD_FEATURE_SET_ID (1636000132U)
+
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
   struct {
@@ -248,11 +252,17 @@ union fd_features {
     /* 0x494f963ae12b5106 */ ulong vote_only_retransmitter_signed_fec_sets;
     /* 0x210aba8db8103506 */ ulong mask_out_rent_epoch_in_vm_serialization;
     /* 0xec3a4c069e71cb0e */ ulong disable_zk_elgamal_proof_program;
-    /* 0xbbec21266d76cb0e */ ulong reenable_zk_elgamal_proof_program;
+    /* 0x8321f88bec76cb0e */ ulong reenable_zk_elgamal_proof_program;
     /* 0xe72f76507222e3bb */ ulong formalize_loaded_transaction_data_size;
     /* 0x7170cf84367fbb1a */ ulong enable_extend_program_checked;
     /* 0xa9e3bfbaf8d67260 */ ulong require_static_nonce_account;
     /* 0x3711b30f40730240 */ ulong enable_vote_address_leader_schedule;
     /* 0xc1309d1b0ae3e80c */ ulong enshrine_slashing_program;
+    /* 0x5c64cc1a9be3790a */ ulong raise_account_cu_limit;
+    /* 0x5004d84d60aadc0c */ ulong stricter_abi_and_runtime_constraints;
+    /* 0x520c5e674243fab5 */ ulong account_data_direct_mapping;
+    /* 0xf08a42c3c040e908 */ ulong fix_alt_bn128_pairing_length_check;
+    /* 0x8c7bee4552d93e0c */ ulong poseidon_enforce_padding;
+    /* 0x866094bbfe00a7c6 */ ulong relax_intrabatch_account_locks;
   };
 };

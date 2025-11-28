@@ -160,6 +160,7 @@ unprivileged_init( fd_topo_t *      topo,
     if(      !strcmp( link->name, "replay_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( !strcmp( link->name, "gossip_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( !strcmp( link->name, "stake_out"    ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
+    else if( !strcmp( link->name, "replay_stake" ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
     else if( !strcmp( link->name, "poh_plugin"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "votes_plugin" ) ) ctx->in_kind[ i ] = IN_KIND_VOTE;
     else if( !strcmp( link->name, "startp_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_STARTP;

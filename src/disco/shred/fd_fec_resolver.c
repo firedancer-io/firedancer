@@ -49,7 +49,7 @@ static const wrapped_sig_t null_signature = {{0}};
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).u, (k1).u, FD_ED25519_SIG_SZ ))
 #define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL( k, MAP_KEY_NULL )
 #define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     ((MAP_HASH_T)fd_ulong_hash( key.l ))
+#define MAP_KEY_HASH(key,s)   ((MAP_HASH_T)fd_ulong_hash( key.l ^ (s) ))
 #define MAP_MEMOIZE           0
 #define MAP_NAME              ctx_map
 #define MAP_T                 set_ctx_t
@@ -212,8 +212,8 @@ fd_fec_resolver_new( void                    * shmem,
 
   fd_fec_resolver_t * resolver = (fd_fec_resolver_t *)self;
 
-  if( FD_UNLIKELY( !ctx_map_new  ( curr,   lg_curr_map_cnt         )) ) { FD_LOG_WARNING(( "curr map_new failed" )); return NULL; }
-  if( FD_UNLIKELY( !ctx_map_new  ( done,   lg_done_map_cnt         )) ) { FD_LOG_WARNING(( "done map_new failed" )); return NULL; }
+  if( FD_UNLIKELY( !ctx_map_new  ( curr,   lg_curr_map_cnt, 0UL    )) ) { FD_LOG_WARNING(( "curr map_new failed" )); return NULL; }
+  if( FD_UNLIKELY( !ctx_map_new  ( done,   lg_done_map_cnt, 0UL    )) ) { FD_LOG_WARNING(( "done map_new failed" )); return NULL; }
   if( FD_UNLIKELY( !freelist_new ( free,   depth+partial_depth+1UL )) ) { FD_LOG_WARNING(( "freelist_new failed" )); return NULL; }
   if( FD_UNLIKELY( !freelist_new ( cmplst, complete_depth+1UL      )) ) { FD_LOG_WARNING(( "freelist_new failed" )); return NULL; }
   if( FD_UNLIKELY( !bmtrlist_new ( bmfree, depth                   )) ) { FD_LOG_WARNING(( "bmtrlist_new failed" )); return NULL; }

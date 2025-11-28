@@ -1,5 +1,5 @@
-#ifndef CORE_SUBTOPO_H
-#define CORE_SUBTOPO_H
+#ifndef HEADER_fd_src_app_firedancer_dev_commands_core_subtopo_h
+#define HEADER_fd_src_app_firedancer_dev_commands_core_subtopo_h
 
 #include "../../shared/fd_config.h"
 #include "../../../disco/topo/fd_topob.h"
@@ -35,11 +35,13 @@ fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
   fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
-  ulong net_tile_id = fd_topo_find_tile( topo, "net", 0UL );
-  if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", 0UL );
-  if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
-  fd_topo_tile_t * net_tile = &topo->tiles[ net_tile_id ];
-  net_tile->net.gossip_listen_port = config->gossip.port;
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    ulong net_tile_id = fd_topo_find_tile( topo, "net", i );
+    if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", i );
+    if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
+    fd_topo_tile_t * net_tile = &topo->tiles[ net_tile_id ];
+    net_tile->net.gossip_listen_port = config->gossip.port;
+  }
 
   fd_topob_wksp( topo, "sign" );
   for( ulong i=0UL; i<sign_tile_cnt; i++ ) {
@@ -79,4 +81,4 @@ fd_link_permit_no_consumers( fd_topo_t * topo, char * link_name ) {
   return found;
 }
 
-#endif /* CORE_SUBTOPO_H */
+#endif /* HEADER_fd_src_app_firedancer_dev_commands_core_subtopo_h */

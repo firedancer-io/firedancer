@@ -9,6 +9,8 @@
 #include <string.h>
 
 #include "generated/fd_metric_tile_seccomp.h"
+#include "../../waltz/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server_private.h"
 
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS          128
 #define FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN    8192
@@ -88,6 +90,11 @@ metrics_http_request( fd_http_server_request_t const * request ) {
 static void
 metrics_write( fd_metric_ctx_t * ctx ) {
   FD_MGAUGE_SET( METRIC, BOOT_TIMESTAMP_NANOS, (ulong)ctx->boot_ts );
+
+  FD_MGAUGE_SET( METRIC, CONNECTION_COUNT, ctx->metrics_server->metrics.connection_cnt );
+
+  FD_MCNT_SET( METRIC, BYTES_WRITTEN, ctx->metrics_server->metrics.bytes_written );
+  FD_MCNT_SET( METRIC, BYTES_READ,    ctx->metrics_server->metrics.bytes_read );
 }
 
 static void

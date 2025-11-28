@@ -4,7 +4,6 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "../../ballet/lthash/fd_lthash.h"
-#include "context/fd_capture_ctx.h"
 
 /* fd_hashes.h provides functions for computing and updating the bank hash
    for a completed slot.  The bank hash is a cryptographic hash of the
@@ -57,6 +56,29 @@ fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
                           uchar const             * data,
                           fd_lthash_value_t *       lthash_out );
 
+/* fd_hashes_account_lthash_simple is functionally the same as
+   fd_hashes_account_lthash, but with simpler arguments that detail
+   the exact parameters that go into the lthash.
+
+   pubkey points to the account's public key (32 bytes).  owner points
+   to the account's owner (32 bytes).  lamports is the account's
+   lamports.  executable is the account's executable flag.  data points
+   to the account data.  data_len is the length of the account data.
+   lthash_out points to where the computed lthash value will be written
+   (2048 bytes).
+
+   On return, lthash_out contains the computed lthash.  This function
+   assumes all pointers are valid and properly aligned.  The account
+   data pointer must be readable for data_len bytes. */
+void
+fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOTPRINT ],
+                                 uchar const         owner[ static FD_HASH_FOOTPRINT ],
+                                 ulong               lamports,
+                                 uchar               executable,
+                                 uchar const *       data,
+                                 ulong               data_len,
+                                 fd_lthash_value_t * lthash_out );
+
 /* fd_hashes_update_lthash updates the bank's incremental lthash when an
    account is modified during transaction execution.  The bank lthash is
    maintained incrementally by subtracting the old account hash and
@@ -103,9 +125,6 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
    - signature_count is the number of signatures processed in the slot
 
    The resulting bank hash is written to hash_out.
-
-   slot_ctx contains the execution context with the bank to hash.  hash
-   points to where the computed bank hash will be written (32 bytes).
 */
 
 void

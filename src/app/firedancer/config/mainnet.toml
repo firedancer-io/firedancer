@@ -1,5 +1,3 @@
-[snapshots]
-    cluster = "mainnet"
 [gossip]
     entrypoints = [
         "entrypoint.mainnet-beta.solana.com:8001",
@@ -8,8 +6,14 @@
         "entrypoint4.mainnet-beta.solana.com:8001",
         "entrypoint5.mainnet-beta.solana.com:8001",
     ]
+[consensus]
+    expected_genesis_hash = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
 [funk]
     heap_size_gib = 600
-    max_account_records = 1_000_000_000
-[consensus]
-    expected_shred_version = 50093
+    max_account_records = 1_100_000_000
+[snapshots]
+    [snapshots.sources]
+        servers = [ "http://solana-mainnet-rpc.jumpisolated.com:8899" ]
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []

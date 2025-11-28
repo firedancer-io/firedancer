@@ -10,40 +10,32 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_mcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fseq;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
-extern fd_topo_obj_callbacks_t fd_obj_cb_opaque;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
-extern fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
-extern fd_topo_obj_callbacks_t fd_obj_cb_exec_spad;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
-extern fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
   &fd_obj_cb_dcache,
   &fd_obj_cb_fseq,
   &fd_obj_cb_metrics,
-  &fd_obj_cb_opaque,
   &fd_obj_cb_dbl_buf,
   &fd_obj_cb_neigh4_hmap,
   &fd_obj_cb_fib4,
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_tile,
-  &fd_obj_cb_runtime_pub,
   &fd_obj_cb_store,
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
-  &fd_obj_cb_exec_spad,
   &fd_obj_cb_banks,
   &fd_obj_cb_funk,
-  &fd_obj_cb_bank_hash_cmp,
   NULL,
 };
 
@@ -62,6 +54,7 @@ fd_topo_run_tile_t dummy_tile_sign   = { .name = "sign"   };
 fd_topo_run_tile_t dummy_tile_metric = { .name = "metric" };
 fd_topo_run_tile_t dummy_tile_cswtch = { .name = "cswtch" };
 fd_topo_run_tile_t dummy_tile_gui    = { .name = "gui"    };
+fd_topo_run_tile_t dummy_tile_rpc    = { .name = "rpc"    };
 fd_topo_run_tile_t dummy_tile_plugin = { .name = "plugin" };
 fd_topo_run_tile_t dummy_tile_bencho = { .name = "bencho" };
 fd_topo_run_tile_t dummy_tile_benchg = { .name = "benchg" };
@@ -78,14 +71,14 @@ fd_topo_run_tile_t dummy_tile_send   = { .name = "send"   };
 fd_topo_run_tile_t dummy_tile_replay = { .name = "replay" };
 fd_topo_run_tile_t dummy_tile_exec   = { .name = "exec"   };
 fd_topo_run_tile_t dummy_tile_tower  = { .name = "tower"  };
-fd_topo_run_tile_t dummy_tile_writer = { .name = "writer" };
-fd_topo_run_tile_t dummy_tile_rpcsrv = { .name = "rpcsrv" };
-fd_topo_run_tile_t dummy_tile_snaprd = { .name = "snaprd" };
+fd_topo_run_tile_t dummy_tile_snapct = { .name = "snapct" };
+fd_topo_run_tile_t dummy_tile_snapld = { .name = "snapld" };
 fd_topo_run_tile_t dummy_tile_snapdc = { .name = "snapdc" };
 fd_topo_run_tile_t dummy_tile_snapin = { .name = "snapin" };
 fd_topo_run_tile_t dummy_tile_arch_f = { .name = "arch_f" };
 fd_topo_run_tile_t dummy_tile_arch_w = { .name = "arch_w" };
 fd_topo_run_tile_t dummy_tile_scap   = { .name = "scap"   };
+fd_topo_run_tile_t dummy_tile_genesi = { .name = "genesi" };
 fd_topo_run_tile_t dummy_tile_ipecho = { .name = "ipecho" };
 
 fd_topo_run_tile_t * TILES[] = {
@@ -103,6 +96,7 @@ fd_topo_run_tile_t * TILES[] = {
   &dummy_tile_metric,
   &dummy_tile_cswtch,
   &dummy_tile_gui,
+  &dummy_tile_rpc,
   &dummy_tile_plugin,
   &dummy_tile_bencho,
   &dummy_tile_benchg,
@@ -119,14 +113,14 @@ fd_topo_run_tile_t * TILES[] = {
   &dummy_tile_replay,
   &dummy_tile_exec,
   &dummy_tile_tower,
-  &dummy_tile_writer,
-  &dummy_tile_rpcsrv,
-  &dummy_tile_snaprd,
+  &dummy_tile_snapct,
+  &dummy_tile_snapld,
   &dummy_tile_snapdc,
   &dummy_tile_snapin,
   &dummy_tile_arch_f,
   &dummy_tile_arch_w,
   &dummy_tile_scap,
+  &dummy_tile_genesi,
   &dummy_tile_ipecho,
   NULL,
 };

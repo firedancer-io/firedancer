@@ -82,14 +82,17 @@ static inline FD_FN_CONST ulong fd_reedsol_footprint( void ) { return FD_REEDSOL
    will encode shreds of size shred_sz.  mem is assumed to be a piece of
    memory that meets the alignment and size constraints specified above.
    Takes a write interest in mem that persists until the operation is
-   aborted or finalized.  shred_sz must be >= 32.  Returns mem as a a
-   newly initialized encoder.  Every call to fd_reedsol_encode_init
-   should be paired with a call to fd_reedsol_encode_fini (normal
-   execution) or fd_reedsol_encode_abort (abnormal execution). */
+   aborted or finalized.  shred_sz must be >= 32.  If the provided size is
+   inadequate, NULL is returned.  Returns mem as a a newly initialized encoder.
+   Every call to fd_reedsol_encode_init should be paired with a call to
+   fd_reedsol_encode_fini (normal execution) or fd_reedsol_encode_abort
+   (abnormal execution). */
 
 static inline fd_reedsol_t *
 fd_reedsol_encode_init( void * mem,
                         ulong  shred_sz ) {
+  if( FD_UNLIKELY( shred_sz < 32 ) ) return NULL;
+
   fd_reedsol_t * rs = (fd_reedsol_t *)mem;
   rs->shred_sz         = shred_sz;
   rs->data_shred_cnt   = 0UL;
@@ -167,13 +170,15 @@ fd_reedsol_encode_fini( fd_reedsol_t * rs );
    to be an unused piece of memory that meets the alignment and size
    constraints specified above.  Takes a write interest in mem that
    persists until the operation is aborted or finalized.  shred_sz must
-   be >= 32.  Returns mem as a newly initialized recoverer.  Every call
-   to fd_reedsol_recover_init should be paired with a call to
-   fd_reedsol_recover_fini (normal execution) or
+   be >= 32.  If the provided size is inadequate, NULL is returned.  Returns mem
+   as a newly initialized recoverer.  Every call to fd_reedsol_recover_init
+   should be paired with a call to fd_reedsol_recover_fini (normal execution) or
    fd_reedsol_recover_abort (abnormal execution). */
 
 static inline fd_reedsol_t *
 fd_reedsol_recover_init( void * mem, ulong shred_sz ) {
+  if( FD_UNLIKELY( shred_sz < 32 ) ) return NULL;
+
   fd_reedsol_t * rs = (fd_reedsol_t *)mem;
   rs->shred_sz         = shred_sz;
   rs->data_shred_cnt   = 0UL;

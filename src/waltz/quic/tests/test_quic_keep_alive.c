@@ -1,4 +1,4 @@
-#include "../fd_quic.h"
+#include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
 
 int server_complete = 0;
@@ -27,12 +27,7 @@ my_connection_final( fd_quic_conn_t * conn       FD_PARAM_UNUSED,
 }
 
 /* global "clock" */
-ulong now = 145;
-
-ulong test_clock( void * ctx ) {
-  (void)ctx;
-  return now;
-}
+long now = 145;
 
 /* returns the client conn, setting server_conn in the global */
 static fd_quic_conn_t *
@@ -46,17 +41,18 @@ test_init( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
 
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
-  fd_quic_svc_validate( server_quic );
-  fd_quic_svc_validate( client_quic );
+  fd_quic_get_state( server_quic )->now = fd_quic_get_state( client_quic )->now = now;
+  fd_quic_state_validate( server_quic );
+  fd_quic_state_validate( client_quic );
 
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
   FD_TEST( client_conn );
 
   /* do general processing */
-  for( ulong j = 0; j < 20; j++ ) {
+  for( ulong j=0; j<20; ++j ) {
     FD_LOG_INFO(( "running services" ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
 
     if( server_complete && client_complete ) {
       FD_LOG_INFO(( "***** both handshakes complete *****" ));
@@ -69,19 +65,29 @@ test_init( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
 }
 
 /* walks a timeout period by stepping 1/8 timeout, 'eighths' times */
-static ulong
-walk_timeout_period( fd_quic_t * client_quic, fd_quic_t * server_quic, int eighths ) {
+static long
+walk_timeout_period( fd_quic_conn_t * client_conn, fd_quic_t * server_quic, int eighths ) {
 
-  /* FIXME: when svc_queue fixed, make sure these are different
-     and use idle_timeout = their min */
-  FD_TEST( client_quic->config.idle_timeout == server_quic->config.idle_timeout );
-  ulong const idle_timeout = client_quic->config.idle_timeout;
-  ulong const timestep     = idle_timeout>>3;
+  fd_quic_t * client_quic = client_conn->quic;
 
+  long const server_timeout = server_quic->config.idle_timeout;
+  long const client_timeout = client_quic->config.idle_timeout;
+  long const idle_timeout   = fd_long_min( server_timeout, client_timeout );
+
+  FD_TEST( server_conn->idle_timeout_ns == idle_timeout );
+  FD_TEST( client_conn->idle_timeout_ns == idle_timeout );
+
+  long const timestep = idle_timeout>>3;
   for( int i=0; i<eighths; ++i ) {
     now+=timestep;
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    if( client_conn->state==FD_QUIC_CONN_STATE_ACTIVE && now >= client_conn->last_activity + idle_timeout/2 ) {
+      FD_TEST( client_conn->svc_meta.next_timeout == client_conn->last_activity + idle_timeout );
+    }
+    fd_quic_service( server_quic, now );
+    if( server_conn->state==FD_QUIC_CONN_STATE_ACTIVE ) {
+      FD_TEST( server_conn->svc_meta.next_timeout == server_conn->last_activity + idle_timeout );
+    }
   }
 
   return timestep;
@@ -92,11 +98,12 @@ test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep
 
   called_final = 0;
   client_quic->config.keep_alive = keep_alive;
-  test_init( client_quic, server_quic );
+  fd_quic_conn_t * client_conn = test_init( client_quic, server_quic );
 
-  walk_timeout_period( client_quic, server_quic, 8 );
+  walk_timeout_period( client_conn, server_quic, 8 );
   if( keep_alive ) {
     FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+    FD_TEST( server_conn->svc_meta.next_timeout == server_conn->last_activity+server_conn->idle_timeout_ns );
   } else {
     FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_INVALID ||
              server_conn->state == FD_QUIC_CONN_STATE_DEAD );
@@ -107,16 +114,15 @@ test_quic_keep_alive( fd_quic_t * client_quic, fd_quic_t * server_quic, int keep
 static void
 test_quic_let_die( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   called_final = 0;
-  ulong    const   timestep    = client_quic->config.idle_timeout>>3;
   fd_quic_conn_t * client_conn = test_init( client_quic, server_quic );
 
-  fd_quic_conn_let_die( client_conn, timestep );
-  walk_timeout_period( client_quic, server_quic, 8 );
+  long const timestep = client_conn->idle_timeout_ns>>3;
+  fd_quic_conn_let_die( client_conn, timestep, now );
+  walk_timeout_period( client_conn, server_quic, 8 );
   FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_INVALID ||
            server_conn->state == FD_QUIC_CONN_STATE_DEAD );
   FD_TEST( called_final );
 }
-
 
 static void
 test_quic_free_timed_out( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
@@ -126,16 +132,16 @@ test_quic_free_timed_out( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
 
   ulong const orig_timeouts = server_quic->metrics.conn_timeout_cnt;
 
-  now += client_quic->config.idle_timeout>>3;
+  now += orig_client_conn->idle_timeout_ns>>3;
 
   /* try creating 10 conns - the last one should fail */
-  for( ulong i = 0; i<conn_cnt; ++i ) {
-    fd_quic_conn_t * conn = fd_quic_connect( client_quic, 0, 0, 0, 0 );
-    for( ulong j = 0; j<10; ++j ) {
-      fd_quic_service( client_quic );
-      fd_quic_service( server_quic );
+  for( ulong i=0; i<conn_cnt; ++i ) {
+    fd_quic_conn_t * conn = fd_quic_connect( client_quic, 0, 0, 0, 0, now );
+    for( ulong j=0; j<10; ++j ) {
+      fd_quic_service( client_quic, now );
+      fd_quic_service( server_quic, now );
     }
-    if( i!= conn_cnt-1 ) {
+    if( i!=conn_cnt-1 ) {
       FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
     } else {
       FD_TEST( !conn );
@@ -143,7 +149,7 @@ test_quic_free_timed_out( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   }
   FD_TEST( orig_timeouts == server_quic->metrics.conn_timeout_cnt );
 
-  walk_timeout_period( client_quic, server_quic, 7 );
+  walk_timeout_period( orig_client_conn, server_quic, 7 );
 
   /* server should have timed out the first one now */
   FD_TEST( orig_server_conn->state == FD_QUIC_CONN_STATE_INVALID ||
@@ -153,11 +159,11 @@ test_quic_free_timed_out( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   FD_TEST( orig_timeouts + 1 == server_quic->metrics.conn_timeout_cnt );
 
   /* try again, should have space by freeing old one */
-  fd_quic_conn_t * conn = fd_quic_connect( client_quic, 0, 0, 0, 0 );
+  fd_quic_conn_t * conn = fd_quic_connect( client_quic, 0, 0, 0, 0, now );
   FD_TEST( conn );
   for( ulong j=0; j<10; ++j ) {
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
   }
   FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
   FD_TEST( server_conn == orig_server_conn );
@@ -203,18 +209,18 @@ main( int argc, char ** argv ) {
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
-  server_quic->cb.now              = test_clock;
-  client_quic->cb.now              = test_clock;
-
   server_quic->cb.conn_new         = my_connection_new;
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   server_quic->cb.conn_final       = my_connection_final;
 
+  server_quic->config.idle_timeout = 1e7;
+  client_quic->config.idle_timeout = 1e9;
+
+  server_quic->config.ack_delay    = 1e6;
+  client_quic->config.ack_delay    = 1e6;
+
   server_quic->config.initial_rx_max_stream_data = 1<<16;
   client_quic->config.initial_rx_max_stream_data = 1<<16;
-
-  server_quic->config.idle_timeout = 1000;
-  client_quic->config.idle_timeout = 1000;
 
   fd_quic_virtual_pair_t vp;
   fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
@@ -235,5 +241,3 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 }
-
-

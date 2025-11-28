@@ -2,7 +2,6 @@
 #include "fd_topo.h"
 
 #include "../metrics/fd_metrics.h"
-#include "../../waltz/xdp/fd_xdp1.h"
 #include "../../util/tile/fd_tile_private.h"
 
 #include <unistd.h>
@@ -20,10 +19,9 @@
 static void
 initialize_logging( char const * tile_name,
                     ulong        tile_kind_id,
-                    ulong        pid,
                     ulong        tid ) {
   fd_log_cpu_set( NULL );
-  fd_log_private_tid_set( pid );
+  fd_log_private_tid_set( tid );
   char thread_name[ 20 ];
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", tile_name, tile_kind_id ) );
   fd_log_thread_set( thread_name );
@@ -83,7 +81,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 
   check_wait_debugger( pid, wait, debugger );
-  initialize_logging( tile->name, tile->kind_id, pid, tid );
+  initialize_logging( tile->name, tile->kind_id, tid );
 
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( topo, tile );
@@ -106,7 +104,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   }
 
 
-  struct sock_filter seccomp_filter[ 128UL ];
+  struct sock_filter seccomp_filter[ 256UL ];
   ulong seccomp_filter_cnt = 0UL;
   if( FD_LIKELY( tile_run->populate_allowed_seccomp ) ) {
     seccomp_filter_cnt = tile_run->populate_allowed_seccomp( topo,
@@ -125,6 +123,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                       gid,
                       tile_run->keep_host_networking,
                       tile_run->allow_connect,
+                      tile_run->allow_renameat,
                       keep_controlling_terminal,
                       dumpable,
                       rlimit_file_cnt,
@@ -236,7 +235,7 @@ fd_topo_tile_stack_join( char const * app_name,
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", app_name, tile_name, tile_kind_id ) );
 
-  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL, 1 );
+  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
 
   /* Make space for guard lo and guard hi */
@@ -258,42 +257,6 @@ fd_topo_tile_stack_join( char const * app_name,
     FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   return stack;
-}
-
-fd_xdp_fds_t
-fd_topo_install_xdp( fd_topo_t const * topo,
-                     uint              bind_addr ) {
-  ulong net0_tile_idx = fd_topo_find_tile( topo, "net", 0UL );
-  FD_TEST( net0_tile_idx!=ULONG_MAX );
-  fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
-
-  ushort udp_port_candidates[] = {
-    (ushort)net0_tile->xdp.net.legacy_transaction_listen_port,
-    (ushort)net0_tile->xdp.net.quic_transaction_listen_port,
-    (ushort)net0_tile->xdp.net.shred_listen_port,
-    (ushort)net0_tile->xdp.net.gossip_listen_port,
-    (ushort)net0_tile->xdp.net.repair_intake_listen_port,
-    (ushort)net0_tile->xdp.net.repair_serve_listen_port,
-    (ushort)net0_tile->xdp.net.send_src_port,
-  };
-
-  uint if_idx = if_nametoindex( net0_tile->xdp.interface );
-  if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", net0_tile->xdp.interface ));
-
-  fd_xdp_fds_t xdp_fds = fd_xdp_install( if_idx,
-                                         bind_addr,
-                                         sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
-                                         udp_port_candidates,
-                                         net0_tile->xdp.xdp_mode );
-  if( FD_UNLIKELY( -1==dup2( xdp_fds.xsk_map_fd, 123462 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==dup2( xdp_fds.prog_link_fd, 123463 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  xdp_fds.xsk_map_fd = 123462;
-  xdp_fds.prog_link_fd = 123463;
-
-  return xdp_fds;
 }
 
 static inline void

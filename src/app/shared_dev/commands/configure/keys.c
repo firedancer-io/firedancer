@@ -37,7 +37,7 @@ init( config_t const * config ) {
     if( FD_UNLIKELY( -1==path_parent( config->paths.identity_key, identity_key_parent, sizeof(identity_key_parent) ) ) )
       FD_LOG_ERR(( "failed to get parent directory of `%s`", config->paths.identity_key ));
 
-    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( identity_key_parent, config->uid, config->gid ) ) )
+    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( identity_key_parent, config->uid, config->gid, 1 ) ) )
       FD_LOG_ERR(( "could not create identity directory `%s` (%i-%s)", identity_key_parent, errno, fd_io_strerror( errno ) ));
   }
 
@@ -50,7 +50,7 @@ init( config_t const * config ) {
     if( FD_UNLIKELY( -1==path_parent( config->paths.vote_account, vote_account_parent, sizeof(vote_account_parent) ) ) )
       FD_LOG_ERR(( "failed to get parent directory of `%s`", config->paths.vote_account ));
 
-    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( vote_account_parent, config->uid, config->gid ) ) )
+    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( vote_account_parent, config->uid, config->gid, 1 ) ) )
       FD_LOG_ERR(( "could not create vote account directory `%s` (%i-%s)", vote_account_parent, errno, fd_io_strerror( errno ) ));
   }
 
@@ -59,7 +59,7 @@ init( config_t const * config ) {
       generate_keypair( config->paths.vote_account, config->uid, config->gid, 0 );
   }
 
-  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->paths.base, config->uid, config->gid ) ) )
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->paths.base, config->uid, config->gid, 1 ) ) )
     FD_LOG_ERR(( "could not create scratch directory `%s` (%i-%s)", config->paths.base, errno, fd_io_strerror( errno ) ));
 
   char faucet[ PATH_MAX ];
@@ -74,7 +74,8 @@ init( config_t const * config ) {
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
   char faucet[ PATH_MAX ], stake[ PATH_MAX ];
 
   FD_TEST( fd_cstr_printf_check( faucet, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_util_math_fd_float_h
-#define HEADER_fd_src_util_math_fd_float_h
+#ifndef HEADER_fd_src_util_bits_fd_float_h
+#define HEADER_fd_src_util_bits_fd_float_h
 
 #include "fd_bits.h"
 
@@ -202,4 +202,4 @@ fd_dblbits_is_normal( ulong u ) {
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_util_math_fd_float_h */
+#endif /* HEADER_fd_src_util_bits_fd_float_h */

@@ -16,7 +16,7 @@ static const fd_pubkey_t null_pubkey = {{ 0 }};
 #define MAP_MEMOIZE           0
 #define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
+#define MAP_KEY_HASH(key,s)   ((MAP_HASH_T)( (key).ul[1] ))
 
 #include "../../util/tmpl/fd_map_dynamic.c"
 
@@ -106,7 +106,7 @@ fd_shred_dest_new( void                           * mem,
   for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
   _staked   = fd_wsample_new_fini( _staked, excluded_stake );
 
-  pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt ) );
+  pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt, 0UL ) );
   for( ulong i=0UL; i<cnt; i++ ) {
     /* we should never have duplicates in info[i].pubkey, but in case
        of duplicates it's better to skip than to segfault. */

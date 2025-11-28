@@ -1,8 +1,12 @@
 #define _GNU_SOURCE
 #include "../main.h"
 
+#include "../../fdctl/config.h"
+#include "../../fdctl/topology.h"
 #include "../../platform/fd_sys_util.h"
+#include "../../shared/fd_config_file.h"
 #include "../../shared/commands/ready.h"
+#include "../../shared_dev/boot/fd_dev_boot.h"
 #include "../../shared_dev/commands/wksp.h"
 #include "../../shared_dev/commands/dev.h"
 
@@ -87,7 +91,7 @@ fddev_dev( config_t * config,
     .dev.no_configure       = 1,
     .dev.no_init_workspaces = 1,
     .dev.no_agave           = 0,
-    .dev.monitor            = 0,
+    .dev.no_watch           = 1,
   };
   args.dev.debug_tile[ 0 ] = '\0';
   fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );

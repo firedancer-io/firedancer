@@ -3,6 +3,8 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 
+#include "generated/fd_snapdc_tile_seccomp.h"
+
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 
@@ -12,20 +14,13 @@
 
 /* The snapdc tile is a state machine that decompresses the full and
    optionally incremental snapshot byte stream that it receives from the
-   snaprd tile.
-
-   snaprd may send a reset notification, which causes snapdc to reset
-   its decompressor state to waiting for either the full or incremental
-   snapshot respectively. */
-
-#define FD_SNAPDC_STATE_DECOMPRESSING (0) /* We are in the process of decompressing a valid stream */
-#define FD_SNAPDC_STATE_FINISHING     (1) /* The frame has been fully decompressed, we are waiting to make sure the snapshot has no more data */
-#define FD_SNAPDC_STATE_MALFORMED     (2) /* The decompression stream is malformed, we are waiting for a reset notification */
-#define FD_SNAPDC_STATE_DONE          (3) /* The decompression stream is done, the tile is waiting for a shutdown message */
-#define FD_SNAPDC_STATE_SHUTDOWN      (4) /* The tile is done, been told to shut down, and has likely already exited */
+   snapld tile.  In the event that the snapshot is already uncompressed,
+   this tile simply copies the stream to the next tile in the pipeline. */
 
 struct fd_snapdc_tile {
-  int full;
+  uint full    : 1;
+  uint is_zstd : 1;
+  uint dirty   : 1;  /* in the middle of a frame? */
   int state;
 
   ZSTD_DCtx * zstd;
@@ -49,12 +44,12 @@ struct fd_snapdc_tile {
   struct {
     struct {
       ulong compressed_bytes_read;
-      ulong decompressed_bytes_read;
+      ulong decompressed_bytes_written;
     } full;
 
     struct {
       ulong compressed_bytes_read;
-      ulong decompressed_bytes_read;
+      ulong decompressed_bytes_written;
     } incremental;
   } metrics;
 };
@@ -62,7 +57,7 @@ typedef struct fd_snapdc_tile fd_snapdc_tile_t;
 
 FD_FN_PURE static ulong
 scratch_align( void ) {
-  return alignof(fd_snapdc_tile_t);
+  return fd_ulong_max( alignof(fd_snapdc_tile_t), 32UL );
 }
 
 FD_FN_PURE static ulong
@@ -76,88 +71,89 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline int
 should_shutdown( fd_snapdc_tile_t * ctx ) {
-  return ctx->state==FD_SNAPDC_STATE_SHUTDOWN;
+  return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }
 
 static void
 metrics_write( fd_snapdc_tile_t * ctx ) {
-  FD_MGAUGE_SET( SNAPDC, FULL_COMPRESSED_BYTES_READ,    ctx->metrics.full.compressed_bytes_read );
-  FD_MGAUGE_SET( SNAPDC, FULL_DECOMPRESSED_BYTES_READ,  ctx->metrics.full.decompressed_bytes_read );
+  FD_MGAUGE_SET( SNAPDC, FULL_COMPRESSED_BYTES_READ,              ctx->metrics.full.compressed_bytes_read );
+  FD_MGAUGE_SET( SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN,         ctx->metrics.full.decompressed_bytes_written );
 
-  FD_MGAUGE_SET( SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ,    ctx->metrics.incremental.compressed_bytes_read );
-  FD_MGAUGE_SET( SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_READ,  ctx->metrics.incremental.decompressed_bytes_read );
+  FD_MGAUGE_SET( SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ,       ctx->metrics.incremental.compressed_bytes_read );
+  FD_MGAUGE_SET( SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN,  ctx->metrics.incremental.decompressed_bytes_written );
 
   FD_MGAUGE_SET( SNAPDC, STATE, (ulong)(ctx->state) );
 }
 
 static inline void
-transition_malformed( fd_snapdc_tile_t *  ctx,
-                      fd_stem_context_t * stem ) {
-  ctx->state = FD_SNAPDC_STATE_MALFORMED;
-  ctx->in.frag_pos = 0UL;
-  fd_stem_publish( stem, 1UL, FD_SNAPSHOT_MSG_CTRL_MALFORMED, 0UL, 0UL, 0UL, 0UL, 0UL );
-}
-
-static inline void
 handle_control_frag( fd_snapdc_tile_t *  ctx,
                      fd_stem_context_t * stem,
-                     ulong               sig ) {
-  /* 1. Pass the control message downstream to the next consumer. */
-  fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, 0UL, 0UL, 0UL, 0UL );
+                     ulong               sig,
+                     ulong               chunk,
+                     ulong               sz ) {
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) return;
+
+  /* All control messages cause us to want to reset the decompression stream */
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
+  ctx->dirty = 0;
 
-  /* 2. Check if the control message is actually valid given the state
-        machine, and if not, return a malformed message to the sender. */
   switch( sig ) {
-    case FD_SNAPSHOT_MSG_CTRL_RESET_FULL:
-      ctx->state = FD_SNAPDC_STATE_DECOMPRESSING;
+    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
+      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = 1;
-      ctx->metrics.full.compressed_bytes_read   = 0UL;
-      ctx->metrics.full.decompressed_bytes_read = 0UL;
-      ctx->metrics.incremental.compressed_bytes_read   = 0UL;
-      ctx->metrics.incremental.decompressed_bytes_read = 0UL;
+      ctx->is_zstd = !!msg->zstd;
+      ctx->in.frag_pos = 0UL;
+      ctx->metrics.full.compressed_bytes_read      = 0UL;
+      ctx->metrics.full.decompressed_bytes_written = 0UL;
       break;
-    case FD_SNAPSHOT_MSG_CTRL_RESET_INCREMENTAL:
-      ctx->state = FD_SNAPDC_STATE_DECOMPRESSING;
+    }
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
+      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = 0;
-      ctx->metrics.full.compressed_bytes_read   = 0UL;
-      ctx->metrics.full.decompressed_bytes_read = 0UL;
-      ctx->metrics.incremental.compressed_bytes_read   = 0UL;
-      ctx->metrics.incremental.decompressed_bytes_read = 0UL;
+      ctx->is_zstd = !!msg->zstd;
+      ctx->in.frag_pos = 0UL;
+      ctx->metrics.incremental.compressed_bytes_read      = 0UL;
+      ctx->metrics.incremental.decompressed_bytes_written = 0UL;
       break;
-    case FD_SNAPSHOT_MSG_CTRL_EOF_FULL:
-      FD_TEST( ctx->full );
-      if( FD_UNLIKELY( ctx->state==FD_SNAPDC_STATE_MALFORMED ) ) break;
-      else if( FD_UNLIKELY( ctx->state==FD_SNAPDC_STATE_DECOMPRESSING ) ) {
-        transition_malformed( ctx, stem );
-        break;
-      }
-      ctx->state = FD_SNAPDC_STATE_DECOMPRESSING;
-      ctx->full = 0;
+    }
+    case FD_SNAPSHOT_MSG_CTRL_FAIL:
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
+               ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:
     case FD_SNAPSHOT_MSG_CTRL_DONE:
-      if( FD_UNLIKELY( ctx->state==FD_SNAPDC_STATE_MALFORMED ) ) break;
-      else if( FD_UNLIKELY( ctx->state==FD_SNAPDC_STATE_DECOMPRESSING ) ) {
-        transition_malformed( ctx, stem );
-        break;
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
+               ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      if( FD_UNLIKELY( ctx->is_zstd && ctx->dirty ) ) {
+        FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame" ));
+        ctx->state = FD_SNAPSHOT_STATE_ERROR;
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+        return;
       }
-      ctx->state = FD_SNAPDC_STATE_DONE;
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
-      FD_TEST( ctx->state==FD_SNAPDC_STATE_DONE );
-      ctx->state = FD_SNAPDC_STATE_SHUTDOWN;
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
+      break;
+    case FD_SNAPSHOT_MSG_CTRL_ERROR:
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
       break;
     default:
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
       return;
   }
 
-  /* 3. Acknowledge the control message, so the sender knows we received
-        it.  We must acknowledge after handling the control frag, because
-        if it causes us to generate a malformed transition, that must be
-        sent back to the snaprd controller before the acknowledgement. */
-  fd_stem_publish( stem, 1UL, FD_SNAPSHOT_MSG_CTRL_ACK, 0UL, 0UL, 0UL, 0UL, 0UL );
+  /* Forward the control message down the pipeline */
+  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static inline int
@@ -165,36 +161,55 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
                   fd_stem_context_t * stem,
                   ulong               chunk,
                   ulong               sz ) {
-  FD_TEST( ctx->state!=FD_SNAPDC_STATE_DONE );
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+    /* Ignore all data frags after observing an error in the stream until
+       we receive fail & init control messages to restart processing. */
+    return 0;
+  }
+  else if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
+    FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
+  }
 
-  if( FD_UNLIKELY( ctx->state==FD_SNAPDC_STATE_MALFORMED ) ) return 0;
+  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu && sz>=ctx->in.frag_pos );
+  uchar const * data = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+  uchar const * in  = data+ctx->in.frag_pos;
+  uchar * out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
 
-  if( FD_UNLIKELY( ctx->state==FD_SNAPDC_STATE_FINISHING ) ) {
-    /* We thought the snapshot was finished (we already read the full
-       frame) and then we got another data fragment from the reader.
-       This means the snapshot has extra padding or garbage on the end,
-       which we don't trust so just abandon it completely. */
-    transition_malformed( ctx, stem );
+  if( FD_UNLIKELY( !ctx->is_zstd ) ) {
+    FD_TEST( ctx->in.frag_pos<sz );
+    ulong cpy = fd_ulong_min( sz-ctx->in.frag_pos, ctx->out.mtu );
+    fd_memcpy( out, in, cpy );
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, cpy, 0UL, 0UL, 0UL );
+    ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, cpy, ctx->out.chunk0, ctx->out.wmark );
+
+    if( FD_LIKELY( ctx->full ) ) {
+      ctx->metrics.full.compressed_bytes_read      += cpy;
+      ctx->metrics.full.decompressed_bytes_written += cpy;
+    } else {
+      ctx->metrics.incremental.compressed_bytes_read      += cpy;
+      ctx->metrics.incremental.decompressed_bytes_written += cpy;
+    }
+
+    ctx->in.frag_pos += cpy;
+    FD_TEST( ctx->in.frag_pos<=sz );
+    if( FD_UNLIKELY( ctx->in.frag_pos<sz ) ) return 1;
+    ctx->in.frag_pos = 0UL;
     return 0;
   }
 
-  FD_TEST( ctx->state==FD_SNAPDC_STATE_DECOMPRESSING );
-  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu && sz>=ctx->in.frag_pos );
-
-  uchar const * data = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
-
-  uchar const * in  = data+ctx->in.frag_pos;
-  uchar * out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
   ulong in_consumed = 0UL, out_produced = 0UL;
-  ulong error = ZSTD_decompressStream_simpleArgs( ctx->zstd,
-                                                  out,
-                                                  ctx->out.mtu,
-                                                  &out_produced,
-                                                  in,
-                                                  sz-ctx->in.frag_pos,
-                                                  &in_consumed );
-  if( FD_UNLIKELY( ZSTD_isError( error ) ) ) {
-    transition_malformed( ctx, stem );
+  ulong frame_res = ZSTD_decompressStream_simpleArgs(
+      ctx->zstd,
+      out,
+      ctx->out.mtu,
+      &out_produced,
+      in,
+      sz-ctx->in.frag_pos,
+      &in_consumed );
+  if( FD_UNLIKELY( ZSTD_isError( frame_res ) ) ) {
+    FD_LOG_WARNING(( "error while decompressing snapshot (%u-%s)", ZSTD_getErrorCode( frame_res ), ZSTD_getErrorName( frame_res ) ));
+    ctx->state = FD_SNAPSHOT_STATE_ERROR;
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
     return 0;
   }
 
@@ -207,28 +222,14 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
   FD_TEST( ctx->in.frag_pos<=sz );
 
   if( FD_LIKELY( ctx->full ) ) {
-    ctx->metrics.full.compressed_bytes_read   += in_consumed;
-    ctx->metrics.full.decompressed_bytes_read += out_produced;
+    ctx->metrics.full.compressed_bytes_read      += in_consumed;
+    ctx->metrics.full.decompressed_bytes_written += out_produced;
   } else {
-    ctx->metrics.incremental.compressed_bytes_read   += in_consumed;
-    ctx->metrics.incremental.decompressed_bytes_read += out_produced;
+    ctx->metrics.incremental.compressed_bytes_read      += in_consumed;
+    ctx->metrics.incremental.decompressed_bytes_written += out_produced;
   }
 
-  if( FD_UNLIKELY( !error ) ) {
-    if( FD_UNLIKELY( ctx->in.frag_pos!=sz ) ) {
-      /* Zstandard finished decoding the snapshot frame (the whole
-         snapshot is a single frame), but, the fragment we got from
-         the snapshot reader has not been fully consumed, so there is
-         some trailing padding or garbage at the end of the snapshot.
-
-         This is not valid under the snapshot format and indicates a
-         problem so we abandon the snapshot. */
-      transition_malformed( ctx, stem );
-      return 0;
-    }
-
-    ctx->state = FD_SNAPDC_STATE_FINISHING;
-  }
+  ctx->dirty = frame_res!=0UL;
 
   int maybe_more_output = out_produced==ctx->out.mtu || ctx->in.frag_pos<sz;
   if( FD_LIKELY( !maybe_more_output ) ) ctx->in.frag_pos = 0UL;
@@ -237,25 +238,46 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
 
 static inline int
 returnable_frag( fd_snapdc_tile_t *  ctx,
-                 ulong               in_idx,
-                 ulong               seq,
+                 ulong               in_idx FD_PARAM_UNUSED,
+                 ulong               seq    FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               tsorig,
-                 ulong               tspub,
+                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
-  (void)in_idx;
-  (void)seq;
-  (void)tsorig;
-  (void)tspub;
-
-  FD_TEST( ctx->state!=FD_SNAPDC_STATE_SHUTDOWN );
+  FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, stem, chunk, sz );
-  else                                                handle_control_frag( ctx,stem, sig );
+  else                                                handle_control_frag( ctx, stem, sig, chunk, sz );
 
   return 0;
+}
+
+static ulong
+populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0;
+  out_fds[ out_cnt++ ] = 2UL; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  }
+
+  return out_cnt;
+}
+
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  populate_sock_filter_policy_fd_snapdc_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_snapdc_tile_instr_cnt;
 }
 
 static void
@@ -267,28 +289,30 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snapdc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapdc_tile_t), sizeof(fd_snapdc_tile_t) );
   void * _zstd           = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                      ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
 
-  ctx->full = 1;
-  ctx->state = FD_SNAPDC_STATE_DECOMPRESSING;
+  ctx->state = FD_SNAPSHOT_STATE_IDLE;
+
   ctx->zstd = ZSTD_initStaticDStream( _zstd, ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
   FD_TEST( ctx->zstd );
   FD_TEST( ctx->zstd==_zstd );
 
+  ctx->dirty = 0;
   ctx->in.frag_pos = 0UL;
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
-  if( FD_UNLIKELY( tile->out_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2", tile->out_cnt ));
+  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
 
-  fd_topo_link_t * writer_link = &topo->links[ tile->out_link_id[ 0UL ] ];
-  ctx->out.wksp   = topo->workspaces[ topo->objs[ writer_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.wksp, writer_link->dcache );
-  ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, writer_link->dcache, writer_link->mtu );
+  fd_topo_link_t * snapin_link = &topo->links[ tile->out_link_id[ 0UL ] ];
+  FD_TEST( 0==strcmp( snapin_link->name, "snapdc_in" ) );
+  ctx->out.wksp   = topo->workspaces[ topo->objs[ snapin_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.wksp, snapin_link->dcache );
+  ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, snapin_link->dcache, snapin_link->mtu );
   ctx->out.chunk  = ctx->out.chunk0;
-  ctx->out.mtu    = writer_link->mtu;
+  ctx->out.mtu    = snapin_link->mtu;
 
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
   fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
-  ctx->in.wksp                   = in_wksp->wksp;;
+  ctx->in.wksp                   = in_wksp->wksp;
   ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
   ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
   ctx->in.mtu                    = in_link->mtu;
@@ -301,7 +325,9 @@ unprivileged_init( fd_topo_t *      topo,
                  (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-#define STEM_BURST 3UL /* For control fragments, one downstream clone, one acknowledgement, and one malformed message */
+/* handle_data_frag can publish one data frag plus an error frag */
+#define STEM_BURST 2UL
+
 #define STEM_LAZY  1000L
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapdc_tile_t
@@ -314,11 +340,13 @@ unprivileged_init( fd_topo_t *      topo,
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_snapdc = {
-  .name              = NAME,
-  .scratch_align     = scratch_align,
-  .scratch_footprint = scratch_footprint,
-  .unprivileged_init = unprivileged_init,
-  .run               = stem_run,
+  .name                     = NAME,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };
 
 #undef NAME

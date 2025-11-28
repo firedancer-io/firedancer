@@ -1,5 +1,8 @@
-#include "../fd_quic.h"
+#include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
+
+static fd_clock_t clock[1];
+static fd_clock_shmem_t clock_shmem[1];
 
 uchar conn_final_cnt = 0;
 
@@ -63,14 +66,14 @@ void my_handshake_complete( fd_quic_conn_t * conn,
 __attribute__((noinline)) int
 service_client( fd_quic_t * quic ) {
   uchar buf[16] = {0}; FD_COMPILER_UNPREDICTABLE( buf[0] );
-  fd_quic_service( quic );
+  fd_quic_service( quic, fd_clock_now( clock ) );
   return 0;
 }
 
 __attribute__((noinline)) int
 service_server( fd_quic_t * quic ) {
   uchar buf[16] = {0}; FD_COMPILER_UNPREDICTABLE( buf[0] );
-  fd_quic_service( quic );
+  fd_quic_service( quic, fd_clock_now( clock ) );
   return 0;
 }
 
@@ -82,6 +85,8 @@ main( int     argc,
   fd_quic_test_boot( &argc, &argv );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  fd_clock_default_init( clock, clock_shmem );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -114,7 +119,7 @@ main( int     argc,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 1,
     .stream_pool_cnt    = 1,
-    .inflight_frame_cnt   = 128,
+    .inflight_frame_cnt = 128,
   };
   FD_LOG_NOTICE(( "Creating server QUIC (%lu bytes)", fd_quic_footprint( &server_limits ) ));
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &server_limits, FD_QUIC_ROLE_SERVER, rng );
@@ -153,30 +158,29 @@ main( int     argc,
   fd_quic_virtual_pair_init( &vp, /*a*/ client_quic, /*b*/ server_quic );
 
   fd_quic_netem_t _netem[1];
+  long _null[1];
   if( loss>=FLT_EPSILON || reorder>=FLT_EPSILON ) {
     FD_LOG_NOTICE(( "Adding client network emulation (loss=%g reorder=%g)", (double)loss, (double)reorder ));
-    fd_quic_netem_t * netem = fd_quic_netem_init( _netem, loss, reorder );
-    /* Inject a netem instance along the path */
+    fd_quic_netem_t * netem = fd_quic_netem_init( _netem, loss, reorder, _null );
     fd_quic_set_aio_net_tx( client_quic, &netem->local );
     netem->dst = vp.aio_a2b;
   }
 
   FD_LOG_NOTICE(( "Initializing QUICs" ));
-  fd_quic_set_clock_tickcount( server_quic );
-  fd_quic_set_clock_tickcount( client_quic );
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
+  fd_quic_get_state( client_quic )->now = fd_quic_get_state( server_quic )->now = fd_clock_now( clock );
 
   /* make a connection from client to server */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, fd_clock_now( clock ) );
 
   FD_TEST( conn_final_cnt==0 );
 
   /* do general processing */
-  for( ulong j = 0; j < 20; j++ ) {
+  for( ulong j=0; j<20; j++ ) {
     FD_LOG_INFO(( "running services" ));
-    service_client( client_quic );;
-    service_server( server_quic );;
+    service_client( client_quic );
+    service_server( server_quic );
 
     if( server_complete && client_complete ) {
       FD_LOG_INFO(( "***** both handshakes complete *****" ));
@@ -186,9 +190,9 @@ main( int     argc,
 
   FD_LOG_DEBUG(( "client_conn->state: %u", client_conn->state ));
 
-  for( ulong j = 0; j < 20; j++ ) {
-    service_client( client_quic );;
-    service_server( server_quic );;
+  for( ulong j=0; j<20; j++ ) {
+    service_client( client_quic );
+    service_server( server_quic );
   }
 
   FD_LOG_DEBUG(( "client_conn->state: %u", client_conn->state ));
@@ -204,12 +208,13 @@ main( int     argc,
   int rc = fd_quic_stream_send( client_stream, buf, sz, 1 );
   FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
 
-  long last_ts = fd_log_wallclock();
-  long rprt_ts = fd_log_wallclock() + (long)1e9;
+  long last_ts = fd_clock_now( clock );
+  long rprt_ts = last_ts + (long)1e9;
 
-  long start_ts = fd_log_wallclock();
+  long start_ts = last_ts;
   long end_ts   = start_ts + (long)(duration * 1e9f);
   while(1) {
+    long t = fd_clock_now( clock ); fd_quic_get_state( client_quic )->now = fd_quic_get_state( server_quic )->now = t;
     service_client( client_quic );
     service_server( server_quic );
 
@@ -221,7 +226,6 @@ main( int     argc,
     else if( !client_stream ) continue;
     fd_quic_stream_send( client_stream, buf, sz, 1 );
 
-    long t = fd_log_wallclock();
     if( t >= rprt_ts ) {
       FD_TEST( client_quic->metrics.conn_closed_cnt==0 );
       FD_TEST( server_quic->metrics.conn_closed_cnt==0 );
@@ -267,13 +271,15 @@ main( int     argc,
   FD_TEST( client_quic->metrics.conn_closed_cnt==1 );
   FD_TEST( server_quic->metrics.conn_closed_cnt==1 );
   FD_TEST( conn_final_cnt==2 );
-  FD_TEST( server_quic->metrics.pkt_no_conn_cnt==0 );
+  for( int i=0; i<4; i++ ) FD_TEST( server_quic->metrics.pkt_no_conn_cnt[i]==0 );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
   fd_wksp_delete_anonymous( wksp );
+  fd_clock_leave( clock );
+  fd_clock_delete( clock_shmem );
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));

@@ -28,7 +28,7 @@ void test_sbpf_version_default( void ) {
   FD_TEST_CUSTOM( res<0, "hello_solana_program (old) v2 unsupported" );
 
   res = fd_sbpf_elf_peek( &info, ptoken_program_v3_elf, ptoken_program_v3_elf_sz, &config );
-  FD_TEST_CUSTOM( res<0, "ptoken_program v3 unsupported" );
+  FD_TEST_CUSTOM( info.sbpf_version==FD_SBPF_V0, "ptoken_program v3 accepted as v0" );
 }
 
 void test_sbpf_version_from_elf_header( void ) {
@@ -122,9 +122,7 @@ test_sbpf_elf_peek_strict_hex( void ) {
   FD_TEST( info.text_off==0x120U );
   FD_TEST( info.text_sz ==8UL );
   FD_TEST( info.text_cnt==1U );
-  FD_TEST( info.entry_pc==0U );
-  FD_TEST( info.rodata_sz==0U );
-  FD_TEST( info.rodata_footprint==(uint)bin_sz );
+  FD_TEST( info.bin_sz==bin_sz );
 }
 
 int

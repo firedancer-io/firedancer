@@ -1,11 +1,10 @@
-#include "../shared/fd_config.h"
 #include "../../util/pod/fd_pod_format.h"
 
+#include "../../disco/topo/fd_topo.h"
 #include "../../disco/store/fd_store.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
-#include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/fd_txncache_shmem.h"
+#include "../../funk/fd_funk.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -13,35 +12,9 @@
   __x; }))
 
 static ulong
-runtime_pub_footprint( fd_topo_t const *     topo,
-                       fd_topo_obj_t const * obj ) {
-  (void)topo;
-  return fd_runtime_public_footprint( VAL("mem_max") );
-}
-
-static ulong
-runtime_pub_align( fd_topo_t const *     topo FD_FN_UNUSED,
-                  fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_runtime_public_align();
-}
-
-static void
-runtime_pub_new( fd_topo_t const *     topo,
-                 fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_runtime_public_new( fd_topo_obj_laddr( topo, obj->id ), VAL("mem_max") ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub = {
-  .name      = "runtime_pub",
-  .footprint = runtime_pub_footprint,
-  .align     = runtime_pub_align,
-  .new       = runtime_pub_new,
-};
-
-static ulong
 banks_footprint( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  return fd_banks_footprint( VAL("max_total_banks"), VAL("max_fork_width") );
+  return fd_banks_footprint( VAL("max_live_slots"), VAL("max_fork_width") );
 }
 
 static ulong
@@ -53,7 +26,9 @@ banks_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 banks_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_total_banks"), VAL("max_fork_width") ) );
+  int larger_max_cost_per_block = fd_pod_queryf_int( topo->props, 0, "obj.%lu.larger_max_cost_per_block", obj->id );
+  ulong seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
+  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width"), larger_max_cost_per_block, seed ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_banks = {
@@ -61,34 +36,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_banks = {
   .footprint = banks_footprint,
   .align     = banks_align,
   .new       = banks_new,
-};
-
-static ulong
-bh_cmp_footprint( fd_topo_t const *     topo,
-                  fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  return fd_bank_hash_cmp_footprint();
-}
-
-static ulong
-bh_cmp_align( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  return fd_bank_hash_cmp_align();
-}
-
-static void
-bh_cmp_new( fd_topo_t const *     topo,
-                   fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  FD_TEST( fd_bank_hash_cmp_new( fd_topo_obj_laddr( topo, obj->id ) ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp = {
-  .name      = "bh_cmp",
-  .footprint = bh_cmp_footprint,
-  .align     = bh_cmp_align,
-  .new       = bh_cmp_new,
 };
 
 static ulong
@@ -108,7 +55,6 @@ funk_footprint( fd_topo_t const *     topo,
 static ulong
 funk_loose( fd_topo_t const *     topo,
             fd_topo_obj_t const * obj ) {
-  (void)topo;
   return VAL("heap_max");
 }
 
@@ -126,6 +72,34 @@ fd_topo_obj_callbacks_t fd_obj_cb_funk = {
   .loose     = funk_loose,
   .align     = funk_align,
   .new       = funk_new,
+};
+
+/* cnc: a tile admin message queue */
+
+static ulong
+cnc_align( fd_topo_t const *     topo,
+           fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_cnc_align();
+}
+
+static ulong
+cnc_footprint( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  return fd_cnc_footprint( VAL("app_sz") );
+}
+
+static void
+cnc_new( fd_topo_t const *     topo,
+         fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_cnc_new( fd_topo_obj_laddr( topo, obj->id ), VAL("app_sz"), VAL("type"), fd_log_wallclock() ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_cnc = {
+  .name      = "cnc",
+  .footprint = cnc_footprint,
+  .align     = cnc_align,
+  .new       = cnc_new,
 };
 
 static ulong
@@ -181,19 +155,19 @@ fd_topo_obj_callbacks_t fd_obj_cb_store = {
 static ulong
 txncache_footprint( fd_topo_t const *     topo,
                     fd_topo_obj_t const * obj ) {
-  return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") );
+  return fd_txncache_shmem_footprint( VAL("max_live_slots"), VAL("max_txn_per_slot") );
 }
 
 static ulong
 txncache_align( fd_topo_t const *     topo FD_FN_UNUSED,
                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_txncache_align();
+  return fd_txncache_shmem_align();
 }
 
 static void
 txncache_new( fd_topo_t const *     topo,
               fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_txncache_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") ) );
+  FD_TEST( fd_txncache_shmem_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_txn_per_slot") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_txncache = {
@@ -201,31 +175,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_txncache = {
   .footprint = txncache_footprint,
   .align     = txncache_align,
   .new       = txncache_new,
-};
-
-static ulong
-exec_spad_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
-                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
-}
-
-static ulong
-exec_spad_align( fd_topo_t const *     topo FD_FN_UNUSED,
-                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_spad_align();
-}
-
-static void
-exec_spad_new( fd_topo_t const *     topo,
-               fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_spad_new( fd_topo_obj_laddr( topo, obj->id ), FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_exec_spad = {
-  .name      = "exec_spad",
-  .footprint = exec_spad_footprint,
-  .align     = exec_spad_align,
-  .new       = exec_spad_new,
 };
 
 #undef VAL

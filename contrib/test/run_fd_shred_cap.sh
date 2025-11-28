@@ -83,13 +83,6 @@ SHREDCAP=$(ls $DUMP/$LEDGER/*shredcap | head -n1)
 echo "
 [layout]
     exec_tile_count = 8
-[blockstore]
-    shred_max = 1048576
-    block_max = 8192
-    txn_max = 1048576
-    idx_max = 8192
-    alloc_max = 1073741824
-    file = \"$DATA_DIR/shredcap_testnet.blockstore\"
 [funk]
     max_account_records = 150000000
     heap_size_gib = 100

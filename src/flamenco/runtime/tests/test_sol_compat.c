@@ -7,10 +7,10 @@
 #include <dirent.h> /* opendir */
 #include <fcntl.h>
 #include <sched.h> /* sched_yield */
+#include <stdio.h> /* fputs */
 #include <sys/types.h>
 #include <sys/stat.h> /* fstat */
 #include <unistd.h> /* close */
-#include "../fd_runtime.h"
 #include "../../../ballet/nanopb/pb_firedancer.h"
 #include "../../../tango/fd_tango.h"
 
@@ -21,8 +21,18 @@
 
 static int g_fail_fast;
 static int g_error_occurred;
+static int g_type_override;
 
 static uint shutdown_signal __attribute__((aligned(64)));
+
+#define FIXTURE_TYPE_PB_INSTR      0x01
+#define FIXTURE_TYPE_PB_TXN        0x02
+#define FIXTURE_TYPE_PB_ELF_LOADER 0x03
+#define FIXTURE_TYPE_PB_SYSCALL    0x04
+#define FIXTURE_TYPE_PB_VM_INTERP  0x05
+#define FIXTURE_TYPE_PB_BLOCK      0x06
+
+#define FIXTURE_TYPE_FB_ELF_LOADER 0x07
 
 /* run_test runs a test.
    Return 1 on success, 0 on failure. */
@@ -52,20 +62,47 @@ run_test1( fd_solfuzz_runner_t * runner,
 
   FD_LOG_DEBUG(( "Running test %s", path ));
 
-  if( strstr( path, "/instr/" ) != NULL ) {
-    ok = fd_solfuzz_instr_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/txn/" ) != NULL ) {
-    ok = fd_solfuzz_txn_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/elf_loader/" ) != NULL ) {
-    ok = fd_solfuzz_elf_loader_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/syscall/" ) != NULL ) {
-    ok = fd_solfuzz_syscall_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/vm_interp/" ) != NULL ){
-    ok = fd_solfuzz_vm_interp_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/block/" ) != NULL ){
-    ok = fd_solfuzz_block_fixture( runner, buf, file_sz );
-  } else {
-    FD_LOG_WARNING(( "Unknown test type: %s", path ));
+  int type = g_type_override;
+  if( !type ) {
+    if(      strstr( path, "/instr/fixtures/"         ) ) type = FIXTURE_TYPE_PB_INSTR;
+    else if( strstr( path, "/txn/fixtures/"           ) ) type = FIXTURE_TYPE_PB_TXN;
+    else if( strstr( path, "/elf_loader/fixtures/"    ) ) type = FIXTURE_TYPE_PB_ELF_LOADER;
+    else if( strstr( path, "/syscall/fixtures/"       ) ) type = FIXTURE_TYPE_PB_SYSCALL;
+    else if( strstr( path, "/vm_interp/fixtures/"     ) ) type = FIXTURE_TYPE_PB_VM_INTERP;
+    else if( strstr( path, "/block/fixtures/"         ) ) type = FIXTURE_TYPE_PB_BLOCK;
+    else if( strstr( path, "/elf_loader/fixtures_fb/" ) ) type = FIXTURE_TYPE_FB_ELF_LOADER;
+    else {
+      FD_LOG_WARNING(( "Unsupported test type: %s", path ));
+      return 0;
+    }
+  }
+
+  switch( type ) {
+  case FIXTURE_TYPE_PB_INSTR:
+    ok = fd_solfuzz_pb_instr_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_PB_TXN:
+    ok = fd_solfuzz_pb_txn_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_PB_ELF_LOADER:
+    ok = fd_solfuzz_pb_elf_loader_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_PB_SYSCALL:
+    ok = fd_solfuzz_pb_syscall_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_PB_VM_INTERP:
+    ok = fd_solfuzz_pb_vm_interp_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_PB_BLOCK:
+    ok = fd_solfuzz_pb_block_fixture( runner, buf, file_sz );
+    break;
+# if FD_HAS_FLATCC
+  case FIXTURE_TYPE_FB_ELF_LOADER:
+    ok = fd_solfuzz_fb_elf_loader_fixture( runner, buf );
+    break;
+# endif
+  default:
+    FD_LOG_CRIT(( "unsupported fixture type (flatcc available?)" ));
   }
 
   if( ok ) FD_LOG_INFO   (( "OK   %s", path ));
@@ -170,6 +207,9 @@ recursive_walk( char const * path,
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( path1 ), path, path_len ) );
   DIR * root_dir = opendir( path1 );
   if( FD_UNLIKELY( !root_dir ) ) {
+    if( errno==ENOTDIR ) {
+      return visit( visit_ctx, path1, path_len );
+    }
     FD_LOG_WARNING(( "opendir(%s) failed: (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     return 0;
   }
@@ -391,6 +431,23 @@ run_multi_threaded( fd_solfuzz_runner_t ** runners,
 int
 main( int     argc,
       char ** argv ) {
+  if( FD_UNLIKELY( fd_env_strip_cmdline_contains( &argc, &argv, "--help" ) ) ) {
+    fputs(
+        "\nUsage: test_sol_compat [options] <file/directory...>\n"
+        "\n"
+        "Options:\n"
+        "\n"
+        "  --page-sz      {gigantic|huge|normal}    Page size\n"
+        "  --page-cnt     {count}                   Page count\n"
+        "  --wksp         [file path]               Reuse existing workspace\n"
+        "  --wksp-tag     1                         Workspace allocation tag\n"
+        "  --fail-fast    1                         Stop executing after first failure?\n"
+        "  --type         {fb,pb}_{instr,txn,elf_loader,syscall,vm_interp,block}\n"
+        "\n",
+        stderr );
+    return 0;
+  }
+
   fd_boot( &argc, &argv );
 
   char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,   "normal" );
@@ -399,6 +456,7 @@ main( int     argc,
   uint         wksp_seed = fd_env_strip_cmdline_uint ( &argc, &argv, "--wksp-seed", NULL,         0U );
   ulong        wksp_tag  = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,        1UL );
   int const    fail_fast = fd_env_strip_cmdline_int  ( &argc, &argv, "--fail-fast", NULL,        1   );
+  char const * type_str  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--type",      NULL,       NULL );
   g_fail_fast = !!fail_fast;
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
@@ -416,7 +474,7 @@ main( int     argc,
     FD_LOG_INFO(( "Attaching to --wksp %s", wksp_name ));
     wksp = fd_wksp_attach( wksp_name );
   } else if( !page_cnt ) {
-    ulong data_max = worker_cnt*(6UL<<30);
+    ulong data_max = worker_cnt*(7UL<<30);
     ulong part_max = fd_wksp_part_max_est( data_max, 64UL<<10 );
     FD_LOG_INFO(( "--wksp not specified, using anonymous demand-paged memory --part-max %lu --data-max %lu", part_max, data_max ));
     wksp = fd_wksp_demand_paged_new( "solfuzz", wksp_seed, part_max, data_max );
@@ -450,6 +508,19 @@ main( int     argc,
   uchar *          dcache = fd_dcache_join( fd_dcache_new( dcache_mem, DCACHE_DATA_SZ, 0UL    ) ); FD_TEST( dcache );
   for( ulong i=0UL; i<worker_cnt; i++ ) {
     fseqs[i] = fd_fseq_join( fd_fseq_new( fseqs_mem + i*FD_FSEQ_FOOTPRINT, 0UL ) ); FD_TEST( fseqs[i] );
+  }
+
+  /* Parse type */
+  if( type_str ) {
+    if(      0==strcmp( type_str, "pb_instr"      ) ) g_type_override = FIXTURE_TYPE_PB_INSTR;
+    else if( 0==strcmp( type_str, "pb_txn"        ) ) g_type_override = FIXTURE_TYPE_PB_TXN;
+    else if( 0==strcmp( type_str, "pb_elf_loader" ) ) g_type_override = FIXTURE_TYPE_PB_ELF_LOADER;
+    else if( 0==strcmp( type_str, "pb_syscall"    ) ) g_type_override = FIXTURE_TYPE_PB_SYSCALL;
+    else if( 0==strcmp( type_str, "pb_vm_interp"  ) ) g_type_override = FIXTURE_TYPE_PB_VM_INTERP;
+    else if( 0==strcmp( type_str, "pb_block"      ) ) g_type_override = FIXTURE_TYPE_PB_BLOCK;
+    else if( FD_UNLIKELY( type_str ) ) {
+      FD_LOG_ERR(( "Unsupported --type %s", type_str ));
+    }
   }
 
   /* Run strategy */

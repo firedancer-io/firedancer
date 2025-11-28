@@ -1,5 +1,6 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_pack_cost_h
-#define HEADER_fd_src_ballet_pack_fd_pack_cost_h
+#ifndef HEADER_fd_src_disco_pack_fd_pack_cost_h
+#define HEADER_fd_src_disco_pack_fd_pack_cost_h
+
 #include "../../ballet/fd_ballet_base.h"
 #include "fd_compute_budget_program.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
@@ -9,7 +10,7 @@
    that is soon to be part of consensus.
    The cost model consists of several components:
      * per-signature cost: The costs associated with transaction
-       signatures + signatures from precompiles (ED25519 + SECP256K1)
+       signatures + signatures from precompiles (ED25519 + SECP256*)
      * per-write-lock cost: cost assiciated with aquiring write locks
        for writable accounts listed in the transaction.
      * instruction data length cost: The fixed cost for each instruction
@@ -73,6 +74,7 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define MAP_PERFECT_6  ( LOADER_V4_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
 #define MAP_PERFECT_7  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
 #define MAP_PERFECT_8  ( ED25519_SV_PROG_ID      ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_9  ( SECP256R1_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -149,6 +151,43 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 /* Every transaction has at least a fee payer, a writable signer. */
 #define FD_PACK_MIN_TXN_COST (FD_PACK_COST_PER_SIGNATURE+FD_PACK_COST_PER_WRITABLE_ACCT)
 
+/* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
+   CHANGED WITHOUT COORDINATING WITH ANZA. */
+
+/* These are bounds on known limits. Upper bound values are used to
+   calculate memory footprints while lower bounds are used for
+   initializing consensus-dependent logic and invariant checking.  As a
+   leader, it is OK to produce blocks using limits smaller than the
+   active on-chain limits. Replay should always use the correct
+   chain-derived limits.
+
+   The actual limits used by pack may be updated dynamically to some
+   in-bounds value. If there is an anticipated feature activation that
+   changes these limits, the upper bound should be the largest
+   anticipated value while the lower bound should be the current active
+   limit. For Frankendancer, the actual value used for consensus will be
+   retrieved from Agave at runtime. */
+#define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (48000000UL)
+#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND (36000000UL)
+#define FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND (12000000UL)
+
+#define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      (100000000UL) /* simd 0286 */
+#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ( 36000000UL)
+#define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ( FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND * 4UL / 10UL ) /* simd 0306 */
+
+FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND/FD_PACK_MIN_TXN_COST), max_txn_per_slot_cu );
+
+/* The txncache should at most store one entry for each transaction, so
+   you would expect this value to be just FD_MAX_TXN_PER_SLOT.  But
+   there's a minor complication ... Agave inserts each transaction into
+   the status cache twice, once with the signature as the key, and
+   once with the message hash as the key.  This is to support querying
+   transactions by either signature or message hash.  We load snapshots
+   from Agave nodes which serve both entries, and there is no way to
+   filter out the by signature entries which are useless to us, so
+   initially the status cache needs twice as much space. */
+#define FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT (2UL*FD_MAX_TXN_PER_SLOT)
+
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L55 */
 
@@ -204,7 +243,8 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #define ROW(x) fd_pack_builtin_tbl + MAP_PERFECT_HASH_PP( x )
   fd_pack_builtin_prog_cost_t const * compute_budget_row     = ROW( COMPUTE_BUDGET_PROG_ID );
   fd_pack_builtin_prog_cost_t const * ed25519_precompile_row = ROW( ED25519_SV_PROG_ID     );
-  fd_pack_builtin_prog_cost_t const * secp256k1_precomp_row  = ROW( KECCAK_SECP_PROG_ID      );
+  fd_pack_builtin_prog_cost_t const * secp256k1_precomp_row  = ROW( KECCAK_SECP_PROG_ID    );
+  fd_pack_builtin_prog_cost_t const * secp256r1_precomp_row  = ROW( SECP256R1_PROG_ID      );
 #undef ROW
 
   /* special handling for simple votes */
@@ -263,6 +303,10 @@ fd_pack_compute_cost( fd_txn_t const * txn,
       ulong secp256k1_signature_count = (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
       precompile_sig_cnt += secp256k1_signature_count;
       signature_cost += secp256k1_signature_count * FD_PACK_COST_PER_SECP256K1_SIGNATURE;
+    } else if( FD_UNLIKELY( (in_tbl==secp256r1_precomp_row) ) ) {
+      ulong secp256r1_signature_count = (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
+      precompile_sig_cnt += secp256r1_signature_count;
+      signature_cost += secp256r1_signature_count * FD_PACK_COST_PER_SECP256R1_SIGNATURE;
     }
   }
 
@@ -289,4 +333,5 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 }
 #undef MAP_PERFECT_HASH_PP
 #undef PERFECT_HASH
-#endif /* HEADER_fd_src_ballet_pack_fd_pack_cost_h */
+
+#endif /* HEADER_fd_src_disco_pack_fd_pack_cost_h */

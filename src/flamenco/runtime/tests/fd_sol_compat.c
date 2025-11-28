@@ -15,6 +15,11 @@
 #include "generated/txn.pb.h"
 #include "generated/type.pb.h"
 
+#if FD_HAS_FLATCC
+#include "flatbuffers/generated/elf_reader.h"
+#include "flatbuffers/generated/flatbuffers_common_reader.h"
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -142,13 +147,13 @@ sol_compat_instr_execute_v1( uchar *       out,
                              uchar const * in,
                              ulong         in_sz ) {
   fd_exec_test_instr_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_instr_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_instr_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   int ok = 0;
   fd_spad_push( runner->spad );
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_instr_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_instr_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_instr_effects_t_msg );
   }
@@ -164,13 +169,13 @@ sol_compat_txn_execute_v1( uchar *       out,
                            uchar const * in,
                            ulong         in_sz ) {
   fd_exec_test_txn_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_txn_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_txn_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   int ok = 0;
   fd_spad_push( runner->spad );
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_txn_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_txn_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_txn_result_t_msg );
   }
@@ -186,13 +191,13 @@ sol_compat_block_execute_v1( uchar *       out,
                              uchar const * in,
                              ulong         in_sz ) {
   fd_exec_test_block_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_block_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_block_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   fd_spad_push( runner->spad );
   int ok = 0;
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_block_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_block_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_block_effects_t_msg );
   }
@@ -214,7 +219,7 @@ sol_compat_elf_loader_v1( uchar *       out,
   fd_spad_push( runner->spad );
   int ok = 0;
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_elf_loader_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_elf_loader_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_elf_loader_effects_t_msg );
   }
@@ -230,13 +235,13 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
                                   uchar const * in,
                                   ulong         in_sz ) {
   fd_exec_test_syscall_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   fd_spad_push( runner->spad );
   int ok = 0;
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_syscall_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_syscall_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_syscall_effects_t_msg );
   }
@@ -252,13 +257,13 @@ sol_compat_vm_interp_v1( uchar *       out,
                          uchar const * in,
                          ulong         in_sz ) {
   fd_exec_test_syscall_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   fd_spad_push( runner->spad );
   int ok = 0;
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_vm_interp_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_vm_interp_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_syscall_effects_t_msg );
   }
@@ -274,7 +279,7 @@ sol_compat_shred_parse_v1( uchar *       out,
                            uchar const * in,
                            ulong         in_sz ) {
     fd_exec_test_shred_binary_t input[1] = {0};
-    void                      * res      = sol_compat_decode( &input, in, in_sz, &fd_exec_test_shred_binary_t_msg );
+    void                      * res      = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_shred_binary_t_msg );
     if( FD_UNLIKELY( res==NULL ) ) {
         return 0;
     }
@@ -288,26 +293,43 @@ sol_compat_shred_parse_v1( uchar *       out,
     return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
 }
 
+/*
+ * execute_v2
+   Unlike sol_compat_execute_v1 APIs, v2 APIs use flatbuffers for
+   zero-copy decoding. Returns SOL_COMPAT_V2_SUCCESS on success and
+   SOL_COMPAT_V2_FAILURE on failure.
+
+   out: output buffer
+   out_sz: output buffer size
+   in: input buffer
+   in_sz: input buffer size (unused)
+
+   Since flatbuffers utilizes zero-copy decoding, the v2 API does not
+   require an input buffer size. Therefore, it is the caller's
+   responsibility to ensure the input buffer is well-formed (preferably
+   using a call to _verify_as_root) to avoid any OOB reads.
+
+   TODO: Make sol_compat_v2 APIs infallible???
+ */
+
+#if FD_HAS_FLATCC
+
 int
-sol_compat_type_execute_v1( uchar *       out,
-                            ulong *       out_sz,
-                            uchar const * in,
-                            ulong         in_sz ) {
-  // Setup
-  // Decode context
-  fd_exec_test_type_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_type_context_t_msg );
-  if( FD_UNLIKELY( !res ) ) return 0;
+sol_compat_elf_loader_v2( uchar *            out,
+                          ulong *            out_sz,
+                          uchar const *      in,
+                          ulong FD_FN_UNUSED in_sz ) {
+  SOL_COMPAT_NS(ELFLoaderCtx_table_t) input = SOL_COMPAT_NS(ELFLoaderCtx_as_root( in ));
+  if( FD_UNLIKELY( !input ) ) return 0;
 
-  fd_spad_push( runner->spad );
-  int ok = 0;
-  void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_type_run );
-  if( output ) {
-    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_type_effects_t_msg );
-  }
-  fd_spad_pop( runner->spad );
+  int err = fd_solfuzz_fb_execute_wrapper( runner, input, fd_solfuzz_fb_elf_loader_run );
+  if( FD_UNLIKELY( err==SOL_COMPAT_V2_FAILURE ) ) return err;
 
-  pb_release( &fd_exec_test_type_context_t_msg, input );
-  return ok;
+  ulong buffer_sz = flatcc_builder_get_buffer_size( runner->fb_builder );
+  flatcc_builder_copy_buffer( runner->fb_builder, out, buffer_sz );
+  *out_sz = buffer_sz;
+
+  return SOL_COMPAT_V2_SUCCESS;
 }
+
+#endif /* FD_HAS_FLATCC */

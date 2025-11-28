@@ -1,28 +1,34 @@
 #include "fd_sysvar_last_restart_slot.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../fd_runtime.h"
-#include "../context/fd_exec_slot_ctx.h"
+#include "../fd_acc_mgr.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 
 void
 fd_sysvar_last_restart_slot_write(
-    fd_exec_slot_ctx_t * slot_ctx,
+    fd_bank_t *                               bank,
+    fd_accdb_user_t *                         accdb,
+    fd_funk_txn_xid_t const *                 xid,
+    fd_capture_ctx_t *                        capture_ctx,
     fd_sol_sysvar_last_restart_slot_t const * sysvar
 ) {
   uchar enc[ 8 ];
   FD_STORE( ulong, enc, sysvar->slot );
-  fd_sysvar_account_update( slot_ctx, &fd_sysvar_last_restart_slot_id, enc, sizeof(enc) );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_last_restart_slot_id, enc, sizeof(enc) );
 }
 
 void
-fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_last_restart_slot_init( fd_bank_t *               bank,
+                                  fd_accdb_user_t *         accdb,
+                                  fd_funk_txn_xid_t const * xid,
+                                  fd_capture_ctx_t *        capture_ctx ) {
 
-  if( !FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, last_restart_slot_sysvar ) ) {
+  if( !FD_FEATURE_ACTIVE_BANK( bank, last_restart_slot_sysvar ) ) {
     return;
   }
 
   fd_sol_sysvar_last_restart_slot_t sysvar = {0};
-  fd_sysvar_last_restart_slot_write( slot_ctx, &sysvar );
+  fd_sysvar_last_restart_slot_write( bank, accdb, xid, capture_ctx, &sysvar );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.2/runtime/src/bank.rs#L2217 */
@@ -52,13 +58,13 @@ fd_sysvar_last_restart_slot_derive(
 
 fd_sol_sysvar_last_restart_slot_t *
 fd_sysvar_last_restart_slot_read(
-    fd_funk_t *     funk,
-    fd_funk_txn_t * funk_txn,
+    fd_funk_t *                         funk,
+    fd_funk_txn_xid_t const *           xid,
     fd_sol_sysvar_last_restart_slot_t * out
 ) {
 
-  FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
+  fd_txn_account_t acc[1];
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 
   /* This check is needed as a quirk of the fuzzer. If a sysvar account
@@ -79,23 +85,27 @@ fd_sysvar_last_restart_slot_read(
 
 void
 fd_sysvar_last_restart_slot_update(
-    fd_exec_slot_ctx_t * slot_ctx,
-    ulong                last_restart_slot_want
+    fd_bank_t *               bank,
+    fd_accdb_user_t *         accdb,
+    fd_funk_txn_xid_t const * xid,
+    fd_capture_ctx_t *        capture_ctx,
+    ulong                     last_restart_slot_want
 ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2093-L2095 */
-  if( !FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, last_restart_slot_sysvar ) ) return;
+  if( !FD_FEATURE_ACTIVE_BANK( bank, last_restart_slot_sysvar ) ) return;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2098-L2106 */
   ulong last_restart_slot_have = ULONG_MAX;
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_sol_sysvar_last_restart_slot_t sysvar;
-  if( FD_LIKELY( fd_sysvar_last_restart_slot_read( slot_ctx->funk, slot_ctx->funk_txn, &sysvar ) ) ) {
+  if( FD_LIKELY( fd_sysvar_last_restart_slot_read( funk, xid, &sysvar ) ) ) {
     last_restart_slot_have = sysvar.slot;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2122-L2130 */
   if( last_restart_slot_have != last_restart_slot_want ) {
     sysvar.slot = last_restart_slot_want;
-    fd_sysvar_last_restart_slot_write( slot_ctx, &sysvar );
+    fd_sysvar_last_restart_slot_write( bank, accdb, xid, capture_ctx, &sysvar );
   }
 }

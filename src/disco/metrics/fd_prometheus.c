@@ -113,7 +113,7 @@ render_counter( fd_prom_render_t *        r,
       value = fd_metrics_convert_ticks_to_nanoseconds( value );
       break;
     case FD_METRICS_CONVERTER_SECONDS:
-      value = (ulong)(fd_metrics_convert_ticks_to_seconds( value ) * 1e9);
+      value = (ulong)(fd_metrics_convert_ticks_to_seconds( value ) + 0.5); /* round, not truncate */
       break;
     case FD_METRICS_CONVERTER_NONE:
       break;
@@ -196,7 +196,8 @@ render_tile( fd_prom_render_t *        r,
   for( ulong i=0UL; i<metrics_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       /* FIXME: This is O(n^2) rather than O(n). */
-      if( FD_LIKELY( tile_name!=NULL && 0!=strcmp( topo->tiles[j].name, tile_name ) ) ) continue;
+      char const * name = topo->tiles[ j ].metrics_name[ 0 ] ? topo->tiles[ j ].metrics_name : topo->tiles[ j ].name;
+      if( FD_LIKELY( tile_name!=NULL && 0!=strcmp( name, tile_name ) ) ) continue;
       render_tile_metric( r, topo->tiles+j, metrics+i );
     }
   }

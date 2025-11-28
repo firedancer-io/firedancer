@@ -108,6 +108,11 @@ fd_funk_new( void * shmem,
   funk->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   funk->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
+  for( ulong i=0UL; i<txn_max; i++ ) {
+    fd_rwlock_new( txn_join->ele[ i ].lock );
+    txn_join->ele[ i ].state = FD_FUNK_TXN_STATE_FREE;
+  }
+
   fd_funk_txn_xid_set_root( funk->root         );
   fd_funk_txn_xid_set_root( funk->last_publish );
 
@@ -121,8 +126,6 @@ fd_funk_new( void * shmem,
   funk->rec_max = (uint)rec_max;
 
   funk->alloc_gaddr = fd_wksp_gaddr_fast( wksp, fd_alloc_join( fd_alloc_new( alloc, wksp_tag ), 0UL ) );
-
-  funk->lock = 0;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
@@ -200,21 +203,6 @@ fd_funk_join( fd_funk_t * ljoin,
   return funk;
 }
 
-int
-fd_funk_purify( void * shfunk ) {
-  /* Join should work even if there was a crash */
-  fd_funk_t ljoin[1];
-  fd_funk_t * funk = fd_funk_join( ljoin, shfunk );
-  if( funk == NULL ) return FD_FUNK_ERR_PURIFY;
-
-  /* Reset the txn map. We discard any pending transactions. */
-  fd_funk_txn_map_reset( funk->txn_map );
-  fd_funk_txn_pool_reset( funk->txn_pool, 0 );
-  funk->shmem->child_head_cidx = funk->shmem->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-
-  return fd_funk_rec_purify( funk );
-}
-
 void *
 fd_funk_leave( fd_funk_t * funk,
                void **     opt_shfunk ) {
@@ -282,13 +270,13 @@ fd_funk_delete( void * shfunk ) {
 
   fd_funk_rec_map_leave( rec_map );
 
-  /* Free the fd_alloc instance */
-
-  fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
-
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shmem->magic ) = 0UL;
   FD_COMPILER_MFENCE();
+
+  /* Free the fd_alloc instance */
+
+  fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
 
   return shmem;
 }

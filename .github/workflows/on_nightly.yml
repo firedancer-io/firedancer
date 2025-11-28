@@ -11,7 +11,7 @@ jobs:
     uses: ./.github/workflows/codeql.yml
     permissions:
       security-events: write
-  builds:
+  builds_1:
     uses: ./.github/workflows/builds.yml
     with:
         # compiler,machine,target
@@ -19,7 +19,10 @@ jobs:
         ALL,linux_gcc_riscv,ALL;
         ALL,linux_gcc_power9,ALL;
         ALL,linux_gcc_arm_n1,ALL;
-        gcc-8.5.0,linux_gcc_zen2,ALL;
+        ALL,linux_gcc_icelake,ALL;
+        ALL,linux_gcc_x86_64,ALL;
+        ALL,linux_gcc_zen2,ALL;
+        ALL,linux_gcc_zen3,ALL;
         gcc-8.5.0,linux_gcc_zen4,ALL;
         gcc-9.5.0,linux_gcc_zen4,ALL;
         gcc-10.5.0,linux_gcc_zen4,ALL;
@@ -31,4 +34,39 @@ jobs:
         gcc-12.4.0,linux_gcc_zen5,ALL;
         gcc-13.3.0,linux_gcc_zen5,ALL;
         gcc-14.1.0,linux_gcc_zen5,ALL
+      clang_exceptions: |
+        ALL,linux_clang_zen3,ALL;
+        ALL,linux_clang_zen4,ALL;
+        ALL,linux_clang_zen5,ALL;
       build_arm: true
+      cid: 3
+  builds_2:
+    uses: ./.github/workflows/builds.yml
+    with:
+      machine: linux_gcc_icelake
+      build_arm: false
+      clang: none
+      cid: 4
+  builds_3:
+    uses: ./.github/workflows/builds.yml
+    with:
+      machine: linux_gcc_x86_64
+      build_arm: false
+      clang: none
+      cid: 5
+  builds_4:
+    uses: ./.github/workflows/builds.yml
+    with:
+        # compiler,machine,target
+      gcc_exceptions: |
+        gcc-8.5.0,linux_gcc_zen2,ALL;
+      machine: linux_gcc_zen2
+      build_arm: false
+      clang: none
+      cid: 6
+  backtest:
+    uses: ./.github/workflows/backtest.yml
+    with:
+      script: DUMP_DIR=../dump src/flamenco/runtime/tests/run_backtest_all.sh
+      timeout: 120
+    secrets: inherit

@@ -2,8 +2,10 @@
 #define HEADER_fd_src_flamenco_features_fd_features_h
 
 #include "../fd_flamenco_base.h"
-#include "fd_features_generated.h"
 #include "../types/fd_types.h"
+#include "fd_features_generated.h"
+#include "../../funk/fd_funk_base.h"
+
 /* Macro FEATURE_ID_CNT expands to the number of features in
    fd_features_t. */
 
@@ -17,16 +19,16 @@
 /* Convenience macros for checking features */
 
 #define FD_FEATURE_ACTIVE_(_slot, _features, _feature_name)               ( _slot >= (_features)-> _feature_name )
-#define FD_FEATURE_JUST_ACTIVATED_(_slot, _features, _feature_name)       ( _slot == (_features). _feature_name )
-#define FD_FEATURE_ACTIVE_OFFSET_(_slot, _features, _offset)              ( _slot >= (_features).f[_offset>>3] )
-#define FD_FEATURE_JUST_ACTIVATED_OFFSET_(_slot, _features, _offset)      ( _slot == (_features).f[_offset>>3] )
+#define FD_FEATURE_JUST_ACTIVATED_(_slot, _features, _feature_name)       ( _slot == (_features)-> _feature_name )
+#define FD_FEATURE_ACTIVE_OFFSET_(_slot, _features, _offset)              ( _slot >= (_features)->f[_offset>>3] )
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET_(_slot, _features, _offset)      ( _slot == (_features)->f[_offset>>3] )
 
 #define FD_FEATURE_SET_ACTIVE(_features, _feature_name, _slot)            ( (_features)-> _feature_name = _slot )
-#define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)               FD_FEATURE_JUST_ACTIVATED_( fd_bank_slot_get( _slot_ctx->bank ), fd_bank_features_get( _slot_ctx->bank ), _feature_name )
 #define FD_FEATURE_ACTIVE_OFFSET(_slot, _features, _offset)               FD_FEATURE_ACTIVE_OFFSET_( _slot, _features, _offset )
-#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)              FD_FEATURE_JUST_ACTIVATED_OFFSET_( fd_bank_slot_get( _slot_ctx->bank ), fd_bank_features_get( _slot_ctx->bank ), _offset )
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_bank, _offset)                  FD_FEATURE_JUST_ACTIVATED_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
 #define FD_FEATURE_ACTIVE(_slot, _features, _feature_name)                FD_FEATURE_ACTIVE_( _slot, _features, _feature_name )
 #define FD_FEATURE_ACTIVE_BANK(_bank, _feature_name)                      FD_FEATURE_ACTIVE_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _feature_name )
+#define FD_FEATURE_ACTIVE_BANK_OFFSET(_bank, _offset)                     FD_FEATURE_ACTIVE_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
 
 
 /* fd_features_t is the current set of enabled feature flags.
@@ -144,6 +146,15 @@ fd_features_get( fd_features_t const *   features,
 
 FD_FN_CONST fd_feature_id_t const *
 fd_feature_id_query( ulong prefix );
+
+/* fd_features_restore loads all known feature accounts from the
+   accounts database.  This is used when initializing bank from a
+   snapshot. */
+
+void
+fd_features_restore( fd_bank_t *               bank,
+                     fd_funk_t *               funk,
+                     fd_funk_txn_xid_t const * xid );
 
 FD_PROTOTYPES_END
 

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_native_program_util_h
-#define HEADER_fd_src_flamenco_runtime_native_program_util_h
+#ifndef HEADER_fd_src_flamenco_runtime_program_fd_program_util_h
+#define HEADER_fd_src_flamenco_runtime_program_fd_program_util_h
 
 #include "../../fd_flamenco_base.h"
 #include "../fd_executor_err.h"
@@ -40,4 +40,4 @@ fd_ulong_checked_sub_expect( ulong a, ulong b, char const * expect ) {
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_native_program_util_h */
+#endif /* HEADER_fd_src_flamenco_runtime_program_fd_program_util_h */

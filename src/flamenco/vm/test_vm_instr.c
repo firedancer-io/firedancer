@@ -5,6 +5,7 @@
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "test_vm_util.h"
+#include "../runtime/fd_bank.h"
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -383,6 +384,7 @@ static void
 run_input( test_input_t const * input,
            test_effects_t *     out,
            fd_vm_t *            vm,
+           fd_runtime_t *       runtime,
            ulong                sbpf_version,
            int                  force_exec ) {
 
@@ -411,10 +413,11 @@ run_input( test_input_t const * input,
 
   if( !input->region_boundary_cnt ) {
     input_region[0] = (fd_vm_input_region_t){
-      .vaddr_offset = 0UL,
-      .haddr        = (ulong)input_copy,
-      .region_sz    = (uint)input->input_sz,
-      .is_writable  = 1U,
+      .vaddr_offset           = 0UL,
+      .haddr                  = (ulong)input_copy,
+      .region_sz              = (uint)input->input_sz,
+      .address_space_reserved = input->input_sz,
+      .is_writable            = 1U,
     };
   } else {
     for( uint i=0; i<input->region_boundary_cnt; ++i ) {
@@ -423,10 +426,11 @@ run_input( test_input_t const * input,
       ulong cur_offset  = prev_offset + prev_sz;
 
       input_region[i] = (fd_vm_input_region_t){
-        .vaddr_offset = cur_offset,
-        .haddr        = (ulong)input_copy + cur_offset,
-        .region_sz    = input->region_boundary[i] - (uint)cur_offset,
-        .is_writable  = 1U,
+        .vaddr_offset           = cur_offset,
+        .haddr                  = (ulong)input_copy + cur_offset,
+        .region_sz              = input->region_boundary[i] - (uint)cur_offset,
+        .address_space_reserved = input->region_boundary[i] - (uint)cur_offset,
+        .is_writable            = 1U,
       };
     }
   }
@@ -443,31 +447,33 @@ run_input( test_input_t const * input,
       aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) ) );
 
   fd_exec_instr_ctx_t instr_ctx[1];
-  fd_exec_txn_ctx_t   txn_ctx[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
+  fd_bank_t           bank[1];
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 
   int vm_ok = !!fd_vm_init(
-      /* vm                 */ vm,
-      /* instr_ctx          */ instr_ctx,
-      /* heap_max           */ 0UL,
-      /* entry_cu           */ 100UL,
-      /* rodata             */ (uchar const *)text,
-      /* rodata_sz          */ text_cnt * sizeof(ulong),
-      /* text               */ text,
-      /* text_cnt           */ text_cnt,
-      /* text_off           */ 0UL,
-      /* text_sz            */ text_cnt * sizeof(ulong),
-      /* entry_pc           */ 0UL,
-      /* calldests          */ calldests,
-      /* sbpf_version       */ sbpf_version,
-      /* syscalls           */ syscalls,
-      /* trace              */ NULL,
-      /* sha                */ NULL,
-      /* mem_regions        */ input_region,
-      /* mem_regions_cnt    */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
-      /* mem_regions_accs   */ NULL,
-      /* is_deprecated      */ 0,
-      /* direct mapping     */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
+      /* vm                                   */ vm,
+      /* instr_ctx                            */ instr_ctx,
+      /* heap_max                             */ 0UL,
+      /* entry_cu                             */ 100UL,
+      /* rodata                               */ (uchar const *)text,
+      /* rodata_sz                            */ text_cnt * sizeof(ulong),
+      /* text                                 */ text,
+      /* text_cnt                             */ text_cnt,
+      /* text_off                             */ 0UL,
+      /* text_sz                              */ text_cnt * sizeof(ulong),
+      /* entry_pc                             */ 0UL,
+      /* calldests                            */ calldests,
+      /* sbpf_version                         */ sbpf_version,
+      /* syscalls                             */ syscalls,
+      /* trace                                */ NULL,
+      /* sha                                  */ NULL,
+      /* mem_regions                          */ input_region,
+      /* mem_regions_cnt                      */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
+      /* mem_regions_accs                     */ NULL,
+      /* is_deprecated                        */ 0,
+      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   assert( vm_ok );
@@ -492,13 +498,14 @@ static int
 run_fixture( test_fixture_t const * f,
              char const *           src_file,
              fd_vm_t *              vm,
+             fd_runtime_t *         runtime,
              ulong                  sbpf_version ) {
 
   int fail = 0;
 
   test_effects_t const * expected  = &f->effects;
   test_effects_t         actual[1] = {{0}};
-  run_input( &f->input, actual, vm, sbpf_version, expected->force_exec );
+  run_input( &f->input, actual, vm, runtime, sbpf_version, expected->force_exec );
 
   if( expected->status != actual->status ) {
     FD_LOG_WARNING(( "FAIL %s(%lu): Expected status %s, got %s",
@@ -529,9 +536,10 @@ run_fixture( test_fixture_t const * f,
 /* Plumbing ***********************************************************/
 
 static int
-handle_file( char const * file_path,
-             fd_vm_t *    vm,
-             ulong        sbpf_version ) {
+handle_file( char const *   file_path,
+             fd_vm_t *      vm,
+             fd_runtime_t * runtime,
+             ulong          sbpf_version ) {
 
   int fd = open( file_path, O_RDONLY );
   if( FD_UNLIKELY( fd<0 ) ) {
@@ -565,7 +573,7 @@ handle_file( char const * file_path,
     test_fixture_t * f = NULL;
     f = parse_next( &parser, _f );
     if( !f ) break;
-    fail += run_fixture( f, file_path, vm, sbpf_version );
+    fail += run_fixture( f, file_path, vm, runtime, sbpf_version );
   }
 
   if( FD_UNLIKELY( 0!=close( fd ) ) ) {
@@ -586,12 +594,15 @@ main( int     argc,
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  char const * _page_sz       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                 );
-  ulong        page_cnt       = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                        );
-  ulong        numa_idx       = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx(cpu_idx) );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                 );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                        );
+  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx(cpu_idx) );
+  (void)numa_idx;
 
-  /* TODO set up a workspace */
-  (void)_page_sz; (void)page_cnt; (void)numa_idx;
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_log_cpu_id(), "wksp", 0UL );
+
+  fd_runtime_t * runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), 123UL );
+  FD_TEST( runtime );
 
   static fd_vm_t _vm[1];
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
@@ -604,7 +615,7 @@ main( int     argc,
   for( int i=1; i<argc; i++ ) {
     int flag = 0==strncmp( argv[i], "--", 2 );
     if( literal || !flag ) {
-      fail += handle_file( argv[i], vm, TEST_VM_DEFAULT_SBPF_VERSION );
+      fail += handle_file( argv[i], vm, runtime, TEST_VM_DEFAULT_SBPF_VERSION );
       executed_cnt += 1;
     } else {
       if( argv[i][2] == '\0' ) literal = 1;
@@ -626,7 +637,7 @@ main( int     argc,
         NULL
       };
       for( char const ** path=default_paths; *path; path++ ) {
-        fail += handle_file( *path, vm, 0 );
+        fail += handle_file( *path, vm, runtime, 0 );
       }
       if( !fail ) FD_LOG_NOTICE(( "v0 pass" ));
       else        FD_LOG_WARNING(( "v0 fail cnt %d", fail ));
@@ -643,7 +654,7 @@ main( int     argc,
         NULL
       };
       for( char const ** path=default_paths; *path; path++ ) {
-        fail += handle_file( *path, vm, 2 );
+        fail += handle_file( *path, vm, runtime, 2 );
       }
       if( !fail ) FD_LOG_NOTICE(( "v2 pass" ));
       else        FD_LOG_WARNING(( "v2 fail cnt %d", fail ));

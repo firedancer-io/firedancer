@@ -2,71 +2,81 @@
 #include "generated/fd_exec_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../discof/replay/fd_exec.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
-
-#include "../../funk/fd_funk.h"
+#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
+#include "../../flamenco/progcache/fd_progcache_user.h"
+#include "../../flamenco/log_collector/fd_log_collector.h"
+#include "../../disco/metrics/fd_metrics.h"
 
 /* The exec tile is responsible for executing single transactions. The
    tile recieves a parsed transaction (fd_txn_p_t) and an identifier to
    which bank to execute against (index into the bank pool). With this,
    the exec tile is able to identify the correct bank and accounts db
-   handle (funk_txn) to execute the transaction against. The results of
-   the execution are then published to the writer tile(s). A writer tile
-   is responsible for committing the results of the transaction to the
-   accounts db and making any updates to the bank. */
+   handle (funk_txn) to execute the transaction against.  The exec tile
+   then commits the results of the transaction to the accounts db and
+   makes any necessary updates to the bank. */
 
-struct fd_exec_tile_out_ctx {
+typedef struct link_ctx {
   ulong       idx;
   fd_wksp_t * mem;
   ulong       chunk;
   ulong       chunk0;
   ulong       wmark;
-};
-typedef struct fd_exec_tile_out_ctx fd_exec_tile_out_ctx_t;
+} link_ctx_t;
 
-struct fd_exec_tile_ctx {
-
-  /* link-related data structures. */
-  ulong                 replay_exec_in_idx;
+typedef struct fd_exec_tile_ctx {
   ulong                 tile_idx;
 
-  fd_wksp_t *           replay_in_mem;
-  ulong                 replay_in_chunk0;
-  ulong                 replay_in_wmark;
+  /* link-related data structures. */
+  link_ctx_t            replay_in[ 1 ];
+  link_ctx_t            exec_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+  link_ctx_t            exec_sig_out[ 1 ];
 
-  fd_exec_tile_out_ctx_t exec_writer_out[ 1 ];
-  uchar                  boot_msg_sent;
-
-  /* Shared bank hash cmp object. */
-  fd_bank_hash_cmp_t *  bank_hash_cmp;
-
-  fd_spad_t *           exec_spad;
-  fd_wksp_t *           exec_spad_wksp;
-
-  /* Data structures related to managing and executing the transaction.
-     The fd_txn_p_t is refreshed with every transaction and is sent
-     from the dispatch/replay tile. The fd_exec_txn_ctx_t * is a valid
-     local join that lives in the top-most frame of the spad that is
-     setup when the exec tile is booted; its members are refreshed on
-     the slot/epoch boundary. */
-  fd_exec_txn_ctx_t *   txn_ctx;
-
-  ulong *               exec_fseq;
+  fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
+  fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
+  uchar *               solcap_publish_buffer_ptr;
+  ulong                 account_updates_flushed;
 
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
-     fd_funk_t.
-     TODO: These should probably be made read-only handles. */
+     fd_funk_t. */
   fd_banks_t *          banks;
-  fd_funk_t             funk[1];
-};
-typedef struct fd_exec_tile_ctx fd_exec_tile_ctx_t;
+  fd_accdb_user_t       accdb[1];
+  fd_progcache_t        progcache[1];
+
+  fd_txncache_t *       txncache;
+
+  /* We need to ensure that all solcap updates have been published
+     before this message. */
+  int                   pending_txn_finalized_msg;
+  ulong                 txn_idx;
+  ulong                 slot;
+  ulong                 dispatch_time_comp;
+
+  fd_exec_accounts_t    exec_accounts;
+  fd_log_collector_t    log_collector;
+
+  fd_bank_t *           bank;
+
+  fd_txn_in_t           txn_in;
+  fd_txn_out_t          txn_out;
+
+  /* tracing_mem is staging memory to dump instructions/transactions
+     into protobuf files.  tracing_mem is staging memory to output vm
+     execution traces.
+     TODO: This should not be compiled in prod. */
+  uchar                 dumping_mem[ FD_SPAD_FOOTPRINT( 1UL<<28UL ) ] __attribute__((aligned(FD_SPAD_ALIGN)));
+  uchar                 tracing_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_VM_TRACE_STATIC_ALIGN)));
+
+  fd_runtime_t runtime[1];
+
+} fd_exec_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -74,86 +84,94 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  /* clang-format off */
+scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
-  l       = FD_LAYOUT_APPEND( l, alignof(fd_exec_tile_ctx_t),  sizeof(fd_exec_tile_ctx_t) );
-  l       = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t)                         );
+  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint()                         );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->exec.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT                     );
   return FD_LAYOUT_FINI( l, scratch_align() );
-  /* clang-format on */
 }
 
 static void
-during_frag( fd_exec_tile_ctx_t * ctx,
-             ulong                in_idx,
-             ulong                seq FD_PARAM_UNUSED,
-             ulong                sig,
-             ulong                chunk,
-             ulong                sz,
-             ulong                ctl FD_PARAM_UNUSED ) {
-
-  if( FD_LIKELY( in_idx==ctx->replay_exec_in_idx ) ) {
-    if( FD_UNLIKELY( chunk < ctx->replay_in_chunk0 || chunk > ctx->replay_in_wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]",
-                   chunk,
-                   sz,
-                   ctx->replay_in_chunk0,
-                   ctx->replay_in_wmark ));
-    }
-
-    if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
-      fd_runtime_public_txn_msg_t * txn = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-
-      ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn(
-          ctx->banks,
-          txn->bank_idx,
-          ctx->txn_ctx,
-          &txn->txn,
-          ctx->exec_spad,
-          ctx->capture_ctx,
-          1 );
-
-      return;
-    } else {
-      FD_LOG_CRIT(( "Unknown signature" ));
-    }
-  }
+metrics_write( fd_exec_tile_ctx_t * ctx ) {
+  fd_progcache_t * progcache = ctx->progcache;
+  FD_MCNT_SET( EXEC, PROGCACHE_MISSES,        progcache->metrics->miss_cnt       );
+  FD_MCNT_SET( EXEC, PROGCACHE_HITS,          progcache->metrics->hit_cnt        );
+  FD_MCNT_SET( EXEC, PROGCACHE_FILLS,         progcache->metrics->fill_cnt       );
+  FD_MCNT_SET( EXEC, PROGCACHE_FILL_TOT_SZ,   progcache->metrics->fill_tot_sz    );
+  FD_MCNT_SET( EXEC, PROGCACHE_INVALIDATIONS, progcache->metrics->invalidate_cnt );
+  FD_MCNT_SET( EXEC, PROGCACHE_DUP_INSERTS,   progcache->metrics->dup_insert_cnt );
 }
 
-static void
-after_frag( fd_exec_tile_ctx_t * ctx,
-            ulong                in_idx FD_PARAM_UNUSED,
-            ulong                seq    FD_PARAM_UNUSED,
-            ulong                sig,
-            ulong                sz     FD_PARAM_UNUSED,
-            ulong                tsorig,
-            ulong                tspub,
-            fd_stem_context_t *  stem ) {
+static inline int
+returnable_frag( fd_exec_tile_ctx_t * ctx,
+                 ulong                in_idx,
+                 ulong                seq FD_PARAM_UNUSED,
+                 ulong                sig,
+                 ulong                chunk,
+                 ulong                sz,
+                 ulong                ctl FD_PARAM_UNUSED,
+                 ulong                tsorig FD_PARAM_UNUSED,
+                 ulong                tspub,
+                 fd_stem_context_t *  stem ) {
 
-  if( sig==EXEC_NEW_TXN_SIG ) {
-    FD_LOG_DEBUG(( "Sending ack for new txn msg" ));
-    /* At this point we can assume that the transaction is done
-       executing. A writer tile will be repsonsible for commiting
-       the transaction back to funk. */
+  if( (sig&0xFFFFFFFFUL)!=ctx->tile_idx ) return 0;
 
-    fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
+  if( FD_LIKELY( in_idx==ctx->replay_in->idx ) ) {
+    if( FD_UNLIKELY( chunk < ctx->replay_in->chunk0 || chunk > ctx->replay_in->wmark ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in->chunk0, ctx->replay_in->wmark ));
+    }
+    switch( sig>>32 ) {
+      case FD_EXEC_TT_TXN_EXEC: {
+        /* Execute. */
+        fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
+        ctx->txn_in.txn           = &msg->txn;
+        ctx->txn_in.exec_accounts = &ctx->exec_accounts;
 
-    fd_runtime_public_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
-    msg->exec_tile_id = (uchar)ctx->tile_idx;
+        fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
-    fd_stem_publish(
-        stem,
-        exec_out->idx,
-        FD_WRITER_TXN_SIG,
-        exec_out->chunk,
-        sizeof(*msg),
-        0UL,
-        tsorig,
-        tspub );
-    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
-  } else {
-    FD_LOG_ERR(( "Unknown message signature" ));
-  }
+        /* Commit. */
+        if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
+          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+        }
+
+        if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
+          /* Copy the txn signature to the signature out link so the
+             dedup/pack tiles can drop already executed transactions. */
+          memcpy( fd_chunk_to_laddr( ctx->exec_sig_out->mem, ctx->exec_sig_out->chunk ),
+                  (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off,
+                  64UL );
+          fd_stem_publish( stem, ctx->exec_sig_out->idx, 0UL, ctx->exec_sig_out->chunk, 64UL, 0UL, 0UL, 0UL );
+          ctx->exec_sig_out->chunk = fd_dcache_compact_next( ctx->exec_sig_out->chunk, 64UL, ctx->exec_sig_out->chunk0, ctx->exec_sig_out->wmark );
+        }
+
+        /* Notify replay. */
+        ctx->txn_idx                   = msg->txn_idx;
+        ctx->dispatch_time_comp        = tspub;
+        ctx->slot                      = fd_bank_slot_get( ctx->bank );
+        ctx->pending_txn_finalized_msg = 1;
+
+        break;
+      }
+      case FD_EXEC_TT_TXN_SIGVERIFY: {
+        fd_exec_txn_sigverify_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        int res = fd_executor_txn_verify( &msg->txn, ctx->sha_lj );
+        fd_exec_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
+        out_msg->bank_idx               = msg->bank_idx;
+        out_msg->txn_sigverify->txn_idx = msg->txn_idx;
+        out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
+        fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->exec_replay_out->chunk = fd_dcache_compact_next( ctx->exec_replay_out->chunk, sizeof(*out_msg), ctx->exec_replay_out->chunk0, ctx->exec_replay_out->wmark );
+        break;
+      }
+      default: FD_LOG_CRIT(( "unexpected signature %lu", sig ));
+    }
+  } else FD_LOG_CRIT(( "invalid in_idx %lu", in_idx ));
+
+  return 0;
 }
 
 static void
@@ -167,14 +185,23 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_exec_tile_ctx_t * ctx               = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
-  void *               capture_ctx_mem   = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  ulong                scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  fd_exec_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
+  void * capture_ctx_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
+  void * _txncache         = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->exec.max_live_slots ) );
+  uchar * pc_scratch       = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  ulong  scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
     FD_LOG_ERR( ( "Scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
       scratch_alloc_mem - (ulong)scratch - scratch_footprint( tile ),
       scratch_alloc_mem,
       (ulong)scratch + scratch_footprint( tile ) ) );
+  }
+
+  for( ulong i=0UL; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
+    fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
+    FD_TEST( sha );
+    ctx->sha_lj[i] = sha;
   }
 
   /********************************************************************/
@@ -184,35 +211,32 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tile_idx = tile->kind_id;
 
   /* First find and setup the in-link from replay to exec. */
-  ctx->replay_exec_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_exec", ctx->tile_idx );
-  if( FD_UNLIKELY( ctx->replay_exec_in_idx==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "Could not find replay_exec in-link" ));
-  }
-  fd_topo_link_t * replay_exec_in_link = &topo->links[tile->in_link_id[ctx->replay_exec_in_idx]];
-  if( FD_UNLIKELY( !replay_exec_in_link) ) {
-    FD_LOG_ERR(( "Invalid replay_exec in-link" ));
-  }
-  ctx->replay_in_mem    = topo->workspaces[topo->objs[replay_exec_in_link->dcache_obj_id].wksp_id].wksp;
-  ctx->replay_in_chunk0 = fd_dcache_compact_chunk0( ctx->replay_in_mem, replay_exec_in_link->dcache );
-  ctx->replay_in_wmark  = fd_dcache_compact_wmark( ctx->replay_in_mem,
-                                                   replay_exec_in_link->dcache,
-                                                   replay_exec_in_link->mtu );
+  ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_exec", 0UL );
+  FD_TEST( ctx->replay_in->idx!=ULONG_MAX );
+  fd_topo_link_t * replay_in_link = &topo->links[ tile->in_link_id[ ctx->replay_in->idx ] ];
+  FD_TEST( replay_in_link!=NULL );
+  ctx->replay_in->mem    = topo->workspaces[ topo->objs[ replay_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->replay_in->chunk0 = fd_dcache_compact_chunk0( ctx->replay_in->mem, replay_in_link->dcache );
+  ctx->replay_in->wmark  = fd_dcache_compact_wmark( ctx->replay_in->mem, replay_in_link->dcache, replay_in_link->mtu );
+  ctx->replay_in->chunk  = ctx->replay_in->chunk0;
 
-  /* Setup out link. */
-  ulong idx = fd_topo_find_tile_out_link( topo, tile, "exec_writer", ctx->tile_idx );
-  fd_topo_link_t * exec_out_link = &topo->links[ tile->out_link_id[ idx ] ];
-
-  if( strcmp( exec_out_link->name, "exec_writer" ) ) {
-    FD_LOG_CRIT(("exec_writer link has unexpected name %s", exec_out_link->name ));
+  ctx->exec_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "exec_replay", ctx->tile_idx );
+  if( FD_LIKELY( ctx->exec_replay_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * exec_replay_link = &topo->links[ tile->out_link_id[ ctx->exec_replay_out->idx ] ];
+    ctx->exec_replay_out->mem    = topo->workspaces[ topo->objs[ exec_replay_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->exec_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->exec_replay_out->mem, exec_replay_link->dcache );
+    ctx->exec_replay_out->wmark  = fd_dcache_compact_wmark( ctx->exec_replay_out->mem, exec_replay_link->dcache, exec_replay_link->mtu );
+    ctx->exec_replay_out->chunk  = ctx->exec_replay_out->chunk0;
   }
 
-  fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
-  exec_out->idx                     = idx;
-  exec_out->mem                     = topo->workspaces[ topo->objs[ exec_out_link->dcache_obj_id ].wksp_id ].wksp;
-  exec_out->chunk0                  = fd_dcache_compact_chunk0( exec_out->mem, exec_out_link->dcache );
-  exec_out->wmark                   = fd_dcache_compact_wmark( exec_out->mem, exec_out_link->dcache, exec_out_link->mtu );
-  exec_out->chunk                   = exec_out->chunk0;
-  ctx->boot_msg_sent                = 0U;
+  ctx->exec_sig_out->idx = fd_topo_find_tile_out_link( topo, tile, "exec_sig", ctx->tile_idx );
+  if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * exec_sig_link = &topo->links[ tile->out_link_id[ ctx->exec_sig_out->idx ] ];
+    ctx->exec_sig_out->mem    = topo->workspaces[ topo->objs[ exec_sig_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->exec_sig_out->chunk0 = fd_dcache_compact_chunk0( ctx->exec_sig_out->mem, exec_sig_link->dcache );
+    ctx->exec_sig_out->wmark  = fd_dcache_compact_wmark( ctx->exec_sig_out->mem, exec_sig_link->dcache, exec_sig_link->mtu );
+    ctx->exec_sig_out->chunk  = ctx->exec_sig_out->chunk0;
+  }
 
   /********************************************************************/
   /* banks                                                            */
@@ -228,138 +252,151 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join banks" ));
   }
 
-  /********************************************************************/
-  /* spad allocator                                                   */
-  /********************************************************************/
-
-  /* First join the correct exec spad and hten the correct runtime spad
-     which lives inside of the runtime public wksp. */
-
-  ulong exec_spad_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_spad.%lu", ctx->tile_idx );
-  if( FD_UNLIKELY( exec_spad_obj_id==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "Could not find topology object for exec spad" ));
+  void * shfunk = fd_topo_obj_laddr( topo, tile->exec.funk_obj_id );
+  if( FD_UNLIKELY( !fd_accdb_user_v1_init( ctx->accdb, shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_accdb_user_v1_init() failed" ));
   }
 
-  ctx->exec_spad = fd_spad_join( fd_topo_obj_laddr( topo, exec_spad_obj_id ) );
-  if( FD_UNLIKELY( !ctx->exec_spad ) ) {
-    FD_LOG_ERR(( "Failed to join exec spad" ));
-  }
-  ctx->exec_spad_wksp = fd_wksp_containing( ctx->exec_spad );
-
-  /********************************************************************/
-  /* bank hash cmp                                                    */
-  /********************************************************************/
-
-  ulong bank_hash_cmp_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bh_cmp" );
-  if( FD_UNLIKELY( bank_hash_cmp_obj_id==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "Could not find topology object for bank hash cmp" ));
-  }
-  ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_topo_obj_laddr( topo, bank_hash_cmp_obj_id ) );
-  if( FD_UNLIKELY( !ctx->bank_hash_cmp ) ) {
-    FD_LOG_ERR(( "Failed to join bank hash cmp" ));
+  void * shprogcache = fd_topo_obj_laddr( topo, tile->exec.progcache_obj_id );
+  if( FD_UNLIKELY( !fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
+    FD_LOG_CRIT(( "fd_progcache_join() failed" ));
   }
 
+  void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->exec.txncache_obj_id );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
+  FD_TEST( txncache_shmem );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  FD_TEST( ctx->txncache );
+
+  ctx->txn_in.bundle.is_bundle = 0;
+
   /********************************************************************/
-  /* funk-specific setup                                              */
+  /* Capture context                                                 */
   /********************************************************************/
 
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->exec.funk_obj_id ) ) ) ) {
-    FD_LOG_ERR(( "Failed to join database cache" ));
+  ctx->capture_ctx               = NULL;
+  ctx->solcap_publish_buffer_ptr = NULL;
+  ctx->account_updates_flushed   = 0UL;
+  if( FD_UNLIKELY( strlen( tile->exec.solcap_capture ) || strlen( tile->exec.dump_proto_dir ) ) ) {
+    ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
+
+    if( strlen( tile->exec.dump_proto_dir ) ) {
+      ctx->capture_ctx->dump_proto_output_dir = tile->exec.dump_proto_dir;
+      ctx->capture_ctx->dump_proto_start_slot = tile->exec.capture_start_slot;
+      ctx->capture_ctx->dump_instr_to_pb      = tile->exec.dump_instr_to_pb;
+      ctx->capture_ctx->dump_txn_to_pb        = tile->exec.dump_txn_to_pb;
+      ctx->capture_ctx->dump_syscall_to_pb    = tile->exec.dump_syscall_to_pb;
+      ctx->capture_ctx->dump_elf_to_pb        = tile->exec.dump_elf_to_pb;
+    }
+
+    if( strlen( tile->exec.solcap_capture ) ) {
+      ctx->capture_ctx->capture_txns      = 0;
+      ctx->capture_ctx->solcap_start_slot = tile->exec.capture_start_slot;
+      ctx->account_updates_flushed        = 0;
+      ctx->solcap_publish_buffer_ptr      = ctx->capture_ctx->account_updates_buffer;
+    }
   }
 
-  /********************************************************************/
-  /* setup txncache                                                   */
-  /********************************************************************/
-
-  /* TODO: Implement this. */
+  ctx->pending_txn_finalized_msg = 0;
 
   /********************************************************************/
-  /* setup txn ctx                                                    */
+  /* Runtime                                                          */
   /********************************************************************/
 
-  fd_spad_push( ctx->exec_spad );
-  // FIXME account for this in exec spad footprint
-  uchar * txn_ctx_mem         = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
-  ctx->txn_ctx                = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
-  *ctx->txn_ctx->funk         = *ctx->funk;
-  ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
+  ctx->runtime->accdb = ctx->accdb;
+  ctx->runtime->funk = fd_accdb_user_v1_funk( ctx->accdb );
+  ctx->runtime->progcache = ctx->progcache;
+  ctx->runtime->status_cache = ctx->txncache;
+  ctx->runtime->log.log_collector = &ctx->log_collector;
+  ctx->runtime->log.enable_log_collector = 0;
+  ctx->runtime->log.dumping_mem = ctx->dumping_mem;
+  ctx->runtime->log.tracing_mem = &ctx->tracing_mem[0][0];
+}
 
-  /********************************************************************/
-  /* setup exec fseq                                                  */
-  /********************************************************************/
+/* Publish the next account update event buffered in the capture tile to the replay tile
 
-  ulong exec_fseq_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_fseq.%lu", ctx->tile_idx );
-  ctx->exec_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, exec_fseq_id ) );
-  if( FD_UNLIKELY( !ctx->exec_fseq ) ) {
-    FD_LOG_ERR(( "exec tile %lu has no fseq", ctx->tile_idx ));
+   TODO: remove this when solcap v2 is here. */
+static void
+publish_next_capture_ctx_account_update( fd_exec_tile_ctx_t * ctx,
+                                         fd_stem_context_t *  stem ) {
+  if( FD_UNLIKELY( !ctx->capture_ctx ) ) {
+    return;
   }
-  fd_fseq_update( ctx->exec_fseq, FD_EXEC_STATE_NOT_BOOTED );
 
-  FD_LOG_INFO(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
+  /* Copy the account update event to the buffer */
+  ulong chunk     = ctx->exec_replay_out->chunk;
+  uchar * out_ptr = fd_chunk_to_laddr( ctx->exec_replay_out->mem, chunk );
+  fd_capture_ctx_account_update_msg_t * msg = (fd_capture_ctx_account_update_msg_t *)ctx->solcap_publish_buffer_ptr;
+  memcpy( out_ptr, msg, sizeof(fd_capture_ctx_account_update_msg_t) );
+  ctx->solcap_publish_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
+  out_ptr                        += sizeof(fd_capture_ctx_account_update_msg_t);
 
-  if( strlen( tile->exec.dump_proto_dir )>0 ) {
-    ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
-    ctx->capture_ctx->dump_proto_output_dir = tile->exec.dump_proto_dir;
-    ctx->capture_ctx->dump_proto_start_slot = tile->exec.capture_start_slot;
-    ctx->capture_ctx->dump_instr_to_pb      = tile->exec.dump_instr_to_pb;
-    ctx->capture_ctx->dump_txn_to_pb        = tile->exec.dump_txn_to_pb;
-    ctx->capture_ctx->dump_syscall_to_pb    = tile->exec.dump_syscall_to_pb;
-    ctx->capture_ctx->dump_elf_to_pb        = tile->exec.dump_elf_to_pb;
-  } else {
-    ctx->capture_ctx = NULL;
+  /* Copy the data to the buffer */
+  ulong data_sz = msg->data_sz;
+  memcpy( out_ptr, ctx->solcap_publish_buffer_ptr, data_sz );
+  ctx->solcap_publish_buffer_ptr += data_sz;
+  out_ptr                        += data_sz;
+
+  /* Stem publish the account update event */
+  ulong msg_sz = sizeof(fd_capture_ctx_account_update_msg_t) + msg->data_sz;
+  fd_stem_publish( stem, ctx->exec_replay_out->idx, 0UL, chunk, msg_sz, 0UL, 0UL, 0UL );
+  ctx->exec_replay_out->chunk = fd_dcache_compact_next(
+    chunk,
+    msg_sz,
+    ctx->exec_replay_out->chunk0,
+    ctx->exec_replay_out->wmark );
+
+  /* Advance the number of account updates flushed */
+  ctx->account_updates_flushed++;
+
+  /* If we have published all the account updates, reset the buffer pointer and length */
+  if( ctx->account_updates_flushed == ctx->capture_ctx->account_updates_len ) {
+    ctx->capture_ctx->account_updates_buffer_ptr = ctx->capture_ctx->account_updates_buffer;
+    ctx->solcap_publish_buffer_ptr               = ctx->capture_ctx->account_updates_buffer;
+    ctx->capture_ctx->account_updates_len        = 0UL;
+    ctx->account_updates_flushed                 = 0UL;
   }
+}
+
+/* Publish the txn finalized message to the replay tile */
+static void
+publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
+                           fd_stem_context_t *  stem ) {
+  fd_exec_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
+  msg->bank_idx                  = ctx->bank->idx;
+  msg->txn_exec->txn_idx         = ctx->txn_idx;
+  msg->txn_exec->err             = !ctx->txn_out.err.is_committable;
+  msg->txn_exec->slot            = ctx->slot;
+  msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
+  msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
+  if( FD_UNLIKELY( msg->txn_exec->err ) ) {
+    uchar * signature = (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off;
+    FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d signature=%s", ctx->txn_out.err.txn_err, FD_BASE58_ENC_64_ALLOCA( signature ) ));
+  }
+
+  fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( fd_tickcount() ) );
+
+  ctx->exec_replay_out->chunk = fd_dcache_compact_next( ctx->exec_replay_out->chunk, sizeof(*msg), ctx->exec_replay_out->chunk0, ctx->exec_replay_out->wmark );
+
+  ctx->pending_txn_finalized_msg = 0;
 }
 
 static void
 after_credit( fd_exec_tile_ctx_t * ctx,
               fd_stem_context_t *  stem,
-              int *                opt_poll_in FD_PARAM_UNUSED,
+              int *                opt_poll_in,
               int *                charge_busy FD_PARAM_UNUSED ) {
-
-  if( FD_UNLIKELY( !ctx->boot_msg_sent ) ) {
-
-    ctx->boot_msg_sent = 1U;
-
-    ulong txn_ctx_gaddr = fd_wksp_gaddr( ctx->exec_spad_wksp, ctx->txn_ctx );
-    if( FD_UNLIKELY( !txn_ctx_gaddr ) ) {
-      FD_LOG_CRIT(( "Could not get gaddr for txn_ctx" ));
-    }
-
-    ulong exec_spad_gaddr = fd_wksp_gaddr( ctx->exec_spad_wksp, ctx->exec_spad );
-    if( FD_UNLIKELY( !exec_spad_gaddr ) ) {
-      FD_LOG_CRIT(( "Could not get gaddr for exec_spad" ));
-    }
-
-    if( FD_UNLIKELY( txn_ctx_gaddr-exec_spad_gaddr>UINT_MAX ) ) {
-      FD_LOG_CRIT(( "txn_ctx offset from exec spad is too large" ));
-    }
-
-    uint txn_ctx_offset = (uint)(txn_ctx_gaddr-exec_spad_gaddr);
-
-    /* Notify writer tiles. */
-
-    ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-
-    fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
-
-    fd_runtime_public_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
-
-    msg->txn_ctx_offset = txn_ctx_offset;
-
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem,
-                     exec_out->idx,
-                     FD_WRITER_BOOT_SIG,
-                     exec_out->chunk,
-                     sizeof(*msg),
-                     0UL,
-                     tsorig,
-                     tspub );
-    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
-
-    /* Notify replay tile. */
-
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_booted( txn_ctx_offset ) );
+  /* If we have outstanding account updates to send to solcap, send
+     them.  Note that we set opt_poll_in to 0 here because we must not
+     consume any more fragments from the exec tiles before publishing
+     our messages, so that solcap updates are not interleaved between
+     slots. */
+  if( FD_UNLIKELY( ctx->capture_ctx && ctx->account_updates_flushed < ctx->capture_ctx->account_updates_len ) ) {
+    publish_next_capture_ctx_account_update( ctx, stem );
+    *opt_poll_in = 0;
+  } else if( ctx->pending_txn_finalized_msg ) {
+    publish_txn_finalized_msg( ctx, stem );
+    *opt_poll_in = 0;
   }
 }
 
@@ -387,24 +424,28 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL)
+/* Right now, depth of the replay_exec link and depth of the exec_replay
+   links is 16K.  At 1M TPS, that's ~16ms to fill.  But we also want to
+   be conservative here, so we use 1ms. */
+#define STEM_LAZY  (1000000UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_exec_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_exec_tile_ctx_t)
 
-#define STEM_CALLBACK_AFTER_CREDIT after_credit
-#define STEM_CALLBACK_DURING_FRAG  during_frag
-#define STEM_CALLBACK_AFTER_FRAG   after_frag
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
 
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_execor = {
-    .name                     = "exec",
-    .loose_footprint          = 0UL,
-    .populate_allowed_seccomp = populate_allowed_seccomp,
-    .populate_allowed_fds     = populate_allowed_fds,
-    .scratch_align            = scratch_align,
-    .scratch_footprint        = scratch_footprint,
-    .unprivileged_init        = unprivileged_init,
-    .run                      = stem_run,
+  .name                     = "exec",
+  .loose_footprint          = 0UL,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

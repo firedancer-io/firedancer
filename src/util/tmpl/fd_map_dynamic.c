@@ -42,12 +42,12 @@
     // shmymap points to a formatted region with no current joins.
     // Returns a pointer to the unformatted memory region.
 
-    ulong     mymap_align    ( void                             );
-    ulong     mymap_footprint( int lg_slot_cnt                  );
-    void *    mymap_new      ( void *    shmem, int lg_slot_cnt );
-    mymap_t * mymap_join     ( void *    shmap                  ); // Indexed [0,2^lg_slot_cnt)
-    void *    mymap_leave    ( mymap_t * map                    );
-    void *    mymap_delete   ( void *    shmap                  );
+    ulong     mymap_align    ( void            );
+    ulong     mymap_footprint( int lg_slot_cnt );
+    void *    mymap_new      ( void *    shmem, int lg_slot_cnt, ulong seed );
+    mymap_t * mymap_join     ( void *    shmap ); // Indexed [0,2^lg_slot_cnt)
+    void *    mymap_leave    ( mymap_t * map   );
+    void *    mymap_delete   ( void *    shmap );
 
     // Return the current/maximum number of keys that can be inserted
     // into a mymap.  The mymap will become increasingly inefficient the
@@ -65,6 +65,10 @@
 
     int   mymap_lg_slot_cnt( mymap_t const * map ); // Non-negative
     ulong mymap_slot_cnt   ( mymap_t const * map ); // == 2^lg_slot_cnt
+
+    // Return the hash map seed value used to construct the map.
+
+    ulong mymap_seed( mymap_t const * map );
 
     // Returns the index of the slot (allows communicating locations of
     // map entries between users of mymap in different address spaces).
@@ -88,10 +92,12 @@
 
     int mymap_key_equal( ulong k0, ulong k1 );
 
-    // Return the hash of key used by the map.  Should ideally be a
-    // random mapping from MAP_KEY_T -> MAP_HASH_T.
+    // Return the hash of key using the hash function seed.  Should
+    // ideally be a random mapping from MAP_KEY_T -> MAP_HASH_T.  The
+    // seed used by a particular instance of a map can be obtained
+    // above.
 
-    uint mymap_key_hash( ulong key );
+    uint mymap_key_hash( ulong key, ulong seed );
 
     // Insert key into the map, fast O(1).  Returns a pointer to the map
     // entry with key on success and NULL on failure (i.e. key is
@@ -235,7 +241,7 @@
    randomly. */
 
 #ifndef MAP_KEY_HASH
-#define MAP_KEY_HASH(key) ((MAP_HASH_T)fd_ulong_hash( key ))
+#define MAP_KEY_HASH(key,seed) ((MAP_HASH_T)fd_ulong_hash( (key) ^ (seed) ))
 #endif
 
 /* MAP_KEY_MOVE moves the contents from src to dst.  Non-POD key types
@@ -285,9 +291,10 @@
 
 struct MAP_(private) {
   ulong key_cnt;     /* == number of keys currently in map */
+  ulong seed;        /* Hash seed, arbitrary */
   ulong slot_mask;   /* == key_max == 2^lg_slot_cnt - 1 */
   int   lg_slot_cnt; /* non-negative */
-  MAP_T slot[1];     /* Actually 2^lg_slot_cnt in size */
+  MAP_T slot[];     /* Actually 2^lg_slot_cnt in size */
 };
 
 typedef struct MAP_(private) MAP_(private_t);
@@ -325,12 +332,13 @@ FD_FN_CONST static inline ulong MAP_(align)( void ) { return alignof(MAP_(privat
 FD_FN_CONST static inline ulong
 MAP_(footprint)( int lg_slot_cnt ) {
   ulong slot_cnt = 1UL << lg_slot_cnt;
-  return fd_ulong_align_up( fd_ulong_align_up( 24UL, alignof(MAP_T) ) + sizeof(MAP_T)*slot_cnt, alignof(MAP_(private_t)) );
+  return fd_ulong_align_up( fd_ulong_align_up( sizeof(MAP_(private_t)), alignof(MAP_T) ) + sizeof(MAP_T)*slot_cnt, alignof(MAP_(private_t)) );
 }
 
 static inline void *
 MAP_(new)( void *  shmem,
-           int     lg_slot_cnt ) {
+           int     lg_slot_cnt,
+           ulong   seed ) {
 # if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, MAP_(align)() ) ) ) FD_LOG_CRIT(( "unaligned shmem" ));
   if( FD_UNLIKELY( (lg_slot_cnt<0) | (lg_slot_cnt>63)                  ) ) FD_LOG_CRIT(( "invalid lg_slot_cnt" ));
@@ -340,6 +348,7 @@ MAP_(new)( void *  shmem,
   MAP_(private_t) * map = (MAP_(private_t) *)shmem;
 
   map->key_cnt     = 0UL;
+  map->seed        = seed;
   map->slot_mask   = slot_mask;
   map->lg_slot_cnt = lg_slot_cnt;
 
@@ -365,6 +374,7 @@ FD_FN_PURE static inline ulong MAP_(key_cnt)    ( MAP_T const * slot ) { return 
 FD_FN_PURE static inline ulong MAP_(key_max)    ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->slot_mask;     }
 FD_FN_PURE static inline int   MAP_(lg_slot_cnt)( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->lg_slot_cnt;   }
 FD_FN_PURE static inline ulong MAP_(slot_cnt)   ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->slot_mask+1UL; }
+FD_FN_PURE static inline ulong MAP_(seed)       ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->seed;          }
 
 FD_FN_CONST static inline ulong
 MAP_(slot_idx)( MAP_T const * map, MAP_T const * entry ) {
@@ -382,7 +392,12 @@ FD_FN_CONST static inline MAP_KEY_T MAP_(key_null)( void ) { return (MAP_KEY_NUL
 FD_FN_PURE static inline int MAP_(key_inval)( MAP_KEY_T k0               ) { return (MAP_KEY_INVAL(k0)); }
 FD_FN_PURE static inline int MAP_(key_equal)( MAP_KEY_T k0, MAP_KEY_T k1 ) { return (MAP_KEY_EQUAL(k0,k1)); }
 
-FD_FN_PURE static inline MAP_HASH_T MAP_(key_hash)( MAP_KEY_T key ) { return (MAP_KEY_HASH(key)); }
+FD_FN_PURE static inline MAP_HASH_T
+MAP_(key_hash)( MAP_KEY_T key,
+                ulong     seed ) {
+  (void)seed;
+  return (MAP_KEY_HASH( (key), (seed) ));
+}
 
 FD_FN_UNUSED static MAP_T * /* Work around -Winline */
 MAP_(insert)( MAP_T *   map,
@@ -396,7 +411,7 @@ MAP_(insert)( MAP_T *   map,
   ulong slot_mask = hdr->slot_mask; /* == key_max (FIXME: MAKE KEY_MAX DISTINCT FROM SLOT_MASK?) */
   if( FD_UNLIKELY( key_cnt >= slot_mask ) ) return NULL;
 
-  MAP_HASH_T hash = MAP_(key_hash)( key );
+  MAP_HASH_T hash = MAP_(key_hash)( key, hdr->seed );
   ulong      slot = MAP_(private_start)( hash, slot_mask );
   MAP_T * m;
   for(;;) {
@@ -459,7 +474,7 @@ MAP_(remove)( MAP_T * map,
 #     if MAP_MEMOIZE
       MAP_HASH_T hash = map[slot].MAP_HASH;
 #     else
-      MAP_HASH_T hash = MAP_(key_hash)( key );
+      MAP_HASH_T hash = MAP_(key_hash)( key, hdr->seed );
 #     endif
       ulong start = MAP_(private_start)( hash, slot_mask );
       if( !(((hole<start) & (start<=slot)) | ((hole>slot) & ((hole<start) | (start<=slot)))) ) break;
@@ -487,8 +502,9 @@ MAP_(query)( MAP_T *   map,
 # if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( MAP_KEY_INVAL( key ) ) ) FD_LOG_CRIT(( "invalid key" ));
 # endif
-  ulong      slot_mask = MAP_(private_from_slot)( map )->slot_mask;
-  MAP_HASH_T hash      = MAP_(key_hash)( key );
+  MAP_(private_t) * hdr = MAP_(private_from_slot)( map );
+  ulong      slot_mask = hdr->slot_mask;
+  MAP_HASH_T hash      = MAP_(key_hash)( key, hdr->seed );
   ulong      slot      = MAP_(private_start)( hash, slot_mask );
   MAP_T * m;
   for(;;) {

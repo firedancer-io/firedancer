@@ -1,4 +1,5 @@
 include config/extra/with-handholding.mk
+include config/extra/with-debug.mk
 CPPFLAGS+=-DFD_SPAD_TRACK_USAGE=1
 CFLAGS+=-DFD_SPAD_TRACK_USAGE=1
 

@@ -154,6 +154,14 @@
 #define POOL_SENTINEL 0
 #endif
 
+/* 0 - local use only
+   1 - library header declaration
+   2 - library implementation */
+
+#ifndef POOL_IMPL_STYLE
+#define POOL_IMPL_STYLE 0
+#endif
+
 /* POOL_MAGIC is the magic number that should be used to identify
    pools of this type in shared memory.  Should be non-zero. */
 
@@ -170,6 +178,8 @@
 #define POOL_(n) FD_EXPAND_THEN_CONCAT3(POOL_NAME,_,n)
 
 #define POOL_IDX_NULL ((ulong)((POOL_IDX_T)~0UL))
+
+#if POOL_IMPL_STYLE==0 || POOL_IMPL_STYLE==1 /* need structures and inlines */
 
 struct POOL_(private) {
 
@@ -241,7 +251,33 @@ POOL_(footprint)( ulong max ) {
   return fd_ulong_if( max > thresh, 0UL, meta_footprint + data_footprint );
 }
 
-FD_FN_UNUSED static void * /* Work around -Winline */
+FD_PROTOTYPES_END
+
+#endif
+
+FD_PROTOTYPES_BEGIN
+
+#if POOL_IMPL_STYLE==1 /* need prototypes */
+
+FD_FN_UNUSED void * /* Work around -Winline */
+POOL_(new)( void * shmem,
+            ulong  max );
+
+FD_FN_UNUSED POOL_T *
+POOL_(join)( void * shpool );
+
+FD_FN_UNUSED void
+POOL_(reset)( POOL_T * join );
+
+#else /* need implementations */
+
+#if POOL_IMPL_STYLE==0 /* local only */
+#define POOL_IMPL_STATIC FD_FN_UNUSED static
+#else
+#define POOL_IMPL_STATIC
+#endif
+
+POOL_IMPL_STATIC void * /* Work around -Winline */
 POOL_(new)( void * shmem,
             ulong  max ) {
 
@@ -275,7 +311,27 @@ POOL_(new)( void * shmem,
   return shmem;
 }
 
-static inline POOL_T *
+POOL_IMPL_STATIC void
+POOL_(reset)( POOL_T * join ) {
+  POOL_(private_t) * meta = POOL_(private_meta)( join );
+
+  meta->free = meta->max;
+
+  if( FD_UNLIKELY( !meta->max ) ) meta->free_top = POOL_IDX_NULL; /* Not reachable if POOL_SENTINEL set (footprint test above fails) */
+  else {
+    meta->free_top = 0UL;
+    for( ulong idx=1UL; idx<meta->max; idx++ ) join[ idx-1UL ].POOL_NEXT = (POOL_IDX_T)idx;
+    join[ meta->max-1UL ].POOL_NEXT = (POOL_IDX_T)POOL_IDX_NULL;
+
+#   if POOL_SENTINEL
+    meta->free_top = 1UL;
+    meta->free--;
+    join[ 0 ].POOL_NEXT = (POOL_IDX_T)POOL_IDX_NULL;
+#   endif
+  }
+}
+
+POOL_IMPL_STATIC POOL_T *
 POOL_(join)( void * shpool ) {
   if( FD_UNLIKELY( !shpool                                               ) ) return NULL;
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shpool, POOL_(align)() ) ) ) return NULL;
@@ -287,6 +343,14 @@ POOL_(join)( void * shpool ) {
 
   return join;
 }
+
+#endif
+
+FD_PROTOTYPES_END
+
+FD_PROTOTYPES_BEGIN
+
+#if POOL_IMPL_STYLE==0 || POOL_IMPL_STYLE==1 /* need structures and inlines */
 
 FD_FN_CONST static inline void *
 POOL_(leave)( POOL_T * join ) {
@@ -424,6 +488,8 @@ static inline void     POOL_(ele_release)( POOL_T * join, POOL_T * ele ) { POOL_
    POOL_NEXT for element marking (the POOL_NEXT field in the structure
    would have to become dedicated to the pool though). */
 
+#endif
+
 FD_PROTOTYPES_END
 
 #undef POOL_IDX_NULL
@@ -433,5 +499,6 @@ FD_PROTOTYPES_END
 #undef POOL_SENTINEL
 #undef POOL_IDX_T
 #undef POOL_NEXT
+#undef POOL_IMPL_STYLE
 #undef POOL_T
 #undef POOL_NAME

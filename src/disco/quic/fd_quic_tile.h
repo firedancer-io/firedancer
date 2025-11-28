@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_fdctl_run_tiles_fd_quic_tile_h
-#define HEADER_fd_src_app_fdctl_run_tiles_fd_quic_tile_h
+#ifndef HEADER_fd_src_disco_quic_fd_quic_tile_h
+#define HEADER_fd_src_disco_quic_fd_quic_tile_h
 
 #include "fd_tpu.h"
 #include "../stem/fd_stem.h"
@@ -16,6 +16,10 @@ typedef struct {
   fd_tpu_reasm_t * reasm;
 
   fd_stem_context_t * stem;
+
+  long       now;        /* current time in ns     */
+  fd_clock_t clock[1];   /* memory for fd_clock_t   */
+  long       recal_next; /* next recalibration time (ns) */
 
   fd_quic_t * quic;
   fd_aio_t    quic_tx_aio[1];
@@ -61,6 +65,8 @@ typedef struct {
     ulong quic_txn_too_small;
     ulong quic_txn_too_large;
   } metrics;
+
+  uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 } fd_quic_ctx_t;
 
-#endif /* HEADER_fd_src_app_fdctl_run_tiles_fd_quic_tile_h */
+#endif /* HEADER_fd_src_disco_quic_fd_quic_tile_h */

@@ -7,12 +7,13 @@
 
 static void
 init( config_t const * config ) {
-  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->paths.snapshots, config->uid, config->gid ) ) )
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->paths.snapshots, config->uid, config->gid, 1 ) ) )
     FD_LOG_ERR(( "could not create snapshots directory `%s` (%i-%s)", config->paths.snapshots, errno, fd_io_strerror( errno ) ));
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
   struct stat st;
   if( FD_UNLIKELY( stat( config->paths.snapshots, &st ) && errno==ENOENT ) )
     NOT_CONFIGURED( "`%s` does not exist", config->paths.snapshots );

@@ -8,9 +8,11 @@
 #define FD_VOTE_STATES_MAGIC (0xF17EDA2CE7601E70UL) /* FIREDANCER VOTER V0 */
 
 /* fd_vote_states_t is a cache of vote accounts mapping the pubkey of
-   a vote account to various infromation about the vote account
-   including, stake, last vote slot/timestamp, commission, and the
-   epoch credits for the vote account.
+   a vote account to various information about the vote account
+   including, stake, last vote slot/timestamp, and commission for the
+   vote account.  The vote states are safe to be used across multiple
+   threads but concurrent reads/writes must be synchronized by the
+   caller.
 
    In the runtime, there are 3 instances of fd_vote_states_t that are
    maintained and used at different points, notably around epoch reward
@@ -41,9 +43,49 @@
       referenced during a transaction.
    3. Vote states are updated at the epoch boundary. The stake
       information for the vote states is refreshed at the boundary.
-      TODO: The total stake delegated to a vote account should be
-      calculated during execution as the stake delegations are updated.
-*/
+
+   The vote states in reality manage a few different sets of
+   information about the vote account:
+   - vote account state: state from the vote account data including
+     the last vote slot/timestamp, commission, and node pubkey.  This is
+     used for clock sysvar and rewards calculations.
+   - stake: stake as of the end of the previous epoch.  This is used
+     eventually for leader schedule calculations.  The stake from epoch
+     T-2 (stake_t_2) is used for the stake in clock calculations and Tower's threshold switch checks.
+     T-1 (stake_t_1)
+   - rewards: this information is only used at the epoch boundary.
+
+   NOTE: The leader schedule epoch is almost always equal to the current
+   epoch + 1.
+   TODO: highlight the cases where this is not possible.
+
+   In the agave client, each bank holds its own epoch stakes (agave
+   equivalent of vote_states).  These are keyed by leader schedule epoch
+   (which is almost always equal to epoch + 1).  Old entries are removed
+   and new entries are inserted at the epoch boundary.  When we use the
+   epoch stakes for consensus and for clock timestamp calculations, we
+   query the epoch stakes by the current epoch we are executing in.
+
+   When we cross from Epoch E-1 to E, we compute our stakes assuming
+   we are in E.  At this point, because we are in epoch E, this means
+   that the leader schedule epoch is E+1 so an epoch_stakes entry for
+   epoch E+1 is inserted into epoch_stakes.
+
+   After we cross the boundary, in epoch E, we use the epoch stakes as
+   keyed by epoch E for clock/consensus/leader schedule calculations.
+   The stakes keyed by epoch E are actually the ones calculated at the
+   boundary between epoch E-2 and E-1 since that's when the leader
+   schedule epoch is E.  Similiarly, when we are in epoch E+1 we use the
+   stakes caclulated between epoch E-1 and E since that's when the leader
+   schedule epoch is E+1.
+
+   The firedancer naming of vote states is instead done by reference to
+   the epoch boundary that the stakes were calculated in.  If we are
+   currently in epoch E, we use the vote states calculated at the end of
+   two epochs ago (E-2 -> E-1), hence vote_states_prev_prev.  We store
+   the vote states calculated at the end of the previous epoch
+   (E-1 -> E) as vote_states_prev.  This is also how we cache the stake
+   values in the current vote states which are continually updated. */
 
 #define FD_VOTE_STATES_ALIGN (128UL)
 
@@ -51,19 +93,35 @@
    https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v2.2.6/vote-interface/src/state/mod.rs#L37 */
 #define EPOCH_CREDITS_MAX (64UL)
 
-struct fd_vote_state_ele {
-  fd_pubkey_t vote_account;
-  fd_pubkey_t node_account;
-  ulong       next_; /* Internal pool/map use */
-  ulong       stake;
-  ulong       last_vote_slot;
-  long        last_vote_timestamp;
-  uchar       commission;
-
+struct fd_vote_state_credits {
   ulong       credits_cnt;
   ushort      epoch       [ EPOCH_CREDITS_MAX ];
   ulong       credits     [ EPOCH_CREDITS_MAX ];
   ulong       prev_credits[ EPOCH_CREDITS_MAX ];
+};
+typedef struct fd_vote_state_credits fd_vote_state_credits_t;
+
+struct fd_vote_state_ele {
+  /* Internal pool/map use */
+  ulong       idx;
+  ulong       next_;
+
+  /* Vote account stake information which is derived from the stake
+     delegations.  This information is used for leader schedule
+     calculation and clock stake-weighted median calculations.
+
+     stake_t_2 is used in Tower, for it's threshold switch checks. */
+  ulong       stake;
+  ulong       stake_t_1;
+  ulong       stake_t_2;
+
+  /* Vote account information which is derived from the vote account
+     data and is used for clock timestamp calculations. */
+  fd_pubkey_t vote_account;
+  fd_pubkey_t node_account;
+  ulong       last_vote_slot;
+  long        last_vote_timestamp;
+  uchar       commission;
 };
 typedef struct fd_vote_state_ele fd_vote_state_ele_t;
 
@@ -143,21 +201,11 @@ fd_vote_states_t *
 fd_vote_states_join( void * mem );
 
 /* fd_vote_states_update inserts or updates the vote state corresponding
-   to a given account. The caller is expected to pass in valid arrays of
-   epoch, credits, and prev_credits that corresponds to a length of
-   credits_cnt. */
+   to a given account. */
 
-void
+fd_vote_state_ele_t *
 fd_vote_states_update( fd_vote_states_t *  vote_states,
-                       fd_pubkey_t const * vote_account,
-                       fd_pubkey_t const * node_account,
-                       uchar               commission,
-                       long                last_vote_timestamp,
-                       ulong               last_vote_slot,
-                       ulong               credits_cnt,
-                       ushort *            epoch,
-                       ulong *             credits,
-                       ulong *             prev_credits );
+                       fd_pubkey_t const * vote_account );
 
 /* fd_vote_states_update_from_account inserts or updates the vote state
    corresponding to a valid vote account. This is the same as
@@ -166,7 +214,7 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
    commission and credits. Kills the client if the vote state cannot
    be decoded. */
 
-void
+fd_vote_state_ele_t *
 fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
                                     fd_pubkey_t const * vote_account,
                                     uchar const *       account_data,
@@ -177,14 +225,6 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
 
 void
 fd_vote_states_reset_stakes( fd_vote_states_t * vote_states );
-
-/* fd_vote_states_update_stake updates the stake for a given vote
-   account. */
-
-void
-fd_vote_states_update_stake( fd_vote_states_t *  vote_states,
-                             fd_pubkey_t const * vote_account,
-                             ulong               stake );
 
 /* fd_vote_states_remove removes the vote state corresponding to a given
    account. Does nothing if the account does not exist. */
@@ -221,15 +261,15 @@ fd_vote_states_max( fd_vote_states_t const * vote_states );
 ulong
 fd_vote_states_cnt( fd_vote_states_t const * vote_states );
 
-/* Iterator API for vote states. The iterator is initialized with a
-   call to fd_vote_states_iter_init. The caller is responsible for
-   managing the memory for the iterator. It is safe to call
+/* Iterator API for vote states.  The iterator is initialized with a
+   call to fd_vote_states_iter_init.  The caller is responsible for
+   managing the memory for the iterator.  It is safe to call
    fd_vote_states_iter_next if the result of
-   fd_vote_states_iter_done() ==0. It is safe to call
+   fd_vote_states_iter_done() ==0.  It is safe to call
    fd_vote_states_iter_ele() to get the current vote state. As a note,
    it is safe to modify the vote state acquired from
    fd_vote_states_iter_ele() as long as the next_ field is not modified
-   (which the caller should never do). It is unsafe to insert or remove
+   (which the caller should never do).  It is unsafe to insert or remove
    fd_vote_state_ele_t from the vote states struct while iterating.
 
    Under the hood, the iterator is just a wrapper over the iterator in

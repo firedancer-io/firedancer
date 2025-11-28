@@ -265,7 +265,7 @@ static struct termios termios_backup;
 
 static void
 restore_terminal( void ) {
-  (void)tcsetattr( STDIN_FILENO, TCSANOW, &termios_backup );
+  (void)ioctl( STDIN_FILENO, TCSETS, &termios_backup );
 }
 
 static void
@@ -315,15 +315,15 @@ run_monitor( config_t const * config,
 
   /* Restore original terminal attributes at exit */
   atexit( restore_terminal );
-  if( FD_UNLIKELY( 0!=tcgetattr( STDIN_FILENO, &termios_backup ) ) ) {
-    FD_LOG_ERR(( "tcgetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( ioctl( STDIN_FILENO, TCGETS, &termios_backup ) ) ) {
+    FD_LOG_ERR(( "ioctl(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   /* Disable character echo and line buffering */
   struct termios term = termios_backup;
   term.c_lflag &= (tcflag_t)~(ICANON | ECHO);
-  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term ) ) ) {
-    FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( ioctl( STDIN_FILENO, TCSETS, &term ) ) ) {
+    FD_LOG_WARNING(( "ioctl(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   for(;;) {
@@ -576,7 +576,7 @@ monitor_cmd_fn( args_t *   args,
   allow_fds[ allow_fds_cnt++ ] = 0; /* stdin */
   allow_fds[ allow_fds_cnt++ ] = 1; /* stdout */
   allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
-  if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 && fd_log_private_logfile_fd()!=1 ) )
+  if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   if( FD_UNLIKELY( args->monitor.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->monitor.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
@@ -592,6 +592,7 @@ monitor_cmd_fn( args_t *   args,
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,
                       config->gid,
+                      0,
                       0,
                       0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */

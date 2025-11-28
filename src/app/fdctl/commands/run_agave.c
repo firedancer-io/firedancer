@@ -1,13 +1,11 @@
 #define _GNU_SOURCE
 #include "../../shared/commands/run/run.h"
 
-#include "../../../util/net/fd_ip4.h"
 #include "../../../util/tile/fd_tile_private.h"
 
-#include <sched.h>
-#include <stdlib.h> /* setenv */
-#include <errno.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <errno.h>
 #include <pthread.h>
 #include <sys/wait.h>
 
@@ -107,7 +105,7 @@ agave_boot( config_t const * config ) {
     ADD1( "--no-os-network-limits-test" );
 
   /* ledger */
-  ADD( "--ledger", config->paths.ledger );
+  ADD( "--ledger", config->frankendancer.paths.ledger );
   ADDU( "--limit-ledger-size", config->frankendancer.ledger.limit_size );
   if( strcmp( "", config->frankendancer.paths.accounts_path ) )
     ADD( "--accounts", config->frankendancer.paths.accounts_path );
@@ -130,25 +128,18 @@ agave_boot( config_t const * config ) {
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
   if( !config->frankendancer.gossip.port_check ) ADD1( "--no-port-check" );
   ADDH( "--gossip-port", config->gossip.port );
-  char ip_addr[16]; /* ADD stored the address for later use, so ip_addr must be in scope */
-  if( strcmp( config->gossip.host, "" ) ) {
-    ADD( "--gossip-host", config->gossip.host );
-  } else {
-    FD_TEST( fd_cstr_printf_check( ip_addr, 16, NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->net.ip_addr) ) );
-    ADD( "--gossip-host", ip_addr );
-  }
   if( config->development.gossip.allow_private_address ) {
     ADD1( "--allow-private-addr" );
   }
 
   /* rpc */
-  if( config->rpc.port ) ADDH( "--rpc-port", config->rpc.port );
+  if( config->frankendancer.rpc.port ) ADDH( "--rpc-port", config->frankendancer.rpc.port );
   if( config->frankendancer.rpc.full_api ) ADD1( "--full-rpc-api" );
   if( config->frankendancer.rpc.private ) ADD1( "--private-rpc" );
   if( strcmp( config->frankendancer.rpc.public_address, "" ) ) ADD( "--public-rpc-address", config->frankendancer.rpc.public_address );
   if( strcmp( config->frankendancer.rpc.bind_address, "" ) ) ADD( "--rpc-bind-address", config->frankendancer.rpc.bind_address );
   if( config->frankendancer.rpc.transaction_history ) ADD1( "--enable-rpc-transaction-history" );
-  if( config->rpc.extended_tx_metadata_storage ) ADD1( "--enable-extended-tx-metadata-storage" );
+  if( config->frankendancer.rpc.extended_tx_metadata_storage ) ADD1( "--enable-extended-tx-metadata-storage" );
   if( config->frankendancer.rpc.only_known ) ADD1( "--only-known-rpc" );
   if( config->frankendancer.rpc.pubsub_enable_block_subscription ) ADD1( "--rpc-pubsub-enable-block-subscription" );
   if( config->frankendancer.rpc.pubsub_enable_vote_subscription ) ADD1( "--rpc-pubsub-enable-vote-subscription" );

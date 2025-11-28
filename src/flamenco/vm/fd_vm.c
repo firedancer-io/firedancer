@@ -1,6 +1,4 @@
 #include "fd_vm_private.h"
-#include "../runtime/context/fd_exec_slot_ctx.h"
-#include "../features/fd_features.h"
 
 /* fd_vm_syscall_strerror() returns the error message corresponding to err,
    intended to be logged by log_collector, or an empty string if the error code
@@ -333,7 +331,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L233-L235 */
   ulong function_start = 0UL;
   ulong function_next  = 0UL;
-  if( fd_sbpf_enable_stricter_elf_headers(sbpf_version) ) {
+  if( fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) ) {
     if( FD_UNLIKELY( !fd_sbpf_is_function_start( fd_sbpf_instr( text[0] ) ) ) ) {
       return FD_VM_INVALID_FUNCTION;
     }
@@ -349,7 +347,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
        used to validate jumps.
        Note that the first function always starts at 0, and similarly the last function
        always ends at text_cnt-1. */
-    if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers(sbpf_version) && fd_sbpf_is_function_start( instr ) ) ) {
+    if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) && fd_sbpf_is_function_start( instr ) ) ) {
       function_start = i;
       function_next  = i+1;
       while( function_next<text_cnt && !fd_sbpf_is_function_start( fd_sbpf_instr( text[function_next] ) ) ) {
@@ -587,7 +585,7 @@ fd_vm_init(
    ulong text_off,
    ulong text_sz,
    ulong entry_pc,
-   ulong * calldests,
+   ulong const * calldests,
    ulong sbpf_version,
    fd_sbpf_syscalls_t * syscalls,
    fd_vm_trace_t * trace,
@@ -597,6 +595,7 @@ fd_vm_init(
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar is_deprecated,
    int direct_mapping,
+   int stricter_abi_and_runtime_constraints,
    int dump_syscall_to_pb ) {
 
   if ( FD_UNLIKELY( vm == NULL ) ) {
@@ -618,35 +617,36 @@ fd_vm_init(
      program execution, e.g. just testing some interpreter functionality
      or syscalls.
      SBPF v3+ no longer needs calldests, so we enforce it to be NULL. */
-  if( FD_UNLIKELY( calldests && fd_sbpf_enable_stricter_elf_headers(sbpf_version) ) ) {
+  if( FD_UNLIKELY( calldests && fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) ) ) {
     return NULL;
   }
 
   // Set the vm fields
-  vm->instr_ctx             = instr_ctx;
-  vm->heap_max              = heap_max;
-  vm->entry_cu              = entry_cu;
-  vm->rodata                = rodata;
-  vm->rodata_sz             = rodata_sz;
-  vm->text                  = text;
-  vm->text_cnt              = text_cnt;
-  vm->text_off              = text_off;
-  vm->text_sz               = text_sz;
-  vm->entry_pc              = entry_pc;
-  vm->calldests             = calldests;
-  vm->sbpf_version          = sbpf_version;
-  vm->syscalls              = syscalls;
-  vm->trace                 = trace;
-  vm->sha                   = sha;
-  vm->input_mem_regions     = mem_regions;
-  vm->input_mem_regions_cnt = mem_regions_cnt;
-  vm->acc_region_metas      = acc_region_metas;
-  vm->is_deprecated         = is_deprecated;
-  vm->direct_mapping        = direct_mapping;
-  vm->stack_frame_size      = FD_VM_STACK_FRAME_SZ + ( direct_mapping ? 0UL : FD_VM_STACK_GUARD_SZ );
-  vm->segv_vaddr            = ULONG_MAX;
-  vm->segv_access_type      = 0;
-  vm->dump_syscall_to_pb    = dump_syscall_to_pb;
+  vm->instr_ctx                            = instr_ctx;
+  vm->heap_max                             = heap_max;
+  vm->entry_cu                             = entry_cu;
+  vm->rodata                               = rodata;
+  vm->rodata_sz                            = rodata_sz;
+  vm->text                                 = text;
+  vm->text_cnt                             = text_cnt;
+  vm->text_off                             = text_off;
+  vm->text_sz                              = text_sz;
+  vm->entry_pc                             = entry_pc;
+  vm->calldests                            = calldests;
+  vm->sbpf_version                         = sbpf_version;
+  vm->syscalls                             = syscalls;
+  vm->trace                                = trace;
+  vm->sha                                  = sha;
+  vm->input_mem_regions                    = mem_regions;
+  vm->input_mem_regions_cnt                = mem_regions_cnt;
+  vm->acc_region_metas                     = acc_region_metas;
+  vm->is_deprecated                        = is_deprecated;
+  vm->direct_mapping                       = direct_mapping;
+  vm->stricter_abi_and_runtime_constraints = stricter_abi_and_runtime_constraints;
+  vm->segv_vaddr                           = ULONG_MAX;
+  vm->segv_access_len                      = 0UL;
+  vm->segv_access_type                     = 0;
+  vm->dump_syscall_to_pb                   = dump_syscall_to_pb;
 
   /* Unpack the configuration */
   int err = fd_vm_setup_state_for_execution( vm );

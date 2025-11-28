@@ -42,7 +42,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   /* Allocate objects */
 
-  void * rodata = malloc( info.rodata_footprint );
+  void * rodata = malloc( info.bin_sz );
   FD_TEST( rodata );
 
   fd_sbpf_program_t * prog = fd_sbpf_program_new( aligned_alloc( fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
@@ -55,7 +55,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
     fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
   /* Load program */
-  int res = fd_sbpf_program_load( prog, data, size, syscalls, &config );
+  void * scratch = malloc( size );
+  int res = fd_sbpf_program_load( prog, data, size, syscalls, &config, scratch, size );
 
   /* Should be able to load at least one program and not load at least one program */
   if ( FD_UNLIKELY( !res ) ) {
@@ -66,6 +67,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   /* Clean up */
   free( rodata );
+  free( scratch );
   free( fd_sbpf_syscalls_delete( syscalls ) );
   free( fd_sbpf_program_delete( prog ) );
 

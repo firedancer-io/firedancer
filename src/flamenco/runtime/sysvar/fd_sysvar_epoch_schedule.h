@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_sysvar_epoch_schedule_h
-#define HEADER_fd_src_flamenco_runtime_sysvar_epoch_schedule_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_schedule_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_schedule_h
 
 /* fd_sysvar_epoch_schedule provides methods for epoch numbers, a native
    concept of the Solana runtime.
@@ -31,7 +31,7 @@
    make various epoch-related calculations. */
 
 #include "../../fd_flamenco_base.h"
-#include "../context/fd_exec_slot_ctx.h"
+#include "../fd_bank.h"
 
 /* FD_EPOCH_LEN_MIN is a protocol constant specifying the smallest
    permitted epoch length.  This value is chosen to match
@@ -58,22 +58,28 @@ FD_PROTOTYPES_BEGIN
    account.  FIXME document what this actually does. */
 
 void
-fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
+                               fd_accdb_user_t *         accdb,
+                               fd_funk_txn_xid_t const * xid,
+                               fd_capture_ctx_t *        capture_ctx );
 
 /* fd_sysvar_epoch_schedule_read reads the current value of the rent
    sysvar from funk. If the account doesn't exist in funk or if the account
    has zero lamports, this function returns NULL. */
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *           funk,
-                               fd_funk_txn_t *       funk_txn,
-                               fd_epoch_schedule_t * out );
+fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
+                               fd_funk_txn_xid_t const * xid,
+                               fd_epoch_schedule_t *     out );
 
 /* fd_sysvar_epoch_schedule_write writes the current value of the epoch
    schedule sysvar to funk. */
 
 void
-fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
+fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
+                                fd_accdb_user_t *           accdb,
+                                fd_funk_txn_xid_t const *   xid,
+                                fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule );
 
 /* fd_epoch_schedule_derive derives an epoch schedule config from the
@@ -125,4 +131,4 @@ fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_sysvar_epoch_schedule_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_schedule_h */

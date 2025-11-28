@@ -105,7 +105,7 @@ fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
 };
 
 /* Agave v1.18 uses a different template.  It is less
-   determistic due to a variable length serial number, so we match the
+   deterministic due to a variable length serial number, so we match the
    prefix before the public key. */
 
 static uchar const

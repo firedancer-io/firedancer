@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_restore_fd_ssping_h
-#define HEADER_fd_src_discof_restore_fd_ssping_h
+#ifndef HEADER_fd_src_discof_restore_utils_fd_ssping_h
+#define HEADER_fd_src_discof_restore_utils_fd_ssping_h
 
 /* The snapshot pinger (ssping) is responsible for maintaining a list of
    peers that are reachable for snapshot download, and returning the
@@ -18,12 +18,18 @@
 #include "../../../util/fd_util_base.h"
 #include "../../../util/net/fd_net_headers.h"
 
-#define FD_SSPING_ALIGN (8UL)
+struct fd_sspeer_selector_private;
+typedef struct fd_sspeer_selector_private fd_sspeer_selector_t;
 
 #define FD_SSPING_MAGIC (0xF17EDA2CE55A1A60) /* FIREDANCE SSPING V0 */
 
 struct fd_ssping_private;
 typedef struct fd_ssping_private fd_ssping_t;
+
+typedef void
+(* fd_ssping_on_ping_fn_t)( void *        _ctx,
+                            fd_ip4_port_t addr,
+                            ulong         latency );
 
 FD_PROTOTYPES_BEGIN
 
@@ -34,9 +40,11 @@ FD_FN_CONST ulong
 fd_ssping_footprint( ulong max_peers );
 
 void *
-fd_ssping_new( void * shmem,
-               ulong  max_peers,
-               ulong  seed );
+fd_ssping_new( void *                 shmem,
+               ulong                  max_peers,
+               ulong                  seed,
+               fd_ssping_on_ping_fn_t on_ping_cb,
+               void *                 cb_arg );
 
 fd_ssping_t *
 fd_ssping_join( void * shping );
@@ -58,9 +66,10 @@ fd_ssping_add( fd_ssping_t * ssping,
 
 /* Remove a peer from tracking by the snapshot pinger.  Peers are
    reference counted, so this will only remove the peer only if the
-   count goes to zero.  If the peer is not tracked, this is a no-op. */
+   count goes to zero.  If the peer is not tracked, this is a no-op.
+   Returns whether the peer was removed. */
 
-void
+int
 fd_ssping_remove( fd_ssping_t * ssping,
                   fd_ip4_port_t addr );
 
@@ -74,18 +83,19 @@ fd_ssping_invalidate( fd_ssping_t * ssping,
 
 /* Advance the ping tracker forward in time until "now".  This should be
    called periodically to refresh pings and service networking to
-   maintain ping states. */
+   maintain ping states.  Takes a handle to the peer selector to
+   invalidate peers from both the pinger and the selector. */
 
 void
-fd_ssping_advance( fd_ssping_t * ssping,
-                   long          now );
+fd_ssping_advance( fd_ssping_t *          ssping,
+                   long                   now,
+                   fd_sspeer_selector_t * selector);
 
-/* Retrieve the best "active" peer right now, by lowest ping.  If no
-   peer is active or pingable, this returns 0.0.0.0:0. */
+/* Return the ping socket file descriptor */
 
-fd_ip4_port_t
-fd_ssping_best( fd_ssping_t const * ssping );
+int
+fd_ssping_get_sockfd( fd_ssping_t const * ssping );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_restore_fd_ssping_h */
+#endif /* HEADER_fd_src_discof_restore_utils_fd_ssping_h */

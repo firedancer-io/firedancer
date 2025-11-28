@@ -10,12 +10,14 @@ jobs:
   coverage-report:
     timeout-minutes: 60
     name: Coverage Report
-    runs-on: icelake
+    runs-on:
+      labels: icelake
+      group: fd-public-repo
     environment:
       name: coverage-report
       url: ${{ vars.COVERAGE_URL }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 

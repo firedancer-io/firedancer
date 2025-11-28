@@ -52,7 +52,7 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
    The security of the sandbox is more important than the security of
    code which runs before sandboxing.  It is strongly preferred to do
    privileged operations before sandboxing, rather than allowing the
-   privileged operations to occur inside the sanbox.
+   privileged operations to occur inside the sandbox.
 
    The specific list of things that happen when entering the sandbox
    are:
@@ -146,6 +146,7 @@ fd_sandbox_enter( uint                 desired_uid,                  /* User ID 
                   uint                 desired_gid,                  /* Group ID to switch the process to inside the sandbox */
                   int                  keep_host_networking,         /* True to keep the host networking namespace and not unshare it */
                   int                  allow_connect,                /* True if the connect(2) syscall should be allowed via. landlock */
+                  int                  allow_renameat,               /* True if the renameat(2) syscall should be allowed via. landlock */
                   int                  keep_controlling_terminal,    /* True to disconnect from the controlling terminal session */
                   int                  dumpable,                     /* True if the "dumpable" attribute of the process should be kept, otherwise it will be cleared */
                   ulong                rlimit_file_cnt,              /* Maximum open file value to provide to setrlimit(RLIMIT_NOFILE) */
@@ -197,7 +198,7 @@ fd_sandbox_switch_uid_gid( uint desired_uid,   /* User ID to switch the process 
 ulong
 fd_sandbox_getpid( void );
 
-/* fd_sandbox_getpid returns the true TID of the current process as it
+/* fd_sandbox_gettid returns the true TID of the current process as it
    appears in the root PID namespace of the system.
 
    Calling `gettid(2)` from a process inside a PID namespace will

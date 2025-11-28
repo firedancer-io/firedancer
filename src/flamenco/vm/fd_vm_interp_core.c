@@ -27,109 +27,14 @@
 
   ulong sbpf_version = vm->sbpf_version;
 
-  for( ulong table_sbpf_version=0UL; table_sbpf_version<FD_SBPF_VERSION_COUNT; table_sbpf_version++ ) {
-    /* SIMD-0173: LDDW */
-    interp_jump_table[ table_sbpf_version ][ 0x18 ] = FD_VM_SBPF_ENABLE_LDDW(table_sbpf_version) ? &&interp_0x18 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0xf7 ] = FD_VM_SBPF_ENABLE_LDDW(table_sbpf_version) ? &&sigill : &&interp_0xf7; /* HOR64 */
-
-    /* SIMD-0173: LE */
-    interp_jump_table[ table_sbpf_version ][ 0xd4 ] = FD_VM_SBPF_ENABLE_LE  (table_sbpf_version) ? &&interp_0xd4 : &&sigill;
-
-    /* SIMD-0173: LDXW, STW, STXW */
-    interp_jump_table[ table_sbpf_version ][ 0x61 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x8c;
-    interp_jump_table[ table_sbpf_version ][ 0x62 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x87;
-    interp_jump_table[ table_sbpf_version ][ 0x63 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x8f;
-    interp_jump_table[ table_sbpf_version ][ 0x8c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x8c : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x87 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x87 : &&interp_0x87depr;
-    interp_jump_table[ table_sbpf_version ][ 0x8f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x8f : &&sigill;
-
-    /* SIMD-0173: LDXH, STH, STXH */
-    interp_jump_table[ table_sbpf_version ][ 0x69 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x3c;
-    interp_jump_table[ table_sbpf_version ][ 0x6a ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x37;
-    interp_jump_table[ table_sbpf_version ][ 0x6b ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x3f;
-    interp_jump_table[ table_sbpf_version ][ 0x3c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x3c : &&interp_0x3cdepr;
-    interp_jump_table[ table_sbpf_version ][ 0x37 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x37 : &&interp_0x37depr;
-    interp_jump_table[ table_sbpf_version ][ 0x3f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x3f : &&interp_0x3fdepr;
-
-    /* SIMD-0173: LDXB, STB, STXB */
-    interp_jump_table[ table_sbpf_version ][ 0x71 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x2c;
-    interp_jump_table[ table_sbpf_version ][ 0x72 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x27;
-    interp_jump_table[ table_sbpf_version ][ 0x73 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x2f;
-    interp_jump_table[ table_sbpf_version ][ 0x2c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x2c : &&interp_0x2cdepr;
-    interp_jump_table[ table_sbpf_version ][ 0x27 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x27 : &&interp_0x27depr;
-    interp_jump_table[ table_sbpf_version ][ 0x2f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x2f : &&interp_0x2fdepr;
-
-    /* SIMD-0173: LDXDW, STDW, STXDW */
-    interp_jump_table[ table_sbpf_version ][ 0x79 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x9c;
-    interp_jump_table[ table_sbpf_version ][ 0x7a ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x97;
-    interp_jump_table[ table_sbpf_version ][ 0x7b ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&sigill : &&interp_0x9f;
-    interp_jump_table[ table_sbpf_version ][ 0x9c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x9c : &&interp_0x9cdepr;
-    interp_jump_table[ table_sbpf_version ][ 0x97 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x97 : &&interp_0x97depr;
-    interp_jump_table[ table_sbpf_version ][ 0x9f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(table_sbpf_version) ? &&interp_0x9f : &&interp_0x9fdepr;
-
-    /* SIMD-0174: PQR */
-    interp_jump_table[ table_sbpf_version ][ 0x36 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x36 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x3e ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x3e : &&sigill;
-
-    interp_jump_table[ table_sbpf_version ][ 0x46 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x46 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x4e ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x4e : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x56 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x56 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x5e ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x5e : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x66 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x66 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x6e ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x6e : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x76 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x76 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x7e ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x7e : &&sigill;
-
-    interp_jump_table[ table_sbpf_version ][ 0x86 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x86 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x8e ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x8e : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x96 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x96 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0x9e ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0x9e : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0xb6 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0xb6 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0xbe ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0xbe : &&sigill;
-
-    interp_jump_table[ table_sbpf_version ][ 0xc6 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0xc6 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0xce ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0xce : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0xd6 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0xd6 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0xde ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0xde : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0xe6 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0xe6 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0xee ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0xee : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0xf6 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0xf6 : &&sigill;
-    interp_jump_table[ table_sbpf_version ][ 0xfe ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&interp_0xfe : &&sigill;
-
-    /* SIMD-0174: disable MUL, DIV, MOD */
-    interp_jump_table[ table_sbpf_version ][ 0x24 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&sigill : &&interp_0x24;
-    interp_jump_table[ table_sbpf_version ][ 0x34 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&sigill : &&interp_0x34;
-    interp_jump_table[ table_sbpf_version ][ 0x94 ] = FD_VM_SBPF_ENABLE_PQR (table_sbpf_version) ? &&sigill : &&interp_0x94;
-
-    /* SIMD-0174: NEG */
-    interp_jump_table[ table_sbpf_version ][ 0x84 ] = FD_VM_SBPF_ENABLE_NEG (table_sbpf_version) ? &&interp_0x84 : &&sigill;
-    /* note: 0x87 should not be overwritten because it was NEG64 and it becomes STW */
-
-    /* SIMD-0174: Explicit Sign Extension + Register Immediate Subtraction.
-      Note: 0x14 is affected by both. */
-    interp_jump_table[ table_sbpf_version ][ 0x04 ] = FD_VM_SBPF_EXPLICIT_SIGN_EXT        (table_sbpf_version) ? &&interp_0x04 : &&interp_0x04depr;
-    interp_jump_table[ table_sbpf_version ][ 0x0c ] = FD_VM_SBPF_EXPLICIT_SIGN_EXT        (table_sbpf_version) ? &&interp_0x0c : &&interp_0x0cdepr;
-    interp_jump_table[ table_sbpf_version ][ 0x1c ] = FD_VM_SBPF_EXPLICIT_SIGN_EXT        (table_sbpf_version) ? &&interp_0x1c : &&interp_0x1cdepr;
-    interp_jump_table[ table_sbpf_version ][ 0xbc ] = FD_VM_SBPF_EXPLICIT_SIGN_EXT        (table_sbpf_version) ? &&interp_0xbc : &&interp_0xbcdepr;
-    interp_jump_table[ table_sbpf_version ][ 0x14 ] = FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(table_sbpf_version) ? &&interp_0x14 : &&interp_0x14depr;
-    interp_jump_table[ table_sbpf_version ][ 0x17 ] = FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(table_sbpf_version) ? &&interp_0x17 : &&interp_0x17depr;
-
-    /* SIMD-0178: static syscalls */
-    interp_jump_table[ table_sbpf_version ][ 0x85 ] = FD_VM_SBPF_STATIC_SYSCALLS (table_sbpf_version) ? &&interp_0x85 : &&interp_0x85depr;
-    interp_jump_table[ table_sbpf_version ][ 0x95 ] = FD_VM_SBPF_STATIC_SYSCALLS (table_sbpf_version) ? &&interp_0x95 : &&interp_0x9d;
-    interp_jump_table[ table_sbpf_version ][ 0x9d ] = FD_VM_SBPF_STATIC_SYSCALLS (table_sbpf_version) ? &&interp_0x9d : &&sigill;
-
-    /* SIMD-0173 + SIMD-0179: CALLX */
-    interp_jump_table[ table_sbpf_version ][ 0x8d ] = FD_VM_SBPF_STATIC_SYSCALLS (table_sbpf_version) ? &&interp_0x8d : &&interp_0x8ddepr;
-
-  }
-
   /* Unpack the VM state */
 
   ulong pc        = vm->pc;
   ulong ic        = vm->ic;
   ulong cu        = vm->cu;
   ulong frame_cnt = vm->frame_cnt;
+
+  void const * const * const version_interp_jump_table = interp_jump_table[ sbpf_version ];
 
   /* FD_VM_INTERP_INSTR_EXEC loads the first word of the instruction at
      pc, parses it, fetches the associated register values and then
@@ -185,7 +90,7 @@
   imm     = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                     \
   reg_dst = reg[ dst ];                  /* Guaranteed in-bounds */                              \
   reg_src = reg[ src ];                  /* Guaranteed in-bounds */                              \
-  goto *interp_jump_table[ sbpf_version ][ opcode ]      /* Guaranteed in-bounds */
+  goto *version_interp_jump_table[ opcode ]      /* Guaranteed in-bounds */
 
 /* FD_VM_INTERP_SYSCALL_EXEC
    (macro to handle the logic of 0x85 pre- and post- SIMD-0178: static syscalls)
@@ -237,16 +142,23 @@
    Exit
    At this point, cu is positive and err is clear.
 */
+
+# if FD_HAS_FLATCC
+# define FD_VM_INTERP_SYSCALL_EXEC_DUMP                                       \
+  /* Dumping for debugging purposes */                                        \
+  if( FD_UNLIKELY( vm->dump_syscall_to_pb ) ) {                               \
+    fd_dump_vm_syscall_to_protobuf( vm, syscall->name );                      \
+  }
+# else
+# define FD_VM_INTERP_SYSCALL_EXEC_DUMP
+# endif
 # define FD_VM_INTERP_SYSCALL_EXEC                                            \
   /* Setup */                                                                 \
   vm->pc        = pc;                                                         \
   vm->ic        = ic;                                                         \
   vm->cu        = cu;                                                         \
   vm->frame_cnt = frame_cnt;                                                  \
-  /* Dumping for debugging purposes */                                        \
-  if( FD_UNLIKELY( vm->dump_syscall_to_pb ) ) {                               \
-    fd_dump_vm_syscall_to_protobuf( vm, syscall->name );                      \
-  }                                                                           \
+  FD_VM_INTERP_SYSCALL_EXEC_DUMP                                              \
   /* Execution */                                                             \
   ulong ret[1];                                                               \
   err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );     \
@@ -359,15 +271,15 @@
 
   /* FIXME: unvalidated code mucking with r10 */
 
-# define FD_VM_INTERP_STACK_PUSH                                                                            \
+# define FD_VM_INTERP_STACK_PUSH                                                                             \
   shadow[ frame_cnt ].r6  = reg[6];                                                                          \
   shadow[ frame_cnt ].r7  = reg[7];                                                                          \
   shadow[ frame_cnt ].r8  = reg[8];                                                                          \
   shadow[ frame_cnt ].r9  = reg[9];                                                                          \
   shadow[ frame_cnt ].r10 = reg[10];                                                                         \
   shadow[ frame_cnt ].pc  = pc;                                                                              \
-  if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
-  if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) ) reg[10] += vm->stack_frame_size;
+  if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */  \
+  if( !fd_sbpf_dynamic_stack_frames_enabled( sbpf_version ) ) reg[10] += FD_VM_STACK_FRAME_SZ * 2UL;         \
 
   /* We subtract the heap cost in the BPF loader */
 
@@ -471,12 +383,12 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x27) { /* FD_SBPF_OP_STB */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
+    ulong vaddr = reg_dst + offset;
+    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL );
     if( FD_UNLIKELY( !haddr ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
+      vm->segv_access_len  = 1UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_1( haddr, (uchar)imm );
@@ -484,12 +396,12 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x2c) { /* FD_SBPF_OP_LDXB */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
+    ulong vaddr = reg_src + offset;
+    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0, 0UL );
     if( FD_UNLIKELY( !haddr ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+      vm->segv_access_len  = 1UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */
     reg[ dst ] = fd_vm_mem_ld_1( haddr );
@@ -501,12 +413,12 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x2f) { /* FD_SBPF_OP_STXB */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
+    ulong vaddr = reg_dst + offset;
+    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL );
     if( FD_UNLIKELY( !haddr ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
+      vm->segv_access_len  = 1UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigrdonly */
     fd_vm_mem_st_1( haddr, (uchar)reg_src );
@@ -542,41 +454,30 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x37) { /* FD_SBPF_OP_STH */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
+    ulong vaddr   = reg_dst + offset;
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL );
+    int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
-
-      if( vm->direct_mapping ) {
-        /* Only execute slow path partial store when direct mapping is enabled.
-           Note that Agave implements direct mapping as an UnalignedMemoryMapping.
-           When account memory regions are not aligned, there are edge cases that require
-           the slow path partial store.
-           https://github.com/anza-xyz/sbpf/blob/410a627313124252ab1abbd3a3b686c03301bb2a/src/memory_region.rs#L388-L419 */
-        ushort val = (ushort)imm;
-        fd_vm_mem_st_try( vm, vaddr, sizeof(ushort), (uchar*)&val );
-      }
-
+      vm->segv_access_len  = 2UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_2( vm, vaddr, haddr, (ushort)imm, is_multi_region );
+    fd_vm_mem_st_2( haddr, (ushort)imm );
   }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x3c) { /* FD_SBPF_OP_LDXH */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
+    ulong vaddr   = reg_src + offset;
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_ld_sz, 0, 0UL );
+    int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+      vm->segv_access_len  = 2UL;
       goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     }
-    reg[ dst ] = fd_vm_mem_ld_2( vm, vaddr, haddr, is_multi_region );
+    reg[ dst ] = fd_vm_mem_ld_2( haddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -585,23 +486,16 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x3f) { /* FD_SBPF_OP_STXH */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
+    ulong vaddr   = reg_dst + offset;
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL );
+    int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
-
-      if( vm->direct_mapping ) {
-        /* See FD_SBPF_OP_STH for details */
-        ushort val = (ushort)reg_src;
-        fd_vm_mem_st_try( vm, vaddr, sizeof(ushort), (uchar*)&val );
-      }
-
+      vm->segv_access_len  = 2UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_2( vm, vaddr, haddr, (ushort)reg_src, is_multi_region );
+    fd_vm_mem_st_2( haddr, (ushort)reg_src );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -843,23 +737,16 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x87) { /* FD_SBPF_OP_STW */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
+    ulong vaddr   = reg_dst + offset;
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL );
+    int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
-
-      if( vm->direct_mapping ) {
-        /* See FD_SBPF_OP_STH for details */
-        uint val = (uint)imm;
-        fd_vm_mem_st_try( vm, vaddr, sizeof(uint), (uchar*)&val );
-      }
-
+      vm->segv_access_len  = 4UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_4( vm, vaddr, haddr, imm, is_multi_region );
+    fd_vm_mem_st_4( haddr, imm );
   } FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x87depr) /* FD_SBPF_OP_NEG64 deprecated */
@@ -867,16 +754,16 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x8c) { /* FD_SBPF_OP_LDXW */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
+    ulong vaddr   = reg_src + offset;
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_ld_sz, 0, 0UL );
+    int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+      vm->segv_access_len  = 4UL;
       goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     }
-    reg[ dst ] = fd_vm_mem_ld_4( vm, vaddr, haddr, is_multi_region );
+    reg[ dst ] = fd_vm_mem_ld_4( haddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -894,7 +781,7 @@ interp_exec:
 
     FD_VM_INTERP_STACK_PUSH;
 
-    ulong vaddr = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? reg_src : reg[ imm & 15U ];
+    ulong vaddr = fd_sbpf_callx_uses_src_reg_enabled( sbpf_version ) ? reg_src : reg[ imm & 15U ];
 
     /* Notes: Agave checks region and target_pc before updating the pc.
        To match their state, we do the same, even though we could simply
@@ -914,23 +801,16 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x8f) { /* FD_SBPF_OP_STXW */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
+    ulong vaddr    = reg_dst + offset;
+    ulong haddr    = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL );
+    int   sigsegv  = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
-
-      if( vm->direct_mapping ) {
-        /* See FD_SBPF_OP_STH for details */
-        uint val = (uint)reg_src;
-        fd_vm_mem_st_try( vm, vaddr, sizeof(uint), (uchar*)&val );
-      }
-
+      vm->segv_access_len  = 4UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_4( vm, vaddr, haddr, (uint)reg_src, is_multi_region );
+    fd_vm_mem_st_4( haddr, (uint)reg_src );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -954,37 +834,30 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x97) { /* FD_SBPF_OP_STQ */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
+    ulong vaddr   = reg_dst + offset;
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL );
+    int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
-
-      if( vm->direct_mapping ) {
-        /* See FD_SBPF_OP_STH for details */
-        ulong val = (ulong)(long)(int)imm;
-        fd_vm_mem_st_try( vm, vaddr, sizeof(ulong), (uchar*)&val );
-      }
-
+      vm->segv_access_len  = 8UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_8( vm, vaddr, haddr, (ulong)(long)(int)imm, is_multi_region );
+    fd_vm_mem_st_8( haddr, (ulong)(long)(int)imm );
   }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x9c) { /* FD_SBPF_OP_LDXQ */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_src + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
+    ulong vaddr   = reg_src + offset;
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0, 0UL );
+    int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+      vm->segv_access_len  = 8UL;
       goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     }
-    reg[ dst ] = fd_vm_mem_ld_8( vm, vaddr, haddr, is_multi_region );
+    reg[ dst ] = fd_vm_mem_ld_8( haddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -1009,22 +882,16 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x9f) { /* FD_SBPF_OP_STXQ */
-    uchar is_multi_region = 0;
-    ulong vaddr           = reg_dst + offset;
-    ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
-    int   sigsegv         = !haddr;
+    ulong vaddr   = reg_dst + offset;
+    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL );
+    int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
-
-      if( vm->direct_mapping ) {
-        /* See FD_SBPF_OP_STH for details */
-        fd_vm_mem_st_try( vm, vaddr, sizeof(ulong), (uchar*)&reg_src );
-      }
-
+      vm->segv_access_len  = 8UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_8( vm, vaddr, haddr, reg_src, is_multi_region );
+    fd_vm_mem_st_8( haddr, reg_src );
   }
   FD_VM_INTERP_INSTR_END;
 

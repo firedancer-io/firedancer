@@ -1,6 +1,5 @@
 #include "fd_sysvar_cache.h"
 #include "fd_sysvar_cache_private.h"
-#include "../context/fd_exec_slot_ctx.h"
 #include <errno.h>
 
 void *
@@ -117,6 +116,25 @@ FD_SYSVAR_SIMPLE_ITER( SIMPLE_SYSVAR )
 #undef SIMPLE_SYSVAR
 #undef SIMPLE_SYSVAR_READ
 
+fd_block_block_hash_entry_t const * /* deque */
+fd_sysvar_cache_recent_hashes_join_const(
+    fd_sysvar_cache_t const * cache
+) {
+  if( FD_UNLIKELY( !fd_sysvar_cache_recent_hashes_is_valid( cache ) ) ) return NULL;
+  fd_recent_block_hashes_global_t * var = (void *)cache->obj_recent_hashes;
+  fd_block_block_hash_entry_t * deq = deq_fd_block_block_hash_entry_t_join( (uchar *)var+var->hashes_offset );
+  if( FD_UNLIKELY( !deq ) ) FD_LOG_CRIT(( "recent blockhashes sysvar corruption detected" ));
+  return deq; /* demote to const ptr */
+}
+
+void
+fd_sysvar_cache_recent_hashes_leave_const(
+    fd_sysvar_cache_t const *           sysvar_cache,
+    fd_block_block_hash_entry_t const * hashes_deque
+) {
+  (void)sysvar_cache; (void)hashes_deque;
+}
+
 fd_slot_hash_t const *
 fd_sysvar_cache_slot_hashes_join_const(
     fd_sysvar_cache_t const * cache
@@ -172,8 +190,7 @@ fd_sysvar_cache_stake_history_leave_const(
 int
 fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
                        fd_sysvar_desc_t *      desc,
-                       fd_sysvar_pos_t const * pos,
-                       int                     log_fails ) {
+                       fd_sysvar_pos_t const * pos ) {
   desc->flags &= ~FD_SYSVAR_FLAG_VALID;
 
   uchar const * data    = (uchar const *)cache + pos->data_off;
@@ -189,17 +206,13 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
   fd_bincode_decode_ctx_t ctx = { .data=data, .dataend=data+data_sz };
   ulong obj_sz = 0UL;
   if( FD_UNLIKELY( pos->decode_footprint( &ctx, &obj_sz )!=FD_BINCODE_SUCCESS ) ) {
-    if( log_fails ) {
-      FD_LOG_DEBUG(( "Failed to decode sysvar %s with data_sz=%lu: decode failed",
-                     pos->name, data_sz ));
-    }
+    FD_LOG_DEBUG(( "Failed to decode sysvar %s with data_sz=%lu: decode failed",
+                   pos->name, data_sz ));
     return EINVAL;
   }
   if( FD_UNLIKELY( obj_sz > pos->obj_max ) ) {
-    if( log_fails ) {
-      FD_LOG_WARNING(( "Failed to restore sysvar %s: obj_sz=%lu exceeds max=%u",
-                       pos->name, obj_sz, pos->obj_max ));
-    }
+    FD_LOG_WARNING(( "Failed to restore sysvar %s: obj_sz=%lu exceeds max=%u",
+                     pos->name, obj_sz, pos->obj_max ));
     return ENOMEM;
   }
   pos->decode( (uchar *)cache+pos->obj_off, &ctx );

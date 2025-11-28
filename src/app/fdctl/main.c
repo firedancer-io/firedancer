@@ -11,7 +11,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_mcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fseq;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
-extern fd_topo_obj_callbacks_t fd_obj_cb_opaque;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
@@ -23,7 +22,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_dcache,
   &fd_obj_cb_fseq,
   &fd_obj_cb_metrics,
-  &fd_obj_cb_opaque,
   &fd_obj_cb_dbl_buf,
   &fd_obj_cb_neigh4_hmap,
   &fd_obj_cb_fib4,
@@ -36,8 +34,9 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
   &fd_cfg_stage_hyperthreads,
+  &fd_cfg_stage_bonding,
   &fd_cfg_stage_ethtool_channels,
-  &fd_cfg_stage_ethtool_gro,
+  &fd_cfg_stage_ethtool_offloads,
   &fd_cfg_stage_ethtool_loopback,
   NULL,
 };

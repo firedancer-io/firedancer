@@ -13,7 +13,6 @@ fd_quic_stream_pool_footprint( ulong count, ulong tx_buf_sz ) {
       FD_QUIC_STREAM_POOL_ALIGN );
 
   ulong stream_foot = fd_quic_stream_footprint( tx_buf_sz );
-  if( FD_UNLIKELY( !stream_foot ) ) return 0UL;
 
   return foot + stream_foot * count;
 }
@@ -39,7 +38,6 @@ fd_quic_stream_pool_new( void * mem, ulong count, ulong tx_buf_sz ) {
   offs += fd_ulong_align_up( sizeof( fd_quic_stream_pool_t ), FD_QUIC_STREAM_POOL_ALIGN );
 
   ulong stream_foot = fd_quic_stream_footprint( tx_buf_sz );
-  if( FD_UNLIKELY( !stream_foot ) ) { FD_LOG_WARNING(( "stream footprint is 0: Confirm tx_buf_sz is pow2!" )); return NULL; }
 
   FD_QUIC_STREAM_LIST_SENTINEL( pool->head );
 

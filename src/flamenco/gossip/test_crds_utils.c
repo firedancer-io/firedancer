@@ -36,9 +36,7 @@ create_test_crds_with_ci( fd_rng_t * rng, ulong num_peers ) {
     view.wallclock_nanos = fd_log_wallclock();
 
     /* Create minimal contact info view */
-    fd_gossip_view_contact_info_t contact_info = {0};
-    contact_info.instance_creation_wallclock_nanos = view.wallclock_nanos;
-    view.contact_info[0] = contact_info;
+    view.ci_view->contact_info->instance_creation_wallclock_nanos = view.wallclock_nanos;
 
     /* Generate random stake */
     ulong stake = fd_rng_ulong_roll( rng, 1000000UL ) + 1UL;

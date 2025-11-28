@@ -57,7 +57,7 @@
    Which is equivalent to choosing child
           (a<=x) + (a+b<=x) + (a+b+c<=x) + (a+b+c+d<=x)
    which can be computed branchlessly.  The value of e only comes into
-   play in the restriction that x is in [0, S), and e is inlcuded in the
+   play in the restriction that x is in [0, S), and e is included in the
    value of S.
 
    There are two details left to discuss in order to search recursively.
@@ -115,7 +115,7 @@ struct __attribute__((aligned(64UL))) fd_wsample_private {
      height and internal_node_cnt both exclude the leaves, which are
      only implicit.
 
-     All the math seems to disallow leaf_cnt==0, but for conveniece, we
+     All the math seems to disallow leaf_cnt==0, but for convenience, we
      do allow it. height==internal_node_cnt==0 in that case.
 
      height actually fits in a uchar.  Storing as ulong is more natural,
@@ -140,7 +140,7 @@ struct __attribute__((aligned(64UL))) fd_wsample_private {
      but before any deletion so that restoring deleted elements can be
      implemented as a memcpy.
 
-     The tree iteself is surrounded by two dummy elements, dummy, and
+     The tree itself is surrounded by two dummy elements, dummy, and
      tree[internal_node_cnt], that aren't actually used.  This is
      because searching the tree branchlessly involves some out of bounds
      reads, and although the value is immediately discarded, it's better
@@ -209,7 +209,7 @@ fd_wsample_join( void * shmem  ) {
 }
 
 /* Note: The following optimization insights are not used in this
-   high radix implmentation.  Performance in the deletion case is much
+   high radix implementation.  Performance in the deletion case is much
    more important than in the non-deletion case, and it's not clear how
    to translate this.  I'm leaving the code and comment because it is a
    useful and non-trivial insight. */

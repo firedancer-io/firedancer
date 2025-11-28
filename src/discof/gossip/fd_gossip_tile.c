@@ -2,13 +2,12 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "generated/fd_gossip_tile_seccomp.h"
 
-#include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/gossip/crds/fd_crds.h"
 #include "../../flamenco/gossip/fd_gossip_out.h"
-#include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../flamenco/features/fd_features.h"
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/shred/fd_stake_ci.h"
+#include "../../disco/fd_txn_m.h"
 
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
@@ -21,47 +20,6 @@ extern ulong const firedancer_major_version;
 extern ulong const firedancer_minor_version;
 extern ulong const firedancer_patch_version;
 extern uint  const firedancer_commit_ref;
-
-typedef struct {
-  int         kind;
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
-  ulong       mtu;
-} fd_gossip_in_ctx_t;
-
-struct fd_gossip_tile_ctx {
-  fd_gossip_t * gossip;
-
-  fd_contact_info_t my_contact_info[1];
-
-  fd_stem_context_t * stem;
-
-  uint  rng_seed;
-  ulong rng_idx;
-
-  double ticks_per_ns;
-  long   last_wallclock;
-  long   last_tickcount;
-
-  fd_stake_weight_t * stake_weights_converted;
-
-  fd_gossip_in_ctx_t in[ 128UL ];
-
-  fd_gossip_out_ctx_t net_out[ 1 ];
-  fd_gossip_out_ctx_t gossip_out[ 1 ];
-  fd_gossip_out_ctx_t gossvf_out[ 1 ];
-  fd_gossip_out_ctx_t sign_out[ 1 ];
-
-  fd_keyguard_client_t keyguard_client[ 1 ];
-  fd_keyswitch_t * keyswitch;
-
-  ushort            net_id;
-  fd_ip4_udp_hdrs_t net_out_hdr[ 1 ];
-  fd_rng_t          rng[ 1 ];
-};
-
-typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -105,7 +63,7 @@ gossip_send_fn( void *                ctx,
   fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
 
   ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig       = fd_disco_netmux_sig( peer_address->addr, peer_address->port, peer_address->addr, DST_PROTO_OUTGOING, 0UL /* ignored */ );
+  ulong sig       = fd_disco_netmux_sig( peer_address->addr, peer_address->port, peer_address->addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
   ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
 
   fd_stem_publish( stem, gossip_ctx->net_out->idx, sig, gossip_ctx->net_out->chunk, packet_sz, 0UL, tspub, tsorig );
@@ -203,6 +161,9 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES, metrics->crds_tx_pull_response_bytes );
 
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX_COUNT,               metrics->crds_rx_count );
+
+  FD_MCNT_SET( GOSSIP, CONTACT_INFO_UNRECOGNIZED_SOCKET_TAGS, metrics->ci_rx_unrecognized_socket_tag_cnt );
+  FD_MCNT_SET( GOSSIP, CONTACT_INFO_IPV6,                     metrics->ci_rx_ipv6_address_cnt );
 }
 
 void
@@ -228,11 +189,10 @@ handle_shred_version( fd_gossip_tile_ctx_t * ctx,
 
 static void
 handle_local_vote( fd_gossip_tile_ctx_t * ctx,
-                   uchar const *          payload,
-                   ulong                  payload_sz,
+                   fd_txn_m_t const *     txn_m,
                    fd_stem_context_t *    stem ) {
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
-  fd_gossip_push_vote( ctx->gossip, payload, payload_sz, stem, now );
+  fd_gossip_push_vote( ctx->gossip, fd_txn_m_payload_const( txn_m ), txn_m->payload_sz, stem, now );
 }
 
 static void
@@ -275,10 +235,12 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
                  ulong                  sig,
                  ulong                  chunk,
                  ulong                  sz,
+                 ulong                  ctl,
                  ulong                  tsorig,
                  ulong                  tspub,
                  fd_stem_context_t *    stem ) {
   (void)seq;
+  (void)ctl;
   (void)tsorig;
   (void)tspub;
 
@@ -289,7 +251,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
 
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
-    case IN_KIND_SEND:          handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
+    case IN_KIND_SEND:          handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
     case IN_KIND_STAKE:         handle_stakes( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_GOSSVF:        handle_packet( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
   }
@@ -373,9 +335,9 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( FD_UNLIKELY( !strcmp( link->name, "sign_gossip" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SIGN;
       sign_in_tile_idx = i;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "send_txns" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( link->name, "send_out" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SEND;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "stake_out" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( link->name, "replay_stake" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_STAKE;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
@@ -419,7 +381,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->my_contact_info->version.minor       = (ushort)firedancer_minor_version;
   ctx->my_contact_info->version.patch       = (ushort)firedancer_patch_version;
   ctx->my_contact_info->version.commit      = firedancer_commit_ref;
-  ctx->my_contact_info->version.feature_set = UINT_MAX; /* TODO ... */
+  ctx->my_contact_info->version.feature_set = FD_FEATURE_SET_ID;
 
   ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ]            = (fd_ip4_port_t){ .addr = tile->gossip.ports.gossip   ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.gossip )   };
   ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU ]               = (fd_ip4_port_t){ .addr = tile->gossip.ports.tvu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tvu )      };
@@ -535,7 +497,7 @@ FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO+FD_GOSSIP_MSG_MAX_CRDS*2UL<=FD_PING_TRAC
                   "Gossip stem burst needs recalculating" );
 #define STEM_BURST ( FD_PING_TRACKER_MAX+1UL )
 
-#define STEM_LAZY  (128L*3000L)
+#define STEM_LAZY  (1000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gossip_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gossip_tile_ctx_t)

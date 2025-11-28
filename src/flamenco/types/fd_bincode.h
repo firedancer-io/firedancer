@@ -1,8 +1,7 @@
-#ifndef HEADER_fd_src_util_encoders_fd_bincode_h
-#define HEADER_fd_src_util_encoders_fd_bincode_h
+#ifndef HEADER_fd_src_flamenco_types_fd_bincode_h
+#define HEADER_fd_src_flamenco_types_fd_bincode_h
 
 #include "../../util/fd_util.h"
-#include "../../util/valloc/fd_valloc.h"
 
 typedef void
 (* fd_types_walk_fn_t)( void *       self,
@@ -82,15 +81,27 @@ typedef struct fd_bincode_decode_ctx fd_bincode_decode_ctx_t;
     return FD_BINCODE_SUCCESS; \
   }
 
-FD_BINCODE_PRIMITIVE_STUBS( uint8,   uchar   )
-FD_BINCODE_PRIMITIVE_STUBS( uint16,  ushort  )
-FD_BINCODE_PRIMITIVE_STUBS( uint32,  uint    )
-FD_BINCODE_PRIMITIVE_STUBS( uint64,  ulong   )
-FD_BINCODE_PRIMITIVE_STUBS( int64,   long   )
-#if FD_HAS_INT128
-FD_BINCODE_PRIMITIVE_STUBS( uint128, uint128 )
-#endif
-FD_BINCODE_PRIMITIVE_STUBS( double,  double  )
+/* fd_w_u128 is a wrapped "uint128" type providing basic 128-bit
+   unsigned int functionality to fd_types, even if the compile target
+   does not natively support uint128. */
+
+union __attribute__((aligned(16))) fd_w_u128 {
+  uchar   uc[16];
+  ulong   ul[2];
+# if FD_HAS_INT128
+  uint128 ud;
+# endif
+};
+
+typedef union fd_w_u128 fd_w_u128_t;
+
+FD_BINCODE_PRIMITIVE_STUBS( uint8,   uchar       )
+FD_BINCODE_PRIMITIVE_STUBS( uint16,  ushort      )
+FD_BINCODE_PRIMITIVE_STUBS( uint32,  uint        )
+FD_BINCODE_PRIMITIVE_STUBS( uint64,  ulong       )
+FD_BINCODE_PRIMITIVE_STUBS( int64,   long        )
+FD_BINCODE_PRIMITIVE_STUBS( uint128, fd_w_u128_t )
+FD_BINCODE_PRIMITIVE_STUBS( double,  double      )
 
 static inline int
 fd_bincode_bool_decode( uchar *                   self,
@@ -593,20 +604,31 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
    }
    ... parse success ... */
 
-#define fd_bincode_decode_static( type, out, buf, buf_sz, perr )       \
+#define fd_bincode_decode_static1( type, suffix, out, buf, buf_sz, perr ) \
   __extension__({                                                      \
     void const * const buf_    = (buf);                                \
     ulong        const buf_sz_ = (buf_sz);                             \
-    fd_##type##_t *    res     = NULL;                                 \
+    int *              perr_   = (perr);                               \
+    fd_##type##suffix##_t *    res     = NULL;                         \
     fd_bincode_decode_ctx_t ctx = {0};                                 \
     ctx.data    = (void const *)( buf_ );                              \
     ctx.dataend = (void const *)( (ulong)ctx.data + buf_sz_ );         \
     ulong total_sz = 0UL;                                              \
     int err = fd_##type##_decode_footprint( &ctx, &total_sz );         \
     if( FD_LIKELY( err==FD_BINCODE_SUCCESS ) ) {                       \
-      res = fd_##type##_decode( (out), &ctx );                         \
+      res = fd_##type##_decode##suffix( (out), &ctx );                 \
     }                                                                  \
+    if( perr_ ) *perr_ = err;                                          \
     res;                                                               \
   })
 
-#endif /* HEADER_fd_src_util_encoders_fd_bincode_h */
+#define fd_bincode_decode_static( t,o,b,s,p ) \
+  fd_bincode_decode_static1( t, , o, b, s, p )
+
+#define fd_bincode_decode_static_global( t,o,b,s,p ) \
+  fd_bincode_decode_static1( t, _global, o, b, s, p )
+
+#define fd_bincode_decode_static_limited_deserialize( type, out, buf, buf_sz, limit, perr ) \
+  fd_bincode_decode_static( type, out, buf, buf_sz>limit ? limit : buf_sz, perr )
+
+#endif /* HEADER_fd_src_flamenco_types_fd_bincode_h */

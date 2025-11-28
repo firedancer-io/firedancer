@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_waltz_fd_rtt_est_h
-#define HEADER_fd_waltz_fd_rtt_est_h
+#ifndef HEADER_fd_src_waltz_fd_rtt_est_h
+#define HEADER_fd_src_waltz_fd_rtt_est_h
 
 /* fd_rtt_est.h provides an API to estimate RTT (round trip time) for
    packet transmissions to a single destination.  The 'duration' unit in
@@ -50,11 +50,11 @@ fd_rtt_sample( fd_rtt_estimate_t * est,
   /* min_rtt is estimated from rtt_ticks without adjusting for ack_delay */
   est->min_rtt = fminf( prev_min_rtt, latest_rtt );
 
+  est->latest_rtt = latest_rtt;
+
   /* smoothed_rtt is calculated from adjusted rtt_ticks
      except: ack_delay must not be subtracted if the result would be less than minrtt */
   float adj_rtt = fmaxf( est->min_rtt, latest_rtt - ack_delay );
-
-  est->latest_rtt = adj_rtt;
 
   /* Taken directly from RFC 9002 Section 5.3 */
   if( FD_UNLIKELY( !est->is_rtt_valid ) ) {
@@ -70,4 +70,4 @@ fd_rtt_sample( fd_rtt_estimate_t * est,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_waltz_fd_rtt_est_h */
+#endif /* HEADER_fd_src_waltz_fd_rtt_est_h */

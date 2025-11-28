@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_repair_fd_store_h
-#define HEADER_fd_src_discof_repair_fd_store_h
+#ifndef HEADER_fd_src_disco_store_fd_store_h
+#define HEADER_fd_src_disco_store_fd_store_h
 
 /* fd_store is a high-performance in-memory storage engine for shreds as
    they are received from the network.
@@ -144,6 +144,7 @@
 
 #include "../../flamenco/fd_rwlock.h"
 #include "../../flamenco/types/fd_types_custom.h"
+#include "../../util/hist/fd_histf.h"
 
 /* FD_STORE_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -184,9 +185,10 @@ struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
   /* Keys */
 
   fd_store_key_t key; /* map key, merkle root of the FEC set + a partition index */
-  fd_hash_t cmr;      /* parent's map key, chained merkle root of the FEC set */
+  fd_hash_t      cmr; /* parent's map key, chained merkle root of the FEC set */
 
-  /* Pointers */
+  /* Pointers.  These are internal to the store and callers should not
+                interface with them directly. */
 
   ulong next;    /* reserved for internal use by fd_pool, fd_map_chain */
   ulong parent;  /* pool idx of the parent */
@@ -195,6 +197,7 @@ struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
 
   /* Data */
 
+  uint block_offs[ 32 ];         /* block_offs[ i ] is the total size of data shreds [0, i] */
   ulong data_sz;                 /* TODO fixed-32. sz of the FEC set payload, guaranteed < FD_STORE_DATA_MAX */
   uchar data[FD_STORE_DATA_MAX]; /* FEC set payload = coalesced data shreds (byte array) */
 };
@@ -302,25 +305,23 @@ fd_store_wksp( fd_store_t const * store ) {
   return (fd_wksp_t *)( ( (ulong)store ) - store->store_gaddr );
 }
 
-/* fd_store_pool returns a local join to the pool_t object of the store. */
-FD_FN_PURE static inline fd_store_pool_t fd_store_pool_const( fd_store_t const * store ) {
-   return (fd_store_pool_t){ .pool = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_mem_gaddr ),
-                             .ele =  fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_ele_gaddr ),
+/* fd_store_pool computes and returns a local join handle to the pool_para. */
+FD_FN_PURE static inline fd_store_pool_t fd_store_pool( fd_store_t const * store ) {
+   return (fd_store_pool_t){ .pool    = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_mem_gaddr ),
+                             .ele     = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_ele_gaddr ),
                              .ele_max = store->fec_max };
 }
 
-/* fd_store_{map,map_const,pool,fec0,fec0_const,root,root_const} returns a pointer in the
-   caller's address space to the corresponding store field.  const
-   versions for each are also provided. */
+/* fd_store_{map,map_const,fec0,fec0_const,root,root_const} returns a
+   pointer in the caller's address space to the corresponding store
+   field.  const versions for each are also provided. */
 
-FD_FN_PURE static inline fd_store_map_t       * fd_store_map       ( fd_store_t       * store ) { return fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const ( fd_store_t const * store ) { return fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr  ); }
-FD_FN_PURE static inline fd_store_pool_t        fd_store_pool      ( fd_store_t       * store ) { return fd_store_pool_const( store );                                    }
-
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_fec0      ( fd_store_t       * store ) { fd_store_pool_t pool = fd_store_pool      ( store ); return pool.ele;                                     }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_fec0_const( fd_store_t const * store ) { fd_store_pool_t pool = fd_store_pool_const( store ); return pool.ele;                                     }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_root      ( fd_store_t       * store ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele      ( &pool, store->root); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t const * store ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, store->root); }
+FD_FN_PURE static inline fd_store_map_t       * fd_store_map       ( fd_store_t       * store ) { return fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr );                              }
+FD_FN_PURE static inline fd_store_map_t const * fd_store_map_const ( fd_store_t const * store ) { return fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr );                              }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_fec0      ( fd_store_t       * store ) { fd_store_pool_t pool = fd_store_pool( store ); return pool.ele;                                     }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_fec0_const( fd_store_t const * store ) { fd_store_pool_t pool = fd_store_pool( store ); return pool.ele;                                     }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_root      ( fd_store_t       * store ) { fd_store_pool_t pool = fd_store_pool( store ); return fd_store_pool_ele      ( &pool, store->root); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t const * store ) { fd_store_pool_t pool = fd_store_pool( store ); return fd_store_pool_ele_const( &pool, store->root); }
 
 /* fd_store_{parent,child,sibling} returns a pointer in the caller's
    address space to the corresponding {parent,left-child,right-sibling}
@@ -328,22 +329,22 @@ FD_FN_PURE static inline fd_store_fec_t const * fd_store_root_const( fd_store_t 
    pointer to a pool element inside store.  const versions for each are
    also provided. */
 
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_parent       ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele      ( &pool, fec->parent  ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_parent_const ( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, fec->parent  ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_child        ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele      ( &pool, fec->child   ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_child_const  ( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, fec->child   ); }
-FD_FN_PURE static inline fd_store_fec_t       * fd_store_sibling      ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele      ( &pool, fec->sibling ); }
-FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, fec->sibling ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_parent       ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool( store ); return fd_store_pool_ele      ( &pool, fec->parent  ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_parent_const ( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool( store ); return fd_store_pool_ele_const( &pool, fec->parent  ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_child        ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool( store ); return fd_store_pool_ele      ( &pool, fec->child   ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_child_const  ( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool( store ); return fd_store_pool_ele_const( &pool, fec->child   ); }
+FD_FN_PURE static inline fd_store_fec_t       * fd_store_sibling      ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool( store ); return fd_store_pool_ele      ( &pool, fec->sibling ); }
+FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool( store ); return fd_store_pool_ele_const( &pool, fec->sibling ); }
 
-/* fd_store_{shacq, shrel, exacq, exrel} acquires / releases the
-   shared / exclusive lock.  Callers should typically use the
+/* fd_store_{shacq, shrel, exacq, exrel} acquires / releases the shared
+   / exclusive lock.  Callers should typically use the
    FD_STORE_SHARED_LOCK and FD_STORE_EXCLUSIVE_LOCK macros to acquire
    and release the lock instead of calling these functions directly. */
 
-FD_FN_PURE static inline void fd_store_shacq( fd_store_t * store ) { fd_rwlock_read   ( &store->lock ); }
-FD_FN_PURE static inline void fd_store_shrel( fd_store_t * store ) { fd_rwlock_unread ( &store->lock ); }
-FD_FN_PURE static inline void fd_store_exacq( fd_store_t * store ) { fd_rwlock_write  ( &store->lock ); }
-FD_FN_PURE static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_unwrite( &store->lock ); }
+static inline void fd_store_shacq( fd_store_t * store ) { fd_rwlock_read   ( &store->lock ); }
+static inline void fd_store_shrel( fd_store_t * store ) { fd_rwlock_unread ( &store->lock ); }
+static inline void fd_store_exacq( fd_store_t * store ) { fd_rwlock_write  ( &store->lock ); }
+static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_unwrite( &store->lock ); }
 
 struct fd_store_lock_ctx {
   fd_store_t * store_;
@@ -377,6 +378,23 @@ fd_store_exclusive_lock_cleanup( struct fd_store_lock_ctx * ctx ) { *(ctx->work_
   do
 #define FD_STORE_EXCLUSIVE_LOCK_END while(0); } while(0)
 
+struct fd_store_histf {
+  fd_histf_t * histf;
+  long         ts;
+};
+typedef struct fd_store_histf fd_store_histf_t;
+
+static inline void
+fd_store_histf( fd_store_histf_t * ctx ) {
+  fd_histf_sample( ctx->histf, (ulong)fd_long_max( fd_tickcount() - ctx->ts, 0UL ) );
+}
+
+#define FD_STORE_HISTF_BEGIN(metric) do {                                                                                \
+   fd_store_histf_t _ctx __attribute__((cleanup(fd_store_histf))) = { .histf = (metric), .ts = fd_tickcount() }; \
+   do
+
+#define FD_STORE_HISTF_END while(0); } while(0)
+
 /* fd_store_{query,query_const} queries the FEC set keyed by merkle.
    Returns a pointer to the fd_store_fec_t if found, NULL otherwise.
 
@@ -392,7 +410,7 @@ fd_store_exclusive_lock_cleanup( struct fd_store_lock_ctx * ctx ) { *(ctx->work_
    they no longer retain interest in the returned pointer. */
 
 FD_FN_PURE static inline fd_store_fec_t *
-fd_store_query( fd_store_t * store, fd_hash_t * merkle_root ) {
+fd_store_query( fd_store_t * store, fd_hash_t const * merkle_root ) {
    fd_store_key_t  key  = { .mr = *merkle_root, .part = UINT_MAX };
    fd_store_pool_t pool = fd_store_pool( store );
    for( uint i = 0; i < store->part_cnt; i++ ) {
@@ -475,8 +493,8 @@ fd_store_link( fd_store_t * store,
    they no longer retain interest in the returned pointer. */
 
 fd_store_fec_t *
-fd_store_publish( fd_store_t * store,
-                  fd_hash_t  * merkle_root );
+fd_store_publish( fd_store_t *      store,
+                  fd_hash_t const * merkle_root );
 
 /* fd_store_clear clears the store.  All elements are removed from the
    map and released back into the pool.  Does not zero-out fields.
@@ -500,4 +518,4 @@ fd_store_print( fd_store_t const * store );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_repair_fd_store_h */
+#endif /* HEADER_fd_src_disco_store_fd_store_h */

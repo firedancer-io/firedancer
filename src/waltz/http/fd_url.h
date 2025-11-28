@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_h2_fd_url_h
-#define HEADER_fd_src_waltz_h2_fd_url_h
+#ifndef HEADER_fd_src_waltz_http_fd_url_h
+#define HEADER_fd_src_waltz_http_fd_url_h
 
 /* fd_url.h provides an API for handling URLs.
 
@@ -55,4 +55,4 @@ fd_url_unescape( char * const msg,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_waltz_h2_fd_url_h */
+#endif /* HEADER_fd_src_waltz_http_fd_url_h */

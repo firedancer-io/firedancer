@@ -53,14 +53,13 @@ fd_quic_conn_t * server_conn = NULL;
 
 void
 my_cb_conn_final( fd_quic_conn_t * conn,
-                  void *           context ) {
-  (void)context;
-
+                  void *           context  FD_PARAM_UNUSED) {
   fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
   if( ppconn ) {
     FD_LOG_INFO(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
     *ppconn = NULL;
-  }}
+  }
+}
 
 void
 my_connection_new( fd_quic_conn_t * conn,
@@ -89,19 +88,17 @@ my_handshake_complete( fd_quic_conn_t * conn,
 }
 
 /* global "clock" */
-static ulong now = (ulong)1e18;
-
-static ulong
-test_clock( void * ctx ) {
-  (void)ctx;
-  return now;
-}
+static long now = 1e18L;
 
 static long
 test_fibre_clock(void) {
-  return (long)now;
+  return now;
 }
 
+static void
+sync_clocks( fd_quic_t * x, fd_quic_t * y ) {
+  fd_quic_sync_clocks( x, y, now );
+}
 
 struct client_args {
   fd_quic_t * quic;
@@ -113,34 +110,37 @@ static void
 client_fibre_fn( void * vp_arg ) {
   client_args_t * args = (client_args_t*)vp_arg;
 
-  fd_quic_t * quic = args->quic;
+  fd_quic_t * quic        = args->quic;
+  fd_quic_t * server_quic = args->server_quic;
 
   fd_quic_conn_t *   conn   = NULL;
   fd_quic_stream_t * stream = NULL;
 
   static uchar const buf[] = "Hello World!";
 
-  ulong period_ns = (ulong)1e6;
-  ulong next_send = now;
+  long  period_ns = (long)1e6;
+  long  next_send = now;
   ulong sent      = 0;
 
   rcvd = sent = 0;
 
-  conn = fd_quic_connect( quic, 0U, 0, 0U, 0 );
+  conn = fd_quic_connect( quic, 0U, 0, 0U, 0, now );
   if( !conn ) {
-    FD_LOG_ERR(( "Client unable to obtain a connection. now: %lu", (ulong)now ));
+    FD_LOG_ERR(( "Client unable to obtain a connection. now: %ld", now ));
   }
 
   fd_quic_conn_set_context( conn, &conn );
 
   /* service client until connection is established */
   while( conn && conn->state != FD_QUIC_CONN_STATE_ACTIVE ) {
-    fd_quic_service( quic );
+    sync_clocks( quic, server_quic );
+    fd_quic_service( quic, now );
 
-    ulong next_wakeup = fd_quic_get_next_wakeup( quic );
+    long next_wakeup = fd_quic_get_next_wakeup( quic );
+    FD_TEST( next_wakeup < LONG_MAX );
 
     /* wake up at either next service or next send, whichever is sooner */
-    fd_fibre_wait_until( (long)next_wakeup );
+    fd_fibre_wait_until( next_wakeup );
   }
 
   next_send = now;
@@ -150,12 +150,14 @@ client_fibre_fn( void * vp_arg ) {
   FD_LOG_INFO(( "CLIENT - connection established - key_phase: %u", (uint)conn->key_phase ));
 
   while( !client_done ) {
-    ulong next_wakeup = fd_quic_get_next_wakeup( quic );
+    long next_wakeup = fd_quic_get_next_wakeup( quic );
+    FD_TEST( next_wakeup < LONG_MAX );
 
     /* wake up at either next service or next send, whichever is sooner */
-    fd_fibre_wait_until( (long)fd_ulong_min( next_wakeup, next_send ) );
+    fd_fibre_wait_until( fd_long_min( next_wakeup, next_send ) );
 
-    fd_quic_service( quic );
+    sync_clocks( quic, server_quic );
+    fd_quic_service( quic, now );
 
     /* in this controlled test, connections should not terminate */
     if( !conn ) {
@@ -164,10 +166,10 @@ client_fibre_fn( void * vp_arg ) {
 
     /* report key phase changes, when complete */
     if( !conn->key_update && last_key_phase != conn->key_phase ) {
-      FD_LOG_INFO(( "CLIENT - key phase changed to %u", (uint)conn->key_phase ));
+      tot_key_phase_change++;
+      FD_LOG_INFO(( "CLIENT - key phase changed to %u, %lu changes done", (uint)conn->key_phase, tot_key_phase_change ));
       last_key_phase = conn->key_phase;
 
-      tot_key_phase_change++;
       if( tot_key_phase_change == NUM_KEY_PHASE_CHANGES ) {
         client_done = 1;
       }
@@ -219,7 +221,8 @@ client_fibre_fn( void * vp_arg ) {
 
     /* keep servicing until connection closed */
     while( conn ) {
-      fd_quic_service( quic );
+      sync_clocks( quic, server_quic );
+      fd_quic_service( quic, now );
       fd_fibre_yield();
     }
   }
@@ -231,23 +234,26 @@ client_fibre_fn( void * vp_arg ) {
 
 struct server_args {
   fd_quic_t * quic;
+  fd_quic_t * client_quic;
 };
 typedef struct server_args server_args_t;
 
 
 static void
 server_fibre_fn( void * vp_arg ) {
-  server_args_t * args = (server_args_t*)vp_arg;
+  server_args_t * args = fd_type_pun( vp_arg );
 
   fd_quic_t * quic = args->quic;
+  fd_quic_t * client_quic = args->client_quic;
 
   /* track key phase changes */
   uint last_key_phase = -1u;
 
   /* wake up at least every 1ms */
-  ulong period_ns = (ulong)1e6;
+  long period_ns = (long)1e6;
   while( !server_done ) {
-    fd_quic_service( quic );
+    sync_clocks( quic, client_quic );
+    fd_quic_service( quic, now );
 
     if( server_conn ) {
       if( last_key_phase == -1u ) {
@@ -259,10 +265,10 @@ server_fibre_fn( void * vp_arg ) {
       }
     }
 
-    ulong next_wakeup = fd_quic_get_next_wakeup( quic );
-    ulong next_period = now + period_ns;
+    long next_wakeup = fd_quic_get_next_wakeup( quic );
+    long next_period = now + period_ns;
 
-    fd_fibre_wait_until( (long)fd_ulong_min( next_wakeup, next_period ) );
+    fd_fibre_wait_until( fd_long_min( next_wakeup, next_period ) );
   }
 }
 
@@ -314,18 +320,13 @@ main( int argc, char ** argv ) {
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.conn_final       = my_cb_conn_final;
-
-  client_quic->cb.now     = test_clock;
-  client_quic->cb.now_ctx = NULL;
+  client_quic->cb.quic_ctx         = &client_quic;
 
   client_quic->config.initial_rx_max_stream_data = 1<<15;
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_rx      = my_stream_rx_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
-
-  server_quic->cb.now     = test_clock;
-  server_quic->cb.now_ctx = NULL;
 
   server_quic->config.initial_rx_max_stream_data = 1<<15;
 
@@ -351,7 +352,7 @@ main( int argc, char ** argv ) {
   FD_TEST( client_fibre );
 
   void * server_mem = fd_wksp_alloc_laddr( wksp, fd_fibre_start_align(), fd_fibre_start_footprint( stack_sz ), 1UL );
-  server_args_t server_args[1] = {{ .quic = server_quic }};
+  server_args_t server_args[1] = {{ .quic = server_quic, .client_quic = client_quic }};
   server_fibre = fd_fibre_start( server_mem, stack_sz, server_fibre_fn, server_args );
   FD_TEST( server_fibre );
 
@@ -365,7 +366,7 @@ main( int argc, char ** argv ) {
     long timeout = fd_fibre_schedule_run();
     if( timeout < 0 ) break;
 
-    now = (ulong)timeout;
+    now = timeout;
   }
 
   FD_LOG_NOTICE(( "Passed %lu key updates", tot_key_phase_change ));

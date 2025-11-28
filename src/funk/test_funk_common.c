@@ -253,10 +253,6 @@ rec_insert( funk_t * funk,
 
   rec_t * rec = rec_query( funk, txn, key );
   if( rec ) {
-    if( rec->erase ) { /* Undo any previous erase */
-      rec->erase = 0;
-      return rec;
-    }
     FD_LOG_ERR(( "never get here unless user error" ));
   }
 
@@ -266,7 +262,6 @@ rec_insert( funk_t * funk,
   /* Push into the map */
 
   rec->key   = key;
-  rec->erase = 0;
   rec->val   = 0U;
 
   rec_t * prev = funk->rec_map_tail;
@@ -297,16 +292,6 @@ rec_insert( funk_t * funk,
   *_tail = rec;
 
   return rec;
-}
-
-void
-rec_remove( funk_t * funk,
-            rec_t *  rec ) {
-  (void)funk;
-
-//FD_LOG_NOTICE(( "remove (%lu,%lu) erase=%i", rec->txn ? rec->txn->xid : 0UL, rec->key, erase ));
-
-  rec->erase = 1;
 }
 
 /* Mini funk implementation *******************************************/

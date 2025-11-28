@@ -1,0 +1,11 @@
+# This is needed so that we can reference the nightly queries in test/qlpack.yml
+# otherwise, the CodeQL CLI would look for the queries in the default registry
+# instead of the local file system.
+provide:
+  - "test/qlpack.yml"
+  - "dev/qlpack.yml"
+  - "nightly/qlpack.yml"
+
+registries:
+ - packages: 'codeql/*'
+   url: https://ghcr.io/v2/

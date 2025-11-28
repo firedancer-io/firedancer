@@ -42,7 +42,7 @@ typedef struct fd_blockhash_info fd_blockhash_info_t;
 #define MAP_IDX_T         ushort
 #define MAP_NEXT          next
 #define MAP_KEY_EQ(k0,k1) fd_hash_eq( (k0), (k1) )
-#define MAP_KEY_HASH(k,s) fd_funk_rec_key_hash1( (k->uc), 0, (s) )
+#define MAP_KEY_HASH(k,s) fd_funk_rec_key_hash1( (k->uc), (s) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_blockhashes_t is the class representing a blockhash queue.
@@ -106,9 +106,16 @@ fd_blockhashes_check_age( fd_blockhashes_t const * blockhashes,
                           ulong                    max_age );
 
 FD_FN_PURE static inline fd_hash_t const *
-fd_blockhashes_peek_last( fd_blockhashes_t const * blockhashes ) {
+fd_blockhashes_peek_last_hash( fd_blockhashes_t const * blockhashes ) {
   if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return 0;
   return &fd_blockhash_deq_peek_tail_const( blockhashes->d.deque )->hash;
+}
+
+
+FD_FN_PURE static inline fd_blockhash_info_t const *
+fd_blockhashes_peek_last( fd_blockhashes_t const * blockhashes ) {
+  if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return 0;
+  return fd_blockhash_deq_peek_tail_const( blockhashes->d.deque );
 }
 
 FD_PROTOTYPES_END

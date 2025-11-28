@@ -6,7 +6,7 @@
 #include "proto/block_engine.pb.h"
 #include "proto/bundle.pb.h"
 #include "proto/packet.pb.h"
-#include "../fd_txn_m_t.h"
+#include "../fd_txn_m.h"
 #include "../plugin/fd_plugin.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
@@ -278,7 +278,7 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
   /* Request block builder info */
   int const builder_info_expired = ( ctx->builder_info_valid_until - now )<0;
   if( FD_UNLIKELY( ( ( !ctx->builder_info_avail ) |
-                     ( !builder_info_expired    ) ) &
+                     ( builder_info_expired     ) ) &
                    ( !ctx->builder_info_wait      ) ) ) {
     fd_bundle_client_request_builder_info( ctx );
     return 1;
@@ -341,8 +341,12 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
 
   /* gRPC conn died? */
   if( FD_UNLIKELY( !ctx->grpc_client ) ) {
+    long sleep_start;
   reconnect:
-    if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, fd_bundle_now() ) ) ) {
+    sleep_start = fd_bundle_now();
+    if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, sleep_start ) ) ) {
+      long wait_dur = ctx->backoff_until - sleep_start;
+      fd_log_sleep( fd_long_min( wait_dur, 1e6 ) );
       return;
     }
     fd_bundle_client_create_conn( ctx );
@@ -795,6 +799,7 @@ fd_bundle_client_grpc_rx_msg(
     ulong        request_ctx
 ) {
   fd_bundle_tile_t * ctx = app_ctx;
+  ctx->metrics.proto_received_bytes += protobuf_sz;
   pb_istream_t istream = pb_istream_from_buffer( protobuf, protobuf_sz );
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:

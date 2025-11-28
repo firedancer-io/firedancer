@@ -51,14 +51,21 @@ jobs:
             compiler-version: 12.4.0
             run-unit-tests: true
             run-integration-tests: true
-    runs-on: ${{ matrix.label }}
+    runs-on:
+      labels: ${{ matrix.label }}
+      group: fd-public-repo
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: ${{ matrix.extras || '' }}
       CC: ${{ matrix.compiler }}
       CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
     steps:
-      - uses: actions/checkout@v5
+      - name: cleanup
+        if: always()
+        run: |
+          sudo killall firedancer-dev || true
+
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -114,13 +121,18 @@ jobs:
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-fuzz-test
 
-      - name: check out test-vectors
+      - name: check out test-vectors (persistent)
         if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
-        uses: actions/checkout@v5
-        with:
-          repository: firedancer-io/test-vectors
-          path: dump/test-vectors
-          fetch-depth: 20
+        run: |
+          COMMIT_SHA=$(cat contrib/test/test-vectors-commit-sha.txt)
+          TEST_VECTORS_PATH="/data/svc_firedancer/test-vectors/${COMMIT_SHA}"
+          if [[ ! -d "${TEST_VECTORS_PATH}" ]]; then
+            mkdir -p /data/svc_firedancer/test-vectors
+            git clone https://github.com/firedancer-io/test-vectors.git "${TEST_VECTORS_PATH}"
+            git -C "${TEST_VECTORS_PATH}" checkout "${COMMIT_SHA}"
+          fi
+          mkdir -p dump
+          ln -sf "${TEST_VECTORS_PATH}" dump/test-vectors
 
       - name: run test-vector tests
         if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
@@ -128,13 +140,6 @@ jobs:
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-test-vectors
-
-      - name: run solcap tests
-        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
-        run: |
-          sudo prlimit --pid $$ --memlock=-1:-1
-          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
-          DUMP=../dump make run-solcap-tests
 
       - name: run integration tests
         if: ${{ matrix.run-integration-tests }}

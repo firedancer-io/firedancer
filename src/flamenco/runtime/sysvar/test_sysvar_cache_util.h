@@ -5,13 +5,13 @@
    cache environment with an underlying database. */
 
 #include "fd_sysvar_cache.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../../../funk/fd_funk.h"
+#include "../../accdb/fd_accdb_user.h"
 
 struct test_sysvar_cache_env {
-  fd_funk_t           funk[1];
-  fd_funk_txn_t *     funk_txn;
-  fd_exec_slot_ctx_t  slot_ctx[1];
+  void *              shfunk;
+  fd_accdb_user_t     accdb[1];
+  fd_funk_txn_xid_t   xid;
+  fd_bank_t *         bank;
   fd_sysvar_cache_t * sysvar_cache;
 };
 

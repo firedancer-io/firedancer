@@ -1,12 +1,9 @@
 #include "fd_compute_budget_program.h"
 
 #include "../fd_runtime_err.h"
+#include "../fd_runtime.h"
 #include "../fd_system_ids.h"
 #include "../fd_executor.h"
-#include "../context/fd_exec_instr_ctx.h"
-#include "../context/fd_exec_txn_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../../vm/fd_vm.h"
 #include "fd_builtin_programs.h"
 #include "../fd_compute_budget_details.h"
 
@@ -17,9 +14,10 @@
 #define MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT (3000UL)
 
 FD_FN_PURE static inline uchar
-get_program_kind( fd_exec_txn_ctx_t const * txn_ctx,
-                  fd_txn_instr_t const *    instr ) {
-  fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
+get_program_kind( fd_bank_t *            bank,
+                  fd_txn_in_t const *    txn_in,
+                  fd_txn_instr_t const * instr ) {
+  fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( TXN( txn_in->txn ), txn_in->txn->payload );
   fd_pubkey_t const *    program_pubkey = fd_type_pun_const( &txn_accs[ instr->program_id ] );
 
   /* The program is a standard, non-migrating builtin (e.g. system program) */
@@ -28,7 +26,7 @@ get_program_kind( fd_exec_txn_ctx_t const * txn_ctx,
   }
 
   uchar migrated_yet;
-  uchar is_migrating_program = fd_is_migrating_builtin_program( txn_ctx, program_pubkey, &migrated_yet );
+  uchar is_migrating_program = fd_is_migrating_builtin_program( bank, program_pubkey, &migrated_yet );
 
   /* The program has a BPF migration config but has not been migrated yet, so it's still a builtin program */
   if( is_migrating_program && !migrated_yet ) {
@@ -46,9 +44,9 @@ get_program_kind( fd_exec_txn_ctx_t const * txn_ctx,
 
 FD_FN_PURE static inline int
 is_compute_budget_instruction( fd_txn_t const *       txn,
-                               fd_rawtxn_b_t const *  txn_raw,
+                               uchar const *          txn_payload,
                                fd_txn_instr_t const * instr ) {
-  fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( txn, txn_raw->raw );
+  fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( txn, txn_payload );
   fd_acct_addr_t const * program_pubkey = &txn_accs[ instr->program_id ];
   return !memcmp(program_pubkey, fd_solana_compute_budget_program_id.key, sizeof(fd_pubkey_t));
 }
@@ -74,13 +72,13 @@ sanitize_requested_heap_size( ulong bytes ) {
 }
 
 int
-fd_sanitize_compute_unit_limits( fd_exec_txn_ctx_t * ctx ) {
-  fd_compute_budget_details_t * details = &ctx->compute_budget_details;
+fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out ) {
+  fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L106-L119 */
   if( details->has_requested_heap_size ) {
     if( FD_UNLIKELY( !sanitize_requested_heap_size( details->heap_size ) ) ) {
-      FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, details->requested_heap_size_instr_index );
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_out, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, details->requested_heap_size_instr_index );
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }
   }
@@ -116,34 +114,37 @@ fd_sanitize_compute_unit_limits( fd_exec_txn_ctx_t * ctx ) {
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L54-L99 */
 int
-fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx ) {
-  fd_compute_budget_details_t * details = &ctx->compute_budget_details;
+fd_executor_compute_budget_program_execute_instructions( fd_bank_t *         bank,
+                                                         fd_txn_in_t const * txn_in,
+                                                         fd_txn_out_t *      txn_out ) {
+  fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
 
-  for( ushort i=0; i<ctx->txn_descriptor->instr_cnt; i++ ) {
-    fd_txn_instr_t const * instr = &ctx->txn_descriptor->instr[i];
+  for( ushort i=0; i<TXN( txn_in->txn )->instr_cnt; i++ ) {
+    fd_txn_instr_t const * instr = &TXN( txn_in->txn )->instr[i];
 
     /* Only `FD_PROGRAM_KIND_BUILTIN` gets charged as a builtin instruction */
-    uchar program_kind = get_program_kind( ctx, instr );
+    uchar program_kind = get_program_kind( bank, txn_in, instr );
     if( program_kind==FD_PROGRAM_KIND_BUILTIN ) {
       details->num_builtin_instrs++;
     } else {
       details->num_non_builtin_instrs++;
     }
 
-    if( !is_compute_budget_instruction( ctx->txn_descriptor, ctx->_txn_raw, instr ) ) {
+    if( !is_compute_budget_instruction( TXN( txn_in->txn ), txn_in->txn->payload, instr ) ) {
       continue;
     }
 
     /* Deserialize the ComputeBudgetInstruction enum */
-    uchar * data = (uchar *)ctx->_txn_raw->raw + instr->data_off;
+    uchar * data = (uchar *)txn_in->txn->payload + instr->data_off;
 
-    int ret;
-    fd_compute_budget_program_instruction_t * instruction =
-      fd_bincode_decode_spad(
-        compute_budget_program_instruction, ctx->spad,
-        data, instr->data_sz, &ret );
-    if( FD_UNLIKELY( ret ) ) {
-      FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
+    fd_compute_budget_program_instruction_t instruction[1];
+    if( FD_UNLIKELY( !fd_bincode_decode_static(
+        compute_budget_program_instruction,
+        instruction,
+        data,
+        instr->data_sz,
+        NULL ) ) ) {
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_out, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }
 
@@ -186,7 +187,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
           break;
       }
       default: {
-        FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
+        FD_TXN_ERR_FOR_LOG_INSTR( txn_out, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
         return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
       }
     }

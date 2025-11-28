@@ -63,45 +63,66 @@ FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_
 #define FD_EPOCH_REWARDS_MAGIC (0x122400081001UL)
 
 struct fd_epoch_stake_reward {
-  ulong       prev;
-  ulong       next;
-  ulong       parent;
   fd_pubkey_t stake_pubkey;
   ulong       credits_observed;
   ulong       lamports;
+  /* Internal pointers for pool, dlist, and map. */
+  ulong       prev;
+  ulong       next;
+  ulong       parent;
+  ulong       next_map;
 };
 typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 
-#define POOL_NAME fd_epoch_stake_reward_pool
-#define POOL_T    fd_epoch_stake_reward_t
-#include "../../util/tmpl/fd_pool.c"
+/* TODO: Need to move the dlist into the .c file.  There needs to be a
+   way to forward declare the iterator (see fd_map.h). */
 
 #define DLIST_NAME  fd_epoch_stake_reward_dlist
 #define DLIST_ELE_T fd_epoch_stake_reward_t
 #include "../../util/tmpl/fd_dlist.c"
 
+struct fd_epoch_rewards_iter {
+  fd_epoch_stake_reward_t *          pool;
+  void *                             dlist;
+  fd_epoch_stake_reward_dlist_iter_t iter;
+};
+typedef struct fd_epoch_rewards_iter fd_epoch_rewards_iter_t;
+
 struct fd_epoch_rewards {
   ulong magic;
 
   /* Data representing the partitioned stake rewards */
-  int   is_active_;
-  ulong stake_account_max_;
-  ulong starting_block_height_;
-  ulong num_partitions_;
-  ulong partitions_lengths_[FD_REWARDS_MAX_PARTITIONS];
+  ulong stake_account_max;
+  ulong starting_block_height;
+  ulong num_partitions;
+  ulong partitions_lengths[FD_REWARDS_MAX_PARTITIONS];
 
   /* Result of total rewards distribution */
 
   /* Total rewards for the epoch (including both vote rewards and stake
      rewards) */
-  ulong total_rewards_;
+  ulong total_rewards;
+
   /* total rewards points calculated for the current epoch, where points
      equals the sum of (delegated stake * credits observed) for all
      delegations */
-  ulong distributed_rewards_;
+  ulong distributed_rewards;
+
   /* Stake rewards that still need to be distributed, grouped by
      partition */
-  uint128 total_points_;
+  fd_w_u128_t total_points;
+
+  /* Total stake rewards to distribute as calculated during the epoch
+     boundary */
+  ulong total_stake_rewards;
+
+  /* Total number of stake accounts that have rewards to distribute */
+  ulong stake_rewards_cnt;
+
+  /* Internal pointers for pool, dlist, and map. */
+  ulong pool_offset;
+  ulong map_offset;
+  ulong dlists_offset;
 
   /* This will be followed by a pool of fd_epoch_stake_reward_t. This
      pool will be sized out to FD_BANKS_MAX_STAKE_ACCOUNTS. */
@@ -147,107 +168,63 @@ fd_epoch_rewards_leave( fd_epoch_rewards_t const * epoch_rewards );
 void *
 fd_epoch_rewards_delete( void * epoch_rewards );
 
-/* fd_epoch_rewards_get_partition_index returns a pointer to the dlist
-   of stake rewards for the given partition index. */
+/* fd_epoch_rewards_insert stores the rewards for a given stake account
+   into the data structure. */
 
-fd_epoch_stake_reward_dlist_t *
-fd_epoch_rewards_get_partition_index( fd_epoch_rewards_t const * epoch_rewards, ulong idx );
+void
+fd_epoch_rewards_insert( fd_epoch_rewards_t * epoch_rewards,
+                         fd_pubkey_t const *  pubkey,
+                         ulong                credits,
+                         ulong                lamports );
 
-/* fd_epoch_rewards_get_stake_reward_pool returns a pointer to the pool
-   of stake rewards. */
+/* fd_epoch_rewards_hash_into_partitions hashes all of the stake
+   accounts into the appropriate partitions. */
 
-fd_epoch_stake_reward_t *
-fd_epoch_rewards_get_stake_reward_pool( fd_epoch_rewards_t const * epoch_rewards );
-
-/* fd_epoch_rewards_hash_and_insert determines the hash partition that
-   the stake pubkey belongs in and stores the pubkey along with the
-   total amount of credits and lamports. */
-
-int
-fd_epoch_rewards_hash_and_insert( fd_epoch_rewards_t * epoch_rewards,
-                                  fd_hash_t const *    parent_blockhash,
-                                  fd_pubkey_t const *  pubkey,
-                                  ulong                credits,
-                                  ulong                lamports );
+void
+fd_epoch_rewards_hash_into_partitions( fd_epoch_rewards_t * epoch_rewards,
+                                       fd_hash_t const *    parent_blockhash,
+                                       ulong                num_partitions );
 
 /* fd_epoch_rewards_get_distribution_partition_index determines the
    hash partition that the current block belongs in. */
 
 ulong
-fd_epoch_rewards_get_distribution_partition_index( fd_epoch_rewards_t const * epoch_rewards, ulong curr_block_height );
+fd_epoch_rewards_get_distribution_partition_index( fd_epoch_rewards_t const * epoch_rewards,
+                                                   ulong                      curr_block_height );
 
-/* Simple inline mutator functions */
+/* fd_epoch_rewards_get_exclusive_ending_block_height returns the
+   block height that the last partition ends at. */
 
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_active( fd_epoch_rewards_t * epoch_rewards, int is_active ) {
-  epoch_rewards->is_active_ = is_active;
-}
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_starting_block_height( fd_epoch_rewards_t * epoch_rewards, ulong block_height ) {
-  epoch_rewards->starting_block_height_ = block_height;
-}
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_num_partitions( fd_epoch_rewards_t * epoch_rewards, ulong num_partitions ) {
-  if( FD_UNLIKELY( num_partitions>FD_REWARDS_MAX_PARTITIONS ) ) {
-    FD_LOG_WARNING(( "num_partitions: %lu is greater than FD_REWARDS_MAX_PARTITIONS: %lu", num_partitions, FD_REWARDS_MAX_PARTITIONS ));
-    return;
-  }
-  epoch_rewards->num_partitions_ = num_partitions;
-}
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_distributed_rewards( fd_epoch_rewards_t * epoch_rewards, ulong distributed_rewards ) {
-  epoch_rewards->distributed_rewards_ = distributed_rewards;
-}
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_total_rewards( fd_epoch_rewards_t * epoch_rewards, ulong total_rewards ) {
-  epoch_rewards->total_rewards_ = total_rewards;
-}
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_total_points( fd_epoch_rewards_t * epoch_rewards, uint128 total_points ) {
-  epoch_rewards->total_points_ = total_points;
-}
-
-/* Simple inline accessor functions */
-
-static int FD_FN_UNUSED
-fd_epoch_rewards_is_active( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->is_active_;
-}
-
-static ulong FD_FN_UNUSED
-fd_epoch_rewards_get_num_partitions( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->num_partitions_;
-}
-
-static ulong FD_FN_UNUSED
-fd_epoch_rewards_get_starting_block_height( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->starting_block_height_;
-}
-
-static ulong FD_FN_UNUSED
+static inline ulong
 fd_epoch_rewards_get_exclusive_ending_block_height( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->starting_block_height_ + epoch_rewards->num_partitions_;
+  return epoch_rewards->starting_block_height + epoch_rewards->num_partitions;
 }
 
-static ulong FD_FN_UNUSED
-fd_epoch_rewards_get_distributed_rewards( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->distributed_rewards_;
-}
+/* Iterator API for epoch rewards. The iterator is initialized with a
+   call to fd_epoch_rewards_iter_init. The caller is responsible for
+   managing the memory for the iterator. It is safe to call
+   fd_epoch_rewards_iter_next if the result of
+   fd_epoch_rewards_iter_done() ==0. It is safe to call
+   fd_epoch_rewards_iter_ele() to get the current epoch reward.
+   Elements that are iterated over are not safe to modify.
 
-static uint128 FD_FN_UNUSED
-fd_epoch_rewards_get_total_points( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->total_points_;
-}
+   Under the hood, the iterator is just a wrapper over the iterator used
+   by the underlying dlist.
+*/
 
-static ulong FD_FN_UNUSED
-fd_epoch_rewards_get_total_rewards( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->total_rewards_;
-}
+fd_epoch_stake_reward_t *
+fd_epoch_rewards_iter_ele( fd_epoch_rewards_iter_t * iter );
+
+fd_epoch_rewards_iter_t *
+fd_epoch_rewards_iter_init( fd_epoch_rewards_iter_t *  iter,
+                            fd_epoch_rewards_t const * epoch_rewards,
+                            ulong                      partition_idx );
+
+int
+fd_epoch_rewards_iter_done( fd_epoch_rewards_iter_t * iter );
+
+void
+fd_epoch_rewards_iter_next( fd_epoch_rewards_iter_t * iter );
 
 FD_PROTOTYPES_END
 
