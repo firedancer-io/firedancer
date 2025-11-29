@@ -1141,34 +1141,3 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_unwrite( &banks->rwlock );
 }
-
-int
-fd_banks_validate( fd_banks_t * banks ) {
-  fd_rwlock_read( &banks->rwlock );
-
-  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
-
-  FD_LOG_INFO(( "fd_banks_pool_free: %lu", fd_banks_pool_free( bank_pool ) ));
-
-  /* First check that the number of elements acquired by the CoW pools
-     is not greater than the number of elements in the bank pool. */
-  #define HAS_COW_1(type, name, footprint)                                                                                                                                                      \
-  fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                                                                                                         \
-  if( fd_bank_##name##_pool_used( name##_pool ) > fd_bank_pool_used( bank_pool ) ) {                                                                                                            \
-    FD_LOG_WARNING(( "Invariant violation: %s pool has more elements acquired than the bank pool %lu %lu", #name, fd_bank_##name##_pool_used( name##_pool ), fd_bank_pool_used( bank_pool ) )); \
-    fd_rwlock_unread( &banks->rwlock );                                                                                                                                                         \
-    return 1;                                                                                                                                                                                   \
-  }                                                                                                                                                                                             \
-
-  #define HAS_COW_0(type, name, footprint)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint)                                   \
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
-  fd_rwlock_unread( &banks->rwlock );
-
-  return 0;
-}
