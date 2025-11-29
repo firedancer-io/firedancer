@@ -57,10 +57,28 @@ fd_topob_obj( fd_topo_t *  topo,
   if( FD_UNLIKELY( wksp_id==ULONG_MAX ) ) FD_LOG_ERR(( "workspace not found: %s", wksp_name ));
 
   fd_topo_obj_t * obj = &topo->objs[ topo->obj_cnt ];
+  memset( obj, 0, sizeof(fd_topo_obj_t) );
   strncpy( obj->name, obj_name, sizeof(obj->name) );
-  obj->id      = topo->obj_cnt;
-  obj->wksp_id = wksp_id;
+  obj->id        = topo->obj_cnt;
+  obj->wksp_id   = wksp_id;
+  obj->label_idx = ULONG_MAX;
   topo->obj_cnt++;
+
+  return obj;
+}
+
+fd_topo_obj_t *
+fd_topob_obj_named( fd_topo_t *  topo,
+                    char const * obj_type,
+                    char const * wksp_name,
+                    char const * label ) {
+  if( FD_UNLIKELY( !label ) ) FD_LOG_ERR(( "NULL args" ));
+  if( FD_UNLIKELY( strlen( label )>=sizeof(topo->objs[ topo->obj_cnt ].label ) ) ) FD_LOG_ERR(( "obj label too long: %s", label ));
+  fd_topo_obj_t * obj = fd_topob_obj( topo, obj_type, wksp_name );
+  if( FD_UNLIKELY( !obj ) ) return NULL;
+
+  fd_cstr_ncpy( obj->label, label, sizeof(obj->label) );
+  obj->label_idx = fd_topo_obj_cnt( topo, obj_type, label );
 
   return obj;
 }
@@ -106,10 +124,10 @@ fd_topob_link( fd_topo_t *  topo,
 }
 
 void
-fd_topob_tile_uses( fd_topo_t *      topo,
-                    fd_topo_tile_t * tile,
-                    fd_topo_obj_t *  obj,
-                    int              mode ) {
+fd_topob_tile_uses( fd_topo_t *           topo,
+                    fd_topo_tile_t *      tile,
+                    fd_topo_obj_t const * obj,
+                    int                   mode ) {
   (void)topo;
 
   if( FD_UNLIKELY( tile->uses_obj_cnt>=FD_TOPO_MAX_TILE_OBJS ) ) FD_LOG_ERR(( "tile `%s` uses too many objects", tile->name ));

@@ -78,6 +78,11 @@ struct __attribute__((aligned(128))) fd_vinyl_private {
   ulong async_min; /* Min run loop iterations per async handling, positive */
   ulong async_max; /* Max run loop iterations per async handling, >=async_min */
 
+  /* Periodic housekeeping callback */
+
+  void (* housekeep)( void * ctx );
+  void *  housekeep_ctx;
+
   /* State */
 
   ulong part_thresh;  /* Insert partition blocks roughly every part_thresh bytes for parallel recovery */
