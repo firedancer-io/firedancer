@@ -319,6 +319,8 @@ fd_snapin_vinyl_txn_commit( fd_snapin_tile_t * ctx ) {
         if( exist_slot > cur_slot ) {
           fd_memset( block, 0, block_sz );
           goto next;
+        } else {
+          if( !ctx->lthash_disabled ) fd_snapin_send_duplicate_account_vinyl( ctx, &ele->phdr, ele->seq, NULL );
         }
       }
 
@@ -422,7 +424,8 @@ bstream_push_account( fd_snapin_tile_t * ctx ) {
   ulong   pair_sz = ctx->vinyl_op.pair_sz;
 
   ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
-  if( ctx->full ) ctx->vinyl_op.meta_ele->seq = seq_after;
+  // if( ctx->full ) /* see fd_snapin_process_account_header_vinyl */
+  ctx->vinyl_op.meta_ele->seq = seq_after;
 
   ctx->vinyl_op.pair     = NULL;
   ctx->vinyl_op.pair_sz  = 0UL;
@@ -490,7 +493,8 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
   dst_rem -= sizeof(fd_account_meta_t);
 
   FD_CRIT( dst_rem >= result->account_header.data_len, "corruption detected" );
-  if( ctx->full ) {  /* update index immediately */
+  // if( ctx->full ) {  /* see bstream_push_account */
+  if(1) { /* update index immediately */
     ulong                 memo = fd_vinyl_key_memo( map->seed, &phdr->key );
     fd_vinyl_meta_ele_t * ele  = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
     if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
@@ -501,6 +505,8 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
       if( exist_slot > result->account_header.slot ) {
         ctx->vinyl_op.pair = NULL;
         return;
+      } else {
+        if( !ctx->lthash_disabled ) fd_snapin_send_duplicate_account_vinyl( ctx, &ele->phdr, ele->seq, NULL );
       }
     }
 
@@ -594,6 +600,8 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
       if( exist_slot > result->account_batch.slot ) {
         batch_ele[ i ] = NULL;
         continue;
+      } else {
+        if( !ctx->lthash_disabled ) fd_snapin_send_duplicate_account_vinyl( ctx, &ele->phdr, ele->seq, NULL );
       }
     }
 

@@ -14,6 +14,8 @@
 
 #include "generated/fd_snapin_tile_seccomp.h"
 
+#define FD_SNAPIN_VINYL_TXN_COMMIT_ENABLE (0)
+
 #define NAME "snapin"
 
 /* The snapin tile is a state machine that parses and loads a full
@@ -637,8 +639,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       if( ctx->use_vinyl ) {
         fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_commit( ctx );
+        if( FD_SNAPIN_VINYL_TXN_COMMIT_ENABLE ) {
+          if( ctx->vinyl.txn_active ) {
+            fd_snapin_vinyl_txn_commit( ctx );
+          }
         }
         if( !ctx->lthash_disabled ) {
           seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
@@ -663,8 +667,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       if( ctx->use_vinyl ) {
         fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_commit( ctx );
+        if( FD_SNAPIN_VINYL_TXN_COMMIT_ENABLE ) {
+          if( ctx->vinyl.txn_active ) {
+            fd_snapin_vinyl_txn_commit( ctx );
+          }
         }
         if( !ctx->lthash_disabled ) {
           seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
@@ -928,3 +934,4 @@ fd_topo_run_tile_t fd_tile_snapin = {
 };
 
 #undef NAME
+#undef FD_SNAPIN_VINYL_TXN_COMMIT_ENABLE

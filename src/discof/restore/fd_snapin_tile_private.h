@@ -16,6 +16,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 
 struct blockhash_group {
   uchar blockhash[ 32UL ];
@@ -362,6 +363,32 @@ fd_snapin_send_duplicate_account_data( fd_snapin_tile_t * ctx,
   uchar * drop_account_data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
   fd_memcpy( drop_account_data, data, data_sz );
   fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, data_sz, 0UL, 0UL, 0UL );
+  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, data_sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+  if( FD_LIKELY( early_exit ) ) *early_exit = 1;
+}
+
+/* fd_snapin_send_duplicate_account_vinyl sends a duplicate account
+   message with the signature FD_SNAPSHOT_HASH_MSG_SUB_VINYL_HDR.  The
+   message is only sent if lthash verification is enabled in the
+   snapshot loader.
+
+   phdr is the header of the duplicate account that needs to be looked
+   up in vinyl.  seq is the btream offset (in bytes) where the
+   existing account is located.  early_exit is an optional pointer to
+   an int flag that is set to 1 if the caller should yield to stem
+   following this call. */
+static inline void
+fd_snapin_send_duplicate_account_vinyl( fd_snapin_tile_t *        ctx,
+                                        fd_vinyl_bstream_phdr_t * phdr,
+                                        ulong                     seq,
+                                        int *                     early_exit ) {
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return;
+  uchar * data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+  seq = seq % ctx->vinyl.bstream_sz;
+  memcpy( data, &seq, sizeof(ulong) );
+  memcpy( data + sizeof(ulong), phdr, sizeof(fd_vinyl_bstream_phdr_t) );
+  ulong data_sz = sizeof(ulong)+sizeof(fd_vinyl_bstream_phdr_t);
+  fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_SUB_VINYL_HDR, ctx->hash_out.chunk, data_sz, 0UL, 0UL, 0UL );
   ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, data_sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
   if( FD_LIKELY( early_exit ) ) *early_exit = 1;
 }

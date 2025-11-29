@@ -1354,7 +1354,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->snapld_in_mem = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
       FD_TEST( !has_snapld_dc );
       has_snapld_dc = 1;
-    } else if( 0==strcmp( in_link->name, "snapin_ct" ) || 0==strcmp( in_link->name, "snapls_ct" ) ) {
+    } else if( 0==strcmp( in_link->name, "snapin_ct" ) || 0==strcmp( in_link->name, "snapls_ct" ) || 0==strcmp( in_link->name, "snaplv_ct" ) ) {
       ctx->in_kind[ i ] = IN_KIND_ACK;
       FD_TEST( !has_ack_loopback );
       has_ack_loopback = 1;

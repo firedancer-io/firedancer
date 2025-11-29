@@ -12,7 +12,7 @@
 
 #define NAME "snapwh"
 
-#define WR_FSEQ_CNT_MAX (8UL) /* Arbitrary limit - adjust if needed. */
+#define WR_FSEQ_CNT_MAX (9UL) /* Arbitrary limit - adjust if needed. */
 FD_STATIC_ASSERT( WR_FSEQ_CNT_MAX<=FD_TOPO_MAX_TILE_IN_LINKS, "WR_FSEQ_CNT_MAX" );
 
 struct fd_snapwh {

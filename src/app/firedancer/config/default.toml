@@ -803,11 +803,19 @@ user = ""
 
     # How many snapshot lthash adder tiles to run.  Snapshot lthash
     # adder tiles compute the hash of all accounts in the loaded
-    # snapshot in parallel. Too few and snapshot loading might be
-    # delayed.  Once the hash of the accounts in a snapshot is
+    # snapshot in parallel under funk. Too few and snapshot loading
+    # might be delayed.  Once the hash of the accounts in a snapshot is
     # calculated, if it does not match the validator will abort with an
     # error.
     snapla_tile_count = 4
+
+    # How many snapshot lthash add/sub tiles to run.  Snapshot lthash
+    # add/sub tiles compute the hash of all accounts in the loaded
+    # snapshot in parallel under vinyl. Too few and snapshot loading
+    # might be delayed.  Once the hash of the accounts in a snapshot is
+    # calculated, if it does not match the validator will abort with an
+    # error.
+    snaplh_tile_count = 4
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
@@ -1783,7 +1791,7 @@ user = ""
     # and should only be used for development and testing purposes.
     #
     # If lthash verification is disabled, the validator will not
-    # start any lthash tiles and the value of `snapla_tile_count`
-    # in the layout will be ignored.
+    # start any lthash tiles and the value of both `snapla_tile_count`
+    # and `snaplh_tile_count` in the layout will be ignored.
     [development.snapshots]
         disable_lthash_verification = true

@@ -573,6 +573,15 @@ struct fd_topo_tile {
     } snapwr;
 
     struct {
+      ulong dcache_obj_id;
+      char  vinyl_path[ PATH_MAX ];
+    } snaplh;
+
+    struct {
+      char  vinyl_path[ PATH_MAX ];
+    } snaplv;
+
+    struct {
 
       uint   bind_address;
       ushort bind_port;
