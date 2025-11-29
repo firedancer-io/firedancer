@@ -1,0 +1,98 @@
+{
+  "name": "deprecated_two_accounts_dm",
+  "description": "Stricter ABI + direct mapping. Multiple accounts in single contiguous buffer.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "DQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoWu9I5WFX2QE2bT0VreCG7AUV0lCjAAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "DgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "AQIDBAU=",
+        "owner": "DQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      },
+      {
+        "pubkey": "DwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 2000,
+        "data": "BgcICQoLDA==",
+        "owner": "DQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 200
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "index_in_transaction": 2,
+        "is_signer": true,
+        "is_writable": true
+      }
+    ],
+    "instruction_data": "yv4=",
+    "program_id": "DQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": true,
+    "account_data_direct_mapping": true,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": true
+  },
+  "output": {
+    "result": 0,
+    "buffer": "AgAAAAAAAAD/AAEOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAABQAAAAAAAAANAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///////////8BAQ8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA0AcAAAAAAAAHAAAAAAAAAA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//////////AgAAAAAAAADK/g0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "AgAAAAAAAAD/AAEOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAABQAAAAAAAAA="
+      },
+      {
+        "vm_addr": 17179869243,
+        "is_writable": true,
+        "data": "AQIDBAU="
+      },
+      {
+        "vm_addr": 17179869248,
+        "is_writable": true,
+        "data": "DQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////AQEPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANAHAAAAAAAABwAAAAAAAAA="
+      },
+      {
+        "vm_addr": 17179869340,
+        "is_writable": true,
+        "data": "BgcICQoLDA=="
+      },
+      {
+        "vm_addr": 17179869347,
+        "is_writable": true,
+        "data": "DQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8CAAAAAAAAAMr+DQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869195,
+        "vm_lamports_addr": 17179869227,
+        "vm_owner_addr": 17179869248,
+        "vm_data_addr": 17179869243
+      },
+      {
+        "original_data_len": 7,
+        "vm_key_addr": 17179869292,
+        "vm_lamports_addr": 17179869324,
+        "vm_owner_addr": 17179869347,
+        "vm_data_addr": 17179869340
+      }
+    ],
+    "instruction_data_offset": 17179869396
+  }
+}
