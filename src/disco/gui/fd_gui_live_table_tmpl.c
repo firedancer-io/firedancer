@@ -454,7 +454,7 @@ LIVE_TABLE_(private_sort_key_print)( LIVE_TABLE_(sort_key_t) const * sort_key ) 
 
 static inline void
 LIVE_TABLE_(private_sort_key_create)( LIVE_TABLE_(t) * join, ulong sort_key_idx, LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T * pool ) {
-  fd_memcpy( &join->sort_keys[ sort_key_idx ], sort_key, sizeof(LIVE_TABLE_(sort_key_t)) );
+  join->sort_keys[ sort_key_idx ] = *sort_key;
 
   LIVE_TABLE_(private_active_sort_key_idx) = sort_key_idx;
   join->treaps[ sort_key_idx ] = LIVE_TABLE_(private_treap_join)( LIVE_TABLE_(private_treap_new)( join->treaps_shmem[ sort_key_idx ], join->max_rows ) );
