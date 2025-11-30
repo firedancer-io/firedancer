@@ -122,6 +122,18 @@ union fdctl_args {
   } metrics;
 
   struct {
+    char  topo[ 64 ];
+    ulong interval_ns;
+
+    ulong selectors_cnt;
+    struct fd_action_metrics_record_selector {
+      char  name[ 32 ];
+      char  kind[ 16 ];
+      ulong kind_id;
+    } selectors[ 128 ];
+  } metrics_record;
+
+  struct {
     uint fsck : 1;
     uint fsck_lthash : 1;
     uint lthash : 1;
