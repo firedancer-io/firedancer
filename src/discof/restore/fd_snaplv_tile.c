@@ -39,6 +39,9 @@ struct fd_snaplv_tile {
   int                 state;
   int                 full;
 
+  /* Database params */
+  ulong const * io_seed;
+
   ulong               num_hash_tiles;
 
   uchar               in_kind[ MAX_IN_LINKS ];
@@ -145,6 +148,8 @@ handle_vinyl_lthash_request( fd_snaplv_t *             ctx,
                              ulong                     seq,
                              fd_vinyl_bstream_phdr_t * acc_hdr ) {
 
+  ulong const io_seed = FD_VOLATILE_CONST( *ctx->io_seed );
+
   ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
   ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
 
@@ -174,13 +179,19 @@ handle_vinyl_lthash_request( fd_snaplv_t *             ctx,
     }
 
     if( FD_LIKELY( !memcmp( phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) ) ) {
-      /* TODO add fd_vinyl_bstream_pair_hash */
-      break;
+      /* test bstream pair integrity hashes */
+      // fd_vinyl_bstream_block_t * pair_hdr = (fd_vinyl_bstream_block_t *)pair;
+      // fd_vinyl_bstream_block_t * pair_ftr = (fd_vinyl_bstream_block_t *)(pair+(pair_sz-FD_VINYL_BSTREAM_BLOCK_SZ));
+      // if( FD_LIKELY( !fd_vinyl_bstream_pair_test_fast( io_seed, seq, pair_hdr, pair_ftr ) ) ) {
+      if( FD_LIKELY( !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz ) ) ) {
+        break;
+      }
+      // FD_LOG_WARNING(( "bstream_pair_test failed!" ));
     }
     /* TODO this will not be needed after bstream_seq sync */
-    FD_LOG_WARNING(( "phdr mismatch!" ));
+    // FD_LOG_WARNING(( "phdr mismatch!" ));
     FD_SPIN_PAUSE();
-    fd_log_sleep( (long)1e6 ); /* 1ms */
+    // fd_log_sleep( (long)1e6 ); /* 1ms */
   }
 
   pair += sizeof(fd_vinyl_bstream_phdr_t);
@@ -492,6 +503,10 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "unexpected output link %s", link->name ));
     }
   }
+
+  void * in_wh_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snapwr.dcache_obj_id ) );
+  FD_CRIT( fd_dcache_app_sz( in_wh_dcache )>=sizeof(ulong), "in_wh dcache app region too small to hold io_seed" );
+  ctx->io_seed = (ulong const *)fd_dcache_app_laddr_const( in_wh_dcache );
 
   ctx->metrics.full.accounts_hashed        = 0UL;
   ctx->metrics.incremental.accounts_hashed = 0UL;

@@ -736,6 +736,7 @@ fd_topo_initialize( config_t * config ) {
         FOR(lth_tile_cnt) fd_topob_tile_in(     topo, "snaplv",  0UL,          "metric_in", "snaplh_lv",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
         /**/              fd_topob_tile_out(    topo, "snaplv",  0UL,                       "snaplv_ct",    0UL                                                );
         FOR(lth_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplh", i ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapin_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+        /**/              fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplv", 0 ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapin_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
       } else {
         FOR(lta_tile_cnt) fd_topob_tile_in(     topo, "snapla",  i,            "metric_in", "snapdc_in",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
         FOR(lta_tile_cnt) fd_topob_tile_out(    topo, "snapla",  i,                         "snapla_ls",    i                                                  );
@@ -1258,6 +1259,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snaplv" ) ) )  {
 
     strcpy( tile->snaplv.vinyl_path, config->paths.accounts );
+    ulong wh_wr_link_id = fd_topo_find_link( &config->topo, "snapin_wh", 0UL );
+    FD_TEST( wh_wr_link_id!=ULONG_MAX );
+    fd_topo_link_t * wh_wr_link = &config->topo.links[ wh_wr_link_id ];
+    tile->snaplv.dcache_obj_id = wh_wr_link->dcache_obj_id;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;

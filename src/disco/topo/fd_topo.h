@@ -578,6 +578,7 @@ struct fd_topo_tile {
     } snaplh;
 
     struct {
+      ulong dcache_obj_id;
       char  vinyl_path[ PATH_MAX ];
     } snaplv;
 
