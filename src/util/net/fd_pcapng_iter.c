@@ -262,11 +262,11 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
           FD_LOG_HEXDUMP_DEBUG(( "IDB comment", opt_buf, opt.sz ));
           break;
         case FD_PCAPNG_IDB_OPT_NAME:
-          fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( iface->opts.name ), (char const *)opt_buf, fd_ulong_min( sizeof(iface->opts.name)-1, opt.sz ) ) );
+          fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( iface->opts.name ), (char const *)opt_buf, fd_ulong_min( sizeof(iface->opts.name)-1, opt.sz ) ) );
           iface->opts.name[ sizeof(iface->opts.name)-1 ] = '\0';
           break;
         case FD_PCAPNG_IDB_OPT_HARDWARE:
-          fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( iface->opts.hardware ), (char const *)opt_buf, fd_ulong_min( sizeof(iface->opts.hardware)-1, opt.sz ) ) );
+          fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( iface->opts.hardware ), (char const *)opt_buf, fd_ulong_min( sizeof(iface->opts.hardware)-1, opt.sz ) ) );
           iface->opts.hardware[ sizeof(iface->opts.hardware)-1 ] = '\0';
           break;
         case FD_PCAPNG_IDB_OPT_IPV4_ADDR:
