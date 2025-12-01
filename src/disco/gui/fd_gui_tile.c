@@ -26,6 +26,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../disco/plugin/fd_plugin.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/net/fd_net_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
@@ -145,6 +146,8 @@ typedef struct {
   ulong           in_bank_idx[ 64UL ];
   fd_gui_in_ctx_t in[ 64UL ];
 
+  fd_net_rx_bounds_t net_in_bounds[ 64UL ];
+
   fd_gui_out_ctx_t replay_out[ 1 ];
 } fd_gui_ctx_t;
 
@@ -243,7 +246,7 @@ during_frag( fd_gui_ctx_t * ctx,
              ulong          sig,
              ulong          chunk,
              ulong          sz,
-             ulong          gui    FD_PARAM_UNUSED ) {
+             ulong          ctl ) {
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
@@ -303,7 +306,8 @@ during_frag( fd_gui_ctx_t * ctx,
     case IN_KIND_NET_GOSSVF: {
       FD_TEST( ctx->is_full_client );
       FD_TEST( sz<=sizeof(ctx->parsed.net_gossvf) );
-      fd_memcpy( ctx->parsed.net_gossvf, src, sz );
+      uchar const * net_src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
+      fd_memcpy( ctx->parsed.net_gossvf, net_src, sz );
       break;
     }
     case IN_KIND_GOSSIP_NET: {
@@ -803,7 +807,10 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "pack_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;    /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "net_gossvf"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF;   /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "net_gossvf"   ) ) ) {
+      ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF;
+      fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
+    }
     else if( FD_LIKELY( !strcmp( link->name, "gossip_net"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_NET;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "snapct_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPCT;       /* full client only */
