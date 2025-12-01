@@ -25,6 +25,8 @@ for extra in $EXTRAS; do
 done
 export EXTRAS
 
+export FD_LOG_LEVEL_STDERR=3
+
 set -x
 
 # Build and run tests for all machines
@@ -34,7 +36,7 @@ for MACHINE in ${MACHINES[*]}; do
   OBJDIR="$(make help | grep OBJDIR | awk '{print $4}')"
   OBJDIRS+=( "${OBJDIR}" )
   make clean --silent >/dev/null
-  contrib/make-j $TARGETS
+  contrib/make-j $TARGETS >/dev/null
   if [[ "$NOTEST" != 1 ]]; then
     make run-unit-test
     make run-fuzz-test
@@ -49,6 +51,22 @@ for MACHINE in ${MACHINES[*]}; do
   done
   export -n MACHINE
 done
+
+if [[ "$RACESAN" == 1 ]]; then
+  rm -rf build/racesan
+  MACHINE=native CC=clang EXTRAS="$EXTRAS racesan" BUILDDIR=racesan contrib/make-j unit-test >/dev/null
+  mkdir -p build/racesan/cov/raw
+  for test in $(find build/racesan/unit-test -type f -executable -name '*racesan*'); do
+    LLVM_PROFILE_FILE="build/racesan/cov/raw/$(basename "$test").profraw"
+    export LLVM_PROFILE_FILE
+    "$test" --page-cnt 2 --page-sz gigantic --log-path '' >/dev/null
+    unset LLVM_PROFILE_FILE
+    if [[ "$HAS_LLVM_COV" == 1 ]]; then
+      MACHINE=native CC=clang EXTRAS="$EXTRAS racesan" BUILDDIR=racesan make "build/racesan/cov/cov.lcov"
+    fi
+  done
+  OBJDIRS+=( "build/racesan" )
+fi
 
 # Export coverage report
 if [[ "$COV_REPORT" == 1 ]]; then
