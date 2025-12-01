@@ -303,8 +303,9 @@ fd_hfork_record_our_bank_hash( fd_hfork_t * hfork,
                                ulong        total_stake ) {
   blk_t * blk = blk_map_query( hfork->blk_map, *block_id, NULL );
   if( FD_UNLIKELY( !blk ) ) {
-    blk           = blk_map_insert( hfork->blk_map, *block_id );
-    blk->replayed = 1;
+    blk              = blk_map_insert( hfork->blk_map, *block_id );
+    blk->replayed    = 1;
+    blk->bank_hashes = NULL;
   }
   if( FD_LIKELY( bank_hash ) ) { blk->dead = 0; blk->our_bank_hash = *bank_hash; }
   else                           blk->dead = 1;
