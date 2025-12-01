@@ -676,6 +676,8 @@ ulong
 fd_pcapng_fwrite_pkt1( void *       _file,
                        void const * payload,
                        ulong        payload_sz,
+                       void const * options,
+                       ulong        options_sz,
                        uint         if_idx,
                        long         ts ) {
 
@@ -698,8 +700,9 @@ fd_pcapng_fwrite_pkt1( void *       _file,
   ulong pad_sz = payload_sz_align-payload_sz;
   cursor+=payload_sz_align;
 
-  /* Empty option list */
-  cursor+=4UL;
+  /* option list */
+  cursor += options_sz;
+  cursor += 4UL;
 
   /* Trailer */
   block.block_sz = (uint)cursor+4U;
@@ -713,6 +716,9 @@ fd_pcapng_fwrite_pkt1( void *       _file,
   /* align */
   if( pad_sz )
     if( FD_UNLIKELY( 1UL!=fwrite( pad, pad_sz, 1UL, file ) ) )
+      return 0UL;
+  if( options_sz )
+    if( FD_UNLIKELY( 1UL!=fwrite( options, options_sz, 1UL, file ) ) )
       return 0UL;
   /* empty options */
   if( FD_UNLIKELY( 1UL!=fwrite( pad, 4UL,    1UL, file ) ) )
