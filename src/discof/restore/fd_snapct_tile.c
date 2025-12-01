@@ -150,6 +150,8 @@ struct fd_snapct_tile {
     long                next_saturated_check;
   } gossip;
 
+  int incr_first;
+
   fd_snapct_out_link_t out_ld;
   fd_snapct_out_link_t out_gui;
   fd_snapct_out_link_t out_rp;
@@ -528,14 +530,23 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_UNLIKELY( !ctx->download_enabled ) ) {
         ulong local_slot = ctx->config.incremental_snapshots ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
         send_expected_slot( ctx, stem, local_slot );
-        FD_LOG_NOTICE(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
-        ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
-        ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
-        init_load( ctx, stem, 1, 1 );
+        if( !!ctx->incr_first ) {
+          FD_LOG_NOTICE(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
+          ctx->predicted_incremental.slot = ctx->local_in.incremental_snapshot_slot;
+          ctx->state                      = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
+          init_load( ctx, stem, 0, 1 );
+        } else {
+          FD_LOG_NOTICE(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
+          ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
+          ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
+          init_load( ctx, stem, 1, 1 );
+        }
         break;
       }
 
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, ULONG_MAX );
+      if( !!ctx->incr_first ) best = fd_sspeer_selector_best( ctx->selector, 1, best.ssinfo.full.slot );
+
       if( FD_LIKELY( best.addr.l ) ) {
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS;
         ctx->deadline_nanos = now+FD_SNAPCT_COLLECTING_PEERS_TIMEOUT;
@@ -597,10 +608,17 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( can_use_local_full ) ) {
         send_expected_slot( ctx, stem, local_slot );
 
-        FD_LOG_NOTICE(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
-        ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
-        ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
-        init_load( ctx, stem, 1, 1 );
+        if( !!ctx->incr_first ) {
+          FD_LOG_NOTICE(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
+          ctx->predicted_incremental.full_slot = ctx->local_in.incremental_snapshot_slot;
+          ctx->state                           = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
+          init_load( ctx, stem, 0, 1 );
+        } else {
+          FD_LOG_NOTICE(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
+          ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
+          ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
+          init_load( ctx, stem, 1, 1 );
+        }
       } else {
         if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) send_expected_slot( ctx, stem, best.ssinfo.full.slot );
 
@@ -651,8 +669,16 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
-      ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
-      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+      if( !!ctx->incr_first ) {
+        FD_LOG_NOTICE(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
+        ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
+        ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
+        init_load( ctx, stem, 1, 1 );
+        // fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_NEXT, 0UL, 0UL, 0UL, 0UL, 0UL );
+      } else {
+        ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+      }
       break;
 
     /* ============================================================== */
@@ -689,7 +715,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
-      if( FD_LIKELY( !ctx->config.incremental_snapshots ) ) {
+      if( FD_LIKELY( !ctx->config.incremental_snapshots || !!ctx->incr_first ) ) {
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
@@ -793,7 +819,12 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
       FD_TEST( ctx->metrics.full.bytes_total!=0UL );
       if( FD_UNLIKELY( ctx->metrics.full.bytes_read == ctx->metrics.full.bytes_total ) ) {
-        ulong sig = ctx->config.incremental_snapshots ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE;
+        ulong sig = 0UL;
+        if( !!ctx->incr_first ) {
+          sig = FD_SNAPSHOT_MSG_CTRL_DONE;
+        } else {
+          sig = ctx->config.incremental_snapshots ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE;
+        }
         fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE;
         ctx->flush_ack = 0;
@@ -813,7 +844,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
       FD_TEST( ctx->metrics.incremental.bytes_total!=0UL );
       if ( FD_UNLIKELY( ctx->metrics.incremental.bytes_read == ctx->metrics.incremental.bytes_total ) ) {
-        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+        fd_stem_publish( stem, ctx->out_ld.idx, !!ctx->incr_first ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE;
         ctx->flush_ack = 0;
       }
@@ -1108,13 +1139,17 @@ snapin_frag( fd_snapct_tile_t *  ctx,
       } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
       break;
 
-    case FD_SNAPSHOT_MSG_CTRL_NEXT:
-      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE ) ) {
+    case FD_SNAPSHOT_MSG_CTRL_NEXT: {
+      int test = !!ctx->incr_first ? ( ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP ||
+                                       ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE )
+                                   : ( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP ||
+                                       ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE );
+      if( FD_LIKELY( test ) ) {
         FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
       } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
       break;
+    }
 
     case FD_SNAPSHOT_MSG_CTRL_DONE:
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP ||
@@ -1376,6 +1411,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip.total_cnt            = 0UL;
   ctx->gossip.saturated            = !ctx->gossip_enabled;
   ctx->gossip.next_saturated_check = 0;
+
+  ctx->incr_first = !!tile->snapct.process_incremental_snapshot_first;
 
   if( FD_UNLIKELY( tile->out_cnt<2UL || tile->out_cnt>3UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2-3", tile->out_cnt ));
   ctx->out_ld  = out1( topo, tile, "snapct_ld"   );

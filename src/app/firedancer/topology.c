@@ -1173,6 +1173,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.max_full_snapshots_to_keep           = config->firedancer.snapshots.max_full_snapshots_to_keep;
     tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     tile->snapct.full_effective_age_cancel_threshold  = config->firedancer.snapshots.full_effective_age_cancel_threshold;
+    tile->snapct.process_incremental_snapshot_first   = config->firedancer.snapshots.process_incremental_snapshot_first;
     tile->snapct.sources.gossip.allow_any             = config->firedancer.snapshots.sources.gossip.allow_any;
     tile->snapct.sources.gossip.allow_list_cnt        = config->firedancer.snapshots.sources.gossip.allow_list_cnt;
     tile->snapct.sources.gossip.block_list_cnt        = config->firedancer.snapshots.sources.gossip.block_list_cnt;
@@ -1263,6 +1264,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snaplv" ) ) )  {
 
     strcpy( tile->snaplv.vinyl_path, config->paths.accounts );
+    tile->snaplv.process_incremental_snapshot_first = config->firedancer.snapshots.process_incremental_snapshot_first;
     ulong wh_wr_link_id = fd_topo_find_link( &config->topo, "snapin_wh", 0UL );
     FD_TEST( wh_wr_link_id!=ULONG_MAX );
     fd_topo_link_t * wh_wr_link = &config->topo.links[ wh_wr_link_id ];

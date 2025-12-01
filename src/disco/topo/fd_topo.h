@@ -548,6 +548,7 @@ struct fd_topo_tile {
       uint max_full_snapshots_to_keep;
       uint max_incremental_snapshots_to_keep;
       uint full_effective_age_cancel_threshold;
+      int  process_incremental_snapshot_first;
     } snapct;
 
     struct {
@@ -580,6 +581,7 @@ struct fd_topo_tile {
     struct {
       ulong dcache_obj_id;
       char  vinyl_path[ PATH_MAX ];
+      int   process_incremental_snapshot_first;
     } snaplv;
 
     struct {

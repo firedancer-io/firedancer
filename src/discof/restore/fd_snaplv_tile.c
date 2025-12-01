@@ -102,6 +102,8 @@ struct fd_snaplv_tile {
     ulong             mtu;
   } adder_in[ FD_SNAPSHOT_MAX_SNAPLH_TILES ];
 
+  int                 incr_first;
+
   struct {
     struct {
       long  t_rd;
@@ -374,11 +376,15 @@ handle_hash_frag( fd_snaplv_t * ctx,
       break;
     }
     case FD_SNAPSHOT_HASH_MSG_EXPECTED: {
-      // FD_LOG_WARNING(( "*** FD_SNAPSHOT_HASH_MSG_EXPECTED %lu", in_idx ));
       FD_TEST( sz==sizeof(fd_lthash_value_t) );
       FD_TEST( ctx->in_kind[ in_idx ]==IN_KIND_SNAPIN );
       fd_lthash_value_t const * result = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
-      fd_memcpy( &ctx->hash_accum.expected_lthash, result, sizeof(fd_lthash_value_t) );
+      /* When the incremental snapshot is processed first, only update
+         the expected lthash when the incremental part is received (the
+         full version is superseded).  If the snapshots are processed
+         in the traditional order (i.e. first full, then incremental),
+         then always update the expected value. */
+      if( !( ctx->incr_first && ctx->full ) ) fd_memcpy( &ctx->hash_accum.expected_lthash, result, sizeof(fd_lthash_value_t) );
       break;
     }
     default:
@@ -417,16 +423,25 @@ after_credit( fd_snaplv_t *  ctx,
   if( FD_UNLIKELY( ctx->hash_accum.received_lthashes==ctx->num_hash_tiles && ctx->hash_accum.awaiting_results ) ) {
     fd_lthash_sub( &ctx->hash_accum.calculated_lthash, &ctx->running_lthash );
 
-    int test = memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) );
+    /* The lthash of the incremental snapshot is computed on top of
+       the corresponding one of the full counterpart.  Therefore, when
+       the incremental is processed first, its lthash can only be
+       validated after loading the full snapshot, and the check for
+       lthash of the full snapshot in isolation becomes superseded. */
+    int test = ( ctx->incr_first && !ctx->full ) ? 0 : memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) );
     if( FD_UNLIKELY( test ) ) {
       FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
                         FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
                         FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
       transition_malformed( ctx, stem );
     } else {
-      FD_LOG_NOTICE(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
-                      FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
-                      FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
+      if( ctx->incr_first && !ctx->full ) {
+        FD_LOG_NOTICE(( "skipping incremental lthash verfication until full snapshot is processed" ));
+      } else {
+        FD_LOG_NOTICE(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
+                        FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
+                        FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
+        }
     }
     ctx->hash_accum.received_lthashes = 0UL;
     ctx->hash_accum.hash_check_done = 1;
@@ -598,6 +613,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->hash_accum.received_lthashes = 0UL;
   ctx->hash_accum.awaiting_results  = 0;
   ctx->hash_accum.hash_check_done   = 0;
+
+  ctx->incr_first = !!tile->snaplv.process_incremental_snapshot_first;
 
   ctx->stats.full.t_rd = 0L;
   ctx->stats.full.t_ph = 0L;
