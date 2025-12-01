@@ -163,9 +163,11 @@ quic_tx_aio_send( void *                    _ctx,
     if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
     uchar * buf = batch[ i ].buf;
     fd_ip4_hdr_t * ip4_hdr    = fd_type_pun( buf );
-    fd_udp_hdr_t * udp_hdr    = fd_type_pun( buf + sizeof(fd_ip4_hdr_t) );
-    uchar        * payload    = buf + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
-    ulong          payload_sz = batch[ i ].buf_sz - sizeof(fd_ip4_hdr_t) - sizeof(fd_udp_hdr_t);
+    ulong const    ip4_len    = FD_IP4_GET_LEN( *ip4_hdr );
+    fd_udp_hdr_t * udp_hdr    = fd_type_pun( buf + ip4_len );
+    uchar        * payload    = buf + ip4_len + sizeof(fd_udp_hdr_t);
+    FD_TEST( batch[ i ].buf_sz >= ip4_len + sizeof(fd_udp_hdr_t) );
+    ulong          payload_sz = batch[ i ].buf_sz - ip4_len - sizeof(fd_udp_hdr_t);
     send_to_net( ctx, ip4_hdr, udp_hdr, payload, payload_sz );
   }
 
