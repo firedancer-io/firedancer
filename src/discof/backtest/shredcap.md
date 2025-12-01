@@ -68,17 +68,6 @@ The format for shredcap v0.1 bank hash v0 metadata is as follows:
 - Data shred count (uint64): The number of data shreds with block data
   ingested to produce this bank hash
 
-#### Endpoint v0
-
-The format for shredcap v0.1 endpoint v0 metadata is as follows:
-
-- Metadata Type: `0x2` (endpoint v0)
-- IPv6 address (16 bytes)
-- UDP port number (uint16)
-- Gossip socket type (uint32): `0xa` for shreds
-
-Note that IPv4 addresses are encoded as IPv4-mapped IPv6 addresses.
-
 ## UDP Packets
 
 UDP packets are EPBs are identified as follows:
@@ -86,8 +75,3 @@ UDP packets are EPBs are identified as follows:
 - the packet contains an IPv4 header
 - the packet contains an UDP header
 
-### Shred
-
-Shred packets are [UDP packets](#udp-packets) whose IPv4 destination
-address and UDP destination port map to an [endpoint](#endpoint) with
-gossip socket type `0xa`.

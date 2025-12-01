@@ -217,6 +217,8 @@ ulong
 fd_pcapng_fwrite_pkt1( void *       file,
                        void const * payload,
                        ulong        payload_sz,
+                       void const * options,
+                       ulong        options_sz,
                        uint         if_idx,
                        long         ts );
 
@@ -225,7 +227,7 @@ fd_pcapng_fwrite_pkt( long         ts,
                       void const * payload,
                       ulong        payload_sz,
                       void *       file ) {
-  return fd_pcapng_fwrite_pkt1( file, payload, payload_sz, 0U, ts );
+  return fd_pcapng_fwrite_pkt1( file, payload, payload_sz, NULL, 0UL, 0U, ts );
 }
 
 /* fd_pcapng_fwrite_tls_key_log writes TLS key log info to a PCAPNG via

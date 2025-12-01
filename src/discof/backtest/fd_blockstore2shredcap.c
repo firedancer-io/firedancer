@@ -36,23 +36,6 @@ usage( int rc ) {
 }
 
 static void
-write_endpoint( FILE * pcap ) {
-  struct __attribute__((packed)) {
-    uint type;
-    fd_shredcap_endpoint_v0_t endpoint;
-  } packet;
-  memset( &packet, 0, sizeof(packet) );
-
-  packet.type = FD_SHREDCAP_TYPE_ENDPOINT_V0;
-  fd_shredcap_endpoint_v0_t * endpoint = &packet.endpoint;
-  fd_ip6_addr_ip4_mapped( endpoint->ip6_addr, FD_IP4_ADDR( 127,0,0,1 ) );
-  endpoint->port = SHRED_PORT;
-  endpoint->gossip_socket_type = FD_CONTACT_INFO_SOCKET_TVU;
-
-  fd_pcapng_fwrite_pkt1( pcap, &packet, sizeof(packet), IF_IDX_SHREDCAP, 0L );
-}
-
-static void
 write_bank_hash( FILE *      pcap,
                  ulong       slot,
                  ulong       shred_cnt,
@@ -69,7 +52,7 @@ write_bank_hash( FILE *      pcap,
   bank_hash_rec->data_shred_cnt = shred_cnt;
   memcpy( bank_hash_rec->bank_hash, bank_hash, 32UL );
 
-  fd_pcapng_fwrite_pkt1( pcap, &packet, sizeof(packet), IF_IDX_SHREDCAP, 0L );
+  fd_pcapng_fwrite_pkt1( pcap, &packet, sizeof(packet), NULL, 0UL, IF_IDX_SHREDCAP, 0L );
 }
 
 static void
@@ -105,7 +88,21 @@ write_shred( FILE *       pcap,
   };
   fd_memcpy( packet.shred, shred, shred_sz );
 
-  fd_pcapng_fwrite_pkt1( pcap, &packet, 28UL+shred_sz, IF_IDX_NET, 0L );
+  struct __attribute__((packed)) {
+    ushort option_type;
+    ushort option_sz;
+    uint   pen;
+    ushort magic;
+    ushort gossip_tag;
+  } option = {
+    .option_type = 2989,   /* Custom Option containing binary octects, copyable */
+    .option_sz   = 8,
+    .pen         = 31592,  /* Jump Trading, LLC */
+    .magic       = 0x4071, /* SOL! */
+    .gossip_tag  = 0xa     /* TVU */
+  };
+
+  fd_pcapng_fwrite_pkt1( pcap, &packet, 28UL+shred_sz, &option, sizeof(option), IF_IDX_NET, 0L );
 }
 
 int
@@ -162,7 +159,6 @@ main( int     argc,
     if( FD_UNLIKELY( !fd_pcapng_fwrite_idb( FD_PCAPNG_LINKTYPE_USER0, &idb_opts, out ) ) ) FD_LOG_ERR(( "pcap write error" ));
     FD_TEST( idb_cnt++==IF_IDX_SHREDCAP );
   }
-  write_endpoint( out );
 
   ulong slot_cnt = 0UL;
   for( ;; slot_cnt++ ) {
