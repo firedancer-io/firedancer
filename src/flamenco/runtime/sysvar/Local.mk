@@ -40,6 +40,8 @@ $(call add-hdrs,fd_sysvar_stake_history.h)
 $(call add-objs,fd_sysvar_stake_history,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_sysvar,test_sysvar,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_sysvar)
+endif
 endif

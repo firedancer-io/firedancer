@@ -52,8 +52,10 @@ endif
 $(call add-hdrs,fd_bank.h)
 $(call add-objs,fd_bank,fd_flamenco)
 ifdef FD_HAS_HOSTED
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_bank,test_bank,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_bank,)
+endif
 endif
 
 ifdef FD_HAS_ALLOCA
