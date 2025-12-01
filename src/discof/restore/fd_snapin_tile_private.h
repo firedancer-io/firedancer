@@ -384,7 +384,6 @@ fd_snapin_send_duplicate_account_vinyl( fd_snapin_tile_t *        ctx,
                                         int *                     early_exit ) {
   if( FD_UNLIKELY( ctx->lthash_disabled ) ) return;
   uchar * data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-  seq = seq % ctx->vinyl.bstream_sz;
   memcpy( data, &seq, sizeof(ulong) );
   memcpy( data + sizeof(ulong), phdr, sizeof(fd_vinyl_bstream_phdr_t) );
   ulong data_sz = sizeof(ulong)+sizeof(fd_vinyl_bstream_phdr_t);

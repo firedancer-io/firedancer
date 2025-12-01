@@ -177,7 +177,8 @@ handle_vinyl_lthash_request( fd_snaplv_t *             ctx,
   ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
   ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
 
-  ulong dev_seq  = seq + ctx->vinyl.dev_base; /* this is where the seq is physically located in device. */
+  /* dev_seq is the physical location of seq in device. */
+  ulong dev_seq  = ( seq + ctx->vinyl.dev_base ) % ctx->vinyl.dev_sz;
   ulong rd_off   = fd_ulong_align_dn( dev_seq, VINYL_LTHASH_BLOCK_ALIGN );
   ulong pair_off = (dev_seq - rd_off);
   ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, VINYL_LTHASH_BLOCK_ALIGN );
