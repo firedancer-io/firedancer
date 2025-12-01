@@ -349,10 +349,11 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
       return FD_EXECUTOR_INSTR_ERR_FATAL;
     }
 
+    ulong instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
     err = fd_native_cpi_native_invoke( ctx,
                                        &fd_solana_system_program_id,
                                        instr_data,
-                                       FD_TXN_MTU,
+                                       instr_data_sz,
                                        acct_metas,
                                        2UL,
                                        signers,
@@ -391,10 +392,11 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   // Execute allocate instruction
+  ulong instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
   err = fd_native_cpi_native_invoke( ctx,
                                      &fd_solana_system_program_id,
                                      instr_data,
-                                     FD_TXN_MTU,
+                                     instr_data_sz,
                                      acct_metas,
                                      1UL,
                                      signers,
@@ -423,10 +425,11 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   // Execute assign instruction
+  instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
   err = fd_native_cpi_native_invoke( ctx,
                                      &fd_solana_system_program_id,
                                      instr_data,
-                                     FD_TXN_MTU,
+                                     instr_data_sz,
                                      acct_metas,
                                      1UL,
                                      signers,
@@ -772,10 +775,11 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
       return FD_EXECUTOR_INSTR_ERR_FATAL;
     }
 
+    ulong instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
     err = fd_native_cpi_native_invoke( ctx,
                                        &fd_solana_system_program_id,
                                        instr_data,
-                                       FD_TXN_MTU,
+                                       instr_data_sz,
                                        acct_metas,
                                        2UL,
                                        signers,
