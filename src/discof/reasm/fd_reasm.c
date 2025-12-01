@@ -474,25 +474,25 @@ print( fd_reasm_t const * reasm, fd_reasm_fec_t const * fec, int space, const ch
 }
 
 void
-fd_reasm_print( fd_reasm_t const * reasm ) {
+fd_reasm_print( fd_reasm_t const * reasm, fd_wksp_t * wksp, fd_wksp_t * reasm_wksp ) {
   FD_LOG_NOTICE( ( "\n\n[Reasm]" ) );
-  fd_reasm_fec_t * pool = reasm->pool;
+  fd_reasm_fec_t * pool     = fd_wksp_laddr_fast( wksp, fd_wksp_gaddr_fast( reasm_wksp, reasm->pool ) );
+  frontier_t     * frontier = fd_wksp_laddr_fast( wksp, fd_wksp_gaddr_fast( reasm_wksp, reasm->frontier ) );
+  subtrees_t     * subtrees = fd_wksp_laddr_fast( wksp, fd_wksp_gaddr_fast( reasm_wksp, reasm->subtrees ) );
 
   printf(("\n\n[Frontier]\n" ) );
-  frontier_t * frontier = reasm->frontier;
   for( frontier_iter_t iter = frontier_iter_init(       frontier, pool );
                              !frontier_iter_done( iter, frontier, pool );
                        iter = frontier_iter_next( iter, frontier, pool ) ) {
-    fd_reasm_fec_t const * fec = pool_ele_const( reasm->pool, iter.ele_idx );
+    fd_reasm_fec_t const * fec = pool_ele_const( pool, iter.ele_idx );
     printf( "(%lu, %u) %s\n", fec->slot, fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &fec->key ) );
   }
 
   printf(("\n\n[Subtrees]\n" ) );
-  subtrees_t * subtrees = reasm->subtrees;
   for( subtrees_iter_t iter = subtrees_iter_init(       subtrees, pool );
                              !subtrees_iter_done( iter, subtrees, pool );
                        iter = subtrees_iter_next( iter, subtrees, pool ) ) {
-    fd_reasm_fec_t const * fec = pool_ele_const( reasm->pool, iter.ele_idx );
+    fd_reasm_fec_t const * fec = pool_ele_const( pool, iter.ele_idx );
     printf( "(%lu, %u) %s\n", fec->slot, fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &fec->key ) );
   }
 

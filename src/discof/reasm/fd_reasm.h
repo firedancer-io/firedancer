@@ -288,7 +288,7 @@ fd_reasm_publish( fd_reasm_t      * reasm,
                   fd_hash_t const * merkle_root );
 
 void
-fd_reasm_print( fd_reasm_t const * reasm );
+fd_reasm_print( fd_reasm_t const * reasm, fd_wksp_t * wksp, fd_wksp_t * reasm_wksp );
 
 FD_PROTOTYPES_END
 

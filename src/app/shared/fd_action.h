@@ -152,6 +152,16 @@ union fdctl_args {
     char const * pos_arg;
     int          help;
   } tower;
+
+  struct {
+    char const * pos_arg;
+    int          help;
+  } reasm;
+
+  struct {
+    char const * pos_arg;
+    int          help;
+  } shred;
 };
 
 typedef union fdctl_args args_t;

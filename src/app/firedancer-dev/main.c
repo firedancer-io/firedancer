@@ -201,6 +201,8 @@ extern action_t fd_action_sim;
 extern action_t fd_action_backtest;
 extern action_t fd_action_snapshot_load;
 extern action_t fd_action_repair;
+extern action_t fd_action_reasm;
+extern action_t fd_action_shred;
 extern action_t fd_action_tower;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_ipecho_server;
@@ -237,6 +239,8 @@ action_t * ACTIONS[] = {
   &fd_action_backtest,
   &fd_action_snapshot_load,
   &fd_action_repair,
+  &fd_action_reasm,
+  &fd_action_shred,
   &fd_action_tower,
   &fd_action_shred_version,
   &fd_action_ipecho_server,
