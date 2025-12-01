@@ -1,5 +1,4 @@
 #include "fd_runtime_err.h"
-#include "fd_rocksdb.h"
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "fd_txncache.h"

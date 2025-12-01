@@ -150,11 +150,11 @@ sim_topo( config_t * config ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     if( !strcmp( tile->name, "arch_p" ) ) {
-      strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->archiver.rocksdb_path ) ) ) {
+      strncpy( tile->archiver.archive_path, config->tiles.archiver.archive_path, PATH_MAX );
+      if( FD_UNLIKELY( 0==strlen( tile->archiver.archive_path ) ) ) {
         FD_LOG_ERR(( "Archive file not found for playback" ));
       } else {
-        FD_LOG_NOTICE(( "Found archive file from config: %s", tile->archiver.rocksdb_path ));
+        FD_LOG_NOTICE(( "Found archive file from config: %s", tile->archiver.archive_path ));
       }
     } else {
       fd_topo_configure_tile( tile, config );

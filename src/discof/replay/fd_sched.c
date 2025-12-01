@@ -3,6 +3,7 @@
 
 #include "fd_sched.h"
 #include "../../util/math/fd_stat.h" /* for sorted search */
+#include "../../ballet/block/fd_microblock.h"
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */

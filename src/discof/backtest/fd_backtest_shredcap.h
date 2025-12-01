@@ -1,9 +1,6 @@
 #ifndef HEADER_fd_src_discof_backtest_fd_backtest_shredcap_h
 #define HEADER_fd_src_discof_backtest_fd_backtest_shredcap_h
 
-/* fd_backtest_shredcap.h is a drop-in replacement for
-   fd_backtest_rocksdb.h.  It reads from shredcap files, see shredcap.md */
-
 #include "../../util/fd_util_base.h"
 
 struct fd_backtest_shredcap_private;
