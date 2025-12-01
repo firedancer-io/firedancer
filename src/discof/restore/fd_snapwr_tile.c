@@ -68,9 +68,11 @@ struct fd_snapwr {
   uint         state;
   int          dev_fd;
   ulong        dev_sz;
+  ulong        dev_base;
   void const * base;
   ulong *      seq_sync;  /* fseq->seq[0] */
   uint         idle_cnt;
+  ulong *      bstream_seq;
 
   struct {
     ulong last_off;
@@ -105,6 +107,7 @@ privileged_init( fd_topo_t *      topo,
 
   snapwr->dev_fd  = vinyl_fd;
   snapwr->dev_sz  = fd_ulong_align_dn( (ulong)st.st_size, FD_VINYL_BSTREAM_BLOCK_SZ );
+  snapwr->dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
 }
 
 static void
@@ -114,10 +117,28 @@ unprivileged_init( fd_topo_t *      topo,
   memset( &snapwr->metrics, 0, sizeof(snapwr->metrics) );
 
   if( FD_UNLIKELY( tile->kind_id      ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
-  if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
+  if( FD_UNLIKELY( tile->in_cnt < 1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1 or 2",  tile->in_cnt  ));
+  if( FD_UNLIKELY( tile->in_cnt > 2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1 or 2",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=0UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 0", tile->out_cnt ));
 
-  if( FD_UNLIKELY( !tile->in_link_reliable[ 0 ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link 0 must be reliable" ));
+  snapwr->bstream_seq = NULL; /* set to NULL by default, before checking input links. */
+
+  for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
+    fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
+
+    if( FD_LIKELY( 0==strcmp( in_link->name, "snapwh_wr" ) ) ) {
+      if( FD_UNLIKELY( !tile->in_link_reliable[ i ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link %lu must be reliable", i ));
+
+    } else if( FD_LIKELY( 0==strcmp( in_link->name, "snaplv_wr" ) ) ) {
+      if( FD_UNLIKELY( !tile->in_link_reliable[ i ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link %lu must be reliable", i ));
+      snapwr->bstream_seq = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, in_link->mcache_obj_id ) ) );
+      fd_mcache_seq_update( snapwr->bstream_seq, 0UL );
+
+    } else {
+      FD_LOG_ERR(( "tile `" NAME "` has unexpected in link name `%s`", in_link->name ));
+    }
+  }
+
   FD_TEST( tile->snapwr.dcache_obj_id!=ULONG_MAX );
 
   uchar const * in_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snapwr.dcache_obj_id ) );
@@ -224,6 +245,9 @@ handle_data_frag( fd_snapwr_t * ctx,
   if( FD_UNLIKELY( write_sz<0 ) ) {
     FD_LOG_ERR(( "pwrite(off=%lu,sz=%lu) failed (%i-%s)", dev_off, src_sz, errno, strerror( errno ) ));
   }
+
+  if( !!ctx->bstream_seq ) fd_mcache_seq_update( ctx->bstream_seq, dev_off+src_sz-ctx->dev_base );
+
   ctx->metrics.last_off = dev_off+src_sz;
 }
 

@@ -23,6 +23,7 @@
 #define OUT_LINK_LH (0)
 #define OUT_LINK_CT (1)
 
+#define VINYL_LTHASH_PENDING_MAX  (8UL)
 #define VINYL_LTHASH_BLOCK_ALIGN  (512UL) /* O_DIRECT would require 4096UL */
 #define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
 FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
@@ -55,6 +56,14 @@ struct fd_snaplv_tile {
     ulong             dev_base;
     void *            pair_mem;
     void *            pair_tmp;
+    ulong const *     bstream_seq;
+    ulong             bstream_seq_last;
+    struct {
+      int                     active[VINYL_LTHASH_PENDING_MAX];
+      ulong                   seq   [VINYL_LTHASH_PENDING_MAX];
+      fd_vinyl_bstream_phdr_t phdr  [VINYL_LTHASH_PENDING_MAX];
+    } pending;
+    ulong             pending_cnt;
   } vinyl;
 
   struct {
@@ -92,6 +101,21 @@ struct fd_snaplv_tile {
     ulong             wmark;
     ulong             mtu;
   } adder_in[ FD_SNAPSHOT_MAX_SNAPLH_TILES ];
+
+  struct {
+    struct {
+      long  t_rd;
+      long  t_ph;
+      long  t_lt;
+      long  cnt;
+    } full;
+    struct {
+      long  t_rd;
+      long  t_ph;
+      long  t_lt;
+      long  cnt;
+    } incr;
+  } stats;
 };
 
 typedef struct fd_snaplv_tile fd_snaplv_t;
@@ -162,11 +186,18 @@ handle_vinyl_lthash_request( fd_snaplv_t *             ctx,
   uchar * pair = ((uchar*)ctx->vinyl.pair_mem) + pair_off;
   fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)pair;
 
+  long t_rd = 0L;
+  long t_ph = 0L;
+  long t_lt = 0L;
+
   for(;;) {
     ulong sz    = rd_sz;
     ulong rsz   = fd_ulong_min( rd_sz, ctx->vinyl.dev_sz - rd_off );
     uchar * dst = ctx->vinyl.pair_mem;
     uchar * tmp = ctx->vinyl.pair_tmp;
+
+    long t0 = fd_log_wallclock();
+
     bd_read( ctx->vinyl.dev_fd, rd_off, dst, rsz );
     sz -= rsz;
     if( FD_UNLIKELY( sz ) ) {
@@ -178,21 +209,31 @@ handle_vinyl_lthash_request( fd_snaplv_t *             ctx,
       fd_memcpy( dst + rsz, tmp + ctx->vinyl.dev_base, sz );
     }
 
+    long t1 = fd_log_wallclock();
+    t_rd = t1-t0;
+
     if( FD_LIKELY( !memcmp( phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) ) ) {
+
+      long t2 = fd_log_wallclock();
+
       /* test bstream pair integrity hashes */
       // fd_vinyl_bstream_block_t * pair_hdr = (fd_vinyl_bstream_block_t *)pair;
       // fd_vinyl_bstream_block_t * pair_ftr = (fd_vinyl_bstream_block_t *)(pair+(pair_sz-FD_VINYL_BSTREAM_BLOCK_SZ));
-      // if( FD_LIKELY( !fd_vinyl_bstream_pair_test_fast( io_seed, seq, pair_hdr, pair_ftr ) ) ) {
-      if( FD_LIKELY( !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz ) ) ) {
+      // int test = !fd_vinyl_bstream_pair_test_fast( io_seed, seq, pair_hdr, pair_ftr );
+      int test = !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz );
+
+      long t3 = fd_log_wallclock();
+      t_ph = t3-t2;
+
+      if( FD_LIKELY( test ) ) {
         break;
       }
-      // FD_LOG_WARNING(( "bstream_pair_test failed!" ));
     }
-    /* TODO this will not be needed after bstream_seq sync */
-    // FD_LOG_WARNING(( "phdr mismatch!" ));
+    FD_LOG_WARNING(( "phdr mismatch! - this should not happen under bstream_seq" ));
     FD_SPIN_PAUSE();
-    // fd_log_sleep( (long)1e6 ); /* 1ms */
   }
+
+  long t4 = fd_log_wallclock();
 
   pair += sizeof(fd_vinyl_bstream_phdr_t);
   fd_account_meta_t const * meta       = (fd_account_meta_t *)pair;
@@ -213,8 +254,51 @@ handle_vinyl_lthash_request( fd_snaplv_t *             ctx,
                                    prev_lthash );
   if( !!lamports ) fd_lthash_add( &ctx->running_lthash, prev_lthash );
 
+  long t5 = fd_log_wallclock();
+  t_lt = t5-t4;
+
+  if(!!ctx->full) {
+    ctx->stats.full.t_rd += t_rd;
+    ctx->stats.full.t_ph += t_ph;
+    ctx->stats.full.t_lt += t_lt;
+    ctx->stats.full.cnt++;
+  } else {
+    ctx->stats.incr.t_rd += t_rd;
+    ctx->stats.incr.t_ph += t_ph;
+    ctx->stats.incr.t_lt += t_lt;
+    ctx->stats.incr.cnt++;
+  }
+
   if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
   else                         ctx->metrics.incremental.accounts_hashed++;
+}
+
+static inline void
+handle_vinyl_lthash_seq_sync( fd_snaplv_t * ctx ) {
+  ctx->vinyl.bstream_seq_last = fd_mcache_seq_query( ctx->vinyl.bstream_seq );
+}
+
+static inline int
+handle_vinyl_lthash_seq_check_fast( fd_snaplv_t * ctx,
+                                    ulong              seq ) {
+  return seq < ctx->vinyl.bstream_seq_last;
+}
+
+static inline int
+handle_vinyl_lthash_seq_check_until_match( fd_snaplv_t * ctx,
+                                           ulong         seq,
+                                           int           do_sleep ) {
+  ulong i = 0UL;
+  for( ; i<ULONG_MAX; i++ ) {
+    if( handle_vinyl_lthash_seq_check_fast( ctx, seq ) ) break;
+    handle_vinyl_lthash_seq_sync( ctx );
+    FD_SPIN_PAUSE();
+    if( do_sleep ) fd_log_sleep( (long)1e3 ); /* 1 microsecond */
+  }
+  if( i==ULONG_MAX ) return 0;
+
+  /* TODO consider minimum FD_VINYL_BSTREAM_BLOCK_SZ ? */
+  return seq < ctx->vinyl.bstream_seq_last;
 }
 
 static void
@@ -230,14 +314,66 @@ handle_data_frag( fd_snaplv_t *  ctx,
     return;
   }
 
+  ulong bstream_seq = fd_mcache_seq_query( ctx->vinyl.bstream_seq );
+  if( ctx->vinyl.bstream_seq_last != bstream_seq ) {
+    ctx->vinyl.bstream_seq_last = fd_mcache_seq_query( ctx->vinyl.bstream_seq );
+  }
+
   /* TODO this is a prototype - it should be moved to snaplh */
   uchar const * indata = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
 
+  #if 0
+  /* simple version without bstream_seq - keep as reference */
   ulong seq;
   fd_vinyl_bstream_phdr_t phdr;
   memcpy( &seq,  indata, sizeof(ulong) );
   memcpy( &phdr, indata + sizeof(ulong), sizeof(fd_vinyl_bstream_phdr_t) );
   handle_vinyl_lthash_request( ctx, seq, &phdr );
+  #else
+  /* Find an empty slot in the pending list. */
+  ulong seq_min_i = ULONG_MAX;
+  ulong seq_min   = ULONG_MAX;
+  ulong free_i    = ULONG_MAX;
+  if( FD_UNLIKELY( ctx->vinyl.pending_cnt==VINYL_LTHASH_PENDING_MAX ) ) {
+    /* an entry must be consumed to free a slot */
+    for( ulong i=0; i<VINYL_LTHASH_PENDING_MAX; i++ ) {
+      ulong seq = ctx->vinyl.pending.seq[ i ];
+      seq_min_i = fd_ulong_if( seq_min > seq, i, seq_min_i );
+      seq_min   = fd_ulong_min( seq_min, seq );
+    }
+    FD_TEST( handle_vinyl_lthash_seq_check_until_match( ctx, ctx->vinyl.pending.seq[ seq_min_i ], 1/*do_sleep*/ ) );
+    handle_vinyl_lthash_request( ctx, ctx->vinyl.pending.seq[ seq_min_i ], &ctx->vinyl.pending.phdr[ seq_min_i ] );
+    ctx->vinyl.pending.active[ seq_min_i ] = 0;
+    ctx->vinyl.pending_cnt--;
+    free_i = seq_min_i;
+  } else {
+    /* Pick a free slot. */
+    free_i = 0UL;
+    for( ; free_i<VINYL_LTHASH_PENDING_MAX; free_i++ ) {
+      if( !ctx->vinyl.pending.active[ free_i ] ) break;
+    }
+  }
+
+  /* Populate the free slot. */
+  memcpy( &ctx->vinyl.pending.seq[ free_i ],  indata, sizeof(ulong) );
+  memcpy( &ctx->vinyl.pending.phdr[ free_i ], indata + sizeof(ulong), sizeof(fd_vinyl_bstream_phdr_t) );
+  ctx->vinyl.pending.active[ free_i ] = 1;
+  ctx->vinyl.pending_cnt++;
+
+  /* Sync with the bstream seq. */
+  handle_vinyl_lthash_seq_sync( ctx );
+
+  /* Try to consume as many requests as possible. */
+  for( ulong i=0; i<VINYL_LTHASH_PENDING_MAX; i++ ) {
+    if( !ctx->vinyl.pending.active[ i ] ) continue;
+    if( handle_vinyl_lthash_seq_check_fast( ctx, ctx->vinyl.pending.seq[ i ] ) ) {
+      handle_vinyl_lthash_request( ctx, ctx->vinyl.pending.seq[ i ], &ctx->vinyl.pending.phdr[ i ] );
+      ctx->vinyl.pending.active[ i ] = 0;
+      ctx->vinyl.pending_cnt--;
+    }
+  }
+  FD_TEST( ctx->vinyl.pending_cnt<=VINYL_LTHASH_PENDING_MAX );
+  #endif
 }
 
 static void
@@ -376,6 +512,16 @@ after_credit( fd_snaplv_t *  ctx,
     }
     ctx->hash_accum.received_lthashes = 0UL;
     ctx->hash_accum.hash_check_done = 1;
+
+    /* TODO this is only used for performance profiling. */
+    FD_LOG_NOTICE(( "*** ctx->stats.full.t_rd %12ld", ctx->stats.full.t_rd ));
+    FD_LOG_NOTICE(( "*** ctx->stats.full.t_ph %12ld", ctx->stats.full.t_ph ));
+    FD_LOG_NOTICE(( "*** ctx->stats.full.t_lt %12ld", ctx->stats.full.t_lt ));
+    FD_LOG_NOTICE(( "*** ctx->stats.full.cnt  %12ld", ctx->stats.full.cnt  ));
+    FD_LOG_NOTICE(( "*** ctx->stats.incr.t_rd %12ld", ctx->stats.incr.t_rd ));
+    FD_LOG_NOTICE(( "*** ctx->stats.incr.t_ph %12ld", ctx->stats.incr.t_ph ));
+    FD_LOG_NOTICE(( "*** ctx->stats.incr.t_lt %12ld", ctx->stats.incr.t_lt ));
+    FD_LOG_NOTICE(( "*** ctx->stats.incr.cnt  %12ld", ctx->stats.incr.cnt  ));
   }
 
   if( FD_UNLIKELY( ctx->hash_accum.awaiting_results && ctx->hash_accum.hash_check_done ) ) {
@@ -456,19 +602,21 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong expected_in_cnt = 1UL + fd_topo_tile_name_cnt( topo, "snaplh" );
   if( FD_UNLIKELY( tile->in_cnt!=expected_in_cnt ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected %lu",  tile->in_cnt, expected_in_cnt ));
-  if( FD_UNLIKELY( tile->out_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2", tile->out_cnt ));
+  if( FD_UNLIKELY( tile->out_cnt!=3UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 3", tile->out_cnt ));
 
   ulong adder_idx = 0UL;
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
+
     if( FD_LIKELY( 0==strcmp( in_link->name, "snapin_lv" ) ) ) {
-      ctx->in.wksp                   = in_wksp->wksp;;
+      ctx->in.wksp                   = in_wksp->wksp;
       ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
       ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
       ctx->in.mtu                    = in_link->mtu;
       ctx->in.pos                    = 0UL;
       ctx->in_kind[ i ]              = IN_KIND_SNAPIN;
+
     } else if( FD_LIKELY( 0==strcmp( in_link->name, "snaplh_lv" ) ) ) {
       ctx->adder_in[ adder_idx ].wksp    = in_wksp->wksp;
       ctx->adder_in[ adder_idx ].chunk0  = fd_dcache_compact_chunk0( ctx->adder_in[ adder_idx ].wksp, in_link->dcache );
@@ -477,10 +625,14 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ]                  = IN_KIND_SNAPLH;
       if( FD_LIKELY( adder_idx==0UL ) ) ctx->adder_in_offset = i;
       adder_idx++;
+
     } else {
       FD_LOG_ERR(( "tile `" NAME "` has unexpected in link name `%s`", in_link->name ));
     }
   }
+
+  ctx->vinyl.bstream_seq      = NULL; /* set to NULL by default, before checking output links. */
+  ctx->vinyl.bstream_seq_last = 0UL;
 
   for( uint i=0U; i<(tile->out_cnt); i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->out_link_id[ i ] ];
@@ -499,10 +651,16 @@ unprivileged_init( fd_topo_t *      topo,
       o_link->wmark  = fd_dcache_compact_wmark( o_link->mem, link->dcache, link->mtu );
       o_link->chunk  = o_link->chunk0;
 
+    } else if( 0==strcmp( link->name, "snaplv_wr" ) ) {
+      ctx->vinyl.bstream_seq      = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, link->mcache_obj_id ) ) );
     } else {
       FD_LOG_ERR(( "unexpected output link %s", link->name ));
     }
   }
+
+  FD_TEST( !!ctx->vinyl.bstream_seq );
+  memset( ctx->vinyl.pending.active, 0, VINYL_LTHASH_PENDING_MAX*sizeof(ulong) );
+  ctx->vinyl.pending_cnt = 0;
 
   void * in_wh_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snapwr.dcache_obj_id ) );
   FD_CRIT( fd_dcache_app_sz( in_wh_dcache )>=sizeof(ulong), "in_wh dcache app region too small to hold io_seed" );
@@ -519,6 +677,16 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->hash_accum.received_lthashes = 0UL;
   ctx->hash_accum.awaiting_results  = 0;
   ctx->hash_accum.hash_check_done   = 0;
+
+  ctx->stats.full.t_rd = 0L;
+  ctx->stats.full.t_ph = 0L;
+  ctx->stats.full.t_lt = 0L;
+  ctx->stats.full.cnt  = 0L;
+
+  ctx->stats.incr.t_rd = 0L;
+  ctx->stats.incr.t_ph = 0L;
+  ctx->stats.incr.t_lt = 0L;
+  ctx->stats.incr.cnt  = 0L;
 
   fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
   fd_lthash_zero( &ctx->running_lthash );
