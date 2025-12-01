@@ -62,9 +62,7 @@ struct fd_pcapng_frame {
   uint orig_sz; /* Original packet size (>=data_sz) */
   uint if_idx;  /* Index of interface */
   fd_pcapng_idb_desc_t const * idb;  /* Associated interface (nullable) */
-
-# define FD_PCAPNG_FRAME_SZ 16384UL
-  uchar data[ FD_PCAPNG_FRAME_SZ ]; /* Frame data */
+  uchar * data;
 };
 typedef struct fd_pcapng_frame fd_pcapng_frame_t;
 

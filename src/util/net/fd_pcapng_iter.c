@@ -40,9 +40,9 @@ fd_pcapng_iter_strerror( int    error,
 }
 
 static int
-fd_pcapng_peek_block( FILE *                  stream,
-                      fd_pcapng_block_hdr_t * _hdr,
-                      long *                  end_ptr ) {
+fd_pcapng_read_block( FILE *                  stream,
+                      fd_pcapng_iter_t *      iter,
+                      fd_pcapng_block_hdr_t * _hdr ) {
 
   /* Remember offset of block */
   long pos = ftell( stream );
@@ -68,18 +68,24 @@ fd_pcapng_peek_block( FILE *                  stream,
     return EPROTO;
   }
 
-  /* Seek to block footer */
-  if( FD_UNLIKELY( 0!=fseek( stream, (long)(hdr.block_sz - 12U), SEEK_CUR ) ) )
-    return errno;
+  if( FD_UNLIKELY( hdr.block_sz>FD_PCAPNG_BLOCK_SZ ) ) {
+    FD_LOG_DEBUG(( "pcapng: block too large for buffer (%#x)", hdr.block_sz ));
+    return EPROTO;
+  }
 
-  /* Read footer */
-  uint block_sz;
-  if( FD_UNLIKELY( 1UL!=fread( &block_sz, sizeof(uint), 1, stream ) ) )
+  memcpy( iter->block_buf, &hdr, sizeof(fd_pcapng_block_hdr_t) );
+  ulong remaining = hdr.block_sz - sizeof(fd_pcapng_block_hdr_t);
+
+  /* Read rest of block */
+  if( FD_UNLIKELY( 1UL!=fread( iter->block_buf + sizeof(fd_pcapng_block_hdr_t), remaining, 1, stream ) ) )
     return ferror( stream );
 
-  /* Restore cursor */
-  if( FD_UNLIKELY( 0!=fseek( stream, pos, SEEK_SET ) ) )
-    return errno;
+  iter->block_buf_sz  = hdr.block_sz;
+  iter->block_buf_pos = sizeof(fd_pcapng_block_hdr_t);
+
+  /* Verify footer */
+  uint * footer = (uint *)( iter->block_buf + hdr.block_sz - sizeof(uint) );
+  uint block_sz = *footer;
 
   /* Check that header and footer match */
   if( FD_UNLIKELY( hdr.block_sz != block_sz ) ) {
@@ -88,36 +94,48 @@ fd_pcapng_peek_block( FILE *                  stream,
   }
 
   *_hdr = hdr;
-  if( end_ptr ) *end_ptr = pos + (long)fd_uint_align_up( hdr.block_sz, 4U );
 
   return 0; /* success */
 }
 
 static int
-fd_pcapng_read_option( FILE *               stream,
+fd_pcapng_read_option( fd_pcapng_iter_t *   iter,
                        fd_pcapng_option_t * opt ) {
+
+  if( FD_UNLIKELY( iter->block_buf_pos + 4UL > iter->block_buf_sz ) ) {
+    iter->error = EPROTO;
+    FD_LOG_WARNING(( "expected option, found end of block" ));
+    return EPROTO;
+  }
 
   struct __attribute__((packed)) {
     ushort type;
     ushort sz;
   } opt_hdr;
+  memcpy( &opt_hdr, iter->block_buf + iter->block_buf_pos, 4UL );
+  iter->block_buf_pos += 4UL;
+  if( FD_UNLIKELY( opt_hdr.sz > (iter->block_buf_sz - iter->block_buf_pos) ) ) {
+    iter->error = EPROTO;
+    FD_LOG_WARNING(( "option size out of bounds" ));
+    return EPROTO;
+  }
 
-  if( FD_UNLIKELY( 1UL!=fread( &opt_hdr, 4UL, 1UL, stream ) ) )
-    return ferror( stream );
-
-  uint end_off = fd_uint_align_up( opt_hdr.sz, 4U );
   uint read_sz = fd_uint_min( opt_hdr.sz, opt->sz );
   opt->type = opt_hdr.type;
   opt->sz   = (ushort)read_sz;
 
   if( read_sz ) {
-    if( FD_UNLIKELY( 1UL!=fread( opt->value, read_sz, 1UL, stream ) ) )
-      return ferror( stream );
-    end_off -= read_sz;
+    if( FD_UNLIKELY( iter->block_buf_pos + read_sz > iter->block_buf_sz ) ) {
+    iter->error = EPROTO;
+      FD_LOG_WARNING(( "out of bounds option" ));
+      return EPROTO;
+    }
+    memcpy( opt->value, iter->block_buf + iter->block_buf_pos, read_sz );
   }
 
-  if( FD_UNLIKELY( 0!=fseek( stream, end_off, SEEK_CUR ) ) )
-    return errno;
+  iter->block_buf_pos += fd_uint_align_up( opt_hdr.sz, 4U );
+  if( FD_UNLIKELY( iter->block_buf_pos > iter->block_buf_sz ) )
+    return EPROTO;
 
   return 0; /* success */
 }
@@ -149,7 +167,7 @@ fd_pcapng_iter_new( void * mem,
   /* File starts with a Section Header Block */
 
   fd_pcapng_block_hdr_t shb_hdr;
-  int err = fd_pcapng_peek_block( file, &shb_hdr, NULL );
+  int err = fd_pcapng_read_block( file, iter, &shb_hdr );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "pcapng: SHB read failed (%s)", fd_pcapng_iter_strerror( err, file ) ));
     return NULL;
@@ -160,15 +178,8 @@ fd_pcapng_iter_new( void * mem,
     return NULL;
   }
 
-  /* Read Section Header Block */
 
-  fd_pcapng_shb_t shb;
-  if( FD_UNLIKELY( 1UL!=fread( &shb, sizeof(fd_pcapng_shb_t), 1UL, file )
-                || 0  !=fseek( file, (long)shb_hdr.block_sz - (long)sizeof(fd_pcapng_shb_t), SEEK_CUR ) ) ) {
-    FD_LOG_WARNING(( "pcapng: SHB read failed (%s)", fd_pcapng_iter_strerror( err, file ) ));
-    return NULL;
-  }
-
+  fd_pcapng_shb_t shb = FD_LOAD( fd_pcapng_shb_t, iter->block_buf );
   if( FD_UNLIKELY( (shb.version_major!=1) | (shb.version_minor!=0) ) ) {
     FD_LOG_WARNING(( "pcapng: unsupported file format version %u.%u",
                      shb.version_major, shb.version_minor ));
@@ -204,8 +215,7 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
   for( uint attempt=0U; attempt<256U; attempt++ ) {
 
     fd_pcapng_block_hdr_t hdr;
-    long                  end;
-    if( FD_UNLIKELY( 0!=(iter->error = fd_pcapng_peek_block( stream, &hdr, &end )) ) ) {
+    if( FD_UNLIKELY( 0!=(iter->error = fd_pcapng_read_block( stream, iter, &hdr )) ) ) {
       if( FD_UNLIKELY( iter->error != -1 ) )
         FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
       return NULL;
@@ -224,12 +234,8 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
         FD_LOG_WARNING(( "pcapng: invalid IDB block size (%#x)", hdr.block_sz ));
         return NULL;
       }
-      fd_pcapng_idb_t idb;
-      if( FD_UNLIKELY( 1UL!=fread( &idb, sizeof(fd_pcapng_idb_t), 1UL, stream ) ) ) {
-        iter->error = ferror( stream );
-        FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
+      fd_pcapng_idb_t idb = FD_LOAD( fd_pcapng_idb_t, iter->block_buf );
+      iter->block_buf_pos = sizeof(fd_pcapng_idb_t);
 
       /* Add interface to list */
       if( FD_UNLIKELY( iter->iface_cnt>=FD_PCAPNG_IFACE_CNT ) ) {
@@ -246,7 +252,7 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
       for( uint j=0; j<FD_PCAPNG_MAX_OPT_CNT; j++ ) {
         uchar opt_buf[ 128UL ] __attribute__((aligned(32UL)));
         fd_pcapng_option_t opt = { .sz=sizeof(opt_buf), .value=&opt_buf };
-        if( FD_UNLIKELY( 0!=(iter->error = fd_pcapng_read_option( stream, &opt )) ) ) {
+        if( FD_UNLIKELY( 0!=(iter->error = fd_pcapng_read_option( iter, &opt )) ) ) {
           FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
           return NULL;
         }
@@ -284,20 +290,11 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
         }
       }
 
-      /* Seek to end of block */
-      if( FD_UNLIKELY( 0!=fseek( stream, end, SEEK_SET ) ) ) {
-        iter->error = errno;
-        FD_LOG_WARNING(( "pcapng: seek failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
-
-      /* Next */
       break;
     }
     case FD_PCAPNG_BLOCK_TYPE_SPB: {
       /* Read SPB */
-      if( FD_UNLIKELY( hdr.block_sz<sizeof(fd_pcapng_spb_t)
-                    || hdr.block_sz>FD_PCAPNG_FRAME_SZ ) ) {
+      if( FD_UNLIKELY( hdr.block_sz<sizeof(fd_pcapng_spb_t) ) ) {
         iter->error = EPROTO;
         FD_LOG_WARNING(( "pcapng: invalid SPB block size (%#x)", hdr.block_sz ));
         return NULL;
@@ -306,24 +303,15 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
       uint hdr_sz  = sizeof(fd_pcapng_spb_t);
       uint data_sz = hdr.block_sz - hdr_sz;
 
-      fd_pcapng_spb_t spb;
-      if( FD_UNLIKELY( 1UL!=fread( &spb,      hdr_sz,  1UL, stream ) ) ) {
-        iter->error = ferror( stream );
-        FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
-      if( FD_UNLIKELY( 1UL!=fread( pkt->data, data_sz, 1UL, stream ) ) ) {
-        iter->error = ferror( stream );
-        FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
+      fd_pcapng_spb_t spb = FD_LOAD( fd_pcapng_spb_t, iter->block_buf );
+      iter->block_buf_pos = hdr_sz;
 
-      /* Seek to end of block */
-      if( FD_UNLIKELY( 0!=fseek( stream, end, SEEK_SET ) ) ) {
-        iter->error = errno;
-        FD_LOG_WARNING(( "pcapng: seek failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
+      if( FD_UNLIKELY( spb.orig_len > (iter->block_buf_sz - iter->block_buf_pos) ) ) {
+        iter->error = EPROTO;
+        FD_LOG_WARNING(( "pcapng: invalid SPB block size (%#x)", hdr.block_sz ));
         return NULL;
       }
+      pkt->data = iter->block_buf + iter->block_buf_pos;
 
       pkt->type    = FD_PCAPNG_FRAME_SIMPLE;
       pkt->data_sz = (ushort)data_sz;
@@ -332,35 +320,28 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
     }
     case FD_PCAPNG_BLOCK_TYPE_EPB: {
       /* Read EPB */
-      if( FD_UNLIKELY( hdr.block_sz<sizeof(fd_pcapng_epb_t)
-                    || hdr.block_sz>FD_PCAPNG_FRAME_SZ ) ) {
+      if( FD_UNLIKELY( hdr.block_sz<sizeof(fd_pcapng_epb_t) ) ) {
         iter->error = EPROTO;
         FD_LOG_WARNING(( "pcapng: invalid EPB block size (%#x)", hdr.block_sz ));
         return NULL;
       }
 
-      fd_pcapng_epb_t epb;
-      if( FD_UNLIKELY( 1UL!=fread( &epb, sizeof(fd_pcapng_epb_t), 1UL, stream ) ) ) {
-        iter->error = ferror( stream );
-        FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
-      if( FD_UNLIKELY( epb.cap_len>FD_PCAPNG_FRAME_SZ ) ) {
+      fd_pcapng_epb_t epb = FD_LOAD( fd_pcapng_epb_t, iter->block_buf );
+      iter->block_buf_pos = sizeof(fd_pcapng_epb_t);
+
+    if( FD_UNLIKELY( epb.cap_len > (iter->block_buf_sz - iter->block_buf_pos) ) ) {
         iter->error = EPROTO;
-        FD_LOG_WARNING(( "pcapng: oversize EPB data (%#x)", epb.cap_len ));
+        FD_LOG_WARNING(( "pcapng: invalid EPB block size (%#x)", hdr.block_sz ));
         return NULL;
       }
-      if( FD_UNLIKELY( 1UL!=fread( pkt->data, epb.cap_len, 1UL, stream ) ) ) {
-        iter->error = ferror( stream );
-        FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
+      pkt->data = iter->block_buf + iter->block_buf_pos;
+      iter->block_buf_pos += fd_uint_align_up( epb.cap_len, 4U );
 
       /* Read options */
       for( uint j=0; j<FD_PCAPNG_MAX_OPT_CNT; j++ ) {
         uchar opt_buf[ 128UL ] __attribute__((aligned(32UL)));
         fd_pcapng_option_t opt = { .sz=sizeof(opt_buf), .value=&opt_buf };
-        if( FD_UNLIKELY( 0!=(iter->error = fd_pcapng_read_option( stream, &opt )) ) ) {
+        if( FD_UNLIKELY( 0!=(iter->error = fd_pcapng_read_option( iter, &opt )) ) ) {
           FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
           return NULL;
         }
@@ -383,13 +364,6 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
         }
       }
 
-      /* Seek to end of block */
-      if( FD_UNLIKELY( 0!=fseek( stream, end, SEEK_SET ) ) ) {
-        iter->error = errno;
-        FD_LOG_WARNING(( "pcapng: seek failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
-
       pkt->type    = FD_PCAPNG_FRAME_ENHANCED;
       pkt->data_sz = (ushort)epb.cap_len;
       pkt->orig_sz = (ushort)epb.orig_len;
@@ -399,35 +373,28 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
     }
     case FD_PCAPNG_BLOCK_TYPE_DSB: {
       /* Read DSB */
-      if( FD_UNLIKELY( hdr.block_sz<sizeof(fd_pcapng_dsb_t)
-                    || hdr.block_sz>FD_PCAPNG_FRAME_SZ ) ) {
+      if( FD_UNLIKELY( hdr.block_sz<sizeof(fd_pcapng_dsb_t) ) ) {
         iter->error = EPROTO;
         FD_LOG_WARNING(( "pcapng: invalid DSB block size (%#x)", hdr.block_sz ));
         return NULL;
       }
 
-      fd_pcapng_dsb_t dsb;
-      if( FD_UNLIKELY( 1UL!=fread( &dsb, sizeof(fd_pcapng_dsb_t), 1UL, stream ) ) ) {
-        iter->error = ferror( stream );
-        FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
-      if( FD_UNLIKELY( dsb.secret_sz>FD_PCAPNG_FRAME_SZ ) ) {
+      fd_pcapng_dsb_t dsb = FD_LOAD( fd_pcapng_dsb_t, iter->block_buf );
+      iter->block_buf_pos = sizeof(fd_pcapng_dsb_t);
+
+      if( FD_UNLIKELY( dsb.secret_sz > (iter->block_buf_sz - iter->block_buf_pos) ) ) {
         iter->error = EPROTO;
-        FD_LOG_WARNING(( "pcapng: oversize DSB data (%#x)", dsb.secret_sz ));
+        FD_LOG_WARNING(( "pcapng: invalid DSB block size (%#x)", hdr.block_sz ));
         return NULL;
       }
-      if( FD_UNLIKELY( 1UL!=fread( pkt->data, dsb.secret_sz, 1UL, stream ) ) ) {
-        iter->error = ferror( stream );
-        FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
+      pkt->data = iter->block_buf + sizeof(fd_pcapng_dsb_t);
+      iter->block_buf_pos += fd_uint_align_up( dsb.secret_sz, 4U );
 
       /* Read options */
       for( uint j=0; j<FD_PCAPNG_MAX_OPT_CNT; j++ ) {
         uchar opt_buf[ 128UL ] __attribute__((aligned(32UL)));
         fd_pcapng_option_t opt = { .sz=sizeof(opt_buf), .value=&opt_buf };
-        if( FD_UNLIKELY( 0!=(iter->error = fd_pcapng_read_option( stream, &opt )) ) ) {
+        if( FD_UNLIKELY( 0!=(iter->error = fd_pcapng_read_option( iter, &opt )) ) ) {
           FD_LOG_WARNING(( "pcapng: read failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
           return NULL;
         }
@@ -447,27 +414,14 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
         break;
       }
 
-      /* Seek to end of block */
-      if( FD_UNLIKELY( 0!=fseek( stream, end, SEEK_SET ) ) ) {
-        iter->error = errno;
-        FD_LOG_WARNING(( "pcapng: seek failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
-
       pkt->type    = FD_PCAPNG_FRAME_TLSKEYS;
       pkt->data_sz = dsb.secret_sz;
       return pkt;
     }
     default:
       FD_LOG_DEBUG(( "pcapng: skipping unknown block (type=%#x)", hdr.block_type ));
-      if( FD_UNLIKELY( 0!=fseek( stream, hdr.block_sz, SEEK_CUR ) ) ) {
-        iter->error = errno;
-        FD_LOG_WARNING(( "pcapng: seek failed (%s)", fd_pcapng_iter_strerror( iter->error, stream ) ));
-        return NULL;
-      }
+      break;
     }
-
-    /* Read block that is not interesting to user, continue to next */
   }
 
   /* Found no blocks that are interesting to user */
