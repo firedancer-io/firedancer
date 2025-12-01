@@ -970,7 +970,11 @@ check_and_filter_proposed_vote_state( fd_vote_state_t *           vote_state,
   /* Index into the slot_hashes, starting at the oldest known slot hash */
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L264
   ulong slot_hashes_index = deq_fd_slot_hash_t_cnt( slot_hashes );
-  ulong proposed_lockouts_indexes_to_filter[ MAX_LOCKOUT_HISTORY ];
+
+  /* proposed_lockouts_indexes_to_filter's size is bounded by the length
+     of the proposed lockouts provided in the instruction data, which is
+     capped at roughly 10KB / sizeof(ulong). */
+  ulong proposed_lockouts_indexes_to_filter[ FD_INSTR_DATA_MAX/sizeof(ulong) ];
   ulong filter_index = 0UL;
 
   /* Note:
