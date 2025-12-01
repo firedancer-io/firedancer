@@ -124,6 +124,7 @@ int
 fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
                                     ulong *                 root_slot,
                                     ulong *                 shred_cnt ) {
+  FD_TEST( rocksdb_iter_valid( db->iter_root ) );
   rocksdb_iter_next( db->iter_root );
   if( FD_UNLIKELY( !rocksdb_iter_valid(db->iter_root) ) ) return 0;
 
