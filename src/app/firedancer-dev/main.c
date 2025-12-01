@@ -151,9 +151,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
   &fd_tile_shredcap,
-#if FD_HAS_ROCKSDB
   &fd_tile_backtest,
-#endif
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,

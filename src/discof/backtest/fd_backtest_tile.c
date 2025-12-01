@@ -1,4 +1,5 @@
 #include "fd_backtest_rocksdb.h"
+#include "fd_backtest_shredcap.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../discof/replay/fd_replay_tile.h"
@@ -46,7 +47,8 @@ struct fd_backt_tile {
   int genesis;
   int snapshot_done;
 
-  fd_backtest_rocksdb_t * rocksdb;
+  fd_backtest_rocksdb_t *  rocksdb;
+  fd_backtest_shredcap_t * shredcap;
 
   ulong prev_slot;
   ulong prev_fec_set_idx;
@@ -98,9 +100,53 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_backt_tile_t),    sizeof(fd_backt_tile_t)         );
-  l = FD_LAYOUT_APPEND( l, fd_backtest_rocksdb_align(), fd_backtest_rocksdb_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)          );
+  l = FD_LAYOUT_APPEND( l, fd_backtest_shredcap_align(), fd_backtest_shredcap_footprint() );
+# if FD_HAS_ROCKSDB
+  l = FD_LAYOUT_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()  );
+# endif
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static void
+source_init( fd_backt_tile_t * ctx,
+             ulong             start_slot ) {
+# if FD_HAS_ROCKSDB
+  if( ctx->rocksdb ) {
+    fd_backtest_rocksdb_init( ctx->rocksdb, start_slot );
+    return;
+  }
+# endif
+  fd_backtest_shredcap_init( ctx->shredcap, start_slot );
+}
+
+static int
+source_next_root_slot( fd_backt_tile_t * ctx,
+                       ulong *           root_slot,
+                       ulong *           shred_cnt ) {
+# if FD_HAS_ROCKSDB
+  if( ctx->rocksdb ) return fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, root_slot, shred_cnt );
+# endif
+  return fd_backtest_shredcap_next_root_slot( ctx->shredcap, root_slot, shred_cnt );
+}
+
+static uchar const *
+source_bank_hash( fd_backt_tile_t * ctx,
+                  ulong             slot ) {
+# if FD_HAS_ROCKSDB
+  if( ctx->rocksdb ) return fd_backtest_rocksdb_bank_hash( ctx->rocksdb, slot );
+# endif
+  return fd_backtest_shredcap_bank_hash( ctx->shredcap, slot );
+}
+
+static void const *
+source_shred( fd_backt_tile_t * ctx,
+              ulong             slot,
+              ulong             shred_idx ) {
+# if FD_HAS_ROCKSDB
+  if( ctx->rocksdb ) return fd_backtest_rocksdb_shred( ctx->rocksdb, slot, shred_idx );
+# endif
+  return fd_backtest_shredcap_shred( ctx->shredcap, slot, shred_idx );
 }
 
 static void
@@ -124,18 +170,19 @@ before_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( ctx->reading_shred_cnt==ctx->reading_shred_idx ) ) {
     if( FD_UNLIKELY( ctx->bank_hash_cnt==BANK_HASH_BUFFER_LEN ) ) return; /* out of space */
 
-    int success = fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->reading_slot, &ctx->reading_shred_cnt );
+    int success = source_next_root_slot( ctx, &ctx->reading_slot, &ctx->reading_shred_cnt );
     if( FD_UNLIKELY( !success ) ) ctx->reading_slot = ctx->end_slot+1UL; /* no more shreds, mark finished */
     if( FD_UNLIKELY( ctx->reading_slot>ctx->end_slot ) ) return; /* finished iterating */
 
     ctx->reading_slot_cnt++;
     ctx->reading_shred_idx = 0UL;
-    uchar const * bank_hash = fd_backtest_rocksdb_bank_hash( ctx->rocksdb, ctx->reading_slot );
+    uchar const * bank_hash = source_bank_hash( ctx, ctx->reading_slot );
     fd_memcpy( ctx->bank_hashes[ (ctx->bank_hash_idx+ctx->bank_hash_cnt)%BANK_HASH_BUFFER_LEN ], bank_hash, 32UL );
     ctx->bank_hash_cnt++;
   }
 
-  void const * shred = fd_backtest_rocksdb_shred( ctx->rocksdb, ctx->reading_slot, ctx->reading_shred_idx );
+  void const * shred = source_shred( ctx, ctx->reading_slot, ctx->reading_shred_idx );
+  FD_TEST( shred );
   fd_memcpy( ctx->shreds[ (ctx->shreds_idx+ctx->shreds_cnt)%SHRED_BUFFER_LEN ], shred, fd_shred_sz( (fd_shred_t const *)shred ) );
 
   ctx->reading_shred_idx++;
@@ -254,7 +301,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       ctx->reading_slot = manifest->slot;
       ctx->start_slot  = manifest->slot;
       FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
-      fd_backtest_rocksdb_init( ctx->rocksdb, manifest->slot );
+      source_init( ctx, manifest->slot );
       break;
     }
     case IN_KIND_GENESI: {
@@ -266,7 +313,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
-        fd_backtest_rocksdb_init( ctx->rocksdb, 0UL );
+        source_init( ctx, 0UL );
       }
       break;
     }
@@ -293,15 +340,18 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       long prior_completion_timestamp = ctx->prior_completion_timestamp ? ctx->prior_completion_timestamp : msg->preparation_begin_nanos;
 
+      FD_BASE58_ENCODE_32_BYTES( msg->bank_hash.uc, bh_got_b58 );
       if( FD_LIKELY( !memcmp( msg->bank_hash.uc, ctx->bank_hashes[ ctx->bank_hash_idx ], 32UL ) ) ) {
-        FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%s (switch %.2f ms, begin %.2f ms, exec %.2f ms, finish %.2f ms)", msg->slot, FD_BASE58_ENC_32_ALLOCA( msg->bank_hash.uc ),
+
+        FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%s (switch %.2f ms, begin %.2f ms, exec %.2f ms, finish %.2f ms)", msg->slot, bh_got_b58,
           (double)(msg->preparation_begin_nanos-prior_completion_timestamp)/1e6,
           (double)(msg->first_transaction_scheduled_nanos-msg->preparation_begin_nanos)/1e6,
           (double)(msg->last_transaction_finished_nanos-msg->first_transaction_scheduled_nanos)/1e6,
           (double)(msg->completion_time_nanos-msg->last_transaction_finished_nanos)/1e6 ));
       } else {
         /* Do not change this log as it is used in offline replay */
-        FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, FD_BASE58_ENC_32_ALLOCA( ctx->bank_hashes[ ctx->bank_hash_idx ] ), FD_BASE58_ENC_32_ALLOCA( msg->bank_hash.uc ) ));
+        FD_BASE58_ENCODE_32_BYTES( ctx->bank_hashes[ ctx->bank_hash_idx ], bh_exp_b58 );
+        FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
       }
       ctx->bank_hash_idx = (ctx->bank_hash_idx+1UL)%(sizeof(ctx->bank_hashes)/sizeof(ctx->bank_hashes[0]));
       ctx->bank_hash_cnt--;
@@ -365,15 +415,18 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_backt_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t),    sizeof(fd_backt_tile_t) );
-  void * _backtest_rocksdb = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_rocksdb_align(), fd_backtest_rocksdb_footprint() );
+  fd_backt_tile_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)          );
+  void * _backtest_shredcap = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_shredcap_align(), fd_backtest_shredcap_footprint() );
+# if FD_HAS_ROCKSDB
+  void * _backtest_rocksdb  = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()  );
+# endif
 
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
   ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
   ctx->idle_cnt = 0UL;
 
-  ctx->end_slot = tile->archiver.end_slot;
+  ctx->end_slot = tile->backtest.end_slot;
   FD_MGAUGE_SET( BACKT, FINAL_SLOT, ctx->end_slot );
   ctx->slot_cnt = 0UL;
 
@@ -391,7 +444,20 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->chained_prev_slot = ULONG_MAX;
   ctx->prev_slot = ULONG_MAX;
-  ctx->rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( _backtest_rocksdb, tile->archiver.rocksdb_path /* TODO: Not arhiver */ ) );
+
+  ctx->rocksdb = NULL;
+  ctx->shredcap = NULL;
+
+  if( tile->backtest.shredcap_path[0] ) {
+    ctx->shredcap = fd_backtest_shredcap_new( _backtest_shredcap, tile->backtest.shredcap_path );
+    FD_TEST( ctx->shredcap );
+  }
+# if FD_HAS_ROCKSDB
+  if( !ctx->shredcap ) {
+    ctx->rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( _backtest_rocksdb, tile->backtest.rocksdb_path ) );
+    FD_TEST( ctx->rocksdb );
+  }
+# endif
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );
