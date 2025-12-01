@@ -14,7 +14,7 @@ TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
-INGEST_MODE="rocksdb"
+INGEST_MODE="shredcap"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
@@ -255,6 +255,14 @@ if [[ -z "$GENESIS" ]]; then
 else
   echo "[paths]
     genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
+fi
+
+
+if [[ "$INGEST_MODE" == "shredcap" ]]; then
+  if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+    $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
+  fi
+  echo "Converted rocksdb to shredcap"
 fi
 
 echo "Running backtest for $LEDGER"
