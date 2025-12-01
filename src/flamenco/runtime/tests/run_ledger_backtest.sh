@@ -223,7 +223,7 @@ echo "
         enabled = true
         end_slot = $END_SLOT
         rocksdb_path = \"$DUMP/$LEDGER/rocksdb\"
-        shredcap_path = \"$DUMP/$LEDGER/shreds.pcapng\"
+        shredcap_path = \"$DUMP/$LEDGER/shreds.pcapng.zst\"
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
         enable_features = [ $FORMATTED_ONE_OFFS ]

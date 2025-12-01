@@ -2,10 +2,10 @@
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_pcapng.h"
 #include "../../util/net/fd_ip4.h"
-#include "../../util/net/fd_ip6.h"
 #include "fd_shredcap.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
+#include "fd_libc_zstd.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -29,6 +29,9 @@ usage( int rc ) {
     "\n"
     "  --rocksdb <path>  Agave RocksDB directory\n"
     "  --out     <path>  File path to new shredcap file (fails if file already exists)\n"
+#   if FD_HAS_ZSTD
+    "  --zstd            Output compressed .pcapng.zst stream instead of raw pcapng\n"
+#   endif
     "\n",
     stderr
   );
@@ -99,7 +102,7 @@ write_shred( FILE *       pcap,
     .option_sz   = 8,
     .pen         = 31592,  /* Jump Trading, LLC */
     .magic       = 0x4071, /* SOL! */
-    .gossip_tag  = 0xa     /* TVU */
+    .gossip_tag  = FD_CONTACT_INFO_SOCKET_TVU
   };
 
   fd_pcapng_fwrite_pkt1( pcap, &packet, 28UL+shred_sz, &option, sizeof(option), IF_IDX_NET, 0L );
@@ -114,6 +117,11 @@ main( int     argc,
   char const * out_path     = fd_env_strip_cmdline_cstr( &argc, &argv, "--out",     NULL, NULL );
   char const * out_short    = fd_env_strip_cmdline_cstr( &argc, &argv, "--o",       NULL, NULL );
   if( !out_path ) out_path = out_short;
+
+  int use_zstd = fd_env_strip_cmdline_contains( &argc, &argv, "--zstd" );
+# if !FD_HAS_ZSTD
+  if( use_zstd ) FD_LOG_ERR(( "This build does not support ZSTD compression" ));
+# endif
 
   if( FD_UNLIKELY( !rocksdb_path ) ) {
     fputs( "Error: --rocksdb not specified\n", stderr );
@@ -136,6 +144,13 @@ main( int     argc,
   if( FD_UNLIKELY( out_fd<0 ) ) FD_LOG_ERR(( "failed to create file %s (%i-%s)", out_path, errno, fd_io_strerror( errno ) ));
   FILE * out = fdopen( out_fd, "wb" );
   if( FD_UNLIKELY( !out ) ) FD_LOG_ERR(( "fdopen failed on %s (%i-%s)", out_path, errno, fd_io_strerror( errno ) ));
+
+# if FD_HAS_ZSTD
+  if( use_zstd ) {
+    out = fd_zstd_wstream_open( out );
+    if( FD_UNLIKELY( !out ) ) FD_LOG_ERR(( "failed to initialize ZSTD compression" ));
+  }
+# endif
 
   /* Write pcapng header */
   {
