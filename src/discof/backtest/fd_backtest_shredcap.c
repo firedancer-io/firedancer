@@ -1,4 +1,5 @@
 #include "fd_backtest_shredcap.h"
+#include "fd_libc_zstd.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
@@ -7,6 +8,12 @@
 #include "fd_shredcap.h"
 #include <stdio.h>
 
+#if FD_HAS_ZSTD
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#define ZSTD_WINDOW_SZ (1UL<<21UL) /* 2MiB */
+#endif
+
 struct fd_backtest_shredcap_private {
   FILE *             file;
   void *             iter_mem;
@@ -14,6 +21,10 @@ struct fd_backtest_shredcap_private {
   ulong              min_slot;
   ulong              slot;
   uchar              bank_hash[32];
+
+# if FD_HAS_ZSTD
+  ZSTD_DStream * zstd;
+# endif
 };
 
 FD_FN_CONST ulong
@@ -26,6 +37,9 @@ fd_backtest_shredcap_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_backtest_shredcap_t), sizeof(fd_backtest_shredcap_t) );
   l = FD_LAYOUT_APPEND( l, fd_pcapng_iter_align(),          fd_pcapng_iter_footprint()     );
+# if FD_HAS_ZSTD
+  l = FD_LAYOUT_APPEND( l, 32UL, ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
+# endif
   return FD_LAYOUT_FINI( l, fd_backtest_shredcap_align() );
 }
 
@@ -35,6 +49,9 @@ fd_backtest_shredcap_new( void *       shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_backtest_shredcap_t * db       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backtest_shredcap_t), sizeof(fd_backtest_shredcap_t) );
   void *                   iter_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_pcapng_iter_align(),          fd_pcapng_iter_footprint()     );
+# if FD_HAS_ZSTD
+  void *                   zstd_mem = FD_SCRATCH_ALLOC_APPEND( l, 32UL, ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
+# endif
   FD_SCRATCH_ALLOC_FINI( l, fd_backtest_shredcap_align() );
   memset( db, 0, sizeof(fd_backtest_shredcap_t) );
 
@@ -47,6 +64,31 @@ fd_backtest_shredcap_new( void *       shmem,
   db->file     = file;
   db->iter_mem = iter_mem;
   db->iter     = NULL;
+
+# if FD_HAS_ZSTD
+  db->zstd = ZSTD_initStaticDStream( zstd_mem, ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
+  FD_TEST( db->zstd );
+  FD_TEST( db->zstd==zstd_mem );
+
+  /* Peek magic number.  Is it Zstandard? */
+  uint magic;
+  size_t read = fread( &magic, 1, sizeof(uint), file );
+  if( FD_UNLIKELY( read!=4 ) ) {
+    FD_LOG_WARNING(( "fread failed" ));
+    fclose( file );
+    return NULL;
+  }
+  if( FD_UNLIKELY( fseek( file, 0L, SEEK_SET )!=0L ) ) {
+    FD_LOG_WARNING(( "fseek failed" ));
+    fclose( file );
+    return NULL;
+  }
+  if( magic==ZSTD_MAGICNUMBER ) {
+    db->file = fd_zstd_rstream_open( file, db->zstd );
+    FD_TEST( db->file );
+  }
+# endif
+
   return db;
 }
 
