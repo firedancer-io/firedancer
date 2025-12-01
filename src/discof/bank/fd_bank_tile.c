@@ -602,6 +602,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->status_cache = txncache;
   ctx->runtime->log.log_collector = ctx->log_collector;
   ctx->runtime->log.enable_log_collector = 0;
+  ctx->runtime->log.capture_ctx = NULL;
+  ctx->runtime->log.dumping_mem = NULL;
+  ctx->runtime->log.tracing_mem = NULL;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
