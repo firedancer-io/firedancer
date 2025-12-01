@@ -31,6 +31,7 @@ fd_gui_metrics_gossip_total_ingress_bytes( fd_topo_t const * topo, ulong gossvf_
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PING) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PONG) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_UNPARSEABLE) )
+       + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_MALFORMED_PACKET) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_LOOPBACK) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_INACTIVE) )

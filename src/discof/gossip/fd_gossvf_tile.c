@@ -766,7 +766,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   ulong payload_sz;
   fd_ip4_hdr_t * ip4_hdr;
   fd_udp_hdr_t * udp_hdr;
-  FD_TEST( fd_ip4_udp_hdr_strip( ctx->payload, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) );
+  if( FD_UNLIKELY( !fd_ip4_udp_hdr_strip( ctx->payload, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_MALFORMED_PACKET_IDX;
   ctx->peer.addr = ip4_hdr->saddr;
   ctx->peer.port = udp_hdr->net_sport;
 
