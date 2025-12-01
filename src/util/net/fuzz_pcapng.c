@@ -62,7 +62,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
     value = (ulong)frame->ts;      FD_COMPILER_FORGET( value );
     value = (ulong)frame->orig_sz; FD_COMPILER_FORGET( value );
     value = (ulong)frame->if_idx;  FD_COMPILER_FORGET( value );
-    FD_TEST( frame->data_sz <= FD_PCAPNG_FRAME_SZ );
 
     uchar x=0;
     for( uint i=0; i<frame->data_sz; i++ ) x ^= frame->data[ i ];

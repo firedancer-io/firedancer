@@ -11,6 +11,7 @@ struct fd_backtest_shredcap_private {
   FILE *             file;
   void *             iter_mem;
   fd_pcapng_iter_t * iter;
+  ulong              min_slot;
   ulong              slot;
   uchar              bank_hash[32];
 };
@@ -97,20 +98,19 @@ fd_backtest_shredcap_init( fd_backtest_shredcap_t * db,
   if( FD_UNLIKELY( fseek( db->file, 0L, SEEK_SET )!=0L ) ) {
     FD_LOG_ERR(( "fseek failed" ));
   }
-  db->iter = fd_pcapng_iter_new( db->iter_mem, db->file );
-
-  fd_pcapng_iter_next( db->iter );
-  SEEK_UNTIL( db, __extension__({
-    ulong found = frame_peek_root_slot( frame );
-    found!=ULONG_MAX && found>=root_slot;
-  }));
+  db->iter     = fd_pcapng_iter_new( db->iter_mem, db->file );
+  db->min_slot = root_slot;
 }
 
 int
 fd_backtest_shredcap_next_root_slot( fd_backtest_shredcap_t * db,
                                      ulong *                  root_slot,
                                      ulong *                  shred_cnt ) {
-  fd_pcapng_frame_t const * frame = SEEK_UNTIL( db, (frame_peek_root_slot( frame )!=ULONG_MAX) );
+  fd_pcapng_frame_t const * frame = SEEK_UNTIL( db, __extension__({
+    ulong found = frame_peek_root_slot( frame );
+    found!=ULONG_MAX && found>db->min_slot;
+  }));
+  FD_TEST( fd_pcapng_iter_err( db->iter )<=0 );
   if( FD_UNLIKELY( !frame ) ) return 0;
 
   fd_shredcap_bank_hash_v0_t bh;
