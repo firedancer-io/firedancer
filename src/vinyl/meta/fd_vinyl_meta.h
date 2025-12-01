@@ -25,7 +25,7 @@
    used persistent.  But, as it can be exactly reconstructed during
    recovery from the bstream's past and there are no provisions for
    "syncing" the meta cache with the bstream in the face of unexpected
-   processs interruptions, persistence should only be used for post
+   process interruptions, persistence should only be used for post
    mortem debugging. */
 
 #include "../bstream/fd_vinyl_bstream.h"
@@ -174,7 +174,7 @@ fd_vinyl_meta_query_fast( fd_vinyl_meta_ele_t const * ele0,       /* indexed [0,
                           ulong *                     _ele_idx ); /* will be in [0,ele_max) on return */
 
 /* fd_vinyl_meta_remove_fast removes the key<>metadata mapping at meta
-   element ele_idx from the meta under the asumption the caller is the
+   element ele_idx from the meta under the assumption the caller is the
    only active writer to the meta and there are no meta prepares in
    progress.  This cannot fail from the caller's perspective
    (FD_LOG_CRIT if meta or line is corruption detected during removal). */
