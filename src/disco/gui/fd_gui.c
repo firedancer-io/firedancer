@@ -2030,6 +2030,15 @@ static void
 fd_gui_handle_completed_slot( fd_gui_t * gui,
                               ulong *    msg,
                               long       now ) {
+
+  /* This is the slot used by frontend clients as the "startup slot". In
+     certain boot conditions, we don't recieve this slot from Agave, so
+     we include a bit of a hacky assignment here to make sure it is
+     always present. */
+  if( FD_UNLIKELY( gui->summary.startup_progress.startup_ledger_max_slot==ULONG_MAX ) ) {
+    gui->summary.startup_progress.startup_ledger_max_slot = msg[ 0 ];
+  }
+
   ulong _slot                    = msg[ 0 ];
   uint  total_txn_count          = (uint)msg[ 1 ];
   uint  nonvote_txn_count        = (uint)msg[ 2 ];
