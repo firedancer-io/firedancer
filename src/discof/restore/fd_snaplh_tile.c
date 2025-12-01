@@ -3,10 +3,15 @@
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/lthash/fd_lthash_adder.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
-// #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 #include "generated/fd_snaplh_tile_seccomp.h"
 
 #include "utils/fd_ssctrl.h"
+
+#include <errno.h>
+#include <sys/stat.h> /* fstat */
+#include <fcntl.h> /* open */
+#include <unistd.h> /* close */
 
 #define NAME "snaplh"
 
@@ -14,6 +19,10 @@
 
 #define IN_KIND_SNAPLV (0UL)
 #define IN_KIND_SNAPWH (1UL)
+
+#define VINYL_LTHASH_BLOCK_ALIGN  (512UL) /* O_DIRECT would require 4096UL */
+#define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
+FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
 
 struct in_link_private {
   fd_wksp_t *  wksp;
@@ -43,6 +52,10 @@ struct fd_snaplh_tile {
   ulong num_hash_tiles;
   ulong hash_tile_idx;
   ulong pairs_seen;
+  ulong lthash_req_seen;
+
+  /* Database params */
+  ulong const * io_seed;
 
   ulong  finish_fseq;
 
@@ -51,14 +64,15 @@ struct fd_snaplh_tile {
   ulong             acc_data_sz;
 
   fd_lthash_value_t        running_lthash;
+  fd_lthash_value_t        running_lthash_sub;
 
   struct {
-    uchar pubkey[ FD_HASH_FOOTPRINT ];
-    uchar owner[ FD_HASH_FOOTPRINT ];
-    ulong data_len;
-    ulong lamports;
-    int   executable;
-  } account_hdr;
+    int               dev_fd;
+    ulong             dev_sz;
+    ulong             dev_base;
+    void *            pair_mem;
+    void *            pair_tmp;
+  } vinyl;
 
   struct {
     struct {
@@ -92,7 +106,9 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snaplh_t), sizeof(fd_snaplh_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)       );
+  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
+  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
   return FD_LAYOUT_FINI( l, alignof(fd_snaplh_t) );
 }
 
@@ -114,6 +130,12 @@ static int
 should_hash_account( fd_snaplh_t * ctx ) {
   return (ctx->pairs_seen % ctx->num_hash_tiles)==ctx->hash_tile_idx;
 }
+
+static int
+should_process_lthash_request( fd_snaplh_t * ctx ) {
+  return (ctx->lthash_req_seen % ctx->num_hash_tiles)==ctx->hash_tile_idx;
+}
+
 
 static void
 streamlined_hash( fd_snaplh_t * ctx,
@@ -145,6 +167,92 @@ streamlined_hash( fd_snaplh_t * ctx,
 
   if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
   else                         ctx->metrics.incremental.accounts_hashed++;
+}
+
+static inline void
+bd_read( int    fd,
+         ulong  off,
+         void * buf,
+         ulong  sz ) {
+  ssize_t ssz = pread( fd, buf, sz, (off_t)off );
+  if( FD_LIKELY( ssz==(ssize_t)sz ) ) return;
+  if( ssz<(ssize_t)0 ) FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (%i-%s)", fd, off, sz, errno, fd_io_strerror( errno ) ));
+  /**/                 FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
+}
+
+static void
+handle_vinyl_lthash_request( fd_snaplh_t *             ctx,
+                             ulong                     seq,
+                             fd_vinyl_bstream_phdr_t * acc_hdr ) {
+
+  ulong const io_seed = FD_VOLATILE_CONST( *ctx->io_seed );
+
+  ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
+  ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
+
+  /* dev_seq shows where the seq is physically located in device. */
+  ulong dev_seq  = ( seq + ctx->vinyl.dev_base ) % ctx->vinyl.dev_sz;
+  ulong rd_off   = fd_ulong_align_dn( dev_seq, VINYL_LTHASH_BLOCK_ALIGN );
+  ulong pair_off = (dev_seq - rd_off);
+  ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, VINYL_LTHASH_BLOCK_ALIGN );
+  FD_TEST( rd_sz < VINYL_LTHASH_BLOCK_MAX_SZ );
+
+  uchar * pair = ((uchar*)ctx->vinyl.pair_mem) + pair_off;
+  fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)pair;
+
+  for(;;) {
+    ulong sz    = rd_sz;
+    ulong rsz   = fd_ulong_min( rd_sz, ctx->vinyl.dev_sz - rd_off );
+    uchar * dst = ctx->vinyl.pair_mem;
+    uchar * tmp = ctx->vinyl.pair_tmp;
+
+    bd_read( ctx->vinyl.dev_fd, rd_off, dst, rsz );
+    sz -= rsz;
+    if( FD_UNLIKELY( sz ) ) {
+      /* When the dev wraps around, the dev_base needs to be skipped.
+         This means: increase the size multiple of the alignment,
+         read into a temporary buffer, and memcpy into the dst at the
+         correct offset. */
+      bd_read( ctx->vinyl.dev_fd, 0, tmp, sz + VINYL_LTHASH_BLOCK_ALIGN );
+      fd_memcpy( dst + rsz, tmp + ctx->vinyl.dev_base, sz );
+    }
+
+    if( FD_LIKELY( !memcmp( phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) ) ) {
+
+      /* test bstream pair integrity hashes */
+      // fd_vinyl_bstream_block_t * pair_hdr = (fd_vinyl_bstream_block_t *)pair;
+      // fd_vinyl_bstream_block_t * pair_ftr = (fd_vinyl_bstream_block_t *)(pair+(pair_sz-FD_VINYL_BSTREAM_BLOCK_SZ));
+      // int test = !fd_vinyl_bstream_pair_test_fast( io_seed, seq, pair_hdr, pair_ftr );
+      int test = !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz );
+
+      if( FD_LIKELY( test ) ) {
+        break;
+      }
+    }
+    FD_LOG_WARNING(( "phdr mismatch! - this should not happen under bstream_seq" ));
+    FD_SPIN_PAUSE();
+  }
+
+  /* TODO streamline adder (sub) ?*/
+
+  pair += sizeof(fd_vinyl_bstream_phdr_t);
+  fd_account_meta_t const * meta       = (fd_account_meta_t *)pair;
+  void const *              data       = (void const *)( meta+1 );
+  void const *              pubkey     = phdr->key.uc;
+  ulong                     data_sz    = meta->dlen;
+  ulong                     lamports   = meta->lamports;
+  _Bool                     executable = !!meta->executable;
+  void const *              owner      = meta->owner;
+
+  fd_lthash_value_t prev_lthash[1];
+  fd_hashes_account_lthash_simple( pubkey,
+                                   owner,
+                                   lamports,
+                                   executable,
+                                   data,
+                                   data_sz,
+                                   prev_lthash );
+  if( !!lamports ) fd_lthash_add( &ctx->running_lthash_sub, prev_lthash );
 }
 
 static void
@@ -199,6 +307,7 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
     /* TODO this does not seem to happen here */
     fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
     if( fd_seq_inc( ctx->last_wh_seq, 1UL )==ctx->finish_fseq ) {
+      fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
       fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
       /* TODO remove log when ready */
@@ -215,7 +324,16 @@ handle_lv_data_frag( fd_snaplh_t * ctx,
                      ulong         in_idx,
                      ulong         chunk,      /* compressed input pointer */
                      ulong         sz_comp ) { /* compressed input size */
-  (void)ctx; (void)in_idx; (void)chunk; (void)sz_comp;
+  (void)sz_comp;
+  if( FD_LIKELY( should_process_lthash_request( ctx ) ) ) {
+    uchar const * indata = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
+    ulong seq;
+    fd_vinyl_bstream_phdr_t acc_hdr[1];
+    memcpy( &seq,    indata, sizeof(ulong) );
+    memcpy( acc_hdr, indata + sizeof(ulong), sizeof(fd_vinyl_bstream_phdr_t) );
+    handle_vinyl_lthash_request( ctx, seq, acc_hdr );
+  }
+  ctx->lthash_req_seen++;
 }
 
 static void
@@ -231,6 +349,7 @@ handle_control_frag( fd_snaplh_t * ctx,
       ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       fd_lthash_zero( &ctx->running_lthash );
+      fd_lthash_zero( &ctx->running_lthash_sub );
       fd_lthash_adder_new( ctx->adder );
       break;
 
@@ -240,6 +359,7 @@ handle_control_frag( fd_snaplh_t * ctx,
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       fd_lthash_zero( &ctx->running_lthash );
+      fd_lthash_zero( &ctx->running_lthash_sub );
       fd_lthash_adder_new( ctx->adder );
       break;
 
@@ -260,6 +380,7 @@ handle_control_frag( fd_snaplh_t * ctx,
         /* TODO this should be in after_credit */
         fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
         if( fd_seq_inc( ctx->last_wh_seq, 1UL )==ctx->finish_fseq ) {
+          fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
           uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
           fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
           /* TODO remove log when ready */
@@ -351,6 +472,31 @@ privileged_init( fd_topo_t *      topo,
   fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t), sizeof(fd_snaplh_t) );
 
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
+
+  /* Set up io_bd dependencies */
+
+  char const * bstream_path = tile->snaplv.vinyl_path;
+  /* Note: it would be possible to use O_DIRECT, but it would require
+     VINYL_LTHASH_BLOCK_ALIGN to be 4096UL, which substantially
+     increases the read overhead, making it slower (keep in mind that
+     a rather large subset of mainnet accounts typically fits inside
+     one FD_VINYL_BSTREAM_BLOCK_SZ. */
+  int dev_fd = open( bstream_path, O_RDONLY|O_CLOEXEC, 0444 );
+  if( FD_UNLIKELY( dev_fd<0 ) ) {
+    FD_LOG_ERR(( "open(%s,O_RDONLY|O_CLOEXEC, 0444) failed (%i-%s)",
+                 bstream_path, errno, fd_io_strerror( errno ) ));
+  }
+
+  struct stat st;
+  if( FD_UNLIKELY( 0!=fstat( dev_fd, &st ) ) ) FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", bstream_path, errno, strerror( errno ) ));
+
+  ctx->vinyl.dev_fd  = dev_fd;
+  ulong bstream_sz   = (ulong)st.st_size;
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( bstream_sz, FD_VINYL_BSTREAM_BLOCK_SZ ) ) ) {
+    FD_LOG_ERR(( "vinyl file %s has misaligned size (%lu bytes)", bstream_path, bstream_sz ));
+  }
+  ctx->vinyl.dev_sz   = bstream_sz;
+  ctx->vinyl.dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
 }
 
 static void
@@ -360,6 +506,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t),   sizeof(fd_snaplh_t)        );
+  void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
+  void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
+
+  ctx->vinyl.pair_mem = pair_mem;
+  ctx->vinyl.pair_tmp = pair_tmp;
 
   if( FD_UNLIKELY( tile->in_cnt!=2UL ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt  ));
@@ -400,6 +551,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_lthash_adder_new( ctx->adder );
 
+  void * in_wh_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snapwr.dcache_obj_id ) );
+  FD_CRIT( fd_dcache_app_sz( in_wh_dcache )>=sizeof(ulong), "in_wh dcache app region too small to hold io_seed" );
+  ctx->io_seed = (ulong const *)fd_dcache_app_laddr_const( in_wh_dcache );
+
   ctx->metrics.full.accounts_hashed        = 0UL;
   ctx->metrics.incremental.accounts_hashed = 0UL;
 
@@ -410,7 +565,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->num_hash_tiles          = fd_topo_tile_name_cnt( topo, "snaplh" );
   ctx->hash_tile_idx           = tile->kind_id;
   ctx->pairs_seen              = 0UL;
+  ctx->lthash_req_seen         = 0UL;
   fd_lthash_zero( &ctx->running_lthash );
+  fd_lthash_zero( &ctx->running_lthash_sub );
   FD_LOG_NOTICE(( "*** hash_tile_idx %lu out of %lu", ctx->hash_tile_idx, ctx->num_hash_tiles ));
 }
 

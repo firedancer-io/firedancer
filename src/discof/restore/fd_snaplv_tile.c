@@ -156,122 +156,24 @@ transition_malformed( fd_snaplv_t *  ctx,
   fd_stem_publish( stem, OUT_LINK_CT, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
-static inline void
-bd_read( int    fd,
-         ulong  off,
-         void * buf,
-         ulong  sz ) {
-  ssize_t ssz = pread( fd, buf, sz, (off_t)off );
-  if( FD_LIKELY( ssz==(ssize_t)sz ) ) return;
-  if( ssz<(ssize_t)0 ) FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (%i-%s)", fd, off, sz, errno, fd_io_strerror( errno ) ));
-  /**/                 FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
-}
-
 static void
 handle_vinyl_lthash_request( fd_snaplv_t *             ctx,
+                             fd_stem_context_t *       stem,
                              ulong                     seq,
                              fd_vinyl_bstream_phdr_t * acc_hdr ) {
 
-  ulong const io_seed = FD_VOLATILE_CONST( *ctx->io_seed );
+  /* TODO schedule for after_credit? */
+  /* TODO update link burst and stem burst! */
+  out_link_t * o_link = &ctx->out_link[ OUT_LINK_LH ];
+  uchar * data = fd_chunk_to_laddr( o_link->mem, o_link->chunk );
+  memcpy( data, &seq, sizeof(ulong) );
+  memcpy( data + sizeof(ulong), acc_hdr, sizeof(fd_vinyl_bstream_phdr_t) );
+  ulong data_sz = sizeof(ulong)+sizeof(fd_vinyl_bstream_phdr_t);
+  fd_stem_publish( stem, OUT_LINK_LH, FD_SNAPSHOT_HASH_MSG_SUB_VINYL_HDR, o_link->chunk, data_sz, 0UL, 0UL, 0UL );
+  o_link->chunk = fd_dcache_compact_next( o_link->chunk, data_sz, o_link->chunk0, o_link->wmark );
 
-  ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
-  ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
-
-  /* dev_seq is the physical location of seq in device. */
-  ulong dev_seq  = ( seq + ctx->vinyl.dev_base ) % ctx->vinyl.dev_sz;
-  ulong rd_off   = fd_ulong_align_dn( dev_seq, VINYL_LTHASH_BLOCK_ALIGN );
-  ulong pair_off = (dev_seq - rd_off);
-  ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, VINYL_LTHASH_BLOCK_ALIGN );
-  FD_TEST( rd_sz < VINYL_LTHASH_BLOCK_MAX_SZ );
-
-  uchar * pair = ((uchar*)ctx->vinyl.pair_mem) + pair_off;
-  fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)pair;
-
-  long t_rd = 0L;
-  long t_ph = 0L;
-  long t_lt = 0L;
-
-  for(;;) {
-    ulong sz    = rd_sz;
-    ulong rsz   = fd_ulong_min( rd_sz, ctx->vinyl.dev_sz - rd_off );
-    uchar * dst = ctx->vinyl.pair_mem;
-    uchar * tmp = ctx->vinyl.pair_tmp;
-
-    long t0 = fd_log_wallclock();
-
-    bd_read( ctx->vinyl.dev_fd, rd_off, dst, rsz );
-    sz -= rsz;
-    if( FD_UNLIKELY( sz ) ) {
-      /* When the dev wraps around, the dev_base needs to be skipped.
-         This means: increase the size multiple of the alignment,
-         read into a temporary buffer, and memcpy into the dst at the
-         correct offset. */
-      bd_read( ctx->vinyl.dev_fd, 0, tmp, sz + VINYL_LTHASH_BLOCK_ALIGN );
-      fd_memcpy( dst + rsz, tmp + ctx->vinyl.dev_base, sz );
-    }
-
-    long t1 = fd_log_wallclock();
-    t_rd = t1-t0;
-
-    if( FD_LIKELY( !memcmp( phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) ) ) {
-
-      long t2 = fd_log_wallclock();
-
-      /* test bstream pair integrity hashes */
-      // fd_vinyl_bstream_block_t * pair_hdr = (fd_vinyl_bstream_block_t *)pair;
-      // fd_vinyl_bstream_block_t * pair_ftr = (fd_vinyl_bstream_block_t *)(pair+(pair_sz-FD_VINYL_BSTREAM_BLOCK_SZ));
-      // int test = !fd_vinyl_bstream_pair_test_fast( io_seed, seq, pair_hdr, pair_ftr );
-      int test = !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz );
-
-      long t3 = fd_log_wallclock();
-      t_ph = t3-t2;
-
-      if( FD_LIKELY( test ) ) {
-        break;
-      }
-    }
-    FD_LOG_WARNING(( "phdr mismatch! - this should not happen under bstream_seq" ));
-    FD_SPIN_PAUSE();
-  }
-
-  long t4 = fd_log_wallclock();
-
-  pair += sizeof(fd_vinyl_bstream_phdr_t);
-  fd_account_meta_t const * meta       = (fd_account_meta_t *)pair;
-  void const *              data       = (void const *)( meta+1 );
-  void const *              pubkey     = phdr->key.uc;
-  ulong                     data_sz    = meta->dlen;
-  ulong                     lamports   = meta->lamports;
-  _Bool                     executable = !!meta->executable;
-  void const *              owner      = meta->owner;
-
-  fd_lthash_value_t prev_lthash[1];
-  fd_hashes_account_lthash_simple( pubkey,
-                                   owner,
-                                   lamports,
-                                   executable,
-                                   data,
-                                   data_sz,
-                                   prev_lthash );
-  if( !!lamports ) fd_lthash_add( &ctx->running_lthash, prev_lthash );
-
-  long t5 = fd_log_wallclock();
-  t_lt = t5-t4;
-
-  if(!!ctx->full) {
-    ctx->stats.full.t_rd += t_rd;
-    ctx->stats.full.t_ph += t_ph;
-    ctx->stats.full.t_lt += t_lt;
-    ctx->stats.full.cnt++;
-  } else {
-    ctx->stats.incr.t_rd += t_rd;
-    ctx->stats.incr.t_ph += t_ph;
-    ctx->stats.incr.t_lt += t_lt;
-    ctx->stats.incr.cnt++;
-  }
-
-  if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
-  else                         ctx->metrics.incremental.accounts_hashed++;
+  if( !!ctx->full ) ctx->stats.full.cnt++;
+  else              ctx->stats.incr.cnt++;
 }
 
 static inline void
@@ -302,8 +204,22 @@ handle_vinyl_lthash_seq_check_until_match( fd_snaplv_t * ctx,
   return seq < ctx->vinyl.bstream_seq_last;
 }
 
+static inline void
+handle_vinyl_lthash_request_drain_all( fd_snaplv_t *       ctx,
+                                       fd_stem_context_t * stem ) {
+  for( ulong i=0; i<VINYL_LTHASH_PENDING_MAX; i++ ) {
+    if( !ctx->vinyl.pending.active[ i ] ) continue;
+    FD_TEST( handle_vinyl_lthash_seq_check_until_match( ctx, ctx->vinyl.pending.seq[ i ], 1/*do_sleep*/ ) );
+    handle_vinyl_lthash_request( ctx, stem, ctx->vinyl.pending.seq[ i ], &ctx->vinyl.pending.phdr[ i ] );
+    ctx->vinyl.pending.active[ i ] = 0;
+    ctx->vinyl.pending_cnt--;
+  }
+  FD_TEST( !ctx->vinyl.pending_cnt );
+}
+
 static void
-handle_data_frag( fd_snaplv_t *  ctx,
+handle_data_frag( fd_snaplv_t *       ctx,
+                  fd_stem_context_t * stem,
                   ulong               sig,
                   ulong               chunk,
                   ulong               sz ) {
@@ -343,7 +259,7 @@ handle_data_frag( fd_snaplv_t *  ctx,
       seq_min   = fd_ulong_min( seq_min, seq );
     }
     FD_TEST( handle_vinyl_lthash_seq_check_until_match( ctx, ctx->vinyl.pending.seq[ seq_min_i ], 1/*do_sleep*/ ) );
-    handle_vinyl_lthash_request( ctx, ctx->vinyl.pending.seq[ seq_min_i ], &ctx->vinyl.pending.phdr[ seq_min_i ] );
+    handle_vinyl_lthash_request( ctx, stem, ctx->vinyl.pending.seq[ seq_min_i ], &ctx->vinyl.pending.phdr[ seq_min_i ] );
     ctx->vinyl.pending.active[ seq_min_i ] = 0;
     ctx->vinyl.pending_cnt--;
     free_i = seq_min_i;
@@ -368,7 +284,7 @@ handle_data_frag( fd_snaplv_t *  ctx,
   for( ulong i=0; i<VINYL_LTHASH_PENDING_MAX; i++ ) {
     if( !ctx->vinyl.pending.active[ i ] ) continue;
     if( handle_vinyl_lthash_seq_check_fast( ctx, ctx->vinyl.pending.seq[ i ] ) ) {
-      handle_vinyl_lthash_request( ctx, ctx->vinyl.pending.seq[ i ], &ctx->vinyl.pending.phdr[ i ] );
+      handle_vinyl_lthash_request( ctx, stem, ctx->vinyl.pending.seq[ i ], &ctx->vinyl.pending.phdr[ i ] );
       ctx->vinyl.pending.active[ i ] = 0;
       ctx->vinyl.pending_cnt--;
     }
@@ -378,7 +294,7 @@ handle_data_frag( fd_snaplv_t *  ctx,
 }
 
 static void
-handle_control_frag( fd_snaplv_t *  ctx,
+handle_control_frag( fd_snaplv_t *       ctx,
                      fd_stem_context_t * stem,
                      ulong               sig,
                      ulong               in_idx,
@@ -417,6 +333,7 @@ handle_control_frag( fd_snaplv_t *  ctx,
       ctx->hash_accum.awaiting_results = 1;
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       forward_to_ct = 0UL;
+      handle_vinyl_lthash_request_drain_all( ctx, stem );
       break; /* the ack is sent when all hashes are received */
     }
 
@@ -484,7 +401,7 @@ returnable_frag( fd_snaplv_t *  ctx,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_LIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB_VINYL_HDR ) )   handle_data_frag( ctx, sig, chunk, sz );
+  if( FD_LIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB_VINYL_HDR ) )   handle_data_frag( ctx, stem, sig, chunk, sz );
   else if( FD_LIKELY( sig==FD_SNAPSHOT_HASH_MSG_RESULT_ADD ||
                       sig==FD_SNAPSHOT_HASH_MSG_EXPECTED ) )   handle_hash_frag( ctx, in_idx, sig, chunk, sz );
   else                                                         handle_control_frag( ctx, stem, sig, in_idx, tsorig, tspub );
@@ -498,10 +415,10 @@ after_credit( fd_snaplv_t *  ctx,
               int *                opt_poll_in FD_PARAM_UNUSED,
               int *                charge_busy FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->hash_accum.received_lthashes==ctx->num_hash_tiles && ctx->hash_accum.awaiting_results ) ) {
-    // FD_LOG_NOTICE(( "*** computed calculated_lthash (add) %s", FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ) ));
     fd_lthash_sub( &ctx->hash_accum.calculated_lthash, &ctx->running_lthash );
-    // FD_LOG_NOTICE(( "*** computed running_lthash (sub) %s", FD_LTHASH_ENC_32_ALLOCA( &ctx->running_lthash ) ));
-    if( FD_UNLIKELY( memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) ) ) ) {
+
+    int test = memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) );
+    if( FD_UNLIKELY( test ) ) {
       FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
                         FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
                         FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
@@ -582,9 +499,12 @@ privileged_init( fd_topo_t *      topo,
 
   struct stat st;
   if( FD_UNLIKELY( 0!=fstat( dev_fd, &st ) ) ) FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", bstream_path, errno, strerror( errno ) ));
-
   ctx->vinyl.dev_fd  = dev_fd;
-  ctx->vinyl.dev_sz  = fd_ulong_align_dn( (ulong)st.st_size, FD_VINYL_BSTREAM_BLOCK_SZ );
+  ulong bstream_sz   = (ulong)st.st_size;
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( bstream_sz, FD_VINYL_BSTREAM_BLOCK_SZ ) ) ) {
+    FD_LOG_ERR(( "vinyl file %s has misaligned size (%lu bytes)", bstream_path, bstream_sz ));
+  }
+  ctx->vinyl.dev_sz   = bstream_sz;
   ctx->vinyl.dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
 }
 
@@ -595,8 +515,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaplv_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplv_t), sizeof(fd_snaplv_t)         );
-  void *       pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
-  void *       pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
+  void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
+  void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
 
   ctx->vinyl.pair_mem = pair_mem;
   ctx->vinyl.pair_tmp = pair_tmp;
@@ -653,7 +573,7 @@ unprivileged_init( fd_topo_t *      topo,
       o_link->chunk  = o_link->chunk0;
 
     } else if( 0==strcmp( link->name, "snaplv_wr" ) ) {
-      ctx->vinyl.bstream_seq      = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, link->mcache_obj_id ) ) );
+      ctx->vinyl.bstream_seq = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, link->mcache_obj_id ) ) );
     } else {
       FD_LOG_ERR(( "unexpected output link %s", link->name ));
     }
