@@ -653,10 +653,11 @@ fd_pcapng_fwrite_idb( uint                         link_type,
 }
 
 ulong
-fd_pcapng_fwrite_pkt( long         ts,
-                      void const * payload,
-                      ulong        payload_sz,
-                      void *       _file ) {
+fd_pcapng_fwrite_pkt1( void *       _file,
+                       void const * payload,
+                       ulong        payload_sz,
+                       uint         if_idx,
+                       long         ts ) {
 
   FILE * file = (FILE *)_file;
   FD_TEST( fd_ulong_is_aligned( (ulong)ftell( file ), 4UL ) );
@@ -665,7 +666,7 @@ fd_pcapng_fwrite_pkt( long         ts,
   fd_pcapng_epb_t block = {
     .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
     /* block_sz set later */
-    .if_idx     = 0U,
+    .if_idx     = if_idx,
     .ts_hi      = (uint)( (ulong)ts >> 32UL ),
     .ts_lo      = (uint)( (ulong)ts         ),
     .cap_len    = (uint)payload_sz,

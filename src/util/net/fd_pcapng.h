@@ -188,6 +188,8 @@ fd_pcapng_idb_defaults( fd_pcapng_idb_opts_t * opt,
 #define FD_PCAPNG_LINKTYPE_ETHERNET   (1U) /* IEEE 802.3 Ethernet */
 #define FD_PCAPNG_LINKTYPE_RAW      (101U) /* IPv4 or IPv6 */
 #define FD_PCAPNG_LINKTYPE_COOKED   (113U) /* Linux "cooked" capture */
+#define FD_PCAPNG_LINKTYPE_USER0    (147U) /* DLT_USER0 */
+#define FD_PCAPNG_LINKTYPE_IPV4     (228U) /* IPv4 */
 
 ulong
 fd_pcapng_fwrite_idb( uint                         link_type,
@@ -197,20 +199,22 @@ fd_pcapng_fwrite_idb( uint                         link_type,
 /* fd_pcapng_fwrite_pkt writes an EPB (Enhanced Packet Block) containing
    an ethernet frame at time ts (in nanos). Same semantics as fwrite
    (returns the number of packets written, which should be 1 on success
-   and 0 on failure).  queue is the RX queue index on which this packet
-   was received on (-1 if unknown). */
+   and 0 on failure). */
 
 ulong
+fd_pcapng_fwrite_pkt1( void *       file,
+                       void const * payload,
+                       ulong        payload_sz,
+                       uint         if_idx,
+                       long         ts );
+
+static inline ulong
 fd_pcapng_fwrite_pkt( long         ts,
                       void const * payload,
                       ulong        payload_sz,
-                      void *       file );
-
-ulong
-fd_pcapng_fwrite_cooked( long         ts,
-                         void const * payload,
-                         ulong        payload_sz,
-                         void *       file );
+                      void *       file ) {
+  return fd_pcapng_fwrite_pkt1( file, payload, payload_sz, 0U, ts );
+}
 
 /* fd_pcapng_fwrite_tls_key_log writes TLS key log info to a PCAPNG via
    a DSB (Decryption Secrets Block).  Similar semantics to fwrite
