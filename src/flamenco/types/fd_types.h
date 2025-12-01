@@ -1574,32 +1574,6 @@ struct fd_calculated_stake_rewards {
 typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
 #define FD_CALCULATED_STAKE_REWARDS_ALIGN alignof(fd_calculated_stake_rewards_t)
 
-/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
-/* Encoded Size: Fixed (48 bytes) */
-struct fd_usage_cost_details {
-  ulong signature_cost;
-  ulong write_lock_cost;
-  ulong data_bytes_cost;
-  ulong programs_execution_cost;
-  ulong loaded_accounts_data_size_cost;
-  ulong allocated_accounts_data_size;
-};
-typedef struct fd_usage_cost_details fd_usage_cost_details_t;
-#define FD_USAGE_COST_DETAILS_ALIGN alignof(fd_usage_cost_details_t)
-
-union fd_transaction_cost_inner {
-  fd_usage_cost_details_t transaction;
-};
-typedef union fd_transaction_cost_inner fd_transaction_cost_inner_t;
-
-/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L20-L23 */
-struct fd_transaction_cost {
-  uint discriminant;
-  fd_transaction_cost_inner_t inner;
-};
-typedef struct fd_transaction_cost fd_transaction_cost_t;
-#define FD_TRANSACTION_COST_ALIGN alignof(fd_transaction_cost_t)
-
 /* Encoded Size: Fixed (16 bytes) */
 struct fd_rent_paying {
   ulong lamports;
@@ -3085,33 +3059,6 @@ static inline int fd_calculated_stake_rewards_decode_footprint( fd_bincode_decod
 }
 void * fd_calculated_stake_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-static inline void fd_usage_cost_details_new( fd_usage_cost_details_t * self ) { fd_memset( self, 0, sizeof(fd_usage_cost_details_t) ); }
-int fd_usage_cost_details_encode( fd_usage_cost_details_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_usage_cost_details_walk( void * w, fd_usage_cost_details_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_usage_cost_details_size( fd_usage_cost_details_t const * self ) { (void)self; return 48UL; }
-static inline ulong fd_usage_cost_details_align( void ) { return FD_USAGE_COST_DETAILS_ALIGN; }
-static inline int fd_usage_cost_details_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_usage_cost_details_t);
-  if( (ulong)ctx->data + 48UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_usage_cost_details_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_transaction_cost_new_disc( fd_transaction_cost_t * self, uint discriminant );
-void fd_transaction_cost_new( fd_transaction_cost_t * self );
-int fd_transaction_cost_encode( fd_transaction_cost_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_transaction_cost_walk( void * w, fd_transaction_cost_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_transaction_cost_size( fd_transaction_cost_t const * self );
-static inline ulong fd_transaction_cost_align( void ) { return FD_TRANSACTION_COST_ALIGN; }
-int fd_transaction_cost_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_transaction_cost_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_transaction_cost_is_simple_vote( fd_transaction_cost_t const * self );
-FD_FN_PURE uchar fd_transaction_cost_is_transaction( fd_transaction_cost_t const * self );
-enum {
-fd_transaction_cost_enum_simple_vote = 0,
-fd_transaction_cost_enum_transaction = 1,
-};
 static inline void fd_rent_paying_new( fd_rent_paying_t * self ) { fd_memset( self, 0, sizeof(fd_rent_paying_t) ); }
 int fd_rent_paying_encode( fd_rent_paying_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_rent_paying_walk( void * w, fd_rent_paying_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );

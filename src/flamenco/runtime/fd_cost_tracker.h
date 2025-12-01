@@ -9,7 +9,6 @@
 
 #include "fd_executor.h"
 #include "fd_runtime_err.h"
-#include "../vm/fd_vm_base.h"
 #include "../../disco/pack/fd_pack.h" /* TODO: Layering violation */
 #include "../../disco/pack/fd_pack_cost.h"
 
@@ -85,6 +84,32 @@ struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
 };
 
 typedef struct fd_cost_tracker fd_cost_tracker_t;
+
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
+
+struct fd_usage_cost_details {
+  ulong signature_cost;
+  ulong write_lock_cost;
+  ulong data_bytes_cost;
+  ulong programs_execution_cost;
+  ulong loaded_accounts_data_size_cost;
+  ulong allocated_accounts_data_size;
+};
+typedef struct fd_usage_cost_details fd_usage_cost_details_t;
+
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L20-L23 */
+
+struct fd_transaction_cost {
+  uint type; /* FD_TXN_COST_TYPE_* */
+  union {
+    fd_usage_cost_details_t transaction;
+  };
+};
+
+typedef struct fd_transaction_cost fd_transaction_cost_t;
+
+#define FD_TXN_COST_TYPE_SIMPLE_VOTE 0U
+#define FD_TXN_COST_TYPE_TRANSACTION 1U
 
 FD_PROTOTYPES_BEGIN
 
