@@ -365,7 +365,9 @@ returnable_frag( fd_backt_tile_t *   ctx,
         double publish_time_s = (double)ctx->publish_time * 1e-9;
         double sec_per_slot  = replay_time_s / (double)ctx->slot_cnt;
         FD_LOG_NOTICE(( "Backtest playback done. replay completed - slots: %lu, published: %6.6f s, elapsed: %6.6f s, sec/slot: %6.6f", ctx->slot_cnt, publish_time_s, replay_time_s, sec_per_slot ));
-        fd_backtest_shredcap_delete( ctx->shredcap );
+        if( FD_LIKELY( ctx->shredcap ) ) {
+          fd_backtest_shredcap_delete( ctx->shredcap );
+        }
         exit(0);
       }
 
