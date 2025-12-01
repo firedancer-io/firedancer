@@ -771,7 +771,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xe2\x04\x73\xa5\xa7\x6f\x1e\xe2\x8a\xb6\x64\xde\x46\xec\x20\x34\xdf\xdf\x68\xf9\xe7\x11\x5c\x2c\xe1\x6a\xa6\x27\x91\xec\x3d\xda"},
                                  /* GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm */
     .name                      = "loosen_cpi_size_restriction",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {3, 0, 0},
     .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, use_default_units_in_fee_calculation)>>3,
