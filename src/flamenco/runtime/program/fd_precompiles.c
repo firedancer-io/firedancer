@@ -100,8 +100,11 @@ fd_precompile_get_instr_data( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( index>=TXN( ctx->txn_in->txn )->instr_cnt ) )
       return FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET;
 
-    fd_instr_info_t const * instr = &ctx->runtime->instr.infos[ index ];
-    data    = instr->data;
+    fd_txn_t const *       txn     = TXN( ctx->txn_in->txn );
+    uchar const *          payload = ctx->txn_in->txn->payload;
+    fd_txn_instr_t const * instr   = &txn->instr[ index ];
+
+    data    = fd_txn_get_instr_data( instr, payload );
     data_sz = instr->data_sz;
 
   }

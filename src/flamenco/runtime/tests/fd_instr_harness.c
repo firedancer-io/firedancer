@@ -104,8 +104,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   runtime->log.capture_ctx   = NULL;
 
-  runtime->instr.info_cnt     = 0UL;
-  runtime->instr.trace_length = 0UL;
+  runtime->instr.trace_length = 1UL;
 
   txn_out->err.exec_err       = 0;
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
@@ -114,24 +113,23 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_in->txn                                                = txn;
   txn_out->details.compute_budget.compute_unit_limit = test_ctx->cu_avail;
   txn_out->details.compute_budget.compute_meter      = test_ctx->cu_avail;
-  runtime->instr.info_cnt                                    = 1UL;
   runtime->log.enable_vm_tracing                             = runner->enable_vm_tracing;
   runtime->log.tracing_mem                                   = runner->enable_vm_tracing ?
                                                                fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH ) :
                                                                NULL;
 
   /* Set up instruction context */
-
-  fd_instr_info_t * info = fd_spad_alloc( runner->spad, 8UL, sizeof(fd_instr_info_t) );
-  assert( info );
+  fd_instr_info_t * info = &runtime->instr.trace[ 0UL ];
   memset( info, 0, sizeof(fd_instr_info_t) );
+  info->stack_height = 1;
 
   if( test_ctx->data ) {
+    if( FD_UNLIKELY( test_ctx->data->size>FD_TXN_MTU ) ) {
+      FD_LOG_ERR(( "invariant violation: instr data sz is too large %u > %lu", test_ctx->data->size, FD_TXN_MTU ));
+    }
     info->data_sz = (ushort)test_ctx->data->size;
-    info->data    = test_ctx->data->bytes;
+    memcpy( info->data, test_ctx->data->bytes, info->data_sz );
   }
-
-  runtime->instr.infos[ 0UL ] = *info;
 
   /* Prepare borrowed account table (correctly handles aliasing) */
 
@@ -333,7 +331,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     return 0;
   }
 
-  ctx->instr = info;
+  ctx->instr              = info;
   ctx->runtime->progcache = runner->progcache;
   ctx->runtime->accdb     = runner->accdb;
 

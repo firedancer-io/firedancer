@@ -303,14 +303,16 @@ unprivileged_init( fd_topo_t *      topo,
   /* Runtime                                                          */
   /********************************************************************/
 
-  ctx->runtime->accdb = ctx->accdb;
-  ctx->runtime->funk = fd_accdb_user_v1_funk( ctx->accdb );
-  ctx->runtime->progcache = ctx->progcache;
-  ctx->runtime->status_cache = ctx->txncache;
-  ctx->runtime->log.log_collector = &ctx->log_collector;
+  ctx->runtime->accdb                    = ctx->accdb;
+  ctx->runtime->funk                     = fd_accdb_user_v1_funk( ctx->accdb );
+  ctx->runtime->progcache                = ctx->progcache;
+  ctx->runtime->status_cache             = ctx->txncache;
+  ctx->runtime->log.log_collector        = &ctx->log_collector;
   ctx->runtime->log.enable_log_collector = 0;
-  ctx->runtime->log.dumping_mem = ctx->dumping_mem;
-  ctx->runtime->log.tracing_mem = &ctx->tracing_mem[0][0];
+  ctx->runtime->log.dumping_mem          = ctx->dumping_mem;
+  ctx->runtime->log.enable_vm_tracing    = 0;
+  ctx->runtime->log.tracing_mem          = &ctx->tracing_mem[0][0];
+  ctx->runtime->log.capture_ctx          = ctx->capture_ctx;
 }
 
 /* Publish the next account update event buffered in the capture tile to the replay tile
