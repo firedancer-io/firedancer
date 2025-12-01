@@ -6,6 +6,8 @@
 struct fd_backtest_rocksdb_private;
 typedef struct fd_backtest_rocksdb_private fd_backtest_rocksdb_t;
 
+#if FD_HAS_ROCKSDB
+
 #define FD_BACKTEST_ROCKSDB_MAGIC (0xF17EDA2CE58AC810) /* FIREDANCE BACKT V0 */
 
 FD_PROTOTYPES_BEGIN
@@ -42,5 +44,7 @@ fd_backtest_rocksdb_bank_hash( fd_backtest_rocksdb_t * db,
                                ulong                   slot );
 
 FD_PROTOTYPES_END
+
+#endif /* FD_HAS_ROCKSDB */
 
 #endif /* HEADER_fd_src_discof_backtest_fd_backtest_rocksdb_h */

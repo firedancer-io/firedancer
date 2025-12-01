@@ -1430,29 +1430,21 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 
-    tile->archiver.end_slot = config->tiles.archiver.end_slot;
-    strncpy( tile->archiver.ingest_mode, config->tiles.archiver.ingest_mode, sizeof(tile->archiver.ingest_mode) );
-    if( FD_UNLIKELY( 0==strlen( tile->archiver.ingest_mode ) ) ) {
-      FD_LOG_ERR(( "`archiver.ingest_mode` not specified in toml" ));
-    }
+    tile->backtest.end_slot = config->tiles.archiver.end_slot;
 
     /* Validate arguments based on the ingest mode */
-    if( !strcmp( tile->archiver.ingest_mode, "rocksdb" ) ) {
-      strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->archiver.rocksdb_path ) ) ) {
+    if( !strcmp( config->tiles.archiver.ingest_mode, "rocksdb" ) ) {
+      strncpy( tile->backtest.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
+      if( FD_UNLIKELY( 0==strlen( tile->backtest.rocksdb_path ) ) ) {
         FD_LOG_ERR(( "`archiver.rocksdb_path` not specified in toml" ));
       }
-    } else if( !strcmp( tile->archiver.ingest_mode, "shredcap" ) ) {
-      strncpy( tile->archiver.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->archiver.shredcap_path ) ) ) {
+    } else if( !strcmp( config->tiles.archiver.ingest_mode, "shredcap" ) ) {
+      strncpy( tile->backtest.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
+      if( FD_UNLIKELY( 0==strlen( tile->backtest.shredcap_path ) ) ) {
         FD_LOG_ERR(( "`archiver.shredcap_path` not specified in toml" ));
       }
-      strncpy( tile->archiver.bank_hash_path, config->tiles.archiver.bank_hash_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->archiver.bank_hash_path ) ) ) {
-        FD_LOG_ERR(( "`archiver.bank_hash_path` not specified in toml" ));
-      }
     } else {
-      FD_LOG_ERR(( "Invalid ingest mode: %s", tile->archiver.ingest_mode ));
+      FD_LOG_ERR(( "Invalid ingest mode: %s", config->tiles.archiver.ingest_mode ));
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
