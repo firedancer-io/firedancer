@@ -274,7 +274,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        that first the non-alt accounts are laid out, then the writable
        alt accounts, and finally the read-only alt accounts. */
     fd_txn_t * txn_descriptor = TXN( txn_in->txn );
-    fd_acct_addr_t const * writable_alt = fd_type_pun_const( txn_out->accounts.account_keys+txn_descriptor->acct_addr_cnt );
+    fd_acct_addr_t const * writable_alt = fd_type_pun_const( txn_out->accounts.keys+txn_descriptor->acct_addr_cnt );
     if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
 
     /* The VM will stop executing and fail an instruction immediately if
@@ -390,7 +390,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       continue;
     }
 
-    writable_alt[i] = fd_type_pun_const( txn_out->accounts.account_keys+TXN( txn_in->txn )->acct_addr_cnt );
+    writable_alt[i] = fd_type_pun_const( txn_out->accounts.keys+TXN( txn_in->txn )->acct_addr_cnt );
   }
 
   /* If all of the transactions in the bundle executed successfully, we
@@ -596,15 +596,15 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  ctx->runtime->accdb = accdb;
-  ctx->runtime->funk = fd_accdb_user_v1_funk( accdb );
-  ctx->runtime->progcache = progcache;
-  ctx->runtime->status_cache = txncache;
-  ctx->runtime->log.log_collector = ctx->log_collector;
+  ctx->runtime->accdb                    = accdb;
+  ctx->runtime->funk                     = fd_accdb_user_v1_funk( accdb );
+  ctx->runtime->progcache                = progcache;
+  ctx->runtime->status_cache             = txncache;
+  ctx->runtime->log.log_collector        = ctx->log_collector;
   ctx->runtime->log.enable_log_collector = 0;
-  ctx->runtime->log.capture_ctx = NULL;
-  ctx->runtime->log.dumping_mem = NULL;
-  ctx->runtime->log.tracing_mem = NULL;
+  ctx->runtime->log.capture_ctx          = NULL;
+  ctx->runtime->log.dumping_mem          = NULL;
+  ctx->runtime->log.tracing_mem          = NULL;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );

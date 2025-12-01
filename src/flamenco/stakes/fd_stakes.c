@@ -172,50 +172,49 @@ write_stake_state( fd_txn_account_t *    stake_acc_rec,
 }
 
 void
-fd_stakes_update_stake_delegation( fd_txn_account_t * stake_account,
-                                   fd_bank_t *        bank ) {
-
-  if( !stake_account->is_mutable ) return;
+fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
+                                   fd_account_meta_t const * meta,
+                                   fd_bank_t *               bank ) {
 
   fd_stake_delegations_t * stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank );
   if( FD_UNLIKELY( !stake_delegations_delta ) ) {
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation delta" ));
   }
 
-  if( fd_txn_account_get_lamports( stake_account )==0UL ) {
-    fd_stake_delegations_remove( stake_delegations_delta, stake_account->pubkey );
+  if( meta->lamports==0UL ) {
+    fd_stake_delegations_remove( stake_delegations_delta, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   fd_stake_state_v2_t stake_state;
-  int err = fd_stake_get_state( stake_account, &stake_state );
+  int err = fd_stake_get_state( meta, &stake_state );
   if( FD_UNLIKELY( err!=0 ) ) {
-    fd_stake_delegations_remove( stake_delegations_delta, stake_account->pubkey );
+    fd_stake_delegations_remove( stake_delegations_delta, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-    fd_stake_delegations_remove( stake_delegations_delta, stake_account->pubkey );
+    fd_stake_delegations_remove( stake_delegations_delta, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( fd_stake_state_v2_is_uninitialized( &stake_state ) ) ) {
-    fd_stake_delegations_remove( stake_delegations_delta, stake_account->pubkey );
+    fd_stake_delegations_remove( stake_delegations_delta, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
-    fd_stake_delegations_remove( stake_delegations_delta, stake_account->pubkey );
+    fd_stake_delegations_remove( stake_delegations_delta, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   fd_stake_delegations_update( stake_delegations_delta,
-                               stake_account->pubkey,
+                               pubkey,
                                &stake_state.inner.stake.stake.delegation.voter_pubkey,
                                stake_state.inner.stake.stake.delegation.stake,
                                stake_state.inner.stake.stake.delegation.activation_epoch,
@@ -227,28 +226,27 @@ fd_stakes_update_stake_delegation( fd_txn_account_t * stake_account,
 }
 
 void
-fd_stakes_update_vote_state( fd_txn_account_t * vote_account,
-                             fd_bank_t *        bank ) {
-
-  if( !vote_account->is_mutable ) return;
+fd_stakes_update_vote_state( fd_pubkey_t const *       pubkey,
+                             fd_account_meta_t const * meta,
+                             fd_bank_t *               bank ) {
 
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
 
-  if( fd_txn_account_get_lamports( vote_account )==0UL ) {
-    fd_vote_states_remove( vote_states, vote_account->pubkey );
+  if( meta->lamports==0UL ) {
+    fd_vote_states_remove( vote_states, pubkey );
     fd_bank_vote_states_end_locking_modify( bank );
     return;
   }
 
-  if( !fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
-    fd_vote_states_remove( vote_states, vote_account->pubkey );
+  if( !fd_vote_state_versions_is_correct_and_initialized( meta ) ) {
+    fd_vote_states_remove( vote_states, pubkey );
     fd_bank_vote_states_end_locking_modify( bank );
     return;
   }
 
   fd_vote_states_update_from_account( vote_states,
-                                      vote_account->pubkey,
-                                      fd_txn_account_get_data( vote_account ),
-                                      fd_txn_account_get_data_len( vote_account ) );
+                                      pubkey,
+                                      fd_account_data( meta ),
+                                      meta->dlen );
   fd_bank_vote_states_end_locking_modify( bank );
 }

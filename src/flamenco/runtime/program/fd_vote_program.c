@@ -145,12 +145,12 @@ from_vote_state_1_14_11( fd_vote_state_t *         vote_state,
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1074 */
 static int
-get_state( fd_txn_account_t const * self,
-            uchar *                 res ) {
+get_state( fd_account_meta_t const * meta,
+           uchar *                   res ) {
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = fd_txn_account_get_data( self ),
-    .dataend = fd_txn_account_get_data( self ) + fd_txn_account_get_data_len( self ),
+    .data    = fd_account_data( meta ),
+    .dataend = fd_account_data( meta ) + meta->dlen,
   };
 
   ulong total_sz = 0UL;
@@ -1462,7 +1462,7 @@ authorize( fd_borrowed_account_t *       vote_account,
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L857
 
-  rc = get_state( vote_account->acct, ctx->runtime->vote_program.authorize.vote_state_mem );
+  rc = get_state( vote_account->meta, ctx->runtime->vote_program.authorize.vote_state_mem );
   if( FD_UNLIKELY( rc ) ) return rc;
   fd_vote_state_versioned_t * vote_state_versioned = (fd_vote_state_versioned_t *)ctx->runtime->vote_program.authorize.vote_state_mem;
 
@@ -1525,7 +1525,7 @@ update_validator_identity( fd_borrowed_account_t *     vote_account,
   int rc = 0;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L900
-   rc = get_state( vote_account->acct, ctx->runtime->vote_program.update_validator_identity.vote_state_mem );
+   rc = get_state( vote_account->meta, ctx->runtime->vote_program.update_validator_identity.vote_state_mem );
   if( FD_UNLIKELY( rc ) ) return rc;
   fd_vote_state_versioned_t * vote_state_versioned = (fd_vote_state_versioned_t *)ctx->runtime->vote_program.update_validator_identity.vote_state_mem;
   convert_to_current( vote_state_versioned,
@@ -1577,7 +1577,7 @@ update_commission( fd_borrowed_account_t *     vote_account,
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L927
   int enforce_commission_update_rule = 1;
-  rc = get_state( vote_account->acct, ctx->runtime->vote_program.update_commission.vote_state_mem );
+  rc = get_state( vote_account->meta, ctx->runtime->vote_program.update_commission.vote_state_mem );
   if( FD_LIKELY( rc==FD_EXECUTOR_INSTR_SUCCESS ) ) {
     vote_state_versioned = (fd_vote_state_versioned_t *)ctx->runtime->vote_program.update_commission.vote_state_mem;
     convert_to_current( vote_state_versioned,
@@ -1597,7 +1597,7 @@ update_commission( fd_borrowed_account_t *     vote_account,
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L949
   if( !vote_state ) {
-    rc = get_state( vote_account->acct, ctx->runtime->vote_program.update_commission.vote_state_mem );
+    rc = get_state( vote_account->meta, ctx->runtime->vote_program.update_commission.vote_state_mem );
     if( FD_UNLIKELY( rc ) ) return rc;
     vote_state_versioned = (fd_vote_state_versioned_t *)ctx->runtime->vote_program.update_commission.vote_state_mem;
     convert_to_current( vote_state_versioned,
@@ -1629,7 +1629,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   int rc = 0;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1010
-  rc = get_state( vote_account->acct, ctx->runtime->vote_program.withdraw.vote_state_mem );
+  rc = get_state( vote_account->meta, ctx->runtime->vote_program.withdraw.vote_state_mem );
   if( FD_UNLIKELY( rc ) ) return rc;
   fd_vote_state_versioned_t * vote_state_versioned = (fd_vote_state_versioned_t *)ctx->runtime->vote_program.withdraw.vote_state_mem;
 
@@ -1804,7 +1804,7 @@ initialize_account( fd_borrowed_account_t *       vote_account,
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1074
-  rc = get_state( vote_account->acct, ctx->runtime->vote_program.init_account.vote_state_mem );
+  rc = get_state( vote_account->meta, ctx->runtime->vote_program.init_account.vote_state_mem );
   if( FD_UNLIKELY( rc ) ) return rc;
   fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)ctx->runtime->vote_program.init_account.vote_state_mem;
 
@@ -1849,7 +1849,7 @@ verify_and_get_vote_state( fd_borrowed_account_t *       vote_account,
   int rc = 0;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1091
-  rc = get_state( vote_account->acct, vote_state_mem );
+  rc = get_state( vote_account->meta, vote_state_mem );
   if( FD_UNLIKELY( rc ) ) return rc;
   fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
 
@@ -2721,30 +2721,30 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 /**********************************************************************/
 
 uint
-fd_vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_account ) {
+fd_vote_state_versions_is_correct_and_initialized( fd_account_meta_t const * meta ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
-  uint data_len_check = fd_txn_account_get_data_len( vote_account )==FD_VOTE_STATE_V3_SZ;
+  uint data_len_check = meta->dlen==FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
   uint data_check = memcmp((
-      fd_txn_account_get_data( vote_account )+VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET)!=0;
+      fd_account_data( meta )+VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET)!=0;
   if (data_check && data_len_check) {
     return 1;
   }
 
   // VoteState1_14_11::is_correct_size_and_initialized
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L58
-  data_len_check = fd_txn_account_get_data_len( vote_account )==FD_VOTE_STATE_V2_SZ;
+  data_len_check = meta->dlen==FD_VOTE_STATE_V2_SZ;
   uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
   data_check = memcmp( (
-      fd_txn_account_get_data( vote_account )+VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11)!=0;
+      fd_account_data( meta )+VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11)!=0;
   return data_check && data_len_check;
 }
 
 fd_vote_state_versioned_t *
-fd_vote_get_state( fd_txn_account_t const * self,
-                   uchar *                  mem /* out */ ) {
+fd_vote_get_state( fd_account_meta_t const * meta,
+                   uchar *                   mem /* out */ ) {
 
-  int err = get_state( self, mem );
+  int err = get_state( meta, mem );
   return err ? NULL : (fd_vote_state_versioned_t *)mem;
 }
 
@@ -2753,29 +2753,4 @@ fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
                             uchar *                     authorized_voters_mem,
                             uchar *                     landed_votes_mem ) {
   convert_to_current( self, authorized_voters_mem, landed_votes_mem );
-}
-
-void
-fd_vote_store_account( fd_txn_account_t * vote_account,
-                       fd_bank_t *        bank ) {
-
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-
-  if( fd_txn_account_get_lamports( vote_account )==0UL ) {
-    fd_vote_states_remove( vote_states, vote_account->pubkey );
-    fd_bank_vote_states_end_locking_modify( bank );
-    return;
-  }
-
-  if( !fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
-    fd_vote_states_remove( vote_states, vote_account->pubkey );
-    fd_bank_vote_states_end_locking_modify( bank );
-    return;
-  }
-
-  fd_vote_states_update_from_account( vote_states,
-                                      vote_account->pubkey,
-                                      fd_txn_account_get_data( vote_account ),
-                                      fd_txn_account_get_data_len( vote_account ) );
-  fd_bank_vote_states_end_locking_modify( bank );
 }

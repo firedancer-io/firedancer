@@ -87,8 +87,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   for( ulong i = 0; i < test_ctx->account_shared_data_count; i++ ) {
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
-    fd_txn_account_t acc[1];
-    fd_solfuzz_pb_load_account( acc, accdb, &xid, &test_ctx->account_shared_data[i], 1 );
+    fd_solfuzz_pb_load_account( runner->runtime, accdb, &xid, &test_ctx->account_shared_data[i], 1, i, NULL );
   }
 
   /* Setup Bank manager */
@@ -458,7 +457,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
 
         /* If the exec err was a custom instr error and came from a precompile instruction, don't capture the custom error code. */
         if( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-            fd_executor_lookup_native_precompile_program( &txn_out->accounts.accounts[ program_id_idx ] )==NULL ) {
+            fd_executor_lookup_native_precompile_program( &txn_out->accounts.keys[ program_id_idx ] )==NULL ) {
           txn_result->custom_error = txn_out->err.custom_err;
         }
       }
@@ -485,7 +484,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     /* Allocate space for captured accounts */
-    ulong modified_acct_cnt = txn_out->accounts.accounts_cnt;
+    ulong modified_acct_cnt = txn_out->accounts.cnt;
 
     txn_result->has_resulting_state         = true;
     txn_result->resulting_state.acct_states =
@@ -496,27 +495,27 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     /* If the transaction is a fees-only transaction, we have to create rollback accounts to iterate over and save. */
-    fd_txn_account_t * accounts_to_save = txn_out->accounts.accounts;
-    ulong              accounts_cnt     = txn_out->accounts.accounts_cnt;
+    fd_account_meta_t * * accounts_to_save = txn_out->accounts.metas;
+    ulong                 accounts_cnt     = txn_out->accounts.cnt;
     if( txn_out->err.is_fees_only ) {
       accounts_to_save = fd_spad_alloc( runner->spad, alignof(fd_txn_account_t), sizeof(fd_txn_account_t) * 2 );
       accounts_cnt     = 0UL;
 
       if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-        accounts_to_save[accounts_cnt++] = *txn_out->accounts.rollback_fee_payer;
+        accounts_to_save[accounts_cnt++] = txn_out->accounts.rollback_fee_payer;
       }
 
       if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-        accounts_to_save[accounts_cnt++] = *txn_out->accounts.rollback_nonce;
+        accounts_to_save[accounts_cnt++] = txn_out->accounts.rollback_nonce;
       }
     }
 
     /* Capture borrowed accounts */
     for( ulong j=0UL; j<accounts_cnt; j++ ) {
-      fd_txn_account_t * acc = &accounts_to_save[j];
+      fd_account_meta_t * meta = accounts_to_save[j];
+      fd_pubkey_t * pubkey     = &txn_out->accounts.keys[j];
 
       if( !( fd_runtime_account_is_writable_idx( txn_in, txn_out, runner->bank, (ushort)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
-      assert( fd_txn_account_is_mutable( acc ) );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;
       assert( modified_idx < modified_acct_cnt );
@@ -525,23 +524,23 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
       memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
       /* Copy over account content */
 
-      memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
+      memcpy( out_acct->address, pubkey, sizeof(fd_pubkey_t) );
 
-      out_acct->lamports = fd_txn_account_get_lamports( acc );
+      out_acct->lamports = meta->lamports;
 
-      if( fd_txn_account_get_data_len( acc )>0UL ) {
+      if( meta->dlen>0UL ) {
         out_acct->data =
           FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                      PB_BYTES_ARRAY_T_ALLOCSIZE( fd_txn_account_get_data_len( acc ) ) );
+                                      PB_BYTES_ARRAY_T_ALLOCSIZE( meta->dlen ) );
         if( FD_UNLIKELY( _l > output_end ) ) {
           abort();
         }
-        out_acct->data->size = (pb_size_t)fd_txn_account_get_data_len( acc );
-        fd_memcpy( out_acct->data->bytes, fd_txn_account_get_data( acc ), fd_txn_account_get_data_len( acc ) );
+        out_acct->data->size = (pb_size_t)meta->dlen;
+        fd_memcpy( out_acct->data->bytes, fd_account_data( meta ), meta->dlen );
       }
 
-      out_acct->executable = fd_txn_account_is_executable( acc );
-      memcpy( out_acct->owner, fd_txn_account_get_owner( acc ), sizeof(fd_pubkey_t) );
+      out_acct->executable = meta->executable;
+      memcpy( out_acct->owner, meta->owner, sizeof(fd_pubkey_t) );
 
       txn_result->resulting_state.acct_states_count++;
     }

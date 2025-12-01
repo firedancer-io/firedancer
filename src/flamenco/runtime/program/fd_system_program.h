@@ -68,7 +68,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
    https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L55-L71 */
 
 int
-fd_get_system_account_kind( fd_txn_account_t * account );
+fd_get_system_account_kind( fd_account_meta_t const * meta );
 
 FD_PROTOTYPES_END
 

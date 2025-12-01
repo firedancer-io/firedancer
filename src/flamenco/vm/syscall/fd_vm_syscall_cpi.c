@@ -141,15 +141,15 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
     /* Check that the account is not read-only in the caller but writable in the callee */
     if( FD_UNLIKELY( instruction_account->is_writable && !fd_borrowed_account_is_writable( &borrowed_caller_acct ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
+      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
-    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.acct->pubkey, signers, signers_cnt) ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
+    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.pubkey, signers, signers_cnt) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
