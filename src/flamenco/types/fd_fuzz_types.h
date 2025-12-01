@@ -1948,36 +1948,6 @@ void *fd_calculated_stake_rewards_generate( void *mem, void **alloc_mem, fd_rng_
   return mem;
 }
 
-void *fd_usage_cost_details_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_usage_cost_details_t *self = (fd_usage_cost_details_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_usage_cost_details_t);
-  fd_usage_cost_details_new(mem);
-  self->signature_cost = fd_rng_ulong( rng );
-  self->write_lock_cost = fd_rng_ulong( rng );
-  self->data_bytes_cost = fd_rng_ulong( rng );
-  self->programs_execution_cost = fd_rng_ulong( rng );
-  self->loaded_accounts_data_size_cost = fd_rng_ulong( rng );
-  self->allocated_accounts_data_size = fd_rng_ulong( rng );
-  return mem;
-}
-
-void fd_transaction_cost_inner_generate( fd_transaction_cost_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 1: {
-    fd_usage_cost_details_generate( &self->transaction, alloc_mem, rng );
-    break;
-  }
-  }
-}
-void *fd_transaction_cost_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_transaction_cost_t *self = (fd_transaction_cost_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_transaction_cost_t);
-  fd_transaction_cost_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 2;
-  fd_transaction_cost_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
 void *fd_rent_paying_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_rent_paying_t *self = (fd_rent_paying_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_paying_t);
