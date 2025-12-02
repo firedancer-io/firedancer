@@ -52,6 +52,8 @@
    block_id when possible to interface with the protocol but otherwise
    falling back to slot number when block_id is unsupported. */
 
+#define LOGGING 0
+
 #define IN_KIND_DEDUP  (0)
 #define IN_KIND_EXECRP (1)
 #define IN_KIND_REPLAY (2)
