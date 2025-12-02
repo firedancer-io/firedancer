@@ -80,7 +80,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "store"        );
   fd_topob_wksp( topo, "sign"         )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
   fd_topob_wksp( topo, "metric"       );
-  fd_topob_wksp( topo, "cswtch"       );
+  fd_topob_wksp( topo, "diag"         );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -157,7 +157,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile( topo, "store",   "store",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        0 );
   /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  /**/                 fd_topob_tile( topo, "cswtch",  "cswtch",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  /**/                 fd_topob_tile( topo, "diag",    "diag",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
   for( ulong j=0UL; j<quic_tile_cnt; j++ )
@@ -533,7 +533,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
     tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "cswtch" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "diag" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gui.gui_listen_address, &tile->gui.listen_addr ) ) )

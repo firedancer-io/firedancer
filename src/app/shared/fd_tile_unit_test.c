@@ -55,7 +55,7 @@ fd_topo_run_tile_t dummy_tile_pack   = { .name = "pack"   };
 fd_topo_run_tile_t dummy_tile_shred  = { .name = "shred"  };
 fd_topo_run_tile_t dummy_tile_sign   = { .name = "sign"   };
 fd_topo_run_tile_t dummy_tile_metric = { .name = "metric" };
-fd_topo_run_tile_t dummy_tile_cswtch = { .name = "cswtch" };
+fd_topo_run_tile_t dummy_tile_diag   = { .name = "diag"   };
 fd_topo_run_tile_t dummy_tile_gui    = { .name = "gui"    };
 fd_topo_run_tile_t dummy_tile_rpc    = { .name = "rpc"    };
 fd_topo_run_tile_t dummy_tile_plugin = { .name = "plugin" };
@@ -97,7 +97,7 @@ fd_topo_run_tile_t * TILES[] = {
   &dummy_tile_shred,
   &dummy_tile_sign,
   &dummy_tile_metric,
-  &dummy_tile_cswtch,
+  &dummy_tile_diag,
   &dummy_tile_gui,
   &dummy_tile_rpc,
   &dummy_tile_plugin,

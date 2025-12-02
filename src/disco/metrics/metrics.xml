@@ -41,9 +41,9 @@ metric introduced.
 
 <enum name="CpuRegime">
     <int value="0" name="Wait" label="Wait (task was runnable but not scheduled)" />
-    <int value="0" name="Idle" label="Idle (task was not runnable)" />
-    <int value="1" name="User" label="User (task was scheduled and executing in user mode)" />
-    <int value="2" name="System" label="System (task was scheduled and executing in kernel mode)" />
+    <int value="1" name="Idle" label="Idle (task was not runnable)" />
+    <int value="2" name="User" label="User (task was scheduled and executing in user mode)" />
+    <int value="3" name="System" label="System (task was scheduled and executing in kernel mode)" />
 </enum>
 
 <common>
