@@ -79,14 +79,28 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( runner->bank ), blockhash_seed );
   fd_memset( fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque ), 0, sizeof(fd_hash_t) );
 
-  /* Set up mock txn descriptor */
-  fd_txn_p_t * txn                    = fd_spad_alloc_check( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
-  fd_txn_t *   txn_descriptor         = TXN( txn );
-  txn_descriptor->transaction_version = FD_TXN_V0;
+  /* Set up mock txn descriptor and payload
+     FIXME: More fields may need to be initialized. This seems to be
+     the minimal set of fields needed to retain full context for
+     precompile execution. */
+  fd_txn_p_t * txn            = fd_spad_alloc_check( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
+  fd_txn_t *   txn_descriptor = TXN( txn );
+  if( test_ctx->data ) {
+    memcpy( txn->payload, test_ctx->data->bytes, test_ctx->data->size );
+    txn->payload_sz = test_ctx->data->size;
+  } else {
+    txn->payload_sz = 0;
+  }
+  txn_descriptor->transaction_version = FD_TXN_VLEGACY;
   txn_descriptor->acct_addr_cnt       = (ushort)test_ctx->accounts_count;
+  txn_descriptor->instr_cnt           = 1;
+  txn_descriptor->instr[0]            = (fd_txn_instr_t) {
+    .acct_cnt = (ushort)test_ctx->accounts_count,
+    .data_off = 0,
+    .data_sz  = (ushort)txn->payload_sz,
+  };
 
-  runtime->funk = funk;
-
+  runtime->funk                     = funk;
   runtime->log.enable_log_collector = 0;
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
