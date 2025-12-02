@@ -83,7 +83,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
      FIXME: More fields may need to be initialized. This seems to be
      the minimal set of fields needed to retain full context for
      precompile execution. */
-  fd_txn_p_t * txn            = fd_spad_alloc_check( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
+  fd_txn_p_t * txn            = fd_spad_alloc_check( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
   fd_txn_t *   txn_descriptor = TXN( txn );
   if( test_ctx->data ) {
     memcpy( txn->payload, test_ctx->data->bytes, test_ctx->data->size );
