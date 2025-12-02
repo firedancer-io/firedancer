@@ -47,8 +47,12 @@ fd_numa_node_cnt( void ) {
   char const * path = "/sys/devices/system/node";
   DIR *        dir  = opendir( path );
   if( FD_UNLIKELY( !dir ) ) {
-    FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s) - assuming a single NUMA node", path, errno, fd_io_strerror( errno ) ));
-    return 1UL;
+    // On some systems (such as a Linux container running in Docker on a Mac), parts of the file system
+    // are not set up the way we expect it to be on Linux. E.g., `/sys/devices/system/node` does not
+    // exist - if we are in such a system, assume that we only have a single NUMA node and continue
+    if ( errno == ENOENT ) return 1UL;
+    FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    return 0UL;
   }
 
   /* Scan dir to get number of NUMA nodes.  Note that we do not assume
