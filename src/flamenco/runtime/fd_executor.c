@@ -948,11 +948,9 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
       int is_found = 0;
       for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {;
-        fd_txn_in_t const *  prev_txn_in  = txn_in->bundle.prev_txn_ins[ i-1 ];
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-          if( !memcmp( &prev_txn_out->accounts.keys[ j ], fee_payer_key, sizeof(fd_pubkey_t) ) &&
-            fd_runtime_account_is_writable_idx( prev_txn_in, prev_txn_out, bank, j ) ) {
+          if( !memcmp( &prev_txn_out->accounts.keys[ j ], fee_payer_key, sizeof(fd_pubkey_t) ) && prev_txn_out->accounts.writable_idxs[j]!=USHORT_MAX ) {
             /* Found the account in a previous transaction */
             meta = prev_txn_out->accounts.metas[ j ];
             is_found = 1;
@@ -1416,10 +1414,9 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
     int is_found = 0;
     for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
-      fd_txn_in_t const *  prev_txn_in  = txn_in->bundle.prev_txn_ins[ i-1 ];
       fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
       for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-        if( !memcmp( &prev_txn_out->accounts.keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_runtime_account_is_writable_idx( prev_txn_in, prev_txn_out, bank, j ) ) {
+        if( !memcmp( &prev_txn_out->accounts.keys[ j ], acc, sizeof(fd_pubkey_t) ) && prev_txn_out->accounts.writable_idxs[j]!=USHORT_MAX ) {
           /* Found the account in a previous transaction */
           meta = prev_txn_out->accounts.metas[ j ];
           is_found = 1;

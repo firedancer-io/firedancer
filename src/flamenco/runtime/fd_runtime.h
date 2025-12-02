@@ -35,6 +35,21 @@ struct fd_runtime {
   } instr;
 
   struct {
+    ulong                     executable_cnt;                                /* Number of BPF upgradeable loader accounts. */
+    fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];      /* Array of BPF upgradeable loader program data accounts */
+    fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];    /* Array of BPF upgradeable loader program data accounts */
+
+    uchar                     default_meta[ MAX_TX_ACCOUNT_LOCKS ][ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));         /* Array of default account metadata */
+
+    uchar *                   writable_accounts_mem[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of writable accounts mem */
+    ushort                    writable_account_cnt;                          /* Number of writable accounts */
+
+    ulong                     starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
+    ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */
+    ulong                     refcnt[ MAX_TX_ACCOUNT_LOCKS ];            /* Reference count for each account */
+  } accounts;
+
+  struct {
     int                  enable_log_collector;
     fd_log_collector_t * log_collector; /* Log collector instance */
     fd_capture_ctx_t *   capture_ctx;
@@ -127,21 +142,6 @@ struct fd_runtime {
       uchar reference_landed_votes_mem     [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(128UL)));
     } deactivate_delinquent;
   } stake_program;
-
-  struct {
-    ulong                     executable_cnt;                                /* Number of BPF upgradeable loader accounts. */
-    fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];      /* Array of BPF upgradeable loader program data accounts */
-    fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];    /* Array of BPF upgradeable loader program data accounts */
-
-    uchar                     default_meta[ MAX_TX_ACCOUNT_LOCKS ][ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));         /* Array of default account metadata */
-
-    uchar *                   writable_accounts_mem[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of writable accounts mem */
-    ushort                    writable_account_cnt;                          /* Number of writable accounts */
-
-    ulong                     starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
-    ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */
-    ulong                     refcnt[ MAX_TX_ACCOUNT_LOCKS ];            /* Reference count for each account */
-  } accounts;
 };
 typedef struct fd_runtime fd_runtime_t;
 
@@ -150,7 +150,6 @@ struct fd_txn_in {
 
   struct {
     int                  is_bundle;
-    fd_txn_in_t const *  prev_txn_ins[ FD_PACK_MAX_TXN_PER_BUNDLE ];
     fd_txn_out_t const * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
     ulong                prev_txn_cnt;
   } bundle;
@@ -171,6 +170,10 @@ struct fd_txn_out {
   } err;
 
   struct {
+    long                        prep_start_timestamp;
+    long                        load_start_timestamp;
+    long                        exec_start_timestamp;
+    long                        commit_start_timestamp;
     fd_compute_budget_details_t compute_budget;                 /* Compute budget details */
     ulong                       loaded_accounts_data_size;      /* The actual transaction loaded data size */
     ulong                       loaded_accounts_data_size_cost; /* The cost of the loaded accounts data size in CUs */
@@ -181,10 +184,6 @@ struct fd_txn_out {
     ulong                       priority_fee;                   /* Priority fee paid by the fee payer in the transaction */
     ulong                       tips;                           /* Jito tips paid during execution */
     ulong                       signature_count;                /* Number of signatures in the transaction */
-    long                        prep_start_timestamp;
-    long                        load_start_timestamp;
-    long                        exec_start_timestamp;
-    long                        commit_start_timestamp;
     /* When a program is deployed or upgraded, we must queue it to be
         updated in the program cache (if it exists already) so that
         the cache entry's ELF / sBPF information can be updated for

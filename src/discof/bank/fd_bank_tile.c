@@ -586,18 +586,21 @@ unprivileged_init( fd_topo_t *      topo,
   fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( txncache );
 
+  ulong acc_pool_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "acc_pool" );
+  FD_TEST( acc_pool_obj_id!=ULONG_MAX );
+  fd_acc_pool_t * acc_pool = NONNULL( fd_acc_pool_join( fd_topo_obj_laddr( topo, acc_pool_obj_id ) ) );
+
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
-    for( ulong j=0UL; j<i; j++ ) {
-      ctx->txn_in[ i ].bundle.prev_txn_ins[ j ]  = &ctx->txn_in[ j ];
-      ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
-    }
+    for( ulong j=0UL; j<i; j++ ) ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
   }
 
   ctx->runtime->accdb                    = accdb;
   ctx->runtime->funk                     = fd_accdb_user_v1_funk( accdb );
   ctx->runtime->progcache                = progcache;
   ctx->runtime->status_cache             = txncache;
+  ctx->runtime->acc_pool                 = acc_pool;
+
   ctx->runtime->log.log_collector        = ctx->log_collector;
   ctx->runtime->log.enable_log_collector = 0;
   ctx->runtime->log.capture_ctx          = NULL;
@@ -607,10 +610,6 @@ unprivileged_init( fd_topo_t *      topo,
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
   ctx->banks = NONNULL( fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) ) );
-
-  ulong acc_pool_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "acc_pool" );
-  FD_TEST( acc_pool_obj_id!=ULONG_MAX );
-  NONNULL( fd_acc_pool_join( fd_topo_obj_laddr( topo, acc_pool_obj_id ) ) );
 
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );

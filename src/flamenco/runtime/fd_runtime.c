@@ -1321,8 +1321,10 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, blockhash->uc, txn_out->details.blake_txn_msg_hash.uc );
   }
 
-  for( ushort i=0; i<runtime->accounts.writable_account_cnt; i++ ) {
-    fd_acc_pool_release( runtime->acc_pool, runtime->accounts.writable_accounts_mem[i] );
+  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+    if( txn_out->accounts.writable_idxs[i]!=USHORT_MAX ) {
+      fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.metas[i] ) );
+    }
   }
 
   if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
@@ -1333,36 +1335,40 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
   }
 }
 
-void
-fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
-                                    fd_bank_t *          bank,
-                                    fd_txn_in_t const *  txn_in,
-                                    fd_txn_out_t *       txn_out ) {
+static inline void
+fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
+  runtime->accounts.executable_cnt = 0UL;
+  runtime->instr.trace_length      = 0UL;
+  runtime->instr.current_idx       = 0;
+  runtime->instr.stack_sz          = 0;
+}
 
-  txn_out->details.prep_start_timestamp   = fd_tickcount();
-  txn_out->details.load_start_timestamp   = LONG_MAX;
-  txn_out->details.exec_start_timestamp   = LONG_MAX;
-  txn_out->details.commit_start_timestamp = LONG_MAX;
+static inline void
+fd_runtime_reset_txn_out( fd_txn_out_t * txn_out ) {
+  txn_out->details.prep_start_timestamp           = fd_tickcount();
+  txn_out->details.load_start_timestamp           = LONG_MAX;
+  txn_out->details.exec_start_timestamp           = LONG_MAX;
+  txn_out->details.commit_start_timestamp         = LONG_MAX;
 
-  txn_out->accounts.cnt   = 0UL;
+  fd_compute_budget_details_new( &txn_out->details.compute_budget );
 
-  txn_out->details.programs_to_reverify_cnt       = 0UL;
   txn_out->details.loaded_accounts_data_size      = 0UL;
   txn_out->details.loaded_accounts_data_size_cost = 0UL;
   txn_out->details.accounts_resize_delta          = 0UL;
+
   txn_out->details.return_data.len                = 0UL;
+  memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+
   txn_out->details.tips                           = 0UL;
   txn_out->details.execution_fee                  = 0UL;
   txn_out->details.priority_fee                   = 0UL;
-  txn_out->details.signature_count                = TXN( txn_in->txn )->signature_cnt;
-  memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  fd_compute_budget_details_new( &txn_out->details.compute_budget );
+  txn_out->details.signature_count                = 0UL;
 
-  runtime->accounts.executable_cnt = 0UL;
-  runtime->log.enable_log_collector = 0;
-  runtime->instr.trace_length = 0UL;
-  runtime->instr.current_idx  = 0;
-  runtime->instr.stack_sz     = 0;
+  txn_out->details.programs_to_reverify_cnt       = 0UL;
+
+  txn_out->accounts.cnt                = 0UL;
+  txn_out->accounts.rollback_nonce     = NULL;
+  txn_out->accounts.rollback_fee_payer = NULL;
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;
@@ -1370,9 +1376,20 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   txn_out->err.exec_err       = FD_EXECUTOR_INSTR_SUCCESS;
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
   txn_out->err.exec_err_idx   = INT_MAX;
+  txn_out->err.custom_err     = 0;
+}
 
-  txn_out->accounts.rollback_nonce     = NULL;
-  txn_out->accounts.rollback_fee_payer = NULL;
+void
+fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
+                                    fd_bank_t *          bank,
+                                    fd_txn_in_t const *  txn_in,
+                                    fd_txn_out_t *       txn_out ) {
+
+  fd_runtime_reset_runtime( runtime );
+
+  fd_runtime_reset_txn_out( txn_out );
+
+  txn_out->details.signature_count  = TXN( txn_in->txn )->signature_cnt;
 
   /* Transaction sanitization.  If a transaction can't be commited or is
      fees-only, we return early. */
@@ -1380,7 +1397,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
 
   txn_out->details.exec_start_timestamp = fd_tickcount();
 
-  /* Execute the transaction. */
+  /* Execute the transaction if eligible to do so. */
   if( FD_LIKELY( txn_out->err.is_committable && !txn_out->err.is_fees_only ) ) {
     txn_out->err.txn_err = fd_execute_txn( runtime, bank, txn_in, txn_out );
   }
