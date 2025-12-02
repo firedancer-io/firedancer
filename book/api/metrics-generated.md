@@ -28,6 +28,8 @@
 | <span class="metrics-name">tile_&#8203;tid</span> | gauge | The thread ID of the tile. Always the same as the Pid in production, but might be different in development. |
 | <span class="metrics-name">tile_&#8203;context_&#8203;switch_&#8203;involuntary_&#8203;count</span> | counter | The number of involuntary context switches. |
 | <span class="metrics-name">tile_&#8203;context_&#8203;switch_&#8203;voluntary_&#8203;count</span> | counter | The number of voluntary context switches. |
+| <span class="metrics-name">tile_&#8203;page_&#8203;fault_&#8203;major_&#8203;count</span> | counter | The number of major page faults. |
+| <span class="metrics-name">tile_&#8203;page_&#8203;fault_&#8203;minor_&#8203;count</span> | counter | The number of minor page faults. |
 | <span class="metrics-name">tile_&#8203;status</span> | gauge | The current status of the tile. 0 is booting, 1 is running. 2 is shutdown |
 | <span class="metrics-name">tile_&#8203;heartbeat</span> | gauge | The last UNIX timestamp in nanoseconds that the tile heartbeated. |
 | <span class="metrics-name">tile_&#8203;in_&#8203;backpressure</span> | gauge | Whether the tile is currently backpressured or not, either 1 or 0. |
@@ -40,6 +42,10 @@
 | <span class="metrics-name">tile_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{tile_&#8203;regime="<span class="metrics-enum">backpressure_&#8203;prefrag</span>"} | counter | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Backpressure + Prefrag) |
 | <span class="metrics-name">tile_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{tile_&#8203;regime="<span class="metrics-enum">caught_&#8203;up_&#8203;postfrag</span>"} | counter | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Caught up + Postfrag) |
 | <span class="metrics-name">tile_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{tile_&#8203;regime="<span class="metrics-enum">processing_&#8203;postfrag</span>"} | counter | Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes. (Processing + Postfrag) |
+| <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">wait</span>"} | counter | CPU time spent in each CPU regime. (Wait (task was runnable but not scheduled)) |
+| <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">idle</span>"} | counter | CPU time spent in each CPU regime. (Idle (task was not runnable)) |
+| <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">user</span>"} | counter | CPU time spent in each CPU regime. (User (task was scheduled and executing in user mode)) |
+| <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">system</span>"} | counter | CPU time spent in each CPU regime. (System (task was scheduled and executing in kernel mode)) |
 
 </div>
 

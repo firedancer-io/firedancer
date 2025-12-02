@@ -39,16 +39,26 @@ metric introduced.
     <int value="7" name="ProcessingPostfrag" label="Processing + Postfrag" />
 </enum>
 
+<enum name="CpuRegime">
+    <int value="0" name="Wait" label="Wait (task was runnable but not scheduled)" />
+    <int value="0" name="Idle" label="Idle (task was not runnable)" />
+    <int value="1" name="User" label="User (task was scheduled and executing in user mode)" />
+    <int value="2" name="System" label="System (task was scheduled and executing in kernel mode)" />
+</enum>
+
 <common>
     <gauge name="Pid" clickhouse_exclude="true" summary="The process ID of the tile." />
     <gauge name="Tid" clickhouse_exclude="true" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
     <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches." />
     <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches." />
+    <counter name="PageFaultMajorCount" summary="The number of major page faults." />
+    <counter name="PageFaultMinorCount" summary="The number of minor page faults." />
     <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" />
     <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated." />
     <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
     <counter name="BackpressureCount" summary="Number of times the tile has had to wait for one of more consumers to catch up to resume publishing." />
     <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
+    <counter name="CpuDurationNanos" enum="CpuRegime" summary="CPU time spent in each CPU regime." />
 </common>
 
 <tile name="net">
