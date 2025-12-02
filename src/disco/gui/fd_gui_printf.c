@@ -941,7 +941,7 @@ fd_gui_printf_tile_metrics( fd_gui_t *                   gui,
     for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, cur[ i ].backp_cnt );
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "alive" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, cur[ i ].heartbeat>prev[ i ].heartbeat );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, fd_ulong_if( cur[ i ].status==2U, 2UL, (ulong)(cur[ i ].heartbeat>prev[ i ].heartbeat) ) );
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "nvcsw" );
     for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, cur[ i ].nvcsw );
