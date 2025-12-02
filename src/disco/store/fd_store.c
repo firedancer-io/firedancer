@@ -306,7 +306,9 @@ fd_store_verify( fd_store_t * store ) {
 
   /* iter the map, check that the partitions are correct */
 
-  for( fd_store_map_iter_t iter = fd_store_map_iter_init( map, fec0 ); !fd_store_map_iter_done( iter, map, fec0 ); iter = fd_store_map_iter_next( iter, map, fec0 ) ) {
+  for( fd_store_map_iter_t iter = fd_store_map_iter_init(       map, fec0 );
+                                 !fd_store_map_iter_done( iter, map, fec0 );
+                           iter = fd_store_map_iter_next( iter, map, fec0 ) ) {
     fd_store_fec_t const * fec = fd_store_map_iter_ele_const( iter, map, fec0 );
     if( FD_UNLIKELY( !fec ) ) {
       FD_LOG_WARNING(( "NULL ele" ));
