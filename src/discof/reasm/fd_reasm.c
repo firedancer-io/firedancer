@@ -480,7 +480,7 @@ fd_reasm_print( fd_reasm_t const * reasm, fd_wksp_t * wksp, fd_wksp_t * reasm_wk
   frontier_t     * frontier = fd_wksp_laddr_fast( wksp, fd_wksp_gaddr_fast( reasm_wksp, reasm->frontier ) );
   subtrees_t     * subtrees = fd_wksp_laddr_fast( wksp, fd_wksp_gaddr_fast( reasm_wksp, reasm->subtrees ) );
 
-  printf(("\n\n[Frontier]\n" ) );
+  printf(("\n[Frontier]\n" ) );
   for( frontier_iter_t iter = frontier_iter_init(       frontier, pool );
                              !frontier_iter_done( iter, frontier, pool );
                        iter = frontier_iter_next( iter, frontier, pool ) ) {

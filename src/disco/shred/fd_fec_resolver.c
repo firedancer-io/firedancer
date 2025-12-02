@@ -23,6 +23,7 @@ struct __attribute__((aligned(32UL))) set_ctx {
   set_ctx_t *           next;
   ulong                 total_rx_shred_cnt;
   ulong                 fec_set_idx;
+  ulong                 slot;
   /* The shred index of the first parity shred in this FEC set */
   ulong                 parity_idx0;
   uchar                 data_variant;
@@ -30,6 +31,7 @@ struct __attribute__((aligned(32UL))) set_ctx {
   /* If this FEC set has resigned shreds, this is our signature of the
      root of the Merkle tree */
   wrapped_sig_t         retransmitter_sig;
+  uchar                 reason_complete; /* 0 incomplete. 1 successfully compelted. 2 permanently invalid */
 };
 typedef struct set_ctx set_ctx_t;
 
@@ -487,6 +489,9 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     ctx->tree = tree;
     ctx->root = *_root;
     ctx->total_rx_shred_cnt = 0UL;
+    ctx->slot = shred->slot;
+    ctx->fec_set_idx = shred->fec_set_idx;
+    ctx->reason_complete = 0;
     ctx->data_variant   = fd_uchar_if(  is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
     ctx->parity_variant = fd_uchar_if( !is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
 
@@ -565,7 +570,11 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   uchar                 parity_variant = ctx->parity_variant;
   uchar                 data_variant   = ctx->data_variant;
 
-  ctx_ll_insert( done_ll_sentinel, ctx_map_insert( done_map, ctx->sig ) );
+  set_ctx_t * done_ctx = ctx_map_insert( done_map, ctx->sig );
+  done_ctx->slot        = ctx->slot;
+  done_ctx->fec_set_idx = ctx->fec_set_idx;
+
+  ctx_ll_insert( done_ll_sentinel, done_ctx );
   if( FD_UNLIKELY( ctx_map_key_cnt( done_map ) > done_depth ) ) ctx_map_remove( done_map, ctx_ll_remove( done_ll_sentinel->prev ) );
 
   ctx_map_remove( curr_map, ctx_ll_remove( ctx ) );
@@ -592,6 +601,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     freelist_push_tail( free_list,        set  );
     bmtrlist_push_tail( bmtree_free_list, tree );
     FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
+    done_ctx->reason_complete = 2;
+    FD_LOG_WARNING(( "Reedsol recovery failed" ));
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
@@ -610,6 +621,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         freelist_push_tail( free_list,        set  );
         bmtrlist_push_tail( bmtree_free_list, tree );
         FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
+        done_ctx->reason_complete = 3;
+        FD_LOG_WARNING(( "Failed to verify w proof" ));
         return FD_FEC_RESOLVER_SHRED_REJECTED;
       }
 
@@ -638,6 +651,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         freelist_push_tail( free_list,        set  );
         bmtrlist_push_tail( bmtree_free_list, tree );
         FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
+        done_ctx->reason_complete = 4;
+        FD_LOG_WARNING(( "Failed to verify w proof" ));
         return FD_FEC_RESOLVER_SHRED_REJECTED;
       }
     }
@@ -648,6 +663,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     freelist_push_tail( free_list,        set  );
     bmtrlist_push_tail( bmtree_free_list, tree );
     FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
+    done_ctx->reason_complete = 5;
+    FD_LOG_WARNING(( "Failed to verify tree" ));
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
@@ -694,6 +711,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     freelist_push_tail( free_list,        set  );
     bmtrlist_push_tail( bmtree_free_list, tree );
     FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
+    done_ctx->reason_complete = 6;
+    FD_LOG_WARNING(( "Failed to verify shreds consistent" ));
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
@@ -719,7 +738,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   freelist_push_tail( free_list, freelist_pop_head( complete_list ) );
 
   *out_fec_set = set;
-
+  done_ctx->reason_complete = 1;
   return FD_FEC_RESOLVER_SHRED_COMPLETES;
 }
 

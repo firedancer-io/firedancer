@@ -141,6 +141,7 @@ typedef union {
 } fd_shred_in_ctx_t;
 
 typedef struct {
+  fd_wksp_t * wksp;
   fd_shredder_t      * shredder;
   fd_fec_resolver_t  * resolver;
   fd_pubkey_t          identity_key[1]; /* Just the public key */
@@ -1432,6 +1433,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->store_out_chunk       = ctx->store_out_chunk0;
     FD_TEST( fd_dcache_compact_is_safe( ctx->store_out_mem, store_out->dcache, store_out->mtu, store_out->depth ) );
   }
+  ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
   ctx->poh_in_expect_seq = 0UL;
 

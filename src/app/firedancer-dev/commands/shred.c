@@ -38,6 +38,30 @@ shred_ctx_wksp( args_t *          args,
 }
 
 static void
+fd_fec_resolver_print_done( fd_fec_resolver_t * resolver, fd_wksp_t * wksp, fd_wksp_t * resolver_wksp ) {
+  //set_ctx_t * done_ll_sentinel = resolver->done_ll_sentinel;
+
+  /* Iterate over done_ll_sentinel and print the ctxs */
+  printf( "slot   | fec_set_idx | total_rx_shred_cnt | reason_complete\n" );
+  //set_ctx_t * curr = fd_wksp_laddr_fast( wksp, fd_wksp_gaddr_fast( resolver_wksp, done_ll_sentinel->next ) );
+  //int i = 1;
+  //while( curr != done_ll_sentinel ) {
+    //printf( "%3d | %8lu | %10lu | %18lu | %16u\n", i, curr->slot, curr->fec_set_idx, curr->total_rx_shred_cnt, curr->reason_complete );
+    //curr = fd_wksp_laddr_fast( wksp, fd_wksp_gaddr_fast( resolver_wksp, curr->next ) );
+    //i++;
+  //}
+  // instead of using the linked list, lets iterate the slots of the ctx_done_map
+  set_ctx_t * map = fd_wksp_laddr_fast( wksp, fd_wksp_gaddr_fast( resolver_wksp, resolver->done_map ) );
+  int j = 0;
+  for( ulong i = 0; i < ctx_map_slot_cnt( map ); i++ ) {
+    set_ctx_t * curr = &map[i];
+    if( ctx_map_key_inval( curr->sig ) ) continue;
+    printf( "%3d | %8lu | %10lu | %18lu | %16u\n", j, curr->slot, curr->fec_set_idx, curr->total_rx_shred_cnt, curr->reason_complete );
+    j++;
+  }
+}
+
+static void
 shred_cmd_fn_slot( args_t *   args,
                    config_t * config ) {
   (void)args;
@@ -46,19 +70,13 @@ shred_cmd_fn_slot( args_t *   args,
   fd_topo_wksp_t * shred_wksp;
   shred_ctx_wksp( args, config, &shred_ctx, &shred_wksp );
 
-  ulong shred_tile_wksp = (ulong)shred_ctx->stake_ci - sizeof(fd_shred_ctx_t);
-  FD_TEST( fd_ulong_align_up( shred_tile_wksp, alignof(fd_shred_ctx_t) ) + sizeof(fd_shred_ctx_t) == (ulong)shred_ctx->stake_ci );
-
-  FD_LOG_NOTICE(( "shred tile wksp %p", (void *)shred_tile_wksp ));
-  FD_LOG_NOTICE(( "shred wksp %p", (void *)shred_wksp->wksp ));
-  FD_LOG_NOTICE(( "shred resolver %p", (void *)shred_ctx->resolver ));
-
-  fd_fec_resolver_t * resolver = fd_wksp_laddr_fast( shred_wksp->wksp, fd_wksp_gaddr_fast( (fd_wksp_t *)shred_tile_wksp, shred_ctx->resolver ) );
+  fd_fec_resolver_t * resolver = fd_wksp_laddr_fast( shred_wksp->wksp, fd_wksp_gaddr_fast( shred_ctx->wksp, shred_ctx->resolver ) );
   FD_LOG_NOTICE(( "depth: %lu, done_depth: %lu, max_shred_idx: %lu", resolver->depth, resolver->done_depth, resolver->max_shred_idx ));
 
   for( ;; ) {
-    fd_fec_resolver_print_done( resolver, shred_wksp->wksp, (fd_wksp_t *)shred_tile_wksp );
+    fd_fec_resolver_print_done( resolver, shred_wksp->wksp, shred_ctx->wksp );
     fflush( stdout );
+    sleep( 10 );
   }
 }
 

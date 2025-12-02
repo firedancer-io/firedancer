@@ -362,7 +362,7 @@ STEM_(run1)( ulong                        in_cnt,
 
   if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
   if( FD_UNLIKELY( lazy>(long)1e9 ) ) FD_LOG_ERR(( "excessive stem lazy value: %li", lazy ));
-  FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
+  FD_LOG_WARNING(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
   /* Initialize the initial event sequence to immediately update
      cr_avail on the first run loop iteration and then update all the

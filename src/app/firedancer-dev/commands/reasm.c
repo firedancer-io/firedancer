@@ -52,13 +52,12 @@ reasm_cmd_fn_print( args_t *   args,
   FD_LOG_NOTICE(( "replay ctx wksp %p, reasm %p", (void *)&replay_ctx->wksp, (void *)replay_ctx->reasm ));
   FD_LOG_NOTICE(( "replay wksp %p", (void *)replay_wksp->wksp ));
 
-  ulong replay_ctx_wksp = (ulong)&replay_ctx->wksp;
 
-  ulong reasm_gaddr  = fd_wksp_gaddr_fast( (fd_wksp_t *)replay_ctx_wksp, replay_ctx->reasm );
+  ulong reasm_gaddr  = fd_wksp_gaddr_fast( replay_ctx->wksp, replay_ctx->reasm );
   fd_reasm_t * reasm = (fd_reasm_t *)fd_wksp_laddr_fast( replay_wksp->wksp, reasm_gaddr );
 
   for( ;; ) {
-    fd_reasm_print( reasm, replay_wksp->wksp, (fd_wksp_t *)replay_ctx_wksp );
+    fd_reasm_print( reasm, replay_wksp->wksp, replay_ctx->wksp );
     sleep( 1 );
   }
 }
