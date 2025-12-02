@@ -380,6 +380,13 @@ A UNIX timestamp in nanoseconds of the validator's startup. The
 timestamp is taken by the gui tile during boot, so it occurs before the
 validator downloads a snapshot and fully catches up to the cluster.
 
+
+#### `summary.server_time_nanos`
+| frequency | type     | example             |
+|-----------|----------|---------------------|
+| *Once*    | `string` |  `"1719910299914232"` |
+
+
 #### `summary.startup_progress`
 | frequency       | type              | example |
 |-----------------|-------------------|---------|
@@ -1045,7 +1052,7 @@ potential underflow.
 #### `summary.live_tile_timers`
 | frequency        | type       | example |
 |------------------|------------|---------|
-| *Once* + *10ms*  | `number[]` | below   |
+| *Once* + *25ms*  | `number[]` | below   |
 
 Live tile timers is an array, one entry per tile, of how idle the tile
 was in the preceding 10 millisecond sampling window. A value of `-1`
@@ -1086,7 +1093,7 @@ first connect by the `summary.tiles` message.
 #### `summary.live_tile_metrics`
 | frequency        | type          | example |
 |------------------|---------------|---------|
-| *Once* + *10ms*  | `TileMetrics` | below   |
+| *Once* + *25ms*  | `TileMetrics` | below   |
 
 Live tile metrics is a live feed of various metrics related to tile
 health and resource utilization.
@@ -1329,7 +1336,7 @@ which is specified below.
 #### `gossip.network_stats`
 | frequency       | type                 | example     |
 |-----------------|----------------------|-------------|
-| *Once* + *10ms* | `GossipNetworkStats` | below       |
+| *Once* + *300ms* | `GossipNetworkStats` | below       |
 
 ::: details Example
 
@@ -1858,7 +1865,7 @@ rooted.
 #### `slot.live_shreds`
 | frequency   | type          | example |
 |-------------|---------------|---------|
-| *10ms*      | `SlotShreds` | below   |
+| *50ms*      | `SlotShreds` | below   |
 
 The validator sends a continous stream of update messages with detailed
 information about the time and duration of different shred state

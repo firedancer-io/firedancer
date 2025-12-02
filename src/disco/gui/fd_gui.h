@@ -535,6 +535,8 @@ struct fd_gui {
 
   long next_sample_400millis;
   long next_sample_100millis;
+  long next_sample_50millis;
+  long next_sample_12_5millis;
   long next_sample_10millis;
 
   ulong leader_slot;
