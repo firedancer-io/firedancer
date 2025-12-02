@@ -10,11 +10,11 @@
    slot or parent slot) and children (immediately succeeding FEC set(s)
    for the same slot or child slots).  Reasm always delivers a parent
    before its child.  This guarantees that every fork will be delivered
-   in-order  Forks are treated as concurrent, and thus reasm
-   only provides a partial ordering such that reasm makes no guarantees
-   about the delivery order of FEC sets across forks, but in general
-   this will be the order in which the reasm is able to chain them to
-   their connected parents.
+   in-order  Forks are treated as concurrent, and thus reasm only
+   provides a partial ordering such that reasm makes no guarantees about
+   the delivery order of FEC sets across forks, but in general this will
+   be the order in which the reasm is able to chain them to their
+   connected parents.
 
    Forks manifest in reasm as a FEC set with more than one child, and
    mostly occur across slots due to leader skipping (ie. parent and
@@ -36,7 +36,39 @@
    equivocation can be detected by the reasm however, as not all the
    necessary information is yet available at this stage in the validator
    pipeline.  Reasm will simply deliver all the equivocating FEC sets it
-   does observe (with a flag indicating its detection). */
+   does observe (with a flag indicating its detection).
+
+   ARCHITECTURE
+
+   fd_reasm is represented with a forest (multi-tree) structure.  Each
+   node in the forest corresponds to a FEC set.
+
+   The forest contains a single connected tree component.  Nodes in the
+   connected tree are FEC sets that have chained to the reasm root.
+   An internal node is referred to as "onode" and a leaf node "oleaf".
+
+                     reasm root
+                     /         \
+                  cnode        cnode
+                  /    \      /     \
+               cnode  cleaf cleaf  cleaf
+               /    \
+            cleaf  cleaf
+
+
+   The forest also potentially contains one or more orphaned tree
+   components.  Nodes in orphaned trees are FEC sets that has not yet
+   chained to the reasm root, but may chain to one another.  Each orphan
+   tree root is an "oroot".  Leaves are not distinguished from internal
+   nodes in orphan trees, any non-root node is an "onode".
+
+       oroot              oroot
+      /    \             /
+   onode   onode      onode
+     |                  |
+   onode              onode
+
+*/
 
 #include "../../flamenco/types/fd_types_custom.h"
 
@@ -51,13 +83,13 @@
 #define FD_REASM_ERR_UNIQUE (-1) /* key uniqueness conflict */
 #define FD_REASM_ERR_MERKLE (-2) /* chained merkle root conflict */
 
-/* fd_reasm is a tree-like structure backed by three maps.  At any
-   given point in time, an element (FEC set) in the reasm is in one of
-   three possible positions with respect to the tree: a non-leaf, leaf,
-   or not connected.  This corresponds to the ancestry, frontier, or
-   orphaned maps, respectively.  Therefore, a given element will always
-   be present in exactly one of these maps, depending on where (and
-   whether) it currently is in the tree.
+/* fd_reasm is a forest (multi-tree) structure backed by three maps.  At
+   any given point in time, an element (FEC set) in the reasm is in one
+   of three possible positions with respect to the tree: a non-leaf,
+   leaf, or not connected.  This corresponds to the ancestry, frontier,
+   or orphaned maps, respectively.  Therefore, a given element will
+   always be present in exactly one of these maps, depending on where
+   (and whether) it currently is in the tree.
 
    KEYING
 
@@ -77,13 +109,13 @@
 
    If the FEC set's parent is not already in the frontier, the reasm
    checks the ancestry map next.  If the parent is in the ancestry map,
-   the reasm knows that this FEC set is starting a new fork, because
-   it is part of the tree (the ancestry) but not one of the leaves (the
+   the reasm knows that this FEC set is starting a new fork, because it
+   is part of the tree (the ancestry) but not one of the leaves (the
    frontier).  In this case, the new FEC set is simply inserted into the
    frontier map, and now the frontier has an additional fork (leaf).
 
-   Lastly, if the FEC set's parent is not in the ancestry map, the
-   reasm knows that this FEC set is orphaned.  It is inserted into the
+   Lastly, if the FEC set's parent is not in the ancestry map, the reasm
+   knows that this FEC set is orphaned.  It is inserted into the
    orphaned map for later retry of tree insertion when its ancestors
    have been inserted.
 
@@ -110,12 +142,12 @@
 
    CHAINING
 
-   As mentioned in the top-level documentation, the purpose of the
-   reasm is to chain FEC sets.  On insertion, the reasm will attempt
-   to chain as many FEC sets as possible to the frontier.  The reasm
-   does this by conducting a BFS from the just-inserted FEC set, looking
-   for parents and orphans to traverse.  See `chain` in the .c file for
-   the implementation. */
+   As mentioned in the top-level documentation, the purpose of the reasm
+   is to chain FEC sets.  On insertion, the reasm will attempt to chain
+   as many FEC sets as possible to the frontier.  The reasm does this by
+   conducting a BFS from the just-inserted FEC set, looking for parents
+   and orphans to traverse.  See `chain` in the .c file for the
+   implementation. */
 
 typedef struct fd_reasm fd_reasm_t; /* forward decl */
 
@@ -148,6 +180,9 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   int    slot_complete; /* whether this FEC completes the slot */
   int    leader;        /* whether this FEC was produced by us as leader */
   int    eqvoc;         /* whether this FEC equivocates */
+  int    confirmed;     /* whether this FEC has been confirmed */
+  int    valid;         /* whether this FEC is valid to deliver in fd_reasm_pop */
+  int    popped;        /* whether this FEC has been previously delivered by fd_reasm_pop */
 
   /* Data (set by caller) */
 
@@ -257,12 +292,12 @@ fd_reasm_peek( fd_reasm_t * reasm );
    documentation for details). */
 
 fd_reasm_fec_t *
-fd_reasm_out( fd_reasm_t * reasm );
+fd_reasm_pop( fd_reasm_t * reasm );
 
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
    inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
    make one or more FEC sets available for in-order delivery.  Caller
-   can consume these FEC sets via fd_reasm_out.  This function assumes
+   can consume these FEC sets via fd_reasm_pop.  This function assumes
    that the reasm is not full (fd_reasm_full() returns 0).
 
    See top-level documentation for further details on insertion. */
@@ -280,12 +315,30 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               leader );
 
 /* fd_reasm_publish publishes merkle root as the new reasm root, pruning
-   (ie. map remove and release) any FEC sets that do not descend from
-   this new root. */
+   (ie. map remove and pool release) any FEC sets that do not descend
+   from this new root. */
 
 fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t      * reasm,
                   fd_hash_t const * merkle_root );
+
+/* fd_reasm_confirm confirms the FEC keyed by block_id.  The ancestry
+   beginning from this FEC then becomes the canonical chain of FEC sets
+   back to the reasm root, and any equivocating siblings along this
+   chain will not be delivered by fd_reasm_pop.
+
+   Because fd_reasm_pop is usually called eagerly during replay before
+   confirmation, it's possible that a FEC set not in this ancestry chain
+   was delivered prior to this confirmation.
+
+   Note that while this may appear to be an expensive operation linear
+   in the length of the ancestry chain, the traversal can terminate at
+   the previous confirmation and therefore the cost is amortized across
+   n inserts since the last confirmations. */
+
+void
+fd_reasm_confirm( fd_reasm_t * reasm,
+                  fd_hash_t *  block_id );
 
 void
 fd_reasm_print( fd_reasm_t const * reasm );

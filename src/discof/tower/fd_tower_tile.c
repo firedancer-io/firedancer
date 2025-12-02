@@ -51,9 +51,9 @@
 
 #define LOGGING 0
 
-#define IN_KIND_DEDUP   (0)
-#define IN_KIND_EXEC    (1)
-#define IN_KIND_REPLAY  (2)
+#define IN_KIND_DEDUP  (0)
+#define IN_KIND_EXEC   (1)
+#define IN_KIND_REPLAY (2)
 
 #define VOTE_TXN_SIG_MAX (2UL) /* validator identity and vote authority */
 
@@ -248,6 +248,11 @@ notar_confirm( ctx_t *             ctx,
     fd_tower_forks_t * fork = fd_forks_query( ctx->forks, notar_blk->slot ); /* ensure fork exists */
     if( FD_UNLIKELY( !fork ) ) return; /* a slot can be duplicate confirmed by gossip votes before replay */
     fd_forks_confirmed( fork, &notar_blk->block_id );
+
+    if( FD_UNLIKELY( fd_forks_query( ctx->forks, notar_blk->slot ) ) ) {
+      fd_forks_remove( ctx->forks, notar_blk->slot );
+      fd_forks_lockouts_clear( ctx->forks, notar_blk->slot );
+    }
   }
   if( FD_LIKELY( notar_blk->opt_conf ) ) {
     if( FD_UNLIKELY( !notar_blk->opt_notif ) ) {

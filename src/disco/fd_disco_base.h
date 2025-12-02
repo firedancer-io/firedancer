@@ -254,11 +254,6 @@ fd_disco_repair_replay_sig( ulong slot, ushort parent_off, uint data_cnt, int sl
   return slot_ul << 32 | parent_off_ul << 16 | data_cnt_ul << 1 | slot_complete_ul;
 }
 
-FD_FN_CONST static inline ulong  fd_disco_repair_replay_sig_slot         ( ulong sig ) { return         fd_ulong_extract    ( sig, 32, 63 ); }
-FD_FN_CONST static inline ushort fd_disco_repair_replay_sig_parent_off   ( ulong sig ) { return (ushort)fd_ulong_extract    ( sig, 16, 31 ); }
-FD_FN_CONST static inline uint   fd_disco_repair_replay_sig_data_cnt     ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 1,  15 ); }
-FD_FN_CONST static inline int    fd_disco_repair_replay_sig_slot_complete( ulong sig ) { return         fd_ulong_extract_bit( sig, 0      ); }
-
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {
   return (((struct fd_wksp_private *)wksp)->gaddr_lo) >> FD_CHUNK_LG_SZ;

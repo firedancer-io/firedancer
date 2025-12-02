@@ -35,7 +35,7 @@
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define DLIST_NAME             subtreel
+#define DLIST_NAME             dlist
 #define DLIST_ELE_T            fd_reasm_fec_t
 #define DLIST_PREV             dlist_prev
 #define DLIST_NEXT             dlist_next
@@ -70,8 +70,8 @@ struct __attribute__((aligned(128UL))) fd_reasm {
   frontier_t *     frontier;    /* map of mr->fec. leaves of the connected tree */
   orphaned_t *     orphaned;    /* map of mr->fec. non-roots of the orphaned subtrees */
   subtrees_t *     subtrees;    /* map of mr->fec. roots of the orphaned subtrees */
-  subtreel_t       _subtrlf[1]; /* internal dlist of the elements in subtrees in no particular order */
-  subtreel_t *     subtreel;    /* the join to the dlist */
+  dlist_t          _subtrlf[1]; /* internal dlist of the elements in subtrees in no particular order */
+  dlist_t        * subtreel;    /* the join to the dlist */
   ulong *          bfs;         /* internal queue of pool idxs for BFS */
   ulong *          out;         /* delivery queue of pool idxs to output */
   slot_mr_t *      slot_mr;     /* map of slot->mr */

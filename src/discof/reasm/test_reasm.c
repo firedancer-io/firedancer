@@ -1,6 +1,5 @@
 #include "fd_reasm.h"
 #include "fd_reasm_private.h"
-#include "../../disco/fd_disco_base.h"
 
 #define PRINT_MAP(name)                                                       \
   do {                                                                        \
@@ -85,7 +84,7 @@ test_insert( fd_wksp_t * wksp ) {
       f3_64->key,
   };
   fd_reasm_fec_t * fec = NULL; ulong i = 0;
-  while( FD_LIKELY( fec = fd_reasm_out( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
+  while( FD_LIKELY( fec = fd_reasm_pop( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
   FD_TEST( i==sizeof(order) / sizeof(fd_hash_t) );
 
   /* Equivocating last FEC set for slot 3 (mr3_64a), child (3, 64) of
@@ -154,7 +153,7 @@ test_publish( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * fec = NULL;
   while( FD_LIKELY( fec ) ) {
-    fec = fd_reasm_out( reasm );
+    fec = fd_reasm_pop( reasm );
     FD_TEST( 0==memcmp( &fec->key, &mr0, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr1, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr2, sizeof(fd_hash_t) ) );
@@ -219,6 +218,69 @@ test_slot_mr( fd_wksp_t * wksp ) {
   FD_TEST( frontier_ele_query( frontier, &fec4->key, NULL, pool ) );                /* mr4 should have chained */
 }
 
+void
+test_eqvoc( fd_wksp_t * wksp ) {
+  ulong        fec_max = 32;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+
+  fd_hash_t mr0[1]  = {{{ 0 }}};
+  fd_hash_t mr1a[1] = {{{ 1, 0xa }}};
+  fd_hash_t mr1b[1] = {{{ 1, 0xb }}};
+
+  fd_reasm_insert( reasm, mr0, NULL, 0, 0, 0, 0, 0, 1, 0 );
+
+  /* Slot 1 equivocates. */
+
+  fd_reasm_insert( reasm, mr1a, mr0, /* slot */ 1, 0, /* parent_off */ 1, 0, 0, 0, 0 );
+  fd_reasm_insert( reasm, mr1b, mr0, /* slot */ 1, 0, /* parent_off */ 1, 0, 0, 0, 0 );
+
+  fd_reasm_fec_t * fec1a = fd_reasm_query( reasm, mr1a );
+  FD_TEST( fec1a );
+  FD_TEST( fec1a->eqvoc );
+  FD_TEST( !fec1a->valid );
+  FD_TEST( fec1a==pool_ele( reasm->pool, *out_peek_index( reasm->out, 0 ) ) );
+
+  fd_reasm_fec_t * fec1b = fd_reasm_query( reasm, mr1b );
+  FD_TEST( fec1b );
+  FD_TEST( fec1b->eqvoc );
+  FD_TEST( !fec1b->valid );
+  FD_TEST( fec1b==pool_ele( reasm->pool, *out_peek_index( reasm->out, 1 ) ) );
+
+  FD_TEST( !fd_reasm_pop( reasm ) ); /* everything is equivocating so nothing should get popped */
+
+  /* Confirm one branch of the equivocation. */
+
+  fd_reasm_confirm( reasm, mr1b );
+  FD_TEST( fec1b->valid );
+  FD_TEST( fd_reasm_query( reasm, mr0 )->valid );
+
+  fd_reasm_fec_t * pop = fd_reasm_pop( reasm ); /* pop fec1b */
+  FD_TEST( pop == fec1b );
+
+  fd_hash_t mr2a[1] = {{{ 2, 0xa }}};
+  fd_hash_t mr2b[1] = {{{ 2, 0xb }}};
+  fd_hash_t mr3[1]  = {{{ 3 }}};
+
+  fd_reasm_insert( reasm, mr2a, mr1b, /* slot */ 2, 0, /* parent_off */ 1, 0, 0, 0, 0 );
+  fd_reasm_insert( reasm, mr2b, mr1b, /* slot */ 2, 0, /* parent_off */ 1, 0, 0, 0, 0 );
+  fd_reasm_insert( reasm, mr3,  mr2b, /* slot */ 3, 0, /* parent_off */ 1, 0, 0, 0, 0 );
+
+  /* Confirming a descendant should confirm the ancestors. */
+
+  fd_reasm_confirm( reasm, mr3 );
+  FD_TEST( fd_reasm_query( reasm, mr3 )->valid );
+  FD_TEST( fd_reasm_query( reasm, mr2b )->valid );
+
+  /* Confirmed FECs should be pushed back in-order. */
+
+  FD_TEST( fd_reasm_pop( reasm ) == fd_reasm_query( reasm, mr2b ) );
+  FD_TEST( fd_reasm_pop( reasm ) == fd_reasm_query( reasm, mr3 ) );
+
+  fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -232,12 +294,7 @@ main( int argc, char ** argv ) {
   test_insert( wksp );
   test_publish( wksp );
   test_slot_mr( wksp );
-
-  ulong sig = fd_disco_repair_replay_sig( 3508496, 1, 32, 128 );
-  FD_TEST( fd_disco_repair_replay_sig_slot( sig ) == 3508496 );
-  FD_TEST( fd_disco_repair_replay_sig_parent_off( sig ) == 1 );
-  FD_TEST( fd_disco_repair_replay_sig_data_cnt( sig ) == 32 );
-  FD_TEST( fd_disco_repair_replay_sig_slot_complete( sig ) == 1 );
+  test_eqvoc( wksp );
 
   fd_halt();
   return 0;
