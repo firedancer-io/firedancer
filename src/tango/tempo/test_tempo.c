@@ -86,10 +86,10 @@ main( int     argc,
   FD_TEST( fd_tempo_lazy_default( 954437177UL )==2147483647L );
   FD_TEST( fd_tempo_lazy_default( ULONG_MAX   )==2147483647L );
 
-//FD_TEST( !fd_tempo_async_min(   0L,     1UL, 1.f ) );
-//FD_TEST( !fd_tempo_async_min(   1L,     0UL, 1.f ) );
-//FD_TEST( !fd_tempo_async_min(   1L,     1UL, 0.f ) );
-//FD_TEST( !fd_tempo_async_min( 100L, 10000UL, 1.f ) );
+  FD_TEST( !fd_tempo_async_min(   0L,     1UL, 1.f ) );
+  FD_TEST( !fd_tempo_async_min(   1L,     0UL, 1.f ) );
+  FD_TEST( !fd_tempo_async_min(   1L,     1UL, 0.f ) );
+  FD_TEST( !fd_tempo_async_min( 100L, 10000UL, 1.f ) );
   FD_TEST( fd_ulong_is_pow2( fd_tempo_async_min( 100000L, 1UL, 1.f ) ) );
 
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
