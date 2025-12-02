@@ -7,8 +7,9 @@
 #include "fd_hashes.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_stack.h"
-
+#include "fd_acc_pool.h"
 #include "fd_executor.h"
+
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -1233,7 +1234,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
-      if( !fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
+      if( runtime->accounts.writable_idxs[i]==USHORT_MAX ) {
         continue;
       }
 
@@ -1318,6 +1319,10 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
     fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
     fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, blockhash->uc, txn_out->details.blake_txn_msg_hash.uc );
+  }
+
+  for( ushort i=0; i<runtime->accounts.writable_account_cnt; i++ ) {
+    fd_acc_pool_release( runtime->acc_pool, runtime->accounts.writable_accounts_mem[i] );
   }
 }
 

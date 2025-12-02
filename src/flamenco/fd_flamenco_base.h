@@ -106,6 +106,9 @@ typedef struct fd_txn_out fd_txn_out_t;
 struct fd_log_collector;
 typedef struct fd_log_collector fd_log_collector_t;
 
+struct fd_acc_pool;
+typedef struct fd_acc_pool fd_acc_pool_t;
+
 struct fd_account_meta {
   uchar owner[32];
   ulong lamports;

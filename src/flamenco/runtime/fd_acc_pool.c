@@ -54,11 +54,17 @@ fd_acc_pool_new( void * shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( account_cnt==0UL ) ) {
+    FD_LOG_WARNING(( "account_cnt is 0" ));
+    return NULL;
+  }
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_acc_pool_t * acc_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_acc_pool_align(), sizeof(fd_acc_pool_t) );
   void *          pool     = FD_SCRATCH_ALLOC_APPEND( l, fd_acc_pool_ele_align(), fd_acc_pool_ele_footprint( account_cnt ) );
+  FD_SCRATCH_ALLOC_FINI( l, fd_acc_pool_align() );
 
-  if( FD_UNLIKELY( !fd_acc_pool_new( pool, account_cnt ) ) ) {
+  if( FD_UNLIKELY( !fd_acc_pool_ele_new( pool, account_cnt ) ) ) {
     FD_LOG_WARNING(( "Failed to create acc pool" ));
     return NULL;
   }
@@ -98,22 +104,27 @@ fd_acc_pool_join( void * mem ) {
   return acc_pool;
 }
 
-uchar *
-fd_acc_pool_try_acquire( fd_acc_pool_t * acc_pool ) {
+int
+fd_acc_pool_try_acquire( fd_acc_pool_t * acc_pool,
+                         ulong           request_cnt,
+                         uchar * *       accounts_out ) {
   fd_rwlock_write( &acc_pool->lock_ );
 
   fd_acc_pool_ele_t * pool = fd_acc_pool( acc_pool );
 
-  if( FD_UNLIKELY( !fd_acc_pool_ele_free( pool ) ) ) {
+  if( FD_UNLIKELY( fd_acc_pool_ele_free( pool )<request_cnt ) ) {
     fd_rwlock_unwrite( &acc_pool->lock_ );
-    return NULL;
+    return 1;
   }
 
-  fd_acc_pool_ele_t * ele = fd_acc_pool_ele_ele_acquire( pool );
+  for( ulong i=0UL; i<request_cnt; i++ ) {
+    fd_acc_pool_ele_t * ele = fd_acc_pool_ele_ele_acquire( pool );
+    accounts_out[ i ] = (uchar *)ele;
+  }
 
   fd_rwlock_unwrite( &acc_pool->lock_ );
 
-  return ele->account;
+  return 0;
 }
 
 void

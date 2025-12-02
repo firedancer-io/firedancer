@@ -36,6 +36,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_txncache,
   &fd_obj_cb_banks,
   &fd_obj_cb_funk,
+  &fd_obj_cb_acc_pool,
   NULL,
 };
 

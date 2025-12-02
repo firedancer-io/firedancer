@@ -8,6 +8,7 @@ struct fd_runtime {
   fd_funk_t *       funk;
   fd_txncache_t *   status_cache;
   fd_progcache_t *  progcache;
+  fd_acc_pool_t *   acc_pool;
 
   struct {
     uchar                       stack_sz;                                /* Current depth of the instruction execution stack. */
@@ -128,9 +129,15 @@ struct fd_runtime {
   } stake_program;
 
   struct {
-    ulong                     executable_cnt;                             /* Number of BPF upgradeable loader accounts. */
-    fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];   /* Array of BPF upgradeable loader program data accounts */
-    fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
+    ulong                     executable_cnt;                                /* Number of BPF upgradeable loader accounts. */
+    fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];      /* Array of BPF upgradeable loader program data accounts */
+    fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];    /* Array of BPF upgradeable loader program data accounts */
+
+    fd_account_meta_t         default_meta[ MAX_TX_ACCOUNT_LOCKS ];          /* Array of default account metadata */
+
+    ushort                    writable_idxs[ MAX_TX_ACCOUNT_LOCKS ];         /* Array of txn account indicies of writable accounts, 0 if not writable */
+    uchar *                   writable_accounts_mem[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of writable accounts mem */
+    ushort                    writable_account_cnt;                          /* Number of writable accounts */
 
     ulong                     starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
     ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */

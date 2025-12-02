@@ -3,6 +3,7 @@
 #include "fd_bank.h"
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
+#include "fd_acc_pool.h"
 
 #include "fd_system_ids.h"
 #include "program/fd_address_lookup_table_program.h"
@@ -1417,7 +1418,6 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
   fd_pubkey_t * acc = &txn_out->accounts.keys[ idx ];
 
-
   fd_account_meta_t const * meta = NULL;
   if( txn_in->bundle.is_bundle ) {
     /* If we are in a bundle, that means that the latest version of an
@@ -1464,16 +1464,15 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
   }
 
-  int                 is_writable  = fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
+  ushort writable_idx = runtime->accounts.writable_idxs[idx];
   fd_account_meta_t * account_meta = NULL;
 
-  if( is_writable ) {
+  if( writable_idx!=USHORT_MAX ) {
     /* If the account is writable or a fee payer, then we need to create
        staging regions for the account. If the account exists, we need to
        copy the account data into the staging area; otherwise, we need to
        initialize a new metadata. */
-
-    uchar * new_raw_data = txn_in->exec_accounts->accounts_mem[idx];
+    uchar * new_raw_data = runtime->accounts.writable_accounts_mem[writable_idx];
     ulong   dlen         = !!meta ? meta->dlen : 0UL;
 
     if( FD_LIKELY( meta ) ) {
@@ -1550,6 +1549,25 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_txn_out_t *      txn_out ) {
 
   ushort executable_idx = 0U;
+
+  /* At this point, the total number of writable accounts in the
+     transaction is known.  We can now attempt to get the required
+     amount of memory from the account memory pool. */
+  ushort writable_account_cnt = 0U;
+  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+    if( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) || i==FD_FEE_PAYER_TXN_IDX ) {
+      runtime->accounts.writable_idxs[ i ] = writable_account_cnt;
+      writable_account_cnt++;
+    } else {
+      runtime->accounts.writable_idxs[i] = USHORT_MAX;
+    }
+  }
+  runtime->accounts.writable_account_cnt = writable_account_cnt;
+
+  for(;;) {
+    int err = fd_acc_pool_try_acquire( runtime->acc_pool, writable_account_cnt, runtime->accounts.writable_accounts_mem );
+    if( FD_LIKELY( err==0 ) ) break;
+  }
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i );

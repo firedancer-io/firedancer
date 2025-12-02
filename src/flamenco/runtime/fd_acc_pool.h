@@ -35,12 +35,22 @@ fd_acc_pool_new( void * shmem,
 fd_acc_pool_t *
 fd_acc_pool_join( void * shmem );
 
-/* fd_acc_pool_try_acquire attempts to acquire an account from the
-   fd_acc_pool_t object.  If successful, returns a pointer to the
-   account.  If not successful, returns NULL. */
+/* fd_acc_pool_try_acquire attempts to acquire the memory for
+   request_cnt accounts from the fd_acc_pool_t object.  If the requested
+   number of accounts are not available, returns 1.  If successful,
+   returns 0 and stores the pointers to the accounts in accounts_out.
+   The caller is responsible for freeing the accounts after use via a
+   call to fd_acc_pool_release.  This function is thread-safe. */
 
-uchar *
-fd_acc_pool_try_acquire( fd_acc_pool_t * acc_pool );
+int
+fd_acc_pool_try_acquire( fd_acc_pool_t * acc_pool,
+                         ulong           request_cnt,
+                         uchar * *       accounts_out );
+
+
+/* fd_acc_pool_release releases the memory for an account back to the
+   fd_acc_pool_t object.  After this is called, the account will be
+   available for reuse.  This function is thread-safe. */
 
 void
 fd_acc_pool_release( fd_acc_pool_t * acc_pool,

@@ -407,6 +407,7 @@ struct fd_topo_tile {
       ulong funk_obj_id;
       ulong txncache_obj_id;
       ulong progcache_obj_id;
+      ulong acc_pool_obj_id;
 
       ulong max_live_slots;
 
@@ -589,6 +590,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong funk_obj_id;
       ulong progcache_obj_id;
+      ulong acc_pool_obj_id;
     } bank;
 
     struct {

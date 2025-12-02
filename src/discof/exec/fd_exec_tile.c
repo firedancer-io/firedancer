@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector.h"
@@ -63,6 +64,8 @@ typedef struct fd_exec_tile_ctx {
   fd_log_collector_t    log_collector;
 
   fd_bank_t *           bank;
+
+  fd_acc_pool_t *       acc_pool;
 
   fd_txn_in_t           txn_in;
   fd_txn_out_t          txn_out;
@@ -271,6 +274,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_in.bundle.is_bundle = 0;
 
   /********************************************************************/
+  /* Accounts pool                                                     */
+  /********************************************************************/
+
+  ctx->acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->exec.acc_pool_obj_id ) );
+  if( FD_UNLIKELY( !ctx->acc_pool ) ) {
+    FD_LOG_CRIT(( "Failed to join acc pool" ));
+  }
+
+  /********************************************************************/
   /* Capture context                                                 */
   /********************************************************************/
 
@@ -303,10 +315,12 @@ unprivileged_init( fd_topo_t *      topo,
   /* Runtime                                                          */
   /********************************************************************/
 
-  ctx->runtime->accdb = ctx->accdb;
-  ctx->runtime->funk = fd_accdb_user_v1_funk( ctx->accdb );
-  ctx->runtime->progcache = ctx->progcache;
+  ctx->runtime->accdb        = ctx->accdb;
+  ctx->runtime->funk         = fd_accdb_user_v1_funk( ctx->accdb );
+  ctx->runtime->progcache    = ctx->progcache;
   ctx->runtime->status_cache = ctx->txncache;
+  ctx->runtime->acc_pool     = ctx->acc_pool;
+
   ctx->runtime->log.log_collector = &ctx->log_collector;
   ctx->runtime->log.enable_log_collector = 0;
   ctx->runtime->log.dumping_mem = ctx->dumping_mem;

@@ -13,6 +13,7 @@
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector.h"
@@ -609,6 +610,10 @@ unprivileged_init( fd_topo_t *      topo,
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
   ctx->banks = NONNULL( fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) ) );
+
+  ulong acc_pool_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "acc_pool" );
+  FD_TEST( acc_pool_obj_id!=ULONG_MAX );
+  NONNULL( fd_acc_pool_join( fd_topo_obj_laddr( topo, acc_pool_obj_id ) ) );
 
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
