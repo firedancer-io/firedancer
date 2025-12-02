@@ -123,12 +123,12 @@ FD_IMPORT_BINARY( file_dev4_gzip, "src/disco/gui/dist_dev_cmp/assets/frankendanc
 FD_IMPORT_BINARY( file_dev5, "src/disco/gui/dist_dev/assets/frankendancer_logo_circle-D5z79vwQ.svg" );
 FD_IMPORT_BINARY( file_dev5_zstd, "src/disco/gui/dist_dev_cmp/assets/frankendancer_logo_circle-D5z79vwQ.svg.zst" );
 FD_IMPORT_BINARY( file_dev5_gzip, "src/disco/gui/dist_dev_cmp/assets/frankendancer_logo_circle-D5z79vwQ.svg.gz" );
-FD_IMPORT_BINARY( file_dev6, "src/disco/gui/dist_dev/assets/index-BXqJzf-l.css" );
-FD_IMPORT_BINARY( file_dev6_zstd, "src/disco/gui/dist_dev_cmp/assets/index-BXqJzf-l.css.zst" );
-FD_IMPORT_BINARY( file_dev6_gzip, "src/disco/gui/dist_dev_cmp/assets/index-BXqJzf-l.css.gz" );
-FD_IMPORT_BINARY( file_dev7, "src/disco/gui/dist_dev/assets/index-C9m9vN_f.js" );
-FD_IMPORT_BINARY( file_dev7_zstd, "src/disco/gui/dist_dev_cmp/assets/index-C9m9vN_f.js.zst" );
-FD_IMPORT_BINARY( file_dev7_gzip, "src/disco/gui/dist_dev_cmp/assets/index-C9m9vN_f.js.gz" );
+FD_IMPORT_BINARY( file_dev6, "src/disco/gui/dist_dev/assets/index-BidrzT5-.js" );
+FD_IMPORT_BINARY( file_dev6_zstd, "src/disco/gui/dist_dev_cmp/assets/index-BidrzT5-.js.zst" );
+FD_IMPORT_BINARY( file_dev6_gzip, "src/disco/gui/dist_dev_cmp/assets/index-BidrzT5-.js.gz" );
+FD_IMPORT_BINARY( file_dev7, "src/disco/gui/dist_dev/assets/index-DwRB7MlG.css" );
+FD_IMPORT_BINARY( file_dev7_zstd, "src/disco/gui/dist_dev_cmp/assets/index-DwRB7MlG.css.zst" );
+FD_IMPORT_BINARY( file_dev7_gzip, "src/disco/gui/dist_dev_cmp/assets/index-DwRB7MlG.css.gz" );
 FD_IMPORT_BINARY( file_dev8, "src/disco/gui/dist_dev/assets/inter-tight-latin-400-normal-BLrFJfvD.woff" );
 FD_IMPORT_BINARY( file_dev8_zstd, "src/disco/gui/dist_dev_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.zst" );
 FD_IMPORT_BINARY( file_dev8_gzip, "src/disco/gui/dist_dev_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.gz" );
@@ -525,7 +525,7 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev5_gzip_sz,
 	},
 	{
-		.name = "/assets/index-BXqJzf-l.css",
+		.name = "/assets/index-BidrzT5-.js",
 		.data = file_dev6,
 		.data_len = &file_dev6_sz,
 		.zstd_data = file_dev6_zstd,
@@ -534,7 +534,7 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev6_gzip_sz,
 	},
 	{
-		.name = "/assets/index-C9m9vN_f.js",
+		.name = "/assets/index-DwRB7MlG.css",
 		.data = file_dev7,
 		.data_len = &file_dev7_sz,
 		.zstd_data = file_dev7_zstd,
