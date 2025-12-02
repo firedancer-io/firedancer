@@ -11,7 +11,6 @@
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
 #include <linux/if_xdp.h>
 
-#include "../fd_net_common.h"
 #include "../../metrics/fd_metrics.h"
 #include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
 #include "../../topo/fd_topo.h"
@@ -23,6 +22,7 @@
 #include "../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
 #include "../../../waltz/xdp/fd_xsk.h"
 #include "../../../util/log/fd_dtrace.h"
+#include "../../../util/net/fd_net_common.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_gre.h"
@@ -905,78 +905,62 @@ net_rx_packet( fd_net_ctx_t * ctx,
                ulong          sz,
                uint *         freed_chunk ) {
 
-  if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) {
-    FD_DTRACE_PROBE( net_tile_err_rx_undersz );
+  uchar        * packet        = (uchar *)ctx->umem + umem_off;
+  fd_ip4_hdr_t * iphdr;
+  int err = fd_eth_ip4_hdrs_validate( (fd_eth_hdr_t *)packet, sz, &iphdr, FD_IP4_HDR_PROTO_MASK_BOTH );
+  if( FD_UNLIKELY( err ) ) {
+    /* TODO - choose metric based on err code */
+    FD_DTRACE_PROBE( net_tile_err_rx_noip );
     ctx->metrics.rx_undersz_cnt++;
     return;
   }
 
-  uchar        * packet     = (uchar *)ctx->umem + umem_off;
-  uchar const  * packet_end = packet + sz;
-  fd_ip4_hdr_t * iphdr      = (fd_ip4_hdr_t *)(packet + sizeof(fd_eth_hdr_t));
-
-  if( FD_UNLIKELY( ((fd_eth_hdr_t *)packet)->net_type!=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) ) return;
+  /* We've validated the eth header, and the ip header.
+     The ip protocol may be either UDP or GRE. We therefore
+     have not validated the UDP hdr yet. */
 
   int is_packet_gre = 0;
-  /* Discard the GRE overhead (outer iphdr and gre hdr) */
+  /* Discard the GRE overhead (outer IP4 header and GRE header) */
   if( iphdr->protocol == FD_IP4_HDR_PROTOCOL_GRE ) {
     if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) {
       ctx->metrics.rx_gre_ignored_cnt++; // drop. No gre interface in netdev table
       return;
     }
-    ulong gre_ipver = FD_IP4_GET_VERSION( *iphdr );
-    ulong gre_iplen = FD_IP4_GET_LEN( *iphdr );
-    if( FD_UNLIKELY( gre_ipver!=0x4 || gre_iplen<20 ) ) {
-      FD_DTRACE_PROBE( net_tile_err_rx_noip );
-      ctx->metrics.rx_gre_inv_pkt_cnt++; /* drop IPv6 packets */
-      return;
-    }
+    ulong overhead = FD_IP4_GET_LEN( *iphdr ) + sizeof(fd_gre_hdr_t);
 
-    ulong overhead = gre_iplen + sizeof(fd_gre_hdr_t);
-    if( FD_UNLIKELY( (uchar *)iphdr+overhead+sizeof(fd_ip4_hdr_t)>packet_end ) ) {
-      FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-      ctx->metrics.rx_undersz_cnt++;  // inner ip4 header invalid
-      return;
-    }
-
-    /* The new iphdr is where the inner iphdr was. Copy over the eth_hdr */
+    /* Switch to the inner iphdr, and shift eth header to preface it */
     iphdr              = (fd_ip4_hdr_t *)((uchar *)iphdr + overhead);
     uchar * new_packet = (uchar *)iphdr - sizeof(fd_eth_hdr_t);
     fd_memcpy( new_packet, packet, sizeof(fd_eth_hdr_t) );
     sz                 -= overhead;
     packet             = new_packet;
-    umem_off           = (ulong)( packet - (uchar *)ctx->umem );
+    umem_off           = (ulong)( new_packet - (uchar *)ctx->umem );
     is_packet_gre      = 1;
+
+    /* Validate inner ip */
+    err = fd_ip4_hdr_validate( iphdr, sz, FD_IP4_HDR_PROTO_MASK_UDP );
+    if( FD_UNLIKELY( err ) ) {
+      /* TODO - choose metric based on err code */
+      FD_DTRACE_PROBE( net_tile_err_rx_noip );
+      ctx->metrics.rx_undersz_cnt++;
+      return;
+    }
+  }
+
+  FD_TEST( iphdr->protocol == FD_IP4_HDR_PROTOCOL_UDP );
+  /* Validate UDP header */
+  ulong iplen = FD_IP4_GET_LEN( *iphdr );
+  fd_udp_hdr_t const * udp_hdr = (fd_udp_hdr_t const *)((uchar *)iphdr + iplen);
+  err = fd_udp_hdr_validate( udp_hdr, sz - sizeof(fd_eth_hdr_t) - iplen );
+  if( FD_UNLIKELY( err ) ) {
+    FD_DTRACE_PROBE( net_tile_err_rx_undersz );
+    ctx->metrics.rx_undersz_cnt++;
+    return;
   }
 
   /* Translate packet to UMEM frame index */
   ulong chunk       = ctx->umem_chunk0 + (umem_off>>FD_CHUNK_LG_SZ);
   ulong ctl         = umem_off & 0x3fUL;
-
-  /* Filter for UDP/IPv4 packets. */
-  ulong ipver = FD_IP4_GET_VERSION( *iphdr );
-  ulong iplen = FD_IP4_GET_LEN    ( *iphdr );
-  if( FD_UNLIKELY( ipver!=0x4 || iplen<20 ||
-                   iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) {
-    FD_DTRACE_PROBE( net_tile_err_rx_noip );
-    ctx->metrics.rx_undersz_cnt++; /* drop IPv6 packets */
-    return;
-  }
-
-  uchar const * udp = (uchar *)iphdr + iplen;
-  if( FD_UNLIKELY( udp+sizeof(fd_udp_hdr_t) > packet_end ) ) {
-    FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-    ctx->metrics.rx_undersz_cnt++;
-    return;
-  }
-
-  fd_udp_hdr_t const * udp_hdr = (fd_udp_hdr_t const *)udp;
-  ulong        const   udp_sz  = fd_ushort_bswap( udp_hdr->net_len );
-  if( FD_UNLIKELY( (udp_sz<sizeof(fd_udp_hdr_t)) | (udp+udp_sz>packet_end) ) ) {
-    FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-    ctx->metrics.rx_undersz_cnt++;
-    return;
-  }
 
   /* Extract IP dest addr and UDP src/dest port */
   uint   ip_srcaddr   =  iphdr->saddr;
