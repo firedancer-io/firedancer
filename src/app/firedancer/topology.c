@@ -186,6 +186,15 @@ setup_topo_vinyl_cache( fd_topo_t *    topo,
   return line_obj;
 }
 
+fd_topo_obj_t *
+setup_topo_acc_pool( fd_topo_t * topo,
+                     ulong       account_cnt ) {
+  fd_topob_wksp( topo, "acc_pool" );
+
+  fd_topo_obj_t * acc_pool_obj = fd_topob_obj( topo, "acc_pool", "acc_pool" );
+
+}
+
 /* Resolves a hostname to a single ip address.  If multiple ip address
    records are returned by getaddrinfo, only the first IPV4 address is
    returned via ip_addr. */
