@@ -684,7 +684,7 @@ privileged_init( fd_topo_t *      topo,
 
   /* Set up io_bd dependencies */
 
-  char const * bstream_path = tile->snaplv.vinyl_path;
+  char const * bstream_path = tile->snaplh.vinyl_path;
   /* Note: it would be possible to use O_DIRECT, but it would require
      VINYL_LTHASH_BLOCK_ALIGN to be 4096UL, which substantially
      increases the read overhead, making it slower (keep in mind that
@@ -775,7 +775,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].chunk0   = 0;
       ctx->in[ i ].wmark    = 0;
       ctx->in[ i ].mtu      = in_link->mtu;
-      ctx->in[ i ].base     = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snapwr.dcache_obj_id ) );
+      ctx->in[ i ].base     = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snaplh.dcache_obj_id ) );
       ctx->in[ i ].seq_sync = tile->in_link_fseq[ i ];
       ctx->last_wh_seq      = fd_fseq_query( tile->in_link_fseq[ i ] );
       ctx->in_kind[ i ]     = IN_KIND_SNAPWH;
@@ -796,7 +796,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_lthash_adder_new( ctx->adder );
   fd_lthash_adder_new( ctx->adder_sub );
 
-  void * in_wh_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snapwr.dcache_obj_id ) );
+  void * in_wh_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snaplh.dcache_obj_id ) );
   FD_CRIT( fd_dcache_app_sz( in_wh_dcache )>=sizeof(ulong), "in_wh dcache app region too small to hold io_seed" );
   ctx->io_seed = (ulong const *)fd_dcache_app_laddr_const( in_wh_dcache );
 
