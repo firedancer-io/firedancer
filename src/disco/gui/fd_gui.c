@@ -293,7 +293,8 @@ fd_gui_tile_timers_snap( fd_gui_t * gui ) {
     cur[ i ].timers[ FD_METRICS_ENUM_TILE_REGIME_V_PROCESSING_POSTFRAG_IDX       ] = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_POSTFRAG )       ];
 
     cur[ i ].in_backp  = (int)tile_metrics[ MIDX(GAUGE, TILE, IN_BACKPRESSURE) ];
-    cur[ i ].heartbeat = tile_metrics[ FD_METRICS_GAUGE_TILE_HEARTBEAT_OFF ];
+    cur[ i ].status    = (uint)tile_metrics[ MIDX( GAUGE, TILE, STATUS ) ];
+    cur[ i ].heartbeat = tile_metrics[ MIDX( GAUGE, TILE, HEARTBEAT ) ];
     cur[ i ].backp_cnt = tile_metrics[ MIDX( COUNTER, TILE, BACKPRESSURE_COUNT ) ];
     cur[ i ].nvcsw     = tile_metrics[ MIDX( COUNTER, TILE, CONTEXT_SWITCH_VOLUNTARY_COUNT ) ];
     cur[ i ].nivcsw    = tile_metrics[ MIDX( COUNTER, TILE, CONTEXT_SWITCH_INVOLUNTARY_COUNT ) ];

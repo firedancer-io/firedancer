@@ -1194,7 +1194,7 @@ reported when you first connect by the `summary.tiles` message.
 | timers     | `number[][]` | `timers[i][j]` is the percentage of time from the last 10ms tile `i` spent in regime `regimes[j]` |
 | in_backp   | `boolean[]`  | `in_backp[i]` is `true` if tile `i` is currently backpressured and `false` otherwise. See description of regimes above for more context |
 | backp_msgs | `number[]`   | `backp_msgs[i]` is the number of times since startup that tile `i` has had to wait for one of more consumers to catch up to resume publishing |
-| alive      | `boolean[]`  | `alive[i]` is `true` if tile `i` has updated its heartbeat timer any time in the last 10ms and `false` otherwise |
+| alive      | `number[]`   | `alive[i]` is `2` if tile `i` has permanently shut down, `1` if tile `i` has updated its heartbeat timer any time in the last 10ms, and `0` otherwise |
 | nvcsw      | `number[]`   | `nvcsw[i]` is the number of voluntary context switches the occurred for tile `i` since startup |
 | nivcsw     | `number[]`   | `nivcsw[i]` is the number of involuntary context switches the occurred for tile `i` since startup |
 

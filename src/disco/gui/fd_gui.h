@@ -236,6 +236,7 @@ struct fd_gui_validator_info {
 struct fd_gui_tile_timers {
   ulong timers[ FD_METRICS_ENUM_TILE_REGIME_CNT ];
   int   in_backp;
+  uint  status;
   ulong heartbeat;
   ulong backp_cnt;
   ulong nvcsw;
