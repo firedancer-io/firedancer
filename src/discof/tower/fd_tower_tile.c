@@ -892,6 +892,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_BURST (3UL) /* dup conf + cluster conf + slot_done */
 
+#define STEM_LAZY  (128L*3000L) /* see explanation in fd_pack_tile.c */
+
 #define STEM_CALLBACK_CONTEXT_TYPE    ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN   alignof(ctx_t)
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
