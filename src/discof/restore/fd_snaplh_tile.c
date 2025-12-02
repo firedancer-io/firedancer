@@ -35,7 +35,7 @@
 #define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
 FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
 
-#define VINYL_LTHASH_RD_REQ_MAX   (16UL)
+#define VINYL_LTHASH_RD_REQ_MAX   (64UL)
 
 #define VINYL_LTHASH_IO_SPAD_MAX  (2<<20UL)
 
@@ -321,7 +321,7 @@ handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
 }
 
 #if 0
-FD_FN_UNUSED  static void
+FD_FN_UNUSED static void
 handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
                                 ulong                     seq,
                                 fd_vinyl_bstream_phdr_t * acc_hdr ) {
@@ -359,9 +359,9 @@ handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
                                 fd_vinyl_bstream_phdr_t * acc_hdr ) {
 
   /* Consume as many ready requests as possible. */
-  for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
+  if( FD_LIKELY( !!ctx->vinyl.rd_req_cnt ) ) {
     fd_vinyl_io_rd_t * rd_req = NULL;
-    if( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )==FD_VINYL_SUCCESS ) {
+    while( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )==FD_VINYL_SUCCESS ) {
       handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
       rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
       rd_req->seq = ULONG_MAX;
@@ -369,28 +369,26 @@ handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
       ctx->vinyl.rd_req_cnt--;
     }
   }
-
 
   /* Find a free slot */
   ulong free_i = ULONG_MAX;
-  for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
-    fd_vinyl_io_rd_t * rd_req = &ctx->vinyl.pending.rd_req[ i ];
-    if( FD_LIKELY( rd_req->ctx!=VINYL_LTHASH_RD_REQ_FREE ) ) continue;
-    free_i = i;
-    break;
-  }
-  while( free_i==ULONG_MAX ) {
-    fd_vinyl_io_rd_t * rd_req = NULL;
-    if( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )==FD_VINYL_SUCCESS ) {
-      handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
-      rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
-      rd_req->seq = ULONG_MAX;
-      rd_req->sz  = 0UL;
-      free_i      = rd_req_ctx_get_idx( rd_req->ctx );
-      ctx->vinyl.rd_req_cnt--;
-      break;
+  if( FD_LIKELY( ctx->vinyl.rd_req_cnt<VINYL_LTHASH_RD_REQ_MAX ) ) {
+    for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
+      fd_vinyl_io_rd_t * rd_req = &ctx->vinyl.pending.rd_req[ i ];
+      if( FD_UNLIKELY( rd_req_ctx_get_status( rd_req->ctx )==VINYL_LTHASH_RD_REQ_FREE ) ) {
+        free_i = i;
+        break;
+      }
     }
-    FD_SPIN_PAUSE();
+  } else {
+    fd_vinyl_io_rd_t * rd_req = NULL;
+    FD_TEST( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, FD_VINYL_IO_FLAG_BLOCKING )==FD_VINYL_SUCCESS );
+    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
+    rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
+    rd_req->seq = ULONG_MAX;
+    rd_req->sz  = 0UL;
+    free_i      = rd_req_ctx_get_idx( rd_req->ctx );
+    ctx->vinyl.rd_req_cnt--;
   }
   FD_TEST( free_i<VINYL_LTHASH_RD_REQ_MAX );
 
@@ -410,18 +408,17 @@ handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
 }
 #endif
 
-FD_FN_UNUSED  static void
+FD_FN_UNUSED static void
 handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
 
   while( ctx->vinyl.rd_req_cnt ) {
     fd_vinyl_io_rd_t * rd_req = NULL;
-    if( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, FD_VINYL_IO_FLAG_BLOCKING )==FD_VINYL_SUCCESS ) {
-      handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
-      rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
-      rd_req->seq = ULONG_MAX;
-      rd_req->sz  = 0UL;
-      ctx->vinyl.rd_req_cnt--;
-    }
+    FD_TEST( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, FD_VINYL_IO_FLAG_BLOCKING )==FD_VINYL_SUCCESS );
+    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
+    rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
+    rd_req->seq = ULONG_MAX;
+    rd_req->sz  = 0UL;
+    ctx->vinyl.rd_req_cnt--;
   }
   FD_TEST( !ctx->vinyl.rd_req_cnt  );
   for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
@@ -430,7 +427,7 @@ handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
   }
 }
 
-static int
+FD_FN_UNUSED static int
 handle_lthash_completion( fd_snaplh_t * ctx,
                           fd_stem_context_t * stem ) {
   fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
@@ -445,6 +442,31 @@ handle_lthash_completion( fd_snaplh_t * ctx,
     return FD_SNAPSHOT_STATE_IDLE;
   }
   return ctx->state;
+}
+
+static void
+before_credit( fd_snaplh_t *       ctx,
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
+  (void)stem;
+  *charge_busy = 0;
+
+  #if IO_URING_ENABLED
+  if( FD_UNLIKELY( !ctx->vinyl.rd_req_cnt ) ) return;
+
+  /* Consume as many ready requests as possible. */
+  fd_vinyl_io_rd_t * rd_req = NULL;
+  while( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )==FD_VINYL_SUCCESS ) {
+    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
+    rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
+    rd_req->seq = ULONG_MAX;
+    rd_req->sz  = 0UL;
+    ctx->vinyl.rd_req_cnt--;
+    *charge_busy = 1;
+  }
+  #else
+  (void)ctx;
+  #endif
 }
 
 static void
@@ -615,7 +637,6 @@ returnable_frag( fd_snaplh_t *       ctx,
   return 0;
 }
 
-
 static ulong
 populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
                       fd_topo_tile_t const * tile FD_PARAM_UNUSED,
@@ -690,10 +711,10 @@ privileged_init( fd_topo_t *      topo,
 
   #if IO_URING_ENABLED
 
-  FD_LOG_WARNING(( "*** using IO_URING!!" ));
+  FD_LOG_NOTICE(( "using io_uring" ));
   /* Join the bstream using io_ur */
   struct io_uring * ring = _ring_mem;
-  uint depth = 256UL;
+  uint depth = 2 * VINYL_LTHASH_RD_REQ_MAX;
   struct io_uring_params params = {
     .flags = IORING_SETUP_CQSIZE |
               IORING_SETUP_COOP_TASKRUN |
@@ -814,6 +835,7 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_BEFORE_CREDIT   before_credit
 
 #include "../../disco/stem/fd_stem.c"
 
