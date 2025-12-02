@@ -28,8 +28,6 @@
 
 #define NAME "snaplh"
 
-#define FD_SNAPLH_OUT_CTRL 0UL
-
 #define IN_KIND_SNAPLV (0UL)
 #define IN_KIND_SNAPWH (1UL)
 
@@ -37,7 +35,7 @@
 #define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
 FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
 
-#define VINYL_LTHASH_RD_REQ_MAX   (64UL)
+#define VINYL_LTHASH_RD_REQ_MAX   (16UL)
 
 #define VINYL_LTHASH_IO_SPAD_MAX  (2<<20UL)
 
@@ -81,6 +79,7 @@ struct fd_snaplh_tile {
   ulong  finish_fseq;
 
   fd_lthash_adder_t adder[1];
+  fd_lthash_adder_t adder_sub[1];
   uchar             data[ FD_RUNTIME_ACC_SZ_MAX ];
   ulong             acc_data_sz;
 
@@ -153,13 +152,6 @@ metrics_write( fd_snaplh_t * ctx ) {
   FD_MGAUGE_SET( SNAPLH, STATE,                       (ulong)(ctx->state) );
 }
 
-// static void
-// transition_malformed( fd_snaplh_t *  ctx,
-//                       fd_stem_context_t * stem ) {
-//   ctx->state = FD_SNAPSHOT_STATE_ERROR;
-//   fd_stem_publish( stem, FD_SNAPLH_OUT_CTRL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
-// }
-
 static int
 should_hash_account( fd_snaplh_t * ctx ) {
   return (ctx->pairs_seen % ctx->num_hash_tiles)==ctx->hash_tile_idx;
@@ -171,8 +163,10 @@ should_process_lthash_request( fd_snaplh_t * ctx ) {
 }
 
 FD_FN_UNUSED static void
-streamlined_hash( fd_snaplh_t * ctx,
-                  uchar const * _pair ) {
+streamlined_hash( fd_snaplh_t *       ctx,
+                  fd_lthash_adder_t * adder,
+                  fd_lthash_value_t * running_lthash,
+                  uchar const *       _pair ) {
   uchar const * pair = _pair;
   fd_vinyl_bstream_phdr_t const * phdr = (fd_vinyl_bstream_phdr_t const *)pair;
   pair += sizeof(fd_vinyl_bstream_phdr_t);
@@ -189,8 +183,8 @@ streamlined_hash( fd_snaplh_t * ctx,
   if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
   if( FD_UNLIKELY( lamports==0UL ) ) return;
 
-  fd_lthash_adder_push_solana_account( ctx->adder,
-                                       &ctx->running_lthash,
+  fd_lthash_adder_push_solana_account( adder,
+                                       running_lthash,
                                        pubkey,
                                        data,
                                        data_len,
@@ -266,26 +260,7 @@ handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
     FD_SPIN_PAUSE();
   }
 
-  /* TODO streamline adder (sub) ?*/
-
-  pair += sizeof(fd_vinyl_bstream_phdr_t);
-  fd_account_meta_t const * meta       = (fd_account_meta_t *)pair;
-  void const *              data       = (void const *)( meta+1 );
-  void const *              pubkey     = phdr->key.uc;
-  ulong                     data_sz    = meta->dlen;
-  ulong                     lamports   = meta->lamports;
-  _Bool                     executable = !!meta->executable;
-  void const *              owner      = meta->owner;
-
-  fd_lthash_value_t prev_lthash[1];
-  fd_hashes_account_lthash_simple( pubkey,
-                                   owner,
-                                   lamports,
-                                   executable,
-                                   data,
-                                   data_sz,
-                                   prev_lthash );
-  if( !!lamports ) fd_lthash_add( &ctx->running_lthash_sub, prev_lthash );
+  streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair );
 }
 
 
@@ -342,26 +317,7 @@ handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
   int test = !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz );
   FD_TEST( test );
 
-  /* TODO streamline adder (sub) ?*/
-
-  pair += sizeof(fd_vinyl_bstream_phdr_t);
-  fd_account_meta_t const * meta       = (fd_account_meta_t *)pair;
-  void const *              data       = (void const *)( meta+1 );
-  void const *              pubkey     = phdr->key.uc;
-  ulong                     data_sz    = meta->dlen;
-  ulong                     lamports   = meta->lamports;
-  _Bool                     executable = !!meta->executable;
-  void const *              owner      = meta->owner;
-
-  fd_lthash_value_t prev_lthash[1];
-  fd_hashes_account_lthash_simple( pubkey,
-                                   owner,
-                                   lamports,
-                                   executable,
-                                   data,
-                                   data_sz,
-                                   prev_lthash );
-  if( !!lamports ) fd_lthash_add( &ctx->running_lthash_sub, prev_lthash );
+  streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair );
 }
 
 #if 0
@@ -474,6 +430,23 @@ handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
   }
 }
 
+static int
+handle_lthash_completion( fd_snaplh_t * ctx,
+                          fd_stem_context_t * stem ) {
+  fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
+  fd_lthash_adder_flush( ctx->adder_sub, &ctx->running_lthash_sub );
+  if( fd_seq_inc( ctx->last_wh_seq, 1UL )==ctx->finish_fseq ) {
+    fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
+    uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
+    fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
+    /* TODO should this be sent in after_credit ? */
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
+    ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, FD_LTHASH_LEN_BYTES, ctx->out.chunk0, ctx->out.wmark );
+    return FD_SNAPSHOT_STATE_IDLE;
+  }
+  return ctx->state;
+}
+
 static void
 handle_wh_data_frag( fd_snaplh_t * ctx,
                      ulong         in_idx,
@@ -503,7 +476,7 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
         rem    += pair_sz;
         rem_sz -= pair_sz;
         if( FD_LIKELY( should_hash_account( ctx ) ) ) {
-          streamlined_hash( ctx, pair );
+          streamlined_hash( ctx, ctx->adder, &ctx->running_lthash, pair );
         }
         ctx->pairs_seen++;
         break;
@@ -524,22 +497,10 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
 
   if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
     /* TODO this does not seem to happen here */
-
     #if IO_URING_ENABLED
     handle_vinyl_lthash_request_ur_consume_all( ctx );
     #endif
-
-    fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
-    if( fd_seq_inc( ctx->last_wh_seq, 1UL )==ctx->finish_fseq ) {
-      fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
-      uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
-      fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
-      /* TODO remove log when ready */
-      FD_LOG_WARNING(( "*** sending back FD_SNAPSHOT_HASH_MSG_RESULT_ADD (A) %lu ( %s )", ctx->hash_tile_idx, FD_LTHASH_ENC_32_ALLOCA( &ctx->running_lthash ) ));
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
-      ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, FD_LTHASH_LEN_BYTES, ctx->out.chunk0, ctx->out.wmark );
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-    }
+    ctx->state = handle_lthash_completion( ctx, stem );
   }
 }
 
@@ -579,6 +540,7 @@ handle_control_frag( fd_snaplh_t * ctx,
       fd_lthash_zero( &ctx->running_lthash );
       fd_lthash_zero( &ctx->running_lthash_sub );
       fd_lthash_adder_new( ctx->adder );
+      fd_lthash_adder_new( ctx->adder_sub );
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -589,6 +551,7 @@ handle_control_frag( fd_snaplh_t * ctx,
       fd_lthash_zero( &ctx->running_lthash );
       fd_lthash_zero( &ctx->running_lthash_sub );
       fd_lthash_adder_new( ctx->adder );
+      fd_lthash_adder_new( ctx->adder_sub );
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
@@ -596,32 +559,15 @@ handle_control_frag( fd_snaplh_t * ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
                ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      // if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-      //   transition_malformed( ctx, stem );
-      //   return;
-      // }
       ulong fseq = (tspub<<32 ) | tsorig;
       ctx->finish_fseq = fseq;
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
 
       if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
-
         #if IO_URING_ENABLED
         handle_vinyl_lthash_request_ur_consume_all( ctx );
         #endif
-
-        /* TODO this should be in after_credit */
-        fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
-        if( fd_seq_inc( ctx->last_wh_seq, 1UL )==ctx->finish_fseq ) {
-          fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
-          uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
-          fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
-          /* TODO remove log when ready */
-          FD_LOG_NOTICE(( "*** sending back FD_SNAPSHOT_HASH_MSG_RESULT_ADD (B) %lu ( %s )", ctx->hash_tile_idx, FD_LTHASH_ENC_32_ALLOCA( &ctx->running_lthash ) ));
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
-          ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, FD_LTHASH_LEN_BYTES, ctx->out.chunk0, ctx->out.wmark );
-          ctx->state = FD_SNAPSHOT_STATE_IDLE;
-        }
+        ctx->state = handle_lthash_completion( ctx, stem );
       }
       break;
     }
@@ -827,6 +773,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( 0==strcmp( out_link->name, "snaplh_lv" ) );
 
   fd_lthash_adder_new( ctx->adder );
+  fd_lthash_adder_new( ctx->adder_sub );
 
   void * in_wh_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snapwr.dcache_obj_id ) );
   FD_CRIT( fd_dcache_app_sz( in_wh_dcache )>=sizeof(ulong), "in_wh dcache app region too small to hold io_seed" );
