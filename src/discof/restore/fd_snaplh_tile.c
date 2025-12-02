@@ -2,6 +2,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/lthash/fd_lthash_adder.h"
+#include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "generated/fd_snaplh_tile_seccomp.h"
@@ -13,6 +14,11 @@
 #include <fcntl.h> /* open */
 #include <unistd.h> /* close */
 
+#if FD_HAS_LIBURING
+#include "../../vinyl/io/fd_vinyl_io_ur.h"
+#include <liburing.h>
+#endif
+
 #define NAME "snaplh"
 
 #define FD_SNAPLH_OUT_CTRL 0UL
@@ -23,6 +29,14 @@
 #define VINYL_LTHASH_BLOCK_ALIGN  (512UL) /* O_DIRECT would require 4096UL */
 #define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
 FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
+
+#define VINYL_LTHASH_RD_REQ_MAX   (64UL)
+
+#define VINYL_LTHASH_IO_SPAD_MAX  (2<<20UL)
+
+#define VINYL_LTHASH_RD_REQ_FREE  (0UL)
+#define VINYL_LTHASH_RD_REQ_PEND  (1UL)
+#define VINYL_LTHASH_RD_REQ_SENT  (2UL)
 
 struct in_link_private {
   fd_wksp_t *  wksp;
@@ -72,6 +86,14 @@ struct fd_snaplh_tile {
     ulong             dev_base;
     void *            pair_mem;
     void *            pair_tmp;
+
+    struct {
+      fd_vinyl_bstream_phdr_t phdr  [VINYL_LTHASH_RD_REQ_MAX];
+      fd_vinyl_io_rd_t        rd_req[VINYL_LTHASH_RD_REQ_MAX];
+    } pending;
+    ulong             rd_req_cnt;
+
+    fd_vinyl_io_t *   io;
   } vinyl;
 
   struct {
@@ -106,9 +128,14 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)       );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)                                );
+  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
+  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
+  #if FD_HAS_LIBURING
+  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  );
+  l = FD_LAYOUT_APPEND( l, alignof(struct io_uring), sizeof(struct io_uring)                            );
+  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_ur_align(),   fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
+  #endif
   return FD_LAYOUT_FINI( l, alignof(fd_snaplh_t) );
 }
 
@@ -137,7 +164,7 @@ should_process_lthash_request( fd_snaplh_t * ctx ) {
 }
 
 
-static void
+FD_FN_UNUSED static void
 streamlined_hash( fd_snaplh_t * ctx,
                   uchar const * _pair ) {
   uchar const * pair = _pair;
@@ -169,7 +196,7 @@ streamlined_hash( fd_snaplh_t * ctx,
   else                         ctx->metrics.incremental.accounts_hashed++;
 }
 
-static inline void
+FD_FN_UNUSED static inline void
 bd_read( int    fd,
          ulong  off,
          void * buf,
@@ -180,10 +207,10 @@ bd_read( int    fd,
   /**/                 FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
 }
 
-static void
-handle_vinyl_lthash_request( fd_snaplh_t *             ctx,
-                             ulong                     seq,
-                             fd_vinyl_bstream_phdr_t * acc_hdr ) {
+FD_FN_UNUSED static void
+handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
+                                ulong                     seq,
+                                fd_vinyl_bstream_phdr_t * acc_hdr ) {
 
   ulong const io_seed = FD_VOLATILE_CONST( *ctx->io_seed );
 
@@ -255,6 +282,192 @@ handle_vinyl_lthash_request( fd_snaplh_t *             ctx,
   if( !!lamports ) fd_lthash_add( &ctx->running_lthash_sub, prev_lthash );
 }
 
+
+FD_FN_UNUSED static inline ulong
+rd_req_ctx_get_idx( ulong rd_req_ctx ) {
+  return ( rd_req_ctx >>  0 ) & ((1UL<<32)-1UL);
+}
+
+FD_FN_UNUSED static inline ulong
+rd_req_ctx_get_status( ulong rd_req_ctx ) {
+  return ( rd_req_ctx >> 32 ) & ((1UL<<32)-1UL);
+}
+
+FD_FN_UNUSED static inline void
+rd_req_ctx_into_parts( ulong   rd_req_ctx,
+                       ulong * idx,
+                       ulong * status ) {
+  *idx    = rd_req_ctx_get_idx( rd_req_ctx );
+  *status = rd_req_ctx_get_status( rd_req_ctx );
+}
+
+FD_FN_UNUSED static inline ulong
+rd_req_ctx_from_parts( ulong idx,
+                       ulong status ) {
+  return ( idx & ((1UL<<32)-1UL) ) | ( status << 32 );
+}
+
+FD_FN_UNUSED static inline ulong
+rd_req_ctx_update_status( ulong rd_req_ctx,
+                          ulong status ) {
+  return rd_req_ctx_from_parts( rd_req_ctx_get_idx( rd_req_ctx ), status );
+}
+
+FD_FN_UNUSED static void
+handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
+                                         fd_vinyl_io_rd_t * rd_req ) {
+
+  ulong idx = rd_req_ctx_get_idx( rd_req->ctx );
+
+  fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)rd_req->dst;
+  fd_vinyl_bstream_phdr_t * acc_hdr = &ctx->vinyl.pending.phdr[ idx ];
+
+  FD_TEST( !memcmp( phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) );
+
+  ulong const io_seed = FD_VOLATILE_CONST( *ctx->io_seed );
+  ulong   seq     = rd_req->seq;
+  uchar * pair    = (uchar*)rd_req->dst;
+  ulong   pair_sz = rd_req->sz;
+
+  /* test bstream pair integrity hashes */
+  // fd_vinyl_bstream_block_t * pair_hdr = (fd_vinyl_bstream_block_t *)pair;
+  // fd_vinyl_bstream_block_t * pair_ftr = (fd_vinyl_bstream_block_t *)(pair+(pair_sz-FD_VINYL_BSTREAM_BLOCK_SZ));
+  // int test = !fd_vinyl_bstream_pair_test_fast( io_seed, seq, pair_hdr, pair_ftr );
+  int test = !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz );
+  FD_TEST( test );
+
+  /* TODO streamline adder (sub) ?*/
+
+  pair += sizeof(fd_vinyl_bstream_phdr_t);
+  fd_account_meta_t const * meta       = (fd_account_meta_t *)pair;
+  void const *              data       = (void const *)( meta+1 );
+  void const *              pubkey     = phdr->key.uc;
+  ulong                     data_sz    = meta->dlen;
+  ulong                     lamports   = meta->lamports;
+  _Bool                     executable = !!meta->executable;
+  void const *              owner      = meta->owner;
+
+  fd_lthash_value_t prev_lthash[1];
+  fd_hashes_account_lthash_simple( pubkey,
+                                   owner,
+                                   lamports,
+                                   executable,
+                                   data,
+                                   data_sz,
+                                   prev_lthash );
+  if( !!lamports ) fd_lthash_add( &ctx->running_lthash_sub, prev_lthash );
+}
+
+#if 0
+FD_FN_UNUSED  static void
+handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
+                                ulong                     seq,
+                                fd_vinyl_bstream_phdr_t * acc_hdr ) {
+
+  ulong free_i = 0UL;
+  ulong *                   in_seq  = &ctx->vinyl.pending.seq[ free_i ];
+  fd_vinyl_bstream_phdr_t * in_phdr = &ctx->vinyl.pending.phdr[ free_i ];
+  memcpy( in_seq,  &seq, sizeof(ulong) );
+  memcpy( in_phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t) );
+  ulong val_esz = fd_vinyl_bstream_ctl_sz( in_phdr->ctl );
+  ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
+  ctx->vinyl.pending.status[ free_i ]     = VINYL_LTHASH_RD_REQ_PEND;
+  ctx->vinyl.pending.seq[ free_i ]        = in_seq[0];
+  ctx->vinyl.pending.rd_req[ free_i ].seq = in_seq[0];
+  ctx->vinyl.pending.rd_req[ free_i ].sz  = pair_sz;
+
+  fd_vinyl_io_read( ctx->vinyl.io, &ctx->vinyl.pending.rd_req[ free_i ] );
+  ctx->vinyl.pending.status[ free_i ] = VINYL_LTHASH_RD_REQ_SENT;
+  ctx->vinyl.rd_req_cnt++;
+
+  fd_vinyl_io_rd_t * rd_req =  &ctx->vinyl.pending.rd_req[ free_i ];
+  while( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, FD_VINYL_IO_FLAG_BLOCKING )==FD_VINYL_SUCCESS ) {
+    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
+    ctx->vinyl.pending.status[ rd_req->ctx ] = VINYL_LTHASH_RD_REQ_FREE;
+    ctx->vinyl.pending.seq[ rd_req->ctx ] = ULONG_MAX;
+    rd_req->sz = 0UL;
+    ctx->vinyl.rd_req_cnt--;
+  }
+  FD_TEST( !ctx->vinyl.rd_req_cnt  );
+}
+#else
+FD_FN_UNUSED static void
+handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
+                                ulong                     seq,
+                                fd_vinyl_bstream_phdr_t * acc_hdr ) {
+
+  /* Consume as many ready requests as possible. */
+  for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
+    fd_vinyl_io_rd_t * rd_req = NULL;
+    if( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )==FD_VINYL_SUCCESS ) {
+      handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
+      rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
+      rd_req->seq = ULONG_MAX;
+      rd_req->sz  = 0UL;
+      ctx->vinyl.rd_req_cnt--;
+    }
+  }
+
+
+  /* Find a free slot */
+  ulong free_i = ULONG_MAX;
+  for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
+    fd_vinyl_io_rd_t * rd_req = &ctx->vinyl.pending.rd_req[ i ];
+    if( FD_LIKELY( rd_req->ctx!=VINYL_LTHASH_RD_REQ_FREE ) ) continue;
+    free_i = i;
+    break;
+  }
+  while( free_i==ULONG_MAX ) {
+    fd_vinyl_io_rd_t * rd_req = NULL;
+    if( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )==FD_VINYL_SUCCESS ) {
+      handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
+      rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
+      rd_req->seq = ULONG_MAX;
+      rd_req->sz  = 0UL;
+      free_i      = rd_req_ctx_get_idx( rd_req->ctx );
+      ctx->vinyl.rd_req_cnt--;
+      break;
+    }
+    FD_SPIN_PAUSE();
+  }
+  FD_TEST( free_i<VINYL_LTHASH_RD_REQ_MAX );
+
+  /* Populate the empty slot and submit */
+  fd_vinyl_bstream_phdr_t * in_phdr = &ctx->vinyl.pending.phdr[ free_i ];
+  memcpy( in_phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t) );
+  ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
+  ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
+
+  fd_vinyl_io_rd_t * rd_req  = &ctx->vinyl.pending.rd_req[ free_i ];
+  rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_PEND );
+  rd_req->seq = seq;
+  rd_req->sz  = pair_sz;
+  fd_vinyl_io_read( ctx->vinyl.io, rd_req );
+  rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_SENT );
+  ctx->vinyl.rd_req_cnt++;
+}
+#endif
+
+FD_FN_UNUSED  static void
+handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
+
+  while( ctx->vinyl.rd_req_cnt ) {
+    fd_vinyl_io_rd_t * rd_req = NULL;
+    if( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, FD_VINYL_IO_FLAG_BLOCKING )==FD_VINYL_SUCCESS ) {
+      handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
+      rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
+      rd_req->seq = ULONG_MAX;
+      rd_req->sz  = 0UL;
+      ctx->vinyl.rd_req_cnt--;
+    }
+  }
+  FD_TEST( !ctx->vinyl.rd_req_cnt  );
+  for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
+    fd_vinyl_io_rd_t * rd_req = &ctx->vinyl.pending.rd_req[ i ];
+    FD_TEST( rd_req_ctx_get_status( rd_req->ctx )==VINYL_LTHASH_RD_REQ_FREE );
+  }
+}
+
 static void
 handle_wh_data_frag( fd_snaplh_t * ctx,
                      ulong         in_idx,
@@ -305,6 +518,11 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
 
   if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
     /* TODO this does not seem to happen here */
+
+    #if FD_HAS_LIBURING
+    handle_vinyl_lthash_request_ur_consume_all( ctx );
+    #endif
+
     fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
     if( fd_seq_inc( ctx->last_wh_seq, 1UL )==ctx->finish_fseq ) {
       fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
@@ -331,7 +549,11 @@ handle_lv_data_frag( fd_snaplh_t * ctx,
     fd_vinyl_bstream_phdr_t acc_hdr[1];
     memcpy( &seq,    indata, sizeof(ulong) );
     memcpy( acc_hdr, indata + sizeof(ulong), sizeof(fd_vinyl_bstream_phdr_t) );
-    handle_vinyl_lthash_request( ctx, seq, acc_hdr );
+    #if FD_HAS_LIBURING
+    handle_vinyl_lthash_request_ur( ctx, seq, acc_hdr );
+    #else
+    handle_vinyl_lthash_request_bd( ctx, seq, acc_hdr );
+    #endif
   }
   ctx->lthash_req_seen++;
 }
@@ -377,6 +599,11 @@ handle_control_frag( fd_snaplh_t * ctx,
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
 
       if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
+
+        #if FD_HAS_LIBURING
+        handle_vinyl_lthash_request_ur_consume_all( ctx );
+        #endif
+
         /* TODO this should be in after_credit */
         fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
         if( fd_seq_inc( ctx->last_wh_seq, 1UL )==ctx->finish_fseq ) {
@@ -469,7 +696,16 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t), sizeof(fd_snaplh_t) );
+  fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)                                );
+  void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
+  void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
+  #if FD_HAS_LIBURING
+  void *  block_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  );
+  void *  _ring_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct io_uring), sizeof(struct io_uring)                            );
+  void *  uring_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(),   fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
+  (void)block_mem;
+  #endif
+  (void)pair_mem; (void)pair_tmp;
 
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
 
@@ -497,6 +733,40 @@ privileged_init( fd_topo_t *      topo,
   }
   ctx->vinyl.dev_sz   = bstream_sz;
   ctx->vinyl.dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
+
+  ctx->vinyl.io = NULL;
+
+  #if FD_HAS_LIBURING
+
+  FD_LOG_WARNING(( "*** using IO_URING!!" ));
+  /* Join the bstream using io_ur */
+  struct io_uring * ring = _ring_mem;
+  uint depth = 256UL;
+  struct io_uring_params params = {
+    .flags = IORING_SETUP_CQSIZE |
+              IORING_SETUP_COOP_TASKRUN |
+              IORING_SETUP_SINGLE_ISSUER,
+    .features = IORING_SETUP_DEFER_TASKRUN,
+    .cq_entries = depth
+  };
+  int init_err = io_uring_queue_init_params( depth, ring, &params );
+  if( FD_UNLIKELY( init_err==-EPERM ) ) {
+    FD_LOG_ERR(( "missing privileges to setup io_uring" ));
+  } else if( init_err<0 ) {
+    FD_LOG_ERR(( "io_uring_queue_init_params failed (%i-%s)", init_err, fd_io_strerror( -init_err ) ));
+  }
+  FD_TEST( 0==io_uring_register_files( ring, &dev_fd, 1 ) );
+
+  ulong align = fd_vinyl_io_ur_align();
+  FD_TEST( fd_ulong_is_pow2( align ) );
+
+  ulong footprint = fd_vinyl_io_ur_footprint( VINYL_LTHASH_IO_SPAD_MAX );
+  FD_TEST( fd_ulong_is_aligned( footprint, align ) );
+
+  fd_vinyl_io_t * io = fd_vinyl_io_ur_init( uring_mem, VINYL_LTHASH_IO_SPAD_MAX, dev_fd, ring );
+  FD_TEST( io );
+  ctx->vinyl.io = io;
+  #endif
 }
 
 static void
@@ -505,9 +775,10 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t),   sizeof(fd_snaplh_t)        );
-  void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
-  void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
+  fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)                               );
+  void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                         );
+  void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                         );
+  void *  block_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ );
 
   ctx->vinyl.pair_mem = pair_mem;
   ctx->vinyl.pair_tmp = pair_tmp;
@@ -557,6 +828,15 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->metrics.full.accounts_hashed        = 0UL;
   ctx->metrics.incremental.accounts_hashed = 0UL;
+
+  memset( ctx->vinyl.pending.phdr,   0, sizeof(fd_vinyl_bstream_phdr_t) * VINYL_LTHASH_RD_REQ_MAX );
+  memset( ctx->vinyl.pending.rd_req, 0, sizeof(fd_vinyl_io_rd_t)        * VINYL_LTHASH_RD_REQ_MAX );
+  for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
+    fd_vinyl_io_rd_t * rd_req = &ctx->vinyl.pending.rd_req[ i ];
+    rd_req->ctx = rd_req_ctx_from_parts( i, VINYL_LTHASH_RD_REQ_FREE );
+    rd_req->dst = ((uchar*)block_mem) + i*VINYL_LTHASH_BLOCK_MAX_SZ;
+  }
+  ctx->vinyl.rd_req_cnt  = 0UL;
 
   ctx->state                   = FD_SNAPSHOT_STATE_IDLE;
   ctx->full                    = 1;
