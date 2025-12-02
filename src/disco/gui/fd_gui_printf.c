@@ -229,6 +229,13 @@ fd_gui_printf_startup_time_nanos( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_server_time_nanos( fd_gui_t * gui, long now ) {
+  jsonp_open_envelope( gui->http, "summary", "server_time_nanos" );
+    jsonp_long_as_str( gui->http, "value", now );
+  jsonp_close_envelope( gui->http );
+}
+
+void
 fd_gui_printf_vote_distance( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "vote_distance" );
     jsonp_ulong( gui->http, "value", gui->summary.vote_distance );

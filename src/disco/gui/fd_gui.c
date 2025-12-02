@@ -66,9 +66,11 @@ fd_gui_new( void *                shmem,
   gui->summary.schedule_strategy = schedule_strategy;
 
 
-  gui->next_sample_400millis = now;
-  gui->next_sample_100millis = now;
-  gui->next_sample_10millis  = now;
+  gui->next_sample_400millis  = now;
+  gui->next_sample_100millis  = now;
+  gui->next_sample_50millis   = now;
+  gui->next_sample_12_5millis = now;
+  gui->next_sample_10millis   = now;
 
   memcpy( gui->summary.identity_key->uc, identity_key, 32UL );
   fd_base58_encode_32( identity_key, NULL, gui->summary.identity_key_base58 );
@@ -831,15 +833,13 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
 
 int
 fd_gui_poll( fd_gui_t * gui, long now ) {
-  int did_work = 0;
-
   if( FD_LIKELY( now>gui->next_sample_400millis ) ) {
     fd_gui_estimated_tps_snap( gui );
     fd_gui_printf_estimated_tps( gui );
     fd_http_server_ws_broadcast( gui->http );
 
     gui->next_sample_400millis += 400L*1000L*1000L;
-    did_work = 1;
+    return 1;
   }
 
   if( FD_LIKELY( now>gui->next_sample_100millis ) ) {
@@ -863,31 +863,48 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     }
 
     gui->next_sample_100millis += 100L*1000L*1000L;
-    did_work = 1;
+    return 1;
   }
 
-  if( FD_LIKELY( now>gui->next_sample_10millis ) ) {
-    fd_gui_tile_timers_snap( gui );
-
-    fd_gui_printf_live_tile_timers( gui );
-    fd_http_server_ws_broadcast( gui->http );
-
-    fd_gui_printf_live_tile_metrics( gui );
-    fd_http_server_ws_broadcast( gui->http );
-
-    fd_gui_scheduler_counts_snap( gui, now );
-
+  if( FD_LIKELY( now>gui->next_sample_50millis ) ) {
     if( FD_LIKELY( gui->summary.is_full_client && gui->shreds.staged_next_broadcast<gui->shreds.staged_tail ) ) {
       fd_gui_printf_shred_updates( gui );
       fd_http_server_ws_broadcast( gui->http );
       gui->shreds.staged_next_broadcast = gui->shreds.staged_tail;
     }
 
-    gui->next_sample_10millis += 10L*1000L*1000L;
-    did_work = 1;
+    gui->next_sample_50millis += 50L*1000L*1000L;
+    return 1;
   }
 
-  return did_work;
+  if( FD_LIKELY( now>gui->next_sample_12_5millis ) ) {
+    fd_gui_printf_server_time_nanos( gui, now );
+    fd_http_server_ws_broadcast( gui->http );
+
+    fd_gui_tile_timers_snap( gui );
+
+    /* every 25ms */
+    if( (gui->next_sample_12_5millis % 25L*1000L*1000L) >= (long)(12.5*1000L*1000L) ) {
+      fd_gui_printf_live_tile_timers( gui );
+      fd_http_server_ws_broadcast( gui->http );
+
+      fd_gui_printf_live_tile_metrics( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+
+    gui->next_sample_12_5millis += (long)(12.5*1000L*1000L);
+    return 1;
+  }
+
+
+  if( FD_LIKELY( now>gui->next_sample_10millis ) ) {
+    fd_gui_scheduler_counts_snap( gui, now );
+
+    gui->next_sample_10millis += 10L*1000L*1000L;
+    return 1;
+  }
+
+  return 0;
 }
 
 static void
