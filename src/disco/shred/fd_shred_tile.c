@@ -1464,7 +1464,8 @@ unprivileged_init( fd_topo_t *      topo,
   ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
   if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) { /* firedancer-only */
     ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
-    FD_TEST( ctx->store->magic == FD_STORE_MAGIC );
+    FD_TEST( ctx->store->magic==FD_STORE_MAGIC );
+    FD_TEST( ctx->store->part_cnt==ctx->round_robin_cnt ); /* single-writer (shred tile) per store part */
   }
 
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
