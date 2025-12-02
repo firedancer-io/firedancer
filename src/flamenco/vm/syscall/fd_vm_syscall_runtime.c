@@ -606,7 +606,7 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
     return FD_VM_ERR_INVAL;
   }
   memcpy( out, &epoch_rewards, sizeof(fd_sysvar_epoch_rewards_t) );
-  memset( out+81, 0, 7 ); /* padding */
+  memset( out+81, 0, 15 ); /* padding */
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
