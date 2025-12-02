@@ -6,13 +6,12 @@
 #include "../../util/log/fd_log.h"
 #include "fd_libc_zstd.h"
 
-#define BUFSZ 128UL<<10
-
 struct fd_zstd_rstream {
   FILE *         file;
   ZSTD_DStream * dstream;
   ulong          in_rd;
-  uchar          in_buf[ BUFSZ ];
+  uchar *        in_buf;
+  ulong          in_buf_max;
   ZSTD_inBuffer  input;
   uint           eof : 1;
 };
@@ -29,7 +28,7 @@ rstream_read( void * cookie,
   ZSTD_outBuffer output = { buf, size, 0 };
   while( output.pos < output.size ) {
     if( zs->input.pos >= zs->input.size ) {
-      size_t read_sz = fread( zs->in_buf, 1, sizeof(zs->in_buf), zs->file );
+      size_t read_sz = fread( zs->in_buf, 1, zs->in_buf_max, zs->file );
       if( read_sz==0 ) {
         if( feof( zs->file ) ) break;
         return -1;
@@ -85,15 +84,23 @@ static int
 rstream_close( void * cookie ) {
   fd_zstd_rstream_t * zs = cookie;
   int close_ret = fclose( zs->file );
+  free( zs->in_buf );
   free( zs );
   return close_ret;
 }
 
 FILE *
 fd_zstd_rstream_open( FILE *         file,
-                      ZSTD_DStream * dstream ) {
+                      ZSTD_DStream * dstream,
+                      ulong          buf_sz ) {
   fd_zstd_rstream_t * zs = malloc( sizeof(fd_zstd_rstream_t) );
   if( FD_UNLIKELY( !zs ) ) return NULL;
+
+  uchar * buf = malloc( buf_sz );
+  if( FD_UNLIKELY( !buf ) ) {
+    free( zs );
+    return NULL;
+  }
 
   zs->file    = file;
   zs->dstream = dstream;
@@ -106,6 +113,8 @@ fd_zstd_rstream_open( FILE *         file,
   }
 
   zs->in_rd      = 0UL;
+  zs->in_buf     = buf;
+  zs->in_buf_max = buf_sz;
   zs->input.src  = zs->in_buf;
   zs->input.size = 0;
   zs->input.pos  = 0;
@@ -123,7 +132,8 @@ fd_zstd_rstream_open( FILE *         file,
 struct fd_zstd_wstream {
   FILE *         file;
   ZSTD_CStream * cstream;
-  uchar          out_buf[ BUFSZ ];
+  uchar *        out_buf;
+  ulong          out_buf_max;
   ulong          wr_cnt;
 };
 
@@ -136,7 +146,7 @@ wstream_write( void *       cookie,
   fd_zstd_wstream_t * zs = cookie;
   ZSTD_inBuffer input = { buf, size, 0 };
   while( input.pos < input.size ) {
-    ZSTD_outBuffer output = { zs->out_buf, sizeof(zs->out_buf), 0 };
+    ZSTD_outBuffer output = { zs->out_buf, zs->out_buf_max, 0 };
     size_t const ret = ZSTD_compressStream( zs->cstream, &output, &input );
     if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
       FD_LOG_WARNING(( "ZSTD_compressStream failed (%u-%s)", ZSTD_getErrorCode( ret ), ZSTD_getErrorName( ret ) ));
@@ -155,7 +165,7 @@ static int
 wstream_close( void * cookie ) {
   fd_zstd_wstream_t * zs = cookie;
 
-  ZSTD_outBuffer output = { zs->out_buf, sizeof(zs->out_buf), 0 };
+  ZSTD_outBuffer output = { zs->out_buf, zs->out_buf_max, 0 };
   size_t const ret = ZSTD_endStream( zs->cstream, &output );
   if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
     FD_LOG_WARNING(( "ZSTD_endStream failed (%u-%s)", ZSTD_getErrorCode( ret ), ZSTD_getErrorName( ret ) ));
@@ -168,6 +178,7 @@ wstream_close( void * cookie ) {
 
   ZSTD_freeCStream( zs->cstream );
   int close_ret = fclose( zs->file );
+  free( zs->out_buf );
   free( zs );
   return close_ret;
 }
@@ -187,13 +198,22 @@ wstream_seek( void *    cookie,
 
 FILE *
 fd_zstd_wstream_open( FILE * file,
-                      int    level ) {
+                      int    level,
+                      ulong  buf_sz ) {
   fd_zstd_wstream_t * zs = malloc( sizeof(fd_zstd_wstream_t) );
   if( FD_UNLIKELY( !zs ) ) return NULL;
 
-  zs->file = file;
-  zs->cstream = ZSTD_createCStream();
-  zs->wr_cnt = 0UL;
+  uchar * buf = malloc( buf_sz );
+  if( FD_UNLIKELY( !buf ) ) {
+    free( zs );
+    return NULL;
+  }
+
+  zs->file        = file;
+  zs->cstream     = ZSTD_createCStream();
+  zs->out_buf     = buf;
+  zs->out_buf_max = buf_sz;
+  zs->wr_cnt      = 0UL;
   if( FD_UNLIKELY( !zs->cstream ) ) {
     free( zs );
     return NULL;

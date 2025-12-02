@@ -6,6 +6,7 @@
 
 #if FD_HAS_ZSTD
 
+#include "../../util/fd_util_base.h"
 #include <stdio.h>
 #include <zstd.h>
 
@@ -24,7 +25,8 @@
 
 FILE *
 fd_zstd_rstream_open( FILE *         file,
-                      ZSTD_DStream * dstream );
+                      ZSTD_DStream * dstream,
+                      ulong          buf_sz );
 
 /* fd_zstd_wstream_open returns a compressing libc FILE handle.  The
    returned file supports append-only fwrite(), fclose(), and ftell().
@@ -38,7 +40,8 @@ fd_zstd_rstream_open( FILE *         file,
 
 FILE *
 fd_zstd_wstream_open( FILE * file,
-                      int    level );
+                      int    level,
+                      ulong  buf_sz );
 
 #endif /* FD_HAS_ZSTD */
 

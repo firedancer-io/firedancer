@@ -119,8 +119,9 @@ main( int     argc,
   char const * out_short    = fd_env_strip_cmdline_cstr( &argc, &argv, "--o",       NULL, NULL );
   if( !out_path ) out_path = out_short;
 
-  int use_zstd   = fd_env_strip_cmdline_contains( &argc, &argv, "--zstd"                );
-  int zstd_level = fd_env_strip_cmdline_int     ( &argc, &argv, "--zstd-level", NULL, 3 );
+  int   use_zstd   = fd_env_strip_cmdline_contains( &argc, &argv, "--zstd"                      );
+  int   zstd_level = fd_env_strip_cmdline_int     ( &argc, &argv, "--zstd-level", NULL,       3 );
+  ulong zstd_bufsz = fd_env_strip_cmdline_ulong   ( &argc, &argv, "--zstd-bufsz", NULL, 4UL<<20 ); /* 4MB default */
 # if !FD_HAS_ZSTD
   if( use_zstd ) FD_LOG_ERR(( "This build does not support ZSTD compression" ));
   (void)zstd_level;
@@ -150,7 +151,7 @@ main( int     argc,
 
 # if FD_HAS_ZSTD
   if( use_zstd ) {
-    out = fd_zstd_wstream_open( out, zstd_level );
+    out = fd_zstd_wstream_open( out, zstd_level, zstd_bufsz );
     if( FD_UNLIKELY( !out ) ) FD_LOG_ERR(( "failed to initialize ZSTD compression" ));
   }
 # endif

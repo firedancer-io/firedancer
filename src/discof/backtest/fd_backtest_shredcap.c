@@ -84,7 +84,7 @@ fd_backtest_shredcap_new( void *       shmem,
     return NULL;
   }
   if( magic==ZSTD_MAGICNUMBER ) {
-    db->file = fd_zstd_rstream_open( file, db->zstd );
+    db->file = fd_zstd_rstream_open( file, db->zstd, 128UL<<10 );
     FD_TEST( db->file );
   }
 # endif

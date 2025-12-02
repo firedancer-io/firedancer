@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <zstd.h>
 
+#define BUF_SZ (128UL<<10)
+
 /* pattern_fill produces bursts of repeating patterns. */
 
 static void
@@ -23,7 +25,7 @@ test_rstream_empty( void ) {
   FILE * c_file = fmemopen( NULL, 1UL, "wb+" ); FD_TEST( c_file );
   FD_TEST( fseek( c_file, 0L, SEEK_END )==0L );
   ZSTD_DStream * dstream = ZSTD_createDStream();
-  FILE * p_file = fd_zstd_rstream_open( c_file, dstream ); FD_TEST( p_file );
+  FILE * p_file = fd_zstd_rstream_open( c_file, dstream, BUF_SZ ); FD_TEST( p_file );
   FD_TEST( ftell( p_file )==0L );
   FD_TEST( fread( NULL, 1, 1, p_file )==0UL );
   FD_TEST( feof( p_file )==1 );
@@ -49,7 +51,7 @@ test_rstream_simple( void ) {
 
     FILE *         c_file  = fmemopen( c, c_sz, "rb" ); FD_TEST( c_file );
     ZSTD_DStream * dstream = ZSTD_createDStream();
-    FILE *         p_file  = fd_zstd_rstream_open( c_file, dstream ); FD_TEST( p_file );
+    FILE *         p_file  = fd_zstd_rstream_open( c_file, dstream, BUF_SZ ); FD_TEST( p_file );
 
     FD_TEST( ftell( p_file )==0L );
     ulong rd_off;
@@ -93,7 +95,7 @@ test_rstream_multi_frame( void ) {
 
   FILE *         c_file  = fmemopen( c, c_sz, "rb" ); FD_TEST( c_file );
   ZSTD_DStream * dstream = ZSTD_createDStream();
-  FILE *         p_file  = fd_zstd_rstream_open( c_file, dstream ); FD_TEST( p_file );
+  FILE *         p_file  = fd_zstd_rstream_open( c_file, dstream, BUF_SZ ); FD_TEST( p_file );
 
   uchar p[ 11 ];
   ulong rd_off;
