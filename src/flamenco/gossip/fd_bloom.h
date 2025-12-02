@@ -12,10 +12,10 @@
 
 struct __attribute__((aligned(FD_BLOOM_ALIGN))) fd_bloom_private {
   ulong * keys;
-  ulong   keys_len;
+  ulong   keys_len;  /* ulong count */
 
   ulong * bits;
-  ulong   bits_len;
+  ulong   bits_len;  /* bit count */
 
   ulong   hash_seed;
   fd_rng_t * rng;
