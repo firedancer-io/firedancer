@@ -194,6 +194,7 @@ fd_rpc_phr_content_length( struct phr_header * headers,
     if( FD_LIKELY( strncasecmp( headers[i].name, "Content-Length", 14UL ) ) ) continue;
     char * end;
     ulong content_length = strtoul( headers[i].value, &end, 10 );
+    if( FD_UNLIKELY( content_length>UINT_MAX ) ) return ULONG_MAX; /* prevent overflow */
     if( FD_UNLIKELY( end==headers[i].value ) ) return ULONG_MAX;
     return content_length;
   }
