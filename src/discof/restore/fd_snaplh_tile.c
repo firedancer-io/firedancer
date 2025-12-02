@@ -15,6 +15,13 @@
 #include <unistd.h> /* close */
 
 #if FD_HAS_LIBURING
+#define IO_URING_ENABLED (1)
+#else
+#define IO_URING_ENABLED (0)
+#endif
+// #define IO_URING_ENABLED (1)
+
+#if IO_URING_ENABLED
 #include "../../vinyl/io/fd_vinyl_io_ur.h"
 #include <liburing.h>
 #endif
@@ -131,7 +138,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)                                );
   l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
   l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
-  #if FD_HAS_LIBURING
+  #if IO_URING_ENABLED
   l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  );
   l = FD_LAYOUT_APPEND( l, alignof(struct io_uring), sizeof(struct io_uring)                            );
   l = FD_LAYOUT_APPEND( l, fd_vinyl_io_ur_align(),   fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
@@ -163,7 +170,6 @@ should_process_lthash_request( fd_snaplh_t * ctx ) {
   return (ctx->lthash_req_seen % ctx->num_hash_tiles)==ctx->hash_tile_idx;
 }
 
-
 FD_FN_UNUSED static void
 streamlined_hash( fd_snaplh_t * ctx,
                   uchar const * _pair ) {
@@ -173,7 +179,7 @@ streamlined_hash( fd_snaplh_t * ctx,
   fd_account_meta_t const * meta = (fd_account_meta_t const *)pair;
   pair += sizeof(fd_account_meta_t);
   uchar const * data = pair;
-  
+
   ulong data_len   = meta->dlen;
   uchar pubkey[32];  memcpy( pubkey, phdr->key.c, 32UL );
   ulong lamports   = meta->lamports;
@@ -474,8 +480,8 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
                      ulong         seq,
                      ulong         chunk,      /* compressed input pointer */
                      ulong         sz_comp,    /* compressed input size */
-                     fd_stem_context_t * stem ) { 
-  
+                     fd_stem_context_t * stem ) {
+
   FD_TEST( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH );
 
   uchar const * rem    = fd_chunk_to_laddr_const( ctx->in[ in_idx ].base, chunk );
@@ -519,7 +525,7 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
   if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
     /* TODO this does not seem to happen here */
 
-    #if FD_HAS_LIBURING
+    #if IO_URING_ENABLED
     handle_vinyl_lthash_request_ur_consume_all( ctx );
     #endif
 
@@ -549,7 +555,7 @@ handle_lv_data_frag( fd_snaplh_t * ctx,
     fd_vinyl_bstream_phdr_t acc_hdr[1];
     memcpy( &seq,    indata, sizeof(ulong) );
     memcpy( acc_hdr, indata + sizeof(ulong), sizeof(fd_vinyl_bstream_phdr_t) );
-    #if FD_HAS_LIBURING
+    #if IO_URING_ENABLED
     handle_vinyl_lthash_request_ur( ctx, seq, acc_hdr );
     #else
     handle_vinyl_lthash_request_bd( ctx, seq, acc_hdr );
@@ -600,7 +606,7 @@ handle_control_frag( fd_snaplh_t * ctx,
 
       if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
 
-        #if FD_HAS_LIBURING
+        #if IO_URING_ENABLED
         handle_vinyl_lthash_request_ur_consume_all( ctx );
         #endif
 
@@ -699,7 +705,7 @@ privileged_init( fd_topo_t *      topo,
   fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)                                );
   void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
   void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
-  #if FD_HAS_LIBURING
+  #if IO_URING_ENABLED
   void *  block_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  );
   void *  _ring_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct io_uring), sizeof(struct io_uring)                            );
   void *  uring_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(),   fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
@@ -736,7 +742,7 @@ privileged_init( fd_topo_t *      topo,
 
   ctx->vinyl.io = NULL;
 
-  #if FD_HAS_LIBURING
+  #if IO_URING_ENABLED
 
   FD_LOG_WARNING(( "*** using IO_URING!!" ));
   /* Join the bstream using io_ur */
@@ -875,4 +881,5 @@ fd_topo_run_tile_t fd_tile_snaplh = {
   .run                      = stem_run,
 };
 
+#undef IO_URING_ENABLED
 #undef NAME
