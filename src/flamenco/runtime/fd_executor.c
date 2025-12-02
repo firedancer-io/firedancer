@@ -950,7 +950,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
       for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {;
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-          if( !memcmp( &prev_txn_out->accounts.keys[ j ], fee_payer_key, sizeof(fd_pubkey_t) ) && prev_txn_out->accounts.writable_idxs[j]!=USHORT_MAX ) {
+          if( !memcmp( &prev_txn_out->accounts.keys[ j ], fee_payer_key, sizeof(fd_pubkey_t) ) && prev_txn_out->accounts.is_writable[j] ) {
             /* Found the account in a previous transaction */
             meta = prev_txn_out->accounts.metas[ j ];
             is_found = 1;
@@ -1392,7 +1392,9 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
                                fd_bank_t *         bank,
                                fd_txn_in_t const * txn_in,
                                fd_txn_out_t *      txn_out,
-                               ushort              idx ) {
+                               ushort              idx,
+                               uchar * *           writable_accs_mem,
+                               ulong *             writable_accs_idx ) {
   /* To setup a transaction account, we need to first retrieve a
      read-only handle to the account from the database. */
 
@@ -1416,7 +1418,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
       fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
       for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-        if( !memcmp( &prev_txn_out->accounts.keys[ j ], acc, sizeof(fd_pubkey_t) ) && prev_txn_out->accounts.writable_idxs[j]!=USHORT_MAX ) {
+        if( !memcmp( &prev_txn_out->accounts.keys[ j ], acc, sizeof(fd_pubkey_t) ) && prev_txn_out->accounts.is_writable[j]==1 ) {
           /* Found the account in a previous transaction */
           meta = prev_txn_out->accounts.metas[ j ];
           is_found = 1;
@@ -1443,15 +1445,14 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
   }
 
-  ushort writable_idx = txn_out->accounts.writable_idxs[idx];
   fd_account_meta_t * account_meta = NULL;
 
-  if( writable_idx!=USHORT_MAX ) {
+  if( txn_out->accounts.is_writable[ idx ] ) {
     /* If the account is writable or a fee payer, then we need to create
        staging regions for the account. If the account exists, we need to
        copy the account data into the staging area; otherwise, we need to
        initialize a new metadata. */
-    uchar * new_raw_data = runtime->accounts.writable_accounts_mem[writable_idx];
+    uchar * new_raw_data = writable_accs_mem[ (*writable_accs_idx)++ ];
     ulong   dlen         = !!meta ? meta->dlen : 0UL;
 
     if( FD_LIKELY( meta ) ) {
@@ -1527,26 +1528,26 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out ) {
 
-  ushort executable_idx = 0U;
-
   /* At this point, the total number of writable accounts in the
      transaction is known.  We can now attempt to get the required
      amount of memory from the account memory pool. */
   ushort writable_account_cnt = 0U;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     if( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) || i==FD_FEE_PAYER_TXN_IDX ) {
-      txn_out->accounts.writable_idxs[ i ] = writable_account_cnt;
+      txn_out->accounts.is_writable[ i ] = 1;
       writable_account_cnt++;
     } else {
-      txn_out->accounts.writable_idxs[i] = USHORT_MAX;
+      txn_out->accounts.is_writable[ i ] = 0;
     }
   }
-  runtime->accounts.writable_account_cnt = writable_account_cnt;
 
-  fd_acc_pool_acquire( runtime->acc_pool, writable_account_cnt, runtime->accounts.writable_accounts_mem );
+  ulong   writable_accs_idx = 0UL;
+  uchar * writable_accs_mem[ MAX_TX_ACCOUNT_LOCKS ];
+  fd_acc_pool_acquire( runtime->acc_pool, writable_account_cnt, writable_accs_mem );
 
+  ushort executable_idx = 0U;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i );
+    fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i, writable_accs_mem, &writable_accs_idx );
     fd_account_meta_t * meta = txn_out->accounts.metas[ i ];
 
     if( FD_UNLIKELY( meta && memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {

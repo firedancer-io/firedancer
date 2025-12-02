@@ -35,14 +35,15 @@ struct fd_runtime {
   } instr;
 
   struct {
+    /* The executable accounts are derived from the accounts in the
+       transaction and are used by the bpf loader program to validate
+       the program data account. */
     ulong                     executable_cnt;                                /* Number of BPF upgradeable loader accounts. */
     fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];      /* Array of BPF upgradeable loader program data accounts */
     fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];    /* Array of BPF upgradeable loader program data accounts */
 
+    /* TODO:FIXME: Fix this hack. sysvar instructions. */
     uchar                     default_meta[ MAX_TX_ACCOUNT_LOCKS ][ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));         /* Array of default account metadata */
-
-    uchar *                   writable_accounts_mem[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of writable accounts mem */
-    ushort                    writable_account_cnt;                          /* Number of writable accounts */
 
     ulong                     starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
     ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */
@@ -202,9 +203,9 @@ struct fd_txn_out {
      That is the limit we are going to use here. */
   struct {
     ulong                           cnt;
-    fd_pubkey_t                     keys[ MAX_TX_ACCOUNT_LOCKS ];
-    fd_account_meta_t *             metas[ MAX_TX_ACCOUNT_LOCKS ];
-    ushort                          writable_idxs[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_pubkey_t                     keys       [ MAX_TX_ACCOUNT_LOCKS ];
+    fd_account_meta_t *             metas      [ MAX_TX_ACCOUNT_LOCKS ];
+    ushort                          is_writable[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* The fee payer and nonce accounts are treated differently than
        other accounts: if an on-transaction fails they are still
