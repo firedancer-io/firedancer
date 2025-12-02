@@ -441,6 +441,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       txns[ i ].bank_cu.actual_consumed_cus  = 0U;
       txns[ i ].bank_cu.rebated_cus          = requested_exec_plus_acct_data_cus + non_execution_cus;
       tips[ i ]                              = 0UL;
+      txns[ i ].flags = fd_uint_if( !!(txns[ i ].flags>>24), txns[ i ].flags, txns[ i ].flags | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24) );
     }
   }
 
