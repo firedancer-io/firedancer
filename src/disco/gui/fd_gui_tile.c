@@ -27,6 +27,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../discof/replay/fd_exec.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/net/fd_net_checks.h"
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"

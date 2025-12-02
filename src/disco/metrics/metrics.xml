@@ -51,10 +51,18 @@ metric introduced.
     <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
 </common>
 
+<enum name="NetHdrCheckErr">
+    <int value="1" name="InvalidIpv4Hdr" label="Invalid IPv4 header" />
+    <int value="2" name="InvalidUdpHdr" label="Invalid UDP header" />
+    <int value="3" name="InvalidGreHdr" label="Invalid GRE header" />
+    <int value="4" name="DisallowIpProto" label="Disallowed IP protocol" />
+    <int value="5" name="DisallowEthType" label="Disallowed Ethernet type" />
+</enum>
+
 <tile name="net">
     <counter name="RxPktCnt" summary="Packet receive count." />
     <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)." />
-    <counter name="RxUnderszCnt" summary="Number of incoming packets dropped due to being too small." />
+    <counter name="RxNetHdrDropCnt" enum="NetHdrCheckErr" summary="Number of incoming packets filtered out during network header checks." />
     <counter name="RxFillBlockedCnt" summary="Number of incoming packets dropped due to fill ring being full." />
     <counter name="RxBackpressureCnt" summary="Number of incoming packets dropped due to backpressure." />
     <gauge name="RxBusyCnt" summary="Number of receive buffers currently busy." />
@@ -82,7 +90,6 @@ metric introduced.
 
     <!-- GRE metrics -->
     <counter name="RxGreCnt" summary="Number of valid GRE packets received" />
-    <counter name="RxGreInvalidCnt" summary="Number of invalid GRE packets received" />
     <counter name="RxGreIgnoredCnt" summary="Number of received but ignored GRE packets" />
     <counter name="TxGreCnt" summary="Number of GRE packet transmit jobs submitted" />
     <counter name="TxGreRouteFailCnt" summary="Number of GRE packets transmit jobs dropped due to route failure" />

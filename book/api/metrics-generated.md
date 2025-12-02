@@ -51,7 +51,11 @@
 |--------|------|-------------|
 | <span class="metrics-name">net_&#8203;rx_&#8203;pkt_&#8203;cnt</span> | counter | Packet receive count. |
 | <span class="metrics-name">net_&#8203;rx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes received (including Ethernet header). |
-| <span class="metrics-name">net_&#8203;rx_&#8203;undersz_&#8203;cnt</span> | counter | Number of incoming packets dropped due to being too small. |
+| <span class="metrics-name">net_&#8203;rx_&#8203;net_&#8203;hdr_&#8203;drop_&#8203;cnt</span><br/>{net_&#8203;hdr_&#8203;check_&#8203;err="<span class="metrics-enum">invalid_&#8203;ipv4_&#8203;hdr</span>"} | counter | Number of incoming packets filtered out during network header checks. (Invalid IPv4 header) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;net_&#8203;hdr_&#8203;drop_&#8203;cnt</span><br/>{net_&#8203;hdr_&#8203;check_&#8203;err="<span class="metrics-enum">invalid_&#8203;udp_&#8203;hdr</span>"} | counter | Number of incoming packets filtered out during network header checks. (Invalid UDP header) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;net_&#8203;hdr_&#8203;drop_&#8203;cnt</span><br/>{net_&#8203;hdr_&#8203;check_&#8203;err="<span class="metrics-enum">invalid_&#8203;gre_&#8203;hdr</span>"} | counter | Number of incoming packets filtered out during network header checks. (Invalid GRE header) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;net_&#8203;hdr_&#8203;drop_&#8203;cnt</span><br/>{net_&#8203;hdr_&#8203;check_&#8203;err="<span class="metrics-enum">disallow_&#8203;ip_&#8203;proto</span>"} | counter | Number of incoming packets filtered out during network header checks. (Disallowed IP protocol) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;net_&#8203;hdr_&#8203;drop_&#8203;cnt</span><br/>{net_&#8203;hdr_&#8203;check_&#8203;err="<span class="metrics-enum">disallow_&#8203;eth_&#8203;type</span>"} | counter | Number of incoming packets filtered out during network header checks. (Disallowed Ethernet type) |
 | <span class="metrics-name">net_&#8203;rx_&#8203;fill_&#8203;blocked_&#8203;cnt</span> | counter | Number of incoming packets dropped due to fill ring being full. |
 | <span class="metrics-name">net_&#8203;rx_&#8203;backpressure_&#8203;cnt</span> | counter | Number of incoming packets dropped due to backpressure. |
 | <span class="metrics-name">net_&#8203;rx_&#8203;busy_&#8203;cnt</span> | gauge | Number of receive buffers currently busy. |
@@ -73,7 +77,6 @@
 | <span class="metrics-name">net_&#8203;xdp_&#8203;rx_&#8203;fill_&#8203;ring_&#8203;empty_&#8203;descs</span> | counter | xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;tx_&#8203;ring_&#8203;empty_&#8203;descs</span> | counter | xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring |
 | <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;cnt</span> | counter | Number of valid GRE packets received |
-| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;invalid_&#8203;cnt</span> | counter | Number of invalid GRE packets received |
 | <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;ignored_&#8203;cnt</span> | counter | Number of received but ignored GRE packets |
 | <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;cnt</span> | counter | Number of GRE packet transmit jobs submitted |
 | <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of GRE packets transmit jobs dropped due to route failure |
