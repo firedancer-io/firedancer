@@ -133,7 +133,7 @@ struct fd_runtime {
     fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];      /* Array of BPF upgradeable loader program data accounts */
     fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];    /* Array of BPF upgradeable loader program data accounts */
 
-    fd_account_meta_t         default_meta[ MAX_TX_ACCOUNT_LOCKS ];          /* Array of default account metadata */
+    uchar                     default_meta[ MAX_TX_ACCOUNT_LOCKS ][ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));         /* Array of default account metadata */
 
     ushort                    writable_idxs[ MAX_TX_ACCOUNT_LOCKS ];         /* Array of txn account indicies of writable accounts, 0 if not writable */
     uchar *                   writable_accounts_mem[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of writable accounts mem */
@@ -148,11 +148,6 @@ typedef struct fd_runtime fd_runtime_t;
 
 struct fd_txn_in {
   fd_txn_p_t const * txn;
-
-  /* TODO: This should eventually be replaced with a pool for accounts
-     that is shared across exec/bank tiles.
-     TODO: This should just be a uchar pointer array. */
-  fd_exec_accounts_t * exec_accounts;
 
   struct {
     int                  is_bundle;
@@ -226,6 +221,9 @@ struct fd_txn_out {
        this would be !=ULONG_MAX. */
     ulong                           nonce_idx_in_txn;
     fd_account_meta_t *             rollback_nonce;
+
+    fd_account_meta_t *             writable_accounts[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong                           writable_account_cnt;
   } accounts;
 };
 typedef struct fd_txn_out fd_txn_out_t;

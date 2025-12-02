@@ -990,7 +990,8 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
           NULL );
     }
 
-    uchar * fee_payer_data = txn_in->exec_accounts->rollback_fee_payer_mem;
+    fd_acc_pool_acquire( runtime->acc_pool, 1, fd_type_pun( &txn_out->accounts.rollback_fee_payer ) );
+    uchar * fee_payer_data = fd_type_pun( txn_out->accounts.rollback_fee_payer );
     fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
     txn_out->accounts.rollback_fee_payer = fd_type_pun( fee_payer_data );
   }
@@ -1494,7 +1495,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
       account_meta = (fd_account_meta_t *)meta;
     } else {
-      uchar * mem = txn_in->exec_accounts->accounts_mem[idx];
+      uchar * mem = fd_type_pun( runtime->accounts.default_meta[idx] );
       account_meta = (fd_account_meta_t *)mem;
       fd_account_meta_init( account_meta );
     }
@@ -1564,10 +1565,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   }
   runtime->accounts.writable_account_cnt = writable_account_cnt;
 
-  for(;;) {
-    int err = fd_acc_pool_try_acquire( runtime->acc_pool, writable_account_cnt, runtime->accounts.writable_accounts_mem );
-    if( FD_LIKELY( err==0 ) ) break;
-  }
+  fd_acc_pool_acquire( runtime->acc_pool, writable_account_cnt, runtime->accounts.writable_accounts_mem );
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i );

@@ -44,7 +44,6 @@ struct fd_solfuzz_runner {
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */
 
-  fd_exec_accounts_t * exec_accounts;
   fd_runtime_stack_t * runtime_stack;
 
 # if FD_HAS_FLATCC

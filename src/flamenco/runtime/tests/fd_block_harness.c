@@ -529,7 +529,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
-      fd_txn_in_t  txn_in = { .txn = txn, .exec_accounts = runner->exec_accounts, .bundle.is_bundle = 0 };
+      fd_txn_in_t  txn_in = { .txn = txn, .bundle.is_bundle = 0 };
       fd_txn_out_t txn_out;
       fd_runtime_t * runtime = runner->runtime;
       fd_log_collector_t log[1];

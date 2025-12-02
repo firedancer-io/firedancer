@@ -128,6 +128,16 @@ fd_acc_pool_try_acquire( fd_acc_pool_t * acc_pool,
 }
 
 void
+fd_acc_pool_acquire( fd_acc_pool_t * acc_pool,
+                     ulong           request_cnt,
+                     uchar * *       accounts_out ) {
+  for( ;; ) {
+    int err = fd_acc_pool_try_acquire( acc_pool, request_cnt, accounts_out );
+    if( FD_LIKELY( err==0 ) ) break;
+  }
+}
+
+void
 fd_acc_pool_release( fd_acc_pool_t * acc_pool,
                      uchar *         account ) {
   fd_rwlock_write( &acc_pool->lock_ );

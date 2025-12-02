@@ -82,9 +82,6 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 struct fd_txn_account;
 typedef struct fd_txn_account fd_txn_account_t;
 
-struct fd_exec_accounts;
-typedef struct fd_exec_accounts fd_exec_accounts_t;
-
 union fd_features;
 typedef union fd_features fd_features_t;
 

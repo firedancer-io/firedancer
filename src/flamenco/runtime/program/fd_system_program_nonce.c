@@ -2,6 +2,7 @@
 #include "../fd_borrowed_account.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
+#include "../fd_acc_pool.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
 #include "../../log_collector/fd_log_collector.h"
@@ -1035,7 +1036,10 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
           FD_LOG_ERR(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
         }
         /* make_modifiable uses the old length for the data copy */
-        void * borrowed_account_data = txn_in->exec_accounts->rollback_nonce_account_mem;
+
+        fd_acc_pool_acquire( runtime->acc_pool, 1, fd_type_pun( &txn_out->accounts.rollback_nonce ) );
+        void * borrowed_account_data = txn_out->accounts.rollback_nonce;
+
         if( FD_UNLIKELY( !borrowed_account_data ) ) {
           FD_LOG_CRIT(( "Failed to allocate memory for nonce account" ));
         }

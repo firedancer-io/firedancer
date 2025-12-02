@@ -1324,6 +1324,13 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
   for( ushort i=0; i<runtime->accounts.writable_account_cnt; i++ ) {
     fd_acc_pool_release( runtime->acc_pool, runtime->accounts.writable_accounts_mem[i] );
   }
+
+  if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+    fd_acc_pool_release( runtime->acc_pool, (uchar *)txn_out->accounts.rollback_nonce );
+  }
+  if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
+    fd_acc_pool_release( runtime->acc_pool, (uchar *)txn_out->accounts.rollback_fee_payer );
+  }
 }
 
 void
@@ -1364,6 +1371,9 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   txn_out->err.exec_err       = FD_EXECUTOR_INSTR_SUCCESS;
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
   txn_out->err.exec_err_idx   = INT_MAX;
+
+  txn_out->accounts.rollback_nonce     = NULL;
+  txn_out->accounts.rollback_fee_payer = NULL;
 
   /* Transaction sanitization.  If a transaction can't be commited or is
      fees-only, we return early. */

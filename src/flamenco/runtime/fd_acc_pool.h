@@ -47,6 +47,13 @@ fd_acc_pool_try_acquire( fd_acc_pool_t * acc_pool,
                          ulong           request_cnt,
                          uchar * *       accounts_out );
 
+/* fd_acc_pool_acquire is the blocking and non-speculative version of
+   fd_acc_pool_try_acquire.  It will keep trying to acquire the
+   requested number of accounts until successful. */
+void
+fd_acc_pool_acquire( fd_acc_pool_t * acc_pool,
+                    ulong           request_cnt,
+                    uchar * *       accounts_out );
 
 /* fd_acc_pool_release releases the memory for an account back to the
    fd_acc_pool_t object.  After this is called, the account will be

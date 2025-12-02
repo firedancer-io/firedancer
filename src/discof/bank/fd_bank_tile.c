@@ -63,9 +63,8 @@ struct fd_bank_ctx {
      a separate transaction context and a set of accounts, but the exec
      stack can be reused.  We will also use these same memory regions
      for non-bundle execution. */
-  fd_exec_accounts_t exec_accounts[ FD_PACK_MAX_TXN_PER_BUNDLE ];
-  fd_txn_in_t        txn_in[ FD_PACK_MAX_TXN_PER_BUNDLE ];
-  fd_txn_out_t       txn_out[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  fd_txn_in_t  txn_in[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  fd_txn_out_t txn_out[ FD_PACK_MAX_TXN_PER_BUNDLE ];
 
   fd_log_collector_t log_collector[ 1 ];
 
@@ -193,8 +192,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
-    txn_in->txn           = txn;
-    txn_in->exec_accounts = &ctx->exec_accounts[ 0 ];
+    txn_in->txn = txn;
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
@@ -378,8 +376,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       continue;
     }
 
-    txn_in->txn           = txn;
-    txn_in->exec_accounts = &ctx->exec_accounts[ i ];
+    txn_in->txn = txn;
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
