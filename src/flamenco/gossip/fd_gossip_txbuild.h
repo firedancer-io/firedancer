@@ -6,7 +6,7 @@
 /* fd_gossip_txbuild_t provides a set of APIs to incrementally build a
    push or pull response message from CRDS values.  The caller is
    responsible for checking there is space before appending a new value,
-   and flushing the final message. */
+   and flushing the final message with the identity pubkey stamped. */
 
 struct fd_gossip_txbuild {
   uchar tag;
@@ -26,14 +26,20 @@ typedef struct fd_gossip_txbuild fd_gossip_txbuild_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_gossip_txbuild_init() initializes the builder with the identity
-   pubkey and message type (FD_GOSSIP_MESSAGE_PULL_RESPONSE or
+/* fd_gossip_txbuild_init() initializes the builder with the
+   message type (FD_GOSSIP_MESSAGE_PULL_RESPONSE or
    FD_GOSSIP_MESSAGE_PUSH). */
 
 void
 fd_gossip_txbuild_init( fd_gossip_txbuild_t * txbuild,
-                        uchar const *         identity_pubkey,
                         uchar                 tag );
+
+/* fd_gossip_txbuild_stamp_pubkey stamps the identity pubkey into the
+   message. This must be called in order to form a valid
+   push or pull response message. */
+void
+fd_gossip_txbuild_stamp_pubkey( fd_gossip_txbuild_t * txbuild,
+                                uchar const *         pubkey );
 
 /* fd_gossip_txbuild_can_fit() returns 1 if the outgoing message can fit
    an additional CRDS value of size crds_len, or 0 otherwise.  If the
