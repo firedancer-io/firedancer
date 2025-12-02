@@ -124,8 +124,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   info->stack_height = 1;
 
   if( test_ctx->data ) {
-    if( FD_UNLIKELY( test_ctx->data->size>FD_TXN_MTU ) ) {
-      FD_LOG_ERR(( "invariant violation: instr data sz is too large %u > %lu", test_ctx->data->size, FD_TXN_MTU ));
+    if( FD_UNLIKELY( test_ctx->data->size>FD_INSTR_DATA_MAX ) ) {
+      FD_LOG_ERR(( "invariant violation: instr data sz is too large %u > %lu", test_ctx->data->size, FD_INSTR_DATA_MAX ));
     }
     info->data_sz = (ushort)test_ctx->data->size;
     memcpy( info->data, test_ctx->data->bytes, info->data_sz );
