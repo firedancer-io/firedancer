@@ -21,7 +21,7 @@ help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
   FD_LOG_STDOUT(( "        --help             Print this help message\n\n" ));
   FD_LOG_STDOUT(( "SUBCOMMANDS:\n" ));
   for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
-    FD_LOG_STDOUT(( "   %13s    %s\n", ACTIONS[ i ]->name, ACTIONS[ i ]->description ));
+    FD_LOG_STDOUT(( "   %14s    %s\n", ACTIONS[ i ]->name, ACTIONS[ i ]->description ));
   }
 }
 

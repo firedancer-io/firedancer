@@ -81,14 +81,28 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( runner->bank ), blockhash_seed );
   fd_memset( fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque ), 0, sizeof(fd_hash_t) );
 
-  /* Set up mock txn descriptor */
-  fd_txn_p_t * txn                    = fd_spad_alloc_check( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
-  fd_txn_t *   txn_descriptor         = TXN( txn );
-  txn_descriptor->transaction_version = FD_TXN_V0;
+  /* Set up mock txn descriptor and payload
+     FIXME: More fields may need to be initialized. This seems to be
+     the minimal set of fields needed to retain full context for
+     precompile execution. */
+  fd_txn_p_t * txn            = fd_spad_alloc_check( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
+  fd_txn_t *   txn_descriptor = TXN( txn );
+  if( test_ctx->data ) {
+    memcpy( txn->payload, test_ctx->data->bytes, test_ctx->data->size );
+    txn->payload_sz = test_ctx->data->size;
+  } else {
+    txn->payload_sz = 0;
+  }
+  txn_descriptor->transaction_version = FD_TXN_VLEGACY;
   txn_descriptor->acct_addr_cnt       = (ushort)test_ctx->accounts_count;
+  txn_descriptor->instr_cnt           = 1;
+  txn_descriptor->instr[0]            = (fd_txn_instr_t) {
+    .acct_cnt = (ushort)test_ctx->accounts_count,
+    .data_off = 0,
+    .data_sz  = (ushort)txn->payload_sz,
+  };
 
-  runtime->funk = funk;
-
+  runtime->funk                     = funk;
   runtime->log.enable_log_collector = 0;
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
@@ -106,8 +120,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   runtime->log.capture_ctx   = NULL;
 
-  runtime->instr.info_cnt     = 0UL;
-  runtime->instr.trace_length = 0UL;
+  runtime->instr.trace_length = 1UL;
 
   txn_out->err.exec_err       = 0;
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
@@ -116,24 +129,23 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_in->txn                                                = txn;
   txn_out->details.compute_budget.compute_unit_limit = test_ctx->cu_avail;
   txn_out->details.compute_budget.compute_meter      = test_ctx->cu_avail;
-  runtime->instr.info_cnt                                    = 1UL;
   runtime->log.enable_vm_tracing                             = runner->enable_vm_tracing;
   runtime->log.tracing_mem                                   = runner->enable_vm_tracing ?
                                                                fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH ) :
                                                                NULL;
 
   /* Set up instruction context */
-
-  fd_instr_info_t * info = fd_spad_alloc( runner->spad, 8UL, sizeof(fd_instr_info_t) );
-  assert( info );
+  fd_instr_info_t * info = &runtime->instr.trace[ 0UL ];
   memset( info, 0, sizeof(fd_instr_info_t) );
+  info->stack_height = 1;
 
   if( test_ctx->data ) {
+    if( FD_UNLIKELY( test_ctx->data->size>FD_TXN_MTU ) ) {
+      FD_LOG_ERR(( "invariant violation: instr data sz is too large %u > %lu", test_ctx->data->size, FD_TXN_MTU ));
+    }
     info->data_sz = (ushort)test_ctx->data->size;
-    info->data    = test_ctx->data->bytes;
+    memcpy( info->data, test_ctx->data->bytes, info->data_sz );
   }
-
-  runtime->instr.infos[ 0UL ] = *info;
 
   /* Prepare borrowed account table (correctly handles aliasing) */
 
@@ -346,7 +358,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     return 0;
   }
 
-  ctx->instr = info;
+  ctx->instr              = info;
   ctx->runtime->progcache = runner->progcache;
   ctx->runtime->accdb     = runner->accdb;
 

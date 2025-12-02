@@ -466,6 +466,14 @@ replay_slot_completed( ctx_t *                      ctx,
     ctx->conf_slot = slot_completed->slot;
   }
 
+  /* This is a temporary patch for equivocation. */
+
+  if( FD_UNLIKELY( fd_forks_query( ctx->forks, slot_completed->slot ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, block_id );
+    FD_LOG_WARNING(( "tower ignoring replay of equivocating slot %lu %s", slot_completed->slot, block_id ));
+    return;
+  }
+
   /* Initialize the xid. */
 
   fd_funk_txn_xid_t xid = { .ul = { slot_completed->slot, slot_completed->bank_idx } };
@@ -667,7 +675,7 @@ replay_slot_completed( ctx_t *                      ctx,
 
   fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
   fd_txn_p_t          txn[1];
-  fd_tower_to_vote_txn( ctx->tower, out.root_slot, lockouts, &slot_completed->bank_hash, &slot_completed->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_account, txn );
+  fd_tower_to_vote_txn( ctx->tower, ctx->root_slot, lockouts, &slot_completed->bank_hash, &slot_completed->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_account, txn );
   FD_TEST( !fd_tower_empty( ctx->tower ) );
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
   fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );

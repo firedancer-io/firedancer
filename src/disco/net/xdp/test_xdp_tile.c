@@ -840,6 +840,65 @@ main( int     argc,
     tx_chunk = fd_dcache_compact_next( tx_chunk, during_frag_expected_sz, tx_chunk0, tx_wmark );
   }
 
+  /* Test invalid network headers */
+
+  typedef struct __attribute__((packed)) {
+    fd_eth_hdr_t eth;
+    fd_ip4_hdr_t ip4;
+    fd_udp_hdr_t udp;
+    uchar        data[3];
+  } test_net_hdrs_t;
+
+  #define NET_LEN_TOO_SHORT 0
+  #define NET_LEN_TOO_LONG  1
+  #define INVALIDS_CNT      2
+  test_net_hdrs_t invalids[INVALIDS_CNT];
+  invalids[NET_LEN_TOO_SHORT] = (test_net_hdrs_t){
+    .eth = {
+      .net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ),
+    },
+    .ip4 = {
+      .verihl      = FD_IP4_VERIHL( 4, 5 ),
+      .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
+      .net_tot_len = fd_ushort_bswap( 31 )
+    },
+    .udp = {
+      .net_len   = fd_ushort_bswap( 5 ),  /* Invalid: less than 8 bytes */
+      .net_dport = fd_ushort_bswap( SHRED_PORT )
+    },
+    .data = {0xAA, 0xBB, 0xCC}
+  };
+  invalids[NET_LEN_TOO_LONG] = invalids[NET_LEN_TOO_SHORT];
+  invalids[NET_LEN_TOO_LONG].udp.net_len = fd_ushort_bswap( 100 );
+
+  for( uint test_case=NET_LEN_TOO_SHORT; test_case<INVALIDS_CNT; test_case++ ) {
+
+    ulong undersz_before = ctx->metrics.rx_undersz_cnt;
+    ulong seq_before     = ctx->shred_out->seq;
+
+    /* Pop frame off FILL ring */
+    FD_TEST( xdp_fr_ring_prod!=xdp_fr_ring_cons );
+    ulong const rx_frame_off = fr_frame_ring[ xdp_fr_ring_cons & (ring_fr_depth-1) ];
+    xdp_fr_ring_cons++;
+
+    /* Write packet into frame */
+    uchar * rx_ring_pkt = (uchar *)ctx->umem + rx_frame_off;
+    fd_memcpy( rx_ring_pkt, &invalids[test_case], sizeof(invalids[test_case]) );
+
+    /* Push frame into RX ring */
+    xsk->ring_rx.packet_ring[ xdp_rx_ring_prod ].addr = rx_frame_off;
+    xsk->ring_rx.packet_ring[ xdp_rx_ring_prod ].len  = (uint)sizeof(invalids[test_case]);
+    xdp_rx_ring_prod++;
+
+    /* Process packet */
+    int charge_busy = 1;
+    before_credit( ctx, stem, &charge_busy );
+
+    /* Verify packet was dropped */
+    FD_TEST( ctx->metrics.rx_undersz_cnt == undersz_before + 1 );
+    FD_TEST( ctx->shred_out->seq == seq_before );  /* No mcache advancement */
+  }
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
 }

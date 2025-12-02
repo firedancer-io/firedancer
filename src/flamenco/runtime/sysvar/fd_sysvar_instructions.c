@@ -3,26 +3,25 @@
 #include "../fd_system_ids.h"
 
 static ulong
-instructions_serialized_size( fd_instr_info_t const *   instrs,
-                              ushort                    instrs_cnt ) {
-  ulong serialized_size = 0;
+instructions_serialized_size( fd_txn_t const * txn ) {
+  ushort instr_cnt = txn->instr_cnt;
+  ulong  serialized_size = sizeof(ushort)                // num_instructions
+                           + (sizeof(ushort)*instr_cnt); // instruction offsets
 
-  serialized_size += sizeof(ushort)       // num_instructions
-    + (sizeof(ushort) * instrs_cnt);      // instruction offsets
-
-  for ( ushort i = 0; i < instrs_cnt; ++i ) {
-    fd_instr_info_t const * instr = &instrs[i];
+  for( ushort i=0; i<instr_cnt; i++ ) {
+    ushort data_sz  = txn->instr[i].data_sz;
+    ushort acct_cnt = txn->instr[i].acct_cnt;
 
     serialized_size += sizeof(ushort); // num_accounts;
 
-    serialized_size += instr->acct_cnt * (
+    serialized_size += acct_cnt * (
       sizeof(uchar)               // flags (is_signer, is_writeable)
-      + sizeof(fd_pubkey_t)         // pubkey
+      + sizeof(fd_pubkey_t)       // pubkey
     );
 
     serialized_size += sizeof(fd_pubkey_t)  // program_id pubkey
         + sizeof(ushort)                    // instr_data_len;
-        + instr->data_sz;                   // instr_data;
+        + data_sz;                          // instr_data;
 
   }
 
@@ -33,13 +32,13 @@ instructions_serialized_size( fd_instr_info_t const *   instrs,
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/svm/src/account_loader.rs#L547-L576 */
 void
-fd_sysvar_instructions_serialize_account( fd_runtime_t *          runtime,
-                                          fd_txn_in_t const *     txn_in,
-                                          fd_txn_out_t *          txn_out,
-                                          fd_instr_info_t const * instrs,
-                                          ushort                  instrs_cnt,
-                                          ulong                   txn_idx ) {
-  ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
+fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
+                                          fd_bank_t *         bank,
+                                          fd_txn_in_t const * txn_in,
+                                          fd_txn_out_t *      txn_out,
+                                          ulong               txn_idx ) {
+  fd_txn_t const * txn           = TXN( txn_in->txn );
+  ulong            serialized_sz = instructions_serialized_size( txn );
 
   int index;
   int err = fd_runtime_get_account_with_key( txn_in,
@@ -69,34 +68,39 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *          runtime,
   uchar * serialized_instructions = fd_account_data( meta );
   ulong offset = 0;
 
-  // TODO: do we needs bounds checking?
   // num_instructions
-  FD_STORE( ushort, serialized_instructions + offset, instrs_cnt);
+  ushort instr_cnt = txn->instr_cnt;
+  FD_STORE( ushort, serialized_instructions + offset, instr_cnt);
   offset += sizeof(ushort);
 
   // instruction offsets
   uchar * serialized_instruction_offsets = serialized_instructions + offset;
-  offset += (ushort)(sizeof(ushort) * instrs_cnt);
+  offset += (ushort)(sizeof(ushort) * instr_cnt);
 
   // serialize instructions
-  for( ushort i = 0; i < instrs_cnt; ++i ) {
+  for( ushort i=0; i<instr_cnt; ++i ) {
     // set the instruction offset
     FD_STORE( ushort, serialized_instruction_offsets, (ushort) offset );
     serialized_instruction_offsets += sizeof(ushort);
 
-    fd_instr_info_t const * instr = &instrs[i];
+    fd_txn_instr_t const * instr = &txn->instr[i];
 
     // num_accounts
     FD_STORE( ushort, serialized_instructions + offset, instr->acct_cnt );
     offset += sizeof(ushort);
 
-    for ( ushort j = 0; j < instr->acct_cnt; j++ ) {
+    uchar const * instr_accts = fd_txn_get_instr_accts( instr, txn_in->txn->payload );
+    for( ushort j=0; j<instr->acct_cnt; j++ ) {
+      uchar idx_in_txn          = instr_accts[j];
+      uchar is_writable         = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, idx_in_txn );
+      uchar is_signer           = (uchar)fd_txn_is_signer( txn, idx_in_txn );
+      uchar flags               = ((!!is_signer)*FD_INSTR_ACCT_FLAGS_IS_SIGNER) | ((!!is_writable)*FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
+
       // flags
-      FD_STORE( uchar, serialized_instructions + offset, fd_instr_get_acc_flags( instr, j ) );
+      FD_STORE( uchar, serialized_instructions + offset, flags );
       offset += sizeof(uchar);
 
       // pubkey
-      ushort idx_in_txn = instr->accounts[j].index_in_transaction;
       FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_out->accounts.keys[ idx_in_txn ] );
       offset += sizeof(fd_pubkey_t);
     }
@@ -110,11 +114,11 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *          runtime,
     offset += sizeof(ushort);
 
     // instr_data
-    fd_memcpy( serialized_instructions + offset, instr->data, instr->data_sz );
+    uchar const * instr_data = fd_txn_get_instr_data( instr, txn_in->txn->payload );
+    fd_memcpy( serialized_instructions + offset, instr_data, instr->data_sz );
     offset += instr->data_sz;
   }
 
-  //
   FD_STORE( ushort, serialized_instructions + offset, 0 );
   offset += sizeof(ushort);
 }

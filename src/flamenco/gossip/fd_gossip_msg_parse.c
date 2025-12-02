@@ -39,6 +39,12 @@ typedef struct slot_hash_pair slot_hash_pair_t;
   INC( n );                   \
 } while( 0 )
 
+#define TRY_INC( n ) do {            \
+  ulong n_ = (n);                    \
+  if( FD_UNLIKELY( !n_ ) ) return 0; \
+  INC( n_ );                         \
+} while( 0 )
+
 #define READ_CHECKED_COMPACT_U16( out_sz, var_name, where )                 \
   do {                                                                      \
     ulong _where = (where);                                                 \
@@ -72,12 +78,14 @@ decode_u64_varint( uchar const * payload,
   while( FD_LIKELY( _i < _payload_sz ) ) {
     uchar byte = FD_LOAD( uchar, CURSOR ); INC( 1U );
     value |= (ulong)(byte & 0x7F) << shift;
-    if( !(byte & 0x80) ) break;
+    if( !(byte & 0x80) ) {
+      *out_value = value;
+      return BYTES_CONSUMED;
+    }
     shift += 7U;
     if( FD_UNLIKELY( shift >= 64U ) ) return 0;
   }
-  *out_value = value;
-  return BYTES_CONSUMED;
+  return 0;
 }
 
 /* Returns bytes_consumed for valid bitvec, 0 otherwise (should be dropped) */
@@ -253,9 +261,7 @@ fd_gossip_msg_crds_epoch_slots_parse( fd_gossip_view_crds_value_t * crds_val,
       CHECK_LEFT( 8U ); ulong num        = FD_LOAD( ulong, CURSOR )                            ; INC(  8U );
 
       ulong  bits_off, bits_cap, bits_cnt;
-      ulong bytes_consumed = decode_bitvec_u8( payload, payload_sz, CUR_OFFSET, &bits_off, &bits_cap, &bits_cnt );
-      CHECK( !!bytes_consumed );
-      INC( bytes_consumed );
+      TRY_INC( decode_bitvec_u8( payload, payload_sz, CUR_OFFSET, &bits_off, &bits_cap, &bits_cnt ) );
 
       /* https://github.com/anza-xyz/agave/blob/bff4df9cf6f41520a26c9838ee3d4d8c024a96a1/gossip/src/epoch_slots.rs#L24-L43 */
       CHECK( first_slot<MAX_SLOT );
@@ -301,7 +307,7 @@ fd_gossip_msg_crds_version_parse( fd_gossip_view_crds_value_t * crds_val,
                                   ulong                         payload_sz,
                                   ulong                         start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  INC( fd_gossip_msg_crds_legacy_version_parse( crds_val, payload, payload_sz, start_offset ) );
+  TRY_INC( fd_gossip_msg_crds_legacy_version_parse( crds_val, payload, payload_sz, start_offset ) );
   CHECKED_INC( 4U ); /* feature set */
   return BYTES_CONSUMED;
 }
@@ -443,9 +449,7 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
   CHECK_INIT( payload, payload_sz, start_offset );
   CHECK_LEFT( 32U ); crds_val->pubkey_off = CUR_OFFSET                                                     ; INC( 32U );
   ulong wallclock = 0UL;
-  ulong bytes_consumed = decode_u64_varint( payload, payload_sz, CUR_OFFSET, &wallclock );
-  CHECK( !!bytes_consumed );
-  INC( bytes_consumed );
+  TRY_INC( decode_u64_varint( payload, payload_sz, CUR_OFFSET, &wallclock ) );
   CHECK( wallclock<WALLCLOCK_MAX_MILLIS );
   crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( wallclock );
 
@@ -455,7 +459,7 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
 
   CHECK_LEFT( 8U ); ci->instance_creation_wallclock_nanos = FD_MICRO_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8U );
   CHECK_LEFT( 2U ); ci->shred_version = FD_LOAD( ushort, CURSOR )                                          ; INC(  2U );
-  INC( version_parse( ci, payload, payload_sz, CUR_OFFSET ) );
+  TRY_INC( version_parse( ci, payload, payload_sz, CUR_OFFSET ) );
 
   ulong decode_sz, addrs_len;
   READ_CHECKED_COMPACT_U16( decode_sz, addrs_len, CUR_OFFSET )                                             ; INC( decode_sz );
@@ -524,8 +528,9 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
   CHECK( addr_idx_set_cnt( ip_addr_hits )==addrs_len );
 
   /* extensions are currently unused */
-  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->ci_view->ext_len, CUR_OFFSET )                            ; INC( decode_sz );
-  CHECKED_INC( 4*crds_val->ci_view->ext_len );
+  ulong ext_len;
+  READ_CHECKED_COMPACT_U16( decode_sz, ext_len, CUR_OFFSET )                            ; INC( decode_sz );
+  CHECKED_INC( 4*ext_len );
 
   return BYTES_CONSUMED;
 }
@@ -544,9 +549,7 @@ fd_gossip_msg_crds_last_voted_fork_slots_parse( fd_gossip_view_crds_value_t * cr
     CHECKED_INC( slots_len*4U ); /* RunLengthEncoding */
   } else {
     ulong bits_off, bits_cap, bits_cnt;
-    ulong bytes_consumed = decode_bitvec_u8( payload, payload_sz, CUR_OFFSET, &bits_off, &bits_cap, &bits_cnt );
-    CHECK( !!bytes_consumed );
-    INC( bytes_consumed );
+    TRY_INC( decode_bitvec_u8( payload, payload_sz, CUR_OFFSET, &bits_off, &bits_cap, &bits_cnt ) );
   }
   CHECKED_INC(  8U+32U+2U ); /* last voted slot + last voted hash + shred version */
   return BYTES_CONSUMED;
@@ -619,7 +622,7 @@ fd_gossip_msg_crds_vals_parse( fd_gossip_view_crds_value_t * crds_values,
     CHECK_LEFT(  4U ); crds_view->tag           = FD_LOAD(uchar, CURSOR ); INC(  4U );
     ulong crds_data_sz = fd_gossip_msg_crds_data_parse( crds_view, payload, payload_sz, CUR_OFFSET );
     crds_view->length  = (ushort)(crds_data_sz + 64U + 4U); /* signature + tag */
-    INC( crds_data_sz );
+    TRY_INC( crds_data_sz );
   }
   return BYTES_CONSUMED;
 }
@@ -650,9 +653,7 @@ fd_gossip_pull_req_parse( fd_gossip_view_t * view,
   CHECK( pr->bloom_keys_len<=((ULONG_MAX-7U)/8U) );
   CHECK_LEFT( pr->bloom_keys_len*8U ); pr->bloom_keys_offset = CUR_OFFSET               ; INC( pr->bloom_keys_len*8U );
 
-  ulong bytes_consumed = decode_bitvec_u64( payload, payload_sz, CUR_OFFSET, &pr->bloom_bits_offset, &pr->bloom_len, &pr->bloom_bits_cnt );
-  CHECK( !!bytes_consumed );
-  INC( bytes_consumed );
+  TRY_INC( decode_bitvec_u64( payload, payload_sz, CUR_OFFSET, &pr->bloom_bits_offset, &pr->bloom_len, &pr->bloom_bits_cnt ) );
   /* bloom filter bitvec must have at least one element to avoid
      div by zero in fd_bloom
      https://github.com/anza-xyz/agave/blob/bff4df9cf6f41520a26c9838ee3d4d8c024a96a1/bloom/src/bloom.rs#L58-L67 */
@@ -662,11 +663,11 @@ fd_gossip_pull_req_parse( fd_gossip_view_t * view,
   CHECK_LEFT( 8U ); pr->mask               = FD_LOAD( ulong, CURSOR ); INC( 8U );
   CHECK_LEFT( 4U ); pr->mask_bits          = FD_LOAD( uint, CURSOR ) ; INC( 4U );
 
-  INC( fd_gossip_msg_crds_vals_parse( pr->pr_ci,
-                                      1U, /* pull request holds only one contact info */
-                                      payload,
-                                      payload_sz,
-                                      CUR_OFFSET ) );
+  TRY_INC( fd_gossip_msg_crds_vals_parse( pr->pr_ci,
+                                          1U, /* pull request holds only one contact info */
+                                          payload,
+                                          payload_sz,
+                                          CUR_OFFSET ) );
   return BYTES_CONSUMED;
 }
 
@@ -682,11 +683,11 @@ fd_gossip_msg_crds_container_parse( fd_gossip_view_t * view,
   CHECK_LEFT( 32U ); container->from_off        = CUR_OFFSET               ; INC( 32U );
   CHECK_LEFT(  8U ); container->crds_values_len = FD_LOAD( ushort, CURSOR ); INC(  8U );
   CHECK( container->crds_values_len<=FD_GOSSIP_MSG_MAX_CRDS );
-  INC( fd_gossip_msg_crds_vals_parse( container->crds_values,
-                                      container->crds_values_len,
-                                      payload,
-                                      payload_sz,
-                                      CUR_OFFSET ) );
+  TRY_INC( fd_gossip_msg_crds_vals_parse( container->crds_values,
+                                          container->crds_values_len,
+                                          payload,
+                                          payload_sz,
+                                          CUR_OFFSET ) );
   return BYTES_CONSUMED;
 }
 
@@ -724,24 +725,24 @@ fd_gossip_msg_parse( fd_gossip_view_t * view,
 
   /* Extract enum discriminant/tag (4b encoded) */
   uint tag = 0;
-  CHECK_LEFT(                      4U );   tag = FD_LOAD( uchar, CURSOR ); INC( 4U );
+  CHECK_LEFT(                      4U );   tag = FD_LOAD( uint, CURSOR ); INC( 4U );
   CHECK(   tag<=FD_GOSSIP_MESSAGE_LAST );
   view->tag = (uchar)tag;
 
   switch( view->tag ){
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
-      INC( fd_gossip_pull_req_parse( view, payload, payload_sz, CUR_OFFSET ) );
+      TRY_INC( fd_gossip_pull_req_parse( view, payload, payload_sz, CUR_OFFSET ) );
       break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
     case FD_GOSSIP_MESSAGE_PUSH:
-      INC( fd_gossip_msg_crds_container_parse( view, payload, payload_sz, CUR_OFFSET ) );
+      TRY_INC( fd_gossip_msg_crds_container_parse( view, payload, payload_sz, CUR_OFFSET ) );
       break;
     case FD_GOSSIP_MESSAGE_PRUNE:
-      INC( fd_gossip_msg_prune_parse( view, payload, payload_sz, CUR_OFFSET ) );
+      TRY_INC( fd_gossip_msg_prune_parse( view, payload, payload_sz, CUR_OFFSET ) );
       break;
     case FD_GOSSIP_MESSAGE_PING:
     case FD_GOSSIP_MESSAGE_PONG:
-      INC( fd_gossip_msg_ping_pong_parse( view, payload, payload_sz, CUR_OFFSET ) );
+      TRY_INC( fd_gossip_msg_ping_pong_parse( view, payload, payload_sz, CUR_OFFSET ) );
       break;
     default:
       return 0;

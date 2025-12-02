@@ -832,10 +832,11 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
     fd_native_cpi_create_account_meta( payer_key,       1UL, 1UL, &acct_metas[ 0UL ] );
     fd_native_cpi_create_account_meta( programdata_key, 0UL, 1UL, &acct_metas[ 1UL ] );
 
+    ulong instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
     err = fd_native_cpi_native_invoke( instr_ctx,
                                        &fd_solana_system_program_id,
                                        instr_data,
-                                       FD_TXN_MTU,
+                                       instr_data_sz,
                                        acct_metas,
                                        2UL,
                                        NULL,
@@ -909,13 +910,11 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L566-L1444 */
 static int
 process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
-  uchar const * data = instr_ctx->instr->data;
-
   uchar __attribute__((aligned(FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN))) instruction_mem[ FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT ] = {0};
   fd_bpf_upgradeable_loader_program_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
       bpf_upgradeable_loader_program_instruction,
       instruction_mem,
-      data,
+      instr_ctx->instr->data,
       instr_ctx->instr->data_sz,
       FD_TXN_MTU,
       NULL );
@@ -1256,10 +1255,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
+      ulong instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
       err = fd_native_cpi_native_invoke( instr_ctx,
                                          &fd_solana_system_program_id,
                                          instr_data,
-                                         FD_TXN_MTU,
+                                         instr_data_sz,
                                          acct_metas,
                                          3UL,
                                          signers,
@@ -2226,10 +2226,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           return FD_EXECUTOR_INSTR_ERR_FATAL;
         }
 
+        ulong instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
         err = fd_native_cpi_native_invoke( instr_ctx,
                                            &fd_solana_bpf_loader_v4_program_id,
                                            instr_data,
-                                           FD_TXN_MTU,
+                                           instr_data_sz,
                                            acct_metas,
                                            3UL,
                                            NULL,
@@ -2266,10 +2267,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           return FD_EXECUTOR_INSTR_ERR_FATAL;
         }
 
+        instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
         err = fd_native_cpi_native_invoke( instr_ctx,
                                            &fd_solana_bpf_loader_v4_program_id,
                                            instr_data,
-                                           FD_TXN_MTU,
+                                           instr_data_sz,
                                            acct_metas,
                                            3UL,
                                            NULL,
@@ -2298,10 +2300,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           return FD_EXECUTOR_INSTR_ERR_FATAL;
         }
 
+        instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
         err = fd_native_cpi_native_invoke( instr_ctx,
                                            &fd_solana_bpf_loader_v4_program_id,
                                            instr_data,
-                                           FD_TXN_MTU,
+                                           instr_data_sz,
                                            acct_metas,
                                            2UL,
                                            NULL,
@@ -2332,10 +2335,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
             return FD_EXECUTOR_INSTR_ERR_FATAL;
           }
 
+          instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
           err = fd_native_cpi_native_invoke( instr_ctx,
                                              &fd_solana_bpf_loader_v4_program_id,
                                              instr_data,
-                                             FD_TXN_MTU,
+                                             instr_data_sz,
                                              acct_metas,
                                              3UL,
                                              NULL,
@@ -2366,10 +2370,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
             return FD_EXECUTOR_INSTR_ERR_FATAL;
           }
 
+          instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
           err = fd_native_cpi_native_invoke( instr_ctx,
                                              &fd_solana_bpf_loader_v4_program_id,
                                              instr_data,
-                                             FD_TXN_MTU,
+                                             instr_data_sz,
                                              acct_metas,
                                              3UL,
                                              NULL,

@@ -710,16 +710,9 @@ after_fec( ctx_t      * ctx,
 static inline void
 after_net( ctx_t * ctx,
            ulong   sz  ) {
-  fd_eth_hdr_t const * eth  = (fd_eth_hdr_t const *)ctx->buffer;
-  fd_ip4_hdr_t const * ip4  = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
-  fd_udp_hdr_t const * udp  = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
-  uchar *              data = (uchar              *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
-  if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+sz ) ) return;
-  ulong udp_sz = fd_ushort_bswap( udp->net_len );
-  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) ) return;
-  ulong data_sz = udp_sz-sizeof(fd_udp_hdr_t);
-  if( FD_UNLIKELY( (ulong)data+data_sz > (ulong)eth+sz ) ) return;
-
+  fd_eth_hdr_t * eth; fd_ip4_hdr_t * ip4; fd_udp_hdr_t * udp;
+  uchar * data; ulong data_sz;
+  FD_TEST( fd_ip4_udp_hdr_strip( ctx->buffer, sz, &data, &data_sz, &eth, &ip4, &udp ) );
   fd_ip4_port_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
   if( FD_UNLIKELY( data_sz != sizeof(fd_repair_ping_t) ) ) {
     ctx->metrics->malformed_ping++;

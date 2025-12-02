@@ -970,7 +970,11 @@ check_and_filter_proposed_vote_state( fd_vote_state_t *           vote_state,
   /* Index into the slot_hashes, starting at the oldest known slot hash */
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L264
   ulong slot_hashes_index = deq_fd_slot_hash_t_cnt( slot_hashes );
-  ulong proposed_lockouts_indexes_to_filter[ MAX_LOCKOUT_HISTORY ];
+
+  /* proposed_lockouts_indexes_to_filter's size is bounded by the length
+     of the proposed lockouts provided in the instruction data, which is
+     capped at roughly 10KB / sizeof(ulong). */
+  ulong proposed_lockouts_indexes_to_filter[ FD_INSTR_DATA_MAX/sizeof(ulong) ];
   ulong filter_index = 0UL;
 
   /* Note:
@@ -2210,11 +2214,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L69
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };
   fd_exec_instr_ctx_get_signers( ctx, signers );
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L70
-  if( FD_UNLIKELY( ctx->instr->data==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
 
   uchar __attribute__((aligned(alignof(fd_vote_instruction_t)))) vote_instruction_mem[ FD_VOTE_INSTRUCTION_FOOTPRINT ];
   fd_vote_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
