@@ -1446,7 +1446,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
   }
 
-  ushort writable_idx = runtime->accounts.writable_idxs[idx];
+  ushort writable_idx = txn_out->accounts.writable_idxs[idx];
   fd_account_meta_t * account_meta = NULL;
 
   if( writable_idx!=USHORT_MAX ) {
@@ -1538,10 +1538,10 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   ushort writable_account_cnt = 0U;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     if( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) || i==FD_FEE_PAYER_TXN_IDX ) {
-      runtime->accounts.writable_idxs[ i ] = writable_account_cnt;
+      txn_out->accounts.writable_idxs[ i ] = writable_account_cnt;
       writable_account_cnt++;
     } else {
-      runtime->accounts.writable_idxs[i] = USHORT_MAX;
+      txn_out->accounts.writable_idxs[i] = USHORT_MAX;
     }
   }
   runtime->accounts.writable_account_cnt = writable_account_cnt;
@@ -1557,6 +1557,9 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     }
   }
 
+  txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
+  runtime->accounts.executable_cnt   = executable_idx;
+
 # if FD_HAS_FLATCC
   /* Dumping ELF files to protobuf, if applicable */
   int dump_elf_to_pb = runtime->log.capture_ctx &&
@@ -1571,9 +1574,6 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     }
   }
 # endif
-
-  txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
-  runtime->accounts.executable_cnt   = executable_idx;
 }
 
 int

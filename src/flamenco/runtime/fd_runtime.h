@@ -135,7 +135,6 @@ struct fd_runtime {
 
     uchar                     default_meta[ MAX_TX_ACCOUNT_LOCKS ][ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));         /* Array of default account metadata */
 
-    ushort                    writable_idxs[ MAX_TX_ACCOUNT_LOCKS ];         /* Array of txn account indicies of writable accounts, 0 if not writable */
     uchar *                   writable_accounts_mem[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of writable accounts mem */
     ushort                    writable_account_cnt;                          /* Number of writable accounts */
 
@@ -206,6 +205,7 @@ struct fd_txn_out {
     ulong                           cnt;
     fd_pubkey_t                     keys[ MAX_TX_ACCOUNT_LOCKS ];
     fd_account_meta_t *             metas[ MAX_TX_ACCOUNT_LOCKS ];
+    ushort                          writable_idxs[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* The fee payer and nonce accounts are treated differently than
        other accounts: if an on-transaction fails they are still
@@ -221,9 +221,6 @@ struct fd_txn_out {
        this would be !=ULONG_MAX. */
     ulong                           nonce_idx_in_txn;
     fd_account_meta_t *             rollback_nonce;
-
-    fd_account_meta_t *             writable_accounts[ MAX_TX_ACCOUNT_LOCKS ];
-    ulong                           writable_account_cnt;
   } accounts;
 };
 typedef struct fd_txn_out fd_txn_out_t;

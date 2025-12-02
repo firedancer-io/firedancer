@@ -1234,7 +1234,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
-      if( runtime->accounts.writable_idxs[i]==USHORT_MAX ) {
+      if( txn_out->accounts.writable_idxs[i]==USHORT_MAX ) {
         continue;
       }
 
