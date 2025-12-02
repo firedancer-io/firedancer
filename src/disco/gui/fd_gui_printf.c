@@ -910,6 +910,8 @@ static void
 fd_gui_printf_tile_metrics( fd_gui_t *                   gui,
                                   fd_gui_tile_timers_t const * prev,
                                   fd_gui_tile_timers_t const * cur ) {
+  int sample_missing[ FD_TOPO_MAX_TILES ];
+
   jsonp_open_array( gui->http, "timers" );
   for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &gui->topo->tiles[ i ];
@@ -925,10 +927,10 @@ fd_gui_printf_tile_metrics( fd_gui_t *                   gui,
     ulong prev_total = 0UL;
     for( ulong j=0UL; j<FD_METRICS_ENUM_TILE_REGIME_CNT; j++ ) prev_total += prev[ i ].timers[ j ];
 
+    sample_missing[ i ] = cur_total==prev_total;
+
     if( FD_UNLIKELY( cur_total==prev_total ) ) {
-      jsonp_open_array( gui->http, NULL );
-        for( ulong j=0UL; j<FD_METRICS_ENUM_TILE_REGIME_CNT; j++ ) jsonp_double( gui->http, NULL, -1.0 );
-      jsonp_close_array( gui->http );
+      jsonp_null( gui->http, NULL );
     } else {
       jsonp_open_array( gui->http, NULL );
         for (ulong j = 0UL; j < FD_METRICS_ENUM_TILE_REGIME_CNT; j++) {
@@ -942,19 +944,34 @@ fd_gui_printf_tile_metrics( fd_gui_t *                   gui,
   jsonp_close_array( gui->http );
 
   jsonp_open_array( gui->http, "in_backp" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_bool( gui->http, NULL, cur[ i ].in_backp );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( sample_missing[ i ] ) ) jsonp_null( gui->http, NULL );
+      else                                     jsonp_bool( gui->http, NULL, cur[ i ].in_backp );
+    }
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "backp_msgs" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, cur[ i ].backp_cnt );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( sample_missing[ i ] ) ) jsonp_null( gui->http, NULL );
+      else                                     jsonp_ulong( gui->http, NULL, cur[ i ].backp_cnt );
+    }
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "alive" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, fd_ulong_if( cur[ i ].status==2U, 2UL, (ulong)(cur[ i ].heartbeat>prev[ i ].heartbeat) ) );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( sample_missing[ i ] ) ) jsonp_null( gui->http, NULL );
+      else                                     jsonp_ulong( gui->http, NULL, fd_ulong_if( cur[ i ].status==2U, 2UL, (ulong)(cur[ i ].heartbeat>prev[ i ].heartbeat) ) );
+    }
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "nvcsw" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, cur[ i ].nvcsw );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( sample_missing[ i ] ) ) jsonp_null( gui->http, NULL );
+      else                                     jsonp_ulong( gui->http, NULL, cur[ i ].nvcsw );
+    }
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "nivcsw" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, cur[ i ].nivcsw );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( sample_missing[ i ] ) ) jsonp_null( gui->http, NULL );
+      else                                     jsonp_ulong( gui->http, NULL, cur[ i ].nivcsw );
+    }
   jsonp_close_array( gui->http );
 }
 

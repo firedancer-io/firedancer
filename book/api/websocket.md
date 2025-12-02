@@ -1191,12 +1191,12 @@ reported when you first connect by the `summary.tiles` message.
 **`TileMetrics`**
 | Field      | Type         | Description |
 |------------|--------------|-------------|
-| timers     | `number[][]` | `timers[i][j]` is the percentage of time from the last 10ms tile `i` spent in regime `regimes[j]` |
-| in_backp   | `boolean[]`  | `in_backp[i]` is `true` if tile `i` is currently backpressured and `false` otherwise. See description of regimes above for more context |
-| backp_msgs | `number[]`   | `backp_msgs[i]` is the number of times since startup that tile `i` has had to wait for one of more consumers to catch up to resume publishing |
-| alive      | `number[]`   | `alive[i]` is `2` if tile `i` has permanently shut down, `1` if tile `i` has updated its heartbeat timer any time in the last 10ms, and `0` otherwise |
-| nvcsw      | `number[]`   | `nvcsw[i]` is the number of voluntary context switches the occurred for tile `i` since startup |
-| nivcsw     | `number[]`   | `nivcsw[i]` is the number of involuntary context switches the occurred for tile `i` since startup |
+| timers     | `(number[]\|null)[]` | `timers[i]` is `null` if no sample was taken in the window, typically because the tile was context switched out by the kernel or it is hung. Otherwise, `timers[i][j]` is the percentage of time from the last 10ms tile `i` spent in regime `regimes[j]` |
+| in_backp   | `(boolean\|null)[]`  | `in_backp[i]` is `null` if no sample was taken in the window. `in_backp[i]` is `true` if tile `i` is currently backpressured and `false` otherwise. See description of regimes above for more context |
+| backp_msgs | `(number\|null)[]`   | `backp_msgs[i]` is `null` if no sample was taken in the window. Otherwise, `backp_msgs[i]` is the number of times since startup that tile `i` has had to wait for one of more consumers to catch up to resume publishing |
+| alive      | `(number\|null)[]`   | `alive[i]` is `null` if no sample was taken in the window. Otherwise, `alive[i]` is `2` if tile `i` has permanently shut down, `1` if tile `i` has updated its heartbeat timer any time in the last 10ms, and `0` otherwise |
+| nvcsw      | `(number\|null)[]`   | `nvcsw[i]` is `null` if no sample was taken in the window. Otherwise, `nvcsw[i]` is the number of voluntary context switches the occurred for tile `i` since startup |
+| nivcsw     | `(number\|null)[]`   | `nivcsw[i]` is `null` if no sample was taken in the window. Otherwise, `nivcsw[i]` is the number of involuntary context switches the occurred for tile `i` since startup |
 
 ### block_engine
 Block engines are providers of additional transactions to the validator,
