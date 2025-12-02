@@ -2600,42 +2600,6 @@ License Copyright:
 
 ---
 
-Name: react-virtualized-auto-sizer
-Version: 1.0.26
-License: MIT
-Private: false
-Description: Standalone version of the AutoSizer component from react-virtualized
-Repository: https://github.com/bvaughn/react-virtualized-auto-sizer.git
-Author: Brian Vaughn <brian.david.vaughn@gmail.com> (https://github.com/bvaughn/)
-Contributors:
-  Brian Vaughn <brian.david.vaughn@gmail.com> (https://github.com/bvaughn/)
-License Copyright:
-===
-
-MIT License
-
-Copyright (c) 2023 Brian Vaughn
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
 Name: uplot
 Version: 1.6.32
 License: MIT
@@ -2755,6 +2719,42 @@ License Copyright:
 MIT License
 
 Copyright (c) 2020 Petyo Ivanov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Name: react-virtualized-auto-sizer
+Version: 1.0.26
+License: MIT
+Private: false
+Description: Standalone version of the AutoSizer component from react-virtualized
+Repository: https://github.com/bvaughn/react-virtualized-auto-sizer.git
+Author: Brian Vaughn <brian.david.vaughn@gmail.com> (https://github.com/bvaughn/)
+Contributors:
+  Brian Vaughn <brian.david.vaughn@gmail.com> (https://github.com/bvaughn/)
+License Copyright:
+===
+
+MIT License
+
+Copyright (c) 2023 Brian Vaughn
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -3595,45 +3595,6 @@ SOFTWARE.
 
 ---
 
-Name: @oneidentity/zstd-js
-Version: 1.0.3
-License: SEE LICENSE IN LICENSE
-Private: false
-Description: Browser side compression library from the official Zstandard library.
-Repository: git+https://github.com/OneIdentity/zstd-js.git
-Homepage: https://github.com/OneIdentity/zstd-js
-Author: Zsombor Szende - @szendezsombor
-Contributors:
-  Csaba Tamás - @tamascsaba
-  Gergely Szabó - @szaboge
-  László Zana - @zanalaci
-License Copyright:
-===
-
-MIT License
-
-Copyright (c) 2022 One Identity
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
 Name: @visx/group
 Version: 3.12.0
 License: MIT
@@ -3724,6 +3685,45 @@ License Copyright:
 MIT License
 
 Copyright (c) 2017-2018 Harrison Shoff
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Name: @oneidentity/zstd-js
+Version: 1.0.3
+License: SEE LICENSE IN LICENSE
+Private: false
+Description: Browser side compression library from the official Zstandard library.
+Repository: git+https://github.com/OneIdentity/zstd-js.git
+Homepage: https://github.com/OneIdentity/zstd-js
+Author: Zsombor Szende - @szendezsombor
+Contributors:
+  Csaba Tamás - @tamascsaba
+  Gergely Szabó - @szaboge
+  László Zana - @zanalaci
+License Copyright:
+===
+
+MIT License
+
+Copyright (c) 2022 One Identity
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
