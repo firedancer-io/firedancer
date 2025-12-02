@@ -72,7 +72,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ 0 ] ];
   ulong wr_fseq_cnt               = 0UL;
-  ulong wr_fseq_cnt_expected      = fd_topo_tile_name_cnt( topo, "snapwr" ) + fd_topo_tile_name_cnt( topo, "snaplh" );
+  ulong wr_fseq_cnt_expected      = fd_topo_tile_name_cnt( topo, "snapwr" );
   FD_TEST( wr_fseq_cnt_expected<=WR_FSEQ_CNT_MAX );
   FD_TEST( wr_fseq_cnt_expected==fd_topo_link_reliable_consumer_cnt( topo, out_link ) );
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {

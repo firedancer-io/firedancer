@@ -40,9 +40,6 @@ struct fd_snaplv_tile {
   int                 state;
   int                 full;
 
-  /* Database params */
-  ulong const * io_seed;
-
   ulong               num_hash_tiles;
 
   uchar               in_kind[ MAX_IN_LINKS ];
@@ -597,10 +594,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( !!ctx->vinyl.bstream_seq );
   memset( ctx->vinyl.pending.active, 0, VINYL_LTHASH_PENDING_MAX*sizeof(ulong) );
   ctx->vinyl.pending_cnt = 0;
-
-  void * in_wh_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snaplv.dcache_obj_id ) );
-  FD_CRIT( fd_dcache_app_sz( in_wh_dcache )>=sizeof(ulong), "in_wh dcache app region too small to hold io_seed" );
-  ctx->io_seed = (ulong const *)fd_dcache_app_laddr_const( in_wh_dcache );
 
   ctx->metrics.full.accounts_hashed        = 0UL;
   ctx->metrics.incremental.accounts_hashed = 0UL;

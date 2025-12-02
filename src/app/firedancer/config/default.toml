@@ -826,7 +826,7 @@ user = ""
     # snapshot in parallel under vinyl. Too few and snapshot loading
     # might be delayed.  Once the hash of the accounts in a snapshot is
     # calculated, if it does not match the validator will abort with an
-    # error.
+    # error.  Preferably a power of two.
     snaplh_tile_count = 4
 
 # All memory that will be used in Firedancer is pre-allocated in two

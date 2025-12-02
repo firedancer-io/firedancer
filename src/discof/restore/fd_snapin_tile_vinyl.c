@@ -12,6 +12,8 @@
 
 #include "generated/fd_snapin_tile_vinyl_seccomp.h"
 
+FD_STATIC_ASSERT( WD_WR_FSEQ_CNT_MAX<=FD_TOPO_MAX_TILE_IN_LINKS, "WD_WR_FSEQ_CNT_MAX" );
+
 /**********************************************************************\
 
   Vinyl 101:
@@ -154,19 +156,29 @@ fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
                   fd_mcache_depth( wr_link->mcache ), tile->snapin.snapwr_depth ));
   }
 
-  if( FD_UNLIKELY( fd_topo_link_reliable_consumer_cnt( topo, wr_link )!=1UL ) ) {
-    FD_LOG_CRIT(( "snapin_wr link must have exactly one reliable consumer" ));
+  ulong expected_wr_link_consumers_cnt = fd_topo_tile_name_cnt( topo, "snapwh" ) + fd_topo_tile_name_cnt( topo, "snaplh" );
+  if( FD_UNLIKELY( fd_topo_link_reliable_consumer_cnt( topo, wr_link )!=expected_wr_link_consumers_cnt ) ) {
+    FD_LOG_CRIT(( "snapin_wr link must have exactly %lu reliable consumers", expected_wr_link_consumers_cnt ));
   }
 
-  ulong wh_tile_id = fd_topo_find_tile( topo, "snapwh", 0UL );
-  FD_TEST( wh_tile_id!=ULONG_MAX );
-  fd_topo_tile_t * wh_tile = &topo->tiles[ wh_tile_id ];
-  FD_TEST( wh_tile->in_cnt==1 );
-  FD_TEST( wh_tile->in_link_id[0] == wr_link->id );
-  FD_CRIT( 0==strcmp( topo->links[ wh_tile->in_link_id[ 0 ] ].name, "snapin_wh" ), "unexpected link found" );
-  ulong const * wh_fseq = wh_tile->in_link_fseq[ 0 ];
-  if( FD_UNLIKELY( !wh_fseq ) ) {
-    FD_LOG_CRIT(( "snapin_wr link reliable consumer fseq not found" ));
+  ulong const * wh_fseq[WD_WR_FSEQ_CNT_MAX];
+  ulong wh_fseq_cnt = 0UL;
+  ulong wh_fseq_cnt_expected = fd_topo_tile_name_cnt( topo, "snapwh" ) + fd_topo_tile_name_cnt( topo, "snaplh" );
+  FD_TEST( wh_fseq_cnt_expected<=WD_WR_FSEQ_CNT_MAX );
+  FD_TEST( wh_fseq_cnt_expected==fd_topo_link_reliable_consumer_cnt( topo, wr_link ) );
+  for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+    fd_topo_tile_t const * consumer_tile = &topo->tiles[ tile_idx ];
+    for( ulong in_idx=0UL; in_idx<consumer_tile->in_cnt; in_idx++ ) {
+      if( consumer_tile->in_link_id[ in_idx ]==wr_link->id ) {
+        FD_TEST( wh_fseq_cnt<WD_WR_FSEQ_CNT_MAX );
+        wh_fseq[ wh_fseq_cnt ] = consumer_tile->in_link_fseq[ in_idx ];
+        wh_fseq_cnt++;
+      }
+    }
+  }
+  if( FD_UNLIKELY( wh_fseq_cnt!=wh_fseq_cnt_expected ) ) {
+    FD_LOG_ERR(( "unable to find %lu fseq(s) for output link %s:%lu",
+                 wh_fseq_cnt, wr_link->name, wr_link->kind_id ));
   }
 
   /* Set up io_wd */
@@ -178,6 +190,7 @@ fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
                          wr_link->mcache,
                          wr_link->dcache,
                          wh_fseq,
+                         wh_fseq_cnt,
                          wr_link->mtu );
   if( FD_UNLIKELY( !ctx->vinyl.io_wd ) ) {
     FD_LOG_ERR(( "fd_vinyl_io_wd_init failed" ));

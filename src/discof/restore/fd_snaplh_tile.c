@@ -112,7 +112,7 @@ struct fd_snaplh_tile {
     } incremental;
   } metrics;
 
-  ulong       last_wh_seq;
+  ulong       last_in_seq;
   in_link_t   in[2];
   uchar       in_kind[2];
   out_link_t  out;
@@ -432,7 +432,7 @@ handle_lthash_completion( fd_snaplh_t * ctx,
                           fd_stem_context_t * stem ) {
   fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
   fd_lthash_adder_flush( ctx->adder_sub, &ctx->running_lthash_sub );
-  if( fd_seq_inc( ctx->last_wh_seq, 1UL )==ctx->finish_fseq ) {
+  if( fd_seq_inc( ctx->last_in_seq, 1UL )==ctx->finish_fseq ) {
     fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
     uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
     fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
@@ -515,7 +515,7 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
     }
   }
 
-  ctx->last_wh_seq = seq;
+  ctx->last_in_seq = seq;
 
   if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
     /* TODO this does not seem to happen here */
@@ -632,7 +632,7 @@ returnable_frag( fd_snaplh_t *       ctx,
      will not return flow control credits fast enough.
      So, always update fseq (consumer progress) here. */
   ulong idx = ctx->in_kind[ 0 ]==IN_KIND_SNAPWH ? 0UL : 1UL;
-  fd_fseq_update( ctx->in[ idx ].seq_sync, fd_seq_inc( ctx->last_wh_seq, 1UL ) );
+  fd_fseq_update( ctx->in[ idx ].seq_sync, fd_seq_inc( ctx->last_in_seq, 1UL ) );
 
   return 0;
 }
@@ -759,6 +759,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt!=2UL ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt  ));
 
+  ctx->io_seed = NULL;
+
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
@@ -770,20 +772,23 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].base     = NULL;
       ctx->in[ i ].seq_sync = NULL;
       ctx->in_kind[ i ]     = IN_KIND_SNAPLV;
-    } else if( FD_LIKELY( 0==strcmp( in_link->name, "snapwh_wr" ) ) ) {
+    } else if( FD_LIKELY( 0==strcmp( in_link->name, "snapin_wh" ) ) ) {
       ctx->in[ i ].wksp     = in_wksp->wksp;
       ctx->in[ i ].chunk0   = 0;
       ctx->in[ i ].wmark    = 0;
       ctx->in[ i ].mtu      = in_link->mtu;
-      ctx->in[ i ].base     = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snaplh.dcache_obj_id ) );
+      ctx->in[ i ].base     = in_link->dcache;
       ctx->in[ i ].seq_sync = tile->in_link_fseq[ i ];
-      ctx->last_wh_seq      = fd_fseq_query( tile->in_link_fseq[ i ] );
+      ctx->last_in_seq      = fd_fseq_query( tile->in_link_fseq[ i ] );
       ctx->in_kind[ i ]     = IN_KIND_SNAPWH;
+      ctx->io_seed          = (ulong const *)fd_dcache_app_laddr_const( in_link->dcache );
       FD_TEST( ctx->in[ i ].base );
     } else {
       FD_LOG_ERR(( "tile `" NAME "` has unexpected in link name `%s`", in_link->name ));
     }
   }
+
+  FD_TEST( ctx->io_seed );
 
   fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ 0UL ] ];
   ctx->out.wksp    = topo->workspaces[ topo->objs[ out_link->dcache_obj_id ].wksp_id ].wksp;
@@ -795,10 +800,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_lthash_adder_new( ctx->adder );
   fd_lthash_adder_new( ctx->adder_sub );
-
-  void * in_wh_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snaplh.dcache_obj_id ) );
-  FD_CRIT( fd_dcache_app_sz( in_wh_dcache )>=sizeof(ulong), "in_wh dcache app region too small to hold io_seed" );
-  ctx->io_seed = (ulong const *)fd_dcache_app_laddr_const( in_wh_dcache );
 
   ctx->metrics.full.accounts_hashed        = 0UL;
   ctx->metrics.incremental.accounts_hashed = 0UL;
