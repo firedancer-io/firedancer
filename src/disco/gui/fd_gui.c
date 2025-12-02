@@ -884,7 +884,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_gui_tile_timers_snap( gui );
 
     /* every 25ms */
-    if( (gui->next_sample_12_5millis % 25L*1000L*1000L) >= (long)(12.5*1000L*1000L) ) {
+    if( (gui->next_sample_12_5millis % (25L*1000L*1000L)) >= (long)(12.5*1000L*1000L) ) {
       fd_gui_printf_live_tile_timers( gui );
       fd_http_server_ws_broadcast( gui->http );
 
