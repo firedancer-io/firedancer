@@ -526,8 +526,9 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
   CHECK( addr_idx_set_cnt( ip_addr_hits )==addrs_len );
 
   /* extensions are currently unused */
-  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->ci_view->ext_len, CUR_OFFSET )                            ; INC( decode_sz );
-  CHECKED_INC( 4*crds_val->ci_view->ext_len );
+  ulong ext_len;
+  READ_CHECKED_COMPACT_U16( decode_sz, ext_len, CUR_OFFSET )                            ; INC( decode_sz );
+  CHECKED_INC( 4*ext_len );
 
   return BYTES_CONSUMED;
 }
