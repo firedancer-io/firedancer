@@ -710,16 +710,17 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Instruction checks ***********************************************/
 
-  int err = fd_vm_syscall_cpi_check_instruction( VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) );
+  int err = fd_vm_syscall_cpi_check_instruction( vm, VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) );
   if( FD_UNLIKELY( err ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
     return err;
   }
 
   /* Agave consumes CU in translate_instruction
-     Rust ABI: https://github.com/anza-xyz/agave/blob/v3.1.1/program-runtime/src/cpi.rs#L551-L553
-     C ABI:    https://github.com/anza-xyz/agave/blob/v3.1.1/program-runtime/src/cpi.rs#L682-L684 */
-  FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
+    FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
+  }
 
   /* Final checks for translate_instruction
    */

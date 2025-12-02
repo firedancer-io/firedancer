@@ -109,7 +109,7 @@
   {"name":"skip_rent_rewrites","pubkey": "CGB2jM8pwZkeeiXQ66kBMyBR6Np61mggL7XUsmLjVcrw","cleaned_up":[3,0,0],"hardcode_for_fuzzing":1},
   {"name":"prevent_crediting_accounts_that_end_rent_paying","pubkey": "812kqX67odAp5NFwM8D2N24cku7WTm9CHUTFUXaDkWPn","cleaned_up":[1,18,0],"hardcode_for_fuzzing":1},
   {"name":"cap_bpf_program_instruction_accounts","pubkey": "9k5ijzTbYPtjzu8wj2ErH9v45xecHzQ1x4PMYMMxFgdM","cleaned_up":[1,18,0],"hardcode_for_fuzzing":1},
-  {"name":"loosen_cpi_size_restriction","pubkey": "GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm","cleaned_up":[3,0,0],"hardcode_for_fuzzing":1},
+  {"name":"loosen_cpi_size_restriction","pubkey": "GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm","hardcode_for_fuzzing":1},
   {"name":"use_default_units_in_fee_calculation","pubkey": "8sKQrMQoUHtQSUP83SPG4ta2JDjSAiWs7t5aJ9uEd6To","cleaned_up":[1,18,0],"hardcode_for_fuzzing":1},
   {"name":"compact_vote_state_updates","pubkey": "86HpNqzutEZwLcPxS6EHDcMNYWk6ikhteg9un7Y2PBKE","cleaned_up":[1,18,0],"hardcode_for_fuzzing":1},
   {"name":"incremental_snapshot_only_incremental_hash_calculation","pubkey": "25vqsfjk7Nv1prsQJmA4Xu1bN61s8LXCBGUPp8Rfy1UF","cleaned_up":[2,3,0],"hardcode_for_fuzzing":1},
