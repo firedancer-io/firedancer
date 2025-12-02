@@ -96,6 +96,11 @@ static const fd_cluster_version_t FD_RUNTIME_CLUSTER_VERSION = {
 #define FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT (FD_RUNTIME_VM_TRACE_EVENT_MAX + sizeof(fd_vm_trace_t))
 #define FD_RUNTIME_VM_TRACE_STATIC_ALIGN     (8UL)
 
+/* Maximum CPI instruction data size. 10 KiB was chosen to ensure that
+   CPI instructions are not more limited than transaction instructions
+   if the size of transactions is doubled in the future.
+   https://github.com/anza-xyz/agave/blob/v3.1.1/transaction-context/src/lib.rs#L33 */
+#define FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN (10240UL)
 
 /* The bpf loader's serialization footprint is bounded in the worst case
    by 64 unique writable accounts which are each 10MiB in size (bounded

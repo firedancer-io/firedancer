@@ -153,9 +153,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
   &fd_tile_shredcap,
-#if FD_HAS_ROCKSDB
   &fd_tile_backtest,
-#endif
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
@@ -192,6 +190,7 @@ extern action_t fd_action_dump;
 extern action_t fd_action_flame;
 extern action_t fd_action_help;
 extern action_t fd_action_metrics;
+extern action_t fd_action_metrics_record;
 extern action_t fd_action_load;
 extern action_t fd_action_pktgen;
 extern action_t fd_action_quic_trace;
@@ -222,6 +221,7 @@ action_t * ACTIONS[] = {
   &fd_action_set_identity,
   &fd_action_help,
   &fd_action_metrics,
+  &fd_action_metrics_record,
   &fd_action_version,
   &fd_action_bench,
   &fd_action_bundle_client,

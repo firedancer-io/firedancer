@@ -25,16 +25,6 @@ typedef struct fd_txn_return_data fd_txn_return_data_t;
 
 /* fd_exec_txn_ctx_t is the context needed to execute a transaction. */
 
-/* An entry in the instruction trace */
-struct fd_exec_instr_trace_entry {
-  /* Metadata about the instruction */
-  fd_instr_info_t * instr_info;
-  /* Stack height when this instruction was pushed onto the stack (including itself)
-     https://github.com/anza-xyz/agave/blob/d87e23d8d91c32d5f2be2bb3557c730bee1e9434/sdk/src/transaction_context.rs#L475-L480 */
-  ulong stack_height;
-};
-typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
-
 FD_PROTOTYPES_BEGIN
 
 /* Returns 0 on success, and non zero otherwise.  On failure, the out

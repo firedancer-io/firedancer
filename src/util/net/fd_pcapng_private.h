@@ -4,8 +4,8 @@
 #include "fd_pcapng.h"
 
 /* FD_PCAPNG_BLOCK_SZ: max size of serialized block
-   (including packet content)  FIXME allow for jumbos? */
-#define FD_PCAPNG_BLOCK_SZ (4096UL)
+   (including packet content) */
+#define FD_PCAPNG_BLOCK_SZ (32768UL)
 
 /* FD_PCAPNG_BLOCK_TYPE_*: Block type identifiers */
 
@@ -112,19 +112,20 @@ struct __attribute__((packed)) fd_pcapng_dsb {
 };
 typedef struct fd_pcapng_dsb fd_pcapng_dsb_t;
 
-struct fd_pcapng_idb_desc {
-  uint                 link_type;
-  fd_pcapng_idb_opts_t opts;
-};
-typedef struct fd_pcapng_idb_desc fd_pcapng_idb_desc_t;
-
 struct __attribute__((aligned(FD_PCAPNG_ITER_ALIGN))) fd_pcapng_iter {
   void * stream;
   int    error;
+  uint   empty : 1;
+
+  fd_pcapng_frame_t pkt;
 
 # define FD_PCAPNG_IFACE_CNT 16
   fd_pcapng_idb_desc_t iface[ FD_PCAPNG_IFACE_CNT ];
   uint                 iface_cnt;
+
+  uchar  block_buf[ FD_PCAPNG_BLOCK_SZ ];
+  ulong  block_buf_sz;
+  ulong  block_buf_pos;
 };
 
 #endif /* HEADER_fd_src_util_net_fd_pcapng_private_h */

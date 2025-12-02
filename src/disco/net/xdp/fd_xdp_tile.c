@@ -970,11 +970,18 @@ net_rx_packet( fd_net_ctx_t * ctx,
     return;
   }
 
+  fd_udp_hdr_t const * udp_hdr = (fd_udp_hdr_t const *)udp;
+  ulong        const   udp_sz  = fd_ushort_bswap( udp_hdr->net_len );
+  if( FD_UNLIKELY( (udp_sz<sizeof(fd_udp_hdr_t)) | (udp+udp_sz>packet_end) ) ) {
+    FD_DTRACE_PROBE( net_tile_err_rx_undersz );
+    ctx->metrics.rx_undersz_cnt++;
+    return;
+  }
+
   /* Extract IP dest addr and UDP src/dest port */
-  fd_udp_hdr_t * udp_hdr = (fd_udp_hdr_t *)udp;
-  uint ip_srcaddr        = iphdr->saddr;
-  ushort udp_srcport     = fd_ushort_bswap( udp_hdr->net_sport );
-  ushort udp_dstport     = fd_ushort_bswap( udp_hdr->net_dport );
+  uint   ip_srcaddr   =  iphdr->saddr;
+  ushort udp_srcport  =  fd_ushort_bswap( udp_hdr->net_sport );
+  ushort udp_dstport  =  fd_ushort_bswap( udp_hdr->net_dport );
 
   FD_DTRACE_PROBE_4( net_tile_pkt_rx, ip_srcaddr, udp_srcport, udp_dstport, sz );
 

@@ -448,8 +448,9 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     } else {
       /* Capture the instruction error code */
       if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
-        int instr_err_idx                   = txn_out->err.exec_err_idx;
-        int program_id_idx                  = runtime->instr.infos[instr_err_idx].program_id;
+        fd_txn_t const * txn            = TXN( txn_in->txn );
+        int              instr_err_idx  = txn_out->err.exec_err_idx;
+        int              program_id_idx = txn->instr[instr_err_idx].program_id;
 
         txn_result->instruction_error       = (uint32_t) -txn_out->err.exec_err;
         txn_result->instruction_error_index = (uint32_t) instr_err_idx;

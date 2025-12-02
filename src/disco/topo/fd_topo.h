@@ -486,13 +486,17 @@ struct fd_topo_tile {
     struct {
       ulong end_slot;
       char  rocksdb_path[ PATH_MAX ];
-      char  shredcap_path[ PATH_MAX ];
-      char  bank_hash_path[ PATH_MAX ];
       char  ingest_mode[ 32 ];
 
       /* Set internally by the archiver tile */
       int archive_fd;
     } archiver;
+
+    struct {
+      ulong end_slot;
+      char rocksdb_path[ PATH_MAX ];
+      char shredcap_path[ PATH_MAX ];
+    } backtest;
 
     struct {
       int   hard_fork_fatal;

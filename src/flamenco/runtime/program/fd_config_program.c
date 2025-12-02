@@ -30,9 +30,6 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L21 */
-  if( FD_UNLIKELY( ctx->instr->data==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
   if( FD_UNLIKELY( ctx->instr->data_sz>FD_TXN_MTU ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

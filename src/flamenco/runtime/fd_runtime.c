@@ -1360,7 +1360,6 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
 
   runtime->accounts.executable_cnt = 0UL;
   runtime->log.enable_log_collector = 0;
-  runtime->instr.info_cnt     = 0UL;
   runtime->instr.trace_length = 0UL;
   runtime->instr.current_idx  = 0;
   runtime->instr.stack_sz     = 0;

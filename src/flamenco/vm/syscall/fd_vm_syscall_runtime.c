@@ -460,14 +460,14 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1518-L1522 */
   ulong instruction_trace_length = vm->instr_ctx->runtime->instr.trace_length;
   ulong reverse_index_at_stack_height = 0UL;
-  fd_exec_instr_trace_entry_t * found_instruction_context = NULL;
+  fd_instr_info_t * found_instruction_context = NULL;
   for( ulong index_in_trace=instruction_trace_length; index_in_trace>0UL; index_in_trace-- ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1524-L1526
        This error can never happen */
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1527-L1529 */
-    fd_exec_instr_trace_entry_t * instruction_context = &vm->instr_ctx->runtime->instr.trace[ index_in_trace-1UL ];
+    fd_instr_info_t * instruction_context = &vm->instr_ctx->runtime->instr.trace[ index_in_trace-1UL ];
     if( FD_LIKELY( instruction_context->stack_height<stack_height ) ) {
       break;
     }
@@ -487,8 +487,6 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1539-L1588
    */
   if( FD_LIKELY( found_instruction_context != NULL ) ) {
-    fd_instr_info_t * instr_info = found_instruction_context->instr_info;
-
     fd_vm_haddr_query_t result_header_query = {
       .vaddr    = result_meta_vaddr,
       .align    = FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_ALIGN,
@@ -502,7 +500,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
     fd_vm_syscall_processed_sibling_instruction_t * result_header = result_header_query.haddr;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1546-L1583 */
-    if( result_header->data_len==instr_info->data_sz && result_header->accounts_len==instr_info->acct_cnt ) {
+    if( result_header->data_len==found_instruction_context->data_sz && result_header->accounts_len==found_instruction_context->acct_cnt ) {
       fd_vm_haddr_query_t program_id_query = {
         .vaddr    = result_program_id_vaddr,
         .align    = FD_VM_ALIGN_RUST_PUBKEY,
@@ -533,9 +531,11 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1561-L1562 */
       fd_pubkey_t const * instr_ctx_program_id = NULL;
-      int err = fd_runtime_get_key_of_account_at_index( vm->instr_ctx->txn_out,
-                                                        instr_info->program_id,
-                                                        &instr_ctx_program_id );
+      int err = fd_runtime_get_key_of_account_at_index(
+          vm->instr_ctx->txn_out,
+          found_instruction_context->program_id,
+          &instr_ctx_program_id
+      );
       if( FD_UNLIKELY( err ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, err );
         return err;
@@ -543,12 +543,12 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       fd_memcpy( program_id, instr_ctx_program_id, sizeof(fd_pubkey_t) );
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1563 */
-      fd_memcpy( data, instr_info->data, instr_info->data_sz );
+      fd_memcpy( data, found_instruction_context->data, found_instruction_context->data_sz );
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1564-L1581 */
-      for( ushort i=0; i<instr_info->acct_cnt; i++ ) {
+      for( ushort i=0; i<found_instruction_context->acct_cnt; i++ ) {
         fd_pubkey_t const * account_key;
-        ushort txn_idx = instr_info->accounts[ i ].index_in_transaction;
+        ushort txn_idx = found_instruction_context->accounts[ i ].index_in_transaction;
         err            = fd_runtime_get_key_of_account_at_index( vm->instr_ctx->txn_out, txn_idx, &account_key );
         if( FD_UNLIKELY( err ) ) {
           FD_VM_ERR_FOR_LOG_INSTR( vm, err );
@@ -556,14 +556,14 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
         }
 
         fd_memcpy( accounts[ i ].pubkey, account_key, sizeof(fd_pubkey_t) );
-        accounts[ i ].is_signer   = !!(instr_info->accounts[ i ].is_signer );
-        accounts[ i ].is_writable = !!(instr_info->accounts[ i ].is_writable );
+        accounts[ i ].is_signer   = !!(found_instruction_context->accounts[ i ].is_signer );
+        accounts[ i ].is_writable = !!(found_instruction_context->accounts[ i ].is_writable );
       }
     } else {
       /* Copy the actual metadata into the result meta struct
          https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1584-L1586 */
-      result_header->data_len     = instr_info->data_sz;
-      result_header->accounts_len = instr_info->acct_cnt;
+      result_header->data_len     = found_instruction_context->data_sz;
+      result_header->accounts_len = found_instruction_context->acct_cnt;
     }
 
     /* Return true as we found a sibling instruction

@@ -528,7 +528,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "replay_stake", "replay_stake", 128UL,                                    FD_STAKE_OUT_MTU,              1UL ); /* TODO: This should be 2 but requires fixing STEM_BURST */
   /**/                 fd_topob_link( topo, "replay_out",   "replay_out",   8192UL,                                   sizeof(fd_replay_message_t),   1UL );
   /**/                 fd_topob_link( topo, "pack_poh",     "pack_poh",     4096UL,                                   sizeof(fd_done_packing_t),     1UL );
-  /* pack_bank is shared across all banks, so if one bank stalls due to complex transactions, the buffer neeeds to be large so that
+  /* pack_bank is shared across all banks, so if one bank stalls due to complex transactions, the buffer needs to be large so that
      other banks can keep proceeding. */
   /**/                 fd_topob_link( topo, "pack_bank",    "pack_bank",    65536UL,                                  USHORT_MAX,                    1UL );
   FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_poh",     "bank_poh",     16384UL,                                  USHORT_MAX,                    1UL );
@@ -1451,29 +1451,21 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 
-    tile->archiver.end_slot = config->tiles.archiver.end_slot;
-    strncpy( tile->archiver.ingest_mode, config->tiles.archiver.ingest_mode, sizeof(tile->archiver.ingest_mode) );
-    if( FD_UNLIKELY( 0==strlen( tile->archiver.ingest_mode ) ) ) {
-      FD_LOG_ERR(( "`archiver.ingest_mode` not specified in toml" ));
-    }
+    tile->backtest.end_slot = config->tiles.archiver.end_slot;
 
     /* Validate arguments based on the ingest mode */
-    if( !strcmp( tile->archiver.ingest_mode, "rocksdb" ) ) {
-      strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->archiver.rocksdb_path ) ) ) {
+    if( !strcmp( config->tiles.archiver.ingest_mode, "rocksdb" ) ) {
+      strncpy( tile->backtest.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
+      if( FD_UNLIKELY( 0==strlen( tile->backtest.rocksdb_path ) ) ) {
         FD_LOG_ERR(( "`archiver.rocksdb_path` not specified in toml" ));
       }
-    } else if( !strcmp( tile->archiver.ingest_mode, "shredcap" ) ) {
-      strncpy( tile->archiver.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->archiver.shredcap_path ) ) ) {
+    } else if( !strcmp( config->tiles.archiver.ingest_mode, "shredcap" ) ) {
+      strncpy( tile->backtest.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
+      if( FD_UNLIKELY( 0==strlen( tile->backtest.shredcap_path ) ) ) {
         FD_LOG_ERR(( "`archiver.shredcap_path` not specified in toml" ));
       }
-      strncpy( tile->archiver.bank_hash_path, config->tiles.archiver.bank_hash_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->archiver.bank_hash_path ) ) ) {
-        FD_LOG_ERR(( "`archiver.bank_hash_path` not specified in toml" ));
-      }
     } else {
-      FD_LOG_ERR(( "Invalid ingest mode: %s", tile->archiver.ingest_mode ));
+      FD_LOG_ERR(( "Invalid ingest mode: %s", config->tiles.archiver.ingest_mode ));
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
