@@ -14,6 +14,7 @@ struct fd_zstd_rstream {
   ulong          in_rd;
   uchar          in_buf[ BUFSZ ];
   ZSTD_inBuffer  input;
+  uint           eof : 1;
 };
 
 typedef struct fd_zstd_rstream fd_zstd_rstream_t;
@@ -23,15 +24,15 @@ rstream_read( void * cookie,
               char * buf,
               size_t size ) {
   fd_zstd_rstream_t * zs = cookie;
-  ZSTD_outBuffer output = { buf, size, 0 };
+  if( zs->eof ) return 0;
 
+  ZSTD_outBuffer output = { buf, size, 0 };
   while( output.pos < output.size ) {
     if( zs->input.pos >= zs->input.size ) {
       size_t read_sz = fread( zs->in_buf, 1, sizeof(zs->in_buf), zs->file );
-      if( read_sz == 0 ) {
-        if( feof( zs->file ) ) break;  /* End of file */
-        if( ferror( zs->file ) ) return -1;  /* Read error */
-        break;
+      if( read_sz==0 ) {
+        if( feof( zs->file ) ) break;
+        return -1;
       }
       zs->input.src  = zs->in_buf;
       zs->input.size = read_sz;
@@ -40,13 +41,14 @@ rstream_read( void * cookie,
 
     size_t const ret = ZSTD_decompressStream( zs->dstream, &output, &zs->input );
     if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
-      FD_LOG_ERR(( "ZSTD_decompressStream failed: %s", ZSTD_getErrorName( ret ) ));
+      FD_LOG_WARNING(( "ZSTD_decompressStream failed (%u-%s)", ZSTD_getErrorCode( ret ), ZSTD_getErrorName( ret ) ));
       return -1;
     }
 
-    if( output.pos > 0 && ret == 0 ) break;
+    if( output.pos>0 && ret==0 ) break;
   }
 
+  zs->eof    = (!!feof( zs->file )) && (zs->input.pos >= zs->input.size);
   zs->in_rd += output.pos;
   return (ssize_t)output.pos;
 }
@@ -56,13 +58,19 @@ rstream_seek( void *    cookie,
               off64_t * pos,
               int       w ) {
   fd_zstd_rstream_t * zs = cookie;
-  FD_TEST( *pos==0 );
+  if( FD_UNLIKELY( *pos ) ) {
+    FD_LOG_WARNING(( "Invalid seek(%ld,%i) on fd_libc_zstd_rstream handle", *pos, w ));
+    return -1;
+  }
   if( w==SEEK_SET ) {
-    FD_TEST( 0==fseek( zs->file, 0L, SEEK_SET ) );
+    if( FD_UNLIKELY( 0!=fseek( zs->file, 0L, SEEK_SET ) ) ) {
+      return -1;
+    }
     zs->input.src  = zs->in_buf;
     zs->input.size = 0;
     zs->input.pos  = 0;
     zs->in_rd      = 0UL;
+    zs->eof        = 0;
     ZSTD_DCtx_reset( zs->dstream, ZSTD_reset_session_only );
     *pos = 0L;
   } else if( w==SEEK_CUR ) {
@@ -101,6 +109,7 @@ fd_zstd_rstream_open( FILE *         file,
   zs->input.src  = zs->in_buf;
   zs->input.size = 0;
   zs->input.pos  = 0;
+  zs->eof        = 0;
 
   static cookie_io_functions_t const io_funcs = {
     .read  = rstream_read,
@@ -130,7 +139,7 @@ wstream_write( void *       cookie,
     ZSTD_outBuffer output = { zs->out_buf, sizeof(zs->out_buf), 0 };
     size_t const ret = ZSTD_compressStream( zs->cstream, &output, &input );
     if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
-      FD_LOG_ERR(( "ZSTD_compressStream failed: %s", ZSTD_getErrorName( ret ) ));
+      FD_LOG_WARNING(( "ZSTD_compressStream failed (%u-%s)", ZSTD_getErrorCode( ret ), ZSTD_getErrorName( ret ) ));
       return -1;
     }
     if( output.pos > 0 ) {
@@ -146,11 +155,10 @@ static int
 wstream_close( void * cookie ) {
   fd_zstd_wstream_t * zs = cookie;
 
-  /* Finalize compression stream */
   ZSTD_outBuffer output = { zs->out_buf, sizeof(zs->out_buf), 0 };
   size_t const ret = ZSTD_endStream( zs->cstream, &output );
   if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
-    FD_LOG_ERR(( "ZSTD_endStream failed: %s", ZSTD_getErrorName( ret ) ));
+    FD_LOG_WARNING(( "ZSTD_endStream failed (%u-%s)", ZSTD_getErrorCode( ret ), ZSTD_getErrorName( ret ) ));
     return -1;
   }
   if( output.pos > 0 ) {
@@ -169,13 +177,17 @@ wstream_seek( void *    cookie,
               off64_t * pos,
               int       w ) {
   fd_zstd_wstream_t * zs = cookie;
-  FD_TEST( w==SEEK_CUR && *pos==0 ); /* only support no-op seek */
+  if( FD_UNLIKELY( !( w==SEEK_CUR && *pos==0 ) ) ) {
+    FD_LOG_WARNING(( "Attempted to seek in fd_libc_zstd_wstream handle" ));
+    return -1;
+  }
   *pos = (long)zs->wr_cnt;
   return 0;
 }
 
 FILE *
-fd_zstd_wstream_open( FILE * file ) {
+fd_zstd_wstream_open( FILE * file,
+                      int    level ) {
   fd_zstd_wstream_t * zs = malloc( sizeof(fd_zstd_wstream_t) );
   if( FD_UNLIKELY( !zs ) ) return NULL;
 
@@ -187,7 +199,7 @@ fd_zstd_wstream_open( FILE * file ) {
     return NULL;
   }
 
-  size_t const init_ret = ZSTD_initCStream( zs->cstream, 3 ); /* compression level 3 */
+  size_t const init_ret = ZSTD_initCStream( zs->cstream, level );
   if( FD_UNLIKELY( ZSTD_isError( init_ret ) ) ) {
     ZSTD_freeCStream( zs->cstream );
     free( zs );
