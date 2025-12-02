@@ -134,7 +134,6 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
-        /* Commit. */
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
           fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
         }

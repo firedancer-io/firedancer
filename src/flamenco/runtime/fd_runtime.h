@@ -176,15 +176,18 @@ struct fd_txn_out {
     long                        exec_start_timestamp;
     long                        commit_start_timestamp;
     fd_compute_budget_details_t compute_budget;                 /* Compute budget details */
+    fd_transaction_cost_t       txn_cost;                /* Transaction cost */
     ulong                       loaded_accounts_data_size;      /* The actual transaction loaded data size */
     ulong                       loaded_accounts_data_size_cost; /* The cost of the loaded accounts data size in CUs */
     ulong                       accounts_resize_delta;          /* Transaction level tracking for account resizing */
     fd_txn_return_data_t        return_data;                    /* Data returned from `return_data` syscalls */
     fd_hash_t                   blake_txn_msg_hash;             /* Hash of raw transaction message used by the status cache */
+    fd_hash_t                   blockhash;                      /* Blockhash of the block that the transaction is being executed in */
     ulong                       execution_fee;                  /* Execution fee paid by the fee payer in the transaction */
     ulong                       priority_fee;                   /* Priority fee paid by the fee payer in the transaction */
     ulong                       tips;                           /* Jito tips paid during execution */
     ulong                       signature_count;                /* Number of signatures in the transaction */
+    int                         is_simple_vote;                 /* Whether the transaction is a simple vote */
     /* When a program is deployed or upgraded, we must queue it to be
         updated in the program cache (if it exists already) so that
         the cache entry's ELF / sBPF information can be updated for

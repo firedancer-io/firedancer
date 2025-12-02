@@ -1282,8 +1282,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ),   txn_out->details.priority_fee );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), txn_out->details.signature_count );
 
-  int is_vote = fd_txn_is_simple_vote_transaction( TXN( txn_in->txn ), txn_in->txn->payload );
-  if( !is_vote ){
+  if( !txn_out->details.is_simple_vote ){
     FD_ATOMIC_FETCH_AND_ADD( fd_bank_nonvote_txn_count_modify( bank ), 1 );
     if( FD_UNLIKELY( txn_out->err.exec_err ) ) {
       FD_ATOMIC_FETCH_AND_ADD( fd_bank_nonvote_failed_txn_count_modify( bank ), 1 );
@@ -1299,11 +1298,14 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
   /* Update the cost tracker. */
 
   fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-  int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, bank, txn_in, txn_out );
+  fd_cost_tracker_calculate_cost( bank, txn_in, txn_out );
+
+  int res = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
-    FD_LOG_DEBUG(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
+    FD_LOG_WARNING(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
     txn_out->err.is_committable = 0;
   }
+
   fd_bank_cost_tracker_end_locking_modify( bank );
 
   txn_out->details.loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_out );
@@ -1317,8 +1319,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
        nonce mechanism itself prevents double spend.  We skip this logic
        entirely to simplify and improve performance of the txn cache. */
 
-    fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
-    fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, blockhash->uc, txn_out->details.blake_txn_msg_hash.uc );
+    fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, txn_out->details.blockhash.uc, txn_out->details.blake_txn_msg_hash.uc );
   }
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
@@ -1390,6 +1391,10 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   fd_runtime_reset_txn_out( txn_out );
 
   txn_out->details.signature_count  = TXN( txn_in->txn )->signature_cnt;
+  txn_out->details.is_simple_vote   = fd_txn_is_simple_vote_transaction( TXN( txn_in->txn ), txn_in->txn->payload );
+
+  fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
+  memcpy( txn_out->details.blockhash.uc, blockhash->hash, sizeof(fd_hash_t) );
 
   /* Transaction sanitization.  If a transaction can't be commited or is
      fees-only, we return early. */
