@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "fd_sshttp.h"
+#include "fd_sshttp_private.h"
 #include "fd_ssarchive.h"
 
 #include "../../../waltz/http/picohttpparser.h"
@@ -15,60 +15,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#if FD_HAS_OPENSSL
-#include <openssl/ssl.h>
-#endif
-
-#define FD_SSHTTP_MAGIC (0xF17EDA2CE5811900) /* FIREDANCE HTTP V0 */
-
-#define FD_SSHTTP_STATE_INIT          (0) /* start */
-#define FD_SSHTTP_STATE_CONNECT       (1) /* connecting ssl */
-#define FD_SSHTTP_STATE_REQ           (2) /* sending request */
-#define FD_SSHTTP_STATE_RESP          (3) /* receiving response headers */
-#define FD_SSHTTP_STATE_DL            (4) /* downloading response body */
-#define FD_SSHTTP_STATE_SHUTTING_DOWN (5) /* shutting down ssl */
-#define FD_SSHTTP_STATE_REDIRECT      (6) /* redirect after shutting down ssl */
-#define FD_SSHTTP_STATE_DONE          (7) /* done */
-
-#define FD_SSHTTP_DEADLINE_NANOS (1L*1000L*1000L*1000L) /* 1 second  */
-
 /* FIXME: Cleanup / standardize all the error logging. */
 
-struct fd_sshttp_private {
-  int   state;
-  int   next_state; /* used for state transitions in https connection */
-  long  deadline;
-  ulong empty_recvs;
-
-  int   hops;
-
-  char  location[ PATH_MAX ];
-  ulong location_len;
-
-  fd_ip4_port_t addr;
-  char const *  hostname;
-  int           is_https;
-  int           sockfd;
-
-  char  request[ 4096UL ];
-  ulong request_len;
-  ulong request_sent;
-
-  ulong response_len;
-  char  response[ USHORT_MAX ];
-
-  char  snapshot_name[ PATH_MAX ];
-
-#if FD_HAS_OPENSSL
-  SSL_CTX * ssl_ctx;
-  SSL *     ssl;
-#endif
-
-  ulong content_len;
-  ulong content_read;
-
-  ulong magic;
-};
+_Bool fd_sshttp_fuzz = 0;
 
 FD_FN_CONST ulong
 fd_sshttp_align( void ) {
@@ -106,19 +55,21 @@ fd_sshttp_new( void * shmem ) {
   sshttp->ssl     = NULL;
   sshttp->ssl_ctx = NULL;
 
-  SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
-  if( FD_UNLIKELY( !ssl_ctx ) ) {
-    FD_LOG_ERR(( "SSL_CTX_new failed" ));
+  if( !fd_sshttp_fuzz ) {
+    SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
+    if( FD_UNLIKELY( !ssl_ctx ) ) {
+      FD_LOG_ERR(( "SSL_CTX_new failed" ));
+    }
+
+    if( FD_UNLIKELY( !SSL_CTX_set_min_proto_version( ssl_ctx, TLS1_3_VERSION ) ) ) {
+      FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
+    }
+
+    /* transfering ownership of ssl_ctx by assignment */
+    sshttp->ssl_ctx = ssl_ctx;
+
+    fd_ossl_load_certs( sshttp->ssl_ctx );
   }
-
-  if( FD_UNLIKELY( !SSL_CTX_set_min_proto_version( ssl_ctx, TLS1_3_VERSION ) ) ) {
-    FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
-  }
-
-  /* transfering ownership of ssl_ctx by assignment */
-  sshttp->ssl_ctx = ssl_ctx;
-
-  fd_ossl_load_certs( sshttp->ssl_ctx );
 #endif
 
   FD_COMPILER_MFENCE();
@@ -395,7 +346,7 @@ http_recv( fd_sshttp_t * http,
 
   long read = recvfrom( http->sockfd, buf, bufsz, 0, NULL, NULL );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) {
-    if( FD_UNLIKELY( ++http->empty_recvs>8UL ) ) {
+    if( FD_UNLIKELY( ++http->empty_recvs>8UL && !fd_sshttp_fuzz ) ) {
       /* If we have gone several iterations without having any data to
          read, sleep the thread for up to one millisecond, or until
          the socket is readable again, whichever comes first. */
@@ -527,8 +478,13 @@ follow_redirect( fd_sshttp_t *        http,
     fd_memcpy( http->location, location, location_len );
     http->location[ location_len ] = '\0';
   } else {
-    fd_sshttp_cancel( http );
-    fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, now );
+    if( FD_LIKELY( !fd_sshttp_fuzz ) ) {
+      fd_sshttp_cancel( http );
+      fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, now );
+    } else {
+      http->state = FD_SSHTTP_STATE_RESP;
+      http->response_len = 0UL;
+    }
   }
 
   return FD_SSHTTP_ADVANCE_AGAIN;
