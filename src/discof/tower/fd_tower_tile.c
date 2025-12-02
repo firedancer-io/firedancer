@@ -466,6 +466,14 @@ replay_slot_completed( ctx_t *                      ctx,
     ctx->conf_slot = slot_completed->slot;
   }
 
+  /* This is a temporary patch for equivocation. */
+
+  if( FD_UNLIKELY( fd_forks_query( ctx->forks, slot_completed->slot ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, block_id );
+    FD_LOG_WARNING(( "tower ignoring replay of equivocating slot %lu %s", slot_completed->slot, block_id ));
+    return;
+  }
+
   /* Initialize the xid. */
 
   fd_funk_txn_xid_t xid = { .ul = { slot_completed->slot, slot_completed->bank_idx } };
