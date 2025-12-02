@@ -1177,7 +1177,7 @@ metrics_write( ctx_t * ctx ) {
    completes BS. */
 #define STEM_BURST (64UL)
 
-#define STEM_LAZY  (128L*3000L) /* see explanation in fd_pack_tile.c */
+#define STEM_LAZY  (100000) /* see explanation in fd_pack_tile.c */
 
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)

@@ -154,7 +154,7 @@ repair_topo( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_out",    pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL );
 
-  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  128UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
+  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL );
@@ -614,6 +614,9 @@ repair_cmd_fn_catchup( args_t *   args,
 
   volatile ulong * repair_metrics = fd_metrics_tile( repair_tile->metrics );
   FD_TEST( repair_metrics );
+  ulong * repair_metrics_prev = aligned_alloc( 8UL, sizeof(ulong) * FD_METRICS_TOTAL_SZ );
+  FD_TEST( repair_metrics_prev );
+  memset( repair_metrics_prev, 0, sizeof(ulong) * FD_METRICS_TOTAL_SZ );
 
   /* Access the repair tile scratch memory where repair_tile_ctx is stored */
   void * scratch = fd_topo_obj_laddr( &config->topo, repair_tile->tile_obj_id );
@@ -622,13 +625,15 @@ repair_cmd_fn_catchup( args_t *   args,
   ctx_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
 
   /* Collect all net tiles and their repair_net link metrics */
-  ulong net_tile_cnt = config->layout.net_tile_count;
-  volatile ulong ** repair_net_links = aligned_alloc( 8UL, net_tile_cnt * sizeof(volatile ulong*) );
-  volatile ulong ** net_shred_links  = aligned_alloc( 8UL, net_tile_cnt * sizeof(volatile ulong*) );
+  ulong net_cnt  = config->layout.net_tile_count;
+  ulong sign_cnt = config->firedancer.layout.sign_tile_count;
+  ulong shrd_cnt = config->layout.shred_tile_count;
+  volatile ulong ** repair_net_links = aligned_alloc( 8UL, net_cnt * sizeof(volatile ulong*) );
+  volatile ulong ** net_shred_links  = aligned_alloc( 8UL, net_cnt * sizeof(volatile ulong*) );
   FD_TEST( repair_net_links );
   FD_TEST( net_shred_links );
 
-  for( ulong i = 0UL; i < net_tile_cnt; i++ ) {
+  for( ulong i = 0UL; i < net_cnt; i++ ) {
     ulong tile_idx = fd_topo_find_tile( &config->topo, "net", i );
     if( FD_UNLIKELY( tile_idx == ULONG_MAX ) ) FD_LOG_ERR(( "net tile %lu not found", i ));
     fd_topo_tile_t * tile = &config->topo.tiles[ tile_idx ];
@@ -649,6 +654,11 @@ repair_cmd_fn_catchup( args_t *   args,
     net_shred_links[i] = fd_metrics_link_in( shred_tile->metrics, shred_out_in_idx );
     FD_TEST( net_shred_links[i] );
   }
+
+  volatile ulong ** out_links = aligned_alloc( 8UL, (net_cnt + sign_cnt + shrd_cnt) * sizeof(volatile ulong*) );
+  for( ulong i = 0UL; i < net_cnt;  i++ ) out_links[i]                      = fd_metrics_link_out( repair_tile->metrics, fd_topo_find_tile_out_link( &config->topo, repair_tile, "repair_net", i ) );
+  for( ulong i = 0UL; i < sign_cnt; i++ ) out_links[i + net_cnt]            = fd_metrics_link_out( repair_tile->metrics, fd_topo_find_tile_out_link( &config->topo, repair_tile, "repair_sign", i ) );
+  for( ulong i = 0UL; i < shrd_cnt; i++ ) out_links[i + net_cnt + sign_cnt] = fd_metrics_link_out( repair_tile->metrics, fd_topo_find_tile_out_link( &config->topo, repair_tile, "repair_shred", i ) );
 
   FD_LOG_NOTICE(( "Repair catchup run" ));
 
@@ -696,10 +706,32 @@ repair_cmd_fn_catchup( args_t *   args,
       printf( " Send Pkt Rate: %s pps\n",  fmt_count( buf2, (ulong)((sent - last_sent)*1e9L / (now - last_print) ) ) );
       last_sent = sent;
 
+#define DIFFX(METRIC) repair_metrics[ MIDX( COUNTER, TILE, METRIC ) ] - repair_metrics_prev[ MIDX( COUNTER, TILE, METRIC ) ]
+    ulong hkeep_ticks        = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_PROCESSING_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_BACKPRESSURE_HOUSEKEEPING);
+    ulong busy_ticks         = DIFFX(REGIME_DURATION_NANOS_PROCESSING_PREFRAG) + DIFFX(REGIME_DURATION_NANOS_PROCESSING_POSTFRAG ) + DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG);
+    ulong caught_up_ticks    = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG);
+    ulong backpressure_ticks = DIFFX(REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG);
+    ulong total_ticks = hkeep_ticks + busy_ticks + caught_up_ticks + backpressure_ticks;
+
+    printf( " Repair Hkeep: %.1f %%  Busy: %.1f %%  Idle: %.1f %%  Backp: %0.1f %%\n",
+            (double)hkeep_ticks/(double)total_ticks*100.0,
+            (double)busy_ticks/(double)total_ticks*100.0,
+            (double)caught_up_ticks/(double)total_ticks*100.0,
+            (double)backpressure_ticks/(double)total_ticks*100.0 );
+#undef DIFFX
+
+      /* Show out link slow counts (only for reliable links - repair_net is unreliable) */
+      for( ulong i = net_cnt; i < net_cnt + sign_cnt + shrd_cnt; i++ ) {
+        const char * link_name = i < net_cnt + sign_cnt ? "repair_sign" : "repair_shred";
+        ulong link_sub_idx = i < net_cnt + sign_cnt ? i - net_cnt : i - net_cnt - sign_cnt;
+        printf( " Out link %lu (%s[%lu]) slow count: %lu\n", i, link_name, link_sub_idx, out_links[i][ MIDX( COUNTER, LINK, SLOW_COUNT ) ] );
+      }
+
+
       /* Sum overrun across all net tiles connected to repair_net */
       ulong total_overrun = repair_net_links[0][ MIDX( COUNTER, LINK, OVERRUN_POLLING_FRAG_COUNT ) ]; /* coarse double counting prevention */
       ulong total_consumed = 0UL;
-      for( ulong i = 0UL; i < net_tile_cnt; i++ ) {
+      for( ulong i = 0UL; i < net_cnt; i++ ) {
         volatile ulong * ovar_net_metrics = repair_net_links[i];
         total_overrun  += ovar_net_metrics[ MIDX( COUNTER, LINK, OVERRUN_READING_FRAG_COUNT ) ];
         total_consumed += ovar_net_metrics[ MIDX( COUNTER, LINK, CONSUMED_COUNT ) ]; /* consumed is incremented after after_frag is called */
@@ -709,7 +741,7 @@ repair_cmd_fn_catchup( args_t *   args,
 
       total_overrun  = net_shred_links[0][ MIDX( COUNTER, LINK, OVERRUN_READING_FRAG_COUNT ) ];
       total_consumed = 0UL;
-      for( ulong i = 0UL; i < net_tile_cnt; i++ ) {
+      for( ulong i = 0UL; i < net_cnt; i++ ) {
         volatile ulong * ovar_net_metrics = net_shred_links[i];
         total_overrun  += ovar_net_metrics[ MIDX( COUNTER, LINK, OVERRUN_READING_FRAG_COUNT ) ];
         total_consumed += ovar_net_metrics[ MIDX( COUNTER, LINK, CONSUMED_COUNT ) ]; /* shred frag filtering happens manually in after_frag, so no need to index every shred_tile. */
@@ -743,6 +775,7 @@ repair_cmd_fn_catchup( args_t *   args,
       printf("\n");
       fflush( stdout );
       last_print = now;
+      for( ulong i=0UL; i<FD_METRICS_TOTAL_SZ/sizeof(ulong); i++ ) repair_metrics_prev[ i ] = repair_metrics[ i ];
     }
 
     if( FD_UNLIKELY( catchup_finished ) ) {
