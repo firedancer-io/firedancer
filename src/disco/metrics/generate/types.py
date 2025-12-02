@@ -16,7 +16,7 @@ class Tile(Enum):
     STORE = 10
     SIGN = 11
     METRIC = 12
-    CSWTCH = 13
+    DIAG = 13
     EVENT = 14
     PLUGIN = 15
     GUI = 16

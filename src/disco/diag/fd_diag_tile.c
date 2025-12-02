@@ -9,11 +9,11 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "generated/fd_cswtch_tile_seccomp.h"
+#include "generated/fd_diag_tile_seccomp.h"
 
 #define REPORT_INTERVAL_MILLIS (100L)
 
-typedef struct {
+struct fd_diag_tile {
   long next_report_nanos;
 
   ulong tile_cnt;
@@ -25,7 +25,9 @@ typedef struct {
   int sched_fds[ FD_TILE_MAX ];
 
   volatile ulong * metrics[ FD_TILE_MAX ];
-} fd_cswtch_ctx_t;
+};
+
+typedef struct fd_diag_tile fd_diag_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -36,7 +38,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_diag_tile_t ), sizeof( fd_diag_tile_t ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -138,8 +140,10 @@ read_sched_file( int              fd,
         char * endptr;
         ulong seconds = strtoul( value, &endptr, 10 );
         if( FD_UNLIKELY( '.'!=*endptr ) ) FD_LOG_ERR(( "expected '.' after seconds in wait_sum" ));
+        if( FD_UNLIKELY( seconds==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for wait_sum seconds" ));
         ulong microseconds = strtoul( endptr + 1, &endptr, 10 );
         if( FD_UNLIKELY( '\0'!=*endptr ) ) FD_LOG_ERR(( "unexpected char after microseconds in wait_sum" ));
+        if( FD_UNLIKELY( microseconds==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for wait_sum microseconds" ));
         ulong wait_sum_ns = seconds*1000000000UL + microseconds*1000UL;
         metrics[ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_WAIT_OFF ] = wait_sum_ns;
         found_wait_sum = 1;
@@ -173,7 +177,9 @@ read_sched_file( int              fd,
     line = next_line + 1;
   }
 
-  if( FD_UNLIKELY( !found_wait_sum ) ) FD_LOG_ERR(( "wait_sum not found in sched file" ));
+  // wait_sum not present on kernels compiled without CONFIG_SCHEDSTATS=y
+  // if( FD_UNLIKELY( !found_wait_sum ) ) FD_LOG_ERR(( "wait_sum not found in sched file" ));
+  (void)found_wait_sum;
   if( FD_UNLIKELY( !found_voluntary ) ) FD_LOG_ERR(( "nr_voluntary_switches not found in sched file" ));
   if( FD_UNLIKELY( !found_involuntary ) ) FD_LOG_ERR(( "nr_involuntary_switches not found in sched file" ));
 
@@ -181,7 +187,7 @@ read_sched_file( int              fd,
 }
 
 static void
-before_credit( fd_cswtch_ctx_t *   ctx,
+before_credit( fd_diag_tile_t *    ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
@@ -257,9 +263,11 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
+  fd_diag_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_diag_tile_t), sizeof(fd_diag_tile_t) );
 
   FD_TEST( topo->tile_cnt<FD_TILE_MAX );
+
+  FD_TEST( 100L == sysconf( _SC_CLK_TCK ) );
 
   ctx->tile_cnt = topo->tile_cnt;
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) {
@@ -357,7 +365,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
+  fd_diag_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_diag_tile_t), sizeof(fd_diag_tile_t) );
 
   memset( ctx->first_seen_died, 0, sizeof( ctx->first_seen_died ) );
   ctx->next_report_nanos = fd_log_wallclock();
@@ -384,8 +392,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_cswtch_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_fd_cswtch_tile_instr_cnt;
+  populate_sock_filter_policy_fd_diag_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_diag_tile_instr_cnt;
 }
 
 static ulong
@@ -396,7 +404,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
+  fd_diag_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_diag_tile_t), sizeof(fd_diag_tile_t) );
 
   if( FD_UNLIKELY( out_fds_cnt<2UL+2UL*ctx->tile_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
@@ -414,15 +422,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_BURST (1UL)
 #define STEM_LAZY  ((long)10e6) /* 10ms */
 
-#define STEM_CALLBACK_CONTEXT_TYPE  fd_cswtch_ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_cswtch_ctx_t)
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_diag_tile_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_diag_tile_t)
 
 #define STEM_CALLBACK_BEFORE_CREDIT before_credit
 
 #include "../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_cswtch = {
-  .name                     = "cswtch",
+fd_topo_run_tile_t fd_tile_diag = {
+  .name                     = "diag",
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
