@@ -1324,12 +1324,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     }
   }
 
-  if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-    fd_acc_pool_release( runtime->acc_pool, (uchar *)txn_out->accounts.rollback_nonce );
-  }
-  if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-    fd_acc_pool_release( runtime->acc_pool, (uchar *)txn_out->accounts.rollback_fee_payer );
-  }
+  fd_acc_pool_release( runtime->acc_pool, txn_out->accounts.rollback_nonce_mem );
+  fd_acc_pool_release( runtime->acc_pool, txn_out->accounts.rollback_fee_payer_mem );
 }
 
 void
@@ -1345,12 +1341,8 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
     }
   }
 
-  if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-    fd_acc_pool_release( runtime->acc_pool, (uchar *)txn_out->accounts.rollback_nonce );
-  }
-  if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX && txn_out->accounts.rollback_fee_payer ) ) {
-    fd_acc_pool_release( runtime->acc_pool, (uchar *)txn_out->accounts.rollback_fee_payer );
-  }
+  fd_acc_pool_release( runtime->acc_pool, txn_out->accounts.rollback_nonce_mem );
+  fd_acc_pool_release( runtime->acc_pool, txn_out->accounts.rollback_fee_payer_mem );
 }
 
 static inline void

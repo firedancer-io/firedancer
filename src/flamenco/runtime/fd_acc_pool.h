@@ -6,9 +6,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* TODO:FIXME: Make sure that there are enough accounts for the
-   rollbacks + instructions sysvar. */
-
 struct fd_acc_pool;
 typedef struct fd_acc_pool fd_acc_pool_t;
 

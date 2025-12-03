@@ -972,8 +972,8 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
           NULL );
     }
 
-    fd_acc_pool_acquire( runtime->acc_pool, 1, fd_type_pun( &txn_out->accounts.rollback_fee_payer ) );
-    uchar * fee_payer_data = fd_type_pun( txn_out->accounts.rollback_fee_payer );
+    //fd_acc_pool_acquire( runtime->acc_pool, 1, fd_type_pun( &txn_out->accounts.rollback_fee_payer ) );
+    uchar * fee_payer_data = txn_out->accounts.rollback_fee_payer_mem;
     fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
     txn_out->accounts.rollback_fee_payer = fd_type_pun( fee_payer_data );
   }
@@ -1473,9 +1473,11 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
     if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
       account_meta = (fd_account_meta_t *)meta;
+    } else if( !memcmp( acc, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) ) {
+      account_meta = fd_type_pun( runtime->accounts.sysvar_instructions_mem );
+      fd_account_meta_init( account_meta );
     } else {
-      uchar * mem = fd_type_pun( runtime->accounts.default_meta[idx] );
-      account_meta = (fd_account_meta_t *)mem;
+      account_meta = &runtime->accounts.default_meta[ idx ];
       fd_account_meta_init( account_meta );
     }
   }
@@ -1541,11 +1543,18 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     }
   }
 
-  /* TODO:FIXME: We probably need to overprovision for rollbacks here. */
+  /* At this point we know which accounts are writable, but we don't
+     know if we will need to create an account for the rollback fee
+     payer or nonce account.  To avoid a potental deadlock, we will want
+     to request the worst-case number of accounts (# writable accounts +
+     2 rollback accounts) for the transaction in one call to
+     fd_acc_pool_acquire. */
 
   ulong   writable_accs_idx = 0UL;
-  uchar * writable_accs_mem[ MAX_TX_ACCOUNT_LOCKS ];
-  fd_acc_pool_acquire( runtime->acc_pool, writable_account_cnt, writable_accs_mem );
+  uchar * writable_accs_mem[ MAX_TX_ACCOUNT_LOCKS + 2UL ];
+  fd_acc_pool_acquire( runtime->acc_pool, writable_account_cnt + 2UL, writable_accs_mem );
+  txn_out->accounts.rollback_fee_payer_mem = writable_accs_mem[ writable_account_cnt ];
+  txn_out->accounts.rollback_nonce_mem     = writable_accs_mem[ writable_account_cnt+1UL ];
 
   ushort executable_idx = 0U;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {

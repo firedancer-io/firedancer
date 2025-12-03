@@ -1037,8 +1037,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
         }
         /* make_modifiable uses the old length for the data copy */
 
-        fd_acc_pool_acquire( runtime->acc_pool, 1, fd_type_pun( &txn_out->accounts.rollback_nonce ) );
-        void * borrowed_account_data = txn_out->accounts.rollback_nonce;
+        void * borrowed_account_data = txn_out->accounts.rollback_nonce_mem;
 
         if( FD_UNLIKELY( !borrowed_account_data ) ) {
           FD_LOG_CRIT(( "Failed to allocate memory for nonce account" ));

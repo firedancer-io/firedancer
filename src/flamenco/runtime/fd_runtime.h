@@ -42,8 +42,14 @@ struct fd_runtime {
     fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];      /* Array of BPF upgradeable loader program data accounts */
     fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];    /* Array of BPF upgradeable loader program data accounts */
 
-    /* TODO:FIXME: Fix this hack. sysvar instructions. */
-    uchar                     default_meta[ MAX_TX_ACCOUNT_LOCKS ][ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));         /* Array of default account metadata */
+    /* Read-only accounts that don't exist will be initialized with
+       default values. */
+    fd_account_meta_t         default_meta[ MAX_TX_ACCOUNT_LOCKS ];
+
+    /* The sysvar instructions account is a special account that is
+       modified through the course of transaction execution, but its
+       results are not committed to the bank or accounts database. */
+    uchar                     sysvar_instructions_mem[ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
 
     ulong                     starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
     ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */
@@ -220,10 +226,12 @@ struct fd_txn_out {
        store the state of these accounts after fees have been debited
        and the nonce has been advanced, but before the transaction is
        executed. */
+    uchar *                         rollback_fee_payer_mem;
     fd_account_meta_t *             rollback_fee_payer;
     /* If the transaction has a nonce account that must be advanced,
        this would be !=ULONG_MAX. */
     ulong                           nonce_idx_in_txn;
+    uchar *                         rollback_nonce_mem;
     fd_account_meta_t *             rollback_nonce;
   } accounts;
 };
