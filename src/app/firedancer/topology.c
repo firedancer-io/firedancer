@@ -156,13 +156,10 @@ setup_topo_txncache( fd_topo_t *  topo,
 
 fd_topo_obj_t *
 setup_topo_acc_pool( fd_topo_t * topo,
-                     ulong       account_cnt ) {
+                     ulong       max_account_cnt ) {
   fd_topob_wksp( topo, "acc_pool" );
-
-  account_cnt = 256UL;
-  FD_LOG_NOTICE(("setup_topo_acc_pool: account_cnt: %lu", account_cnt));
   fd_topo_obj_t * acc_pool_obj = fd_topob_obj( topo, "acc_pool", "acc_pool" );
-  fd_pod_insertf_ulong( topo->props, account_cnt, "obj.%lu.account_cnt", acc_pool_obj->id );
+  fd_pod_insertf_ulong( topo->props, max_account_cnt, "obj.%lu.account_cnt", acc_pool_obj->id );
   FD_TEST( acc_pool_obj );
   FD_TEST( acc_pool_obj->id != ULONG_MAX );
   return acc_pool_obj;
@@ -961,7 +958,9 @@ fd_topo_initialize( config_t * config ) {
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
-  fd_topo_obj_t * acc_pool_obj = setup_topo_acc_pool( topo, config->firedancer.runtime.max_account_count );
+  if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) FD_TEST( config->firedancer.runtime.max_account_cnt >= 1024UL );
+  FD_TEST( config->firedancer.runtime.max_account_cnt >= 256UL );
+  fd_topo_obj_t * acc_pool_obj = setup_topo_acc_pool( topo, config->firedancer.runtime.max_account_cnt );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec",   i   ) ], acc_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(bank_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], acc_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, acc_pool_obj->id, "acc_pool" ) );
