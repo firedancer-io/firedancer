@@ -269,7 +269,7 @@ typedef struct {
   struct {
     uint metric_state;
     long metric_state_begin;
-    long metric_timing[ 16 ];
+    long metric_timing[ FD_METRICS_ENUM_PACK_TIMING_STATE_CNT ];
   };
 
   /* last_sched_metrics is a snapshot of the schedule outcome counters
@@ -307,7 +307,7 @@ typedef struct {
     fd_keyswitch_t *      keyswitch;
     fd_keyguard_client_t  keyguard_client[1];
 
-    ulong                 metrics[4];
+    ulong                 metrics[FD_METRICS_ENUM_BUNDLE_CRANK_RESULT_CNT];
   } crank[1];
 
 
