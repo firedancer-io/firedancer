@@ -1,5 +1,5 @@
 /* The backtest command spawns a smaller topology for replaying shreds from
-   rocksdb (or other sources TBD) and reproduce the behavior of replay tile.
+   shredcap and reproduce the behavior of replay tile.
 
    The smaller topology is:
            shred_out             replay_exec

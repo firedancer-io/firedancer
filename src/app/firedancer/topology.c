@@ -1426,25 +1426,15 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                           !strcmp( tile->name, "arch_w" ) ) ) {
 
-    strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, sizeof(tile->archiver.rocksdb_path) );
+    strncpy( tile->archiver.archive_path, config->tiles.archiver.archive_path, sizeof(tile->archiver.archive_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 
     tile->backtest.end_slot = config->tiles.archiver.end_slot;
 
-    /* Validate arguments based on the ingest mode */
-    if( !strcmp( config->tiles.archiver.ingest_mode, "rocksdb" ) ) {
-      strncpy( tile->backtest.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->backtest.rocksdb_path ) ) ) {
-        FD_LOG_ERR(( "`archiver.rocksdb_path` not specified in toml" ));
-      }
-    } else if( !strcmp( config->tiles.archiver.ingest_mode, "shredcap" ) ) {
-      strncpy( tile->backtest.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->backtest.shredcap_path ) ) ) {
-        FD_LOG_ERR(( "`archiver.shredcap_path` not specified in toml" ));
-      }
-    } else {
-      FD_LOG_ERR(( "Invalid ingest mode: %s", config->tiles.archiver.ingest_mode ));
+    strncpy( tile->backtest.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
+    if( FD_UNLIKELY( 0==strlen( tile->backtest.shredcap_path ) ) ) {
+      FD_LOG_ERR(( "`archiver.shredcap_path` not specified in toml" ));
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {

@@ -57,8 +57,6 @@ sysroot () {
     bzip2-devel bzip2-static
     lz4-devel lz4-static
     libzstd-devel libzstd-static
-    snappy-devel snappy
-    rocksdb-devel rocksdb
   )
 
   # Resolve packages

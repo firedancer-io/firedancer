@@ -476,9 +476,8 @@ struct fd_config {
     struct {
       int   enabled;
       ulong end_slot;
-      char  rocksdb_path[ PATH_MAX ];
+      char  archive_path[ PATH_MAX ];
       char  shredcap_path[ PATH_MAX ];
-      char  ingest_mode[ 32 ];
     } archiver;
 
     struct {
