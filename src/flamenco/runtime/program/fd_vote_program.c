@@ -2133,31 +2133,6 @@ fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
   fd_vsv_try_convert_to_v3( self, authorized_voters_mem, landed_votes_mem );
 }
 
-void
-fd_vote_store_account( fd_txn_account_t * vote_account,
-                       fd_bank_t *        bank ) {
-
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-
-  if( fd_txn_account_get_lamports( vote_account )==0UL ) {
-    fd_vote_states_remove( vote_states, vote_account->pubkey );
-    fd_bank_vote_states_end_locking_modify( bank );
-    return;
-  }
-
-  if( !fd_vsv_is_correct_size_and_initialized( vote_account ) ) {
-    fd_vote_states_remove( vote_states, vote_account->pubkey );
-    fd_bank_vote_states_end_locking_modify( bank );
-    return;
-  }
-
-  fd_vote_states_update_from_account( vote_states,
-                                      vote_account->pubkey,
-                                      fd_txn_account_get_data( vote_account ),
-                                      fd_txn_account_get_data_len( vote_account ) );
-  fd_bank_vote_states_end_locking_modify( bank );
-}
-
 fd_vote_state_versioned_t *
 fd_vote_get_state( fd_txn_account_t const * self,
                    uchar *                  mem ) {

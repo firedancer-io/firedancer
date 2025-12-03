@@ -146,9 +146,6 @@ fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
                             uchar *                     authorized_voters_mem,
                             uchar *                     landed_votes_mem );
 
-void
-fd_vote_store_account( fd_txn_account_t *   vote_account,
-                       fd_bank_t *          bank );
 
 FD_PROTOTYPES_END
 
