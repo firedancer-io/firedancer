@@ -13,7 +13,7 @@ endif
 
 $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
-ifdef FD_HAS_INT128
+ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_util)
 endif
 
@@ -27,7 +27,7 @@ endif
 
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
-ifdef FD_HAS_INT128
+ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_cost_tracker,test_cost_tracker,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_cost_tracker,)
 endif
@@ -52,7 +52,7 @@ endif
 $(call add-hdrs,fd_bank.h)
 $(call add-objs,fd_bank,fd_flamenco)
 ifdef FD_HAS_HOSTED
-ifdef FD_HAS_INT128
+ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_bank,test_bank,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_bank,)
 endif
