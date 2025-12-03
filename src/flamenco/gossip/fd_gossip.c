@@ -139,19 +139,20 @@ ping_tracker_change( void *        _ctx,
                      uchar const * peer_pubkey,
                      fd_ip4_port_t peer_address,
                      long          now,
-                     int           change_type ) {
+                     int           change_type,
+                     ulong         peer_idx ) {
   fd_gossip_t * ctx = (fd_gossip_t *)_ctx;
 
   if( FD_UNLIKELY( !memcmp( peer_pubkey, ctx->identity_pubkey, 32UL ) ) ) return;
 
   switch( change_type ) {
     case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:   fd_crds_peer_active( ctx->crds, peer_pubkey, now ); break;
-    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE: fd_crds_peer_inactive( ctx->crds, peer_pubkey, now ); break;
-    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED: break;
+    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE:
+    case FD_PING_TRACKER_CHANGE_TYPE_REMOVE:   fd_crds_peer_inactive( ctx->crds, peer_pubkey, now ); break;
     default: FD_LOG_ERR(( "Unknown change type %d", change_type )); return;
   }
 
-  ctx->ping_tracker_change_fn( ctx->ping_tracker_change_fn_ctx, peer_pubkey, peer_address, now, change_type );
+  ctx->ping_tracker_change_fn( ctx->ping_tracker_change_fn_ctx, peer_pubkey, peer_address, now, change_type, peer_idx );
 }
 
 void *
@@ -417,7 +418,8 @@ get_stake( fd_gossip_t const * gossip,
 void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,
                          fd_stake_weight_t const * stake_weights,
-                         ulong                     stake_weights_cnt ) {
+                         ulong                     stake_weights_cnt,
+                         long                      now ) {
   if( FD_UNLIKELY( stake_weights_cnt>CRDS_MAX_CONTACT_INFO ) ) {
     FD_LOG_ERR(( "stake_weights_cnt %lu exceeds maximum of %d", stake_weights_cnt, CRDS_MAX_CONTACT_INFO ));
   }
@@ -434,7 +436,10 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
     entry->stake = stake_weights[i].stake;
 
     stake_map_idx_insert( gossip->stake.map, i, gossip->stake.pool );
+
+    fd_ping_tracker_update_stake( gossip->ping_tracker, entry->pubkey.uc, entry->stake, now );
   }
+
   /* Update the identity stake */
   gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
   gossip->stake.count    = stake_weights_cnt;
@@ -671,8 +676,7 @@ rx_pong( fd_gossip_t *           gossip,
          fd_gossip_view_pong_t * pong,
          fd_ip4_port_t           peer_address,
          long                    now ) {
-  ulong stake = get_stake( gossip, pong->pubkey );
-  fd_ping_tracker_register( gossip->ping_tracker, pong->pubkey, stake, peer_address, pong->ping_hash, now );
+  fd_ping_tracker_register( gossip->ping_tracker, pong->pubkey, peer_address, pong->ping_hash, now );
 }
 
 void
@@ -910,6 +914,7 @@ fd_gossip_advance( fd_gossip_t *       gossip,
                    long                now,
                    fd_stem_context_t * stem ) {
   fd_crds_advance( gossip->crds, now, stem );
+  fd_ping_tracker_advance( gossip->ping_tracker, now );
   tx_ping( gossip, stem, now );
   flush_stale_push_states( gossip, stem, now );
   if( FD_UNLIKELY( now>=gossip->timers.next_pull_request ) ) {
@@ -919,7 +924,7 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   if( FD_UNLIKELY( now>=gossip->timers.next_contact_info_refresh ) ) {
     /* TODO: Frequency of this? More often if observing? */
     refresh_contact_info( gossip, now );
-    push_my_contact_info( gossip, stem, now);
+    push_my_contact_info( gossip, stem, now );
     gossip->timers.next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
   }
   if( FD_UNLIKELY( now>=gossip->timers.next_active_set_refresh ) ) {
