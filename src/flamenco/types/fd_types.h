@@ -555,7 +555,7 @@ deq_fd_landed_vote_t_join_new( void * * alloc_mem, ulong max ) {
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 /* Encoded Size: Dynamic */
-struct fd_vote_state {
+struct fd_vote_state_v3 {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
@@ -567,8 +567,8 @@ struct fd_vote_state {
   fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
-typedef struct fd_vote_state fd_vote_state_t;
-#define FD_VOTE_STATE_ALIGN alignof(fd_vote_state_t)
+typedef struct fd_vote_state_v3 fd_vote_state_v3_t;
+#define FD_VOTE_STATE_V3_ALIGN alignof(fd_vote_state_v3_t)
 
 /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v4.rs#L30-L71 */
 /* Encoded Size: Dynamic */
@@ -595,7 +595,7 @@ typedef struct fd_vote_state_v4 fd_vote_state_v4_t;
 union fd_vote_state_versioned_inner {
   fd_vote_state_0_23_5_t v0_23_5;
   fd_vote_state_1_14_11_t v1_14_11;
-  fd_vote_state_t current;
+  fd_vote_state_v3_t v3;
   fd_vote_state_v4_t v4;
 };
 typedef union fd_vote_state_versioned_inner fd_vote_state_versioned_inner_t;
@@ -2035,13 +2035,13 @@ static inline ulong fd_vote_state_1_14_11_align( void ) { return FD_VOTE_STATE_1
 int fd_vote_state_1_14_11_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_vote_state_1_14_11_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-void fd_vote_state_new( fd_vote_state_t * self );
-int fd_vote_state_encode( fd_vote_state_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_vote_state_walk( void * w, fd_vote_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_vote_state_size( fd_vote_state_t const * self );
-static inline ulong fd_vote_state_align( void ) { return FD_VOTE_STATE_ALIGN; }
-int fd_vote_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_vote_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_vote_state_v3_new( fd_vote_state_v3_t * self );
+int fd_vote_state_v3_encode( fd_vote_state_v3_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_vote_state_v3_walk( void * w, fd_vote_state_v3_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_vote_state_v3_size( fd_vote_state_v3_t const * self );
+static inline ulong fd_vote_state_v3_align( void ) { return FD_VOTE_STATE_V3_ALIGN; }
+int fd_vote_state_v3_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_vote_state_v3_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_state_v4_new( fd_vote_state_v4_t * self );
 int fd_vote_state_v4_encode( fd_vote_state_v4_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -2062,12 +2062,12 @@ void * fd_vote_state_versioned_decode( void * mem, fd_bincode_decode_ctx_t * ctx
 
 FD_FN_PURE uchar fd_vote_state_versioned_is_v0_23_5( fd_vote_state_versioned_t const * self );
 FD_FN_PURE uchar fd_vote_state_versioned_is_v1_14_11( fd_vote_state_versioned_t const * self );
-FD_FN_PURE uchar fd_vote_state_versioned_is_current( fd_vote_state_versioned_t const * self );
+FD_FN_PURE uchar fd_vote_state_versioned_is_v3( fd_vote_state_versioned_t const * self );
 FD_FN_PURE uchar fd_vote_state_versioned_is_v4( fd_vote_state_versioned_t const * self );
 enum {
 fd_vote_state_versioned_enum_v0_23_5 = 0,
 fd_vote_state_versioned_enum_v1_14_11 = 1,
-fd_vote_state_versioned_enum_current = 2,
+fd_vote_state_versioned_enum_v3 = 2,
 fd_vote_state_versioned_enum_v4 = 3,
 };
 void fd_vote_state_update_new( fd_vote_state_update_t * self );

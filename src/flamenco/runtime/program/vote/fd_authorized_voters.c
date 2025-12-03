@@ -154,8 +154,8 @@ fd_authorized_voters_get_and_update_authorized_voter( fd_vote_state_versioned_t 
                                                       ulong                       current_epoch,
                                                       fd_pubkey_t **              pubkey /* out */ ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      return fd_vote_state_v3_get_and_update_authorized_voter( &self->inner.current, current_epoch, pubkey );
+    case fd_vote_state_versioned_enum_v3:
+      return fd_vote_state_v3_get_and_update_authorized_voter( &self->inner.v3, current_epoch, pubkey );
     case fd_vote_state_versioned_enum_v4:
       return fd_vote_state_v4_get_and_update_authorized_voter( &self->inner.v4, current_epoch, pubkey );
     default:

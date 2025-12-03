@@ -20,8 +20,8 @@ static inline fd_vote_lockout_t *
 last_lockout( fd_vote_state_versioned_t * self ) {
   fd_landed_vote_t * votes = NULL;
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      votes = self->inner.current.votes;
+    case fd_vote_state_versioned_enum_v3:
+      votes = self->inner.v3.votes;
       break;
     case fd_vote_state_versioned_enum_v4:
       votes = self->inner.v4.votes;
@@ -71,8 +71,8 @@ fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
       return &self->inner.v0_23_5.authorized_withdrawer;
     case fd_vote_state_versioned_enum_v1_14_11:
       return &self->inner.v1_14_11.authorized_withdrawer;
-    case fd_vote_state_versioned_enum_current:
-      return &self->inner.current.authorized_withdrawer;
+    case fd_vote_state_versioned_enum_v3:
+      return &self->inner.v3.authorized_withdrawer;
     case fd_vote_state_versioned_enum_v4:
       return &self->inner.v4.authorized_withdrawer;
     default:
@@ -83,8 +83,8 @@ fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
 uchar
 fd_vsv_get_commission( fd_vote_state_versioned_t * self ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      return self->inner.current.commission;
+    case fd_vote_state_versioned_enum_v3:
+      return self->inner.v3.commission;
     case fd_vote_state_versioned_enum_v4:
       return (uchar)(self->inner.v4.inflation_rewards_commission_bps/100);
     default:
@@ -112,9 +112,9 @@ fd_vsv_get_last_voted_slot( fd_vote_state_versioned_t * self ) {
 ulong const *
 fd_vsv_get_root_slot( fd_vote_state_versioned_t * self ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      if( !self->inner.current.has_root_slot ) return NULL;
-      return &self->inner.current.root_slot;
+    case fd_vote_state_versioned_enum_v3:
+      if( !self->inner.v3.has_root_slot ) return NULL;
+      return &self->inner.v3.root_slot;
     case fd_vote_state_versioned_enum_v4:
       if( !self->inner.v4.has_root_slot ) return NULL;
       return &self->inner.v4.root_slot;
@@ -126,8 +126,8 @@ fd_vsv_get_root_slot( fd_vote_state_versioned_t * self ) {
 fd_vote_block_timestamp_t const *
 fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      return &self->inner.current.last_timestamp;
+    case fd_vote_state_versioned_enum_v3:
+      return &self->inner.v3.last_timestamp;
     case fd_vote_state_versioned_enum_v4:
       return &self->inner.v4.last_timestamp;
     default:
@@ -142,8 +142,8 @@ fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self ) {
 fd_vote_epoch_credits_t *
 fd_vsv_get_epoch_credits_mutable( fd_vote_state_versioned_t * self ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      return self->inner.current.epoch_credits;
+    case fd_vote_state_versioned_enum_v3:
+      return self->inner.v3.epoch_credits;
     case fd_vote_state_versioned_enum_v4:
       return self->inner.v4.epoch_credits;
     default:
@@ -154,8 +154,8 @@ fd_vsv_get_epoch_credits_mutable( fd_vote_state_versioned_t * self ) {
 fd_landed_vote_t *
 fd_vsv_get_votes_mutable( fd_vote_state_versioned_t * self ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      return self->inner.current.votes;
+    case fd_vote_state_versioned_enum_v3:
+      return self->inner.v3.votes;
     case fd_vote_state_versioned_enum_v4:
       return self->inner.v4.votes;
     default:
@@ -201,7 +201,7 @@ fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                fd_vote_state_versioned_t * versioned,
                                uchar *                     vote_lockout_mem ) {
   switch( versioned->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
+    case fd_vote_state_versioned_enum_v3:
       return fd_vote_state_v3_set_vote_account_state( ctx, vote_account, versioned, vote_lockout_mem );
     case fd_vote_state_versioned_enum_v4:
       return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
@@ -214,8 +214,8 @@ void
 fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
                                   fd_pubkey_t const *         authorized_withdrawer ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current: {
-      self->inner.current.authorized_withdrawer = *authorized_withdrawer;
+    case fd_vote_state_versioned_enum_v3: {
+      self->inner.v3.authorized_withdrawer = *authorized_withdrawer;
       break;
     }
     case fd_vote_state_versioned_enum_v4: {
@@ -236,10 +236,10 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *                      ctx,
                                  /* "verify" closure */ int                 authorized_withdrawer_signer,
                                  /* "verify" closure */ fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
+    case fd_vote_state_versioned_enum_v3:
       return fd_vote_state_v3_set_new_authorized_voter(
           ctx,
-          &self->inner.current,
+          &self->inner.v3,
           authorized_pubkey,
           current_epoch,
           target_epoch,
@@ -265,8 +265,8 @@ void
 fd_vsv_set_node_pubkey( fd_vote_state_versioned_t * self,
                         fd_pubkey_t const *         node_pubkey ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      self->inner.current.node_pubkey = *node_pubkey;
+    case fd_vote_state_versioned_enum_v3:
+      self->inner.v3.node_pubkey = *node_pubkey;
       break;
     case fd_vote_state_versioned_enum_v4:
       self->inner.v4.node_pubkey = *node_pubkey;
@@ -288,8 +288,8 @@ void
 fd_vsv_set_commission( fd_vote_state_versioned_t * self,
                        uchar                       commission ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      self->inner.current.commission = commission;
+    case fd_vote_state_versioned_enum_v3:
+      self->inner.v3.commission = commission;
       break;
     case fd_vote_state_versioned_enum_v4:
       self->inner.v4.inflation_rewards_commission_bps = commission*100;
@@ -302,10 +302,10 @@ fd_vsv_set_commission( fd_vote_state_versioned_t * self,
 void
 fd_vsv_set_root_slot( fd_vote_state_versioned_t * self, ulong * root_slot ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      self->inner.current.has_root_slot = (root_slot!=NULL);
+    case fd_vote_state_versioned_enum_v3:
+      self->inner.v3.has_root_slot = (root_slot!=NULL);
       if( FD_LIKELY( root_slot ) ) {
-        self->inner.current.root_slot = *root_slot;
+        self->inner.v3.root_slot = *root_slot;
       }
       break;
     case fd_vote_state_versioned_enum_v4:
@@ -321,8 +321,8 @@ static void
 fd_vsv_set_last_timestamp( fd_vote_state_versioned_t *       self,
                            fd_vote_block_timestamp_t const * last_timestamp ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      self->inner.current.last_timestamp = *last_timestamp;
+    case fd_vote_state_versioned_enum_v3:
+      self->inner.v3.last_timestamp = *last_timestamp;
       break;
     case fd_vote_state_versioned_enum_v4:
       self->inner.v4.last_timestamp = *last_timestamp;
@@ -517,9 +517,9 @@ fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
             state->authorized_voter_epoch, &state->authorized_voter, authorized_voters_mem );
       }
 
-      /* Temporary to hold current */
+      /* Temporary to hold v3 */
       /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L54-L72 */
-      fd_vote_state_t current = {
+      fd_vote_state_v3_t v3 = {
         .node_pubkey           = state->node_pubkey,
         .authorized_withdrawer = state->authorized_withdrawer,
         .commission            = state->commission,
@@ -536,8 +536,8 @@ fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
       };
 
       /* Emplace new vote state into target */
-      self->discriminant = fd_vote_state_versioned_enum_current;
-      self->inner.current = current;
+      self->discriminant = fd_vote_state_versioned_enum_v3;
+      self->inner.v3 = v3;
 
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
@@ -545,8 +545,8 @@ fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
     case fd_vote_state_versioned_enum_v1_14_11: {
       fd_vote_state_1_14_11_t * state = &self->inner.v1_14_11;
 
-      /* Temporary to hold current */
-      fd_vote_state_t current = {
+      /* Temporary to hold v3 */
+      fd_vote_state_v3_t v3 = {
         .node_pubkey            = state->node_pubkey,
         .authorized_withdrawer  = state->authorized_withdrawer,
         .commission             = state->commission,
@@ -560,13 +560,13 @@ fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
       };
 
       /* Emplace new vote state into target */
-      self->discriminant = fd_vote_state_versioned_enum_current;
-      self->inner.current = current;
+      self->discriminant = fd_vote_state_versioned_enum_v3;
+      self->inner.v3 = v3;
 
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
     /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L93 */
-    case fd_vote_state_versioned_enum_current:
+    case fd_vote_state_versioned_enum_v3:
       return FD_EXECUTOR_INSTR_SUCCESS;
     /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L96 */
     case fd_vote_state_versioned_enum_v4:
@@ -612,8 +612,8 @@ fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L990-L1004 */
-    case fd_vote_state_versioned_enum_current: {
-      fd_vote_state_t * state = &self->inner.current;
+    case fd_vote_state_versioned_enum_v3: {
+      fd_vote_state_v3_t * state = &self->inner.v3;
       fd_vote_state_v4_t v4 = {
         .node_pubkey                      = state->node_pubkey,
         .authorized_withdrawer            = state->authorized_withdrawer,
@@ -654,9 +654,9 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
     case VOTE_STATE_TARGET_VERSION_V3: {
       /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L878 */
       fd_vote_state_versioned_t versioned;
-      fd_vote_state_versioned_new_disc( &versioned, fd_vote_state_versioned_enum_current );
-      versioned.inner.current.prior_voters.idx      = 31;
-      versioned.inner.current.prior_voters.is_empty = 1;
+      fd_vote_state_versioned_new_disc( &versioned, fd_vote_state_versioned_enum_v3 );
+      versioned.inner.v3.prior_voters.idx      = 31;
+      versioned.inner.v3.prior_voters.is_empty = 1;
       return fd_vote_state_v3_set_vote_account_state(
           ctx,
           vote_account,

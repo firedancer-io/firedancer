@@ -212,8 +212,8 @@ fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *           
         case fd_vote_state_versioned_enum_v1_14_11:
           epoch_credits = res->inner.v1_14_11.epoch_credits;
           break;
-        case fd_vote_state_versioned_enum_current:
-          epoch_credits = res->inner.current.epoch_credits;
+        case fd_vote_state_versioned_enum_v3:
+          epoch_credits = res->inner.v3.epoch_credits;
           break;
         default:
           __builtin_unreachable();

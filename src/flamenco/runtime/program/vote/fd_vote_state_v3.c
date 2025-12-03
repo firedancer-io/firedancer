@@ -9,13 +9,13 @@
 /* impl From<VoteState> for VoteState1_14_11                          */
 /**********************************************************************/
 
-/* from_vote_state_1_14_11 converts a "current" vote state object into
-   the older "v1.14.11" version.  This destroys the "current" object in
+/* from_vote_state_1_14_11 converts a "v3" vote state object into
+   the older "v1.14.11" version.  This destroys the "v3" object in
    the process. */
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L67
 static void
-from_vote_state_1_14_11( fd_vote_state_t *         vote_state,
+from_vote_state_1_14_11( fd_vote_state_v3_t *      vote_state,
                          fd_vote_state_1_14_11_t * vote_state_1_14_11, /* out */
                          uchar *                   vote_lockout_mem ) {
   vote_state_1_14_11->node_pubkey           = vote_state->node_pubkey;            /* copy */
@@ -58,9 +58,9 @@ fd_vote_program_v3_create_new( fd_vote_init_t * const        vote_init,
                                fd_sol_sysvar_clock_t const * clock,
                                uchar *                       authorized_voters_mem,
                                fd_vote_state_versioned_t *   versioned /* out */ ) {
-  versioned->discriminant = fd_vote_state_versioned_enum_current;
+  versioned->discriminant = fd_vote_state_versioned_enum_v3;
 
-  fd_vote_state_t * vote_state      = &versioned->inner.current;
+  fd_vote_state_v3_t * vote_state      = &versioned->inner.v3;
   vote_state->node_pubkey           = vote_init->node_pubkey;
   vote_state->authorized_voters     = *fd_authorized_voters_new( clock->epoch, &vote_init->authorized_voter, authorized_voters_mem );
   vote_state->authorized_withdrawer = vote_init->authorized_withdrawer;
@@ -77,7 +77,7 @@ fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                          uchar *                     vote_lockout_mem ) {
   /* This is a horrible conditional expression in Agave.
      The terms were broken up into their own variables. */
-  fd_vote_state_t * v3_vote_state = &versioned->inner.current;
+  fd_vote_state_v3_t * v3_vote_state = &versioned->inner.v3;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L420-L424 */
   fd_rent_t const rent               = fd_sysvar_cache_rent_read_nofail( ctx->sysvar_cache );
@@ -123,10 +123,10 @@ fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* Unlike vote states v4 decoding, vote state v3 decoding will fail
-     if the discriminant is > fd_vote_state_versioned_enum_current.
+     if the discriminant is > fd_vote_state_versioned_enum_v3.
      https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L198 */
   fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
-  if( FD_UNLIKELY( versioned->discriminant>fd_vote_state_versioned_enum_current ) ) {
+  if( FD_UNLIKELY( versioned->discriminant>fd_vote_state_versioned_enum_v3 ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -135,13 +135,14 @@ fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L828
 int
-fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_t * self,
-                                                  ulong             current_epoch,
-                                                  fd_pubkey_t **    pubkey /* out */ ) {
+fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_v3_t * self,
+                                                  ulong                current_epoch,
+                                                  fd_pubkey_t **       pubkey /* out */ ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L832
-  fd_vote_authorized_voter_t * authorized_voter =
-      fd_authorized_voters_get_and_cache_authorized_voter_for_epoch( &self->authorized_voters,
-                                                                  current_epoch );
+  fd_vote_authorized_voter_t * authorized_voter = fd_authorized_voters_get_and_cache_authorized_voter_for_epoch(
+      &self->authorized_voters,
+      current_epoch
+  );
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L835
   if( FD_UNLIKELY( !authorized_voter ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   *pubkey = &authorized_voter->pubkey;
@@ -153,7 +154,7 @@ fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_t * self,
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L263-L321 */
 int
 fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *                      ctx,
-                                           fd_vote_state_t *                          self,
+                                           fd_vote_state_v3_t *                       self,
                                            fd_pubkey_t const *                        authorized_pubkey,
                                            ulong                                      current_epoch,
                                            ulong                                      target_epoch,

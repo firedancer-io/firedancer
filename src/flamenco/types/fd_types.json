@@ -403,7 +403,7 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
     },
     {
-      "name": "vote_state",
+      "name": "vote_state_v3",
       "type": "struct",
       "fields": [
           { "name": "node_pubkey", "type": "pubkey" },
@@ -445,7 +445,7 @@
       "variants": [
         { "name": "v0_23_5", "type": "vote_state_0_23_5" },
         { "name": "v1_14_11", "type": "vote_state_1_14_11" },
-        { "name": "current", "type": "vote_state" },
+        { "name": "v3", "type": "vote_state_v3" },
         { "name": "v4", "type": "vote_state_v4"}
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4"

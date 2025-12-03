@@ -68,8 +68,8 @@ is_uninitialized( fd_vote_state_versioned_t * self ) {
     }
     case fd_vote_state_versioned_enum_v1_14_11:
       return fd_authorized_voters_is_empty( &self->inner.v1_14_11.authorized_voters );
-    case fd_vote_state_versioned_enum_current:
-      return fd_authorized_voters_is_empty( &self->inner.current.authorized_voters );
+    case fd_vote_state_versioned_enum_v3:
+      return fd_authorized_voters_is_empty( &self->inner.v3.authorized_voters );
     case fd_vote_state_versioned_enum_v4:
       return 0; // v4 vote states are always initialized
     default:
@@ -2168,6 +2168,7 @@ fd_vote_fd_vsv_get_state( fd_txn_account_t const * self,
   return err ? NULL : (fd_vote_state_versioned_t *)mem;
 }
 
+/* TODO: Old code, remove whenever stake program gets cleaned up */
 void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
                             uchar *                     authorized_voters_mem,

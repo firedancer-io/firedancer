@@ -532,10 +532,10 @@ void *fd_vote_state_1_14_11_generate( void *mem, void **alloc_mem, fd_rng_t * rn
   return mem;
 }
 
-void *fd_vote_state_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_vote_state_t *self = (fd_vote_state_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_state_t);
-  fd_vote_state_new(mem);
+void *fd_vote_state_v3_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
+  fd_vote_state_v3_t *self = (fd_vote_state_v3_t *) mem;
+  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_state_v3_t);
+  fd_vote_state_v3_new(mem);
   fd_pubkey_generate( &self->node_pubkey, alloc_mem, rng );
   fd_pubkey_generate( &self->authorized_withdrawer, alloc_mem, rng );
   self->commission = fd_rng_uchar( rng );
@@ -618,7 +618,7 @@ void fd_vote_state_versioned_inner_generate( fd_vote_state_versioned_inner_t * s
     break;
   }
   case 2: {
-    fd_vote_state_generate( &self->current, alloc_mem, rng );
+    fd_vote_state_v3_generate( &self->v3, alloc_mem, rng );
     break;
   }
   case 3: {
