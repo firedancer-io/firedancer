@@ -148,6 +148,12 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         ctx->txn_in.txn           = &msg->txn;
         ctx->txn_in.exec_accounts = &ctx->exec_accounts;
 
+        /* Set the capture txn index from the message so account updates
+           during commit are recorded with the correct transaction index. */
+        if( FD_UNLIKELY( ctx->capture_ctx ) ) {
+          ctx->capture_ctx->current_txn_idx = msg->capture_txn_idx;
+        }
+
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
         /* Commit. */

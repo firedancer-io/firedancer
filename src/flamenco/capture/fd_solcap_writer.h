@@ -37,20 +37,63 @@ fd_solcap_writer_t *
 fd_solcap_writer_init(  fd_solcap_writer_t * writer,
                         int                  fd );
 
+/* fd_solcap_write_account_hdr writes an account update EPB header.
+   Writes EPB + internal chunk header + account metadata. Account data
+   must be written separately via fd_solcap_write_data. Returns the
+   total block_len for use when writing the footer. */
+
 uint
 fd_solcap_write_account_hdr( fd_solcap_writer_t *              writer,
                               fd_solcap_buf_msg_t *            msg_hdr,
                               fd_solcap_account_update_hdr_t * account_update );
 
+/* fd_solcap_write_data writes raw data bytes to the capture file.
+   This is used for continuation fragments of any message type that
+   spans multiple link fragments (e.g., large account data). */
 uint
-fd_solcap_write_account_data( fd_solcap_writer_t * writer,
-                              void const *         data,
-                              ulong                data_sz );
+fd_solcap_write_data( fd_solcap_writer_t * writer,
+                      void const *         data,
+                      ulong                data_sz );
+
+/* fd_solcap_write_bank_preimage writes a complete bank preimage EPB.
+   Contains bank hash, prev hash, accounts hash, PoH hash, and sig count.
+   Returns block_len for the footer. */
 
 uint
 fd_solcap_write_bank_preimage( fd_solcap_writer_t *        writer,
                                fd_solcap_buf_msg_t *       msg_hdr,
                                fd_solcap_bank_preimage_t * bank_preimage );
+
+/* fd_solcap_write_stake_rewards_begin writes a stake rewards begin EPB.
+   Marks the start of epoch rewards distribution with inflation and
+   point totals. Returns block_len for the footer. */
+
+uint
+fd_solcap_write_stake_rewards_begin( fd_solcap_writer_t *              writer,
+                                     fd_solcap_buf_msg_t *             msg_hdr,
+                                     fd_solcap_stake_rewards_begin_t * stake_rewards_begin );
+
+/* fd_solcap_write_stake_reward_event writes a stake reward event EPB.
+   Captures individual reward calculation for a stake/vote account pair.
+   Returns block_len for the footer. */
+
+uint
+fd_solcap_write_stake_reward_event( fd_solcap_writer_t *              writer,
+                                     fd_solcap_buf_msg_t *            msg_hdr,
+                                     fd_solcap_stake_reward_event_t * stake_reward_event );
+
+/* fd_solcap_write_stake_account_payout writes a stake payout EPB.
+   Captures stake account state changes during reward distribution.
+   Returns block_len for the footer. */
+
+uint
+fd_solcap_write_stake_account_payout( fd_solcap_writer_t *               writer,
+                                      fd_solcap_buf_msg_t *              msg_hdr,
+                                      fd_solcap_stake_account_payout_t * stake_account_payout );
+
+/* fd_solcap_write_ftr writes the PCapNG block footer. Adds padding to
+   align to 4-byte boundary, then writes the redundant block length.
+   Must be called after each message to complete the EPB. */
 
 uint
 fd_solcap_write_ftr( fd_solcap_writer_t * writer,

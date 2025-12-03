@@ -80,6 +80,33 @@ struct fd_capture_link_vt {
                                 fd_hash_t const *  accounts_lt_hash_checksum,
                                 fd_hash_t const *  poh_hash,
                                 ulong              signature_cnt);
+
+  void (* write_stake_rewards_begin)( fd_capture_ctx_t * ctx,
+                                      ulong              slot,
+                                      ulong              payout_epoch,
+                                      ulong              reward_epoch,
+                                      ulong              inflation_lamports,
+                                      ulong              total_points);
+
+  void (* write_stake_reward_event)( fd_capture_ctx_t * ctx,
+                                      ulong             slot,
+                                      fd_pubkey_t       stake_acc_addr,
+                                      fd_pubkey_t       vote_acc_addr,
+                                      uint              commission,
+                                      long              vote_rewards,
+                                      long              stake_rewards,
+                                      long              new_credits_observed );
+
+  void (* write_stake_account_payout)( fd_capture_ctx_t * ctx,
+                                      ulong               slot,
+                                      fd_pubkey_t         stake_acc_addr,
+                                      ulong               update_slot,
+                                      ulong               lamports,
+                                      long                lamports_delta,
+                                      ulong               credits_observed,
+                                      long                credits_observed_delta,
+                                      ulong               delegation_stake,
+                                      long                delegation_stake_delta );
 };
 
 
@@ -171,7 +198,7 @@ FD_PROTOTYPES_END
 */
 
 void
-fd_capture_link_translate_account_update_buf( fd_capture_ctx_t *               ctx,
+fd_capture_link_write_account_update_buf( fd_capture_ctx_t *               ctx,
                                               ulong                            txn_idx,
                                               fd_pubkey_t const *              key,
                                               fd_solana_account_meta_t const * info,
@@ -180,7 +207,7 @@ fd_capture_link_translate_account_update_buf( fd_capture_ctx_t *               c
                                               ulong                            data_sz );
 
 void
-fd_capture_link_translate_account_update_file( fd_capture_ctx_t *               ctx,
+fd_capture_link_write_account_update_file( fd_capture_ctx_t *               ctx,
                                                ulong                            txn_idx,
                                                fd_pubkey_t const *              key,
                                                fd_solana_account_meta_t const * info,
@@ -238,13 +265,118 @@ fd_capture_link_write_bank_preimage( fd_capture_ctx_t * ctx,
   ctx->capture_link->vt->write_bank_preimage( ctx, slot, bank_hash, prev_bank_hash, accounts_lt_hash_checksum, poh_hash, signature_cnt );
 }
 
+/* fd_capture_link_write_stake_rewards_begin writes a stake rewards begin to the
+   capture link. Uses v-table dispatch to automatically route to the
+   correct implementation (buffer or file) based on the link type. */
+
+void
+fd_capture_link_write_stake_rewards_begin_buf( fd_capture_ctx_t * ctx,
+                                               ulong              slot,
+                                               ulong              payout_epoch,
+                                               ulong              reward_epoch,
+                                               ulong              inflation_lamports,
+                                               ulong              total_points );
+
+void
+fd_capture_link_write_stake_rewards_begin_file( fd_capture_ctx_t * ctx,
+                                                ulong              slot,
+                                                ulong              payout_epoch,
+                                                ulong              reward_epoch,
+                                                ulong              inflation_lamports,
+                                                ulong              total_points );
+
+static inline void
+fd_capture_link_write_stake_rewards_begin( fd_capture_ctx_t * ctx,
+                                           ulong              slot,
+                                           ulong              payout_epoch,
+                                           ulong              reward_epoch,
+                                           ulong              inflation_lamports,
+                                           ulong              total_points ) {
+  FD_TEST( ctx && ctx->capture_link );
+  ctx->capture_link->vt->write_stake_rewards_begin( ctx, slot, payout_epoch, reward_epoch, inflation_lamports, total_points );
+}
+
+void
+fd_capture_link_write_stake_reward_event_buf( fd_capture_ctx_t * ctx,
+                                              ulong              slot,
+                                              fd_pubkey_t        stake_acc_addr,
+                                              fd_pubkey_t        vote_acc_addr,
+                                              uint               commission,
+                                              long               vote_rewards,
+                                              long               stake_rewards,
+                                              long               new_credits_observed );
+
+void
+fd_capture_link_write_stake_reward_event_file( fd_capture_ctx_t * ctx,
+                                               ulong              slot,
+                                               fd_pubkey_t        stake_acc_addr,
+                                               fd_pubkey_t        vote_acc_addr,
+                                               uint               commission,
+                                               long               vote_rewards,
+                                               long               stake_rewards,
+                                               long               new_credits_observed );
+
+static inline void
+fd_capture_link_write_stake_reward_event( fd_capture_ctx_t * ctx,
+                                          ulong              slot,
+                                          fd_pubkey_t        stake_acc_addr,
+                                          fd_pubkey_t        vote_acc_addr,
+                                          uint               commission,
+                                          long               vote_rewards,
+                                          long               stake_rewards,
+                                          long               new_credits_observed ) {
+  FD_TEST( ctx && ctx->capture_link );
+  ctx->capture_link->vt->write_stake_reward_event( ctx, slot, stake_acc_addr, vote_acc_addr, commission, vote_rewards, stake_rewards, new_credits_observed );
+}
+
+void
+fd_capture_link_write_stake_account_payout_buf( fd_capture_ctx_t * ctx,
+                                                ulong              slot,
+                                                fd_pubkey_t        stake_acc_addr,
+                                                ulong              update_slot,
+                                                ulong              lamports,
+                                                long               lamports_delta,
+                                                ulong              credits_observed,
+                                                long               credits_observed_delta,
+                                                ulong              delegation_stake,
+                                                long               delegation_stake_delta );
+void
+fd_capture_link_write_stake_account_payout_file( fd_capture_ctx_t * ctx,
+                                                ulong              slot,
+                                                fd_pubkey_t        stake_acc_addr,
+                                                ulong              update_slot,
+                                                ulong              lamports,
+                                                long               lamports_delta,
+                                                ulong              credits_observed,
+                                                long               credits_observed_delta,
+                                                ulong              delegation_stake,
+                                                long               delegation_stake_delta );
+
+static inline void
+fd_capture_link_write_stake_account_payout( fd_capture_ctx_t * ctx,
+                                            ulong              slot,
+                                            fd_pubkey_t        stake_acc_addr,
+                                            ulong              update_slot,
+                                            ulong              lamports,
+                                            long               lamports_delta,
+                                            ulong              credits_observed,
+                                            long               credits_observed_delta,
+                                            ulong              delegation_stake,
+                                            long               delegation_stake_delta ) {
+  FD_TEST( ctx && ctx->capture_link );
+  ctx->capture_link->vt->write_stake_account_payout( ctx, slot, stake_acc_addr, update_slot, lamports, lamports_delta, credits_observed, credits_observed_delta, delegation_stake, delegation_stake_delta );
+}
+
 /* fd_capture_link_buf_vt is the v-table for buffer mode capture links.
    It routes all write operations to the buffer implementations. */
 
 static const
 fd_capture_link_vt_t fd_capture_link_buf_vt = {
-  .write_account_update = fd_capture_link_translate_account_update_buf,
-  .write_bank_preimage  = fd_capture_link_write_bank_preimage_buf,
+  .write_account_update      = fd_capture_link_write_account_update_buf,
+  .write_bank_preimage       = fd_capture_link_write_bank_preimage_buf,
+  .write_stake_rewards_begin = fd_capture_link_write_stake_rewards_begin_buf,
+  .write_stake_reward_event = fd_capture_link_write_stake_reward_event_buf,
+  .write_stake_account_payout = fd_capture_link_write_stake_account_payout_buf,
 };
 
 /* fd_capture_link_file_vt is the v-table for file mode capture links.
@@ -252,8 +384,11 @@ fd_capture_link_vt_t fd_capture_link_buf_vt = {
 
 static const
 fd_capture_link_vt_t fd_capture_link_file_vt = {
-  .write_account_update = fd_capture_link_translate_account_update_file,
-  .write_bank_preimage  = fd_capture_link_write_bank_preimage_file,
+  .write_account_update      = fd_capture_link_write_account_update_file,
+  .write_bank_preimage       = fd_capture_link_write_bank_preimage_file,
+  .write_stake_rewards_begin = fd_capture_link_write_stake_rewards_begin_file,
+  .write_stake_reward_event = fd_capture_link_write_stake_reward_event_file,
+  .write_stake_account_payout = fd_capture_link_write_stake_account_payout_file,
 };
 
 #endif /* HEADER_fd_src_flamenco_capture_fd_capture_ctx_h */

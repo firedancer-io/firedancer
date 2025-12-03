@@ -4,7 +4,6 @@
 #include "../types/fd_types.h"
 #include "../../util/net/fd_pcapng_private.h"
 #include <stdbool.h>
-#include <bits/stdint-uintn.h>
 
 /* fd_solana_account_meta_t is the metadata for a Solana account */
 struct __attribute__((packed)) fd_solana_account_meta {
@@ -70,23 +69,11 @@ static inline fd_solana_account_meta_t* fd_solana_account_meta_init(
          mode of the harness.
 */
 
-#define SOLCAP_WRITE_ACCOUNT_HDR         (1UL)
-#define SOLCAP_WRITE_ACCOUNT_DATA        (2UL)
-#define SOLCAP_STAKE_ACCOUNT_PAYOUT      (4UL)
-#define SOLCAP_STAKE_REWARDS_BEGIN       (5UL)
-#define SOLCAP_WRITE_BANK_PREIMAGE       (6UL)
-#define SOLCAP_WRITE_STAKE_REWARD_EVENT  (7UL)
-#define SOLCAP_WRITE_VOTE_ACCOUNT_PAYOUT (8UL)
-
-#define SOLCAP_SIG_MAP(x) (((const ushort[]){ \
-    [SOLCAP_WRITE_ACCOUNT_HDR] = SOLCAP_WRITE_ACCOUNT_DATA, \
-    [SOLCAP_WRITE_ACCOUNT_DATA] = SOLCAP_WRITE_ACCOUNT_DATA, \
-    [SOLCAP_STAKE_ACCOUNT_PAYOUT] = SOLCAP_STAKE_ACCOUNT_PAYOUT, \
-    [SOLCAP_STAKE_REWARDS_BEGIN] = SOLCAP_STAKE_REWARDS_BEGIN, \
-    [SOLCAP_WRITE_BANK_PREIMAGE] = SOLCAP_WRITE_BANK_PREIMAGE, \
-    [SOLCAP_WRITE_STAKE_REWARD_EVENT] = SOLCAP_WRITE_STAKE_REWARD_EVENT, \
-    [SOLCAP_WRITE_VOTE_ACCOUNT_PAYOUT] = SOLCAP_WRITE_VOTE_ACCOUNT_PAYOUT, \
-})[x])
+#define SOLCAP_WRITE_ACCOUNT        (1UL)
+#define SOLCAP_WRITE_BANK_PREIMAGE  (2UL)
+#define SOLCAP_STAKE_ACCOUNT_PAYOUT (3UL)
+#define SOLCAP_STAKE_REWARD_EVENT   (4UL)
+#define SOLCAP_STAKE_REWARDS_BEGIN  (5UL)
 
 struct __attribute__((packed)) fd_solcap_buf_msg {
   ushort sig;
@@ -126,16 +113,11 @@ typedef struct fd_solcap_buf_msg fd_solcap_buf_msg_t;
 */
 
 struct __attribute__((packed)) fd_solcap_chunk_int_hdr {
-   /* 0x00 */ uint32_t block_type; /* Message type (SOLCAP_WRITE_*) */
-   /* 0x04 */ uint32_t slot; /* Solana slot number */
-   /* 0x08 */ uint64_t txn_idx; /* Transaction index within slot */
+   /* 0x00 */ uint block_type; /* Message type (SOLCAP_WRITE_*) */
+   /* 0x04 */ uint slot; /* Solana slot number */
+   /* 0x08 */ ulong txn_idx; /* Transaction index within slot */
 };
 typedef struct fd_solcap_chunk_int_hdr fd_solcap_chunk_int_hdr_t;
-
-/* Block footer: Every PCapNG block ends with a redundant 4-byte length
-   field (uint32_t) for backward navigation. No structure needed, just
-   write the block_len value directly. */
-
 /*
    The following structures are the solcap messages that can be encoded.
    They are used by the runtime to write messages to the shared buffer
@@ -157,15 +139,15 @@ struct __attribute__((packed))fd_solcap_bank_preimage {
 };
 typedef struct fd_solcap_bank_preimage fd_solcap_bank_preimage_t;
 
-struct fd_solcap_buf_msg_stake_rewards_begin {
+struct __attribute__((packed)) fd_solcap_stake_rewards_begin {
    ulong   payout_epoch;
    ulong   reward_epoch;
    ulong   inflation_lamports;
    ulong   total_points;
 };
-typedef struct fd_solcap_buf_msg_stake_rewards_begin fd_solcap_buf_msg_stake_rewards_begin_t;
+typedef struct fd_solcap_stake_rewards_begin fd_solcap_stake_rewards_begin_t;
 
-struct fd_solcap_buf_msg_stake_reward_event {
+struct __attribute__((packed)) fd_solcap_stake_reward_event {
    fd_pubkey_t stake_acc_addr;
    fd_pubkey_t vote_acc_addr;
    uint        commission;
@@ -173,19 +155,9 @@ struct fd_solcap_buf_msg_stake_reward_event {
    long        stake_rewards;
    long        new_credits_observed;
 };
-typedef struct fd_solcap_buf_msg_stake_reward_event fd_solcap_buf_msg_stake_reward_event_t;
+typedef struct fd_solcap_stake_reward_event fd_solcap_stake_reward_event_t;
 
-
-struct fd_solcap_buf_msg_vote_account_payout {
-   fd_pubkey_t vote_acc_addr;
-   ulong       update_slot;
-   ulong       lamports;
-   long        lamports_delta;
-};
-typedef struct fd_solcap_buf_msg_vote_account_payout fd_solcap_buf_msg_vote_account_payout_t;
-
-
-struct fd_solcap_buf_msg_stake_account_payout {
+struct __attribute__((packed)) fd_solcap_stake_account_payout {
    fd_pubkey_t stake_acc_addr;
    ulong       update_slot;
    ulong       lamports;
@@ -195,6 +167,6 @@ struct fd_solcap_buf_msg_stake_account_payout {
    ulong       delegation_stake;
    long        delegation_stake_delta;
 };
-typedef struct fd_solcap_buf_msg_stake_account_payout fd_solcap_buf_msg_stake_account_payout_t;
+typedef struct fd_solcap_stake_account_payout fd_solcap_stake_account_payout_t;
 
 #endif /* HEADER_fd_src_flamenco_capture_fd_solcap_proto_h */

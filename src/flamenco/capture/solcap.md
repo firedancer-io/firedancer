@@ -1,19 +1,5 @@
 # Solcap Protocol Specification
 
-## Table of Contents
-
-1. [Introduction](#introduction)
-2. [Design Goals](#design-goals)
-3. [Architecture Overview](#architecture-overview)
-4. [Protocol Layers](#protocol-layers)
-5. [File Format](#file-format)
-6. [Message Types](#message-types)
-7. [Data Structures](#data-structures)
-8. [Constants and Enumerations](#constants-and-enumerations)
-9. [Alignment and Padding](#alignment-and-padding)
-
----
-
 ## Introduction
 
 **Solcap** (Solana Capture) is a portable, generic file format for structured tracing of Solana validator events. It provides a standardized way to capture runtime data from Solana validators.
@@ -110,12 +96,11 @@ This layer also provides:
 
 The message payload immediately follows the Internal Chunk Header. The format is determined by the `block_type` from Layer 3. Currently defined message types include:
 
-- **Account Updates** (`SOLCAP_WRITE_ACCOUNT_HDR` + `SOLCAP_WRITE_ACCOUNT_DATA`)
+- **Account Updates** (`SOLCAP_WRITE_ACCOUNT`)
 - **Bank Preimages** (`SOLCAP_WRITE_BANK_PREIMAGE`)
-
-### Block Alignment
-
-All blocks must be aligned to 4-byte boundaries. Padding bytes (zeros) are inserted after the message payload if needed to achieve this alignment.
+- **Stake Rewards Begin** (`SOLCAP_STAKE_REWARDS_BEGIN`)
+- **Stake Reward Events** (`SOLCAP_STAKE_REWARD_EVENT`)
+- **Stake Account Payouts** (`SOLCAP_STAKE_ACCOUNT_PAYOUT`)
 
 ---
 
@@ -127,37 +112,40 @@ Solcap defines the following message types for capturing validator runtime event
 
 **Purpose**: Capture all modifications to account state during transaction execution.
 
-- `SOLCAP_WRITE_ACCOUNT_HDR` (1): Account update header
-  - Contains account pubkey, metadata, and data length
-  - Must be followed by `SOLCAP_WRITE_ACCOUNT_DATA`
-
-- `SOLCAP_WRITE_ACCOUNT_DATA` (2): Account data payload
-  - Contains the actual account data bytes
-  - Follows immediately after `SOLCAP_WRITE_ACCOUNT_HDR`
+- `SOLCAP_WRITE_ACCOUNT` (1): Account update
+  - Contains account pubkey, metadata, and data length in the header
+  - Account data follows immediately after the header
 
 ### Bank State
 
 **Purpose**: Capture the complete state of a bank (block) after processing.
 
-- `SOLCAP_WRITE_BANK_PREIMAGE` (6): Bank preimage data
+- `SOLCAP_WRITE_BANK_PREIMAGE` (2): Bank preimage data
   - Contains bank hash, previous bank hash, accounts hash, PoH hash
   - Includes transaction count for the slot
   - Enables verification of deterministic execution
+
+### Stake Rewards
+
+**Purpose**: Capture stake rewards distribution events for debugging epoch boundaries.
+
+- `SOLCAP_STAKE_ACCOUNT_PAYOUT` (3): Stake account payout details
+  - Contains stake account address, lamports, and delegation stake
+  - Includes deltas for tracking changes during reward distribution
+
+- `SOLCAP_STAKE_REWARD_EVENT` (4): Individual stake reward calculation event
+  - Contains stake and vote account addresses
+  - Includes commission, vote rewards, stake rewards, and credits observed
+
+- `SOLCAP_STAKE_REWARDS_BEGIN` (5): Marks the start of stake rewards distribution
+  - Contains payout epoch, reward epoch, inflation lamports, and total points
+  - Emitted once per epoch boundary before individual reward events
 
 ---
 
 ## Data Structures
 
-All structures use packed layout (`__attribute__((packed))`) to ensure consistent binary representation across platforms.
-
-### Section Header Block (File Header)
-
-**Note**: Solcap does not use the optional fields section, so the block consists of the 24-byte header followed immediately by the 4-byte redundant length, totaling 28 bytes.
-
-### Interface Description Block
-
-**Note**: Solcap does not use the optional fields section, so the block consists of the 16-byte header followed immediately by the 4-byte redundant length, totaling 20 bytes.
-          link_type in the IDB needs to be set to 147 which is a DLT_USER0
+All multi-byte integers are stored in **little-endian** format.
 
 ### Enhanced Packet Block Header
 
@@ -181,7 +169,7 @@ struct fd_solcap_buf_msg {
 
 **Field Descriptions:**
 
-This structure is used for in-memory message buffering before writing to the capture file. The `sig` field maps to specific message types via the `SOLCAP_SIG_MAP` macro.
+This structure is used for in-memory message buffering before writing to the capture file. The `sig` field identifies the message type.
 
 ---
 
@@ -196,11 +184,11 @@ struct fd_solcap_account_update_hdr {
    uint64_t                 data_sz;  /* Account data size in bytes */
 };
 
-struct __attribute__((packed)) fd_solana_account_meta {
-  ulong lamports;
-  uchar owner[32];
-  uchar executable;
-  uchar padding[3];
+struct fd_solana_account_meta {
+  uint64_t lamports;
+  uint8_t  owner[32];
+  uint8_t  executable;
+  uint8_t  padding[3];
 };
 ```
 
@@ -210,11 +198,9 @@ struct __attribute__((packed)) fd_solana_account_meta {
 - `info`: Account metadata including lamports, owner, executable flag, rent epoch
 - `data_sz`: Size of the account data in bytes
 
-**Note**: The account data immediately follows this structure in the same packet. The data is `data_sz` bytes long.
+**Note**: The account data immediately follows this structure in the same packet. The data is `data_sz` bytes long, followed by any necessary padding to 4-byte boundary.
 
-**Message Encoding**: Account updates are encoded as two consecutive messages:
-1. `SOLCAP_WRITE_ACCOUNT_HDR` with this header structure + account data
-2. Followed by any necessary padding to 4-byte boundary
+**Message Encoding**: Account updates are encoded as a single `SOLCAP_WRITE_ACCOUNT` message containing the header structure followed by the account data.
 
 ### Bank Preimage
 
@@ -238,18 +224,77 @@ struct fd_solcap_bank_preimage {
 
 **Purpose**: This captures the complete state transition of a bank, enabling verification that execution was deterministic and produced the correct hash.
 
-## Alignment and Padding
+### Stake Rewards Begin
 
-### Block Alignment
+```c
+struct fd_solcap_stake_rewards_begin {
+   uint64_t payout_epoch;        /* Epoch when rewards are paid out */
+   uint64_t reward_epoch;        /* Epoch being rewarded */
+   uint64_t inflation_lamports;  /* Total inflation lamports for rewards */
+   uint64_t total_points;        /* Total reward points across all stakes */
+};
+```
 
-All PCapNG blocks must be aligned to **4-byte boundaries**. This includes:
-- Section Header Block (28 bytes, naturally aligned)
-- Interface Description Block (20 bytes, naturally aligned)
-- Enhanced Packet Blocks (variable length, must be padded)
+**Field Descriptions:**
 
-### Endianness
+- `payout_epoch`: The epoch during which rewards are being distributed
+- `reward_epoch`: The epoch for which rewards are being calculated
+- `inflation_lamports`: Total lamports from inflation allocated for stake rewards
+- `total_points`: Sum of all stake points used for proportional distribution
 
-All multi-byte integers are stored in **little-endian** format, as indicated by the byte order magic `0x1A2B3C4D`. Readers must convert to host byte order if running on big-endian systems. This is where a constraint is placed upon the existing PCapNG file, restricting it slightly
+**Purpose**: Marks the beginning of stake rewards distribution at an epoch boundary. Emitted once before individual reward events.
+
+### Stake Reward Event
+
+```c
+struct fd_solcap_stake_reward_event {
+   fd_pubkey_t stake_acc_addr;      /* Stake account address */
+   fd_pubkey_t vote_acc_addr;       /* Vote account address */
+   uint32_t    commission;          /* Validator commission rate */
+   int64_t     vote_rewards;        /* Rewards to vote account */
+   int64_t     stake_rewards;       /* Rewards to stake account */
+   int64_t     new_credits_observed; /* Updated credits observed */
+};
+```
+
+**Field Descriptions:**
+
+- `stake_acc_addr`: Public key of the stake account receiving rewards
+- `vote_acc_addr`: Public key of the vote account the stake delegates to
+- `commission`: Validator's commission percentage
+- `vote_rewards`: Lamports credited to the vote account
+- `stake_rewards`: Lamports credited to the stake account
+- `new_credits_observed`: Updated credits observed after reward calculation
+
+**Purpose**: Captures individual stake reward calculations for debugging reward distribution.
+
+### Stake Account Payout
+
+```c
+struct fd_solcap_stake_account_payout {
+   fd_pubkey_t stake_acc_addr;         /* Stake account address */
+   uint64_t    update_slot;            /* Slot of the update */
+   uint64_t    lamports;               /* New lamports balance */
+   int64_t     lamports_delta;         /* Change in lamports */
+   uint64_t    credits_observed;       /* New credits observed */
+   int64_t     credits_observed_delta; /* Change in credits observed */
+   uint64_t    delegation_stake;       /* New delegation stake */
+   int64_t     delegation_stake_delta; /* Change in delegation stake */
+};
+```
+
+**Field Descriptions:**
+
+- `stake_acc_addr`: Public key of the stake account
+- `update_slot`: Slot number when this payout occurred
+- `lamports`: New lamports balance after payout
+- `lamports_delta`: Change in lamports from this payout
+- `credits_observed`: New credits observed value
+- `credits_observed_delta`: Change in credits observed
+- `delegation_stake`: New delegation stake amount
+- `delegation_stake_delta`: Change in delegation stake
+
+**Purpose**: Captures detailed stake account state changes during reward payouts for debugging.
 
 ## References
 

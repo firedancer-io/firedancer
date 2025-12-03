@@ -116,13 +116,13 @@ valid_slot_range(fd_capture_ctx_t * ctx,
 }
 
 void
-fd_capture_link_translate_account_update_buf( fd_capture_ctx_t *               ctx,
-                                              ulong                            txn_idx,
-                                              fd_pubkey_t const *              key,
-                                              fd_solana_account_meta_t const * info,
-                                              ulong                            slot,
-                                              uchar const *                    data,
-                                              ulong                            data_sz ) {
+fd_capture_link_write_account_update_buf( fd_capture_ctx_t *               ctx,
+                                          ulong                            txn_idx,
+                                          fd_pubkey_t const *              key,
+                                          fd_solana_account_meta_t const * info,
+                                          ulong                            slot,
+                                          uchar const *                    data,
+                                          ulong                            data_sz ) {
 
   if( FD_UNLIKELY( !ctx || !ctx->capctx_type.buf ) ) FD_LOG_ERR(( "NULL ctx (%p) or buf (%p)", (void *)ctx, (void *)ctx->capctx_type.buf ));
   if( FD_UNLIKELY( !valid_slot_range( ctx, slot ) ) ) return;
@@ -136,7 +136,7 @@ fd_capture_link_translate_account_update_buf( fd_capture_ctx_t *               c
   char * ptr = (char *)dst;
 
   fd_solcap_buf_msg_t msg = {
-    .sig     = SOLCAP_WRITE_ACCOUNT_HDR,
+    .sig     = SOLCAP_WRITE_ACCOUNT,
     .slot    = slot,
     .txn_idx = txn_idx,
   };
@@ -189,13 +189,13 @@ fd_capture_link_translate_account_update_buf( fd_capture_ctx_t *               c
 }
 
 void
-fd_capture_link_translate_account_update_file( fd_capture_ctx_t *               ctx,
-                                               ulong                            txn_idx,
-                                               fd_pubkey_t const *              key,
-                                               fd_solana_account_meta_t const * info,
-                                               ulong                            slot,
-                                               uchar const *                    data,
-                                               ulong                            data_sz ) {
+fd_capture_link_write_account_update_file( fd_capture_ctx_t *               ctx,
+                                           ulong                            txn_idx,
+                                           fd_pubkey_t const *              key,
+                                           fd_solana_account_meta_t const * info,
+                                           ulong                            slot,
+                                           uchar const *                    data,
+                                           ulong                            data_sz ) {
   if( FD_UNLIKELY( !ctx || !ctx->capture ) ) return;
   if( FD_UNLIKELY( !valid_slot_range( ctx, slot ) ) ) return;
 
@@ -203,7 +203,7 @@ fd_capture_link_translate_account_update_file( fd_capture_ctx_t *               
 
   /* Prepare message header */
   fd_solcap_buf_msg_t msg_hdr = {
-    .sig = SOLCAP_WRITE_ACCOUNT_HDR,
+    .sig = SOLCAP_WRITE_ACCOUNT,
     .slot = slot,
     .txn_idx = txn_idx,
   };
@@ -219,7 +219,7 @@ fd_capture_link_translate_account_update_file( fd_capture_ctx_t *               
   uint block_len = fd_solcap_write_account_hdr( writer, &msg_hdr, &account_update );
 
   /* Write the account data */
-  fd_solcap_write_account_data( writer, data, data_sz );
+  fd_solcap_write_data( writer, data, data_sz );
 
   /* Write the footer */
   fd_solcap_write_ftr( writer, block_len );
@@ -297,3 +297,227 @@ fd_capture_link_write_bank_preimage_file( fd_capture_ctx_t * ctx,
   fd_solcap_write_ftr( writer, block_len );
 }
 
+void
+fd_capture_link_write_stake_rewards_begin_buf( fd_capture_ctx_t * ctx,
+                                               ulong              slot,
+                                               ulong              payout_epoch,
+                                               ulong              reward_epoch,
+                                               ulong              inflation_lamports,
+                                               ulong              total_points ) {
+  if( FD_UNLIKELY( !ctx || !ctx->capctx_type.buf ) ) FD_LOG_ERR(( "NULL ctx (%p) or buf (%p)", (void *)ctx, (void *)ctx->capctx_type.buf ));
+  if ( FD_UNLIKELY( !valid_slot_range( ctx, slot ) ) ) return;
+
+  fd_capture_link_buf_t * buf = ctx->capctx_type.buf;
+
+  wait_to_write_solcap_msg( buf );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
+  char * ptr = (char *)dst;
+
+  fd_solcap_buf_msg_t msg = {
+    .sig = SOLCAP_STAKE_REWARDS_BEGIN,
+    .slot = slot,
+    .txn_idx = 0
+  };
+
+  fd_memcpy( ptr, &msg, sizeof(fd_solcap_buf_msg_t) );
+  ptr += sizeof(fd_solcap_buf_msg_t);
+
+  fd_solcap_stake_rewards_begin_t stake_rewards_begin = {
+    .payout_epoch = payout_epoch,
+    .reward_epoch = reward_epoch,
+    .inflation_lamports = inflation_lamports,
+    .total_points = total_points
+  };
+  fd_memcpy( ptr, &stake_rewards_begin, sizeof(fd_solcap_stake_rewards_begin_t) );
+  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
+  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(fd_solcap_buf_msg_t) + sizeof(fd_solcap_stake_rewards_begin_t), ctl, 0UL, 0UL );
+  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(fd_solcap_buf_msg_t) + sizeof(fd_solcap_stake_rewards_begin_t), buf->chunk0, buf->wmark );
+  buf->seq++;
+}
+
+void
+fd_capture_link_write_stake_rewards_begin_file( fd_capture_ctx_t * ctx,
+                                                ulong              slot,
+                                                ulong              payout_epoch,
+                                                ulong              reward_epoch,
+                                                ulong              inflation_lamports,
+                                                ulong              total_points ) {
+  if( FD_UNLIKELY( !ctx || !ctx->capture ) ) return;
+  if ( FD_UNLIKELY( !valid_slot_range( ctx, slot ) ) ) return;
+
+  fd_solcap_writer_t * writer = ctx->capture;
+
+  fd_solcap_buf_msg_t msg_hdr = {
+    .sig = SOLCAP_STAKE_REWARDS_BEGIN,
+    .slot = slot,
+    .txn_idx = 0
+  };
+
+  fd_solcap_stake_rewards_begin_t stake_rewards_begin = {
+    .payout_epoch = payout_epoch,
+    .reward_epoch = reward_epoch,
+    .inflation_lamports = inflation_lamports,
+    .total_points = total_points
+  };
+
+  uint block_len = fd_solcap_write_stake_rewards_begin( writer, &msg_hdr, &stake_rewards_begin );
+
+  fd_solcap_write_ftr( writer, block_len );
+}
+
+void
+fd_capture_link_write_stake_reward_event_buf( fd_capture_ctx_t * ctx,
+                                              ulong              slot,
+                                              fd_pubkey_t        stake_acc_addr,
+                                              fd_pubkey_t        vote_acc_addr,
+                                              uint               commission,
+                                              long               vote_rewards,
+                                              long               stake_rewards,
+                                              long               new_credits_observed ) {
+  if( FD_UNLIKELY( !ctx || !ctx->capctx_type.buf ) ) FD_LOG_ERR(( "NULL ctx (%p) or buf (%p)", (void *)ctx, (void *)ctx->capctx_type.buf ));
+  if ( FD_UNLIKELY( !valid_slot_range( ctx, slot ) ) ) return;
+
+  fd_capture_link_buf_t * buf = ctx->capctx_type.buf;
+
+  wait_to_write_solcap_msg( buf );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
+  char * ptr = (char *)dst;
+
+  fd_solcap_buf_msg_t msg = {
+    .sig = SOLCAP_STAKE_REWARD_EVENT,
+    .slot = slot,
+    .txn_idx = 0
+  };
+  fd_memcpy( ptr, &msg, sizeof(fd_solcap_buf_msg_t) );
+  ptr += sizeof(fd_solcap_buf_msg_t);
+
+  fd_solcap_stake_reward_event_t stake_reward_event = {
+    .stake_acc_addr = stake_acc_addr,
+    .vote_acc_addr = vote_acc_addr,
+    .commission = commission,
+    .vote_rewards = vote_rewards,
+    .stake_rewards = stake_rewards,
+    .new_credits_observed = new_credits_observed
+  };
+  fd_memcpy( ptr, &stake_reward_event, sizeof(fd_solcap_stake_reward_event_t) );
+  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
+  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(fd_solcap_buf_msg_t) + sizeof(fd_solcap_stake_reward_event_t), ctl, 0UL, 0UL );
+  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(fd_solcap_buf_msg_t) + sizeof(fd_solcap_stake_reward_event_t), buf->chunk0, buf->wmark );
+  buf->seq++;
+}
+
+void
+fd_capture_link_write_stake_reward_event_file( fd_capture_ctx_t * ctx,
+                                              ulong              slot,
+                                              fd_pubkey_t        stake_acc_addr,
+                                              fd_pubkey_t        vote_acc_addr,
+                                              uint               commission,
+                                              long               vote_rewards,
+                                              long               stake_rewards,
+                                              long               new_credits_observed ) {
+  if( FD_UNLIKELY( !ctx || !ctx->capture ) ) return;
+  if ( FD_UNLIKELY( !valid_slot_range( ctx, slot ) ) ) return;
+
+  fd_solcap_writer_t * writer = ctx->capture;
+
+  fd_solcap_buf_msg_t msg_hdr = {
+    .sig = SOLCAP_STAKE_REWARD_EVENT,
+    .slot = slot,
+    .txn_idx = 0
+  };
+
+  fd_solcap_stake_reward_event_t stake_reward_event = {
+    .stake_acc_addr = stake_acc_addr,
+    .vote_acc_addr = vote_acc_addr,
+    .commission = commission,
+    .vote_rewards = vote_rewards,
+    .stake_rewards = stake_rewards,
+    .new_credits_observed = new_credits_observed
+  };
+  uint block_len = fd_solcap_write_stake_reward_event( writer, &msg_hdr, &stake_reward_event );
+  fd_solcap_write_ftr( writer, block_len );
+}
+
+void
+fd_capture_link_write_stake_account_payout_buf( fd_capture_ctx_t * ctx,
+                                                ulong              slot,
+                                                fd_pubkey_t        stake_acc_addr,
+                                                ulong              update_slot,
+                                                ulong              lamports,
+                                                long               lamports_delta,
+                                                ulong              credits_observed,
+                                                long               credits_observed_delta,
+                                                ulong              delegation_stake,
+                                                long               delegation_stake_delta ) {
+  if( FD_UNLIKELY( !ctx || !ctx->capctx_type.buf ) ) FD_LOG_ERR(( "NULL ctx (%p) or buf (%p)", (void *)ctx, (void *)ctx->capctx_type.buf ));
+  if ( FD_UNLIKELY( !valid_slot_range( ctx, slot ) ) ) return;
+
+  fd_capture_link_buf_t * buf = ctx->capctx_type.buf;
+
+  wait_to_write_solcap_msg( buf );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
+  char * ptr = (char *)dst;
+
+  fd_solcap_buf_msg_t msg = {
+    .sig = SOLCAP_STAKE_ACCOUNT_PAYOUT,
+    .slot = slot,
+    .txn_idx = 0
+  };
+  fd_memcpy( ptr, &msg, sizeof(fd_solcap_buf_msg_t) );
+  ptr += sizeof(fd_solcap_buf_msg_t);
+
+  fd_solcap_stake_account_payout_t stake_account_payout = {
+    .stake_acc_addr = stake_acc_addr,
+    .update_slot = update_slot,
+    .lamports = lamports,
+    .lamports_delta = lamports_delta,
+    .credits_observed = credits_observed,
+    .credits_observed_delta = credits_observed_delta,
+    .delegation_stake = delegation_stake,
+    .delegation_stake_delta = delegation_stake_delta,
+  };
+  fd_memcpy( ptr, &stake_account_payout, sizeof(fd_solcap_stake_account_payout_t) );
+  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
+  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(fd_solcap_buf_msg_t) + sizeof(fd_solcap_stake_account_payout_t), ctl, 0UL, 0UL );
+  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(fd_solcap_buf_msg_t) + sizeof(fd_solcap_stake_account_payout_t), buf->chunk0, buf->wmark );
+  buf->seq++;
+}
+
+void
+fd_capture_link_write_stake_account_payout_file( fd_capture_ctx_t * ctx,
+                                                ulong              slot,
+                                                fd_pubkey_t        stake_acc_addr,
+                                                ulong              update_slot,
+                                                ulong              lamports,
+                                                long               lamports_delta,
+                                                ulong              credits_observed,
+                                                long               credits_observed_delta,
+                                                ulong              delegation_stake,
+                                                long               delegation_stake_delta ) {
+  if( FD_UNLIKELY( !ctx || !ctx->capture ) ) return;
+  if( FD_UNLIKELY( !valid_slot_range( ctx, slot ) ) ) return;
+
+  fd_solcap_writer_t * writer = ctx->capture;
+
+  fd_solcap_buf_msg_t msg_hdr = {
+    .sig = SOLCAP_STAKE_ACCOUNT_PAYOUT,
+    .slot = slot,
+    .txn_idx = 0
+  };
+
+  fd_solcap_stake_account_payout_t stake_account_payout = {
+    .stake_acc_addr = stake_acc_addr,
+    .update_slot = update_slot,
+    .lamports = lamports,
+    .lamports_delta = lamports_delta,
+    .credits_observed = credits_observed,
+    .credits_observed_delta = credits_observed_delta,
+    .delegation_stake = delegation_stake,
+    .delegation_stake_delta = delegation_stake_delta,
+  };
+  uint block_len = fd_solcap_write_stake_account_payout( writer, &msg_hdr, &stake_account_payout );
+  fd_solcap_write_ftr( writer, block_len );
+}
