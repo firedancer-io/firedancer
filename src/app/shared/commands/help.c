@@ -29,9 +29,6 @@ help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
   FD_LOG_STDOUT(( "        --version          Show the current software version\n" ));
   FD_LOG_STDOUT(( "        --help             Print this help message\n\n" ));
   FD_LOG_STDOUT(( "SUBCOMMANDS:\n" ));
-  for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
-    FD_LOG_STDOUT(( "   %14s    %s\n", ACTIONS[ i ]->name, ACTIONS[ i ]->description ));
-  }
 
   ulong action_cnt = 0UL;
   for( ; ACTIONS[ action_cnt ]; action_cnt++ ) {
@@ -40,7 +37,9 @@ help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
 
   if( FD_LIKELY( action_cnt ) ) {
     action_t * sorted[ action_cnt ];
-    for( ulong i=0UL; i<action_cnt; i++ ) sorted[ i ] = ACTIONS[ i ];
+    for( ulong i=0UL; i<action_cnt; i++ ) {
+      sorted[ i ] = ACTIONS[ i ];
+    }
 
     qsort( sorted, action_cnt, sizeof( action_t * ), action_name_cmp );
 
