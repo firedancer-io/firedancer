@@ -178,27 +178,42 @@ populate_allowed_fds( fd_topo_t const *      topo,
    - Continuation fragments return 0 as they don't write EPB headers
    - The block_len from SOM is saved and used when writing the EPB
      footer on the final fragment (EOM) */
+/* fd_capctx_buf_process_som processes the first fragment (SOM) of a
+   message and writes the appropriate header structures.
+
+   Returns block_len, the total PCAPNG Enhanced Packet Block (EPB)
+   length in bytes for this message. */
 uint
-fd_capctx_buf_process_msg( fd_solcap_tile_ctx_t * ctx,
+fd_capctx_buf_process_som( fd_solcap_tile_ctx_t * ctx,
                            fd_solcap_buf_msg_t *  msg_hdr,
-                           char *                 actual_data,
-                           ulong                  msg_sz ) {
+                           char *                 actual_data ) {
   uint block_len = 0U;
   FD_TEST( ctx->capture_ctx->capture != NULL );
 
   switch( msg_hdr->sig ) {
-  case SOLCAP_WRITE_ACCOUNT_HDR: {
+  case SOLCAP_WRITE_ACCOUNT: {
     fd_solcap_account_update_hdr_t * account_update = fd_type_pun( actual_data );
     block_len = fd_solcap_write_account_hdr( ctx->capture_ctx->capture, msg_hdr, account_update );
-    break;
-  }
-  case SOLCAP_WRITE_ACCOUNT_DATA: {
-    block_len = fd_solcap_write_account_data( ctx->capture_ctx->capture, actual_data, msg_sz );
     break;
   }
   case SOLCAP_WRITE_BANK_PREIMAGE: {
     fd_solcap_bank_preimage_t * bank_preimage = fd_type_pun( actual_data );
     block_len = fd_solcap_write_bank_preimage( ctx->capture_ctx->capture, msg_hdr, bank_preimage );
+    break;
+  }
+  case SOLCAP_STAKE_REWARDS_BEGIN: {
+    fd_solcap_stake_rewards_begin_t * stake_rewards_begin = fd_type_pun( actual_data );
+    block_len = fd_solcap_write_stake_rewards_begin( ctx->capture_ctx->capture, msg_hdr, stake_rewards_begin );
+    break;
+  }
+  case SOLCAP_STAKE_REWARD_EVENT: {
+    fd_solcap_stake_reward_event_t * stake_reward_event = fd_type_pun( actual_data );
+    block_len = fd_solcap_write_stake_reward_event( ctx->capture_ctx->capture, msg_hdr, stake_reward_event );
+    break;
+  }
+  case SOLCAP_STAKE_ACCOUNT_PAYOUT: {
+    fd_solcap_stake_account_payout_t * stake_account_payout = fd_type_pun( actual_data );
+    block_len = fd_solcap_write_stake_account_payout( ctx->capture_ctx->capture, msg_hdr, stake_account_payout );
     break;
   }
   default:
@@ -207,6 +222,18 @@ fd_capctx_buf_process_msg( fd_solcap_tile_ctx_t * ctx,
     break;
   }
   return block_len;
+}
+
+/* fd_capctx_buf_process_continuation processes continuation fragments
+   (SOM=0) which contain raw data bytes to append to the current message.
+   This is generic and works for any fragmented message type (account
+   updates, or any future large message types). */
+void
+fd_capctx_buf_process_continuation( fd_solcap_tile_ctx_t * ctx,
+                                    char *                 data,
+                                    ulong                  data_sz ) {
+  FD_TEST( ctx->capture_ctx->capture != NULL );
+  fd_solcap_write_data( ctx->capture_ctx->capture, data, data_sz );
 }
 
 /* returnable_frag processes incoming message fragments and handles
@@ -287,18 +314,14 @@ returnable_frag( fd_solcap_tile_ctx_t * ctx,
   int som = fd_frag_meta_ctl_som( ctl );
   int eom = fd_frag_meta_ctl_eom( ctl );
 
-  fd_solcap_buf_msg_t msg_hdr_storage;
-  fd_solcap_buf_msg_t * msg_hdr = NULL;
-  char * actual_data;
-  ulong actual_data_sz;
   if( som ) {
-    msg_hdr           = fd_type_pun( (void *)data );
-    actual_data       = (char *)(data + sizeof(fd_solcap_buf_msg_t));
-    FD_TEST(sz >= sizeof(fd_solcap_buf_msg_t) );
-    actual_data_sz    = sz - sizeof(fd_solcap_buf_msg_t);
-    ctx->msg_set_slot = msg_hdr->slot;
-    ctx->msg_set_sig  = SOLCAP_SIG_MAP(msg_hdr->sig);
+    fd_solcap_buf_msg_t * msg_hdr = fd_type_pun( (void *)data );
+    char * actual_data            = (char *)(data + sizeof(fd_solcap_buf_msg_t));
+    FD_TEST( sz >= sizeof(fd_solcap_buf_msg_t) );
+    ctx->msg_set_slot   = msg_hdr->slot;
+    ctx->msg_set_sig    = (ushort)msg_hdr->sig;
     ctx->current_in_idx = in_idx;  /* Start tracking this input */
+
     /* Handle file rotation for recent_only mode */
     if( ctx->recent_only ) {
       if( ctx->recent_file_start_slot == ULONG_MAX ) {
@@ -306,7 +329,7 @@ returnable_frag( fd_solcap_tile_ctx_t * ctx,
       }
       else if( msg_hdr->slot >= ctx->recent_file_start_slot + ctx->recent_slots_per_file ) {
         /* Check if we need to rotate (>= slots_per_file slots from start) */
-          /* Flip-flop to the other file */
+        /* Flip-flop to the other file */
         ulong next_idx = 1UL - ctx->recent_current_idx;
         int next_fd = ctx->recent_fds[next_idx];
 
@@ -328,21 +351,13 @@ returnable_frag( fd_solcap_tile_ctx_t * ctx,
         ctx->fd = next_fd;
       }
     }
-  } else {
-    msg_hdr_storage.sig     = ctx->msg_set_sig;
-    msg_hdr_storage.slot    = ctx->msg_set_slot;
-    msg_hdr_storage.txn_idx = 0; /* Not used for continuation fragments */
-    msg_hdr                 = &msg_hdr_storage;
-    actual_data             = (char *)data;
-    actual_data_sz          = sz;
-  }
-  // FD_LOG_WARNING(( "returnable_frag: in_idx=%lu current_in_idx=%lu, msg_set_sig=%u msg_set_slot=%lu", in_idx, ctx->current_in_idx,  msg_hdr->sig , msg_hdr->slot ));
 
-  uint block_len = fd_capctx_buf_process_msg( ctx, msg_hdr, actual_data, actual_data_sz );
-
-  if (som) {
+    uint block_len = fd_capctx_buf_process_som( ctx, msg_hdr, actual_data );
     FD_TEST( block_len > 0 );  /* SOM must return valid block length */
     ctx->block_len = block_len;
+  } else {
+    /* Continuation fragment: just raw data bytes */
+    fd_capctx_buf_process_continuation( ctx, (char *)data, sz );
   }
 
   /* If message you receive has the eom flag, write footer */

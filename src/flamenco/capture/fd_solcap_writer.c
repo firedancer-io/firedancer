@@ -96,7 +96,7 @@ fd_solcap_write_account_hdr( fd_solcap_writer_t *             writer,
   FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
 
   fd_solcap_chunk_int_hdr_t int_hdr = {
-    .block_type = SOLCAP_WRITE_ACCOUNT_HDR,
+    .block_type = SOLCAP_WRITE_ACCOUNT,
     .slot =       (uint)msg_hdr->slot,
     .txn_idx =    msg_hdr->txn_idx
   };
@@ -108,9 +108,9 @@ fd_solcap_write_account_hdr( fd_solcap_writer_t *             writer,
 }
 
 uint
-fd_solcap_write_account_data( fd_solcap_writer_t * writer,
-                              void const *         data,
-                              ulong                data_sz ) {
+fd_solcap_write_data( fd_solcap_writer_t * writer,
+                      void const *         data,
+                      ulong                data_sz ) {
   int fd = writer->fd;
   FD_TEST( data_sz == (ulong)write(fd, data, data_sz) );
   return 0;
@@ -121,37 +121,37 @@ uint
 fd_solcap_write_bank_preimage( fd_solcap_writer_t *        writer,
                                fd_solcap_buf_msg_t *       msg_hdr,
                                fd_solcap_bank_preimage_t * bank_preimage ) {
-   int fd = writer->fd;
+  int fd = writer->fd;
 
-   uint packet_len = (uint)(sizeof(fd_solcap_chunk_int_hdr_t) +
-                     sizeof(fd_solcap_bank_preimage_t));
+  uint packet_len = (uint)(sizeof(fd_solcap_chunk_int_hdr_t) +
+                    sizeof(fd_solcap_bank_preimage_t));
 
-   uint unaligned_block_len = (uint)(sizeof(fd_pcapng_epb_t) +
-                              packet_len + 4U); /* +4 for redundant length footer */
+  uint unaligned_block_len = (uint)(sizeof(fd_pcapng_epb_t) +
+                            packet_len + 4U); /* +4 for redundant length footer */
 
   uint block_len = (uint)((unaligned_block_len + 3UL) & ~3UL);
 
-   fd_pcapng_epb_t epb = {
-    .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
-    .block_sz   = block_len,
-    .if_idx     = 0,
-    .ts_hi      = 0,
-    .ts_lo      = 0,
-    .cap_len    = packet_len,
-    .orig_len   = packet_len
-   };
-   FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
+  fd_pcapng_epb_t epb = {
+  .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
+  .block_sz   = block_len,
+  .if_idx     = 0,
+  .ts_hi      = 0,
+  .ts_lo      = 0,
+  .cap_len    = packet_len,
+  .orig_len   = packet_len
+  };
+  FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
 
-   fd_solcap_chunk_int_hdr_t int_hdr = {
-    .block_type = SOLCAP_WRITE_BANK_PREIMAGE,
-    .slot = (uint)msg_hdr->slot,
-    .txn_idx = msg_hdr->txn_idx
-   };
-   FD_TEST( sizeof(fd_solcap_chunk_int_hdr_t) == (ulong)write(fd, &int_hdr, sizeof(fd_solcap_chunk_int_hdr_t)) );
+  fd_solcap_chunk_int_hdr_t int_hdr = {
+  .block_type = SOLCAP_WRITE_BANK_PREIMAGE,
+  .slot = (uint)msg_hdr->slot,
+  .txn_idx = msg_hdr->txn_idx
+  };
+  FD_TEST( sizeof(fd_solcap_chunk_int_hdr_t) == (ulong)write(fd, &int_hdr, sizeof(fd_solcap_chunk_int_hdr_t)) );
 
-   FD_TEST( sizeof(fd_solcap_bank_preimage_t) == (ulong)write(fd, bank_preimage, sizeof(fd_solcap_bank_preimage_t)) );
+  FD_TEST( sizeof(fd_solcap_bank_preimage_t) == (ulong)write(fd, bank_preimage, sizeof(fd_solcap_bank_preimage_t)) );
 
-   return block_len;
+  return block_len;
 }
 
 uint
@@ -171,4 +171,115 @@ fd_solcap_write_ftr( fd_solcap_writer_t * writer,
   /* Write redundant block length footer (4 bytes) */
   FD_TEST( 4U == (uint)write(fd, &block_len_redundant, 4U) );
   return 0;
+}
+
+uint
+fd_solcap_write_stake_rewards_begin( fd_solcap_writer_t * writer,
+                                     fd_solcap_buf_msg_t * msg_hdr,
+                                     fd_solcap_stake_rewards_begin_t * stake_rewards_begin ) {
+  int fd = writer->fd;
+
+  uint packet_len = (uint)(sizeof(fd_solcap_chunk_int_hdr_t) +
+                           sizeof(fd_solcap_stake_rewards_begin_t));
+
+  uint unaligned_block_len = (uint)(sizeof(fd_pcapng_epb_t) +
+                                   packet_len + 4U); /* +4 for redundant length footer */
+
+  uint block_len = (uint)((unaligned_block_len + 3UL) & ~3UL);
+
+  fd_pcapng_epb_t epb = {
+    .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
+    .block_sz   = block_len,
+    .if_idx     = 0,
+    .ts_hi      = 0,
+    .ts_lo      = 0,
+    .cap_len    = packet_len,
+    .orig_len   = packet_len
+   };
+   FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
+
+   fd_solcap_chunk_int_hdr_t int_hdr = {
+    .block_type = SOLCAP_STAKE_REWARDS_BEGIN,
+    .slot = (uint)msg_hdr->slot,
+    .txn_idx = msg_hdr->txn_idx
+   };
+   FD_TEST( sizeof(fd_solcap_chunk_int_hdr_t) == (ulong)write(fd, &int_hdr, sizeof(fd_solcap_chunk_int_hdr_t)) );
+
+   FD_TEST( sizeof(fd_solcap_stake_rewards_begin_t) == (ulong)write(fd, stake_rewards_begin, sizeof(fd_solcap_stake_rewards_begin_t)) );
+
+   return block_len;
+}
+
+uint
+fd_solcap_write_stake_account_payout( fd_solcap_writer_t * writer,
+                                      fd_solcap_buf_msg_t * msg_hdr,
+                                      fd_solcap_stake_account_payout_t * stake_account_payout ) {
+  int fd = writer->fd;
+
+  uint packet_len = (uint)(sizeof(fd_solcap_chunk_int_hdr_t) +
+                           sizeof(fd_solcap_stake_account_payout_t));
+
+  uint unaligned_block_len = (uint)(sizeof(fd_pcapng_epb_t) +
+                                   packet_len + 4U); /* +4 for redundant length footer */
+
+  uint block_len = (uint)((unaligned_block_len + 3UL) & ~3UL);
+
+  fd_pcapng_epb_t epb = {
+    .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
+    .block_sz   = block_len,
+    .if_idx     = 0,
+    .ts_hi      = 0,
+    .ts_lo      = 0,
+    .cap_len    = packet_len,
+    .orig_len   = packet_len
+  };
+  FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
+
+  fd_solcap_chunk_int_hdr_t int_hdr = {
+    .block_type = SOLCAP_STAKE_ACCOUNT_PAYOUT,
+    .slot = (uint)msg_hdr->slot,
+    .txn_idx = msg_hdr->txn_idx
+  };
+  FD_TEST( sizeof(fd_solcap_chunk_int_hdr_t) == (ulong)write(fd, &int_hdr, sizeof(fd_solcap_chunk_int_hdr_t)) );
+
+  FD_TEST( sizeof(fd_solcap_stake_account_payout_t) == (ulong)write(fd, stake_account_payout, sizeof(fd_solcap_stake_account_payout_t)) );
+
+  return block_len;
+}
+
+uint
+fd_solcap_write_stake_reward_event( fd_solcap_writer_t * writer,
+                                     fd_solcap_buf_msg_t * msg_hdr,
+                                     fd_solcap_stake_reward_event_t * stake_reward_event ) {
+  int fd = writer->fd;
+
+  uint packet_len = (uint)(sizeof(fd_solcap_chunk_int_hdr_t) +
+                           sizeof(fd_solcap_stake_reward_event_t));
+
+  uint unaligned_block_len = (uint)(sizeof(fd_pcapng_epb_t) +
+                                   packet_len + 4U); /* +4 for redundant length footer */
+
+  uint block_len = (uint)((unaligned_block_len + 3UL) & ~3UL);
+
+  fd_pcapng_epb_t epb = {
+    .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
+    .block_sz   = block_len,
+    .if_idx     = 0,
+    .ts_hi      = 0,
+    .ts_lo      = 0,
+    .cap_len    = packet_len,
+    .orig_len   = packet_len
+  };
+  FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
+
+  fd_solcap_chunk_int_hdr_t int_hdr = {
+    .block_type = SOLCAP_STAKE_REWARD_EVENT,
+    .slot = (uint)msg_hdr->slot,
+    .txn_idx = msg_hdr->txn_idx
+  };
+  FD_TEST( sizeof(fd_solcap_chunk_int_hdr_t) == (ulong)write(fd, &int_hdr, sizeof(fd_solcap_chunk_int_hdr_t)) );
+
+  FD_TEST( sizeof(fd_solcap_stake_reward_event_t) == (ulong)write(fd, stake_reward_event, sizeof(fd_solcap_stake_reward_event_t)) );
+
+  return block_len;
 }
