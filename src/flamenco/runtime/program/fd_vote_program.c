@@ -18,11 +18,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/****
-TODO:
- * Remove old unused methods
- * Update old permalinks */
-
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L36
 #define INITIAL_LOCKOUT 2UL
 
@@ -38,58 +33,6 @@ TODO:
 #define ACCOUNTS_MAX 4 /* Vote instructions take in at most 4 accounts */
 
 #define DEFAULT_COMPUTE_UNITS 2100UL
-
-/**********************************************************************/
-/* impl VoteStateVersions                                             */
-/**********************************************************************/
-
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L176-L187 */
-static inline int
-is_uninitialized( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_v0_23_5: {
-      fd_pubkey_t pubkey_default = { 0 };
-      return !memcmp( &self->inner.v0_23_5.authorized_voter, &pubkey_default, sizeof( fd_pubkey_t ) );
-    }
-    case fd_vote_state_versioned_enum_v1_14_11:
-      return fd_authorized_voters_is_empty( &self->inner.v1_14_11.authorized_voters );
-    case fd_vote_state_versioned_enum_v3:
-      return fd_authorized_voters_is_empty( &self->inner.v3.authorized_voters );
-    case fd_vote_state_versioned_enum_v4:
-      return 0; // v4 vote states are always initialized
-    default:
-      __builtin_unreachable();
-  }
-}
-
-/* This function is essentially just a call to get_state, additionally
-   erroring out if the account is a v_0_23_5 account. Initializes
-   a fd_vote_state_versioned_t struct in the vote_state_mem.
-   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L195-L246 */
-static int
-vsv_deserialize( fd_borrowed_account_t const * vote_account,
-                 uchar *                       vote_state_mem ) {
-  /* To keep error codes conformant, we need to read the discriminant
-     from the account data first because if the discriminant matches
-     0_23_5, an uninitialized account error is thrown.
-
-     TODO: I have submitted a patch in Solana-SDK to coalesce the error
-     codes to simplify this handling. Remove this once merged. */
-  uchar const * data     = fd_borrowed_account_get_data( vote_account );
-  ulong         data_len = fd_borrowed_account_get_data_len( vote_account );
-  if( FD_UNLIKELY( data_len<sizeof(uint) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-  uint discriminant = FD_LOAD( uint, data );
-  if( FD_UNLIKELY( discriminant==fd_vote_state_versioned_enum_v0_23_5 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
-  }
-
-  int rc = fd_vsv_get_state( vote_account->acct, vote_state_mem );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
 
 /**********************************************************************/
 /* VoteStateHandler                                                   */
@@ -115,7 +58,7 @@ get_vote_state_handler_checked( fd_borrowed_account_t const * vote_account,
       if( FD_UNLIKELY( rc ) ) return rc;
 
       fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
-      if( FD_UNLIKELY( check_initialized && is_uninitialized( versioned ) ) ) {
+      if( FD_UNLIKELY( check_initialized && fd_vsv_is_uninitialized( versioned ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
       }
 
@@ -123,11 +66,11 @@ get_vote_state_handler_checked( fd_borrowed_account_t const * vote_account,
     }
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L63-L75 */
     case VOTE_STATE_TARGET_VERSION_V4: {
-      rc = vsv_deserialize( vote_account, vote_state_mem );
+      rc = fd_vsv_deserialize( vote_account, vote_state_mem );
       if( FD_UNLIKELY( rc ) ) return rc;
 
       fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
-      if( FD_UNLIKELY( is_uninitialized( versioned ) ) ) {
+      if( FD_UNLIKELY( fd_vsv_is_uninitialized( versioned ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
       }
 
@@ -1178,7 +1121,7 @@ initialize_account( fd_exec_instr_ctx_t *         ctx,
   fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)ctx->runtime->vote_program.init_account.vote_state_mem;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L918-L920 */
-  if( FD_UNLIKELY( !is_uninitialized( versioned ) ) ) {
+  if( FD_UNLIKELY( !fd_vsv_is_uninitialized( versioned ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
   }
 

@@ -686,6 +686,49 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
 }
 
 int
+fd_vsv_deserialize( fd_borrowed_account_t const * vote_account,
+                    uchar *                       vote_state_mem ) {
+  /* To keep error codes conformant, we need to read the discriminant
+     from the account data first because if the discriminant matches
+     0_23_5, an uninitialized account error is thrown.
+
+     TODO: I have submitted a patch in Solana-SDK to coalesce the error
+     codes to simplify this handling. Remove this once merged. */
+  uchar const * data     = fd_borrowed_account_get_data( vote_account );
+  ulong         data_len = fd_borrowed_account_get_data_len( vote_account );
+  if( FD_UNLIKELY( data_len<sizeof(uint) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+  uint discriminant = FD_LOAD( uint, data );
+  if( FD_UNLIKELY( discriminant==fd_vote_state_versioned_enum_v0_23_5 ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+  }
+
+  int rc = fd_vsv_get_state( vote_account->acct, vote_state_mem );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+int
+fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_v0_23_5: {
+      fd_pubkey_t pubkey_default = { 0 };
+      return !memcmp( &self->inner.v0_23_5.authorized_voter, &pubkey_default, sizeof( fd_pubkey_t ) );
+    }
+    case fd_vote_state_versioned_enum_v1_14_11:
+      return fd_authorized_voters_is_empty( &self->inner.v1_14_11.authorized_voters );
+    case fd_vote_state_versioned_enum_v3:
+      return fd_authorized_voters_is_empty( &self->inner.v3.authorized_voters );
+    case fd_vote_state_versioned_enum_v4:
+      return 0; // v4 vote states are always initialized
+    default:
+      __builtin_unreachable();
+  }
+}
+
+int
 fd_vsv_is_correct_size_and_initialized( fd_txn_account_t const * vote_account ) {
   uchar const * data     = fd_txn_account_get_data( vote_account );
   ulong         data_len = fd_txn_account_get_data_len( vote_account );

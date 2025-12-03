@@ -145,6 +145,18 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
                                         int                     target_version,
                                         uchar *                 vote_lockout_mem );
 
+/* This function is essentially just a call to get_state, additionally
+   erroring out if the account is a v_0_23_5 account. Initializes
+   a fd_vote_state_versioned_t struct in the vote_state_mem.
+   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L195-L246 */
+   int
+fd_vsv_deserialize( fd_borrowed_account_t const * vote_account,
+                    uchar *                       vote_state_mem );
+
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L176-L187 */
+int
+fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self );
+
 /* Returns 1 if the vote account is the correct size and initialized,
    0 otherwise.
    https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L189-L193 */
