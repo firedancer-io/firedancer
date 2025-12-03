@@ -62,8 +62,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
    the stake account. */
 
 void
-fd_stakes_update_stake_delegation( fd_txn_account_t * stake_account,
-                                   fd_bank_t *        bank );
+fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
+                                   fd_account_meta_t const * meta,
+                                   fd_bank_t *               bank );
 
 /* fd_stakes_update_vote_state is used to maintain the in-memory cache
    of the vote states that is used at the epoch boundary.  Entries in
@@ -71,8 +72,9 @@ fd_stakes_update_stake_delegation( fd_txn_account_t * stake_account,
    the vote account. */
 
 void
-fd_stakes_update_vote_state( fd_txn_account_t * vote_account,
-                             fd_bank_t *        bank );
+fd_stakes_update_vote_state( fd_pubkey_t const *       pubkey,
+                             fd_account_meta_t const * meta,
+                             fd_bank_t *               bank );
 
 FD_PROTOTYPES_END
 

@@ -69,8 +69,8 @@ FD_FN_PURE uchar
 fd_loader_v4_status_is_finalized( fd_loader_v4_state_t const * state );
 
 fd_loader_v4_state_t const *
-fd_loader_v4_get_state( fd_txn_account_t const * program,
-                        int *                    err );
+fd_loader_v4_get_state( fd_account_meta_t const * meta,
+                        int *                     err );
 
 int
 fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx );

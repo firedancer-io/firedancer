@@ -86,7 +86,7 @@ tmp_account_store( fd_tmp_account_t *        acc,
   fd_txn_account_set_lamports  ( rec, acc->meta.lamports      );
   fd_txn_account_set_data      ( rec, acc->data, acc->data_sz );
 
-  fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
+  fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
   fd_txn_account_mutable_fini( rec, accdb, &prepare );
 }
 

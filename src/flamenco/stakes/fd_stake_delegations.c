@@ -1,6 +1,7 @@
 #include "fd_stake_delegations.h"
 #include "../../funk/fd_funk_base.h"
 #include "../runtime/fd_txn_account.h"
+#include "../runtime/fd_acc_mgr.h"
 #include "../runtime/program/fd_stake_program.h"
 
 #define POOL_NAME fd_stake_delegation_pool
@@ -355,21 +356,16 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
       continue;
     }
 
-    fd_txn_account_t acct_rec[1];
-    int err = fd_txn_account_init_from_funk_readonly(
-        acct_rec,
-        &stake_delegation->stake_account,
-        funk,
-        xid );
-
-    if( FD_UNLIKELY( err || fd_txn_account_get_lamports( acct_rec )==0UL ) ) {
+    int err = 0;
+    fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly( funk, xid, &stake_delegation->stake_account, NULL, &err, NULL );
+    if( FD_UNLIKELY( err || meta->lamports==0UL ) ) {
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
       fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
       continue;
     }
 
     fd_stake_state_v2_t stake_state;
-    err = fd_stake_get_state( acct_rec, &stake_state );
+    err = fd_stake_get_state( meta, &stake_state );
     if( FD_UNLIKELY( err ) ) {
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
       fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );

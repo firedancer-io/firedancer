@@ -33,10 +33,7 @@ fd_txn_account_new( void *              mem,
 
   fd_memcpy( txn_account->pubkey, pubkey, sizeof(fd_pubkey_t) );
 
-  txn_account->magic             = FD_TXN_ACCOUNT_MAGIC;
-
-  txn_account->starting_dlen     = meta->dlen;
-  txn_account->starting_lamports = meta->lamports;
+  txn_account->magic = FD_TXN_ACCOUNT_MAGIC;
 
   uchar * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
@@ -219,46 +216,6 @@ fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
     /* Crashes the app if this key already exists in funk (conflicting
        write) */
     fd_funk_rec_publish( funk, prepare );
-  }
-}
-
-/* read/write mutual exclusion */
-
-FD_FN_PURE int
-fd_txn_account_acquire_write_is_safe( fd_txn_account_t const * acct ) {
-  return !acct->refcnt_excl;
-}
-
-/* fd_txn_account_acquire_write acquires write/exclusive access.
-   Causes all other write or read acquire attempts will fail.  Returns 1
-   on success, 0 on failure.
-
-   Mirrors a try_borrow_mut() call in Agave. */
-int
-fd_txn_account_acquire_write( fd_txn_account_t * acct ) {
-  if( FD_UNLIKELY( !fd_txn_account_acquire_write_is_safe( acct ) ) ) {
-    return 0;
-  }
-  acct->refcnt_excl = (ushort)1;
-  return 1;
-}
-
-/* fd_txn_account_release_write{_private} releases a write/exclusive
-   access handle. The private version should only be used by fd_borrowed_account_drop
-   and fd_borrowed_account_destroy. */
-void
-fd_txn_account_release_write( fd_txn_account_t * acct ) {
-  if( FD_UNLIKELY( acct->refcnt_excl!=1 ) ) {
-    FD_LOG_CRIT(( "refcnt_excl is %d, expected 1", acct->refcnt_excl ));
-  }
-  acct->refcnt_excl = (ushort)0;
-}
-
-void
-fd_txn_account_release_write_private( fd_txn_account_t * acct ) {
-  /* Only release if it is not yet released */
-  if( !fd_txn_account_acquire_write_is_safe( acct ) ) {
-    fd_txn_account_release_write( acct );
   }
 }
 
@@ -452,11 +409,6 @@ fd_txn_account_resize( fd_txn_account_t * acct,
   acct->meta->dlen = (uint)dlen;
 }
 
-ushort
-fd_txn_account_is_borrowed( fd_txn_account_t const * acct ) {
-  return !!acct->refcnt_excl;
-}
-
 int
 fd_txn_account_is_mutable( fd_txn_account_t const * acct ) {
   /* A txn account is mutable if meta is non NULL */
@@ -467,16 +419,6 @@ int
 fd_txn_account_is_readonly( fd_txn_account_t const * acct ) {
   /* A txn account is readonly if only the meta_ field is non NULL */
   return !acct->is_mutable;
-}
-
-int
-fd_txn_account_try_borrow_mut( fd_txn_account_t * acct ) {
-  return fd_txn_account_acquire_write( acct );
-}
-
-void
-fd_txn_account_drop( fd_txn_account_t * acct ) {
-  fd_txn_account_release_write_private( acct );
 }
 
 void

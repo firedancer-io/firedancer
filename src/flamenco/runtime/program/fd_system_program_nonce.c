@@ -135,7 +135,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* Max msg_sz: 50 - 2 + 45 = 93 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Advance nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey) );
+      "Advance nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( account->pubkey) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -226,7 +226,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
   case fd_nonce_state_enum_uninitialized: {
     /* Max msg_sz: 50 - 2 + 45 = 93 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Advance nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Advance nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->pubkey ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -305,7 +305,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, from_acct_idx ) ) ) {
     /* Max msg_sz: 51 - 2 + 45 = 94 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Withdraw nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( from.acct->pubkey ) );
+      "Withdraw nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( from.pubkey ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -349,7 +349,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L105 */
 
-    *signer = *from.acct->pubkey;
+    *signer = *from.pubkey;
 
     break;
   }
@@ -506,7 +506,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_borrowed_account_is_writable( account ) ) ) {
     /* Max msg_sz: 53 - 2 + 45 = 96 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Initialize nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Initialize nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( account->pubkey ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -593,7 +593,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     /* Max msg_sz: 53 - 2 + 45 = 96 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Initialize nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Initialize nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->pubkey ) );
 
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -677,7 +677,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* Max msg_sz: 52 - 2 + 45 = 95 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Authorize nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Authorize nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( account->pubkey ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -716,7 +716,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     /* Max msg_sz: 52 - 2 + 45 = 95 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Authorize nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Authorize nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->pubkey ) );
 
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -949,7 +949,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   fd_txn_account_t durable_nonce_rec[1];
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
-                                                    &txn_out->accounts.account_keys[ nonce_idx ],
+                                                    &txn_out->accounts.keys[ nonce_idx ],
                                                     runtime->funk,
                                                     &xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
@@ -993,7 +993,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      the nonce instruction are signers. This is a successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( TXN( txn_in->txn ), (int)instr_accts[i] ) ) {
-      if( !memcmp( &txn_out->accounts.account_keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof(fd_pubkey_t) ) ) {
+      if( !memcmp( &txn_out->accounts.keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof(fd_pubkey_t) ) ) {
         /*
            Mark nonce account to make sure that we modify and hash the
            account even if the transaction failed to execute
@@ -1007,7 +1007,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
         fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
             runtime->funk,
             &xid,
-            &txn_out->accounts.account_keys[ instr_accts[ 0UL ] ],
+            &txn_out->accounts.keys[ instr_accts[ 0UL ] ],
             NULL,
             &err,
             NULL );
@@ -1044,21 +1044,15 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
         }
         fd_memcpy( borrowed_account_data, meta, sizeof(fd_account_meta_t)+acc_data_len );
 
-        if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
-              txn_out->accounts.rollback_nonce,
-              &txn_out->accounts.account_keys[ instr_accts[ 0UL ] ],
-              (fd_account_meta_t *)borrowed_account_data,
-              1 ) ) ) ) {
-          FD_LOG_CRIT(( "Failed to join txn account" ));
-        }
+        txn_out->accounts.rollback_nonce = (fd_account_meta_t *)borrowed_account_data;
 
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce ) ) ) {
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>txn_out->accounts.rollback_nonce->dlen ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
         do {
           fd_bincode_encode_ctx_t encode_ctx =
-            { .data    = fd_txn_account_get_data_mut( txn_out->accounts.rollback_nonce ),
-              .dataend = fd_txn_account_get_data_mut( txn_out->accounts.rollback_nonce ) + fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce ) };
+            { .data    = fd_account_data( txn_out->accounts.rollback_nonce ),
+              .dataend = fd_account_data( txn_out->accounts.rollback_nonce ) + txn_out->accounts.rollback_nonce->dlen };
           int err = fd_nonce_state_versions_encode( &new_state, &encode_ctx );
           if( FD_UNLIKELY( err ) ) {
             return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
