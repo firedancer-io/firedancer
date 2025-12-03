@@ -22,48 +22,26 @@ def ip():
     return ip
 
 
-
-def get_agave_release_path():
-    """Get the AGAVE_RELEASE_PATH environment variable."""
-    agave_path = os.environ.get('AGAVE_RELEASE_PATH')
-    if not agave_path:
-        click.echo("Error: AGAVE_RELEASE_PATH environment variable is not set.", err=True)
-        click.echo("Please activate the agave-cluster environment with: source activate <AGAVE_RELEASE_PATH>", err=True)
+def get_env_var(var_name):
+    """Get the environment variable value."""
+    value = os.environ.get(var_name)
+    if not value:
+        click.echo(f"Error: {var_name} environment variable is not set.", err=True)
+        click.echo(f"Please activate the agave-cluster environment with: source activate <FIREDANCER_REPO_PATH> <AGAVE_RELEASE_PATH> <LEDGER_DIR>", err=True)
         sys.exit(1)
-    return Path(agave_path)
-
-def get_ledger_directory():
-    """Get the ledger directory from environment variable or config file."""
-    # Try environment variable first
-    ledger_path = os.environ.get('AGAVE_LEDGER_PATH')
-
-    # If not in environment, try config file
-    if not ledger_path:
-        config_file = Path(__file__).parent.parent / '.ledger_config'
-        if config_file.exists():
-            try:
-                with open(config_file, 'r') as f:
-                    ledger_path = f.read().strip()
-            except Exception:
-                pass
-
-    if not ledger_path:
-        click.echo("Error: Ledger directory is not configured.", err=True)
-        click.echo("Please set the ledger directory with: agave-cluster set-ledger-dir <LEDGER_PATH>", err=True)
-        sys.exit(1)
-    return Path(ledger_path)
+    return Path(value)
 
 def validate_ledger_directory():
     """Validate that the ledger directory exists."""
-    ledger_path = get_ledger_directory()
+    ledger_path = get_env_var('AGAVE_LEDGER_PATH')
     if not ledger_path.exists():
         click.echo(f"Error: Ledger directory {ledger_path} does not exist.", err=True)
-        click.echo(f"Please create the directory or set a different path with: agave-cluster set-ledger-dir <LEDGER_PATH>", err=True)
+        click.echo(f"Please create the directory or set a different path with: export AGAVE_LEDGER_PATH=<LEDGER_PATH>", err=True)
         sys.exit(1)
     return ledger_path
 
 def solana_binary(name):
-    return str(get_agave_release_path() / "target" / "release" / name)
+    return str(get_env_var('AGAVE_RELEASE_PATH') / "target" / "release" / name)
 
 def create_key(key_path):
     solana_keygen = solana_binary('solana-keygen')
@@ -80,7 +58,7 @@ def get_pubkey(key_path):
 
 def get_cluster_info(key):
     """Get cluster information from the cluster-info.txt file."""
-    cluster_path = str(get_ledger_directory())
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
     try:
         with open(info_path, 'r') as f:
@@ -100,8 +78,6 @@ def main(ctx, verbose):
     """Agave cluster management CLI tool."""
     ctx.ensure_object(dict)
     ctx.obj['verbose'] = verbose
-    # Don't validate AGAVE_RELEASE_PATH here - let individual commands handle it
-    # This allows setup commands like set-ledger-dir to work without AGAVE_RELEASE_PATH being set
 
 
 @main.command('start-cluster')
@@ -110,7 +86,7 @@ def main(ctx, verbose):
 @click.pass_context
 def start_cluster(ctx, config, bootstrap_validator_name):
     """Start an Agave cluster."""
-    agave_path = get_agave_release_path()
+    agave_path = get_env_var('AGAVE_RELEASE_PATH')
     verbose = ctx.obj['verbose']
 
     # Validate ledger directory exists and get the path
@@ -171,7 +147,9 @@ def start_cluster(ctx, config, bootstrap_validator_name):
 
         return genesis_hash, shred_version
 
-    genesis_output = subprocess.run([solana_genesis, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "18000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "128", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", "/data/kbhargava/repos/firedancer/contrib/ledger-gen/bpf_migrated_programs/stake_elf.so", "11111111111111111111111111111111", "--upgradeable-program", "AddressLookupTab1e1111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", "/data/kbhargava/repos/firedancer/contrib/ledger-gen/bpf_migrated_programs/alut_elf.so", "11111111111111111111111111111111", "--upgradeable-program", "Config1111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", "/data/kbhargava/repos/firedancer/contrib/ledger-gen/bpf_migrated_programs/config_elf.so", "11111111111111111111111111111111"], cwd=cluster_path, capture_output=True, text=True)
+    firedancer_repo_path = get_env_var('FIREDANCER_REPO_PATH')
+
+    genesis_output = subprocess.run([solana_genesis, "--cluster-type", "development", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "18000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "128", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", f"{firedancer_repo_path}/contrib/ledger-gen/bpf_migrated_programs/stake_elf.so", "11111111111111111111111111111111", "--upgradeable-program", "AddressLookupTab1e1111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", f"{firedancer_repo_path}/contrib/ledger-gen/bpf_migrated_programs/alut_elf.so", "11111111111111111111111111111111", "--upgradeable-program", "Config1111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", f"{firedancer_repo_path}/contrib/ledger-gen/bpf_migrated_programs/config_elf.so", "11111111111111111111111111111111"], cwd=cluster_path, capture_output=True, text=True)
     genesis_hash, shred_version = parse_genesis_output(genesis_output.stdout)
 
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
@@ -181,7 +159,7 @@ def start_cluster(ctx, config, bootstrap_validator_name):
 
     agave_validator = solana_binary('agave-validator')
 
-    validator_process = subprocess.Popen([agave_validator, "--rpc-bind-address", f"{ip()}", "--allow-private-addr", "--enable-rpc-transaction-history", "--identity", id_key, "--ledger", node_path, "--limit-ledger-size", "100000000", "--dynamic-port-range", "8000-8099", "--no-snapshot-fetch", "--no-poh-speed-test", "--no-os-network-limits-test", "--vote-account", vote_key, "--expected-shred-version", shred_version, "--expected-genesis-hash", genesis_hash, "--no-wait-for-vote-to-start-leader", "--no-incremental-snapshots", "--snapshot-interval-slots", "50", "--maximum-full-snapshots-to-retain", "10", "--rpc-port", "8899", "--gossip-port", "8010", "--full-rpc-api", "--bind-address", ip(), "--tpu-enable-udp", "--log", f"{node_path}/validator.log"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
+    validator_process = subprocess.Popen([agave_validator, "--rpc-bind-address", f"{ip()}", "--allow-private-addr", "--enable-rpc-transaction-history", "--identity", id_key, "--ledger", node_path, "--limit-ledger-size", "100000000", "--dynamic-port-range", "8000-8099", "--no-snapshot-fetch", "--no-poh-speed-test", "--no-os-network-limits-test", "--vote-account", vote_key, "--expected-shred-version", shred_version, "--expected-genesis-hash", genesis_hash, "--no-wait-for-vote-to-start-leader", "--no-incremental-snapshots", "--snapshot-interval-slots", "50", "--maximum-full-snapshots-to-retain", "10", "--rpc-port", "8899", "--gossip-port", "8010", "--full-rpc-api", "--bind-address", ip(), "--log", f"{node_path}/validator.log"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
 
     validator_pid = validator_process.pid
     click.echo(f"Validator {bootstrap_validator_name} has started with pid {validator_pid}")
@@ -205,7 +183,7 @@ def stop_cluster(ctx, force):
 
     if verbose:
         try:
-            agave_path = get_agave_release_path()
+            agave_path = get_env_var('AGAVE_RELEASE_PATH')
             click.echo(f"Stopping cluster with Agave release at: {agave_path}")
         except SystemExit:
             pass  # AGAVE_RELEASE_PATH not needed for stop operation
@@ -214,7 +192,7 @@ def stop_cluster(ctx, force):
     click.echo("🛑 Stopping Agave cluster...")
 
     try:
-        cluster_path = str(get_ledger_directory())
+        cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
         info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
         if not os.path.exists(info_path):
@@ -256,8 +234,7 @@ def stop_cluster(ctx, force):
         click.echo("✅ Cluster stopped successfully!")
 
     except FileNotFoundError:
-        click.echo("Error: AGAVE_LEDGER_PATH not set or directory not found.", err=True)
-        click.echo("Use 'agave-cluster set-ledger-dir <path>' to set the ledger directory.", err=True)
+        click.echo("Error: AGAVE_LEDGER_PATH not set or directory not found. Please check your environment variables.", err=True)
 
 
 @main.command('add-node')
@@ -266,7 +243,7 @@ def stop_cluster(ctx, force):
 def add_node(ctx, validator_name):
     """Add a new node to the cluster."""
 
-    cluster_path = str(get_ledger_directory())
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
     current_node_count = len(os.listdir(os.path.join(cluster_path, 'nodes')))
@@ -317,7 +294,7 @@ def add_node(ctx, validator_name):
     # Get the vote account public key
     vote_pubkey = get_pubkey(vote_key)
 
-    validator_process = subprocess.Popen([agave_validator, "--allow-private-addr", "--identity", id_key, "--ledger", node_path, "--limit-ledger-size", "100000000", "--dynamic-port-range", f"8{current_node_count}00-8{current_node_count}99", "--no-poh-speed-test", "--no-os-network-limits-test", "--vote-account", vote_pubkey, "--entrypoint", f"{ip()}:8010", "--gossip-port", f"8{current_node_count}10", "--expected-shred-version", shred_version, "--expected-genesis-hash", genesis_hash, "--tpu-disable-quic", "--tpu-enable-udp", "--log", f"{node_path}/validator.log"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
+    validator_process = subprocess.Popen([agave_validator, "--allow-private-addr", "--identity", id_key, "--ledger", node_path, "--limit-ledger-size", "100000000", "--dynamic-port-range", f"8{current_node_count}00-8{current_node_count}99", "--no-poh-speed-test", "--no-os-network-limits-test", "--vote-account", vote_pubkey, "--entrypoint", f"{ip()}:8010", "--gossip-port", f"8{current_node_count}10", "--expected-shred-version", shred_version, "--expected-genesis-hash", genesis_hash, "--tpu-disable-quic", "--log", f"{node_path}/validator.log"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
 
     validator_pid = validator_process.pid
     click.echo(f"Validator {validator_name} has started with pid {validator_pid}")
@@ -338,7 +315,7 @@ def add_node(ctx, validator_name):
 @click.pass_context
 def create_unstaked_keys(ctx, validator_name):
     """Create Unstaked keys."""
-    cluster_path = str(get_ledger_directory())
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
     current_node_count = len(os.listdir(os.path.join(cluster_path, 'nodes')))
@@ -386,7 +363,7 @@ def create_unstaked_keys(ctx, validator_name):
 @click.option('--percentage', type=int, help='Percentage of the validator to stake')
 @click.pass_context
 def create_staked_keys(ctx, validator_name, sol, percentage):
-    cluster_path = str(get_ledger_directory())
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
     current_node_count = len(os.listdir(os.path.join(cluster_path, 'nodes')))
@@ -467,7 +444,7 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
 @click.pass_context
 def delegate_stake(ctx, vote_key, amount):
     """Stake a node."""
-    cluster_path = str(get_ledger_directory())
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
     # TODO: Allow identitier to be a node name or identity key, for now we only support key
@@ -492,7 +469,7 @@ def delegate_stake(ctx, vote_key, amount):
 @click.pass_context
 def deactivate_stake(ctx, stake_key):
     """Deactivate a stake."""
-    cluster_path = str(get_ledger_directory())
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
     faucet_key = os.path.join(cluster_path, 'faucet.json')
     authority_key = os.path.join(cluster_path, 'authority.json')
 
@@ -524,7 +501,7 @@ def stop_node(ctx, identifier, force):
         click.echo(f"Force stop: {force}")
 
     try:
-        cluster_path = str(get_ledger_directory())
+        cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
         info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
         if not os.path.exists(info_path):
@@ -574,8 +551,7 @@ def stop_node(ctx, identifier, force):
             click.echo(f"Error stopping node with identifier {identifier}: {e}", err=True)
 
     except FileNotFoundError:
-        click.echo("Error: AGAVE_LEDGER_PATH not set or directory not found.", err=True)
-        click.echo("Use 'agave-cluster set-ledger-dir <path>' to set the ledger directory.", err=True)
+        click.echo("Error: AGAVE_LEDGER_PATH not set or directory not found. Please check your environment variables.", err=True)
 
 
 @main.command('status')
@@ -587,13 +563,13 @@ def cluster_status(ctx, output_json):
 
     if verbose:
         try:
-            agave_path = get_agave_release_path()
+            agave_path = get_env_var('AGAVE_RELEASE_PATH')
             click.echo(f"Getting cluster status with Agave release at: {agave_path}")
         except SystemExit:
             pass  # AGAVE_RELEASE_PATH not needed for status check
 
     try:
-        cluster_path = str(get_ledger_directory())
+        cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
         info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
         if not os.path.exists(info_path):
@@ -650,11 +626,7 @@ def cluster_status(ctx, output_json):
                 click.echo(f"  Shred Version: {shred_version}")
 
     except FileNotFoundError:
-        if output_json:
-            click.echo('{"error": "AGAVE_LEDGER_PATH not set or directory not found"}')
-        else:
-            click.echo("Error: AGAVE_LEDGER_PATH not set or directory not found.", err=True)
-            click.echo("Use 'agave-cluster set-ledger-dir <path>' to set the ledger directory.", err=True)
+        click.echo("Error: AGAVE_LEDGER_PATH not set or directory not found. Please check your environment variables.", err=True)
 
 
 @main.command('logs')
@@ -668,7 +640,7 @@ def show_logs(ctx, node_id, follow, lines):
 
     if verbose:
         try:
-            agave_path = get_agave_release_path()
+            agave_path = get_env_var('AGAVE_RELEASE_PATH')
             click.echo(f"Showing logs with Agave release at: {agave_path}")
         except SystemExit:
             pass  # AGAVE_RELEASE_PATH not needed for log viewing
@@ -677,7 +649,7 @@ def show_logs(ctx, node_id, follow, lines):
         click.echo(f"Lines: {lines}")
 
     try:
-        cluster_path = str(get_ledger_directory())
+        cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
 
         # If no specific node-id is provided, default to the bootstrap validator
         if not node_id:
@@ -728,8 +700,7 @@ def show_logs(ctx, node_id, follow, lines):
                     click.echo(f"Error reading log file: {e}")
 
     except FileNotFoundError:
-        click.echo("Error: AGAVE_LEDGER_PATH not set or directory not found.", err=True)
-        click.echo("Use 'agave-cluster set-ledger-dir <path>' to set the ledger directory.", err=True)
+        click.echo("Error: AGAVE_LEDGER_PATH not set or directory not found. Please check your environment variables.", err=True)
 
 
 @main.command('set-cluster-version')
@@ -738,7 +709,7 @@ def show_logs(ctx, node_id, follow, lines):
 @click.pass_context
 def set_cluster_version(ctx, version, force):
     """Set the cluster version by checking out a git tag and building."""
-    agave_path = get_agave_release_path()
+    agave_path = get_env_var('AGAVE_RELEASE_PATH')
     verbose = ctx.obj['verbose']
 
     if verbose:
@@ -821,7 +792,7 @@ def set_cluster_version(ctx, version, force):
 @click.pass_context
 def cluster_version(ctx):
     """Get the cluster version."""
-    agave_path = get_agave_release_path()
+    agave_path = get_env_var('AGAVE_RELEASE_PATH')
 
     try:
         # Change to the AGAVE_RELEASE_PATH directory
@@ -844,52 +815,6 @@ def cluster_version(ctx):
         except:
             pass
 
-@main.command('set-ledger-dir')
-@click.argument('ledger_path', type=str, required=False)
-@click.pass_context
-def set_ledger_directory(ctx, ledger_path):
-    """Set or show the ledger directory path."""
-    verbose = ctx.obj['verbose']
-
-    # If no path provided, show current configuration
-    if not ledger_path:
-        try:
-            current_path = get_ledger_directory()
-            click.echo(f"📁 Current ledger directory: {current_path}")
-            if current_path.exists():
-                click.echo(f"   Status: ✅ Directory exists")
-            else:
-                click.echo(f"   Status: ❌ Directory does not exist")
-            return
-        except SystemExit:
-            click.echo("📁 No ledger directory configured.")
-            click.echo("   Use: agave-cluster set-ledger-dir <path>")
-            return
-
-    # Convert to absolute path
-    ledger_path = os.path.abspath(ledger_path)
-
-    if verbose:
-        click.echo(f"Setting ledger directory to: {ledger_path}")
-
-    # Create directory if it doesn't exist
-    os.makedirs(ledger_path, exist_ok=True)
-
-    # Write to config file
-    config_file = Path(__file__).parent.parent / '.ledger_config'
-
-    try:
-        with open(config_file, 'w') as f:
-            f.write(ledger_path)
-
-        click.echo(f"✅ Ledger directory set to: {ledger_path}")
-
-    except Exception as e:
-        click.echo(f"Error saving ledger directory config: {e}", err=True)
-        sys.exit(1)
-
-    os.environ['AGAVE_LEDGER_PATH'] = ledger_path
-
 @main.command('validators')
 @click.pass_context
 def validators(ctx):
@@ -898,7 +823,7 @@ def validators(ctx):
 
     if verbose:
         try:
-            agave_path = get_agave_release_path()
+            agave_path = get_env_var('AGAVE_RELEASE_PATH')
             click.echo(f"Showing validators with Agave release at: {agave_path}")
         except SystemExit:
             pass  # AGAVE_RELEASE_PATH not needed for showing validators
@@ -930,7 +855,7 @@ def validators(ctx):
     click.echo(epoch_in_output)
     click.echo(validators_output)
 
-    cluster_path = str(get_ledger_directory())
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
     keys_path = os.path.join(cluster_path, 'keys')
 
     if not os.path.exists(keys_path):
@@ -1049,7 +974,7 @@ def leader_stats(ctx):
     leader_schedule = result.stdout
 
     # collect leader pubkeys
-    cluster_path = str(get_ledger_directory())
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
     keys_path = os.path.join(cluster_path, 'keys')
     validator_leader_slots = {}
     for validator_name in os.listdir(keys_path):
