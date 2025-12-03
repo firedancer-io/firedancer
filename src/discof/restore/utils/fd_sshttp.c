@@ -406,7 +406,7 @@ follow_redirect( fd_sshttp_t *        http,
   char const * location = NULL;
 
   for( ulong i=0UL; i<header_cnt; i++ ) {
-    if( FD_UNLIKELY( !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
+    if( FD_UNLIKELY( headers[ i ].name_len == 8 && !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
       if( FD_UNLIKELY( !headers [ i ].value_len || headers[ i ].value[ 0 ]!='/' ) ) {
         FD_LOG_WARNING(( "invalid location header `%.*s`", (int)headers[ i ].value_len, headers[ i ].value ));
         fd_sshttp_cancel( http );
