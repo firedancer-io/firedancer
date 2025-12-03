@@ -534,6 +534,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       fd_runtime_t * runtime = runner->runtime;
       fd_log_collector_t log[1];
       runtime->log.log_collector = log;
+      runtime->acc_pool = runner->acc_pool;
       fd_solfuzz_txn_ctx_exec( runner, runtime, &txn_in, &res, &txn_out );
       txn_out.err.exec_err = res;
 
