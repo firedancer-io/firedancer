@@ -145,5 +145,11 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
                                         int                     target_version,
                                         uchar *                 vote_lockout_mem );
 
+/* Returns 1 if the vote account is the correct size and initialized,
+   0 otherwise.
+   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L189-L193 */
+int
+fd_vsv_is_correct_size_and_initialized( fd_txn_account_t const * vote_account );
+
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_state_versioned_h */
 

@@ -26,9 +26,6 @@ TODO:
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L36
 #define INITIAL_LOCKOUT 2UL
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42
-#define DEFAULT_PRIOR_VOTERS_OFFSET 114
-
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L51
 #define VOTE_CREDITS_MAXIMUM_PER_SLOT_OLD 8
 
@@ -37,18 +34,6 @@ TODO:
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/clock.rs#L147
 #define SLOT_MAX ULONG_MAX
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L886
-#define VERSION_OFFSET (4UL)
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L887
-#define DEFAULT_PRIOR_VOTERS_END (118)
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L6
-#define DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 (82UL)
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L60
-#define DEFAULT_PRIOR_VOTERS_END_1_14_11 (86UL)
 
 #define ACCOUNTS_MAX 4 /* Vote instructions take in at most 4 accounts */
 
@@ -2140,34 +2125,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 /* Public API                                                         */
 /**********************************************************************/
 
-uint
-fd_vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_account ) {
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L885
-  uint data_len_check = fd_txn_account_get_data_len( vote_account )==FD_VOTE_STATE_V3_SZ;
-  uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
-  uint data_check = memcmp((
-      fd_txn_account_get_data( vote_account )+VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET)!=0;
-  if (data_check && data_len_check) {
-    return 1;
-  }
-
-  // VoteState1_14_11::is_correct_size_and_initialized
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L58
-  data_len_check = fd_txn_account_get_data_len( vote_account )==FD_VOTE_STATE_V2_SZ;
-  uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
-  data_check = memcmp( (
-      fd_txn_account_get_data( vote_account )+VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11)!=0;
-  return data_check && data_len_check;
-}
-
-fd_vote_state_versioned_t *
-fd_vote_fd_vsv_get_state( fd_txn_account_t const * self,
-                   uchar *                  mem /* out */ ) {
-
-  int err = fd_vsv_get_state( self, mem );
-  return err ? NULL : (fd_vote_state_versioned_t *)mem;
-}
-
 /* TODO: Old code, remove whenever stake program gets cleaned up */
 void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
@@ -2188,7 +2145,7 @@ fd_vote_store_account( fd_txn_account_t * vote_account,
     return;
   }
 
-  if( !fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
+  if( !fd_vsv_is_correct_size_and_initialized( vote_account ) ) {
     fd_vote_states_remove( vote_states, vote_account->pubkey );
     fd_bank_vote_states_end_locking_modify( bank );
     return;

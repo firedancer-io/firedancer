@@ -133,10 +133,6 @@ FD_PROTOTYPES_BEGIN
 int
 fd_vote_program_execute( fd_exec_instr_ctx_t * ctx );
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_versions.rs#L90 */
-uint
-fd_vote_state_versions_is_correct_and_initialized( fd_txn_account_t * vote_account );
-
 /* An implementation of solana_sdk::transaction_context::BorrowedAccount::get_state
    for setting the vote state.
 

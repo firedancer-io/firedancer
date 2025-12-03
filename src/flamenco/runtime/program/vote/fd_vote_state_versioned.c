@@ -7,13 +7,20 @@
 #include "fd_authorized_voters.h"
 #include "../../fd_runtime.h"
 
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42
+#define DEFAULT_PRIOR_VOTERS_OFFSET 114
 
-/*****
-TODO:
-  * Use const in all the getters (see fd_vsv_get_root_slot)
-  * Update permalinks
-  * Consistency in switch statements (use FD LOG ERR instead of builtin unreachable?)
-*/
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L886
+#define VERSION_OFFSET (4UL)
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L887
+#define DEFAULT_PRIOR_VOTERS_END (118)
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L6
+#define DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 (82UL)
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L60
+#define DEFAULT_PRIOR_VOTERS_END_1_14_11 (86UL)
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L780-L785 */
 static inline fd_vote_lockout_t *
@@ -27,7 +34,7 @@ last_lockout( fd_vote_state_versioned_t * self ) {
       votes = self->inner.v4.votes;
       break;
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 
   if( deq_fd_landed_vote_t_empty( votes ) ) return NULL;
@@ -76,7 +83,7 @@ fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return &self->inner.v4.authorized_withdrawer;
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -88,7 +95,7 @@ fd_vsv_get_commission( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return (uchar)(self->inner.v4.inflation_rewards_commission_bps/100);
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -131,7 +138,7 @@ fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return &self->inner.v4.last_timestamp;
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -147,7 +154,7 @@ fd_vsv_get_epoch_credits_mutable( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return self->inner.v4.epoch_credits;
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -159,7 +166,7 @@ fd_vsv_get_votes_mutable( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return self->inner.v4.votes;
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -206,7 +213,7 @@ fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
     case fd_vote_state_versioned_enum_v4:
       return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", versioned->discriminant ));
   }
 }
 
@@ -223,7 +230,7 @@ fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
       break;
     }
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -295,7 +302,7 @@ fd_vsv_set_commission( fd_vote_state_versioned_t * self,
       self->inner.v4.inflation_rewards_commission_bps = commission*100;
       break;
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -328,7 +335,7 @@ fd_vsv_set_last_timestamp( fd_vote_state_versioned_t *       self,
       self->inner.v4.last_timestamp = *last_timestamp;
       break;
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -572,7 +579,7 @@ fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
     case fd_vote_state_versioned_enum_v4:
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -641,7 +648,7 @@ fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
     case fd_vote_state_versioned_enum_v4:
       return FD_EXECUTOR_INSTR_SUCCESS;
     default:
-      __builtin_unreachable();
+      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -678,4 +685,42 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
   }
 }
 
+int
+fd_vsv_is_correct_size_and_initialized( fd_txn_account_t const * vote_account ) {
+  uchar const * data     = fd_txn_account_get_data( vote_account );
+  ulong         data_len = fd_txn_account_get_data_len( vote_account );
+  uint const *  disc_ptr = (uint const *)data; // NOT SAFE TO ACCESS YET!
 
+  /* VoteStateV4::is_correct_size_and_initialized
+     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v4.rs#L207-L210 */
+  if( FD_LIKELY( data_len==FD_VOTE_STATE_V4_SZ && *disc_ptr==fd_vote_state_versioned_enum_v4 ) ) {
+    return 1;
+  }
+
+  /* This is big enough for both v3 and v1_14_11 and can be reused
+     (DEFAULT_PRIOR_VOTERS_OFFSET>DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) */
+  uchar zero_data[ DEFAULT_PRIOR_VOTERS_OFFSET ] = {0};
+
+  /* VoteStateV3::is_correct_size_and_initialized
+     TODO: This check should be checking the discriminant as well. I
+     believe this is a bug in Agave since you may have v4 vote accounts
+     that sneak through this check (because
+     FD_VOTE_STATE_V3_SZ==FD_VOTE_STATE_V4_SZ). I will confirm and
+     update if needed.
+     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L509-L514 */
+  if( FD_LIKELY( data_len==FD_VOTE_STATE_V3_SZ ) ) {
+    if( FD_LIKELY( !memcmp( data+VERSION_OFFSET, zero_data, DEFAULT_PRIOR_VOTERS_OFFSET ) ) ) {
+      return 1;
+    }
+  }
+
+  /* VoteState1_14_11::is_correct_size_and_initialized
+     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_1_14_11.rs#L63-L69 */
+  if( FD_LIKELY( data_len==FD_VOTE_STATE_V4_SZ ) ) {
+    if( FD_LIKELY( !memcmp( data+VERSION_OFFSET, zero_data, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 ) ) ) {
+      return 1;
+    }
+  }
+
+  return 0;
+}

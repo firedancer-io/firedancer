@@ -6,7 +6,7 @@
 #include "../fd_txn_account.h"
 #include "../fd_runtime_stack.h"
 #include "../program/fd_stake_program.h"
-#include "../program/fd_vote_program.h"
+#include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
@@ -111,7 +111,7 @@ fd_solfuzz_block_register_vote_account( fd_funk_t  *              funk,
   }
 
   /* Account must be initialized correctly */
-  if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc ) ) ) {
+  if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( acc ) ) ) {
     return;
   }
 
