@@ -317,7 +317,6 @@ fd_snapin_vinyl_txn_commit( fd_snapin_tile_t * ctx ) {
         ulong exist_slot = ele->phdr.info.ul[ 1 ];
         ulong cur_slot   =      phdr.info.ul[ 1 ];
         if( exist_slot > cur_slot ) {
-          fd_memset( block, 0, block_sz );
           goto next;
         }
       }
@@ -422,7 +421,7 @@ bstream_push_account( fd_snapin_tile_t * ctx ) {
   ulong   pair_sz = ctx->vinyl_op.pair_sz;
 
   ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
-  if( ctx->full ) ctx->vinyl_op.meta_ele->seq = seq_after;
+  ctx->vinyl_op.meta_ele->seq = seq_after;
 
   ctx->vinyl_op.pair     = NULL;
   ctx->vinyl_op.pair_sz  = 0UL;
@@ -490,28 +489,26 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
   dst_rem -= sizeof(fd_account_meta_t);
 
   FD_CRIT( dst_rem >= result->account_header.data_len, "corruption detected" );
-  if( ctx->full ) {  /* update index immediately */
-    ulong                 memo = fd_vinyl_key_memo( map->seed, &phdr->key );
-    fd_vinyl_meta_ele_t * ele  = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
-    if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+  ulong                 memo = fd_vinyl_key_memo( map->seed, &phdr->key );
+  fd_vinyl_meta_ele_t * ele  = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
+  if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
 
-    if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
-      /* Drop current value if existing is newer */
-      ulong exist_slot = ele->phdr.info.ul[ 1 ];
-      if( exist_slot > result->account_header.slot ) {
-        ctx->vinyl_op.pair = NULL;
-        return;
-      }
+  if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
+    /* Drop current value if existing is newer */
+    ulong exist_slot = ele->phdr.info.ul[ 1 ];
+    if( exist_slot > result->account_header.slot ) {
+      ctx->vinyl_op.pair = NULL;
+      return;
     }
-
-    ele->memo      = memo;
-    ele->phdr.ctl  = phdr->ctl;
-    ele->phdr.key  = phdr->key;
-    ele->phdr.info = phdr->info;
-    ele->seq       = ULONG_MAX; /* later init */
-    ele->line_idx  = ULONG_MAX;
-    ctx->vinyl_op.meta_ele = ele;
   }
+
+  ele->memo      = memo;
+  ele->phdr.ctl  = phdr->ctl;
+  ele->phdr.key  = phdr->key;
+  ele->phdr.info = phdr->info;
+  ele->seq       = ULONG_MAX; /* later init */
+  ele->line_idx  = ULONG_MAX;
+  ctx->vinyl_op.meta_ele = ele;
 
   ctx->vinyl_op.pair     = pair;
   ctx->vinyl_op.pair_sz  = pair_sz;
