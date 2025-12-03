@@ -1533,13 +1533,15 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
      amount of memory from the account memory pool. */
   ushort writable_account_cnt = 0U;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    if( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) || i==FD_FEE_PAYER_TXN_IDX ) {
+    if( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) ) {
       txn_out->accounts.is_writable[ i ] = 1;
       writable_account_cnt++;
     } else {
       txn_out->accounts.is_writable[ i ] = 0;
     }
   }
+
+  /* TODO:FIXME: We probably need to overprovision for rollbacks here. */
 
   ulong   writable_accs_idx = 0UL;
   uchar * writable_accs_mem[ MAX_TX_ACCOUNT_LOCKS ];
