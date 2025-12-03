@@ -863,6 +863,9 @@ void
 fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now );
 
 void
+fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long now );
+
+void
 fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
                                fd_snapct_update_t const * msg );
 
