@@ -272,6 +272,11 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
     }
   }
 
+  if( FD_UNLIKELY( !location ) ) {
+    FD_LOG_WARNING(( "no location header in redirect response" ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
+
   if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) return FD_SSRESOLVE_ADVANCE_ERROR;
 
   char snapshot_name[ PATH_MAX ];
