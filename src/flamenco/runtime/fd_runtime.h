@@ -205,6 +205,7 @@ struct fd_txn_out {
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
      That is the limit we are going to use here. */
   struct {
+    int                             is_setup;
     ulong                           cnt;
     fd_pubkey_t                     keys       [ MAX_TX_ACCOUNT_LOCKS ];
     fd_account_meta_t *             metas      [ MAX_TX_ACCOUNT_LOCKS ];
@@ -273,15 +274,24 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
 
 /* fd_runtime_commit_txn commits the results of a transaction execution
    as represented by the fd_txn_out_t to the bank and the accounts
-   database.
-
-   TODO: fd_runtime_commit_txn should not take in an fd_txn_in_t. */
+   database. */
 
 void
-fd_runtime_commit_txn( fd_runtime_t *      runtime,
-                       fd_bank_t *         bank,
-                       fd_txn_in_t const * txn_in,
-                       fd_txn_out_t *      txn_out );
+fd_runtime_commit_txn( fd_runtime_t * runtime,
+                       fd_bank_t *    bank,
+                       fd_txn_out_t * txn_out );
+
+/* fd_runtime_cancel_txn cancels the result of a transaction execution
+   and frees any resources that may have been acquired.  A transaction
+   should only be canceled when the transaction is not committable.
+   1. An invalid transaction that causes a block to be rejected/
+      considered 'bad'.
+   2. All transactions in a bundle with a failed transaction should be
+      canceled as they will not be included in the block. */
+
+void
+fd_runtime_cancel_txn( fd_runtime_t * runtime,
+                       fd_txn_out_t * txn_out );
 
 FD_PROTOTYPES_END
 

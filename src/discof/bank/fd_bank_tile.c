@@ -203,6 +203,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
+      fd_runtime_cancel_txn( ctx->runtime, txn_out );
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
       ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_out->err.txn_err ) ]++;
@@ -231,7 +232,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
+    fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       /* If the transaction failed to fit into the block, we need to
@@ -403,7 +404,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
-      fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
+      fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
@@ -434,6 +435,14 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     }
   } else {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
+
+      /* If the bundle peer flag is not set, that means the transaction
+         was at least partially sanitized/setup.  We have to cancel
+         these txns as they will not be included in the block. */
+      if( !(txns[ i ].flags % ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24)) ) {
+        fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
+      }
+
       uint requested_exec_plus_acct_data_cus = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
       uint non_execution_cus                 = txns[ i ].pack_cu.non_execution_cus;
       txns[ i ].bank_cu.actual_consumed_cus  = 0U;

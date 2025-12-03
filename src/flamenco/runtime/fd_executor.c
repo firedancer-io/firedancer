@@ -1555,6 +1555,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     }
   }
 
+  txn_out->accounts.is_setup         = 1;
   txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
   runtime->accounts.executable_cnt   = executable_idx;
 

@@ -1187,10 +1187,9 @@ fd_runtime_save_account( fd_funk_t *               funk,
    TODO: This function should probably be moved to fd_executor.c. */
 
 void
-fd_runtime_commit_txn( fd_runtime_t *      runtime,
-                       fd_bank_t *         bank,
-                       fd_txn_in_t const * txn_in,
-                       fd_txn_out_t *      txn_out ) {
+fd_runtime_commit_txn( fd_runtime_t * runtime,
+                       fd_bank_t *    bank,
+                       fd_txn_out_t * txn_out ) {
 
   txn_out->details.commit_start_timestamp = fd_tickcount();
 
@@ -1298,14 +1297,11 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
   /* Update the cost tracker. */
 
   fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-  fd_cost_tracker_calculate_cost( bank, txn_in, txn_out );
-
   int res = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
     FD_LOG_WARNING(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
     txn_out->err.is_committable = 0;
   }
-
   fd_bank_cost_tracker_end_locking_modify( bank );
 
   txn_out->details.loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_out );
@@ -1332,6 +1328,27 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     fd_acc_pool_release( runtime->acc_pool, (uchar *)txn_out->accounts.rollback_nonce );
   }
   if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
+    fd_acc_pool_release( runtime->acc_pool, (uchar *)txn_out->accounts.rollback_fee_payer );
+  }
+}
+
+void
+fd_runtime_cancel_txn( fd_runtime_t * runtime,
+                       fd_txn_out_t * txn_out ) {
+  if( !txn_out->accounts.is_setup ) {
+    return;
+  }
+
+  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+    if( txn_out->accounts.is_writable[i]==1 ) {
+      fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.metas[i] ) );
+    }
+  }
+
+  if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+    fd_acc_pool_release( runtime->acc_pool, (uchar *)txn_out->accounts.rollback_nonce );
+  }
+  if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX && txn_out->accounts.rollback_fee_payer ) ) {
     fd_acc_pool_release( runtime->acc_pool, (uchar *)txn_out->accounts.rollback_fee_payer );
   }
 }
@@ -1367,6 +1384,7 @@ fd_runtime_reset_txn_out( fd_txn_out_t * txn_out ) {
 
   txn_out->details.programs_to_reverify_cnt       = 0UL;
 
+  txn_out->accounts.is_setup           = 0;
   txn_out->accounts.cnt                = 0UL;
   txn_out->accounts.rollback_nonce     = NULL;
   txn_out->accounts.rollback_fee_payer = NULL;
@@ -1405,7 +1423,11 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   /* Execute the transaction if eligible to do so. */
   if( FD_LIKELY( txn_out->err.is_committable && !txn_out->err.is_fees_only ) ) {
     txn_out->err.txn_err = fd_execute_txn( runtime, bank, txn_in, txn_out );
+
+    fd_cost_tracker_calculate_cost( bank, txn_in, txn_out );
   }
+
+  // TODO:FIXME: what do we do if txn is fees only? do we still calculate the cost?
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble

@@ -542,7 +542,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       }
 
       /* Finalize the transaction */
-      fd_runtime_commit_txn( runtime, runner->bank, &txn_in, &txn_out );
+      fd_runtime_commit_txn( runtime, runner->bank, &txn_out );
 
       if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
         return 0;
