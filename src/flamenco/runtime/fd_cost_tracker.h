@@ -167,17 +167,26 @@ fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_txn_out_t const * t
    This function assumes that the caller is responsible for managing
    concurrent callers.
 
-   This function represents the combination of Agave client functions:
-   `CostModel::calculate_cost_for_executed_transaction()` and
-   `CostTracker::try_add()`.
+   This function represents the Agave client function:
+   `CostModel::calculate_cost_for_executed_transaction()`
 
     https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L69-L95
-    https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
+*/
 
 void
 fd_cost_tracker_calculate_cost( fd_bank_t *         bank,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out );
+
+/* fd_cost_tracker_try_add_cost takes the cost as calculated by
+   fd_cost_tracker_calculate_cost and tries to accumulate it into the
+   cost tracker.  If the cost fits, the cost is added and
+   FD_COST_TRACKER_SUCCESS is returned.  If the cost does not fit, the
+   cost will not be updated and FD_COST_TRACKER_ERROR_* is returned
+   depending on what limit is violated.
+
+   This function is the Agave client function: 'CostTracker::try_add()'
+   https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
 
 int
 fd_cost_tracker_try_add_cost( fd_cost_tracker_t * cost_tracker,

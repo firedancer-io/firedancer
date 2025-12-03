@@ -1477,8 +1477,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
       account_meta = fd_type_pun( runtime->accounts.sysvar_instructions_mem );
       fd_account_meta_init( account_meta );
     } else {
-      account_meta = &runtime->accounts.default_meta[ idx ];
-      fd_account_meta_init( account_meta );
+      account_meta = &FD_ACCOUNT_META_DEFAULT;
     }
   }
 

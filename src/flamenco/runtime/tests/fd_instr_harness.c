@@ -110,7 +110,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   txn_out->details.programs_to_reverify_cnt       = 0UL;
   txn_out->details.loaded_accounts_data_size      = 0UL;
-  txn_out->details.loaded_accounts_data_size_cost = 0UL;
   txn_out->details.accounts_resize_delta          = 0UL;
 
   memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );

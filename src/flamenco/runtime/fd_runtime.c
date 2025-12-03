@@ -1304,8 +1304,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
-  txn_out->details.loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_out );
-
   /* Finally, update the status cache. */
 
   if( FD_LIKELY( runtime->status_cache && txn_out->accounts.nonce_idx_in_txn==ULONG_MAX ) ) {
@@ -1347,34 +1345,39 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
 
 static inline void
 fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
-  runtime->accounts.executable_cnt = 0UL;
-  runtime->instr.trace_length      = 0UL;
-  runtime->instr.current_idx       = 0;
   runtime->instr.stack_sz          = 0;
+  runtime->instr.trace_length      = 0UL;
+  runtime->accounts.executable_cnt = 0UL;
 }
 
 static inline void
-fd_runtime_reset_txn_out( fd_txn_out_t * txn_out ) {
-  txn_out->details.prep_start_timestamp           = fd_tickcount();
-  txn_out->details.load_start_timestamp           = LONG_MAX;
-  txn_out->details.exec_start_timestamp           = LONG_MAX;
-  txn_out->details.commit_start_timestamp         = LONG_MAX;
+fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
+                        fd_txn_out_t *      txn_out ) {
+  txn_out->details.prep_start_timestamp   = fd_tickcount();
+  txn_out->details.load_start_timestamp   = LONG_MAX;
+  txn_out->details.exec_start_timestamp   = LONG_MAX;
+  txn_out->details.commit_start_timestamp = LONG_MAX;
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
 
-  txn_out->details.loaded_accounts_data_size      = 0UL;
-  txn_out->details.loaded_accounts_data_size_cost = 0UL;
-  txn_out->details.accounts_resize_delta          = 0UL;
+  txn_out->details.loaded_accounts_data_size = 0UL;
+  txn_out->details.accounts_resize_delta     = 0UL;
 
-  txn_out->details.return_data.len                = 0UL;
+  txn_out->details.return_data.len = 0UL;
   memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
 
-  txn_out->details.tips                           = 0UL;
-  txn_out->details.execution_fee                  = 0UL;
-  txn_out->details.priority_fee                   = 0UL;
-  txn_out->details.signature_count                = 0UL;
+  txn_out->details.tips            = 0UL;
+  txn_out->details.execution_fee   = 0UL;
+  txn_out->details.priority_fee    = 0UL;
+  txn_out->details.signature_count = 0UL;
 
-  txn_out->details.programs_to_reverify_cnt       = 0UL;
+  txn_out->details.programs_to_reverify_cnt = 0UL;
+
+  txn_out->details.signature_count = TXN( txn_in->txn )->signature_cnt;
+  txn_out->details.is_simple_vote  = fd_txn_is_simple_vote_transaction( TXN( txn_in->txn ), txn_in->txn->payload );
+
+  fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
+  memcpy( txn_out->details.blockhash.uc, blockhash->hash, sizeof(fd_hash_t) );
 
   txn_out->accounts.is_setup           = 0;
   txn_out->accounts.cnt                = 0UL;
@@ -1398,13 +1401,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
 
   fd_runtime_reset_runtime( runtime );
 
-  fd_runtime_reset_txn_out( txn_out );
-
-  txn_out->details.signature_count  = TXN( txn_in->txn )->signature_cnt;
-  txn_out->details.is_simple_vote   = fd_txn_is_simple_vote_transaction( TXN( txn_in->txn ), txn_in->txn->payload );
-
-  fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
-  memcpy( txn_out->details.blockhash.uc, blockhash->hash, sizeof(fd_hash_t) );
+  fd_runtime_new_txn_out( txn_in, txn_out );
 
   /* Transaction sanitization.  If a transaction can't be commited or is
      fees-only, we return early. */
@@ -1413,13 +1410,12 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   txn_out->details.exec_start_timestamp = fd_tickcount();
 
   /* Execute the transaction if eligible to do so. */
-  if( FD_LIKELY( txn_out->err.is_committable && !txn_out->err.is_fees_only ) ) {
-    txn_out->err.txn_err = fd_execute_txn( runtime, bank, txn_in, txn_out );
-
+  if( FD_LIKELY( txn_out->err.is_committable ) ) {
+    if( FD_LIKELY( !txn_out->err.is_fees_only ) ) {
+      txn_out->err.txn_err = fd_execute_txn( runtime, bank, txn_in, txn_out );
+    }
     fd_cost_tracker_calculate_cost( bank, txn_in, txn_out );
   }
-
-  // TODO:FIXME: what do we do if txn is fees only? do we still calculate the cost?
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble

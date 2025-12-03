@@ -11,8 +11,8 @@ struct fd_runtime {
   fd_acc_pool_t *   acc_pool;
 
   struct {
-    uchar                       stack_sz;                                /* Current depth of the instruction execution stack. */
-    fd_exec_instr_ctx_t         stack[ FD_MAX_INSTRUCTION_STACK_DEPTH ]; /* Instruction execution stack. */
+    uchar               stack_sz;                                /* Current depth of the instruction execution stack. */
+    fd_exec_instr_ctx_t stack[ FD_MAX_INSTRUCTION_STACK_DEPTH ]; /* Instruction execution stack. */
     /* The memory for all of the instructions in the transaction
        (including CPI instructions) are preallocated.  However, the
        order in which the instructions are executed does not match the
@@ -28,23 +28,19 @@ struct fd_runtime {
        new instruction within cpi_common. For top-level instructions,
        the trace length is updated within fd_execute_txn when preparing
        an instruction for execution. */
-    fd_instr_info_t             trace[ FD_MAX_INSTRUCTION_TRACE_LENGTH+1UL ];
-    ulong                       trace_length;
+    fd_instr_info_t trace[ FD_MAX_INSTRUCTION_TRACE_LENGTH+1UL ];
+    ulong           trace_length;
     /* The current instruction index being executed */
-    int current_idx;
+    int             current_idx;
   } instr;
 
   struct {
     /* The executable accounts are derived from the accounts in the
        transaction and are used by the bpf loader program to validate
        the program data account. */
-    ulong                     executable_cnt;                                /* Number of BPF upgradeable loader accounts. */
-    fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];      /* Array of BPF upgradeable loader program data accounts */
-    fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];    /* Array of BPF upgradeable loader program data accounts */
-
-    /* Read-only accounts that don't exist will be initialized with
-       default values. */
-    fd_account_meta_t         default_meta[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong                     executable_cnt;                             /* Number of BPF upgradeable loader accounts. */
+    fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];   /* Array of BPF upgradeable loader program data accounts */
+    fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
 
     /* The sysvar instructions account is a special account that is
        modified through the course of transaction execution, but its
@@ -181,19 +177,23 @@ struct fd_txn_out {
     long                        load_start_timestamp;
     long                        exec_start_timestamp;
     long                        commit_start_timestamp;
-    fd_compute_budget_details_t compute_budget;                 /* Compute budget details */
-    fd_transaction_cost_t       txn_cost;                /* Transaction cost */
-    ulong                       loaded_accounts_data_size;      /* The actual transaction loaded data size */
-    ulong                       loaded_accounts_data_size_cost; /* The cost of the loaded accounts data size in CUs */
-    ulong                       accounts_resize_delta;          /* Transaction level tracking for account resizing */
-    fd_txn_return_data_t        return_data;                    /* Data returned from `return_data` syscalls */
-    fd_hash_t                   blake_txn_msg_hash;             /* Hash of raw transaction message used by the status cache */
-    fd_hash_t                   blockhash;                      /* Blockhash of the block that the transaction is being executed in */
-    ulong                       execution_fee;                  /* Execution fee paid by the fee payer in the transaction */
-    ulong                       priority_fee;                   /* Priority fee paid by the fee payer in the transaction */
-    ulong                       tips;                           /* Jito tips paid during execution */
-    ulong                       signature_count;                /* Number of signatures in the transaction */
-    int                         is_simple_vote;                 /* Whether the transaction is a simple vote */
+
+    fd_compute_budget_details_t compute_budget;            /* Compute budget details */
+    fd_transaction_cost_t       txn_cost;                  /* Transaction cost */
+    ulong                       loaded_accounts_data_size; /* The actual transaction loaded data size */
+    ulong                       accounts_resize_delta;     /* Transaction level tracking for account resizing */
+
+    fd_txn_return_data_t        return_data;               /* Data returned from `return_data` syscalls */
+
+    fd_hash_t                   blake_txn_msg_hash;        /* Hash of raw transaction message used by the status cache */
+    fd_hash_t                   blockhash;                 /* Blockhash of the block that the transaction is being executed in */
+
+    ulong                       execution_fee;             /* Execution fee paid by the fee payer in the transaction */
+    ulong                       priority_fee;              /* Priority fee paid by the fee payer in the transaction */
+    ulong                       tips;                      /* Jito tips paid during execution */
+
+    ulong                       signature_count;           /* Number of signatures in the transaction */
+    int                         is_simple_vote;            /* Whether the transaction is a simple vote */
     /* When a program is deployed or upgraded, we must queue it to be
         updated in the program cache (if it exists already) so that
         the cache entry's ELF / sBPF information can be updated for
@@ -211,28 +211,28 @@ struct fd_txn_out {
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
      That is the limit we are going to use here. */
   struct {
-    int                             is_setup;
-    ulong                           cnt;
-    fd_pubkey_t                     keys       [ MAX_TX_ACCOUNT_LOCKS ];
-    fd_account_meta_t *             metas      [ MAX_TX_ACCOUNT_LOCKS ];
-    ushort                          is_writable[ MAX_TX_ACCOUNT_LOCKS ];
+    int                 is_setup;
+    ulong               cnt;
+    fd_pubkey_t         keys       [ MAX_TX_ACCOUNT_LOCKS ];
+    fd_account_meta_t * metas      [ MAX_TX_ACCOUNT_LOCKS ];
+    ushort              is_writable[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* The fee payer and nonce accounts are treated differently than
        other accounts: if an on-transaction fails they are still
        committed to the accounts database.  However, they are saved at
-       the point where they were before the transaction was executed
-       because the failed transaction could have potentially modified
-       these accounts.  The rollback fee payer and nonce are used to
-       store the state of these accounts after fees have been debited
-       and the nonce has been advanced, but before the transaction is
-       executed. */
-    uchar *                         rollback_fee_payer_mem;
-    fd_account_meta_t *             rollback_fee_payer;
-    /* If the transaction has a nonce account that must be advanced,
-       this would be !=ULONG_MAX. */
-    ulong                           nonce_idx_in_txn;
-    uchar *                         rollback_nonce_mem;
-    fd_account_meta_t *             rollback_nonce;
+       the point right after a fee is debited or the nonce is advanced
+       respectively.  The rollback accounts store this state because a
+       failed transaction could have potentially modified the state of
+       these two accounts.
+
+       The memory for the nonce and fee payer is always provisioned when
+       the transaction is prepare, but isn't necessarily used. */
+    uchar *             rollback_fee_payer_mem;
+    uchar *             rollback_nonce_mem;
+
+    ulong               nonce_idx_in_txn; /* !=ULONG_MAX if exists */
+    fd_account_meta_t * rollback_nonce;
+    fd_account_meta_t * rollback_fee_payer;
   } accounts;
 };
 typedef struct fd_txn_out fd_txn_out_t;

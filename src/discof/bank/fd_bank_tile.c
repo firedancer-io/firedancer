@@ -252,7 +252,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     }
 
     uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
-    uint actual_acct_data_cus = (uint)(txn_out->details.loaded_accounts_data_size_cost);
+    uint actual_acct_data_cus = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
 
     int is_simple_vote = 0;
     if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
@@ -420,7 +420,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       }
 
       uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
-      uint actual_acct_data_cus = (uint)(txn_out->details.loaded_accounts_data_size_cost);
+      uint actual_acct_data_cus = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
       if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload ) ) ) {
         actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
         actual_acct_data_cus = 0U;
