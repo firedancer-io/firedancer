@@ -3,6 +3,7 @@
 #include "../../util/archive/fd_tar.h"
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <zstd.h>
 
 #define SNAPMK_MAGIC        (0xf212f209fd944ba2UL)

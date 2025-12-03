@@ -140,11 +140,11 @@ fetch () {
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "4d2e22a"
   checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.0"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1   "v0.7.0"
-  checkout_repo flatcc    https://github.com/dvidelabs/flatcc.git     "" "3ae5eda"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo bzip2   https://gitlab.com/bzip2/bzip2              "bzip2-1.0.8"
     checkout_repo rocksdb https://github.com/facebook/rocksdb         "v10.5.1"
     checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
+    checkout_repo flatcc    https://github.com/dvidelabs/flatcc.git     "" "3ae5eda"
   fi
 }
 
