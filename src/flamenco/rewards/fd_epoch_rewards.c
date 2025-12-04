@@ -52,7 +52,8 @@ fd_epoch_rewards_footprint( ulong stake_account_max ) {
 
 void *
 fd_epoch_rewards_new( void * shmem,
-                      ulong  stake_account_max ) {
+                      ulong  stake_account_max,
+                      ulong  seed ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -78,7 +79,7 @@ fd_epoch_rewards_new( void * shmem,
   ulong chain_cnt_est = fd_epoch_stake_reward_map_chain_cnt_est( stake_account_max );
   void * map = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_map_align(), fd_epoch_stake_reward_map_footprint( chain_cnt_est ) );
   epoch_rewards->map_offset = (ulong)map - (ulong)shmem;
-  if( FD_UNLIKELY( !fd_epoch_stake_reward_map_new( map, chain_cnt_est, 0UL ) ) ) {
+  if( FD_UNLIKELY( !fd_epoch_stake_reward_map_new( map, chain_cnt_est, seed ) ) ) {
     FD_LOG_WARNING(( "bad map" ));
     return NULL;
   }
@@ -199,7 +200,8 @@ fd_epoch_rewards_init( fd_epoch_rewards_t * epoch_rewards ) {
 
   fd_epoch_stake_reward_pool_reset( stake_reward_pool );
 
-  return;
+  epoch_rewards->stake_rewards_cnt   = 0UL;
+  epoch_rewards->total_stake_rewards = 0UL;
 }
 
 void
