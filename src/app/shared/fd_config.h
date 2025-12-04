@@ -337,8 +337,9 @@ struct fd_config {
     } bundle;
 
     struct {
-      char affinity[ AFFINITY_SZ ];
-      char fake_dst_ip[ 16 ];
+      char   affinity[ AFFINITY_SZ ];
+      char   fake_dst_ip[ 16 ];
+      ushort dst_port;
     } pktgen;
 
     struct {

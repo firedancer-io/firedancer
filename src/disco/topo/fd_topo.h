@@ -479,7 +479,8 @@ struct fd_topo_tile {
     } send;
 
     struct {
-      uint fake_dst_ip;
+      uint   fake_dst_ip;
+      ushort dst_port;
     } pktgen;
 
     struct {

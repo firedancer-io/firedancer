@@ -310,6 +310,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
+  CFG_POP      ( ushort, development.pktgen.dst_port                      );
 
   CFG_POP      ( cstr,   development.udpecho.affinity                     );
   CFG_POP      ( bool,   development.snapshots.disable_lthash_verification );
