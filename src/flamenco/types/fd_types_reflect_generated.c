@@ -3,7 +3,7 @@
 #include "fd_types_custom.h"
 #include "fd_types_reflect_private.h"
 #pragma GCC diagnostic ignored "-Wpedantic"
-ulong fd_types_vt_list_cnt = 123;
+ulong fd_types_vt_list_cnt = 122;
 fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_hash", .name_len=7, .align=FD_HASH_ALIGN, .new_=(void *)fd_hash_new, .decode=(void *)fd_hash_decode, .size=(void *)fd_hash_size, .walk=(void *)fd_hash_walk, .decode_footprint=(void *)fd_hash_decode_footprint, .encode=(void *)fd_hash_encode  },
   { .name="fd_pubkey", .name_len=9, .align=FD_PUBKEY_ALIGN, .new_=(void *)fd_pubkey_new, .decode=(void *)fd_pubkey_decode, .size=(void *)fd_pubkey_size, .walk=(void *)fd_pubkey_walk, .decode_footprint=(void *)fd_pubkey_decode_footprint, .encode=(void *)fd_pubkey_encode  },
@@ -127,6 +127,5 @@ fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_addrlut_create", .name_len=17, .align=FD_ADDRLUT_CREATE_ALIGN, .new_=(void *)fd_addrlut_create_new, .decode=(void *)fd_addrlut_create_decode, .size=(void *)fd_addrlut_create_size, .walk=(void *)fd_addrlut_create_walk, .decode_footprint=(void *)fd_addrlut_create_decode_footprint, .encode=(void *)fd_addrlut_create_encode  },
   { .name="fd_addrlut_extend", .name_len=17, .align=FD_ADDRLUT_EXTEND_ALIGN, .new_=(void *)fd_addrlut_extend_new, .decode=(void *)fd_addrlut_extend_decode, .size=(void *)fd_addrlut_extend_size, .walk=(void *)fd_addrlut_extend_walk, .decode_footprint=(void *)fd_addrlut_extend_decode_footprint, .encode=(void *)fd_addrlut_extend_encode  },
   { .name="fd_addrlut_instruction", .name_len=22, .align=FD_ADDRLUT_INSTRUCTION_ALIGN, .new_=(void *)fd_addrlut_instruction_new, .decode=(void *)fd_addrlut_instruction_decode, .size=(void *)fd_addrlut_instruction_size, .walk=(void *)fd_addrlut_instruction_walk, .decode_footprint=(void *)fd_addrlut_instruction_decode_footprint, .encode=(void *)fd_addrlut_instruction_encode  },
-  { .name="fd_calculated_stake_points", .name_len=26, .align=FD_CALCULATED_STAKE_POINTS_ALIGN, .new_=(void *)fd_calculated_stake_points_new, .decode=(void *)fd_calculated_stake_points_decode, .size=(void *)fd_calculated_stake_points_size, .walk=(void *)fd_calculated_stake_points_walk, .decode_footprint=(void *)fd_calculated_stake_points_decode_footprint, .encode=(void *)fd_calculated_stake_points_encode  },
   { .name=NULL }
 };

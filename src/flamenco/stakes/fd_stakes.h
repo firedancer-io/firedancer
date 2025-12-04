@@ -16,6 +16,14 @@ struct fd_calculated_stake_rewards {
 };
 typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
 
+/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
+struct fd_calculated_stake_points {
+  fd_w_u128_t points;
+  ulong       new_credits_observed;
+  uchar       force_credits_update_with_skipped_reward;
+};
+typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
+
 /* fd_stake_weights_by_node converts Stakes (unordered list of (vote
    acc, active stake) tuples) to an ordered list of (stake, vote pubkey, node
    identity) sorted by (stake descending, vote pubkey descending).

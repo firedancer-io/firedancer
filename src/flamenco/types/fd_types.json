@@ -1255,16 +1255,6 @@
         { "name": "close_lut" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/sdk/program/src/address_lookup_table/instruction.rs#L13"
-    },
-    {
-      "name": "calculated_stake_points",
-      "type": "struct",
-      "fields": [
-        { "name": "points", "type": "uint128" },
-        { "name": "new_credits_observed", "type": "ulong" },
-        { "name": "force_credits_update_with_skipped_reward", "type": "uchar" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27"
     }
   ]
 }

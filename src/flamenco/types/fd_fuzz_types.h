@@ -1928,14 +1928,4 @@ void *fd_addrlut_instruction_generate( void *mem, void **alloc_mem, fd_rng_t * r
   return mem;
 }
 
-void *fd_calculated_stake_points_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_calculated_stake_points_t *self = (fd_calculated_stake_points_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_calculated_stake_points_t);
-  fd_calculated_stake_points_new(mem);
-  self->points = (fd_w_u128_t) { .ul={ fd_rng_ulong( rng ), fd_rng_ulong( rng ) } };
-  self->new_credits_observed = fd_rng_ulong( rng );
-  self->force_credits_update_with_skipped_reward = fd_rng_uchar( rng );
-  return mem;
-}
-
 #endif // HEADER_FUZZ_FD_RUNTIME_TYPES

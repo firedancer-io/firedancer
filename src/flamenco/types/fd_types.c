@@ -11512,41 +11512,4 @@ int fd_addrlut_instruction_encode( fd_addrlut_instruction_t const * self, fd_bin
   return fd_addrlut_instruction_inner_encode( &self->inner, self->discriminant, ctx );
 }
 
-int fd_calculated_stake_points_encode( fd_calculated_stake_points_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint128_encode( self->points, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->new_credits_observed, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint8_encode( (uchar)(self->force_credits_update_with_skipped_reward), ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static inline int fd_calculated_stake_points_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( (ulong)ctx->data + 25UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = (void *)( (ulong)ctx->data + 25UL );
-  return 0;
-}
-static void fd_calculated_stake_points_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_calculated_stake_points_t * self = (fd_calculated_stake_points_t *)struct_mem;
-  fd_bincode_uint128_decode_unsafe( &self->points, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->new_credits_observed, ctx );
-  fd_bincode_uint8_decode_unsafe( &self->force_credits_update_with_skipped_reward, ctx );
-}
-void * fd_calculated_stake_points_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_calculated_stake_points_t * self = (fd_calculated_stake_points_t *)mem;
-  fd_calculated_stake_points_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_calculated_stake_points_t);
-  void * * alloc_mem = &alloc_region;
-  fd_calculated_stake_points_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_calculated_stake_points_walk( void * w, fd_calculated_stake_points_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
-  (void) varint;
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_calculated_stake_points", level++, 0 );
-  fun( w, &self->points, "points", FD_FLAMENCO_TYPE_UINT128, "uint128", level, 0  );
-  fun( w, &self->new_credits_observed, "new_credits_observed", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  fun( w, &self->force_credits_update_with_skipped_reward, "force_credits_update_with_skipped_reward", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0  );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_calculated_stake_points", level--, 0 );
-}
 #include "fd_types_custom.c"
