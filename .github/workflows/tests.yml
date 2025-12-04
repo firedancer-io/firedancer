@@ -147,3 +147,10 @@ jobs:
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-integration-test
+
+      - name: run solcap tests
+        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          DUMP=../dump make run-solcap-tests
