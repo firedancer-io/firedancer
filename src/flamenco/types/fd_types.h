@@ -97,16 +97,6 @@ struct fd_epoch_schedule {
 typedef struct fd_epoch_schedule fd_epoch_schedule_t;
 #define FD_EPOCH_SCHEDULE_ALIGN alignof(fd_epoch_schedule_t)
 
-/* Encoded Size: Fixed (66 bytes) */
-struct fd_rent_collector {
-  ulong epoch;
-  fd_epoch_schedule_t epoch_schedule;
-  double slots_per_year;
-  fd_rent_t rent;
-};
-typedef struct fd_rent_collector fd_rent_collector_t;
-#define FD_RENT_COLLECTOR_ALIGN alignof(fd_rent_collector_t)
-
 /* https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L17 */
 /* Encoded Size: Fixed (24 bytes) */
 struct fd_stake_history_entry {
@@ -1659,14 +1649,6 @@ static inline ulong fd_epoch_schedule_size( fd_epoch_schedule_t const * self ) {
 static inline ulong fd_epoch_schedule_align( void ) { return FD_EPOCH_SCHEDULE_ALIGN; }
 int fd_epoch_schedule_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_epoch_schedule_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_rent_collector_new( fd_rent_collector_t * self );
-int fd_rent_collector_encode( fd_rent_collector_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_rent_collector_walk( void * w, fd_rent_collector_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_rent_collector_size( fd_rent_collector_t const * self ) { (void)self; return 66UL; }
-static inline ulong fd_rent_collector_align( void ) { return FD_RENT_COLLECTOR_ALIGN; }
-int fd_rent_collector_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_rent_collector_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_stake_history_entry_new( fd_stake_history_entry_t * self ) { fd_memset( self, 0, sizeof(fd_stake_history_entry_t) ); }
 int fd_stake_history_entry_encode( fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx );

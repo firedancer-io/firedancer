@@ -524,68 +524,6 @@ void fd_epoch_schedule_walk( void * w, fd_epoch_schedule_t const * self, fd_type
   fun( w, &self->first_normal_slot, "first_normal_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_schedule", level--, 0 );
 }
-int fd_rent_collector_encode( fd_rent_collector_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->epoch, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_epoch_schedule_encode( &self->epoch_schedule, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_double_encode( self->slots_per_year, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_rent_encode( &self->rent, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_rent_collector_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_epoch_schedule_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_double_decode_footprint( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_rent_decode_footprint_inner( ctx, total_sz );
-  if( FD_UNLIKELY( err ) ) return err;
-  return 0;
-}
-int fd_rent_collector_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_rent_collector_t);
-  void const * start_data = ctx->data;
-  int err = fd_rent_collector_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_rent_collector_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_rent_collector_t * self = (fd_rent_collector_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->epoch, ctx );
-  fd_epoch_schedule_decode_inner( &self->epoch_schedule, alloc_mem, ctx );
-  fd_bincode_double_decode_unsafe( &self->slots_per_year, ctx );
-  fd_rent_decode_inner( &self->rent, alloc_mem, ctx );
-}
-void * fd_rent_collector_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_rent_collector_t * self = (fd_rent_collector_t *)mem;
-  fd_rent_collector_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_rent_collector_t);
-  void * * alloc_mem = &alloc_region;
-  fd_rent_collector_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_rent_collector_new(fd_rent_collector_t * self) {
-  fd_memset( self, 0, sizeof(fd_rent_collector_t) );
-  fd_epoch_schedule_new( &self->epoch_schedule );
-  fd_rent_new( &self->rent );
-}
-void fd_rent_collector_walk( void * w, fd_rent_collector_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
-  (void) varint;
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_rent_collector", level++, 0 );
-  fun( w, &self->epoch, "epoch", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  fd_epoch_schedule_walk( w, &self->epoch_schedule, fun, "epoch_schedule", level, 0 );
-  fun( w, &self->slots_per_year, "slots_per_year", FD_FLAMENCO_TYPE_DOUBLE, "double", level, 0  );
-  fd_rent_walk( w, &self->rent, fun, "rent", level, 0 );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_rent_collector", level--, 0 );
-}
 int fd_stake_history_entry_encode( fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint64_encode( self->effective, ctx );

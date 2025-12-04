@@ -126,17 +126,6 @@ void *fd_epoch_schedule_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) 
   return mem;
 }
 
-void *fd_rent_collector_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_collector_t *self = (fd_rent_collector_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_collector_t);
-  fd_rent_collector_new(mem);
-  self->epoch = fd_rng_ulong( rng );
-  fd_epoch_schedule_generate( &self->epoch_schedule, alloc_mem, rng );
-  self->slots_per_year = fd_rng_double_o( rng );
-  fd_rent_generate( &self->rent, alloc_mem, rng );
-  return mem;
-}
-
 void *fd_stake_history_entry_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_stake_history_entry_t *self = (fd_stake_history_entry_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stake_history_entry_t);

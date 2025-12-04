@@ -3,7 +3,7 @@
 #include "fd_types_custom.h"
 #include "fd_types_reflect_private.h"
 #pragma GCC diagnostic ignored "-Wpedantic"
-ulong fd_types_vt_list_cnt = 122;
+ulong fd_types_vt_list_cnt = 121;
 fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_hash", .name_len=7, .align=FD_HASH_ALIGN, .new_=(void *)fd_hash_new, .decode=(void *)fd_hash_decode, .size=(void *)fd_hash_size, .walk=(void *)fd_hash_walk, .decode_footprint=(void *)fd_hash_decode_footprint, .encode=(void *)fd_hash_encode  },
   { .name="fd_pubkey", .name_len=9, .align=FD_PUBKEY_ALIGN, .new_=(void *)fd_pubkey_new, .decode=(void *)fd_pubkey_decode, .size=(void *)fd_pubkey_size, .walk=(void *)fd_pubkey_walk, .decode_footprint=(void *)fd_pubkey_decode_footprint, .encode=(void *)fd_pubkey_encode  },
@@ -16,7 +16,6 @@ fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_inflation", .name_len=12, .align=FD_INFLATION_ALIGN, .new_=(void *)fd_inflation_new, .decode=(void *)fd_inflation_decode, .size=(void *)fd_inflation_size, .walk=(void *)fd_inflation_walk, .decode_footprint=(void *)fd_inflation_decode_footprint, .encode=(void *)fd_inflation_encode  },
   { .name="fd_rent", .name_len=7, .align=FD_RENT_ALIGN, .new_=(void *)fd_rent_new, .decode=(void *)fd_rent_decode, .size=(void *)fd_rent_size, .walk=(void *)fd_rent_walk, .decode_footprint=(void *)fd_rent_decode_footprint, .encode=(void *)fd_rent_encode  },
   { .name="fd_epoch_schedule", .name_len=17, .align=FD_EPOCH_SCHEDULE_ALIGN, .new_=(void *)fd_epoch_schedule_new, .decode=(void *)fd_epoch_schedule_decode, .size=(void *)fd_epoch_schedule_size, .walk=(void *)fd_epoch_schedule_walk, .decode_footprint=(void *)fd_epoch_schedule_decode_footprint, .encode=(void *)fd_epoch_schedule_encode  },
-  { .name="fd_rent_collector", .name_len=17, .align=FD_RENT_COLLECTOR_ALIGN, .new_=(void *)fd_rent_collector_new, .decode=(void *)fd_rent_collector_decode, .size=(void *)fd_rent_collector_size, .walk=(void *)fd_rent_collector_walk, .decode_footprint=(void *)fd_rent_collector_decode_footprint, .encode=(void *)fd_rent_collector_encode  },
   { .name="fd_stake_history_entry", .name_len=22, .align=FD_STAKE_HISTORY_ENTRY_ALIGN, .new_=(void *)fd_stake_history_entry_new, .decode=(void *)fd_stake_history_entry_decode, .size=(void *)fd_stake_history_entry_size, .walk=(void *)fd_stake_history_entry_walk, .decode_footprint=(void *)fd_stake_history_entry_decode_footprint, .encode=(void *)fd_stake_history_entry_encode  },
   { .name="fd_epoch_stake_history_entry_pair", .name_len=33, .align=FD_EPOCH_STAKE_HISTORY_ENTRY_PAIR_ALIGN, .new_=(void *)fd_epoch_stake_history_entry_pair_new, .decode=(void *)fd_epoch_stake_history_entry_pair_decode, .size=(void *)fd_epoch_stake_history_entry_pair_size, .walk=(void *)fd_epoch_stake_history_entry_pair_walk, .decode_footprint=(void *)fd_epoch_stake_history_entry_pair_decode_footprint, .encode=(void *)fd_epoch_stake_history_entry_pair_encode  },
   { .name="fd_stake_history", .name_len=16, .align=FD_STAKE_HISTORY_ALIGN, .new_=(void *)fd_stake_history_new, .decode=(void *)fd_stake_history_decode, .size=(void *)fd_stake_history_size, .walk=(void *)fd_stake_history_walk, .decode_footprint=(void *)fd_stake_history_decode_footprint, .encode=(void *)fd_stake_history_encode  },
