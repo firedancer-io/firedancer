@@ -105,7 +105,7 @@ static const fd_cluster_version_t FD_RUNTIME_CLUSTER_VERSION = {
 /* The bpf loader's serialization footprint is bounded in the worst case
    by 64 unique writable accounts which are each 10MiB in size (bounded
    by the amount of transaction accounts).  We can also have up to
-   FD_INSTR_ACCT_MAX (256) referenced accounts in an instruction.
+   FD_BPF_INSTR_ACCT_MAX (255) referenced accounts in an instruction.
 
    - 8 bytes for the account count
    For each account:
@@ -147,8 +147,63 @@ static const fd_cluster_version_t FD_RUNTIME_CLUSTER_VERSION = {
 #define FD_ACCOUNT_REC_ALIGN        (8UL)
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L37-L38 */
 #define FD_RUNTIME_EBPF_HOST_ALIGN  (16UL)
-#define FD_INSTR_ACCT_MAX            (256)
 
+/* FD_INSTR_ACCT_MAX is the maximum number of accounts that can
+   be referenced by a single instruction.
+
+   This is different from FD_BPF_INSTR_ACCT_MAX, which is enforced by the
+   BPF serializer. It is possible to pass in more than FD_BPF_INSTR_ACCT_MAX
+   instruction accounts in a transaction (for example mainnet transaction)
+   3eDdfZE6HswPxFKrtnQPsEmTkyL1iP57gRPEXwaqNGAqF1paGXCYYMwh7z4uQDUMgFor742sikVSQZW1gFRDhPNh).
+
+   A transaction like this will be loaded and sanitized, but will fail in the
+   bpf serialization stage. It is also possible to invoke a native program with
+   more than FD_BPF_INSTR_ACCT_MAX instruction accounts that will execute successfully.
+
+   Therefore we need to derive a bound from a worst-case transaction: one that
+   has the maximum possible number of instruction accounts at the expense of
+   everything else. This is a legacy transaction with a single account address,
+   a single signature, a single instruction with empty data and as many
+   instruction accounts as possible.
+
+   Therefore, the maximum number of instruction accounts is:
+     (MTU - fixed overhead) / (size of instruction account)
+   = (MTU
+       - signature count (1 byte, value=1)
+       - signature (64 bytes)
+       - signature count in header (1 byte)
+       - readonly signed count (1 byte)
+       - readonly unsigned count (1 byte)
+       - account count (1 byte, compact-u16 value=1)
+       - 1 account address (32 bytes)
+       - recent blockhash (32 bytes)
+       - instruction count (1 byte, compact-u16 value=1)
+       - program id index (1 byte)
+       - instruction account count (2 bytes)
+       - data len (1 byte, value=0)
+   = 1232 - 1 - 64 - 1 - 1 - 1 - 1 - 32 - 32 - 1 - 1 - 2 - 1
+   = 1094
+
+   TODO: SIMD-406 (https://github.com/solana-foundation/solana-improvement-documents/pull/406)
+   limits the number of instruction accounts to 255 in transaction sanitization.
+
+   Once the corresponding feature gate has been activated, we can reduce
+   FD_INSTR_ACCT_MAX to 255. We cannot reduce this before as this would cause
+   the result of the get_processed_sibling_instruction syscall to diverge from
+   Agave. */
+#define FD_INSTR_ACCT_MAX           (1094UL)
+
+/* FD_BPF_INSTR_ACCT_MAX is the maximum number of accounts that
+   an instruction that goes through the bpf loader serializer can reference.
+
+   The BPF loader has a lower limit for the number of instruction accounts
+   than is enforced in transaction sanitization.
+
+   TODO: remove this limit once SIMD-406 is activated, as we can then use the
+   same limit everywhere.
+
+   https://github.com/anza-xyz/agave/blob/v3.1.4/transaction-context/src/lib.rs#L30-L32 */
+#define FD_BPF_INSTR_ACCT_MAX       (255UL)
 
 #define FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)                                                                                              \
                                               (1UL                         /* dup byte          */                                                        + \
@@ -168,7 +223,7 @@ static const fd_cluster_version_t FD_RUNTIME_CLUSTER_VERSION = {
 #define FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(account_lock_limit, direct_mapping)                                                                      \
                                               (FD_ULONG_ALIGN_UP( (sizeof(ulong)         /* acct_cnt       */                                       + \
                                                                    account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)        + \
-                                                                   (FD_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
+                                                                   (FD_BPF_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
                                                                    sizeof(ulong)         /* instr data len */                                       + \
                                                                    FD_TXN_MTU            /* No instr data  */                                       + \
                                                                    sizeof(fd_pubkey_t)), /* program id     */                                          \

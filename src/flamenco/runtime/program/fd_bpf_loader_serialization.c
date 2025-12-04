@@ -266,8 +266,10 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
                                        ulong *                   instr_data_offset ) {
   fd_pubkey_t * txn_accs = ctx->txn_out->accounts.keys;
 
-  uchar  acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
-  ushort dup_acc_idx[ FD_INSTR_ACCT_MAX ]  = {0};
+  /* Transaction sanitisation limits the number of instruction accounts to
+     FD_TXN_ACCT_ADDR_MAX. */
+  uchar  acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  ushort dup_acc_idx[ FD_TXN_ACCT_ADDR_MAX ]  = {0};
 
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60
@@ -550,8 +552,10 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
                                          ulong *                   instr_data_offset ) {
   fd_pubkey_t const * txn_accs = ctx->txn_out->accounts.keys;
 
-  uchar  acc_idx_seen[FD_INSTR_ACCT_MAX] = {0};
-  ushort dup_acc_idx[FD_INSTR_ACCT_MAX]  = {0};
+  /* Transaction sanitisation limits the number of instruction accounts to
+     FD_TXN_ACCT_ADDR_MAX. */
+  uchar  acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  ushort dup_acc_idx[ FD_TXN_ACCT_ADDR_MAX ]  = {0};
 
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v2.2.13/programs/bpf_loader/src/serialization.rs#L32
@@ -761,7 +765,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L234-L237 */
   ulong num_ix_accounts = instr_ctx->instr->acct_cnt;
-  if( FD_UNLIKELY( num_ix_accounts>=FD_INSTR_ACCT_MAX ) ) {
+  if( FD_UNLIKELY( num_ix_accounts>FD_BPF_INSTR_ACCT_MAX ) ) {
     return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED;
   }
 
