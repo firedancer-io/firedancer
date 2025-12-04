@@ -371,10 +371,6 @@ struct fd_bank {
   int         stake_delegations_delta_dirty;
   fd_rwlock_t stake_delegations_delta_lock;
 
-  /* Vote states. */
-  uchar       vote_states_mem_[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
-  fd_rwlock_t vote_states_lock_;
-
   ulong refcnt; /* (r) reference count on the bank, see replay for more details */
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
