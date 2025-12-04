@@ -35,17 +35,17 @@ struct fd_runtime {
   } instr;
 
   struct {
+   /* The sysvar instructions account is a special account that is
+      modified through the course of transaction execution, but its
+      results are not committed to the bank or accounts database. */
+    uchar                     sysvar_instructions_mem[ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+
     /* The executable accounts are derived from the accounts in the
        transaction and are used by the bpf loader program to validate
        the program data account. */
     ulong                     executable_cnt;                             /* Number of BPF upgradeable loader accounts. */
     fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];   /* Array of BPF upgradeable loader program data accounts */
     fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
-
-    /* The sysvar instructions account is a special account that is
-       modified through the course of transaction execution, but its
-       results are not committed to the bank or accounts database. */
-    uchar                     sysvar_instructions_mem[ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
 
     ulong                     starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
     ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */
@@ -70,9 +70,9 @@ struct fd_runtime {
   } bpf_loader_serialization;
 
   struct {
-    uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX ]     __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
+    uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
     uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
-    uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX ]     __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+    uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
   } bpf_loader_program;
 
   union {
@@ -226,7 +226,7 @@ struct fd_txn_out {
        these two accounts.
 
        The memory for the nonce and fee payer is always provisioned when
-       the transaction is prepare, but isn't necessarily used. */
+       the transaction is prepared, but isn't necessarily used. */
     uchar *             rollback_fee_payer_mem;
     uchar *             rollback_nonce_mem;
 

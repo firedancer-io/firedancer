@@ -709,7 +709,6 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
   tower_sync.lockouts      = lockouts_scratch;
   tower_sync.timestamp     = fd_log_wallclock() / (long)1e9; /* seconds */
   tower_sync.has_timestamp = 1;
-  if( FD_UNLIKELY( tower_sync.root == 0 ) ) FD_LOG_WARNING(("ASDF"));
 
   ulong prev = tower_sync.root;
   ulong i    = 0UL;

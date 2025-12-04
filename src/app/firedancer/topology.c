@@ -23,6 +23,7 @@
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
+#include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 #include "../../vinyl/io/fd_vinyl_io.h" /* FD_VINYL_IO_TYPE_* */
 
@@ -159,7 +160,7 @@ setup_topo_acc_pool( fd_topo_t * topo,
                      ulong       max_account_cnt ) {
   fd_topob_wksp( topo, "acc_pool" );
   fd_topo_obj_t * acc_pool_obj = fd_topob_obj( topo, "acc_pool", "acc_pool" );
-  fd_pod_insertf_ulong( topo->props, max_account_cnt, "obj.%lu.account_cnt", acc_pool_obj->id );
+  fd_pod_insertf_ulong( topo->props, max_account_cnt, "obj.%lu.max_account_cnt", acc_pool_obj->id );
   FD_TEST( acc_pool_obj );
   FD_TEST( acc_pool_obj->id != ULONG_MAX );
   return acc_pool_obj;
@@ -212,7 +213,7 @@ resolve_address( char const * address,
   }
 
   int resolved = 0;
-  for( struct addrinfo *  cur=res; cur; cur=cur->ai_next ) {
+  for( struct addrinfo * cur=res; cur; cur=cur->ai_next ) {
     if( FD_UNLIKELY( cur->ai_addr->sa_family!=AF_INET ) ) continue;
     struct sockaddr_in const * addr = (struct sockaddr_in const *)cur->ai_addr;
     *ip_addr = addr->sin_addr.s_addr;
@@ -958,8 +959,8 @@ fd_topo_initialize( config_t * config ) {
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
-  if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) FD_TEST( config->firedancer.runtime.max_account_cnt >= 1024UL );
-  FD_TEST( config->firedancer.runtime.max_account_cnt >= 256UL );
+  if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) FD_TEST( config->firedancer.runtime.max_account_cnt>=FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_BUNDLE );
+  FD_TEST( config->firedancer.runtime.max_account_cnt>=FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX );
   fd_topo_obj_t * acc_pool_obj = setup_topo_acc_pool( topo, config->firedancer.runtime.max_account_cnt );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec",   i   ) ], acc_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(bank_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], acc_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

@@ -181,7 +181,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_txncache = {
 static ulong
 acc_pool_footprint( fd_topo_t const *     topo,
                     fd_topo_obj_t const * obj ) {
-  return fd_acc_pool_footprint( VAL("account_cnt") );
+  return fd_acc_pool_footprint( VAL("max_account_cnt") );
 }
 
 static ulong
@@ -193,7 +193,7 @@ acc_pool_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 acc_pool_new( fd_topo_t const *     topo,
               fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_acc_pool_new( fd_topo_obj_laddr( topo, obj->id ), VAL("account_cnt") ) );
+  FD_TEST( fd_acc_pool_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_account_cnt") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_acc_pool = {

@@ -9,6 +9,24 @@ FD_PROTOTYPES_BEGIN
 struct fd_acc_pool;
 typedef struct fd_acc_pool fd_acc_pool_t;
 
+/* We need to determine the minimum number of accounts that are required
+   to be able to execute at least one transaction.  We will make the
+   assumption that we can have up to MAX_TX_ACCOUNT_LOCKS (128) writable
+   accounts.  We can also have 2 more writable accounts for the rollback
+   fee payer and nonce.
+
+   However, in the case where bundles are enabled, we will need to
+   support the max number of accounts that can be in a bundle.  There
+   can be up to FD_PACK_MAX_TXN_PER_BUNDLE transactions in a bundle.
+   We also know that each transaction can have up to
+   MAX_TX_ACCOUNT_LOCKS accounts (and 2 more for the rollback fee payer
+   and nonce).  Technically, the rollback accounts don't need to be
+   considered for the bundle, but currently the memory for the rollback
+   accounts is allocated anyway. */
+
+#define FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX     (MAX_TX_ACCOUNT_LOCKS + 2UL)
+#define FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_BUNDLE (FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX * FD_PACK_MAX_TXN_PER_BUNDLE)
+
 /* fd_acc_pool_align returns the minimum alignment required for a
    fd_acc_pool struct. */
 
@@ -49,11 +67,13 @@ fd_acc_pool_try_acquire( fd_acc_pool_t * acc_pool,
 
 /* fd_acc_pool_acquire is the blocking and non-speculative version of
    fd_acc_pool_try_acquire.  It will keep trying to acquire the
-   requested number of accounts until successful. */
+   requested number of accounts until successful.  This function
+   is thread-safe. */
+
 void
 fd_acc_pool_acquire( fd_acc_pool_t * acc_pool,
-                    ulong           request_cnt,
-                    uchar * *       accounts_out );
+                    ulong            request_cnt,
+                    uchar * *        accounts_out );
 
 /* fd_acc_pool_release releases the memory for an account back to the
    fd_acc_pool_t object.  After this is called, the account will be

@@ -131,7 +131,6 @@ struct fd_configf {
       ulong heap_size_mib;
       ulong mean_cache_entry_size;
     } program_cache;
-
   } runtime;
 
   struct {

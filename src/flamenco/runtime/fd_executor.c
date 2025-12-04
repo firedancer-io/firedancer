@@ -972,7 +972,6 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
           NULL );
     }
 
-    //fd_acc_pool_acquire( runtime->acc_pool, 1, fd_type_pun( &txn_out->accounts.rollback_fee_payer ) );
     uchar * fee_payer_data = txn_out->accounts.rollback_fee_payer_mem;
     fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
     txn_out->accounts.rollback_fee_payer = fd_type_pun( fee_payer_data );

@@ -178,8 +178,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ 0 ];
-    ctx->txn_in->bundle.is_bundle = 0;
-
     fd_txn_out_t * txn_out = &ctx->txn_out[ 0 ];
 
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
@@ -192,7 +190,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
-    txn_in->txn = txn;
+    txn_in->bundle.is_bundle = 0;
+    txn_in->txn              = txn;
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
@@ -377,11 +376,11 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       continue;
     }
 
-    txn_in->txn = txn;
+    txn_in->txn              = txn;
+    txn_in->bundle.is_bundle = 1;
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
-    txn_in->bundle.is_bundle = 1;
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -595,9 +594,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( txncache );
 
-  ulong acc_pool_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "acc_pool" );
-  FD_TEST( acc_pool_obj_id!=ULONG_MAX );
-  fd_acc_pool_t * acc_pool = NONNULL( fd_acc_pool_join( fd_topo_obj_laddr( topo, acc_pool_obj_id ) ) );
+
+  fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->bank.acc_pool_obj_id ) );
+  FD_TEST( acc_pool );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
