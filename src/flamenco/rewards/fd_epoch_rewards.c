@@ -1,8 +1,9 @@
 #include "fd_epoch_rewards.h"
 #include "../../ballet/siphash13/fd_siphash13.h"
 
-#define POOL_NAME fd_epoch_stake_reward_pool
-#define POOL_T    fd_epoch_stake_reward_t
+#define POOL_NAME  fd_epoch_stake_reward_pool
+#define POOL_T     fd_epoch_stake_reward_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               fd_epoch_stake_reward_map
@@ -12,6 +13,7 @@
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
 #define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
 #define MAP_NEXT               next_map
+#define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
 ulong
