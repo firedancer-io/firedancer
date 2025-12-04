@@ -144,6 +144,8 @@ fd_gui_new( void *                shmem,
   for( ulong i=0UL; i < (FD_GUI_REPAIR_SLOT_HISTORY_SZ+1UL); i++ )  gui->summary.slots_max_repair[ i ].slot  = ULONG_MAX;
   for( ulong i=0UL; i < (FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL); i++ ) gui->summary.slots_max_turbine[ i ].slot = ULONG_MAX;
 
+  for( ulong i=0UL; i < FD_GUI_TURBINE_RECV_TIMESTAMPS; i++ ) gui->turbine_slots[ i ].slot = ULONG_MAX;
+
   gui->summary.estimated_tps_history_idx = 0UL;
   memset( gui->summary.estimated_tps_history, 0, sizeof(gui->summary.estimated_tps_history) );
 
@@ -1806,6 +1808,28 @@ fd_gui_handle_shred( fd_gui_t * gui,
     fd_gui_printf_turbine_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
 
+    gui->turbine_slots[ slot % FD_GUI_TURBINE_RECV_TIMESTAMPS ].slot = slot;
+    gui->turbine_slots[ slot % FD_GUI_TURBINE_RECV_TIMESTAMPS ].timestamp = tsorig;
+
+    ulong duration_sum = 0UL;
+    ulong slot_cnt = 0UL;
+
+    for( ulong i=0UL; i<FD_GUI_TURBINE_RECV_TIMESTAMPS; i++ ) {
+      fd_gui_turbine_slot_t * cur = &gui->turbine_slots[ i ];
+      fd_gui_turbine_slot_t * prev = &gui->turbine_slots[ (i+FD_GUI_TURBINE_RECV_TIMESTAMPS-1UL) % FD_GUI_TURBINE_RECV_TIMESTAMPS ];
+      if( FD_UNLIKELY( cur->slot==ULONG_MAX || prev->slot==ULONG_MAX || cur->slot!=prev->slot+1UL ) ) continue;
+
+      long slot_duration = cur->timestamp - prev->timestamp;
+      duration_sum += (ulong)fd_long_max( slot_duration, 0UL );
+      slot_cnt++;
+    }
+
+    if( FD_LIKELY( slot_cnt>0 ) ) {
+      gui->summary.estimated_slot_duration_nanos = (ulong)(duration_sum / slot_cnt);
+      fd_gui_printf_estimated_slot_duration_nanos( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+
     if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_turbine, FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_turbine_sz, slot );
   }
 
@@ -2010,7 +2034,7 @@ fd_gui_handle_reset_slot_legacy( fd_gui_t * gui,
     }
   }
 
-  if( FD_LIKELY( slot_cnt>0 )) {
+  if( FD_LIKELY( slot_cnt>0 ) ) {
     gui->summary.estimated_slot_duration_nanos = (ulong)(duration_sum / slot_cnt);
     fd_gui_printf_estimated_slot_duration_nanos( gui );
     fd_http_server_ws_broadcast( gui->http );
