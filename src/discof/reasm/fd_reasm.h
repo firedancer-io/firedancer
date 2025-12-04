@@ -148,6 +148,8 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   int    slot_complete; /* whether this FEC completes the slot */
   int    leader;        /* whether this FEC was produced by us as leader */
   int    eqvoc;         /* whether this FEC equivocates */
+  int    confirmed;     /* whether this FEC has been confirmed */
+  int    popped;        /* whether this FEC has been returned by fd_reasm_pop */
 
   /* Data (set by caller) */
 
@@ -257,12 +259,12 @@ fd_reasm_peek( fd_reasm_t * reasm );
    documentation for details). */
 
 fd_reasm_fec_t *
-fd_reasm_out( fd_reasm_t * reasm );
+fd_reasm_pop( fd_reasm_t * reasm );
 
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
    inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
    make one or more FEC sets available for in-order delivery.  Caller
-   can consume these FEC sets via fd_reasm_out.  This function assumes
+   can consume these FEC sets via fd_reasm_pop.  This function assumes
    that the reasm is not full (fd_reasm_full() returns 0).
 
    See top-level documentation for further details on insertion. */
@@ -286,6 +288,22 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t      * reasm,
                   fd_hash_t const * merkle_root );
+
+/* fd_reasm_confirm_block_id confirms the entire reasm ancestry from
+   block_id to the root.  This becomes the canonical chain of FEC sets,
+   and any equivocating siblings along this chain will not be delivered.
+
+   It's possible that a FEC set not in this ancestry chain was delivered
+   prior to this confirmation, in which case caller is responsible for
+   pruning.  reasm does not further deliver any equivocating siblings
+   without a confirmation.
+
+   Note this guarantees that at most _two_ versions of a given slot will
+   be delivered. */
+
+void
+fd_reasm_confirm_block_id( fd_reasm_t * reasm,
+                           fd_hash_t *  block_id );
 
 void
 fd_reasm_print( fd_reasm_t const * reasm );
