@@ -245,7 +245,8 @@ typedef struct {
   struct {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
-    ulong rx_undersz_cnt;
+    ulong rx_ip_inv_cnt;
+    ulong rx_udp_inv_cnt;
     ulong rx_fill_blocked_cnt;
     ulong rx_backp_cnt;
     long  rx_busy_cnt;
@@ -290,7 +291,8 @@ static void
 metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET(   NET, RX_PKT_CNT,          ctx->metrics.rx_pkt_cnt          );
   FD_MCNT_SET(   NET, RX_BYTES_TOTAL,      ctx->metrics.rx_bytes_total      );
-  FD_MCNT_SET(   NET, RX_UNDERSZ_CNT,      ctx->metrics.rx_undersz_cnt      );
+  FD_MCNT_SET(   NET, RX_INVALID_IP4_CNT,  ctx->metrics.rx_ip_inv_cnt       );
+  FD_MCNT_SET(   NET, RX_INVALID_UDP_CNT,  ctx->metrics.rx_udp_inv_cnt      );
   FD_MCNT_SET(   NET, RX_FILL_BLOCKED_CNT, ctx->metrics.rx_fill_blocked_cnt );
   FD_MCNT_SET(   NET, RX_BACKPRESSURE_CNT, ctx->metrics.rx_backp_cnt        );
   FD_MGAUGE_SET( NET, RX_BUSY_CNT, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
@@ -896,6 +898,30 @@ after_frag( fd_net_ctx_t *      ctx,
   fd_net_flusher_inc( ctx->tx_flusher+xsk_idx, fd_tickcount() );
 }
 
+static void
+net_rx_drop_metric( fd_net_ctx_t * ctx,
+                    int            err ) {
+  switch( err ) {
+    case FD_NET_ERR_INVAL_GRE_HDR:
+      ctx->metrics.rx_gre_inv_pkt_cnt++;
+      break;
+    case FD_NET_ERR_DISALLOW_ETH_TYPE:
+      FD_DTRACE_PROBE( net_tile_err_rx_noip );
+      ctx->metrics.rx_ip_inv_cnt++;
+      break;
+    case FD_NET_ERR_INVAL_IP4_HDR:
+    case FD_NET_ERR_DISALLOW_IP_PROTO:
+      ctx->metrics.rx_ip_inv_cnt++;
+      break;
+    case FD_NET_ERR_INVAL_UDP_HDR:
+      ctx->metrics.rx_udp_inv_cnt++;
+      break;
+    default:
+      FD_LOG_CRIT(( "Received unexpected error code %d", err ));
+      break;
+  }
+}
+
 /* net_rx_packet is called when a new Ethernet frame is available.
    Attempts to copy out the frame to a downstream tile. */
 
@@ -908,10 +934,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
   uchar        * packet        = (uchar *)ctx->umem + umem_off;
   fd_ip4_hdr_t * iphdr;
   int err = fd_eth_ip4_hdrs_validate( (fd_eth_hdr_t *)packet, sz, &iphdr, FD_IP4_HDR_PROTO_MASK_BOTH );
-  if( FD_UNLIKELY( err ) ) {
-    /* TODO - choose metric based on err code */
-    FD_DTRACE_PROBE( net_tile_err_rx_noip );
-    ctx->metrics.rx_undersz_cnt++;
+  if( FD_UNLIKELY( err!=FD_NET_SUCCESS ) ) {
+    net_rx_drop_metric( ctx, err );
     return;
   }
 
@@ -939,10 +963,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
 
     /* Validate inner ip */
     err = fd_ip4_hdr_validate( iphdr, sz, FD_IP4_HDR_PROTO_MASK_UDP );
-    if( FD_UNLIKELY( err ) ) {
-      /* TODO - choose metric based on err code */
-      FD_DTRACE_PROBE( net_tile_err_rx_noip );
-      ctx->metrics.rx_undersz_cnt++;
+    if( FD_UNLIKELY( err!=FD_NET_SUCCESS ) ) {
+      net_rx_drop_metric( ctx, err );
       return;
     }
   }
@@ -952,9 +974,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
   ulong iplen = FD_IP4_GET_LEN( *iphdr );
   fd_udp_hdr_t const * udp_hdr = (fd_udp_hdr_t const *)((uchar *)iphdr + iplen);
   err = fd_udp_hdr_validate( udp_hdr, sz - sizeof(fd_eth_hdr_t) - iplen );
-  if( FD_UNLIKELY( err ) ) {
-    FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-    ctx->metrics.rx_undersz_cnt++;
+  if( FD_UNLIKELY( err!=FD_NET_SUCCESS ) ) {
+    net_rx_drop_metric( ctx, err );
     return;
   }
 

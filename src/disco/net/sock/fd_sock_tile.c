@@ -1,7 +1,7 @@
 #define _GNU_SOURCE /* dup3 */
 #include "fd_sock_tile_private.h"
-#include "../../../util/net/fd_net_common.h"
 #include "../../topo/fd_topo.h"
+#include "../../../util/net/fd_net_common.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
