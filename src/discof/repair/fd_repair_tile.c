@@ -93,40 +93,39 @@ struct out_ctx {
      links filled completely, stem would get into a deadlock. Neither
      repair or sign would have credits, which would prevent frags from
      getting polled in repair or sign, which would prevent any credits
-     from getting returned back to the tiles.  credits / max_credits are
-     used by the repair_sign link.  In particular, credits manages the
-     RETURN sign_repair link.
+     from getting returned back to the tiles.  So the sign_repair return
+     link must be unreliable. credits / max_credits are used by the
+     repair_sign link.  In particular, credits manages the RETURN
+     sign_repair link.
 
-     Thus the sign_repair link must be unreliable. This is mostly ok,
-     because repair_sign is still reliable, so in theory repair_tile
-     would never publish enough frags such that sign_repair would get
-     overrun.
-
-     However, there is a fairly common case that breaks this.  Consider
-     the scenario
+     Consider the scenario:
 
              repair_sign (depth 128)        sign_repair (depth 128)
      repair  ---------------------->  sign ------------------------> repair
              [rest free, r130, r129]       [r128, r127, ... , r1] (full)
 
-     This would happen because repair is publishing too many requests
-     too fast(common in catchup), and not polling enough frags from
-     sign. Nothing is stopping repair from publishing more requests,
-     because sign is functioning fast enough to handle the requests.
-     However, nothing is stopping sign from polling the next request and
-     signing it, and PUBLISHING it on the sign_repair link that is
-     already full, because the sign_repair link is unreliable.
-
-     In fact the only time we could stop repair from publishing more
-     requests is if repair_sign was full, and repair would get
-     backpressured, but sign would still be able to poll requests and
-     overrun the sign_repair link.
+     If repair is publishing too many requests too fast(common in
+     catchup), and not polling enough frags from sign, without manual
+     management the sign_repair link would be overrun.  Nothing is
+     stopping repair from publishing more requests, because sign is
+     functioning fast enough to handle the requests. However, nothing is
+     stopping sign from polling the next request and signing it, and
+     PUBLISHING it on the sign_repair link that is already full, because
+     the sign_repair link is unreliable.
 
      This is why we need to manually track credits for the sign_repair
      link. We must ensure that there are never more than 128 items in
      the ENTIRE repair_sign -> sign tile -> sign_repair work queue, else
      there is always a possibility of an overrun in the sign_repair
      link.
+
+     We can furthermore ensure some nice properties by having the
+     repair_sign link have a greater depth than the sign_repair link.
+     This way, we exclusively use manual credit management to control
+     the rate at which we publish requests to sign.  We can then avoid
+     being stem backpressured, which allows us to keep polling frags and
+     reading incoming shreds, even when the repair sign link is "full."
+     This is a non-necessary property for good performance.
 
      To lose a frag to overrun isn't necessarily critical, but in
      general the repair tile relies on the fact that a signing task
@@ -1169,6 +1168,42 @@ metrics_write( ctx_t * ctx ) {
    when fixed FEC 32 goes in, and we can finally get rid of force
    completes BS. */
 #define STEM_BURST (64UL)
+
+/* Sign manual credit management, backpressuring, sign tile count, &
+   sign speed effect this lazy value. The main goal of repair's highest
+   workload (catchup) is to have high send packet rate.  Repair is
+   regularly idle, and mostly waiting for dispatched signs to come
+   in. Processing shreds from shred tile is a relatively fast operation.
+   Thus we only worry about fully utilizing the sign tiles' capacity.
+
+   Assuming standard 2 sign tiles & reasonably fast signing rate & if
+   repair_sign_depth==sign_repair_depth: the lower the LAZY, the less
+   time is spent in backpressure, and the higher the packet send rate
+   gets.  As expected, up until a certain point, credit return is slower
+   than signing. This starts to plateau at ~10k LAZY (for a box that can
+   sign at ~20k repair pps, but is fully dependent on the sign tile's
+   speed).
+
+   At this point we start returning credits faster than we actually get
+   them from the sign tile, so signing becomes the bottleneck.  The
+   extreme case is when we set it to standard lazy (289 ns);
+   housekeeping time spikes, but backpressure time drops (to a lower but
+   inconsistent value). But because we are usually idling in the repair
+   tile, higher housekeeping doesn't really effect the send packet rate.
+
+   Recall that repair_sign_depth is actually > sign_repair_depth (see
+   long comment in ctx_t struct).  So repair_sign is NEVER
+   backpressuring the repair tile.  When we set
+   repair_sign_depth>sign_repair_depth, we spend very little time in
+   backpressure (repair_sign always has available credits), and most of
+   the time idling.  Theoretically, this uncouples repair tile with
+   credit return and basically sends at rate as close to as we can sign.
+   This is a small improvement over the first case (low lazy,
+   repair_sign_depth==sign_repair_depth).
+
+   Since we don't ever fill up repair_sign link, we can set LAZY to any
+   reasonable value that keeps housekeeping time low. */
+#define STEM_LAZY  (64000)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
