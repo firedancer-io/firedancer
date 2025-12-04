@@ -345,7 +345,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_vote_states_prev_prev_end_locking_modify( bank );
 
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
-  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
+  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 0UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
 
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
   vote_states = fd_bank_vote_states_locking_modify( bank );

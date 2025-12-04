@@ -371,6 +371,10 @@ struct fd_bank {
   int         stake_delegations_delta_dirty;
   fd_rwlock_t stake_delegations_delta_lock;
 
+  /* Vote states. */
+  uchar       vote_states_mem_[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
+  fd_rwlock_t vote_states_lock_;
+
   ulong refcnt; /* (r) reference count on the bank, see replay for more details */
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
@@ -532,6 +536,8 @@ struct fd_banks {
 
   ulong       cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
 
+  ulong       vote_states_pool_offset_;
+
   /* stake_delegations_root will be the full state of stake delegations
      for the current root. It can get updated in two ways:
      1. On boot the snapshot will be directly read into the rooted
@@ -645,7 +651,7 @@ fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_write( &bank->stake_delegations_delta_lock );
   if( !bank->stake_delegations_delta_dirty ) {
     bank->stake_delegations_delta_dirty = 1;
-    fd_stake_delegations_new( bank->stake_delegations_delta, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 );
+    fd_stake_delegations_new( bank->stake_delegations_delta, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1, 999UL );
   }
   return fd_stake_delegations_join( bank->stake_delegations_delta );
 }

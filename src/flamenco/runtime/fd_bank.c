@@ -311,6 +311,10 @@ fd_banks_new( void * shmem,
     fd_bank_set_cost_tracker_pool( bank, cost_tracker_pool );
   }
 
+  for( ulong i=0UL; i<max_fork_width; i++ ) {
+    fd_epoch_rewards_join( fd_epoch_rewards_new( fd_bank_epoch_rewards_pool_ele( fd_banks_get_epoch_rewards_pool( banks ), i )->data, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  }
+
   for( ulong i=0UL; i<max_total_banks; i++ ) {
     fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_pool_ele( fd_banks_get_vote_states_pool( banks ), i )->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) );
   }
@@ -327,7 +331,7 @@ fd_banks_new( void * shmem,
   banks->max_fork_width  = max_fork_width;
   banks->root_idx        = ULONG_MAX;
 
-  if( FD_UNLIKELY( !fd_stake_delegations_new( banks->stake_delegations_root, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) ) ) {
+  if( FD_UNLIKELY( !fd_stake_delegations_new( banks->stake_delegations_root, 0UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) ) ) {
     FD_LOG_WARNING(( "Unable to create stake delegations root" ));
     return NULL;
   }

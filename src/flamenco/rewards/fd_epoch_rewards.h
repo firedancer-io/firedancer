@@ -168,6 +168,12 @@ fd_epoch_rewards_leave( fd_epoch_rewards_t const * epoch_rewards );
 void *
 fd_epoch_rewards_delete( void * epoch_rewards );
 
+/* fd_epoch_rewards_init resets the epoch rewards struct to the initial
+   state given a valid local join. */
+
+void
+fd_epoch_rewards_init( fd_epoch_rewards_t * epoch_rewards );
+
 /* fd_epoch_rewards_insert stores the rewards for a given stake account
    into the data structure. */
 

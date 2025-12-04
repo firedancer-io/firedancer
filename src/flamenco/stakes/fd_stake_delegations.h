@@ -200,6 +200,7 @@ fd_stake_delegations_footprint( ulong max_stake_accounts );
 
 void *
 fd_stake_delegations_new( void * mem,
+                          ulong  seed,
                           ulong  max_stake_accounts,
                           int    leave_tombstones );
 

@@ -36,9 +36,9 @@ int main( int argc, char ** argv ) {
   FD_TEST( fd_stake_delegations_align()>=alignof(fd_stake_delegations_t)  );
   FD_TEST( fd_stake_delegations_align()==FD_STAKE_DELEGATIONS_ALIGN );
 
-  FD_TEST( !fd_stake_delegations_new( NULL, max_stake_accounts, 0 ) );
-  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0 ) );
-  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, max_stake_accounts, 0 );
+  FD_TEST( !fd_stake_delegations_new( NULL, 0UL, max_stake_accounts, 0 ) );
+  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0UL, 0 ) );
+  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, 0UL, max_stake_accounts, 0 );
   FD_TEST( new_stake_delegations_mem );
 
   FD_TEST( !fd_stake_delegations_join( NULL ) );
@@ -131,7 +131,7 @@ int main( int argc, char ** argv ) {
   FD_TEST( !fd_stake_delegations_join( deleted_mem ) );
 
   /* Test stake_delegations where is_tombstone == 1. */
-  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations_mem, max_stake_accounts, 1 ) );
+  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations_mem, 0UL, max_stake_accounts, 1 ) );
   FD_TEST( stake_delegations );
 
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 0UL );
