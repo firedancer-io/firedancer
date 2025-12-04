@@ -374,6 +374,11 @@ publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
   if( FD_UNLIKELY( msg->txn_exec->err ) ) {
     uchar * signature = (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off;
     FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d signature=%s", ctx->txn_out.err.txn_err, FD_BASE58_ENC_64_ALLOCA( signature ) ));
+    /* TODO: This is temporary debugging logging to catch a rare failure
+       case and should be removed. */
+    if( msg->txn_exec->err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND ) {
+      if( FD_UNLIKELY( fd_funk_rec_verify( ctx->runtime->funk )!=FD_FUNK_SUCCESS ) ) FD_LOG_WARNING(( "fd_funk_rec_verify() failed" ));
+    }
   }
 
   fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( fd_tickcount() ) );
