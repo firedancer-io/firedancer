@@ -59,6 +59,7 @@ monitor_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 typedef struct {
   ulong pid;
   ulong heartbeat;
+  ulong status;
 
   ulong in_backp;
   ulong backp_cnt;
@@ -98,6 +99,7 @@ tile_snap( tile_snap_t *     snap_cur, /* Snapshot for each tile, indexed [0,til
 
     fd_topo_tile_t const * tile = &topo->tiles[ tile_idx ];
     snap->heartbeat = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_HEARTBEAT_OFF ];
+    snap->status    = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_STATUS_OFF    ];
 
     fd_metrics_register( tile->metrics );
 
@@ -367,6 +369,7 @@ run_monitor( config_t const * config,
       for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
         tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
         tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
+        if( cur->status==2UL ) continue; /* stopped tile */
         PRINT( " %7s", topo->tiles[ tile_idx ].name );
         PRINT( " | %7lu", cur->pid );
         PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - (long)cur->heartbeat)), 1e8 /* 100 millis */ );
