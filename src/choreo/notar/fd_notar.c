@@ -128,7 +128,8 @@ fd_notar_count_vote( fd_notar_t *        notar,
     fd_notar_slot_vtrs_null( notar_slot->prev_vtrs );
     fd_notar_slot_vtrs_null( notar_slot->vtrs );
   }
-  if( FD_LIKELY( fd_notar_slot_vtrs_test( notar_slot->vtrs, vtr->bit ) ) ) return NULL;
+  if( FD_UNLIKELY( vtr->bit==ULONG_MAX                                   ) ) return NULL;
+  if( FD_UNLIKELY( fd_notar_slot_vtrs_test( notar_slot->vtrs, vtr->bit ) ) ) return NULL;
   fd_notar_slot_vtrs_insert( notar_slot->vtrs, vtr->bit );
   notar_slot->stake += vtr->stake;
 
