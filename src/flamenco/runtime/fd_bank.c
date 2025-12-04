@@ -311,6 +311,18 @@ fd_banks_new( void * shmem,
     fd_bank_set_cost_tracker_pool( bank, cost_tracker_pool );
   }
 
+  for( ulong i=0UL; i<max_total_banks; i++ ) {
+    fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_pool_ele( fd_banks_get_vote_states_pool( banks ), i )->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) );
+  }
+
+  for( ulong i=0UL; i<max_fork_width; i++ ) {
+    fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_pool_ele( fd_banks_get_vote_states_prev_pool( banks ), i )->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) );
+  }
+
+  for( ulong i=0UL; i<max_fork_width; i++ ) {
+    fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_pool_ele( fd_banks_get_vote_states_prev_prev_pool( banks ), i )->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) );
+  }
+
   banks->max_total_banks = max_total_banks;
   banks->max_fork_width  = max_fork_width;
   banks->root_idx        = ULONG_MAX;
