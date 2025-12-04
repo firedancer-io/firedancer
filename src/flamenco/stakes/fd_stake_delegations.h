@@ -224,6 +224,12 @@ fd_stake_delegations_leave( fd_stake_delegations_t * self );
 void *
 fd_stake_delegations_delete( void * mem );
 
+/* fd_stake_delegations_init resets the state of a valid join of a
+   stake delegations struct. */
+
+void
+fd_stake_delegations_init( fd_stake_delegations_t * stake_delegations );
+
 /* fd_stake_delegations_update will either insert a new stake delegation
    if the pubkey doesn't exist yet, or it will update the stake
    delegation for the pubkey if already in the map, overriding any

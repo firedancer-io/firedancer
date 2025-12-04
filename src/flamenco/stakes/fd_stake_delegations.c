@@ -194,6 +194,14 @@ fd_stake_delegations_delete( void * mem ) {
 }
 
 void
+fd_stake_delegations_init( fd_stake_delegations_t * stake_delegations ) {
+  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
+  fd_stake_delegation_map_reset( stake_delegation_map );
+  fd_stake_delegation_t * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+  fd_stake_delegation_pool_reset( stake_delegation_pool );
+}
+
+void
 fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
                              fd_pubkey_t const *      stake_account,
                              fd_pubkey_t const *      vote_account,
