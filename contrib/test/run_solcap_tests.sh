@@ -1,12 +1,11 @@
 #!/bin/bash
-set -xeou pipefail
+set -eou pipefail
 
 source contrib/test/ledger_common.sh
 
 DUMP=${DUMP:="./dump"}
 OBJDIR=${OBJDIR:-build/native/gcc}
 SKIP_INGEST=${SKIP_INGEST:-0}
-echo $OBJDIR
 
 LEDGER="mainnet-376969880-solcap"
 REDOWNLOAD=1
@@ -54,12 +53,13 @@ fi
 ORIG_DIR=$(pwd)
 cd $DUMP
 if [ ! -d "solcap-tools" ]; then
-  git clone https://github.com/firedancer-io/solcap-tools.git
+  git clone https://github.com/firedancer-io/solcap-tools.git > /dev/null 2>&1
 fi
 cd solcap-tools
-git pull
-git checkout nishk/inital_tooling
-cargo build --release
+git fetch origin > /dev/null 2>&1
+git checkout nishk/bp-fixes > /dev/null 2>&1
+git reset --hard origin/nishk/bp-fixes > /dev/null 2>&1
+cargo build --release > /dev/null 2>&1
 cd "$ORIG_DIR"
 
 export ledger_dir=$(realpath $DUMP/$LEDGER)
@@ -116,17 +116,15 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
     entrypoints = [ "0.0.0.0:1" ]
 EOF
 
-$OBJDIR/bin/firedancer-dev configure init all --config $DUMP/$LEDGER/mainnet-376969880_current.toml
 $OBJDIR/bin/firedancer-dev backtest --config $DUMP/$LEDGER/mainnet-376969880_current.toml
-$OBJDIR/bin/firedancer-dev configure fini all --config $DUMP/$LEDGER/mainnet-376969880_current.toml
 
 # Run solcap-tools diff and check the summary for zero differences
 DIFF_OUTPUT=$($DUMP/solcap-tools/target/release/solcap-tools diff $DUMP/$LEDGER/mainnet-376969880-solcap.solcap $DUMP/$LEDGER/ledger_tool/bank_hash_details/ -v 5)
 echo "$DIFF_OUTPUT"
 
-SUMMARY=$(echo "$DIFF_OUTPUT" | tail -3)
-DIFFERING_SLOTS=$(echo "$SUMMARY" | grep -oP 'Differing Slots: \K\d+')
-DIFFERING_ACCOUNTS=$(echo "$SUMMARY" | grep -oP 'Differing Accounts: \K\d+')
+SUMMARY=$(echo "$DIFF_OUTPUT" | tail -3) > /dev/null 2>&1
+DIFFERING_SLOTS=$(echo "$SUMMARY" | grep -ioP 'Differing Slots: \K\d+' || echo "") > /dev/null 2>&1
+DIFFERING_ACCOUNTS=$(echo "$SUMMARY" | grep -ioP 'Differing Accounts: \K\d+' || echo "") > /dev/null 2>&1
 
 if [[ "$DIFFERING_SLOTS" != "0" || "$DIFFERING_ACCOUNTS" != "0" ]]; then
   echo -e "\033[0;31mFAIL\033[0m Solcap diff found mismatches! Differing Slots: $DIFFERING_SLOTS, Differing Accounts: $DIFFERING_ACCOUNTS" >&2
