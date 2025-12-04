@@ -651,7 +651,7 @@ fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_write( &bank->stake_delegations_delta_lock );
   if( !bank->stake_delegations_delta_dirty ) {
     bank->stake_delegations_delta_dirty = 1;
-    fd_stake_delegations_new( bank->stake_delegations_delta, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1, 999UL );
+    fd_stake_delegations_new( bank->stake_delegations_delta, 999UL, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 );
   }
   return fd_stake_delegations_join( bank->stake_delegations_delta );
 }

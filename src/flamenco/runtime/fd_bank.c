@@ -306,6 +306,9 @@ fd_banks_new( void * shmem,
     #undef HAS_COW_0
     #undef HAS_COW_1
 
+    fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank );
+    fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 0UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
+
     /* The cost tracker is not templatized and must be set manually. */
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
     fd_bank_set_cost_tracker_pool( bank, cost_tracker_pool );
