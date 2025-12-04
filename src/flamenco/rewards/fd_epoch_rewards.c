@@ -26,11 +26,6 @@ fd_epoch_rewards_get_stake_reward_map( fd_epoch_rewards_t const * epoch_rewards 
 
 static inline fd_epoch_stake_reward_dlist_t *
 fd_epoch_rewards_get_partition_index( fd_epoch_rewards_t const * epoch_rewards, ulong idx ) {
-  if( FD_UNLIKELY( idx>=epoch_rewards->num_partitions ) ) {
-    FD_LOG_WARNING(( "idx: %lu is greater than num_partitions: %lu", idx, epoch_rewards->num_partitions ));
-    return NULL;
-  }
-
   fd_epoch_stake_reward_dlist_t * dlist_idx_zero  = (fd_epoch_stake_reward_dlist_t *)((uchar *)epoch_rewards + epoch_rewards->dlists_offset);
   fd_epoch_stake_reward_dlist_t * partition_dlist = fd_epoch_stake_reward_dlist_join( dlist_idx_zero + idx );
   return partition_dlist;
