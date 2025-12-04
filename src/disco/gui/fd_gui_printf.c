@@ -1080,6 +1080,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
         char version[ 32 ];
         FD_TEST( fd_cstr_printf( version, sizeof( version ), NULL, "%u.%u.%u", gui->gossip.peers[ gossip_idx ].version.major, gui->gossip.peers[ gossip_idx ].version.minor, gui->gossip.peers[ gossip_idx ].version.patch ) );
         jsonp_string( gui->http, "version", version );
+        jsonp_null( gui->http, "client_id" ); /* TODO: Frankendancer support */
         jsonp_ulong( gui->http, "feature_set", gui->gossip.peers[ gossip_idx ].version.feature_set );
         jsonp_ulong( gui->http, "wallclock", gui->gossip.peers[ gossip_idx ].wallclock );
         jsonp_ulong( gui->http, "shred_version", gui->gossip.peers[ gossip_idx ].shred_version );
@@ -1157,6 +1158,7 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
       char version[ 32 ];
       FD_TEST( fd_cstr_printf( version, sizeof( version ), NULL, "%u.%u.%u", peer->contact_info.version.major, peer->contact_info.version.minor, peer->contact_info.version.patch ) );
       jsonp_string( peers->http, "version", version );
+      jsonp_ulong( peers->http, "client_id", peer->contact_info.version.client );
       jsonp_ulong( peers->http, "feature_set", peer->contact_info.version.feature_set );
       jsonp_long( peers->http, "wallclock", peer->contact_info.wallclock_nanos );
       jsonp_ulong( peers->http, "shred_version", peer->contact_info.shred_version );
