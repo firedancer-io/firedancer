@@ -312,7 +312,7 @@ fd_banks_new( void * shmem,
   }
 
   for( ulong i=0UL; i<max_fork_width; i++ ) {
-    fd_epoch_rewards_join( fd_epoch_rewards_new( fd_bank_epoch_rewards_pool_ele( fd_banks_get_epoch_rewards_pool( banks ), i )->data, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+    fd_epoch_rewards_join( fd_epoch_rewards_new( fd_bank_epoch_rewards_pool_ele( fd_banks_get_epoch_rewards_pool( banks ), i )->data, FD_RUNTIME_MAX_STAKE_ACCOUNTS, seed ) );
   }
 
   for( ulong i=0UL; i<max_total_banks; i++ ) {

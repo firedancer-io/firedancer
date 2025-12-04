@@ -148,7 +148,9 @@ fd_epoch_rewards_footprint( ulong stake_account_max );
 
 /* fd_epoch_rewards_new initializes the epoch_rewards struct. */
 void *
-fd_epoch_rewards_new( void * shmem, ulong stake_account_max );
+fd_epoch_rewards_new( void * shmem,
+                      ulong  stake_account_max,
+                      ulong  seed );
 
 /* fd_epoch_rewards_join returns a pointer to the epoch rewards struct
    that is stored in the shared memory. */
