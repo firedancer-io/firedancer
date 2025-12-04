@@ -11549,41 +11549,4 @@ void fd_calculated_stake_points_walk( void * w, fd_calculated_stake_points_t con
   fun( w, &self->force_credits_update_with_skipped_reward, "force_credits_update_with_skipped_reward", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0  );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_calculated_stake_points", level--, 0 );
 }
-int fd_calculated_stake_rewards_encode( fd_calculated_stake_rewards_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->staker_rewards, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->voter_rewards, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->new_credits_observed, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static inline int fd_calculated_stake_rewards_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( (ulong)ctx->data + 24UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = (void *)( (ulong)ctx->data + 24UL );
-  return 0;
-}
-static void fd_calculated_stake_rewards_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_calculated_stake_rewards_t * self = (fd_calculated_stake_rewards_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->staker_rewards, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->voter_rewards, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->new_credits_observed, ctx );
-}
-void * fd_calculated_stake_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_calculated_stake_rewards_t * self = (fd_calculated_stake_rewards_t *)mem;
-  fd_calculated_stake_rewards_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_calculated_stake_rewards_t);
-  void * * alloc_mem = &alloc_region;
-  fd_calculated_stake_rewards_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_calculated_stake_rewards_walk( void * w, fd_calculated_stake_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
-  (void) varint;
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_calculated_stake_rewards", level++, 0 );
-  fun( w, &self->staker_rewards, "staker_rewards", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  fun( w, &self->voter_rewards, "voter_rewards", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  fun( w, &self->new_credits_observed, "new_credits_observed", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_calculated_stake_rewards", level--, 0 );
-}
 #include "fd_types_custom.c"

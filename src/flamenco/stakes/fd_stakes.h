@@ -8,6 +8,14 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24 */
+struct fd_calculated_stake_rewards {
+  ulong staker_rewards;
+  ulong voter_rewards;
+  ulong new_credits_observed;
+};
+typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
+
 /* fd_stake_weights_by_node converts Stakes (unordered list of (vote
    acc, active stake) tuples) to an ordered list of (stake, vote pubkey, node
    identity) sorted by (stake descending, vote pubkey descending).

@@ -1564,16 +1564,6 @@ struct fd_calculated_stake_points {
 typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
 #define FD_CALCULATED_STAKE_POINTS_ALIGN alignof(fd_calculated_stake_points_t)
 
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24 */
-/* Encoded Size: Fixed (24 bytes) */
-struct fd_calculated_stake_rewards {
-  ulong staker_rewards;
-  ulong voter_rewards;
-  ulong new_credits_observed;
-};
-typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
-#define FD_CALCULATED_STAKE_REWARDS_ALIGN alignof(fd_calculated_stake_rewards_t)
-
 
 FD_PROTOTYPES_BEGIN
 
@@ -3025,18 +3015,6 @@ static inline int fd_calculated_stake_points_decode_footprint( fd_bincode_decode
   return 0;
 }
 void * fd_calculated_stake_points_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_calculated_stake_rewards_new( fd_calculated_stake_rewards_t * self ) { fd_memset( self, 0, sizeof(fd_calculated_stake_rewards_t) ); }
-int fd_calculated_stake_rewards_encode( fd_calculated_stake_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_calculated_stake_rewards_walk( void * w, fd_calculated_stake_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_calculated_stake_rewards_size( fd_calculated_stake_rewards_t const * self ) { (void)self; return 24UL; }
-static inline ulong fd_calculated_stake_rewards_align( void ) { return FD_CALCULATED_STAKE_REWARDS_ALIGN; }
-static inline int fd_calculated_stake_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_calculated_stake_rewards_t);
-  if( (ulong)ctx->data + 24UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_calculated_stake_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 

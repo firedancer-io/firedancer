@@ -1265,16 +1265,6 @@
         { "name": "force_credits_update_with_skipped_reward", "type": "uchar" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27"
-    },
-    {
-      "name": "calculated_stake_rewards",
-      "type": "struct",
-      "fields": [
-        { "name": "staker_rewards", "type": "ulong" },
-        { "name": "voter_rewards", "type": "ulong" },
-        { "name": "new_credits_observed", "type": "ulong" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24"
     }
   ]
 }

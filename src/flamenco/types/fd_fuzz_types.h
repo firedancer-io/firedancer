@@ -1938,14 +1938,4 @@ void *fd_calculated_stake_points_generate( void *mem, void **alloc_mem, fd_rng_t
   return mem;
 }
 
-void *fd_calculated_stake_rewards_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_calculated_stake_rewards_t *self = (fd_calculated_stake_rewards_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_calculated_stake_rewards_t);
-  fd_calculated_stake_rewards_new(mem);
-  self->staker_rewards = fd_rng_ulong( rng );
-  self->voter_rewards = fd_rng_ulong( rng );
-  self->new_credits_observed = fd_rng_ulong( rng );
-  return mem;
-}
-
 #endif // HEADER_FUZZ_FD_RUNTIME_TYPES
