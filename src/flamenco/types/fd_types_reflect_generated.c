@@ -3,7 +3,7 @@
 #include "fd_types_custom.h"
 #include "fd_types_reflect_private.h"
 #pragma GCC diagnostic ignored "-Wpedantic"
-ulong fd_types_vt_list_cnt = 126;
+ulong fd_types_vt_list_cnt = 124;
 fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_hash", .name_len=7, .align=FD_HASH_ALIGN, .new_=(void *)fd_hash_new, .decode=(void *)fd_hash_decode, .size=(void *)fd_hash_size, .walk=(void *)fd_hash_walk, .decode_footprint=(void *)fd_hash_decode_footprint, .encode=(void *)fd_hash_encode  },
   { .name="fd_pubkey", .name_len=9, .align=FD_PUBKEY_ALIGN, .new_=(void *)fd_pubkey_new, .decode=(void *)fd_pubkey_decode, .size=(void *)fd_pubkey_size, .walk=(void *)fd_pubkey_walk, .decode_footprint=(void *)fd_pubkey_decode_footprint, .encode=(void *)fd_pubkey_encode  },
@@ -129,7 +129,5 @@ fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_addrlut_instruction", .name_len=22, .align=FD_ADDRLUT_INSTRUCTION_ALIGN, .new_=(void *)fd_addrlut_instruction_new, .decode=(void *)fd_addrlut_instruction_decode, .size=(void *)fd_addrlut_instruction_size, .walk=(void *)fd_addrlut_instruction_walk, .decode_footprint=(void *)fd_addrlut_instruction_decode_footprint, .encode=(void *)fd_addrlut_instruction_encode  },
   { .name="fd_calculated_stake_points", .name_len=26, .align=FD_CALCULATED_STAKE_POINTS_ALIGN, .new_=(void *)fd_calculated_stake_points_new, .decode=(void *)fd_calculated_stake_points_decode, .size=(void *)fd_calculated_stake_points_size, .walk=(void *)fd_calculated_stake_points_walk, .decode_footprint=(void *)fd_calculated_stake_points_decode_footprint, .encode=(void *)fd_calculated_stake_points_encode  },
   { .name="fd_calculated_stake_rewards", .name_len=27, .align=FD_CALCULATED_STAKE_REWARDS_ALIGN, .new_=(void *)fd_calculated_stake_rewards_new, .decode=(void *)fd_calculated_stake_rewards_decode, .size=(void *)fd_calculated_stake_rewards_size, .walk=(void *)fd_calculated_stake_rewards_walk, .decode_footprint=(void *)fd_calculated_stake_rewards_decode_footprint, .encode=(void *)fd_calculated_stake_rewards_encode  },
-  { .name="fd_rent_paying", .name_len=14, .align=FD_RENT_PAYING_ALIGN, .new_=(void *)fd_rent_paying_new, .decode=(void *)fd_rent_paying_decode, .size=(void *)fd_rent_paying_size, .walk=(void *)fd_rent_paying_walk, .decode_footprint=(void *)fd_rent_paying_decode_footprint, .encode=(void *)fd_rent_paying_encode  },
-  { .name="fd_rent_state", .name_len=13, .align=FD_RENT_STATE_ALIGN, .new_=(void *)fd_rent_state_new, .decode=(void *)fd_rent_state_decode, .size=(void *)fd_rent_state_size, .walk=(void *)fd_rent_state_walk, .decode_footprint=(void *)fd_rent_state_decode_footprint, .encode=(void *)fd_rent_state_encode  },
   { .name=NULL }
 };

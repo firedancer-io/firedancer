@@ -1948,30 +1948,4 @@ void *fd_calculated_stake_rewards_generate( void *mem, void **alloc_mem, fd_rng_
   return mem;
 }
 
-void *fd_rent_paying_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_paying_t *self = (fd_rent_paying_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_paying_t);
-  fd_rent_paying_new(mem);
-  self->lamports = fd_rng_ulong( rng );
-  self->data_size = fd_rng_ulong( rng );
-  return mem;
-}
-
-void fd_rent_state_inner_generate( fd_rent_state_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 1: {
-    fd_rent_paying_generate( &self->rent_paying, alloc_mem, rng );
-    break;
-  }
-  }
-}
-void *fd_rent_state_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_state_t *self = (fd_rent_state_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_state_t);
-  fd_rent_state_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 3;
-  fd_rent_state_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
 #endif // HEADER_FUZZ_FD_RUNTIME_TYPES

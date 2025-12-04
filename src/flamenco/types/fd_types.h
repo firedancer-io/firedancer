@@ -1574,27 +1574,6 @@ struct fd_calculated_stake_rewards {
 typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
 #define FD_CALCULATED_STAKE_REWARDS_ALIGN alignof(fd_calculated_stake_rewards_t)
 
-/* Encoded Size: Fixed (16 bytes) */
-struct fd_rent_paying {
-  ulong lamports;
-  ulong data_size;
-};
-typedef struct fd_rent_paying fd_rent_paying_t;
-#define FD_RENT_PAYING_ALIGN alignof(fd_rent_paying_t)
-
-union fd_rent_state_inner {
-  fd_rent_paying_t rent_paying;
-};
-typedef union fd_rent_state_inner fd_rent_state_inner_t;
-
-/* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15 */
-struct fd_rent_state {
-  uint discriminant;
-  fd_rent_state_inner_t inner;
-};
-typedef struct fd_rent_state fd_rent_state_t;
-#define FD_RENT_STATE_ALIGN alignof(fd_rent_state_t)
-
 
 FD_PROTOTYPES_BEGIN
 
@@ -3059,35 +3038,6 @@ static inline int fd_calculated_stake_rewards_decode_footprint( fd_bincode_decod
 }
 void * fd_calculated_stake_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-static inline void fd_rent_paying_new( fd_rent_paying_t * self ) { fd_memset( self, 0, sizeof(fd_rent_paying_t) ); }
-int fd_rent_paying_encode( fd_rent_paying_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_rent_paying_walk( void * w, fd_rent_paying_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_rent_paying_size( fd_rent_paying_t const * self ) { (void)self; return 16UL; }
-static inline ulong fd_rent_paying_align( void ) { return FD_RENT_PAYING_ALIGN; }
-static inline int fd_rent_paying_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_rent_paying_t);
-  if( (ulong)ctx->data + 16UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_rent_paying_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_rent_state_new_disc( fd_rent_state_t * self, uint discriminant );
-void fd_rent_state_new( fd_rent_state_t * self );
-int fd_rent_state_encode( fd_rent_state_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_rent_state_walk( void * w, fd_rent_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_rent_state_size( fd_rent_state_t const * self );
-static inline ulong fd_rent_state_align( void ) { return FD_RENT_STATE_ALIGN; }
-int fd_rent_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_rent_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_rent_state_is_uninitialized( fd_rent_state_t const * self );
-FD_FN_PURE uchar fd_rent_state_is_rent_paying( fd_rent_state_t const * self );
-FD_FN_PURE uchar fd_rent_state_is_rent_exempt( fd_rent_state_t const * self );
-enum {
-fd_rent_state_enum_uninitialized = 0,
-fd_rent_state_enum_rent_paying = 1,
-fd_rent_state_enum_rent_exempt = 2,
-};
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES

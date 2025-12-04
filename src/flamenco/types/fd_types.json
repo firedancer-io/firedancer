@@ -1275,24 +1275,6 @@
         { "name": "new_credits_observed", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24"
-    },
-    {
-      "name": "rent_paying",
-      "type": "struct",
-      "fields": [
-        { "name": "lamports", "type": "ulong" },
-        { "name": "data_size", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "rent_state",
-      "type": "enum",
-      "variants": [
-        { "name": "uninitialized" },
-        { "name": "rent_paying", "type": "rent_paying" },
-        { "name": "rent_exempt" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15"
     }
   ]
 }
