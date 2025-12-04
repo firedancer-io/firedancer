@@ -3,6 +3,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/store/fd_store.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../funk/fd_funk.h"
 
@@ -175,6 +176,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_txncache = {
   .footprint = txncache_footprint,
   .align     = txncache_align,
   .new       = txncache_new,
+};
+
+static ulong
+acc_pool_footprint( fd_topo_t const *     topo,
+                    fd_topo_obj_t const * obj ) {
+  return fd_acc_pool_footprint( VAL("max_account_cnt") );
+}
+
+static ulong
+acc_pool_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_acc_pool_align();
+}
+
+static void
+acc_pool_new( fd_topo_t const *     topo,
+              fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_acc_pool_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_account_cnt") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_acc_pool = {
+  .name      = "acc_pool",
+  .footprint = acc_pool_footprint,
+  .align     = acc_pool_align,
+  .new       = acc_pool_new,
 };
 
 #undef VAL

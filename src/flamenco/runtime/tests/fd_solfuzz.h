@@ -27,13 +27,14 @@
    each other (or any other allocations) just fine. */
 
 struct fd_solfuzz_runner {
-  fd_wksp_t *    wksp;
-  ulong          wksp_tag;
-  ulong          wksp_baseline_used_sz;
-  fd_spad_t *    spad;
-  fd_banks_t *   banks;
-  fd_bank_t *    bank;
-  fd_runtime_t * runtime;
+  fd_wksp_t *     wksp;
+  ulong           wksp_tag;
+  ulong           wksp_baseline_used_sz;
+  fd_spad_t *     spad;
+  fd_banks_t *    banks;
+  fd_bank_t *     bank;
+  fd_runtime_t *  runtime;
+  fd_acc_pool_t * acc_pool;
 
   fd_progcache_t       progcache[1];
   fd_progcache_admin_t progcache_admin[1];
@@ -44,7 +45,6 @@ struct fd_solfuzz_runner {
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */
 
-  fd_exec_accounts_t * exec_accounts;
   fd_runtime_stack_t * runtime_stack;
 
 # if FD_HAS_FLATCC
