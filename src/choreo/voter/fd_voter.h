@@ -17,7 +17,7 @@
 #define FD_VOTER_V2 (1)
 #define FD_VOTER_V3 (2)
 FD_STATIC_ASSERT( FD_VOTER_V2==fd_vote_state_versioned_enum_v1_14_11, FD_VOTER_V2 );
-FD_STATIC_ASSERT( FD_VOTER_V3==fd_vote_state_versioned_enum_current,  FD_VOTER_V3 );
+FD_STATIC_ASSERT( FD_VOTER_V3==fd_vote_state_versioned_enum_v3,       FD_VOTER_V3 );
 
 /* fd_voter describes the layout of a vote state stored in a vote
    account.  These structs are used to support zero-copy access (direct
