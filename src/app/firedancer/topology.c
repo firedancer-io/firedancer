@@ -483,7 +483,7 @@ fd_topo_initialize( config_t * config ) {
     } else {
                        fd_topob_link( topo, "snapls_ct",    "snapls_ct",    128UL,                                    0UL,                           1UL );
     }
-    /**/               fd_topob_link( topo, "snapin_manif", "snapin_manif", 4UL,                                      sizeof(fd_snapshot_manifest_t),1UL );
+    /**/               fd_topob_link( topo, "snapin_manif", "snapin_manif", 16UL,                                     sizeof(fd_snapshot_manifest_t),1UL );
     /**/               fd_topob_link( topo, "snapct_repr",  "snapct_repr",  128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; /* TODO: wire in repair later */
     if( FD_LIKELY( config->tiles.gui.enabled ) ) {
       /**/             fd_topob_link( topo, "snapct_gui",   "snapct_gui",   128UL,                                    sizeof(fd_snapct_update_t),    1UL );

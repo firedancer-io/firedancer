@@ -434,14 +434,6 @@ advance_account_batch( fd_ssparse_t *                ssparse,
   ulong off = 0UL;
   for( ulong idx=0UL; idx<FD_SSPARSE_ACC_BATCH_MAX && off+136UL<=avail; idx++ ) {
     uchar const * acc_hdr     = (uchar *)data+off;
-
-    /* We want ConfigProgram accounts to go through the slow path,
-       since they are published from there to consumers for monitoring. */
-    if( FD_UNLIKELY( !memcmp( acc_hdr+64UL, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) ) ) {
-      if( FD_UNLIKELY( idx==0UL  ) ) return FD_SSPARSE_ADVANCE_AGAIN; /* At the front of the batch, abort */
-      else                           break; /* otherwise, break early.  */
-    }
-
     ulong         acc_data_sz = fd_ulong_load_8_fast( acc_hdr+8 );
     ulong         next_off    = off+136UL+acc_data_sz;
     ulong         pad_sz      = fd_ulong_align_up( ssparse->tar.file_bytes_consumed+next_off, 8UL ) -

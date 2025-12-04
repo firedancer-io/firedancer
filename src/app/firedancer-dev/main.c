@@ -53,7 +53,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
 extern configure_stage_t fd_cfg_stage_vinyl;
 
 configure_stage_t * STAGES[] = {
-  &fd_cfg_stage_kill,
+  //&fd_cfg_stage_kill,
   &fd_cfg_stage_netns,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,

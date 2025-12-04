@@ -257,14 +257,13 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      fd_lthash_zero( &ctx->running_lthash );
-      fd_ssparse_reset( ctx->ssparse );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
-      fd_lthash_adder_new( ctx->adder );
+      if( ctx->state!=FD_SNAPSHOT_STATE_IDLE ) {
+        ctx->state = FD_SNAPSHOT_STATE_IDLE;
+        fd_lthash_zero( &ctx->running_lthash );
+        fd_ssparse_reset( ctx->ssparse );
+        fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
+        fd_lthash_adder_new( ctx->adder );
+      }
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:

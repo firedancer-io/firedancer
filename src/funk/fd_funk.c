@@ -16,12 +16,12 @@ fd_funk_footprint( ulong txn_max,
 
   l = FD_LAYOUT_APPEND( l, alignof(fd_funk_shmem_t), sizeof(fd_funk_shmem_t) );
 
-  ulong txn_chain_cnt = fd_funk_txn_map_chain_cnt_est( txn_max );
+  ulong txn_chain_cnt = fd_funk_txn_map_chain_cnt_est( txn_max ) * 8;
   l = FD_LAYOUT_APPEND( l, fd_funk_txn_map_align(), fd_funk_txn_map_footprint( txn_chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_funk_txn_pool_align(), fd_funk_txn_pool_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_funk_txn_t), sizeof(fd_funk_txn_t) * txn_max );
 
-  ulong rec_chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max );
+  ulong rec_chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max ) * 8;
   l = FD_LAYOUT_APPEND( l, fd_funk_rec_map_align(), fd_funk_rec_map_footprint( rec_chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_funk_rec_pool_align(), fd_funk_rec_pool_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_funk_rec_t), sizeof(fd_funk_rec_t) * rec_max );
@@ -76,12 +76,12 @@ fd_funk_new( void * shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, funk+1 );
 
-  ulong txn_chain_cnt = fd_funk_txn_map_chain_cnt_est( txn_max );
+  ulong txn_chain_cnt = fd_funk_txn_map_chain_cnt_est( txn_max ) * 8;
   void * txn_map = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_txn_map_align(), fd_funk_txn_map_footprint( txn_chain_cnt ) );
   void * txn_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_txn_pool_align(), fd_funk_txn_pool_footprint() );
   fd_funk_txn_t * txn_ele = (fd_funk_txn_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_funk_txn_t), sizeof(fd_funk_txn_t) * txn_max );
 
-  ulong rec_chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max );
+  ulong rec_chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max ) * 8;
   void * rec_map = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_rec_map_align(), fd_funk_rec_map_footprint( rec_chain_cnt ) );
   void * rec_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_rec_pool_align(), fd_funk_rec_pool_footprint() );
   fd_funk_rec_t * rec_ele = (fd_funk_rec_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_funk_rec_t), sizeof(fd_funk_rec_t) * rec_max );
@@ -343,7 +343,7 @@ fd_funk_verify( fd_funk_t * join ) {
   ulong txn_map_gaddr = funk->txn_map_gaddr;
   TEST( txn_map_gaddr );
   fd_funk_txn_map_t * txn_map = fd_funk_txn_map( join );
-  ulong txn_chain_cnt = fd_funk_txn_map_chain_cnt_est( txn_max );
+  ulong txn_chain_cnt = fd_funk_txn_map_chain_cnt_est( txn_max ) * 8;
   TEST( txn_chain_cnt==fd_funk_txn_map_chain_cnt( txn_map ) );
   TEST( seed==fd_funk_txn_map_seed( txn_map ) );
 
@@ -384,7 +384,7 @@ fd_funk_verify( fd_funk_t * join ) {
   ulong rec_map_gaddr = funk->rec_map_gaddr;
   TEST( rec_map_gaddr );
   fd_funk_rec_map_t * rec_map = fd_funk_rec_map( join );
-  ulong rec_chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max );
+  ulong rec_chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max ) * 8;
   TEST( rec_chain_cnt==fd_funk_rec_map_chain_cnt( rec_map ) );
   TEST( seed==fd_funk_rec_map_seed( rec_map ) );
 

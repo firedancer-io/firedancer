@@ -211,14 +211,13 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
       int done = recv_acks( ctx, in_idx );
       if( !done ) return;
 
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      fd_lthash_zero( &ctx->running_lthash );
+      if( ctx->state!=FD_SNAPSHOT_STATE_IDLE ) {
+        ctx->state = FD_SNAPSHOT_STATE_IDLE;
+        fd_lthash_zero( &ctx->running_lthash );
+      }
       break;
     }
 

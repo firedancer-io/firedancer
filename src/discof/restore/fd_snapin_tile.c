@@ -5,7 +5,6 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../disco/gui/fd_gui_config_parse.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
@@ -517,23 +516,6 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
         early_exit = fd_snapin_process_account_data( ctx, result );
-
-        /* We exepect ConfigKeys Vec to be length 2.  We expect the size
-           of ConfigProgram-owned accounts to be
-           FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, since this the size
-           that the solana CLI allocates for them.  Although the Config
-           program itself does not enforce this limit, the vast majority
-           of accounts (with a tiny number of excpetions on devnet) are
-           maintained with the solana cli. */
-        if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX && !memcmp( result->account_data.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) && result->account_data.data_sz && *(uchar *)result->account_data.data==2UL && result->account_data.data_sz<=FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ ) ) {
-          uchar * acct = fd_chunk_to_laddr( ctx->gui_out.mem, ctx->gui_out.chunk );
-          fd_memcpy( acct, result->account_data.data, result->account_data.data_sz );
-
-          /* We add 1 to the frag size since the cJSON parser used by
-             the gui tile requires one byte past the parsable JSON */
-          fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz+1UL, 0UL, 0UL, 0UL );
-          ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz+1UL, ctx->gui_out.chunk0, ctx->gui_out.wmark );
-        }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
         early_exit = fd_snapin_process_account_batch( ctx, result, NULL );
@@ -591,22 +573,21 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      if( ctx->state!=FD_SNAPSHOT_STATE_IDLE ) {
+        ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( ctx->use_vinyl ) {
-        fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_cancel( ctx );
-        }
-      } else {
-        if( ctx->full ) {
-          fd_accdb_clear( ctx->accdb_admin );
+        if( ctx->use_vinyl ) {
+          fd_snapin_vinyl_wd_fini( ctx );
+          if( ctx->vinyl.txn_active ) {
+            fd_snapin_vinyl_txn_cancel( ctx );
+          }
         } else {
-          fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
-          fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
+          if( ctx->full ) {
+            fd_accdb_clear( ctx->accdb_admin );
+          } else {
+            fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
+            fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
+          }
         }
       }
       break;
@@ -838,7 +819,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1", tile->in_cnt ));
 
   ctx->manifest_out = out1( topo, tile, "snapin_manif" );
-  ctx->gui_out      = out1( topo, tile, "snapin_gui"   );
   ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ct", 0UL );
   if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ls", 0UL );
   if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
