@@ -976,7 +976,7 @@ interp_exec:
   /* 0xc0 - 0xcf ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0xc4) /* FD_SBPF_OP_ARSH_IMM */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst >> imm ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)(uint)fd_int_shift_right( (int)reg_dst, (int)imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xc5) /* FD_SBPF_OP_JSLT_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
@@ -989,11 +989,11 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xc7) /* FD_SBPF_OP_ARSH64_IMM */
-    reg[ dst ] = (ulong)( (long)reg_dst >> imm ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)fd_long_shift_right( (long)reg_dst, (int)imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xcc) /* FD_SBPF_OP_ARSH_REG */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst >> (uint)reg_src ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)(uint)fd_int_shift_right( (int)reg_dst, (int)reg_src );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xcd) /* FD_SBPF_OP_JSLT_REG */
@@ -1007,7 +1007,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xcf) /* FD_SBPF_OP_ARSH64_REG */
-    reg[ dst ] = (ulong)( (long)reg_dst >> reg_src ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)fd_long_shift_right( (long)reg_dst, (int)reg_src );
   FD_VM_INTERP_INSTR_END;
 
   /* 0xd0 - 0xdf ******************************************************/
