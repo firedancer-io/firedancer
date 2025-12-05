@@ -126,17 +126,6 @@ void *fd_epoch_schedule_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) 
   return mem;
 }
 
-void *fd_rent_collector_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_collector_t *self = (fd_rent_collector_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_collector_t);
-  fd_rent_collector_new(mem);
-  self->epoch = fd_rng_ulong( rng );
-  fd_epoch_schedule_generate( &self->epoch_schedule, alloc_mem, rng );
-  self->slots_per_year = fd_rng_double_o( rng );
-  fd_rent_generate( &self->rent, alloc_mem, rng );
-  return mem;
-}
-
 void *fd_stake_history_entry_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_stake_history_entry_t *self = (fd_stake_history_entry_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stake_history_entry_t);
@@ -1925,52 +1914,6 @@ void *fd_addrlut_instruction_generate( void *mem, void **alloc_mem, fd_rng_t * r
   fd_addrlut_instruction_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 5;
   fd_addrlut_instruction_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void *fd_calculated_stake_points_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_calculated_stake_points_t *self = (fd_calculated_stake_points_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_calculated_stake_points_t);
-  fd_calculated_stake_points_new(mem);
-  self->points = (fd_w_u128_t) { .ul={ fd_rng_ulong( rng ), fd_rng_ulong( rng ) } };
-  self->new_credits_observed = fd_rng_ulong( rng );
-  self->force_credits_update_with_skipped_reward = fd_rng_uchar( rng );
-  return mem;
-}
-
-void *fd_calculated_stake_rewards_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_calculated_stake_rewards_t *self = (fd_calculated_stake_rewards_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_calculated_stake_rewards_t);
-  fd_calculated_stake_rewards_new(mem);
-  self->staker_rewards = fd_rng_ulong( rng );
-  self->voter_rewards = fd_rng_ulong( rng );
-  self->new_credits_observed = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_rent_paying_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_paying_t *self = (fd_rent_paying_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_paying_t);
-  fd_rent_paying_new(mem);
-  self->lamports = fd_rng_ulong( rng );
-  self->data_size = fd_rng_ulong( rng );
-  return mem;
-}
-
-void fd_rent_state_inner_generate( fd_rent_state_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 1: {
-    fd_rent_paying_generate( &self->rent_paying, alloc_mem, rng );
-    break;
-  }
-  }
-}
-void *fd_rent_state_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_state_t *self = (fd_rent_state_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_state_t);
-  fd_rent_state_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 3;
-  fd_rent_state_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
 
