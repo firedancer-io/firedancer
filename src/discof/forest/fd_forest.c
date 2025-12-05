@@ -1233,15 +1233,24 @@ fd_forest_preorder_print( fd_forest_t const * forest ) {
   printf( "\n\n" );
 }
 
+#define FD_FOREST_ORPHANED_PRINT_MAX_DEPTH 500UL
+
 static void
-orphaned_print( fd_forest_t const * forest,
-                 fd_forest_blk_t const    * ele,
-                 fd_forest_blk_t const    * prev,
-                 ulong        last_printed,
-                 int          depth,
-                 const char * prefix ) {
+orphaned_print( fd_forest_t const     * forest,
+                fd_forest_blk_t const * ele,
+                fd_forest_blk_t const * prev,
+                ulong                   last_printed,
+                int                     depth,
+                const char *            prefix,
+                ulong                   print_depth ) {
 
   if( FD_UNLIKELY( ele == NULL ) ) return;
+
+  /* Prevent stack overflow from excessive recursion */
+  if( FD_UNLIKELY( print_depth >= FD_FOREST_ORPHANED_PRINT_MAX_DEPTH ) ) {
+    printf( "... (truncated: too many orphaned nodes, max depth %lu reached)\n", FD_FOREST_ORPHANED_PRINT_MAX_DEPTH );
+    return;
+  }
 
   fd_forest_blk_t const * pool = fd_forest_pool_const( forest );
   int digits = (int)fd_ulong_base10_dig_cnt( ele->slot );
@@ -1300,13 +1309,13 @@ orphaned_print( fd_forest_t const * forest,
     return;
   }
 
-  char new_prefix[512]; /* FIXME size this correctly */
+  char new_prefix[2048]; /* FIXME size this correctly */
   new_prefix[0] = '\0'; /* first fork stays on the same line, no prefix */
   while( curr ) {
     if( fd_forest_pool_ele_const( pool, curr->sibling ) ) {
-      orphaned_print( forest, curr, new_prev, last_printed, depth, new_prefix );
+      orphaned_print( forest, curr, new_prev, last_printed, depth, new_prefix, print_depth + 1UL );
     } else {
-      orphaned_print( forest, curr, new_prev, last_printed, depth, new_prefix );
+      orphaned_print( forest, curr, new_prev, last_printed, depth, new_prefix, print_depth + 1UL );
     }
     curr = fd_forest_pool_ele_const( pool, curr->sibling );
 
@@ -1420,7 +1429,7 @@ fd_forest_orphaned_print( fd_forest_t const * forest ) {
                                        !fd_forest_subtlist_iter_done( iter, subtlist, pool );
                                  iter = fd_forest_subtlist_iter_fwd_next( iter, subtlist, pool ) ) {
     fd_forest_blk_t const * ele = fd_forest_subtlist_iter_ele_const( iter, subtlist, pool );
-    orphaned_print( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), fd_forest_pool_idx( pool, ele ) ), NULL, 0, 0, "" );
+    orphaned_print( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), fd_forest_pool_idx( pool, ele ) ), NULL, 0, 0, "", 0UL );
   }
   fflush(stdout);
 }
