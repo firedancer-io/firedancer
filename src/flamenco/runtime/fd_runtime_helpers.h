@@ -80,15 +80,15 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
                                           ulong       latest_signatures_per_slot );
 
 void
-fd_runtime_read_genesis( fd_banks_t *                       banks,
-                         fd_bank_t *                        bank,
-                         fd_accdb_user_t *                  accdb,
-                         fd_funk_txn_xid_t const *          xid,
-                         fd_capture_ctx_t *                 capture_ctx,
-                         fd_hash_t const *                  genesis_hash,
-                         fd_lthash_value_t const *          genesis_lthash,
-                         fd_genesis_solana_global_t const * genesis_block,
-                         fd_runtime_stack_t *               runtime_stack );
+fd_runtime_read_genesis( fd_banks_t *              banks,
+                         fd_bank_t *               bank,
+                         fd_accdb_user_t *         accdb,
+                         fd_funk_txn_xid_t const * xid,
+                         fd_capture_ctx_t *        capture_ctx,
+                         fd_hash_t const *         genesis_hash,
+                         fd_lthash_value_t const * genesis_lthash,
+                         fd_genesis_t const *      genesis_block,
+                         fd_runtime_stack_t *      runtime_stack );
 
 /* Error logging handholding assertions */
 

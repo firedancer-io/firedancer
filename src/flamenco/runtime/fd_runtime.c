@@ -7,6 +7,7 @@
 #include "fd_hashes.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_stack.h"
+#include "fd_genesis_parse.h"
 
 #include "fd_executor.h"
 #include "sysvar/fd_sysvar_cache.h"
@@ -1422,28 +1423,41 @@ fd_runtime_genesis_init_program( fd_bank_t *               bank,
 }
 
 static void
-fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
-                                   fd_bank_t *                        bank,
-                                   fd_funk_t *                        funk,
-                                   fd_funk_txn_xid_t const *          xid,
-                                   fd_genesis_solana_global_t const * genesis_block,
-                                   fd_hash_t const *                  genesis_hash ) {
+fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
+                                   fd_bank_t *               bank,
+                                   fd_funk_t *               funk,
+                                   fd_funk_txn_xid_t const * xid,
+                                   fd_genesis_t const *      genesis_block,
+                                   fd_hash_t const *         genesis_hash ) {
 
   fd_bank_poh_set( bank, *genesis_hash );
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( bank );
   memset( bank_hash->hash, 0, FD_SHA256_HASH_SZ );
 
-  fd_poh_config_global_t const * poh = &genesis_block->poh_config;
-  uint128 target_tick_duration = ((uint128)poh->target_tick_duration.seconds * 1000000000UL + (uint128)poh->target_tick_duration.nanoseconds);
+  uint128 target_tick_duration = (uint128)genesis_block->poh.tick_duration_secs * 1000000000UL + (uint128)genesis_block->poh.tick_duration_ns;
 
-  fd_bank_epoch_schedule_set( bank, genesis_block->epoch_schedule );
+  fd_epoch_schedule_t * epoch_schedule = fd_bank_epoch_schedule_modify( bank );
+  epoch_schedule->leader_schedule_slot_offset = genesis_block->epoch_schedule.leader_schedule_slot_offset;
+  epoch_schedule->warmup                      = genesis_block->epoch_schedule.warmup;
+  epoch_schedule->first_normal_epoch          = genesis_block->epoch_schedule.first_normal_epoch;
+  epoch_schedule->first_normal_slot           = genesis_block->epoch_schedule.first_normal_slot;
+  epoch_schedule->slots_per_epoch             = genesis_block->epoch_schedule.slots_per_epoch;
 
-  fd_bank_rent_set( bank, genesis_block->rent );
+  fd_rent_t * rent = fd_bank_rent_modify( bank );
+  rent->lamports_per_uint8_year = genesis_block->rent.lamports_per_uint8_year;
+  rent->exemption_threshold     = genesis_block->rent.exemption_threshold;
+  rent->burn_percent            = genesis_block->rent.burn_percent;
+
+  fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
+  inflation->initial         = genesis_block->inflation.initial;
+  inflation->terminal        = genesis_block->inflation.terminal;
+  inflation->taper           = genesis_block->inflation.taper;
+  inflation->foundation      = genesis_block->inflation.foundation;
+  inflation->foundation_term = genesis_block->inflation.foundation_term;
+  inflation->unused          = 0.0;
 
   fd_bank_block_height_set( bank, 0UL );
-
-  fd_bank_inflation_set( bank, genesis_block->inflation );
 
   {
     /* FIXME Why is there a previous blockhash at genesis?  Why is the
@@ -1455,19 +1469,24 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
     info->fee_calculator.lamports_per_signature = 0UL;
   }
 
-  fd_bank_fee_rate_governor_set( bank, genesis_block->fee_rate_governor );
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( bank );
+  fee_rate_governor->target_lamports_per_signature = genesis_block->fee_rate_governor.target_lamports_per_signature;
+  fee_rate_governor->target_signatures_per_slot    = genesis_block->fee_rate_governor.target_signatures_per_slot;
+  fee_rate_governor->min_lamports_per_signature    = genesis_block->fee_rate_governor.min_lamports_per_signature;
+  fee_rate_governor->max_lamports_per_signature    = genesis_block->fee_rate_governor.max_lamports_per_signature;
+  fee_rate_governor->burn_percent                  = genesis_block->fee_rate_governor.burn_percent;
 
-  fd_bank_max_tick_height_set( bank, genesis_block->ticks_per_slot * (fd_bank_slot_get( bank ) + 1) );
+  fd_bank_max_tick_height_set( bank, genesis_block->poh.ticks_per_slot * (fd_bank_slot_get( bank ) + 1) );
 
-  fd_bank_hashes_per_tick_set( bank, !!poh->hashes_per_tick ? poh->hashes_per_tick : 0UL );
+  fd_bank_hashes_per_tick_set( bank, genesis_block->poh.hashes_per_tick );
 
-  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ud=target_tick_duration * genesis_block->ticks_per_slot } );
+  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ud=target_tick_duration * genesis_block->poh.ticks_per_slot } );
 
-  fd_bank_ticks_per_slot_set( bank, genesis_block->ticks_per_slot );
+  fd_bank_ticks_per_slot_set( bank, genesis_block->poh.ticks_per_slot );
 
   fd_bank_genesis_creation_time_set( bank, genesis_block->creation_time );
 
-  fd_bank_slots_per_year_set( bank, SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis_block->ticks_per_slot );
+  fd_bank_slots_per_year_set( bank, SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis_block->poh.ticks_per_slot );
 
   fd_bank_signature_count_set( bank, 0UL );
 
@@ -1485,30 +1504,30 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
 
   ulong capitalization = 0UL;
 
-  fd_pubkey_account_pair_global_t const * accounts = fd_genesis_solana_accounts_join( genesis_block );
 
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
-    fd_pubkey_account_pair_global_t const * acc = &accounts[ i ];
-    capitalization = fd_ulong_sat_add( capitalization, acc->account.lamports );
+    fd_genesis_account_t * account = fd_type_pun( (uchar *)genesis_block + genesis_block->accounts_off[ i ] );
 
-    uchar const * acc_data = fd_solana_account_data_join( &acc->account );
+    capitalization = fd_ulong_sat_add( capitalization, account->meta.lamports );
 
-    if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    uchar const * acc_data = account->data;
+
+    if( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* This means that there is a vote account which should be
          inserted into the vote states. Even after the vote account is
          inserted, we still don't know the total amount of stake that is
          delegated to the vote account. This must be calculated later. */
-      fd_vote_states_update_from_account( vote_states, &acc->key, acc_data, acc->account.data_len );
-    } else if( !memcmp( acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      fd_vote_states_update_from_account( vote_states, fd_type_pun( account->pubkey ), acc_data, account->meta.dlen );
+    } else if( !memcmp( account->meta.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* If an account is a stake account, then it must be added to the
          stake delegations cache. We should only add stake accounts that
          have a valid non-zero stake. */
       fd_stake_state_v2_t stake_state = {0};
       if( FD_UNLIKELY( !fd_bincode_decode_static(
           stake_state_v2, &stake_state,
-          acc_data, acc->account.data_len,
+          acc_data, account->meta.dlen,
           NULL ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( acc->key.key, stake_b58 );
+        FD_BASE58_ENCODE_32_BYTES( account->pubkey, stake_b58 );
         FD_LOG_ERR(( "Failed to deserialize genesis stake account %s", stake_b58 ));
       }
       if( !fd_stake_state_v2_is_stake( &stake_state )     ) continue;
@@ -1516,7 +1535,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
 
       fd_stake_delegations_update(
           stake_delegations,
-          (fd_pubkey_t *)acc->key.key,
+          (fd_pubkey_t *)account->pubkey,
           &stake_state.inner.stake.stake.delegation.voter_pubkey,
           stake_state.inner.stake.stake.delegation.stake,
           stake_state.inner.stake.stake.delegation.activation_epoch,
@@ -1524,7 +1543,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
           stake_state.inner.stake.stake.credits_observed,
           stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
 
-    } else if( !memcmp( acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    } else if( !memcmp( account->meta.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* Feature Account */
 
       /* Scan list of feature IDs to resolve address=>feature offset */
@@ -1532,7 +1551,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
       for( fd_feature_id_t const * id = fd_feature_iter_init();
            !fd_feature_iter_done( id );
            id = fd_feature_iter_next( id ) ) {
-        if( !memcmp( acc->key.key, id->id.key, sizeof(fd_pubkey_t) ) ) {
+        if( !memcmp( account->pubkey, id->id.key, sizeof(fd_pubkey_t) ) ) {
           found = id;
           break;
         }
@@ -1541,14 +1560,14 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
       if( found ) {
         /* Load feature activation */
         fd_feature_t feature[1];
-        FD_TEST( fd_bincode_decode_static( feature, feature, acc_data, acc->account.data_len, NULL ) );
+        FD_TEST( fd_bincode_decode_static( feature, feature, acc_data, account->meta.dlen, NULL ) );
 
         fd_features_t * features = fd_bank_features_modify( bank );
         if( feature->has_activated_at ) {
-          FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ), feature->activated_at ));
+          FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", FD_BASE58_ENC_32_ALLOCA( account->pubkey ), feature->activated_at ));
           fd_features_set( features, found, feature->activated_at );
         } else {
-          FD_LOG_DEBUG(( "Feature %s not activated (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ) ));
+          FD_LOG_DEBUG(( "Feature %s not activated (genesis)", FD_BASE58_ENC_32_ALLOCA( account->pubkey ) ));
           fd_features_set( features, found, ULONG_MAX );
         }
       }
@@ -1586,10 +1605,10 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
 
   vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
-    fd_pubkey_account_pair_global_t const * acc = &accounts[ i ];
+    fd_genesis_account_t * account = fd_type_pun( (uchar *)genesis_block + genesis_block->accounts_off[ i ] );
 
-    if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &acc->key );
+    if( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, fd_type_pun( account->pubkey ) );
 
       vote_state->stake_t_1 = vote_state->stake;
       vote_state->stake_t_2 = vote_state->stake;
@@ -1664,15 +1683,15 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
 }
 
 void
-fd_runtime_read_genesis( fd_banks_t *                       banks,
-                         fd_bank_t *                        bank,
-                         fd_accdb_user_t *                  accdb,
-                         fd_funk_txn_xid_t const *          xid,
-                         fd_capture_ctx_t *                 capture_ctx,
-                         fd_hash_t const *                  genesis_hash,
-                         fd_lthash_value_t const *          genesis_lthash,
-                         fd_genesis_solana_global_t const * genesis_block,
-                         fd_runtime_stack_t *               runtime_stack ) {
+fd_runtime_read_genesis( fd_banks_t *              banks,
+                         fd_bank_t *               bank,
+                         fd_accdb_user_t *         accdb,
+                         fd_funk_txn_xid_t const * xid,
+                         fd_capture_ctx_t *        capture_ctx,
+                         fd_hash_t const *         genesis_hash,
+                         fd_lthash_value_t const * genesis_lthash,
+                         fd_genesis_t const *      genesis_block,
+                         fd_runtime_stack_t *      runtime_stack ) {
 
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   *lthash = *genesis_lthash;
@@ -1688,13 +1707,12 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
 
   /* Write the native programs to the accounts db. */
 
-  fd_string_pubkey_pair_global_t * nips = fd_genesis_solana_native_instruction_processors_join( genesis_block );
+  for( ulong i=0UL; i<genesis_block->builtin_len; i++ ) {
+    fd_genesis_account_t * account = fd_type_pun( (uchar *)genesis_block + genesis_block->builtin_off[ i ] );
 
-  for( ulong i=0UL; i<genesis_block->native_instruction_processors_len; i++ ) {
-    fd_string_pubkey_pair_global_t const * a = &nips[ i ];
-
-    uchar const * string = fd_string_pubkey_pair_string_join( a );
-    fd_write_builtin_account( bank, accdb, xid, capture_ctx, a->pubkey, (const char *)string, a->string_len );
+    fd_pubkey_t pubkey;
+    fd_memcpy( pubkey.uc, account->pubkey, sizeof(fd_pubkey_t) );
+    fd_write_builtin_account( bank, accdb, xid, capture_ctx, pubkey, (const char *)account->data, account->meta.dlen );
   }
 
   fd_features_restore( bank, funk, xid );

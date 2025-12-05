@@ -4,7 +4,7 @@
 #include "fd_genesis_client.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../flamenco/runtime/fd_txn_account.h"
+#include "../../flamenco/runtime/fd_genesis_parse.h"
 #include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_hashes.h"
@@ -68,7 +68,7 @@ struct fd_genesi_tile {
   ushort expected_shred_version;
 
   ulong genesis_sz;
-  uchar genesis[ GENESIS_MAX_SZ ] __attribute__((aligned(alignof(fd_genesis_solana_global_t)))); /* 10 MiB buffer for decoded genesis */
+  uchar genesis[ GENESIS_MAX_SZ ] __attribute__((aligned(alignof(fd_genesis_t)))); /* 10 MiB buffer for decoded genesis */
   uchar buffer[ GENESIS_MAX_SZ ]; /* 10 MiB buffer for reading genesis file */
 
   char genesis_path[ PATH_MAX ];
@@ -120,44 +120,38 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
   /* Insert accounts at root */
   fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
 
-  fd_genesis_solana_global_t * genesis = fd_type_pun( ctx->genesis );
-
-  fd_pubkey_account_pair_global_t const * accounts = fd_genesis_solana_accounts_join( genesis );
+  fd_genesis_t * genesis = fd_type_pun( ctx->genesis );
 
   fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
   for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
-    fd_pubkey_account_pair_global_t const * account = &accounts[ i ];
+    fd_genesis_account_t * account = fd_type_pun( (uchar *)genesis + genesis->accounts_off[ i ] );
 
-    /* FIXME use accdb API */
+    /* FIXME: use accdb API */
     fd_funk_rec_prepare_t prepare[1];
-    fd_funk_rec_key_t key[1]; memcpy( key->uc, account->key.uc, sizeof(fd_pubkey_t) );
+    fd_funk_rec_key_t key[1]; memcpy( key->uc, account->pubkey, sizeof(fd_pubkey_t) );
     fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, &root_xid, key, prepare, NULL );
     FD_TEST( rec );
-    fd_account_meta_t * meta = fd_funk_val_truncate( rec, funk->alloc, funk->wksp, 16UL, sizeof(fd_account_meta_t)+account->account.data_len, NULL );
+    fd_account_meta_t * meta = fd_funk_val_truncate( rec, funk->alloc, funk->wksp, 16UL, sizeof(fd_account_meta_t)+account->meta.dlen, NULL );
     FD_TEST( meta );
     void * data = (void *)( meta+1 );
-    fd_memcpy( meta->owner, account->account.owner.uc, sizeof(fd_pubkey_t) );
-    meta->lamports = account->account.lamports;
+    fd_memcpy( meta->owner, account->meta.owner, sizeof(fd_pubkey_t) );
+    meta->lamports = account->meta.lamports;
     meta->slot = 0UL;
-    meta->executable = !!account->account.executable;
-    meta->dlen = (uint)account->account.data_len;
-    fd_memcpy( data, fd_solana_account_data_join( &account->account ), account->account.data_len );
+    meta->executable = !!account->meta.executable;
+    meta->dlen = (uint)account->meta.dlen;
+    fd_memcpy( data, account->data, account->meta.dlen );
     fd_funk_rec_publish( funk, prepare );
 
     fd_lthash_value_t new_hash[1];
-    fd_hashes_account_lthash( &account->key, meta, data, new_hash );
+    fd_hashes_account_lthash( fd_type_pun( account->pubkey ), meta, data, new_hash );
     fd_lthash_add( ctx->lthash, new_hash );
   }
 }
 
 static inline void
-verify_cluster_type( fd_genesis_solana_global_t const * genesis,
-                     uchar const *                      genesis_hash,
-                     char const *                       genesis_path ) {
-#define TESTNET     (0)
-#define MAINNET     (1)
-#define DEVNET      (2)
-#define DEVELOPMENT (3)
+verify_cluster_type( fd_genesis_t const * genesis,
+                     uchar const *        genesis_hash,
+                     char const *         genesis_path ) {
 
   uchar mainnet_hash[ 32 ];
   FD_TEST( fd_base58_decode_32( "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d", mainnet_hash ) );
@@ -169,21 +163,21 @@ verify_cluster_type( fd_genesis_solana_global_t const * genesis,
   FD_TEST( fd_base58_decode_32( "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", devnet_hash ) );
 
   switch( genesis->cluster_type ) {
-    case MAINNET: {
+    case FD_GENESIS_TYPE_MAINNET: {
       if( FD_UNLIKELY( memcmp( genesis_hash, mainnet_hash, 32UL ) ) ) {
         FD_LOG_ERR(( "genesis file `%s` has cluster type MAINNET but unexpected genesis hash `%s`",
                      genesis_path, FD_BASE58_ENC_32_ALLOCA( genesis_hash ) ));
       }
       break;
     }
-    case TESTNET: {
+    case FD_GENESIS_TYPE_TESTNET: {
       if( FD_UNLIKELY( memcmp( genesis_hash, testnet_hash, 32UL ) ) ) {
         FD_LOG_ERR(( "genesis file `%s` has cluster type TESTNET but unexpected genesis hash `%s`",
                      genesis_path, FD_BASE58_ENC_32_ALLOCA( genesis_hash ) ));
       }
       break;
     }
-    case DEVNET: {
+    case FD_GENESIS_TYPE_DEVNET: {
       if( FD_UNLIKELY( memcmp( genesis_hash, devnet_hash, 32UL ) ) ) {
         FD_LOG_ERR(( "genesis file `%s` has cluster type DEVNET but unexpected genesis hash `%s`",
                      genesis_path, FD_BASE58_ENC_32_ALLOCA( genesis_hash ) ));
@@ -193,11 +187,6 @@ verify_cluster_type( fd_genesis_solana_global_t const * genesis,
     default:
       break;
   }
-
-#undef TESTNET
-#undef MAINNET
-#undef DEVNET
-#undef DEVELOPMENT
 }
 
 static void
@@ -283,19 +272,10 @@ after_credit( fd_genesi_tile_t *  ctx,
     }
 
     FD_TEST( !ctx->bootstrap );
-
-    fd_bincode_decode_ctx_t decode_ctx = {
-      .data    = decompressed+512UL,
-      .dataend = decompressed+512UL+fd_tar_meta_get_size( meta ),
-    };
+    ulong size = 512UL+fd_tar_meta_get_size( meta );
 
     ctx->genesis_sz = 0UL;
-    int err = fd_genesis_solana_decode_footprint( &decode_ctx, &ctx->genesis_sz );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "malformed genesis file from peer at http://" FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer.addr ), peer.port ));
-    if( FD_UNLIKELY( ctx->genesis_sz>sizeof(ctx->genesis) ) ) FD_LOG_ERR(( "genesis file at `%s` decode footprint too large (%lu bytes, max %lu)", ctx->genesis_path, ctx->genesis_sz, sizeof(ctx->genesis) ));
-
-    fd_genesis_solana_global_t * genesis = fd_genesis_solana_decode_global( ctx->genesis, &decode_ctx );
-    FD_TEST( genesis );
+    fd_genesis_t * genesis = fd_genesis_parse( ctx->buffer, size, &ctx->genesis_sz, ctx->genesis );
 
     verify_cluster_type( genesis, hash, ctx->genesis_path );
 
@@ -320,7 +300,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     char basename_partial[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( basename_partial, PATH_MAX, NULL, "%s.partial", basename ) );
 
-    err = renameat2( ctx->out_dir_fd, basename_partial, ctx->out_dir_fd, basename, RENAME_NOREPLACE );
+    int err = renameat2( ctx->out_dir_fd, basename_partial, ctx->out_dir_fd, basename, RENAME_NOREPLACE );
     if( FD_UNLIKELY( -1==err ) ) FD_LOG_ERR(( "renameat2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     FD_LOG_NOTICE(( "retrieved genesis `%s` from peer at http://" FD_IP4_ADDR_FMT ":%hu/genesis.tar.bz2",
@@ -353,18 +333,8 @@ process_local_genesis( fd_genesi_tile_t * ctx,
 
   if( FD_UNLIKELY( -1==close( ctx->in_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = ctx->buffer,
-    .dataend = ctx->buffer+size,
-  };
-
   ctx->genesis_sz = 0UL;
-  err = fd_genesis_solana_decode_footprint( &decode_ctx, &ctx->genesis_sz );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "malformed genesis file at `%s`", genesis_path ));
-  if( FD_UNLIKELY( ctx->genesis_sz>sizeof(ctx->genesis) ) ) FD_LOG_ERR(( "genesis file at `%s` decode footprint too large (%lu bytes, max %lu)", genesis_path, ctx->genesis_sz, sizeof(ctx->genesis) ));
-
-  fd_genesis_solana_global_t * genesis = fd_genesis_solana_decode_global( ctx->genesis, &decode_ctx );
-  FD_TEST( genesis );
+  fd_genesis_t * genesis = fd_genesis_parse( ctx->buffer, size, &ctx->genesis_sz, ctx->genesis );
 
   union {
     uchar  c[ 32 ];
