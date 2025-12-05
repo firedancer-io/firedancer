@@ -38,6 +38,9 @@ $(call add-objs,fd_compute_budget_details,fd_flamenco)
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
 
+$(call add-hdrs,fd_genesis_parse.h)
+$(call add-objs,fd_genesis_parse,fd_flamenco)
+
 $(call add-hdrs,fd_txn_account.h)
 $(call add-objs,fd_txn_account,fd_flamenco)
 ifdef FD_HAS_INT128
@@ -85,5 +88,6 @@ ifdef FD_HAS_HOSTED
 #$(call make-unit-test,test_archive_block,test_archive_block, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
 # TODO: Flakes
 # $(call run-unit-test,test_txncache,)
+$(call make-fuzz-test,fuzz_genesis_parse,fuzz_genesis_parse,fd_flamenco fd_ballet fd_util)
 endif
 endif
