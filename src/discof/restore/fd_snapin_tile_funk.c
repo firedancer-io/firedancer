@@ -3,6 +3,31 @@
 #include "fd_snapin_tile_private.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 
+/* rec_pool_acquire is a fast lock-free version of
+   fd_funk_rec_pool_acquire.  Does bump allocation only. */
+
+static inline fd_funk_rec_t *
+rec_pool_acquire( fd_funk_rec_pool_t * join ) {
+  fd_funk_rec_t * ele0    = join->ele;
+  ulong           ele_max = join->ele_max;
+
+  ulong ver_lazy = join->pool->ver_lazy;
+
+  ulong ver     = fd_funk_rec_pool_private_vidx_ver( ver_lazy );
+  ulong ele_idx = fd_funk_rec_pool_private_vidx_idx( ver_lazy );
+
+  if( FD_UNLIKELY( fd_funk_rec_pool_idx_is_null( ele_idx ) ) ) {
+    return NULL;
+  }
+
+  ulong ele_nxt = ele_idx+1UL;
+  if( FD_UNLIKELY( ele_nxt>=ele_max ) ) ele_nxt = fd_funk_rec_pool_idx_null();
+
+  ulong new_ver_lazy = fd_funk_rec_pool_private_vidx( ver, ele_nxt );
+  join->pool->ver_lazy = new_ver_lazy;
+  return ele0 + ele_idx;
+}
+
 int
 fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
                                        fd_ssparse_advance_result_t * result ) {
@@ -189,7 +214,7 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
 
     fd_funk_rec_t * r = rec[ i ];
     if( FD_LIKELY( !r ) ) {  /* optimize for new account */
-      r = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 0, NULL );
+      r = rec_pool_acquire( funk->rec_pool );
       FD_TEST( r );
       memset( r, 0, sizeof(fd_funk_rec_t) );
       fd_funk_txn_xid_copy( r->pair.xid, ctx->xid );
