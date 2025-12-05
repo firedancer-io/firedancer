@@ -28,7 +28,6 @@ fd_sysvar_account_update( fd_bank_t *               bank,
   ulong const lamports_after  = fd_ulong_max( lamports_before, min_bal );
   fd_txn_account_set_lamports( rec, lamports_after      );
   fd_txn_account_set_owner   ( rec, &fd_sysvar_owner_id );
-  fd_txn_account_set_slot    ( rec, slot                );
   fd_txn_account_set_data    ( rec, data, sz );
 
   ulong lamports_minted;

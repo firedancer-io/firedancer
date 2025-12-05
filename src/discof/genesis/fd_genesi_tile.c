@@ -138,7 +138,7 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     void * data = (void *)( meta+1 );
     fd_memcpy( meta->owner, account->account.owner.uc, sizeof(fd_pubkey_t) );
     meta->lamports = account->account.lamports;
-    meta->slot = 0UL;
+    rec->slot = 0UL;
     meta->executable = !!account->account.executable;
     meta->dlen = (uint)account->account.data_len;
     fd_memcpy( data, fd_solana_account_data_join( &account->account ), account->account.data_len );

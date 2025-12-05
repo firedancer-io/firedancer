@@ -190,10 +190,6 @@ void
 fd_txn_account_set_data_len( fd_txn_account_t * acct, ulong data_len );
 
 void
-fd_txn_account_set_slot( fd_txn_account_t * acct,
-                         ulong              slot );
-
-void
 fd_txn_account_clear_owner( fd_txn_account_t * acct );
 
 void

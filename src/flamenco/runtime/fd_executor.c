@@ -1390,9 +1390,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
 }
 
 void
-fd_executor_reclaim_account( fd_txn_account_t *  account,
-                             ulong               slot ) {
-  fd_txn_account_set_slot( account, slot );
+fd_executor_reclaim_account( fd_txn_account_t * account ) {
   if( FD_UNLIKELY( fd_txn_account_get_lamports( account )==0UL ) ) {
     fd_txn_account_set_data_len( account, 0UL );
     fd_txn_account_clear_owner( account );

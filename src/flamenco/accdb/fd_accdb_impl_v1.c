@@ -269,9 +269,9 @@ fd_accdb_prep_create( fd_accdb_rw_t *           rw,
   rec->tag      = 0;
   rec->prev_idx = FD_FUNK_REC_IDX_NULL;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
+  rec->slot     = xid->ul[0];
 
   fd_account_meta_t * meta = val;
-  meta->slot = xid->ul[0];
 
   accdb->base.rw_active++;
   *rw = (fd_accdb_rw_t) {

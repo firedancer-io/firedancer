@@ -68,7 +68,7 @@ fd_accdb_ref_exec_bit( fd_accdb_ro_t const * ro ) {
 
 static inline ulong
 fd_accdb_ref_slot( fd_accdb_ro_t const * ro ) {
-  return ro->meta->slot;
+  return ro->rec->slot;
 }
 
 // void
@@ -165,7 +165,7 @@ fd_accdb_ref_exec_bit_set( fd_accdb_rw_t * rw,
 static inline void
 fd_accdb_ref_slot_set( fd_accdb_rw_t * rw,
                        ulong           slot ) {
-  rw->meta->slot = slot;
+  rw->rec->slot = slot;
 }
 
 FD_PROTOTYPES_END

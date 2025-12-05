@@ -109,7 +109,6 @@ typedef struct fd_log_collector fd_log_collector_t;
 struct fd_account_meta {
   uchar owner[32];
   ulong lamports;
-  ulong slot;
   uint  dlen;
   uchar executable;
   uchar padding[3];

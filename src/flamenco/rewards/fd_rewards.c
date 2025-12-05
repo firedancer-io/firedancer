@@ -813,8 +813,6 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
       fd_txn_account_get_data( vote_rec ),
       prev_hash );
 
-    fd_txn_account_set_slot( vote_rec, fd_bank_slot_get( bank ) );
-
     if( FD_UNLIKELY( fd_txn_account_checked_add_lamports( vote_rec, rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
@@ -878,8 +876,6 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
     fd_txn_account_get_meta( stake_acc_rec ),
     fd_txn_account_get_data( stake_acc_rec ),
     prev_hash );
-
-  fd_txn_account_set_slot( stake_acc_rec, fd_bank_slot_get( bank ) );
 
   fd_stake_state_v2_t stake_state[1] = {0};
   if( fd_stake_get_state( stake_acc_rec, stake_state ) != 0 ) {

@@ -48,7 +48,7 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   if( FD_UNLIKELY( existing_rec ) ) {
     fd_account_meta_t * meta = fd_funk_val( existing_rec, funk->wksp );
     if( FD_UNLIKELY( meta ) ) {
-      if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
+      if( FD_LIKELY( rec->slot>result->account_header.slot ) ) {
         ctx->acc_data = NULL;
         fd_snapin_send_duplicate_account( ctx, result->account_header.lamports, NULL, result->account_header.data_len, (uchar)result->account_header.executable, result->account_header.owner, result->account_header.pubkey, 0, &early_exit );
         return early_exit;
@@ -78,7 +78,7 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   rec->val_sz    = (uint)( alloc_sz  & FD_FUNK_REC_VAL_MAX );
 
   meta->dlen       = (uint)result->account_header.data_len;
-  meta->slot       = result->account_header.slot;
+  rec->slot        = result->account_header.slot;
   memcpy( meta->owner, result->account_header.owner, sizeof(fd_pubkey_t) );
   meta->lamports   = result->account_header.lamports;
   meta->executable = (uchar)result->account_header.executable;
@@ -129,10 +129,10 @@ streamlined_insert( fd_snapin_tile_t * ctx,
   rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
   rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
   rec->val_sz    = (uint)( alloc_sz  & FD_FUNK_REC_VAL_MAX );
+  rec->slot      = slot;
 
   /* Write metadata */
   meta->dlen = (uint)data_len;
-  meta->slot = slot;
   memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
   meta->lamports   = lamports;
   meta->executable = (uchar)executable;
@@ -237,11 +237,11 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
       fd_account_meta_t const * existing = fd_funk_val( r, funk->wksp );
       if( FD_UNLIKELY( !existing ) ) FD_LOG_HEXDUMP_NOTICE(( "r", r, sizeof(fd_funk_rec_t) ));
       FD_TEST( existing );
-      if( existing->slot > slot ) {
+      if( r->slot > slot ) {
         rec[ i ] = NULL;  /* skip record if existing value is newer */
         /* send the skipped account to the subtracting hash tile */
         fd_snapin_send_duplicate_account( ctx, lamports, data, data_len, executable, owner, pubkey, 1, &early_exit );
-      } else if( slot > existing->slot) {
+      } else if( slot > r->slot) {
         /* send the to-be-replaced account to the subtracting hash tile */
         fd_snapin_send_duplicate_account( ctx, existing->lamports, (uchar const *)existing + sizeof(fd_account_meta_t), existing->dlen, existing->executable, existing->owner, pubkey, 1, &early_exit );
       } else { /* slot==existing->slot */
@@ -310,7 +310,6 @@ fd_snapin_read_account_funk( fd_snapin_tile_t *  ctx,
 
   memcpy( meta->owner, fd_accdb_ref_owner( peek->acc ), sizeof(fd_pubkey_t) );
   meta->lamports   = fd_accdb_ref_lamports( peek->acc );
-  meta->slot       = fd_accdb_ref_slot( peek->acc );
   meta->dlen       = (uint)data_sz;
   meta->executable = !!fd_accdb_ref_exec_bit( peek->acc );
   fd_memcpy( data, fd_accdb_ref_data_const( peek->acc ), data_sz );
