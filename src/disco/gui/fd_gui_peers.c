@@ -596,6 +596,8 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
             break;
           }
 
+          /* */
+
           fd_gui_peers_node_sock_map_idx_remove_fast( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
           fd_gui_peers_live_table_idx_remove        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
 
@@ -612,9 +614,15 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           fd_gui_peers_live_table_idx_insert        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
           fd_gui_peers_node_sock_map_idx_insert     ( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
 
-          /* broadcast update to WebSocket clients */
-          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ update->contact_info.idx }, 1UL );
-          fd_http_server_ws_broadcast( peers->http );
+          /* No need to publish update if the peer is unstaked. This
+             will help reduce churn at startup without any impact to UX.
+             TODO: a better way to reduce peak throughput would be to
+             batch updates at infrequent intervals. */
+          if( FD_LIKELY( peer->stake!=ULONG_MAX && peer->stake>(ulong)2e9 ) ) {
+            /* broadcast update to WebSocket clients */
+            fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ update->contact_info.idx }, 1UL );
+            fd_http_server_ws_broadcast( peers->http );
+          }
         } else {
           FD_TEST( !fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, &update->contact_info.contact_info->pubkey, NULL, peers->contact_info_table ) );
 #if LOGGING
