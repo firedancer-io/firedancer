@@ -1,7 +1,7 @@
 #include "fd_hashes.h"
 #include "fd_acc_mgr.h"
 #include "fd_bank.h"
-#include "context/fd_capture_ctx.h"
+#include "../capture/fd_capture_ctx.h"
 #include "../capture/fd_solcap_writer.h"
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/lthash/fd_lthash.h"
@@ -95,10 +95,8 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
 
   fd_bank_lthash_end_locking_modify( bank );
 
-  /* Write the new account state to the capture file */
   if( capture_ctx && capture_ctx->capture &&
-      fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot &&
-      memcmp( prev_account_hash->bytes, new_hash->bytes, sizeof(fd_lthash_value_t))!=0 ) {
+      fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
     fd_solana_account_meta_t meta[1];
     fd_solana_account_meta_init(
         meta,
@@ -106,14 +104,13 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
         fd_txn_account_get_owner    ( account ),
         fd_txn_account_is_executable( account )
     );
-    int err = fd_solcap_write_account(
-      capture_ctx->capture,
+    fd_capture_link_write_account_update(
+      capture_ctx,
+      capture_ctx->current_txn_idx,
       account->pubkey,
       meta,
+      fd_bank_slot_get( bank ),
       fd_txn_account_get_data( account ),
       fd_txn_account_get_data_len( account ) );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Failed to write account to capture file" ));
-    }
   }
 }

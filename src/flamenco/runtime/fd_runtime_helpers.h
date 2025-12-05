@@ -4,7 +4,7 @@
 #include "fd_hashes.h"
 #include "fd_txncache.h"
 #include "fd_compute_budget_details.h"
-#include "context/fd_capture_ctx.h"
+#include "../capture/fd_capture_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 #include "info/fd_instr_info.h"
 #include "../features/fd_features.h"
