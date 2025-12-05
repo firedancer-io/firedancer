@@ -506,10 +506,7 @@ print_peer_location_latency( fd_wksp_t * repair_tile_wksp, ctx_t * tile_ctx ) {
 static void
 read_iptable( char * iptable_path, fd_location_info_t * location_table ) {
   int iptable_fd = open( iptable_path, O_RDONLY );
-  if( FD_UNLIKELY( iptable_fd<0 ) ) {
-    FD_LOG_WARNING(( "iptable file: %s", iptable_path ));
-    return;
-  }
+  if( FD_UNLIKELY( iptable_fd<0 ) ) return;
 
   /* read iptable line by line */
   if( FD_LIKELY( iptable_fd>=0 ) ) {
@@ -969,6 +966,8 @@ repair_cmd_fn_requests( args_t *   args,
   fd_forest_reqslist_t * dlist  = fd_forest_reqslist( forest );
   fd_forest_ref_t *      pool   = fd_forest_reqspool( forest );
 
+  fd_forest_reqslist_t * orphlist = fd_forest_orphlist( forest );
+
   for( ;; ) {
     printf("%-15s %-12s %-12s %-12s %-20s %-12s %-10s\n",
             "Slot", "Consumed Idx", "Buffered Idx", "Complete Idx",
@@ -991,6 +990,30 @@ repair_cmd_fn_requests( args_t *   args,
               blk->repair_cnt);
     }
     printf("\n");
+
+    /* now lets print the orphreqs */
+
+    printf("Orphan Requests:\n");
+    printf("%-15s %-12s %-12s %-12s %-20s %-12s %-10s\n",
+      "Slot", "Consumed Idx", "Buffered Idx", "Complete Idx",
+      "First Shred Timestamp", "Turbine Cnt", "Repair Cnt");
+printf("%-15s %-12s %-12s %-12s %-20s %-12s %-10s\n",
+      "---------------", "------------", "------------", "------------",
+      "--------------------", "------------", "----------");
+
+    for( fd_forest_reqslist_iter_t iter = fd_forest_reqslist_iter_fwd_init( orphlist, pool );
+                                         !fd_forest_reqslist_iter_done( iter, orphlist, pool );
+                                   iter = fd_forest_reqslist_iter_fwd_next( iter, orphlist, pool ) ) {
+      fd_forest_ref_t * req = fd_forest_reqslist_iter_ele( iter, orphlist, pool );
+      fd_forest_blk_t * blk = fd_forest_pool_ele( fd_forest_pool( forest ), req->idx );
+      printf("%-15lu %-12u %-12u %-20ld %-12u %-10u\n",
+              blk->slot,
+              blk->buffered_idx,
+              blk->complete_idx,
+              blk->first_shred_ts,
+              blk->turbine_cnt,
+              blk->repair_cnt);
+    }
     sleep( 1 );
   }
 }

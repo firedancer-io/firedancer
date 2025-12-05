@@ -675,7 +675,25 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
       if( fd_forest_requests_ele_query( requests, &ancestor, NULL, reqspool ) ) has_requests_anc = 1;
       ancestor = fd_forest_pool_ele( pool, ancestor )->parent;
     }
-    if( FD_UNLIKELY( !has_requests_anc ) ) requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, ele ) );
+    if( FD_UNLIKELY( !has_requests_anc ) ) {
+      requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, ele ) );
+      /* we want to remove any children than are in the requests list. This isn't necessary during any regular boot.
+         However if we are booting from very far behind (>30k slots), the requests list will be very large and in
+         nearly reverse order.  */
+      ulong * queue = fd_forest_deque( forest );
+      fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, ele ) );
+      while( FD_LIKELY( fd_forest_deque_cnt( queue ) ) ) {
+        fd_forest_blk_t * child = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
+        if( FD_LIKELY( child != ele ) ) {
+          requests_remove( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), &forest->iter, fd_forest_pool_idx( pool, child ) );
+        }
+        child = fd_forest_pool_ele( pool, child->child );
+        while( FD_LIKELY( child ) ) {
+          fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, child ) );
+          child = fd_forest_pool_ele( pool, child->sibling );
+        }
+      }
+    }
     if( FD_UNLIKELY( !has_consumed_anc ) ) consumed_insert( forest, fd_forest_pool_idx( pool, ele ) );
   }
   return ele;
@@ -915,8 +933,28 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
   memset( &ele->merkle_roots[fec_idx].mr, 0, sizeof(fd_hash_t) );
 
   /* Add this slot back to requests map */
-  fd_forest_blk_t * pool = fd_forest_pool( forest );
-  requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, ele ) );
+  fd_forest_blk_t      * pool     = fd_forest_pool( forest );
+  fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
+  fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
+  if( FD_LIKELY( fd_forest_ancestry_ele_query( ancestry, &ele->slot, NULL, pool ) ||
+                 fd_forest_frontier_ele_query( frontier, &ele->slot, NULL, pool ) ) ) {
+    int   has_requests_anc = 0;
+    ulong ancestor = fd_forest_pool_idx( pool, ele );
+    while( ancestor != fd_forest_pool_idx_null( pool ) && !has_requests_anc ) {
+      if( fd_forest_requests_ele_query( fd_forest_requests( forest ), &ancestor, NULL, fd_forest_reqspool( forest ) ) ) {
+        has_requests_anc = 1;
+        break;
+      }
+      ancestor = fd_forest_pool_ele( pool, ancestor )->parent;
+    }
+    if( FD_UNLIKELY( !has_requests_anc ) ) {
+      requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, ele ) );
+    }
+    /* TODO we could update consumed, but it's not that necessary since
+       clearing a fec of a completed slot shouldn't really affect the
+       notion of when we completed the slot.  consumed is also updated
+       mainly for metrics.  For now we leave it alone. */
+  }
   FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared fec_set_idx %u to %u, slot %lu", fec_set_idx, fec_set_idx+max_shred_idx, slot ));
 }
 
@@ -1309,14 +1347,10 @@ orphaned_print( fd_forest_t const     * forest,
     return;
   }
 
-  char new_prefix[2048]; /* FIXME size this correctly */
+  char new_prefix[32];
   new_prefix[0] = '\0'; /* first fork stays on the same line, no prefix */
   while( curr ) {
-    if( fd_forest_pool_ele_const( pool, curr->sibling ) ) {
-      orphaned_print( forest, curr, new_prev, last_printed, depth, new_prefix, print_depth + 1UL );
-    } else {
-      orphaned_print( forest, curr, new_prev, last_printed, depth, new_prefix, print_depth + 1UL );
-    }
+    orphaned_print( forest, curr, new_prev, last_printed, depth, new_prefix, print_depth + 1UL );
     curr = fd_forest_pool_ele_const( pool, curr->sibling );
 
     /* Set up prefix for following iterations */

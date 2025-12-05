@@ -63,7 +63,7 @@ fd_inflights_request_insert( fd_inflights_t *    table,
       /* (pool free cnt) + (popped_dl cnt) + (outstanding_dl cnt) ==
          INFLIGHT_REQ_MAX, so they can't all be 0. */
       fd_inflight_t * evict = fd_inflight_dlist_ele_pop_head( table->outstanding_dl, table->pool );
-    FD_LOG_WARNING(( "ITS JOVER. evicting inflight " ));
+      FD_LOG_WARNING(( "losing outstanding request for slot %lu, shred_idx %lu, nonce %lu", evict->key.slot, evict->key.shred_idx, evict->key.nonce ));
       fd_inflight_map_ele_remove_fast( table->map,  evict, table->pool );
       fd_inflight_pool_ele_release   ( table->pool, evict );
     }
