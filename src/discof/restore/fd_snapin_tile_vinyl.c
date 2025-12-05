@@ -482,7 +482,6 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
   memset( meta, 0, sizeof(fd_account_meta_t) ); /* bulk zero */
   memcpy( meta->owner, result->account_header.owner, sizeof(fd_pubkey_t) );
   meta->lamports   = result->account_header.lamports;
-  meta->slot       = result->account_header.slot;
   meta->dlen       = (uint)result->account_header.data_len;
   meta->executable = (uchar)result->account_header.executable;
 
@@ -651,7 +650,6 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     memset( meta, 0, sizeof(fd_account_meta_t) ); /* bulk zero */
     memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
     meta->lamports   = lamports;
-    meta->slot       = result->account_batch.slot;
     meta->dlen       = (uint)data_len;
     meta->executable = !!executable;
 

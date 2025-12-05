@@ -218,6 +218,7 @@ fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
 
     /* Crashes the app if this key already exists in funk (conflicting
        write) */
+    prepare->rec->slot = prepare->rec->pair.xid->ul[0];
     fd_funk_rec_publish( funk, prepare );
   }
 }
@@ -408,17 +409,6 @@ fd_txn_account_set_data_len( fd_txn_account_t * acct, ulong data_len ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
   acct->meta->dlen = (uint)data_len;
-}
-
-void
-fd_txn_account_set_slot( fd_txn_account_t * acct, ulong slot ) {
-  if( FD_UNLIKELY( !acct->is_mutable ) ) {
-    FD_LOG_CRIT(( "account is not mutable" ));
-  }
-  if( FD_UNLIKELY( !acct->meta ) ) {
-    FD_LOG_CRIT(( "account is not setup" ));
-  }
-  acct->meta->slot = slot;
 }
 
 void

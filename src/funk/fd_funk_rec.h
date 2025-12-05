@@ -28,7 +28,8 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
 
   /* These fields are managed by the user */
 
-  uchar user[ 12 ];
+  uchar user[ 4 ];
+  ulong slot;
 
   /* These fields are managed by funk.  TODO: Consider using record
      index compression here (much more debatable than in txn itself). */
