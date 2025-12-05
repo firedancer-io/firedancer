@@ -1,0 +1,98 @@
+{
+  "name": "deprecated_three_mixed_all",
+  "description": "No feature flags. Three accounts: writable with data, read-only with data, writable with zero-length.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "VQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoWu9I5WFX2QE2bT0VreCG7AUV0lCjAAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "VgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "AQIDBAU=",
+        "owner": "VQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      },
+      {
+        "pubkey": "VwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 2000,
+        "data": "BgcICQ==",
+        "owner": "VQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 200
+      },
+      {
+        "pubkey": "WAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 3000,
+        "data": "",
+        "owner": "VQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 300
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "index_in_transaction": 2,
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "index_in_transaction": 3,
+        "is_signer": false,
+        "is_writable": true
+      }
+    ],
+    "instruction_data": "ESIzRA==",
+    "program_id": "VQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": false,
+    "account_data_direct_mapping": false,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": true
+  },
+  "output": {
+    "result": 0,
+    "buffer": "AwAAAAAAAAD/AAFWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAABQAAAAAAAAABAgMEBVUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP///////////wAAVwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADQBwAAAAAAAAQAAAAAAAAABgcICVUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP///////////wABWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4CwAAAAAAAAAAAAAAAAAAVQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8EAAAAAAAAABEiM0RVAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "AwAAAAAAAAD/AAFWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAABQAAAAAAAAABAgMEBVUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP///////////wAAVwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADQBwAAAAAAAAQAAAAAAAAABgcICVUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP///////////wABWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4CwAAAAAAAAAAAAAAAAAAVQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8EAAAAAAAAABEiM0RVAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869195,
+        "vm_lamports_addr": 17179869227,
+        "vm_owner_addr": 17179869248,
+        "vm_data_addr": 17179869243
+      },
+      {
+        "original_data_len": 4,
+        "vm_key_addr": 17179869292,
+        "vm_lamports_addr": 17179869324,
+        "vm_owner_addr": 17179869344,
+        "vm_data_addr": 17179869340
+      },
+      {
+        "original_data_len": 0,
+        "vm_key_addr": 17179869388,
+        "vm_lamports_addr": 17179869420,
+        "vm_owner_addr": 17179869436,
+        "vm_data_addr": 17179869436
+      }
+    ],
+    "instruction_data_offset": 17179869485
+  }
+}

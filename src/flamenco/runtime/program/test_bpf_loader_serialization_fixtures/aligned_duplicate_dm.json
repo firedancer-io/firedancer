@@ -1,0 +1,80 @@
+{
+  "name": "aligned_duplicate_dm",
+  "description": "Stricter ABI + direct mapping. Same account twice in aligned mode, duplicate gets 1-byte position + 7-byte padding.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "dAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoW45WuEolI/6aVaTN2gY3UdDUiHzxgAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "dQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "AQIDBAU=",
+        "owner": "dAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      }
+    ],
+    "instruction_data": "qrs=",
+    "program_id": "dAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": true,
+    "account_data_direct_mapping": true,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": false
+  },
+  "output": {
+    "result": 0,
+    "buffer": "AgAAAAAAAAD/AAEAAAAAAHUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADoAwAAAAAAAAUAAAAAAAAAAAAAAAAAAAD//////////wAAAAAAAAAAAgAAAAAAAACqu3QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "AgAAAAAAAAD/AAEAAAAAAHUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADoAwAAAAAAAAUAAAAAAAAA"
+      },
+      {
+        "vm_addr": 17179869280,
+        "is_writable": true,
+        "data": "AQIDBAU="
+      },
+      {
+        "vm_addr": 17179879525,
+        "is_writable": true,
+        "data": "AAAA//////////8AAAAAAAAAAAIAAAAAAAAAqrt0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869200,
+        "vm_lamports_addr": 17179869264,
+        "vm_owner_addr": 17179869232,
+        "vm_data_addr": 17179869280
+      },
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869200,
+        "vm_lamports_addr": 17179869264,
+        "vm_owner_addr": 17179869232,
+        "vm_data_addr": 17179869280
+      }
+    ],
+    "instruction_data_offset": 17179879552
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "name": "deprecated_three_mixed_all_dm",
+  "description": "Stricter ABI + direct mapping. Three accounts: writable with data, read-only with data, writable with zero-length.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "XQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoWu9I5WFX2QE2bT0VreCG7AUV0lCjAAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "XgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "AQIDBAU=",
+        "owner": "XQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      },
+      {
+        "pubkey": "XwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 2000,
+        "data": "BgcICQ==",
+        "owner": "XQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 200
+      },
+      {
+        "pubkey": "YAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 3000,
+        "data": "",
+        "owner": "XQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 300
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "index_in_transaction": 2,
+        "is_signer": false,
+        "is_writable": false
+      },
+      {
+        "index_in_transaction": 3,
+        "is_signer": false,
+        "is_writable": true
+      }
+    ],
+    "instruction_data": "ESIzRA==",
+    "program_id": "XQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": true,
+    "account_data_direct_mapping": true,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": true
+  },
+  "output": {
+    "result": 0,
+    "buffer": "AwAAAAAAAAD/AAFeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAABQAAAAAAAABdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///////////8AAF8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA0AcAAAAAAAAEAAAAAAAAAF0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP///////////wABYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4CwAAAAAAAAAAAAAAAAAAXQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8EAAAAAAAAABEiM0RdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "AwAAAAAAAAD/AAFeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAABQAAAAAAAAA="
+      },
+      {
+        "vm_addr": 17179869243,
+        "is_writable": true,
+        "data": "AQIDBAU="
+      },
+      {
+        "vm_addr": 17179869248,
+        "is_writable": true,
+        "data": "XQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////AABfAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANAHAAAAAAAABAAAAAAAAAA="
+      },
+      {
+        "vm_addr": 17179869340,
+        "is_writable": false,
+        "data": "BgcICQ=="
+      },
+      {
+        "vm_addr": 17179869344,
+        "is_writable": true,
+        "data": "XQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////AAFgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALgLAAAAAAAAAAAAAAAAAAA="
+      },
+      {
+        "vm_addr": 17179869436,
+        "is_writable": true,
+        "data": "XQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8EAAAAAAAAABEiM0RdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869195,
+        "vm_lamports_addr": 17179869227,
+        "vm_owner_addr": 17179869248,
+        "vm_data_addr": 17179869243
+      },
+      {
+        "original_data_len": 4,
+        "vm_key_addr": 17179869292,
+        "vm_lamports_addr": 17179869324,
+        "vm_owner_addr": 17179869344,
+        "vm_data_addr": 17179869340
+      },
+      {
+        "original_data_len": 0,
+        "vm_key_addr": 17179869388,
+        "vm_lamports_addr": 17179869420,
+        "vm_owner_addr": 17179869436,
+        "vm_data_addr": 17179869436
+      }
+    ],
+    "instruction_data_offset": 17179869485
+  }
+}

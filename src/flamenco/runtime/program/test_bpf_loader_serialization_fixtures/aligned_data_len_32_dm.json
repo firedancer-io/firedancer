@@ -1,0 +1,68 @@
+{
+  "name": "aligned_data_len_32_dm",
+  "description": "Stricter ABI + direct mapping. Alignment edge case: 32 bytes - double alignment, no padding. Tests padding calculation.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoW45WuEolI/6aVaTN2gY3UdDUiHzxgAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "sQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+        "owner": "sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      }
+    ],
+    "instruction_data": "ESI=",
+    "program_id": "sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": true,
+    "account_data_direct_mapping": true,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": false
+  },
+  "output": {
+    "result": 0,
+    "buffer": "AQAAAAAAAAD/AAEAAAAAALEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADoAwAAAAAAACAAAAAAAAAAAAAAAAAAAAD//////////wIAAAAAAAAAESKwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "AQAAAAAAAAD/AAEAAAAAALEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADoAwAAAAAAACAAAAAAAAAA"
+      },
+      {
+        "vm_addr": 17179869280,
+        "is_writable": true,
+        "data": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+      },
+      {
+        "vm_addr": 17179879552,
+        "is_writable": true,
+        "data": "//////////8CAAAAAAAAABEisAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 32,
+        "vm_key_addr": 17179869200,
+        "vm_lamports_addr": 17179869264,
+        "vm_owner_addr": 17179869232,
+        "vm_data_addr": 17179869280
+      }
+    ],
+    "instruction_data_offset": 17179879568
+  }
+}

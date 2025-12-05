@@ -1,0 +1,98 @@
+{
+  "name": "deprecated_mixed_writable_readonly_stricter",
+  "description": "Stricter ABI only. One writable, one read-only account.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "OgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoWu9I5WFX2QE2bT0VreCG7AUV0lCjAAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "OwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "AQID",
+        "owner": "OgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      },
+      {
+        "pubkey": "PAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 2000,
+        "data": "BAUGBw==",
+        "owner": "OgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 200
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "index_in_transaction": 2,
+        "is_signer": false,
+        "is_writable": false
+      }
+    ],
+    "instruction_data": "EjQ=",
+    "program_id": "OgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": true,
+    "account_data_direct_mapping": false,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": true
+  },
+  "output": {
+    "result": 0,
+    "buffer": "AgAAAAAAAAD/AAE7AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAAAwAAAAAAAAABAgM6AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///////////8AADwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA0AcAAAAAAAAEAAAAAAAAAAQFBgc6AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//////////wIAAAAAAAAAEjQ6AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "AgAAAAAAAAD/AAE7AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAAAwAAAAAAAAA="
+      },
+      {
+        "vm_addr": 17179869243,
+        "is_writable": true,
+        "data": "AQID"
+      },
+      {
+        "vm_addr": 17179869246,
+        "is_writable": true,
+        "data": "OgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////AAA8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANAHAAAAAAAABAAAAAAAAAA="
+      },
+      {
+        "vm_addr": 17179869338,
+        "is_writable": false,
+        "data": "BAUGBw=="
+      },
+      {
+        "vm_addr": 17179869342,
+        "is_writable": true,
+        "data": "OgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8CAAAAAAAAABI0OgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 3,
+        "vm_key_addr": 17179869195,
+        "vm_lamports_addr": 17179869227,
+        "vm_owner_addr": 17179869246,
+        "vm_data_addr": 17179869243
+      },
+      {
+        "original_data_len": 4,
+        "vm_key_addr": 17179869290,
+        "vm_lamports_addr": 17179869322,
+        "vm_owner_addr": 17179869342,
+        "vm_data_addr": 17179869338
+      }
+    ],
+    "instruction_data_offset": 17179869391
+  }
+}
