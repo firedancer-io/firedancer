@@ -2,6 +2,8 @@
 #define HEADER_fd_src_util_net_fd_ip4_h
 
 #include "../bits/fd_bits.h"
+#include "fd_net_common.h"
+#include "fd_gre.h"
 
 /* FIXME: IP4 CRASH COURSE HERE */
 
@@ -196,6 +198,35 @@ fd_ip4_hdr_check_fast( void const * vp_hdr ) {
 int
 fd_cstr_to_ip4_addr( char const * s,
                      uint *       addr );
+
+/* fd_ip4_hdr_validate validates an IPv4 header.
+
+   hdr points to the IP header.
+   ip4_sz is the number of bytes from beginning of ip hdr to end of packet.
+   proto_allow_mask is a bitmask of allowed IP protocols. Must be one of FD_IP4_HDR_PROTO_MASK_*.
+
+   Returns FD_NET_SUCCESS (defined in fd_net_common.h) if valid, or FD_NET_ERR_* on failure. */
+
+FD_FN_PURE static inline int
+fd_ip4_hdr_validate( fd_ip4_hdr_t const * hdr,
+                     ulong                ip4_sz,
+                     ulong                proto_allow_mask ) {
+  ulong ipver = FD_IP4_GET_VERSION( *hdr );
+  if( FD_UNLIKELY( ipver!=0x4U ) ) return FD_NET_ERR_INVAL_IP4_HDR;
+
+  ulong iplen = FD_IP4_GET_LEN( *hdr );
+  if( FD_UNLIKELY( (iplen<20UL) | (iplen>ip4_sz) ) ) return FD_NET_ERR_INVAL_IP4_HDR;
+
+  uchar const proto = hdr->protocol;
+  if( FD_UNLIKELY( !fd_ulong_extract_bit( proto_allow_mask, proto ) ) ) return FD_NET_ERR_DISALLOW_IP_PROTO;
+
+  if( proto==FD_IP4_HDR_PROTOCOL_GRE ) {
+    ulong overhead = iplen + sizeof(fd_gre_hdr_t);
+    if( FD_UNLIKELY( overhead>ip4_sz ) ) return FD_NET_ERR_INVAL_GRE_HDR;
+  }
+
+  return FD_NET_SUCCESS;
+}
 
 /* fd_ip4_addr_is_public checks if the given IPv4 address is a public address.
    assumed to be in net byte order.  */
