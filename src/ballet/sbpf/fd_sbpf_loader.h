@@ -106,7 +106,7 @@
 #define FD_SBPF_PROGRAM_FOOTPRINT (sizeof(fd_sbpf_calldests_private_t)-sizeof(ulong) + sizeof(ulong)*FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT )
 
 /* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
-   vm is a handle to the running VM.  Returns 0 on suceess or an integer
+   vm is a handle to the running VM.  Returns 0 on success or an integer
    error code on failure.
 
    IMPORTANT SAFETY TIP!  See notes in
