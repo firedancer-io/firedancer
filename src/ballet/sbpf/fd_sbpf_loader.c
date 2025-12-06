@@ -130,7 +130,7 @@ ulong
 fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
   FD_COMPILER_UNPREDICTABLE( info ); /* Make this appear as FD_FN_PURE (e.g. footprint might depened on info contents in future) */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( info->sbpf_version ) ) ) {
-    /* SBPF v3+ no longer neeeds calldests bitmap */
+    /* SBPF v3+ no longer needs calldests bitmap */
     return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
       alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
       alignof(fd_sbpf_program_t) );
