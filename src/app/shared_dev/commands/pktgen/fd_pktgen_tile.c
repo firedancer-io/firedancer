@@ -1,8 +1,9 @@
 /* fd_pktgen_tile floods a net tile with small outgoing packets.
 
-   Each packet is a minimum size Ethernet frame. IPv4 ethertype is used
-   with TTL=0 so packets get dropped immediately and don't leak to the
-   Internet.
+   Each packet is a minimal Ethernet frame containing IPv4 and
+   UDP headers. TTL is set to 0 so packets get dropped at the first hop
+   and don't leak to the Internet (although they will reach the destination
+   if there's a direct L2 connection).
 
    Each packet contains a 16 bit sequence number in the ip4 net_id field
    such that each payload is different.  Experiments revealed that some NICs
@@ -10,7 +11,6 @@
    (probably protection against a buggy driver melting the network). */
 
 #include "../../../../disco/topo/fd_topo.h"
-#include "../../../../util/net/fd_eth.h"
 
 extern uint fd_pktgen_active;
 uint fd_pktgen_active = 0U;
@@ -22,6 +22,7 @@ struct fd_pktgen_tile_ctx {
   ulong  chunk;
   ushort tag;
   uint   fake_dst_ip;
+  ushort dst_port;
 };
 
 typedef struct fd_pktgen_tile_ctx fd_pktgen_tile_ctx_t;
@@ -49,6 +50,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->chunk       = ctx->chunk0;
   ctx->tag         = 0UL;
   ctx->fake_dst_ip = tile->pktgen.fake_dst_ip;
+  ctx->dst_port    = tile->pktgen.dst_port;
 
   /* Assume dcache was zero initialized */
 }
@@ -61,25 +63,44 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
 
   *charge_busy = 1;
 
-  /* Select an arbitrary public IP as the fake destination.  The outgoing
-     packet is not an Internet packet, so it will not reach that
-     destination.  The net tile, however, needs a valid dst IP to select
-     the dst MAC address. */
+  /* Select an arbitrary public IP as the fake destination.  With TTL=0,
+     packets will be dropped at the first hop unless there's a direct L2
+     connection to the destination. The net tile, however, needs a valid dst
+     IP to select the dst MAC address. */
   ulong sig = fd_disco_netmux_sig( 0U, 0U, ctx->fake_dst_ip, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
-  /* Send an Ethernet frame */
   ulong   chunk = ctx->chunk;
   uchar * frame = fd_chunk_to_laddr( ctx->out_base, chunk );
   ushort  tag   = ctx->tag;
-  ulong   sz    = sizeof(fd_eth_hdr_t) + 46;
 
-  /* Set IPv4 ethertype and minimal IPv4 header for XDP validation */
+  /* Calculate payload size to make a minimal Ethernet frame */
+  ulong   sz         = 64UL;
+  ulong   payload_sz = sz - (sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t));
+
+  /* Build Ethernet header */
   fd_eth_hdr_t * eth = (fd_eth_hdr_t *)frame;
-  fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)(eth+1);
   eth->net_type      = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+
+  /* Build IPv4 header */
+  fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)(eth+1);
   ip4->verihl        = FD_IP4_VERIHL( 4, 5 );
-  ip4->ttl           = 0;
-  ip4->net_id        = tag;
+  ip4->tos           = 0;
+  ip4->net_tot_len   = fd_ushort_bswap( (ushort)(payload_sz-sizeof(fd_eth_hdr_t)) );
+  ip4->net_id        = tag; /* unique seq number */
+  ip4->net_frag_off  = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF );
+  ip4->ttl           = 0; /* Drop at router to avoid flooding */
+  ip4->protocol      = FD_IP4_HDR_PROTOCOL_UDP;
+  ip4->daddr         = ctx->fake_dst_ip;
+  ip4->check         = 0;
+  ip4->check         = fd_ip4_hdr_check_fast( ip4 );
+
+  /* Build UDP header */
+  fd_udp_hdr_t * udp = (fd_udp_hdr_t *)(ip4+1);
+  udp->net_dport     = fd_ushort_bswap( ctx->dst_port );
+  udp->net_len       = fd_ushort_bswap( (ushort)(sizeof(fd_udp_hdr_t) + payload_sz) );
+  udp->check         = 0;
+
+  /* Leave payload uninitialized */
 
   fd_stem_publish( stem, 0UL, sig, chunk, sz, 0UL, 0UL, 0UL );
 

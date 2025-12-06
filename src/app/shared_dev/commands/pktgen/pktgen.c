@@ -61,6 +61,7 @@ pktgen_topo( config_t * config ) {
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.pktgen.fake_dst_ip, &pktgen_tile->pktgen.fake_dst_ip ) ) ) {
     FD_LOG_ERR(( "Invalid [development.pktgen.fake_dst_ip]" ));
   }
+  pktgen_tile->pktgen.dst_port = config->development.pktgen.dst_port;
   fd_topob_link( topo, "pktgen_out", "pktgen", 2048UL, FD_NET_MTU, 1UL );
   fd_topob_tile_out( topo, "pktgen", 0UL, "pktgen_out", 0UL );
   fd_topob_tile_in( topo, "net", 0UL, "metric_in", "pktgen_out", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -292,5 +293,5 @@ action_t fd_action_pktgen = {
   .args        = pktgen_cmd_args,
   .fn          = pktgen_cmd_fn,
   .perm        = dev_cmd_perm,
-  .description = "Flood interface with invalid Ethernet frames"
+  .description = "Flood interface with UDP packets with IP4 TTL=0"
 };

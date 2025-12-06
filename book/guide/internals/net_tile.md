@@ -522,15 +522,16 @@ rtt min/avg/max/mdev = 0.031/0.035/0.038/0.003 ms
 ### `fddev pktgen`
 
 The `fddev pktgen` subcommand floods an Ethernet neighbor with small
-packets.  The purpose of this tool is to benchmark the TX path of the
-net tile.
+packets.  The purpose of this tool is to benchmark the net tile: it
+supports Tx-only, Rx-only, or Tx+Rx.
 
 `fddev pktgen` runs a single net tile and a special pktgen tile
-generating about 10 million 64 byte sized Ethernet frames per second.
+generating about 20 million 64 byte sized Ethernet frames per second.
+Each frame contains a valid UDP packet.
 
 While this application will cause significant load on the Ethernet
 network, it cannot harm any other IP networks, because the packets
-generated are not routable.
+generated have their IP4 TTL set to 0.
 
 Running pktgen may result in no packets getting sent out.  This happens
 typically because the `netlnk` tile couldn't resolve the Ethernet
