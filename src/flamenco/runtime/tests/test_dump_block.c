@@ -101,7 +101,7 @@ test_ctx_setup( void ) {
 
   /* Initialize stake delegations at the root level */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( test_ctx->banks );
-  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
+  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 0UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
   FD_TEST( stake_delegations );
 
   /* ===== Create Parent Bank ===== */
@@ -480,7 +480,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
 
   /* Initialize and populate stake delegations cache from accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( test_ctx->banks );
-  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
+  stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 0UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
 
   /* Initialize and populate current epoch vote states from accounts */
   fd_vote_states_t * vote_states_current = fd_bank_vote_states_locking_modify( test_ctx->parent_bank );

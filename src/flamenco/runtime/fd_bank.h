@@ -532,6 +532,8 @@ struct fd_banks {
 
   ulong       cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
 
+  ulong       vote_states_pool_offset_;
+
   /* stake_delegations_root will be the full state of stake delegations
      for the current root. It can get updated in two ways:
      1. On boot the snapshot will be directly read into the rooted
@@ -645,9 +647,9 @@ fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_write( &bank->stake_delegations_delta_lock );
   if( !bank->stake_delegations_delta_dirty ) {
     bank->stake_delegations_delta_dirty = 1;
-    fd_stake_delegations_new( bank->stake_delegations_delta, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 );
+    fd_stake_delegations_init( fd_type_pun( bank->stake_delegations_delta ) );
   }
-  return fd_stake_delegations_join( bank->stake_delegations_delta );
+  return fd_type_pun( bank->stake_delegations_delta );
 }
 
 static inline void

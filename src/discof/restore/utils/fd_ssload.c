@@ -199,7 +199,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   }
 
   /* Vote stakes for the previous epoch (E-1). */
-  fd_vote_states_t * vote_stakes_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_stakes_prev = fd_bank_vote_states_prev_locking_modify( bank );
   for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[1].vote_stakes[i];
     if( FD_UNLIKELY( !elem->stake ) ) continue;
@@ -249,7 +249,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   fd_bank_total_epoch_stake_set( bank, manifest->epoch_stakes[1].total_stake );
 
   /* Vote stakes for the previous epoch (E-2) */
-  fd_vote_states_t * vote_stakes_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_stakes_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( bank );
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
     if( FD_UNLIKELY( !elem->stake ) ) continue;
@@ -262,7 +262,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   }
 
   /* Vote states for the current epoch. */
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
 
