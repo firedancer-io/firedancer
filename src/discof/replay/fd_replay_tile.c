@@ -155,6 +155,7 @@ struct fd_replay_tile {
      TODO: Add a flag to the toml to make this optional. */
   int has_identity_vote_rooted;
 
+  ulong        reasm_seed;
   fd_reasm_t * reasm;
 
   /* Replay state machine. */
@@ -162,6 +163,7 @@ struct fd_replay_tile {
   ulong                exec_cnt;
   fd_replay_out_link_t exec_out[ 1 ]; /* Sending work down to exec tiles */
 
+  ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
 
   int   has_genesis_hash;
@@ -325,6 +327,7 @@ struct fd_replay_tile {
         id to send a slot complete message to tower. */
   ulong               block_id_len;
   fd_block_id_ele_t * block_id_arr;
+  ulong               block_id_map_seed;
   fd_block_id_map_t * block_id_map;
 
   /* Capture-related configs */
@@ -2339,11 +2342,24 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
     tile->replay.bundle.enabled = 0;
   }
+
   if( FD_UNLIKELY( tile->replay.bundle.enabled ) ) {
     if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
       const uchar * vote_key = fd_keyload_load( tile->replay.bundle.vote_account_path, /* pubkey only: */ 1 );
       fd_memcpy( ctx->bundle.vote_account.uc, vote_key, 32UL );
     }
+  }
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->reasm_seed, sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->vote_tracker_seed, sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->block_id_map_seed, sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
   }
 }
 
@@ -2464,13 +2480,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->larger_max_cost_per_block = tile->replay.larger_max_cost_per_block;
 
-  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 1 << 20, 0 ) );
+  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 1 << 20, ctx->reasm_seed ) );
   FD_TEST( ctx->reasm );
 
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.max_live_slots, ctx->exec_cnt ), tile->replay.max_live_slots );
   FD_TEST( ctx->sched );
 
-  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, 0UL ) );
+  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, ctx->vote_tracker_seed ) );
   FD_TEST( ctx->vote_tracker );
 
   ctx->has_identity_vote_rooted = 0;
@@ -2486,14 +2502,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
-  ctx->slot_duration_nanos   = 350L*1000L*1000L; /* TODO: Not fixed ... not always 400ms ... */
+  ctx->slot_duration_nanos   = 350L*1000L*1000L; /* TODO: Not fixed ... not always 350ms ... */
   ctx->slot_duration_ticks   = (double)ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
   ctx->leader_bank           = NULL;
 
-  /* TODO: We need a real seed here. */
   ctx->block_id_len = tile->replay.max_live_slots;
   ctx->block_id_arr = (fd_block_id_ele_t *)block_id_arr_mem;
-  ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, 999UL ) );
+  ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, ctx->block_id_map_seed ) );
   FD_TEST( ctx->block_id_map );
 
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) {
