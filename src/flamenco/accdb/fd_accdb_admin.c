@@ -234,6 +234,7 @@ fd_accdb_chain_gc_root( fd_accdb_admin_t *             accdb,
   old_rec->map_next = FD_FUNK_REC_IDX_NULL;
   fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
   fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
+  accdb->metrics.gc_root_cnt++;
 }
 
 /* fd_accdb_publish_recs moves all records in a transaction to the DB
@@ -265,6 +266,7 @@ fd_accdb_publish_recs( fd_accdb_admin_t * accdb,
     rec->next_idx = FD_FUNK_REC_IDX_NULL;
     fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
     fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
+    accdb->metrics.root_cnt++;
 
     head = next; /* next record */
   }
