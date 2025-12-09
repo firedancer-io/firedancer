@@ -87,7 +87,7 @@ metrics_write( fd_snapin_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPIN, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
   FD_MGAUGE_SET( SNAPIN, ACCOUNTS_INSERTED,      ctx->metrics.accounts_inserted );
-  FD_MGAUGE_SET( SNAPIN, STATE, (ulong)ctx->state );
+  FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
 }
 
 /* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
@@ -161,6 +161,7 @@ verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
 static void
 transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
@@ -593,22 +594,21 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      if( ctx->state!=FD_SNAPSHOT_STATE_IDLE ) {
+        ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( ctx->use_vinyl ) {
-        fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_cancel( ctx );
-        }
-      } else {
-        if( ctx->full ) {
-          fd_accdb_clear( ctx->accdb_admin );
+        if( ctx->use_vinyl ) {
+          fd_snapin_vinyl_wd_fini( ctx );
+          if( ctx->vinyl.txn_active ) {
+            fd_snapin_vinyl_txn_cancel( ctx );
+          }
         } else {
-          fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
-          fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
+          if( ctx->full ) {
+            fd_accdb_clear( ctx->accdb_admin );
+          } else {
+            fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
+            fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
+          }
         }
       }
       break;
@@ -619,7 +619,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
         transition_malformed( ctx, stem );
-        return;
+        break;
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
@@ -642,7 +642,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
         transition_malformed( ctx, stem );
-        return;
+        break;
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
