@@ -1756,8 +1756,8 @@ dynamic_port_range = "8900-9000"
         #
         # The net tile queries the route and neighbor tables as part of the
         # benchmark.  In short, these resolve the dst MAC address of the
-        # outgoing Ethernet packets.  Since pktgen does not produce IPv4
-        # packets, no traffic actually gets sent to this IP.
+        # outgoing Ethernet packets.  Since pktgen does not produce
+        # valid IPv4 packets, no traffic actually gets sent to this IP.
         #
         # The IP address should fulfill these requirements:
         # - 'ip route get <IP>' resolves to the XDP interface
