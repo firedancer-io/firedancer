@@ -52,7 +52,15 @@
         snapshot, or shut down the whole pipeline.
 
    The keeps the tiles in lockstep, and simplifies the state machine to
-   a manageable level. */
+   a manageable level.
+
+   It is a strict requirement that all tiles in the pipeline eventually
+   forward all control messages they receive.  Each control message is
+   only generated once in snapct and will not be re-sent.  The pipeline
+   will be locked on flushing that control message until all tiles
+   forward it on. If a control message is dropped, the pipeline will
+   deadlock.  Note that a tile can choose to hold onto a control message
+   and forward it later after performing some asynchronous routine.  */
 
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
 #define FD_SNAPSHOT_STATE_PROCESSING           (1UL) /* Performing usual work, no errors / EoF condition encountered */

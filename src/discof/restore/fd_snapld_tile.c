@@ -27,13 +27,11 @@ typedef struct fd_snapld_tile {
     char path[ PATH_MAX ];
   } config;
 
-  int state;
-  int load_full;
-  int load_file;
-  int sent_meta;
-
-  int   awaiting_ack;
-  ulong awaiting_ack_sig;
+  int   state;
+  ulong pending_ctrl_sig;
+  int   load_full;
+  int   load_file;
+  int   sent_meta;
 
   int local_full_fd;
   int local_incr_fd;
@@ -171,7 +169,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
 
-  ctx->state = FD_SNAPSHOT_STATE_IDLE;
+  ctx->state            = FD_SNAPSHOT_STATE_IDLE;
+  ctx->pending_ctrl_sig = 0UL;
 
   FD_TEST( tile->in_cnt==1UL );
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
@@ -186,10 +185,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_dc.wmark  = fd_dcache_compact_wmark ( ctx->out_dc.mem, out_link->dcache, out_link->mtu );
   ctx->out_dc.chunk  = ctx->out_dc.chunk0;
   ctx->out_dc.mtu    = out_link->mtu;
-
-  ctx->awaiting_ack     = 0;
-  ctx->awaiting_ack_sig = 0;
-  ctx->is_https         = 0;
 
   /* We can only close the temporary socket file descriptor after
      entering the sandbox because the sandbox checks all file
@@ -215,11 +210,16 @@ after_credit( fd_snapld_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  if( FD_UNLIKELY( ctx->awaiting_ack && ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
-    ctx->awaiting_ack = 0;
-    ctx->state        = FD_SNAPSHOT_STATE_IDLE;
-    fd_stem_publish( stem, 0UL, ctx->awaiting_ack_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
-    return;
+  if( FD_UNLIKELY( ctx->pending_ctrl_sig ) ) {
+    FD_TEST( !ctx->load_file && ctx->is_https );
+    FD_TEST( ctx->pending_ctrl_sig==FD_SNAPSHOT_MSG_CTRL_NEXT ||
+             ctx->pending_ctrl_sig==FD_SNAPSHOT_MSG_CTRL_DONE );
+    if( ctx->state==FD_SNAPSHOT_STATE_FINISHING || ctx->state==FD_SNAPSHOT_STATE_ERROR ) {
+      fd_stem_publish( stem, 0UL, ctx->pending_ctrl_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->pending_ctrl_sig = 0UL;
+      if( ctx->state!=FD_SNAPSHOT_STATE_ERROR ) ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      return;
+    } else FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
   }
 
   if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) {
@@ -279,6 +279,7 @@ after_credit( fd_snapld_tile_t *  ctx,
       case FD_SSHTTP_ADVANCE_ERROR:
         ctx->state = FD_SNAPSHOT_STATE_ERROR;
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+        fd_sshttp_cancel( ctx->sshttp );
         break;
       default: FD_LOG_ERR(( "unexpected fd_sshttp_advance result %d", result ));
     }
@@ -296,6 +297,8 @@ returnable_frag( fd_snapld_tile_t *  ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
+  FD_TEST( !ctx->pending_ctrl_sig );
+
   switch( sig ) {
 
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
@@ -323,9 +326,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      FD_TEST( ctx->state!=FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
       fd_sshttp_cancel( ctx->sshttp );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
@@ -335,19 +336,19 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
                ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
+      if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ) ) {
         /* snapld should be in the finishing state when reading from a
            file or downloading from http.  It is only allowed to still
-           be in progress for shutting down an https connection. */
+           be in progress for shutting down an https connection. Save
+           the sig here and send the message when snapld is in the
+           finishing state. */
         FD_TEST( ctx->is_https );
-        /* snapld might not be done with shutting down an https
-           connection.  Save the sig here and send the message when
-           snapld is in the finishing state. */
-        ctx->awaiting_ack     = 1;
-        ctx->awaiting_ack_sig = sig;
+        ctx->pending_ctrl_sig = sig;
         return 0; /* return directly to avoid fowarding the message */
       }
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      else if( FD_LIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
+        ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      }
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
