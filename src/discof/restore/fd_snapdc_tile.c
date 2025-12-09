@@ -82,7 +82,7 @@ metrics_write( fd_snapdc_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ,       ctx->metrics.incremental.compressed_bytes_read );
   FD_MGAUGE_SET( SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN,  ctx->metrics.incremental.decompressed_bytes_written );
 
-  FD_MGAUGE_SET( SNAPDC, STATE, (ulong)(ctx->state) );
+  FD_MGAUGE_SET( SNAPDC, STATE,                                   (ulong)(ctx->state) );
 }
 
 static inline void
@@ -96,7 +96,6 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   /* All control messages cause us to want to reset the decompression stream */
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
-  ctx->dirty = 0;
 
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL: {
@@ -106,6 +105,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = 1;
       ctx->is_zstd = !!msg->zstd;
+      ctx->dirty = 0;
       ctx->in.frag_pos = 0UL;
       ctx->metrics.full.compressed_bytes_read      = 0UL;
       ctx->metrics.full.decompressed_bytes_written = 0UL;
@@ -118,27 +118,26 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = 0;
       ctx->is_zstd = !!msg->zstd;
+      ctx->dirty = 0;
       ctx->in.frag_pos = 0UL;
       ctx->metrics.incremental.compressed_bytes_read      = 0UL;
       ctx->metrics.incremental.decompressed_bytes_written = 0UL;
       break;
     }
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
     case FD_SNAPSHOT_MSG_CTRL_DONE:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( FD_UNLIKELY( ctx->is_zstd && ctx->dirty ) ) {
-        FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame" ));
-        ctx->state = FD_SNAPSHOT_STATE_ERROR;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
-        return;
-      }
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      if( FD_LIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ) ) {
+        if( FD_UNLIKELY( ctx->is_zstd && ctx->dirty ) ) {
+          FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame" ));
+          ctx->state = FD_SNAPSHOT_STATE_ERROR;
+          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+        } else {
+          ctx->state = FD_SNAPSHOT_STATE_IDLE;
+        }
+      } else FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
       break;
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );

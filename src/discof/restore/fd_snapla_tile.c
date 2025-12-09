@@ -101,6 +101,7 @@ metrics_write( fd_snapla_tile_t * ctx ) {
 static void
 transition_malformed( fd_snapla_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, FD_SNAPLA_OUT_CTRL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
@@ -257,14 +258,7 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      fd_lthash_zero( &ctx->running_lthash );
-      fd_ssparse_reset( ctx->ssparse );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
-      fd_lthash_adder_new( ctx->adder );
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
@@ -274,7 +268,7 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
         transition_malformed( ctx, stem );
-        return;
+        break;
       }
       fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
