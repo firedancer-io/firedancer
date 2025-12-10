@@ -336,13 +336,11 @@ while true; do
                 MINIMIZED_END_SLOT=$((NEXT_ROOTED_SLOT+32))
                 send_slack_message "Minifying rocksdb for mismatch"
                 "$OBJDIR"/bin/fd_ledger \
-                    --reset 1 \
                     --cmd minify \
                     --rocksdb $LEDGER_DIR/rocksdb \
                     --minified-rocksdb $MISMATCH_DIR/rocksdb \
                     --start-slot $PREVIOUS_ROOTED_SLOT \
                     --end-slot $MINIMIZED_END_SLOT \
-                    --page-cnt $PAGES \
                     --copy-txn-status 0 >> $LOG 2>&1
                 status=$?
                 sleep 10
