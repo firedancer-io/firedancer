@@ -265,7 +265,7 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
-    fd_log_private_shared_lock[1] = 1;
+    fd_log_private_shared_lock[0] = 1;
   }
 
   ulong child_cnt = 0UL;

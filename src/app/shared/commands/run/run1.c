@@ -51,8 +51,8 @@ tile_main( void * _args ) {
   volatile int * wait = NULL;
   volatile int * debug = NULL;
   if( FD_UNLIKELY( args->config->development.debug_tile ) ) {
-    if( FD_UNLIKELY( args->tile->id==args->config->development.debug_tile-1 ) ) *debug = fd_log_private_shared_lock[1];
-    else *wait = fd_log_private_shared_lock[1];
+    if( FD_UNLIKELY( args->tile->id==args->config->development.debug_tile-1 ) ) *debug = fd_log_private_shared_lock[0];
+    else *wait = fd_log_private_shared_lock[0];
   }
 
   fd_topo_run_tile_t run_tile = fdctl_tile_run( args->tile );
