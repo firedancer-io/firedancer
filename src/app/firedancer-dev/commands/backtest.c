@@ -262,7 +262,8 @@ backtest_topo( config_t * config ) {
      various data structures.  This is an oversimplified barebones mock
      of the tower tile. */
   fd_topob_wksp( topo, "tower_out" );
-  fd_topob_link( topo, "tower_out", "tower_out", 1024UL, sizeof(fd_tower_slot_done_t), 1UL );
+  // fd_topob_link( topo, "tower_out", "tower_out", 1024UL, sizeof(fd_tower_slot_done_t), 1UL );
+  /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    128UL,                                    sizeof(fd_tower_msg_t),        3UL ); /* dup conf + cluster conf + slot_done */
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "tower_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "backt", 0UL, "tower_out", 0UL );
 

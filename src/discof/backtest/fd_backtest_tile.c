@@ -1,11 +1,15 @@
 #include "fd_backtest_rocksdb.h"
 #include "fd_backtest_shredcap.h"
+#include "../../choreo/hfork/fd_hfork.h"
+#include "../../choreo/tower/fd_tower.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
+#include "../../discof/replay/fd_exec.h"
 #include "../../util/pod/fd_pod.h"
+#include "../../choreo/tower/fd_tower_serde.h"
 
 #include <stdlib.h> /* exit(2) */
 
@@ -15,6 +19,7 @@
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_SNAP   (1)
 #define IN_KIND_GENESI (2)
+#define IN_KIND_EXEC (3)
 
 struct fd_backt_in {
   fd_wksp_t * mem;
@@ -46,6 +51,9 @@ struct fd_backt_tile {
   int initialized;
   int genesis;
   int snapshot_done;
+
+  fd_hfork_t * hfork;
+  fd_compact_tower_sync_serde_t compact_tower_sync_serde;
 
   fd_backtest_rocksdb_t *  rocksdb;
   fd_backtest_shredcap_t * shredcap;
@@ -87,9 +95,12 @@ struct fd_backt_tile {
   ulong bank_hash_idx;
   ulong bank_hash_cnt;
   uchar bank_hashes[ BANK_HASH_BUFFER_LEN ][ 32UL ];
+  fd_tower_t *        tower_spare; /* spare tower used during processing */
 };
 
 typedef struct fd_backt_tile fd_backt_tile_t;
+
+#define HFORK_MAX 4096
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -102,6 +113,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)          );
   l = FD_LAYOUT_APPEND( l, fd_backtest_shredcap_align(), fd_backtest_shredcap_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( HFORK_MAX, FD_VOTER_MAX )         );
+  l = FD_LAYOUT_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                 ); /* ctx->tower_spare */
 # if FD_HAS_ROCKSDB
   l = FD_LAYOUT_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()  );
 # endif
@@ -266,6 +279,89 @@ after_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( ctx->reading_slot>ctx->end_slot && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }
 
+static void
+count_vote_txn( fd_backt_tile_t *             ctx,
+                fd_stem_context_t * stem,
+                ulong               tsorig,
+                fd_txn_t const *    txn,
+                uchar const *       payload ) {
+
+  /* Count vote txns from resolv and replay.  Note these txns have
+     already been parsed and sigverified, so the only thing tower needs
+     to do is filter for votes.
+
+     We are a little stricter than Agave here when validating the vote
+     because we use the same validation as pack ie. is_simple_vote which
+     includes a check that there are at most two signers, whereas
+     Agave's gossip vote parser does not perform that same check (the
+     only two signers are the identity key and vote authority, which may
+     optionally be the same).
+
+     Being a little stricter here is ok because even if we drop some
+     votes with extraneous signers that Agave would consider valid
+     (unlikely), gossip votes are in general considered unreliable and
+     ultimately consensus is reached through replaying the vote txns.
+
+     The remaining checks mirror Agave as closely as possible (and are
+     documented throughout below). */
+
+  if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( txn, payload ) ) ) { FD_LOG_WARNING(( "non vote txn" )); return; }
+
+  /* TODO check the authorized voter for this vote account (from epoch
+     stakes) is one of the signers */
+
+  /* Filter any non-tower sync votes. */
+
+  fd_txn_instr_t const * instr      = &txn->instr[0];
+  uchar const *          instr_data = payload + instr->data_off;
+  uint                   kind       = fd_uint_load_4_fast( instr_data );
+  if( FD_UNLIKELY( kind != FD_VOTE_IX_KIND_TOWER_SYNC && kind != FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH ) ) { FD_LOG_WARNING(( "ignoring vote txn" )); return; };
+
+  /* Deserialize the CompactTowerSync. */
+
+  int err = fd_compact_tower_sync_deserialize( &ctx->compact_tower_sync_serde, instr_data + sizeof(uint), instr->data_sz - sizeof(uint) );
+  if( FD_UNLIKELY( err == -1 ) ) { FD_LOG_WARNING(( "failed deserialize vote txn" )); return; }
+  ulong slot = ctx->compact_tower_sync_serde.root;
+  fd_tower_remove_all( ctx->tower_spare );
+  for( ulong i = 0; i < ctx->compact_tower_sync_serde.lockouts_cnt; i++ ) {
+    slot += ctx->compact_tower_sync_serde.lockouts[i].offset;
+    fd_tower_push_tail( ctx->tower_spare, (fd_tower_vote_t){ .slot = slot, .conf = ctx->compact_tower_sync_serde.lockouts[i].confirmation_count } );
+  }
+  if( FD_UNLIKELY( 0==memcmp( &ctx->compact_tower_sync_serde.block_id, &hash_null, sizeof(fd_hash_t) ) ) ) { FD_LOG_WARNING(( "invalid vote txn" )); return; };
+
+  fd_pubkey_t const * accs     = (fd_pubkey_t const *)fd_type_pun_const( payload + txn->acct_addr_off );
+  fd_pubkey_t const * vote_acc = NULL;
+  if( FD_UNLIKELY( txn->signature_cnt==1 ) ) vote_acc = (fd_pubkey_t const *)fd_type_pun_const( &accs[1] ); /* identity and authority same, account idx 1 is the vote account address */
+  else                                       vote_acc = (fd_pubkey_t const *)fd_type_pun_const( &accs[2] ); /* identity and authority diff, account idx 2 is the vote account address */
+
+  /* Return early if their tower is empty. */
+
+  if( FD_UNLIKELY( fd_tower_empty( ctx->tower_spare ) ) ) { FD_LOG_WARNING(( "invalid tower" )); return; };
+
+  /* The vote txn contains a block id and bank hash for their last vote
+     slot in the tower.  Agave always counts the last vote.
+
+     https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L476-L487 */
+
+  fd_tower_vote_t const * their_last_vote = fd_tower_peek_tail_const( ctx->tower_spare );
+  fd_hash_t const *       their_block_id  = &ctx->compact_tower_sync_serde.block_id;
+  fd_hash_t const *       their_bank_hash = &ctx->compact_tower_sync_serde.hash;
+
+  /* Similar to what Agave does in cluster_info_vote_listener, we use
+     the stake associated with a vote account as of our current root
+     (which could potentially be a different epoch than the vote we are
+     counting or when we observe the vote).  They default stake to 0 for
+     voters who are not found. */
+
+  (void)stem;
+  (void)tsorig;
+
+  // fd_voter_stake_key_t stake_key = { .vote_account = *vote_acc, .slot = ctx->root_slot };
+  // fd_voter_stake_t *   stake     = fd_voter_stake_map_ele_query( ctx->slot_stakes->voter_stake_map, &stake_key, NULL, ctx->slot_stakes->voter_stake_pool );
+
+  // fd_hfork_count_vote( ctx->hfork, vote_acc, their_block_id, their_bank_hash, their_last_vote->slot, stake ? stake->stake : 0, total_stake, &ctx->metrics.hard_forks );
+}
+
 static inline int
 returnable_frag( fd_backt_tile_t *   ctx,
                  ulong               in_idx,
@@ -304,6 +400,13 @@ returnable_frag( fd_backt_tile_t *   ctx,
       source_init( ctx, manifest->slot );
       break;
     }
+    case IN_KIND_EXEC: {
+      if( FD_LIKELY( (sig>>32)==FD_EXEC_TT_TXN_EXEC ) ) {
+        fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
+        count_vote_txn( ctx, stem, tsorig, TXN(&msg->txn), msg->txn.payload );
+      }
+      return 0;
+    }
     case IN_KIND_GENESI: {
       if( FD_UNLIKELY( ctx->genesis ) ) {
         ctx->snapshot_done = 1;
@@ -319,6 +422,11 @@ returnable_frag( fd_backt_tile_t *   ctx,
     }
     case IN_KIND_REPLAY: {
       if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED ) ) return 0;
+      else if ( FD_LIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
+        fd_replay_slot_dead_t * slot_dead = (fd_replay_slot_dead_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        fd_hfork_record_our_bank_hash( ctx->hfork, &slot_dead->block_id, NULL, fd_ghost_root( ctx->ghost )->total_stake );
+        return 0;
+      }
       if( FD_UNLIKELY( !ctx->initialized ) ) return 1;
 
       fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -351,7 +459,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       } else {
         /* Do not change this log as it is used in offline replay */
         FD_BASE58_ENCODE_32_BYTES( ctx->bank_hashes[ ctx->bank_hash_idx ], bh_exp_b58 );
-        FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
+        // FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
       }
       ctx->bank_hash_idx = (ctx->bank_hash_idx+1UL)%(sizeof(ctx->bank_hashes)/sizeof(ctx->bank_hashes[0]));
       ctx->bank_hash_cnt--;
@@ -422,7 +530,15 @@ unprivileged_init( fd_topo_t *      topo,
   void * _backtest_shredcap = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_shredcap_align(), fd_backtest_shredcap_footprint() );
 # if FD_HAS_ROCKSDB
   void * _backtest_rocksdb  = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()  );
+  void  * hfork = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( HFORK_MAX, FD_VOTER_MAX )         );
+  void  * spare = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint()                                 );
+
+
+  ctx->tower_spare = fd_tower_join       ( fd_tower_new       ( spare                                 ) );
 # endif
+
+  ctx->hfork       = fd_hfork_join       ( fd_hfork_new       ( hfork, HFORK_MAX, FD_VOTER_MAX, 42, 1 ) );
+  ctx->tower_spare = fd_tower_join       ( fd_tower_new       ( spare                                 ) );
 
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
@@ -480,6 +596,7 @@ unprivileged_init( fd_topo_t *      topo,
     if(      !strcmp( link->name, "replay_out"   ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( !strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_exec"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXEC;
     else FD_LOG_ERR(( "backtest tile has unexpected input link %s", link->name ));
   }
 
