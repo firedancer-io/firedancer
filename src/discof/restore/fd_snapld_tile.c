@@ -210,6 +210,8 @@ after_credit( fd_snapld_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( fd_ssctrl_test_maybe_error( &ctx->state, stem, 0UL ) ) ) return;
+
   if( FD_UNLIKELY( ctx->pending_ctrl_sig ) ) {
     FD_TEST( !ctx->load_file && ctx->is_https );
     FD_TEST( ctx->pending_ctrl_sig==FD_SNAPSHOT_MSG_CTRL_NEXT ||

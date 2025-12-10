@@ -207,11 +207,13 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE || ctx->state==FD_SNAPSHOT_STATE_ERROR );
       if( !recv_acks( ctx, in_idx, sig ) ) return;
-      ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-      fd_lthash_zero( &ctx->running_lthash );
+      if( ctx->state==FD_SNAPSHOT_STATE_IDLE ) {
+        ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+        ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+        fd_lthash_zero( &ctx->running_lthash );
+      }
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -301,6 +303,8 @@ returnable_frag( fd_snapls_tile_t *  ctx,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+
+  if( FD_UNLIKELY( fd_ssctrl_test_maybe_error( &ctx->state, stem, 0UL ) ) ) return 0;
 
   if( FD_LIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB ||
                  sig==FD_SNAPSHOT_HASH_MSG_SUB_HDR ||

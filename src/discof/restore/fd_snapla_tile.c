@@ -249,12 +249,18 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->full          = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->state         = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->accounts_seen = 0UL;
+      ctx->hash_account  = 0;
+      ctx->acc_data_sz   = 0UL;
+      fd_memset( &ctx->account_hdr, 0, sizeof(ctx->account_hdr) );
       fd_lthash_zero( &ctx->running_lthash );
       fd_ssparse_reset( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
       fd_lthash_adder_new( ctx->adder );
+      if( ctx->full ) ctx->metrics.full.accounts_hashed = 0UL;
+      ctx->metrics.incremental.accounts_hashed = 0UL;
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -309,6 +315,8 @@ returnable_frag( fd_snapla_tile_t *  ctx,
                  ulong                tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t *  stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+
+  if( FD_UNLIKELY( fd_ssctrl_test_maybe_error( &ctx->state, stem, FD_SNAPLA_OUT_CTRL ) ) ) return 0;
 
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
   else                                           handle_control_frag( ctx, stem, sig );

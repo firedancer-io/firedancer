@@ -160,6 +160,8 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
                   fd_stem_context_t * stem,
                   ulong               chunk,
                   ulong               sz ) {
+  if( FD_UNLIKELY( fd_ssctrl_test_maybe_error( &ctx->state, stem, 0UL ) ) ) return 0;
+
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
     /* Ignore all data frags after observing an error in the stream until
        we receive fail & init control messages to restart processing. */
