@@ -1,4 +1,5 @@
 #include "fd_accdb_admin.h"
+#include "fd_accdb_sync.h"
 #include "fd_accdb_impl_v1.h"
 #include "../../funk/test_funk_common.h"
 #include "../../funk/test_funk_common.c"
@@ -16,6 +17,7 @@ init_funk( void * shfunk ) {
   ulong rec_max = funk->rec_pool->ele_max;
   fd_funk_rec_t * rec_ele = funk->rec_pool->ele;
   for( ulong j=0UL; j<rec_max; j++ ) {
+    rec_ele[ j ].pair      = (fd_funk_xid_key_pair_t){0};
     rec_ele[ j ].next_idx  = UINT_MAX;
     rec_ele[ j ].prev_idx  = UINT_MAX;
     rec_ele[ j ].val_sz    = 0;
@@ -56,9 +58,9 @@ visit_rec( fd_funk_rec_t * rec ) {
   FD_TEST( rec->val_max==0 );
   FD_TEST( rec->val_gaddr==0UL );
   FD_TEST( rec->pair.key->ul[ 0 ]==0UL &&
-            rec->pair.key->ul[ 1 ]==0UL &&
-            rec->pair.key->ul[ 2 ]==0UL &&
-            rec->pair.key->ul[ 3 ]==0UL );
+           rec->pair.key->ul[ 1 ]==0UL &&
+           rec->pair.key->ul[ 2 ]==0UL &&
+           rec->pair.key->ul[ 3 ]==0UL );
   rec->tag = 1;
 }
 
@@ -141,6 +143,128 @@ verify_accdb_empty( fd_accdb_admin_t * admin ) {
   verify_recs_empty( admin );
   verify_txns_empty( admin );
   FD_TEST( fd_alloc_is_empty( admin->funk->alloc ) );
+}
+
+/* test_truncate verifies open_rw behavior with the TRUNCATE flag set.
+
+   test_truncate_create:   Account does not exist, create new (flags+=CREATE)
+   test_truncate_nonexist: Account does not exist, return NULL
+   test_truncate_inplace:  Account exists and is mutable, truncate in-place
+   test_truncate_copy:     Account exists and is immutable, create new and copy meta */
+
+static void
+test_truncate_create( fd_accdb_admin_t * admin,
+                      fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = *fd_funk_last_publish( admin->funk );
+  fd_funk_txn_xid_t xid = { .ul={ 1UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_funk_rec_key_t key = { .ul={ 42UL } };
+  fd_accdb_rw_t rw[1];
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, 56UL, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( rw->rec->val_sz  == sizeof(fd_account_meta_t) );
+  FD_TEST( rw->rec->val_max >= sizeof(fd_account_meta_t)+56UL );
+  FD_TEST( rw->meta->dlen   == 0UL );
+  fd_accdb_close_rw( accdb, rw );
+
+  fd_accdb_advance_root( admin, &xid );
+  fd_accdb_clear( admin );
+}
+
+static void
+test_truncate_nonexist( fd_accdb_admin_t * admin,
+                        fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = *fd_funk_last_publish( admin->funk );
+  fd_funk_txn_xid_t xid = { .ul={ 2UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_funk_rec_key_t key = { .ul={ 42UL } };
+  fd_accdb_rw_t rw[1];
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, &key, 42UL, FD_ACCDB_FLAG_TRUNCATE ) );
+
+  fd_accdb_advance_root( admin, &xid );
+  fd_accdb_clear( admin );
+}
+
+static void
+test_truncate_inplace( fd_accdb_admin_t * admin,
+                       fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = *fd_funk_last_publish( admin->funk );
+  fd_funk_txn_xid_t xid = { .ul={ 3UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_funk_rec_key_t key = { .ul={ 42UL } };
+  fd_accdb_rw_t rw[1];
+  ulong data_sz_0 = 56UL;
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_0, FD_ACCDB_FLAG_CREATE ) );
+  fd_accdb_ref_data_set( rw, "hello", 5UL );
+  FD_TEST( rw->rec->val_sz  == sizeof(fd_account_meta_t)+5UL );
+  FD_TEST( rw->rec->val_max >= sizeof(fd_account_meta_t)+data_sz_0 );
+  FD_TEST( rw->meta->dlen   == 5UL );
+  fd_accdb_close_rw( accdb, rw );
+
+  ulong data_sz_1 = 256UL;
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_1, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( rw->rec->val_sz  == sizeof(fd_account_meta_t) );
+  FD_TEST( rw->rec->val_max >= sizeof(fd_account_meta_t)+data_sz_1 );
+  FD_TEST( rw->meta->dlen   == 0UL );
+  fd_accdb_close_rw( accdb, rw );
+
+  fd_accdb_advance_root( admin, &xid );
+  fd_accdb_clear( admin );
+}
+
+static void
+test_truncate_copy( fd_accdb_admin_t * admin,
+                    fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = *fd_funk_last_publish( admin->funk );
+  fd_funk_txn_xid_t xid1 = { .ul={ 4UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid1 );
+
+  fd_funk_rec_key_t key = { .ul={ 42UL } };
+  fd_accdb_rw_t rw[1];
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid1, &key, 56UL, FD_ACCDB_FLAG_CREATE ) );
+  fd_accdb_ref_data_set( rw, "hello", 5UL );
+  FD_TEST( rw->rec->val_sz  == sizeof(fd_account_meta_t)+5UL );
+  FD_TEST( rw->rec->val_max >= sizeof(fd_account_meta_t)+56UL );
+  FD_TEST( rw->meta->dlen   == 5UL );
+  fd_accdb_close_rw( accdb, rw );
+
+  fd_funk_txn_xid_t xid2 = { .ul={ 5UL, 0UL } };
+  fd_accdb_attach_child( admin, &xid1, &xid2 );
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid2, &key, 256UL, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( rw->rec->val_sz  == sizeof(fd_account_meta_t) );
+  FD_TEST( rw->rec->val_max >= sizeof(fd_account_meta_t)+256UL );
+  FD_TEST( rw->meta->dlen   == 0UL );
+  fd_accdb_close_rw( accdb, rw );
+
+  fd_accdb_advance_root( admin, &xid1 );
+  fd_accdb_advance_root( admin, &xid2 );
+  fd_accdb_clear( admin );
+}
+
+static void
+test_truncate( fd_wksp_t * wksp ) {
+  ulong txn_max =  4UL;
+  ulong rec_max = 32UL;
+  ulong funk_footprint = fd_funk_footprint( txn_max, rec_max );
+  void * shfunk = fd_wksp_alloc_laddr( wksp, fd_funk_align(), funk_footprint, WKSP_TAG );
+  FD_TEST( shfunk );
+  FD_TEST( fd_funk_new( shfunk, WKSP_TAG, 0UL, txn_max, rec_max ) );
+  init_funk( shfunk );
+  fd_accdb_admin_t admin[1];
+  FD_TEST( fd_accdb_admin_join( admin, shfunk ) );
+  fd_accdb_user_t accdb[1];
+  FD_TEST( fd_accdb_user_v1_init( accdb, shfunk ) );
+
+  test_truncate_create  ( admin, accdb );
+  test_truncate_nonexist( admin, accdb );
+  test_truncate_inplace ( admin, accdb );
+  test_truncate_copy    ( admin, accdb );
+
+  fd_accdb_user_fini( accdb );
+  fd_accdb_admin_leave( admin, NULL );
+  fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
 }
 
 /* test_random_ops randomly creates fork graph nodes, inserts records,
@@ -293,6 +417,7 @@ main( int     argc,
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
+  test_truncate( wksp );
   test_random_ops( wksp, rng, txn_max, rec_max, iter_max );
 
   /* FIXME leak check */

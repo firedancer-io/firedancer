@@ -124,8 +124,15 @@ FD_PROTOTYPES_BEGIN
    non-rooted non-frozen fork graph node, and address identifies the
    account.  If the account data buffer is smaller than data_max, it is
    resized (does not affect the data size, just the buffer capacity).
-   If do_create==0, returns NULL if the account does not exist.
-   Otherwise, returns an existing or newly created account.
+
+   If the CREATE flag is set and the account does not exist, returns a
+   newly created account.  If the CREATE flag is not set, returns NULL
+   if the account does not exist.
+
+   If the TRUNCATE flag is set, the account data size is set to zero.
+   The account data buffer's capacity will still be data_max, but is
+   left uninitialized.  This is useful for callers that intend to
+   replace the entire account.
 
    For the entire lifetime of an rw handle, the (txn_xid,address) pair
    MUST NOT be accessed by any other ro or rw operation.  Violating this
@@ -144,8 +151,8 @@ fd_accdb_open_rw( fd_accdb_user_t *         accdb,
                   fd_funk_txn_xid_t const * txn_id,
                   void const *              address,
                   ulong                     data_max,
-                  int                       do_create ) {
-  return accdb->base.vt->open_rw( accdb, rw, txn_id, address, data_max, do_create );
+                  int                       flags ) {
+  return accdb->base.vt->open_rw( accdb, rw, txn_id, address, data_max, flags );
 }
 
 /* fd_accdb_close_rw publishes a previously prepared account write.
