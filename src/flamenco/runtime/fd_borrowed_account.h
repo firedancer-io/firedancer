@@ -119,16 +119,6 @@ fd_borrowed_account_get_lamports( fd_borrowed_account_t const * borrowed_acct ) 
   return fd_txn_account_get_lamports( borrowed_acct->acct );
 }
 
-/* fd_borrowed_account_get_rent_epoch mirrors Agave function
-   solana_sdk::transaction_context::BorrowedAccount::get_rent_epoch.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1034 */
-
-static inline ulong
-fd_borrowed_account_get_rent_epoch( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_get_rent_epoch( borrowed_acct->acct );
-}
-
 static inline fd_account_meta_t const *
 fd_borrowed_account_get_acc_meta( fd_borrowed_account_t const * borrowed_acct ) {
   return fd_txn_account_get_meta( borrowed_acct->acct );
