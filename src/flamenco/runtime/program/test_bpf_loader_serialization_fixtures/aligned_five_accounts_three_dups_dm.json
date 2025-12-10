@@ -1,0 +1,134 @@
+{
+  "name": "aligned_five_accounts_three_dups_dm",
+  "description": "Stricter ABI + direct mapping. 5 instruction accounts referencing 2 unique transaction accounts in aligned mode.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "1gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoW45WuEolI/6aVaTN2gY3UdDUiHzxgAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "1wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "AQIDBAU=",
+        "owner": "1gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      },
+      {
+        "pubkey": "2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 2000,
+        "data": "BgcI",
+        "owner": "1gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 200
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "index_in_transaction": 2,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "index_in_transaction": 2,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      }
+    ],
+    "instruction_data": "d4g=",
+    "program_id": "1gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": true,
+    "account_data_direct_mapping": true,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": false
+  },
+  "output": {
+    "result": 0,
+    "buffer": "BQAAAAAAAAD/AAEAAAAAANcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADoAwAAAAAAAAUAAAAAAAAAAAAAAAAAAAD///////////8AAQAAAAAA2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANAHAAAAAAAAAwAAAAAAAAAAAAAAAAAAAP//////////AAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAB3iNYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "BQAAAAAAAAD/AAEAAAAAANcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADoAwAAAAAAAAUAAAAAAAAA"
+      },
+      {
+        "vm_addr": 17179869280,
+        "is_writable": true,
+        "data": "AQIDBAU="
+      },
+      {
+        "vm_addr": 17179879525,
+        "is_writable": true,
+        "data": "AAAA////////////AAEAAAAAANgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADQBwAAAAAAAAMAAAAAAAAA"
+      },
+      {
+        "vm_addr": 17179879624,
+        "is_writable": true,
+        "data": "BgcI"
+      },
+      {
+        "vm_addr": 17179889867,
+        "is_writable": true,
+        "data": "AAAAAAD//////////wAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAd4jWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869200,
+        "vm_lamports_addr": 17179869264,
+        "vm_owner_addr": 17179869232,
+        "vm_data_addr": 17179869280
+      },
+      {
+        "original_data_len": 3,
+        "vm_key_addr": 17179879544,
+        "vm_lamports_addr": 17179879608,
+        "vm_owner_addr": 17179879576,
+        "vm_data_addr": 17179879624
+      },
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869200,
+        "vm_lamports_addr": 17179869264,
+        "vm_owner_addr": 17179869232,
+        "vm_data_addr": 17179869280
+      },
+      {
+        "original_data_len": 3,
+        "vm_key_addr": 17179879544,
+        "vm_lamports_addr": 17179879608,
+        "vm_owner_addr": 17179879576,
+        "vm_data_addr": 17179879624
+      },
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869200,
+        "vm_lamports_addr": 17179869264,
+        "vm_owner_addr": 17179869232,
+        "vm_data_addr": 17179869280
+      }
+    ],
+    "instruction_data_offset": 17179889912
+  }
+}

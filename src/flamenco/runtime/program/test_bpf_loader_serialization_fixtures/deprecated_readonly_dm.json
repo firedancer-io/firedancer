@@ -1,0 +1,68 @@
+{
+  "name": "deprecated_readonly_dm",
+  "description": "Stricter ABI + direct mapping. Account not writable, entire buffer still writable in single-region mode.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "NQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoWu9I5WFX2QE2bT0VreCG7AUV0lCjAAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "NgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "AQIDBAU=",
+        "owner": "NQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": false
+      }
+    ],
+    "instruction_data": "7v8=",
+    "program_id": "NQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": true,
+    "account_data_direct_mapping": true,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": true
+  },
+  "output": {
+    "result": 0,
+    "buffer": "AQAAAAAAAAD/AAA2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAABQAAAAAAAAA1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//////////wIAAAAAAAAA7v81AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "AQAAAAAAAAD/AAA2AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAABQAAAAAAAAA="
+      },
+      {
+        "vm_addr": 17179869243,
+        "is_writable": false,
+        "data": "AQIDBAU="
+      },
+      {
+        "vm_addr": 17179869248,
+        "is_writable": true,
+        "data": "NQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8CAAAAAAAAAO7/NQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869195,
+        "vm_lamports_addr": 17179869227,
+        "vm_owner_addr": 17179869248,
+        "vm_data_addr": 17179869243
+      }
+    ],
+    "instruction_data_offset": 17179869297
+  }
+}

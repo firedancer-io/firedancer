@@ -1,0 +1,75 @@
+{
+  "name": "deprecated_dup_with_zero_data_dm",
+  "description": "Stricter ABI + direct mapping. Duplicate of a zero-length account.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "TQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoWu9I5WFX2QE2bT0VreCG7AUV0lCjAAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "TgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "",
+        "owner": "TQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      },
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      }
+    ],
+    "instruction_data": "mrw=",
+    "program_id": "TQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": true,
+    "account_data_direct_mapping": true,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": true
+  },
+  "output": {
+    "result": 0,
+    "buffer": "AgAAAAAAAAD/AAFOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAAAAAAAAAAAABNAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//////////wACAAAAAAAAAJq8TQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "AgAAAAAAAAD/AAFOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAAAAAAAAAAAAA="
+      },
+      {
+        "vm_addr": 17179869243,
+        "is_writable": true,
+        "data": "TQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8AAgAAAAAAAACavE0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 0,
+        "vm_key_addr": 17179869195,
+        "vm_lamports_addr": 17179869227,
+        "vm_owner_addr": 17179869243,
+        "vm_data_addr": 17179869243
+      },
+      {
+        "original_data_len": 0,
+        "vm_key_addr": 17179869195,
+        "vm_lamports_addr": 17179869227,
+        "vm_owner_addr": 17179869243,
+        "vm_data_addr": 17179869243
+      }
+    ],
+    "instruction_data_offset": 17179869293
+  }
+}

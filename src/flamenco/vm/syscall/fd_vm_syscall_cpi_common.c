@@ -346,16 +346,12 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L138 */
       if( FD_LIKELY( vm->stricter_abi_and_runtime_constraints ) ) {
         /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L139-L144 */
-        ulong expected_pubkey_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START +
-          vm->input_mem_regions[acc_region_meta->region_idx].vaddr_offset +
-          acc_region_meta->expected_pubkey_offset;
+        ulong expected_pubkey_vaddr = acc_region_meta->vm_key_addr;
         /* Max msg_sz: 40 + 18 + 18 = 76 < 127 */
         VM_SYSCALL_CPI_CHECK_ACCOUNT_INFO_POINTER_FIELD_MAX_54(vm, account_infos[j].pubkey_addr, expected_pubkey_vaddr, "key");
 
         /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L145-L150 */
-        ulong expected_owner_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START +
-          vm->input_mem_regions[acc_region_meta->region_idx].vaddr_offset +
-          acc_region_meta->expected_owner_offset;
+        ulong expected_owner_vaddr = acc_region_meta->vm_owner_addr;
         /* Max msg_sz: 42 + 18 + 18 = 78 < 127 */
         VM_SYSCALL_CPI_CHECK_ACCOUNT_INFO_POINTER_FIELD_MAX_54(vm, account_infos[j].owner_addr, expected_owner_vaddr, "owner");
       }
@@ -377,9 +373,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
         #endif
 
         /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L167-L172 */
-        ulong expected_lamports_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START +
-          vm->input_mem_regions[acc_region_meta->region_idx].vaddr_offset +
-          acc_region_meta->expected_lamports_offset;
+        ulong expected_lamports_vaddr = acc_region_meta->vm_lamports_addr;
         /* Max msg_sz: 45 + 18 + 18 = 81 < 127 */
         VM_SYSCALL_CPI_CHECK_ACCOUNT_INFO_POINTER_FIELD_MAX_54(vm, lamports_vaddr, expected_lamports_vaddr, "lamports");
       }
