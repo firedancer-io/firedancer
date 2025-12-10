@@ -1016,6 +1016,11 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
         if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
+
+        fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( bank );
+        fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
+        FD_TEST( last_bhash_info ); /* Agave panics here if the blockhash queue is empty */
+
         /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/bank/check_transactions.rs#L217-L221*/
         fd_nonce_state_versions_t new_state = {
           .discriminant = fd_nonce_state_versions_enum_current,
@@ -1026,7 +1031,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
               .durable_nonce  = next_durable_nonce,
               .fee_calculator = {
                 /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/bank/check_transactions.rs#L88-L90 */
-                .lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( bank )
+                .lamports_per_signature = last_bhash_info->fee_calculator.lamports_per_signature
               }
             } }
           } }
