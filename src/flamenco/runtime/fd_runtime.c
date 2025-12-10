@@ -9,6 +9,7 @@
 #include "fd_runtime_stack.h"
 
 #include "fd_executor.h"
+#include "fd_txn_account.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -37,7 +38,6 @@
 
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
-#include "../../disco/genesis/fd_genesis_cluster.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -1010,56 +1010,31 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
    a writable transaction account back into the accountsdb. */
 
 static void
-fd_runtime_finalize_account( fd_funk_t *               funk,
+fd_runtime_finalize_account( fd_accdb_user_t *         accdb,
                              fd_funk_txn_xid_t const * xid,
                              fd_pubkey_t const *       pubkey,
-                             fd_account_meta_t *       meta,
-                             fd_funk_rec_t *           prev_rec ) {
+                             fd_account_meta_t *       meta ) {
+  /* FIXME if account doesn't change according to LtHash, don't update
+           database record */
 
-  uchar const * record_data = (uchar *)meta;
-  ulong         record_sz   = fd_account_meta_get_record_sz( meta );
+  fd_accdb_rw_t rw[1];
+  int rw_ok = !!fd_accdb_open_rw(
+      accdb,
+      rw,
+      xid,
+      pubkey,
+      meta->dlen,
+      FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE );
+  if( FD_UNLIKELY( !rw_ok ) ) FD_LOG_CRIT(( "fd_accdb_open_rw failed" ));
 
-  int err = FD_FUNK_SUCCESS;
+  void const * data = fd_account_data( meta );
+  fd_accdb_ref_lamports_set( rw, meta->lamports   );
+  fd_accdb_ref_owner_set   ( rw, meta->owner      );
+  fd_accdb_ref_exec_bit_set( rw, meta->executable );
+  fd_accdb_ref_data_set    ( rw, data, meta->dlen );
+  fd_accdb_ref_slot_set    ( rw, xid->ul[0]    );
 
-  if( !prev_rec || !fd_funk_txn_xid_eq( prev_rec->pair.xid, xid ) ) {
-
-    fd_funk_rec_key_t     funk_key = fd_funk_acc_key( pubkey );
-    fd_funk_rec_prepare_t prepare[1];
-    fd_funk_rec_t *       rec = fd_funk_rec_prepare( funk, xid, &funk_key, prepare, &err );
-    if( FD_UNLIKELY( !rec || err!=FD_FUNK_SUCCESS ) ) {
-      FD_LOG_ERR(( "fd_runtime_finalize_account: failed to prepare record (%i-%s)", err, fd_funk_strerror( err ) ));
-    }
-
-    if( FD_UNLIKELY( !fd_funk_val_truncate(
-        rec,
-        fd_funk_alloc( funk ),
-        fd_funk_wksp( funk ),
-        0UL,
-        record_sz,
-        &err ) ) ) {
-      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
-    }
-
-    fd_memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), record_data, record_sz );
-
-    fd_funk_rec_publish( funk, prepare );
-
-  } else {
-
-    if( FD_UNLIKELY( !fd_funk_val_truncate(
-        prev_rec,
-        fd_funk_alloc( funk ),
-        fd_funk_wksp( funk ),
-        0UL,
-        record_sz,
-        &err ) ) ) {
-      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
-    }
-
-    fd_memcpy( fd_funk_val( prev_rec, fd_funk_wksp( funk ) ), record_data, record_sz );
-
-  }
-
+  fd_accdb_close_rw( accdb, rw );
 }
 
 /* fd_runtime_save_account is a convenience wrapper that looks
@@ -1088,40 +1063,34 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
    All non-optional pointers must be valid. */
 
 static void
-fd_runtime_save_account( fd_funk_t *               funk,
+fd_runtime_save_account( fd_accdb_user_t *         accdb,
                          fd_funk_txn_xid_t const * xid,
                          fd_pubkey_t const *       pubkey,
                          fd_account_meta_t *       meta,
                          fd_bank_t *               bank,
                          fd_capture_ctx_t *        capture_ctx ) {
-  /* Look up the previous version of the account from Funk */
-  int err = FD_ACC_MGR_SUCCESS;
-  fd_funk_rec_t * funk_prev_rec = NULL;
-  fd_account_meta_t const * prev_meta = fd_funk_get_acc_meta_readonly(
-      funk,
-      xid,
-      pubkey,
-      fd_type_pun( &funk_prev_rec ),
-      &err,
-      NULL );
-  uchar const * prev_data = (void const *)( prev_meta+1 );
 
-  /* Hash the old version of the account */
+  /* Update LtHash
+     - Query old version of account and hash it
+     - Hash new version of account */
   fd_lthash_value_t prev_hash[1];
-  fd_lthash_zero( prev_hash );
-  if( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+  fd_accdb_ro_t ro[1];
+  if( fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) {
     fd_hashes_account_lthash(
       pubkey,
-      prev_meta,
-      prev_data,
+      ro->meta,
+      fd_accdb_ref_data_const( ro ),
       prev_hash );
+    fd_accdb_close_ro( accdb, ro );
+  } else {
+    fd_lthash_zero( prev_hash );
   }
 
   /* Mix in the account hash into the bank hash */
   fd_hashes_update_lthash( pubkey, meta, prev_hash, bank, capture_ctx );
 
   /* Save the new version of the account to Funk */
-  fd_runtime_finalize_account( funk, xid, pubkey, meta, funk_prev_rec );
+  fd_runtime_finalize_account( accdb, xid, pubkey, meta );
 }
 
 /* fd_runtime_commit_txn is a helper used by the non-tpool transaction
@@ -1155,7 +1124,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
        We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
     if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-      fd_runtime_save_account( runtime->funk,
+      fd_runtime_save_account( runtime->accdb,
                                &xid,
                                &txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn],
                                txn_out->accounts.rollback_nonce,
@@ -1165,7 +1134,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
     /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
     if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      fd_runtime_save_account( runtime->funk,
+      fd_runtime_save_account( runtime->accdb,
                                &xid,
                                &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX],
                                txn_out->accounts.rollback_fee_payer,
@@ -1204,7 +1173,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
          cache updates have been applied. */
       fd_executor_reclaim_account( txn_out->accounts.metas[i], fd_bank_slot_get( bank ) );
 
-      fd_runtime_save_account( runtime->funk, &xid, pubkey, meta, bank, runtime->log.capture_ctx );
+      fd_runtime_save_account( runtime->accdb, &xid, pubkey, meta, bank, runtime->log.capture_ctx );
     }
 
     /* We need to queue any existing program accounts that may have
