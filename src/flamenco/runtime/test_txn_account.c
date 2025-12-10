@@ -40,7 +40,6 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_txn_account_is_readonly( txn_account ) );
   FD_TEST( fd_txn_account_get_data_len( txn_account ) == 100UL );
   FD_TEST( fd_txn_account_get_lamports( txn_account ) == 0UL );
-  FD_TEST( fd_txn_account_get_rent_epoch( txn_account ) == ULONG_MAX );
   FD_TEST( !memcmp( fd_txn_account_get_owner( txn_account ), null_hash, sizeof(null_hash) ) );
   FD_TEST( fd_txn_account_get_meta( txn_account ) == meta );
   FD_TEST( fd_txn_account_get_data( txn_account ) == acc_data );
@@ -68,8 +67,6 @@ main( int argc, char ** argv ) {
 
   fd_txn_account_set_lamports( txn_account, 1000UL );
   FD_TEST( fd_txn_account_get_lamports( txn_account ) == 1000UL );
-
-  FD_TEST( fd_txn_account_get_rent_epoch( txn_account ) == ULONG_MAX );
 
   fd_txn_account_set_data_len( txn_account, 102UL );
   FD_TEST( fd_txn_account_get_data_len( txn_account ) == 102UL );
