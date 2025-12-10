@@ -92,3 +92,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-413869565 -y 40 -m 1
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880 -y 1 -m 2000000 -e 376969900
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842 -y 1 -m 2000000 -e 422969848
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-r2 -y 1 -m 2000000 -e 376969900 -o 5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458 -y 1 -m 2000000 -e 385786458
