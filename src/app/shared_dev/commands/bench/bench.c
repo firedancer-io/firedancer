@@ -190,7 +190,7 @@ bench_cmd_fn( args_t *   args,
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
-  fd_log_private_shared_lock[ 1 ] = 0;
+  fd_log_private_shared_lock[ 0 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   if( watch ) {

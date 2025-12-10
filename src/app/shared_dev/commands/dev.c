@@ -127,7 +127,7 @@ run_firedancer_threaded( config_t * config,
   fdctl_setup_netns( config, 1 );
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
-    fd_log_private_shared_lock[ 1 ] = 1;
+    fd_log_private_shared_lock[ 0 ] = 1;
   }
 
   /* This is kind of a hack, but we have to join all the workspaces as read-write

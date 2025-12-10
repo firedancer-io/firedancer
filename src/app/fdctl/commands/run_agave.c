@@ -230,9 +230,9 @@ agave_main( void * args ) {
       FD_LOG_WARNING(( "waiting for debugger to attach to tile agave pid:%lu", fd_sandbox_getpid() ));
       if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
         FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      fd_log_private_shared_lock[1] = 0;
+      fd_log_private_shared_lock[0] = 0;
     } else {
-      while( FD_LIKELY( fd_log_private_shared_lock[1] ) ) FD_SPIN_PAUSE();
+      while( FD_LIKELY( fd_log_private_shared_lock[0] ) ) FD_SPIN_PAUSE();
     }
   }
 

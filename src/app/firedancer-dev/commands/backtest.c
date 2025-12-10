@@ -441,7 +441,7 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   initialize_workspaces( config );
   initialize_stacks( config );
 
-  fd_log_private_shared_lock[ 1 ] = 0;
+  fd_log_private_shared_lock[ 0 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_fill( &config->topo );
 
