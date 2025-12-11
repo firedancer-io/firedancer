@@ -229,6 +229,12 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
                      fd_stem_context_t * stem,
                      long                now );
 
+void
+fd_gossip_insert_no_origin_reject( fd_gossip_t *       gossip,
+                                   fd_pubkey_t const * pubkey,
+                                   uchar const *       hash,
+                                   long                now );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */
