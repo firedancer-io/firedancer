@@ -945,19 +945,6 @@ fd_banks_is_full( fd_banks_t * banks ) {
   return fd_banks_pool_free( fd_banks_get_bank_pool( banks ) )==0UL;
 }
 
-/* fd_banks_validate does validation on the banks struct to make sure
-   that there are no corruptions/invariant violations.  It returns 0
-   if no issues have been detected and 1 otherwise.
-
-   List of checks that the function currently performs:
-   1. CoW fields have not acquired more elements than the max amount of
-      allocated banks.
-   (Add more checks as needed here)
-*/
-
-int
-fd_banks_validate( fd_banks_t * banks );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_bank_h */

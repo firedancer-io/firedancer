@@ -281,9 +281,6 @@ fd_policy_peer_latency_bucket( fd_policy_t * policy, long total_rtt /* ns */, ul
 void
 fd_policy_peer_response_update( fd_policy_t * policy, fd_pubkey_t const * to, long rtt );
 
-int
-fd_policy_passes_throttle_threshold( fd_policy_t * policy, fd_forest_blk_t * ele );
-
 void
 fd_policy_set_turbine_slot0( fd_policy_t * policy, ulong slot );
 

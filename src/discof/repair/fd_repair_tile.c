@@ -48,7 +48,7 @@
 #define IN_KIND_GOSSIP  (7)
 #define IN_KIND_GENESIS (8)
 
-#define MAX_IN_LINKS    (16)
+#define MAX_IN_LINKS    (32)
 
 #define MAX_REPAIR_PEERS   40200UL
 #define MAX_BUFFER_SIZE    ( MAX_REPAIR_PEERS * sizeof( fd_shred_dest_wire_t ) )

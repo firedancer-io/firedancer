@@ -1,6 +1,6 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
-#include "../../flamenco/runtime/context/fd_capture_ctx.h"
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -10,12 +10,10 @@ struct fd_ledger_args {
   ulong                 start_slot;              /* start slot for offline replay */
   ulong                 end_slot;                /* end slot for offline replay */
   uint                  hashseed;                /* hashseed */
-  char const *          restore;                 /* wksp restore */
   ulong                 shred_max;               /* maximum number of shreds*/
   ulong                 slot_history_max;        /* number of slots stored by blockstore*/
   char const *          mini_db_dir;             /* path to minifed rocksdb that's to be created */
   int                   copy_txn_status;         /* determine if txns should be copied to the blockstore during minify/replay */
-  ulong                 trash_hash;              /* trash hash to be used for negative cases*/
   char const *          rocksdb_path;            /* path to rocksdb directory */
 };
 typedef struct fd_ledger_args fd_ledger_args_t;
@@ -23,8 +21,7 @@ typedef struct fd_ledger_args fd_ledger_args_t;
 void
 ingest_rocksdb( char const *      file,
                 ulong             start_slot,
-                ulong             end_slot,
-                FD_PARAM_UNUSED ulong             trash_hash ) {
+                ulong             end_slot ) {
 
   fd_rocksdb_t rocks_db;
   char * err = fd_rocksdb_init( &rocks_db, file );
@@ -59,9 +56,6 @@ ingest_rocksdb( char const *      file,
     FD_LOG_ERR(( "unable to seek to any slot" ));
   }
 
-  uchar trash_hash_buf[32];
-  memset( trash_hash_buf, 0xFE, sizeof(trash_hash_buf) );
-
   ulong blk_cnt = 0;
   do {
     ulong slot = slot_meta->slot;
@@ -95,14 +89,6 @@ ingest_rocksdb( char const *      file,
   fd_rocksdb_destroy( &rocks_db );
 
   FD_LOG_NOTICE(( "ingested %lu blocks", blk_cnt ));
-}
-
-void
-wksp_restore( fd_ledger_args_t * args ) {
-  if( args->restore != NULL ) {
-    FD_LOG_NOTICE(( "restoring wksp %s", args->restore ));
-    fd_wksp_restore( args->wksp, args->restore, args->hashseed );
-  }
 }
 
 /********************* Main Command Functions and Setup ***********************/
@@ -181,17 +167,12 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
 
   fd_boot( &argc, &argv );
 
-  char const * wksp_name             = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--wksp-name",             NULL, NULL                                               );
-  ulong        page_cnt              = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",              NULL, 5                                                  );
-  int          reset                 = fd_env_strip_cmdline_int   ( &argc, &argv, "--reset",                 NULL, 0                                                  );
   char const * cmd                   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--cmd",                   NULL, NULL                                               );
   int          copy_txn_status       = fd_env_strip_cmdline_int   ( &argc, &argv, "--copy-txn-status",       NULL, 0                                                  );
   ulong        slot_history_max      = fd_env_strip_cmdline_ulong ( &argc, &argv, "--slot-history",          NULL, 100UL                                              );
   ulong        shred_max             = fd_env_strip_cmdline_ulong ( &argc, &argv, "--shred-max",             NULL, 1UL << 17                                          );
   ulong        start_slot            = fd_env_strip_cmdline_ulong ( &argc, &argv, "--start-slot",            NULL, 0UL                                                );
   ulong        end_slot              = fd_env_strip_cmdline_ulong ( &argc, &argv, "--end-slot",              NULL, ULONG_MAX                                          );
-  char const * restore               = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--restore",               NULL, NULL                                               );
-  ulong        trash_hash            = fd_env_strip_cmdline_ulong ( &argc, &argv, "--trash-hash",            NULL, ULONG_MAX                                          );
   char const * mini_db_dir           = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--minified-rocksdb",      NULL, NULL                                               );
   char const * rocksdb_path          = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--rocksdb",               NULL, NULL                                               );
 
@@ -202,36 +183,14 @@ initial_setup( int argc, char ** argv, fd_ledger_args_t * args ) {
   ulong hashseed = fd_hash( 0, hostname, strnlen( hostname, sizeof(hostname) ) );
   args->hashseed = (uint)hashseed;
 
-  /* Setup workspace */
-  fd_wksp_t * wksp;
-  if( wksp_name == NULL ) {
-    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
-    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, page_cnt, 0, "wksp", 0UL );
-  } else {
-    fd_shmem_info_t shmem_info[1];
-    if( FD_UNLIKELY( fd_shmem_info( wksp_name, 0UL, shmem_info ) ) )
-      FD_LOG_ERR(( "unable to query region \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
-    wksp = fd_wksp_attach( wksp_name );
-  }
-
-  if( wksp == NULL ) {
-    FD_LOG_ERR(( "failed to attach to workspace %s", wksp_name ));
-  }
-  if( reset ) {
-    fd_wksp_reset( wksp, args->hashseed );
-  }
-  args->wksp = wksp;
-
   /* Copy over arguments */
   args->cmd                     = cmd;
   args->start_slot              = start_slot;
   args->end_slot                = end_slot;
   args->shred_max               = shred_max;
   args->slot_history_max        = slot_history_max;
-  args->restore                 = restore;
   args->mini_db_dir             = mini_db_dir;
   args->copy_txn_status         = copy_txn_status;
-  args->trash_hash              = trash_hash;
   args->rocksdb_path            = rocksdb_path;
 
   if( args->rocksdb_path != NULL ) {

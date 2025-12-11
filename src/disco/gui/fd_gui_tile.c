@@ -124,6 +124,7 @@ typedef struct {
   union {
     struct {
       ulong slot;
+      ulong shred_idx;
     } repair_net;
 
     uchar net_gossvf[ FD_NET_MTU ];
@@ -292,13 +293,10 @@ during_frag( fd_gui_ctx_t * ctx,
       ulong payload_sz;
       if( FD_LIKELY( fd_ip4_udp_hdr_strip( src, sz, &payload, &payload_sz, NULL, NULL, NULL ) ) ) {
         fd_repair_msg_t const * msg = (fd_repair_msg_t const *)payload;
-        switch ( msg->kind ) {
-          case FD_REPAIR_KIND_PING:
-          case FD_REPAIR_KIND_PONG:
-          case FD_REPAIR_KIND_ORPHAN: break;
-          case FD_REPAIR_KIND_SHRED: { if( FD_UNLIKELY( msg->shred.slot==0 ) ) { break; } ctx->parsed.repair_net.slot = msg->shred.slot; break; }
-          case FD_REPAIR_KIND_HIGHEST_SHRED: { if( FD_UNLIKELY( msg->highest_shred.slot==0 ) ) { break; } ctx->parsed.repair_net.slot = msg->highest_shred.slot; break; }
-          default: FD_LOG_ERR(( "unexpected repair msg kind %u", msg->kind ));
+        if( FD_LIKELY( msg->kind==FD_REPAIR_KIND_SHRED ) ) {
+          if( FD_UNLIKELY( msg->shred.slot==0 ) ) break;
+          ctx->parsed.repair_net.slot = msg->shred.slot;
+          ctx->parsed.repair_net.shred_idx = msg->shred.shred_idx;
         }
       }
       break;
@@ -488,7 +486,7 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_REPAIR_NET: {
       if( FD_UNLIKELY( ctx->parsed.repair_net.slot==ULONG_MAX ) ) break;
       long tsorig_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
-      fd_gui_handle_repair_slot( ctx->gui, ctx->parsed.repair_net.slot, tsorig_ns );
+      fd_gui_handle_repair_request( ctx->gui, ctx->parsed.repair_net.slot, ctx->parsed.repair_net.shred_idx, tsorig_ns );
       break;
     }
     case IN_KIND_NET_GOSSVF: {
