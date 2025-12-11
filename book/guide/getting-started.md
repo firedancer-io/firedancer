@@ -304,7 +304,7 @@ systemd --switched-root --system --deserialize 17
           └─fdctl run --config ~/config.toml
               ├─fdctl run-agave --config-fd 0
               │   └─35*[{fdctl}]
-              ├─cswtch:0 run1 cswtch 0 --pipe-fd 20 --config-fd 0
+              ├─diag:0 run1 diag 0 --pipe-fd 20 --config-fd 0
               ├─dedup:0 run1 dedup 0 --pipe-fd 15 --config-fd 0
               ├─gui:0 run1 gui 0 --pipe-fd 22 --config-fd 0
               ├─metric:0 run1 metric 0 --pipe-fd 19 --config-fd 0

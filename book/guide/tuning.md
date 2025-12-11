@@ -26,7 +26,7 @@ tile are,
 | `metric` | Collects monitoring information about other tiles and serves it on an HTTP endpoint |
 | `sign` | Holds the validator private key, and receives and responds to signing requests from other tiles |
 | `resolv` | Resolves address lookup tables before transactions are scheduled |
-| `cswtch` | Counts context switches of other tiles |
+| `diag` | Counts context switches and diagnostic information of other tiles |
 | `plugin` | Provides data to the `gui` tile  |
 | `gui` | Receives data from the validator and serves an HTTP endpoint to clients to view it |
 
