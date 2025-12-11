@@ -160,9 +160,6 @@ fd_txn_account_is_executable( fd_txn_account_t const * acct );
 ulong
 fd_txn_account_get_lamports( fd_txn_account_t const * acct );
 
-ulong
-fd_txn_account_get_rent_epoch( fd_txn_account_t const * acct );
-
 void
 fd_txn_account_set_meta( fd_txn_account_t * acct, fd_account_meta_t * meta );
 

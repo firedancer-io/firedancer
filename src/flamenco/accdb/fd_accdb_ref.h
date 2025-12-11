@@ -123,7 +123,7 @@ fd_accdb_ref_data_set( fd_accdb_rw_t * rw,
   }
   fd_memcpy( fd_accdb_ref_data( rw ), data, data_sz );
   rw->meta->dlen  = (uint)data_sz;
-  rw->rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & (FD_FUNK_REC_VAL_MAX-1);
+  rw->rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & FD_FUNK_REC_VAL_MAX;
 }
 
 FD_FN_UNUSED static void
@@ -141,7 +141,7 @@ fd_accdb_ref_data_sz_set( fd_accdb_rw_t * rw,
     fd_memset( tail, 0, data_sz-prev_sz );
   }
   rw->meta->dlen  = (uint)data_sz;
-  rw->rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & (FD_FUNK_REC_VAL_MAX-1);
+  rw->rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & FD_FUNK_REC_VAL_MAX;
 }
 
 static inline void

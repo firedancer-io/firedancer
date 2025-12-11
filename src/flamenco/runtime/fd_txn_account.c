@@ -161,7 +161,8 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
   memset( prepare_out, 0, sizeof(fd_funk_rec_prepare_t) );
 
   fd_accdb_rw_t rw[1];
-  if( FD_UNLIKELY( !fd_accdb_open_rw( accdb, rw, xid, pubkey->uc, min_data_sz, do_create ) ) ) {
+  int flags = do_create ? FD_ACCDB_FLAG_CREATE : 0;
+  if( FD_UNLIKELY( !fd_accdb_open_rw( accdb, rw, xid, pubkey->uc, min_data_sz, flags ) ) ) {
     return NULL;
   }
 
@@ -307,12 +308,6 @@ fd_txn_account_get_lamports( fd_txn_account_t const * acct ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
   return acct->meta->lamports;
-}
-
-ulong
-fd_txn_account_get_rent_epoch( fd_txn_account_t const * acct ) {
-  (void)acct;
-  return ULONG_MAX;
 }
 
 void
