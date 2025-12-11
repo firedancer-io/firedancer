@@ -31,6 +31,7 @@
 /* FIXME: Handle cases where no explicitly allowed peers advertise RPC */
 /* FIXME: Make the code more strict about duplicate IP:port's */
 /* FIXME: Handle cases where the slot number we start downloading differs from advertised */
+/* FIXME: Ensure local files are not selected again if they fail the first time. */
 
 #define GOSSIP_PEERS_MAX (FD_CONTACT_INFO_TABLE_SIZE)
 #define SERVER_PEERS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED)

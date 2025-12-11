@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_ssctrl_h
 #define HEADER_fd_src_discof_restore_utils_fd_ssctrl_h
 
+#include "../../../disco/stem/fd_stem.h"
 #include "../../../util/net/fd_net_headers.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 
@@ -52,7 +53,15 @@
         snapshot, or shut down the whole pipeline.
 
    The keeps the tiles in lockstep, and simplifies the state machine to
-   a manageable level. */
+   a manageable level.
+
+   It is a strict requirement that all tiles in the pipeline eventually
+   forward all control messages they receive.  Each control message is
+   only generated once in snapct and will not be re-sent.  The pipeline
+   will be locked on flushing that control message until all tiles
+   forward it on. If a control message is dropped, the pipeline will
+   deadlock.  Note that a tile can choose to hold onto a control message
+   and forward it later after performing some asynchronous routine.  */
 
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
 #define FD_SNAPSHOT_STATE_PROCESSING           (1UL) /* Performing usual work, no errors / EoF condition encountered */
@@ -138,5 +147,38 @@ struct fd_snapshot_full_account {
 typedef struct fd_snapshot_full_account fd_snapshot_full_account_t;
 
 #define FD_SNAPSHOT_MAX_SNAPLA_TILES (8UL)
+
+/* fd_ssctrl_test_maybe_error is only used in testing and randomly generates
+   error control messages from tiles in the snapshots pipeline in appropriate
+   states. */
+
+#define FD_SNAPSHOT_TEST_ERROR_NANOS (0L)
+
+static inline int
+fd_ssctrl_test_maybe_error( int *               state,
+                            fd_stem_context_t * stem,
+                            ulong               out_idx ) {
+#if FD_SNAPSHOT_TEST_ERROR_NANOS
+  switch( *state ) {
+    case FD_SNAPSHOT_STATE_IDLE:
+    case FD_SNAPSHOT_STATE_ERROR:
+    case FD_SNAPSHOT_STATE_SHUTDOWN:
+      return 0;
+    case FD_SNAPSHOT_STATE_PROCESSING:
+    case FD_SNAPSHOT_STATE_FINISHING:
+      break;
+  }
+  if( FD_LIKELY( ((fd_tickcount()^(long)fd_log_thread_id())%FD_SNAPSHOT_TEST_ERROR_NANOS)!=0L ) ) return 0;
+  FD_LOG_WARNING(( "generating test pipeline error" ));
+  *state = FD_SNAPSHOT_STATE_ERROR;
+  fd_stem_publish( stem, out_idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+  return 1;
+#else
+  (void)state;
+  (void)stem;
+  (void)out_idx;
+  return 0;
+#endif
+}
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssctrl_h */
