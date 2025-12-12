@@ -351,6 +351,10 @@ verify_crds_value( fd_gossip_view_crds_value_t const * value,
                             sha );
 }
 
+/* For push and pull response messages, verifies the signature of each CRDS entry
+   as signed by its origin pubkey.  Any invalid entries are filtered out.  For all
+   other message types, verifies the signature of the peer that sent us the message. */
+
 static int
 verify_signatures( fd_gossvf_tile_ctx_t * ctx,
                    fd_gossip_view_t *     view,
@@ -486,6 +490,13 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
   }
 }
 
+/* For pull request messages, checks that the sending peer is using the same
+   shred version as our node.  For push and pull response messages, checks
+   each CRDS entry separately, filtering invalid ones.  All contact info
+   entries are automatically kept.  Non CI entries are kept if the relayer
+   peer matches our shred version (or is an entrypoint), *and* the origin
+   peer also matches our shred version. */
+
 static int
 filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
                       fd_gossip_view_t *     view,
@@ -522,6 +533,11 @@ filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
       __builtin_unreachable();
   }
 }
+
+/* For any received CI CRDS entries, checks if we received a message signed
+   by the identity pubkey but with a newer instance creation timestamp than
+   what we expect.  This indicates a duplicate validator instance and will
+   crash this validator.  */
 
 static void
 check_duplicate_instance( fd_gossvf_tile_ctx_t *   ctx,
@@ -600,6 +616,9 @@ ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *    ctx,
   }
   return 0;
 }
+
+/* For push and pull response messages, verifies that contact info entries
+   are of active / pinged peers.  Any CIs from inactive peers are filtered. */
 
 static int
 verify_addresses( fd_gossvf_tile_ctx_t * ctx,

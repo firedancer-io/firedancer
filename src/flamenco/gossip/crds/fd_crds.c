@@ -39,7 +39,6 @@ struct fd_crds_entry_private {
     struct {
       fd_crds_contact_info_entry_t * ci;
       long                           instance_creation_wallclock_nanos;
-      uchar                          is_active;
       ulong                          sampler_idx;
 
       /* A list of "fresh" contact info entries is maintained, holding
@@ -1025,10 +1024,6 @@ fd_crds_insert( fd_crds_t *                         crds,
       crds_contact_info_evict_dlist_ele_remove( crds->contact_info.evict_dlist, incumbent, crds->pool );
       candidate->contact_info.ci = incumbent->contact_info.ci;
 
-      /* is_active is user controlled (specifically by ping_tracker),
-         and is used in sampler score calculations. So we inherit the
-         incumbent's setting. */
-      candidate->contact_info.is_active = incumbent->contact_info.is_active;
       if( FD_LIKELY( !is_from_me ) ) {
         if( FD_UNLIKELY( candidate->stake!=incumbent->stake ) ) {
           /* Perform a rescore here (expensive) */
@@ -1090,8 +1085,6 @@ fd_crds_insert( fd_crds_t *                         crds,
 
   if( FD_UNLIKELY( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     fd_memcpy( candidate->contact_info.ci->contact_info, candidate_view->ci_view->contact_info, sizeof(fd_contact_info_t) );
-    /* Default to active, since we filter inactive entries prior to insertion */
-    candidate->contact_info.is_active = 1;
 
     crds_contact_info_evict_dlist_ele_push_tail( crds->contact_info.evict_dlist, candidate, crds->pool );
 
@@ -1165,41 +1158,27 @@ fd_crds_peer_count( fd_crds_t const * crds ){
   return crds_contact_info_pool_used( crds->contact_info.pool );
 }
 
-static inline void
-set_peer_active_status( fd_crds_t *   crds,
-                        uchar const * peer_pubkey,
-                        uchar         status,
-                        long          now ) {
-
-  fd_crds_key_t key[1];
-  make_contact_info_key( peer_pubkey, key );
-
-  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool );
-  /* TODO: error handling? This technically should never hit */
-  if( FD_UNLIKELY( !peer_ci ) ) return;
-  uchar old_status = peer_ci->contact_info.is_active;
-  peer_ci->contact_info.is_active = status;
-
-  if( FD_UNLIKELY( old_status!=status ) ) {
-    /* Trigger sampler update */
-    crds_samplers_upd_peer_at_idx( crds->samplers,
-                                   peer_ci,
-                                   peer_ci->contact_info.sampler_idx,
-                                   now );
-  }
-}
-void
-fd_crds_peer_active( fd_crds_t *   crds,
-                     uchar const * peer_pubkey,
-                     long          now ) {
-  set_peer_active_status( crds, peer_pubkey, 1 /* active */, now );
-}
-
 void
 fd_crds_peer_inactive( fd_crds_t *   crds,
-                       uchar const * peer_pubkey,
-                       long          now ) {
-  set_peer_active_status( crds, peer_pubkey, 0 /* inactive */, now );
+                       uchar const * peer_pubkey ) {
+  fd_crds_key_t key[1];
+  make_contact_info_key( peer_pubkey, key );
+  fd_crds_entry_t * entry = lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool );
+  if( FD_UNLIKELY( !entry ) ) return;
+
+  /* Expire the entry in the next advance loop. */
+  entry->expire.wallclock_nanos = 0L;
+  if( FD_LIKELY( !entry->stake ) ) {
+    unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, entry, crds->pool );
+    unstaked_expire_dlist_ele_push_head( crds->unstaked_expire_dlist, entry, crds->pool );
+  } else {
+    staked_expire_dlist_ele_remove( crds->staked_expire_dlist, entry, crds->pool );
+    staked_expire_dlist_ele_push_head( crds->staked_expire_dlist, entry, crds->pool );
+  }
+  if( FD_LIKELY( !!entry->contact_info.fresh_dlist.in_list ) ) {
+    crds_contact_info_fresh_list_ele_remove( crds->contact_info.fresh_dlist, entry, crds->pool );
+    crds_contact_info_fresh_list_ele_push_head( crds->contact_info.fresh_dlist, entry, crds->pool );
+  }
 }
 
 fd_contact_info_t const *

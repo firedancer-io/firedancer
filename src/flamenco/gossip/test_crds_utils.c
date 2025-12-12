@@ -41,9 +41,8 @@ create_test_crds_with_ci( fd_rng_t * rng, ulong num_peers ) {
     /* Generate random stake */
     ulong stake = fd_rng_ulong_roll( rng, 1000000UL ) + 1UL;
 
-    /* Insert into CRDS, mark entries as active */
+    /* Insert into CRDS */
     fd_crds_insert( crds, &view, payload, stake, 0, view.wallclock_nanos, NULL );
-    fd_crds_peer_active( crds, payload,  view.wallclock_nanos );
   }
 
   return crds;

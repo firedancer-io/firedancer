@@ -235,21 +235,15 @@ fd_crds_contact_info_lookup( fd_crds_t const * crds,
 ulong
 fd_crds_peer_count( fd_crds_t const * crds );
 
-/* The CRDS table tracks whether a peer is active or not to determine
-   whether it should be sampled (see sample APIs).
-   fd_crds_peer_{active,inactive} provide a way to manage this state
-   for a given peer.
-
-   A peer's active state is typicallly determined by its ping/pong status. */
-void
-fd_crds_peer_active( fd_crds_t *   crds,
-                     uchar const * peer_pubkey,
-                     long          now );
+/* fd_crds_peer_inactive removes the contact info CRDS entry associated
+   with the given peer.  The CRDS table only stores CI entries for active
+   peers, meaning peers that have responded to a ping with a valid pong.
+   If a peer becomes invalid by timing out, removes their entries from
+   the table. */
 
 void
 fd_crds_peer_inactive( fd_crds_t *   crds,
-                       uchar const * peer_pubkey,
-                       long          now );
+                       uchar const * peer_pubkey );
 
 /* The CRDS Table also maintains a set of peer samplers for use in various
    Gossip tx cases. Namely

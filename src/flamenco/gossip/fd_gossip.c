@@ -145,8 +145,8 @@ ping_tracker_change( void *        _ctx,
   if( FD_UNLIKELY( !memcmp( peer_pubkey, ctx->identity_pubkey, 32UL ) ) ) return;
 
   switch( change_type ) {
-    case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:   fd_crds_peer_active( ctx->crds, peer_pubkey, now ); break;
-    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE: fd_crds_peer_inactive( ctx->crds, peer_pubkey, now ); break;
+    case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:   break;
+    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE: fd_crds_peer_inactive( ctx->crds, peer_pubkey ); break;
     case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED: break;
     default: FD_LOG_ERR(( "Unknown change type %d", change_type )); return;
   }
