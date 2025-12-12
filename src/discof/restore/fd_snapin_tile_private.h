@@ -103,6 +103,7 @@ struct fd_snapin_tile {
   fd_snapin_out_link_t manifest_out;
   fd_snapin_out_link_t gui_out;
   fd_snapin_out_link_t hash_out;
+  ulong *              hash_out_cons_fseq;
 
   struct {
     uchar * bstream_mem;
