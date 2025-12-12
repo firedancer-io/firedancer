@@ -78,7 +78,8 @@ typedef struct fd_gossip_pingreq fd_gossip_pingreq_t;
 struct fd_gossip_ping_update {
   fd_pubkey_t   pubkey;
   fd_ip4_port_t gossip_addr;
-  int           remove;
+  int           change_type;
+  ulong         idx;
 };
 
 typedef struct fd_gossip_ping_update fd_gossip_ping_update_t;
