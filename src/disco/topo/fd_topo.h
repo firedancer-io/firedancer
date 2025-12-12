@@ -553,11 +553,15 @@ struct fd_topo_tile {
 
       uint  lthash_disabled : 1;
       uint  use_vinyl : 1;
+    } snapin;
+
+    struct {
+      uint  lthash_disabled : 1;
       ulong vinyl_meta_map_obj_id;
       ulong vinyl_meta_pool_obj_id;
       ulong snapwr_depth;
       char  vinyl_path[ PATH_MAX ];
-    } snapin;
+    } snapwm;
 
     struct {
       ulong dcache_obj_id;

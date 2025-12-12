@@ -1249,3 +1249,16 @@
 | <span class="metrics-name">vinyl_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
 
 </div>
+
+## Snapwm Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapwm_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;loaded</span> | gauge | Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts |
+| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;replaced</span> | gauge | Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts |
+| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;ignored</span> | gauge | Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts |
+
+</div>

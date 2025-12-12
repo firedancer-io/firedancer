@@ -44,6 +44,7 @@ class Tile(Enum):
     SNAPLS = 38
     TOWER = 39
     VINYL = 40
+    SNAPWM = 41
 
 class MetricType(Enum):
     COUNTER = 0

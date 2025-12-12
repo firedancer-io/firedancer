@@ -1076,6 +1076,13 @@ metric introduced.
     <gauge name="AccountsIgnored" summary="Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts" />
 </tile>
 
+<tile name="snapwm">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
+    <gauge name="AccountsLoaded" summary="Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts" />
+    <gauge name="AccountsReplaced" summary="Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts" />
+    <gauge name="AccountsIgnored" summary="Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts" />
+</tile>
+
 <tile name="snapwr">
     <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN" />
     <gauge name="VinylBytesWritten" summary="Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted" />

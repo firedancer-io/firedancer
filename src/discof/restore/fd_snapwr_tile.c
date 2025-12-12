@@ -72,6 +72,10 @@ struct fd_snapwr {
   ulong *      seq_sync;  /* fseq->seq[0] */
   uint         idle_cnt;
 
+  ulong        req_seen;
+  ulong        tile_cnt;
+  ulong        tile_idx;
+
   struct {
     ulong last_off;
   } metrics;
@@ -113,7 +117,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snapwr_t * snapwr = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   memset( &snapwr->metrics, 0, sizeof(snapwr->metrics) );
 
-  if( FD_UNLIKELY( tile->kind_id      ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
   if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=0UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 0", tile->out_cnt ));
 
@@ -126,6 +129,10 @@ unprivileged_init( fd_topo_t *      topo,
   snapwr->seq_sync = tile->in_link_fseq[ 0 ];
 
   snapwr->state = FD_SNAPSHOT_STATE_IDLE;
+
+  snapwr->req_seen = 0UL;
+  snapwr->tile_cnt = fd_topo_tile_name_cnt( topo, "snapwr" );
+  snapwr->tile_idx = tile->kind_id;
 }
 
 static ulong
@@ -203,6 +210,11 @@ handle_control_frag( fd_snapwr_t * ctx,
   }
 }
 
+static int
+should_process_wr_request( fd_snapwr_t * ctx ) {
+  return ctx->req_seen%ctx->tile_cnt==ctx->tile_idx;
+}
+
 /* handle_data_frag handles a bstream block sz-aligned write request.
    Does a synchronous blocking O_DIRECT write. */
 
@@ -219,11 +231,15 @@ handle_data_frag( fd_snapwr_t * ctx,
     FD_LOG_CRIT(( "vinyl bstream log is out of space" ));
   }
 
-  /* Do a synchronous write(2) */
-  ssize_t write_sz = pwrite( ctx->dev_fd, src, src_sz, (off_t)dev_off );
-  if( FD_UNLIKELY( write_sz<0 ) ) {
-    FD_LOG_ERR(( "pwrite(off=%lu,sz=%lu) failed (%i-%s)", dev_off, src_sz, errno, strerror( errno ) ));
+  if( FD_LIKELY( should_process_wr_request( ctx ) ) ) {
+    /* Do a synchronous write(2) */
+    ssize_t write_sz = pwrite( ctx->dev_fd, src, src_sz, (off_t)dev_off );
+    if( FD_UNLIKELY( write_sz<0 ) ) {
+      FD_LOG_ERR(( "pwrite(off=%lu,sz=%lu) failed (%i-%s)", dev_off, src_sz, errno, strerror( errno ) ));
+    }
   }
+  ctx->req_seen++;
+
   ctx->metrics.last_off = dev_off+src_sz;
 }
 
