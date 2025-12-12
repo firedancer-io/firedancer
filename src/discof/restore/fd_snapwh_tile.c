@@ -69,7 +69,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_CRIT( fd_dcache_app_sz( in_link->dcache )>=sizeof(ulong), "in_link dcache app region too small to hold io_seed" );
   snapwh->io_seed = (ulong const *)fd_dcache_app_laddr_const( in_link->dcache );
 
-  ulong wr_fseq_cnt_exp = fd_topo_tile_name_cnt( topo, "snapwr" );
+  ulong wr_fseq_cnt_exp = fd_topo_tile_name_cnt( topo, "snapwr" ) + fd_topo_tile_name_cnt( topo, "snaplh" );
   FD_TEST( wr_fseq_cnt_exp<=FD_SNAPWH_WR_FSEQ_CNT_MAX );
   ulong wr_fseq_cnt     = 0UL;
   fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ 0 ] ];
@@ -132,8 +132,9 @@ before_credit( fd_snapwh_t *       ctx,
     *charge_busy = 0;
     ctx->idle_cnt = 0U;
   }
+  *charge_busy = 0;
 
-  /* Reverse path bubble up flow control credits received from snapwr */
+  /* Reverse path bubble up flow control credits received from downstream tiles */
   ulong wr_seq_min = ULONG_MAX;
   for( ulong i=0; i<ctx->wr_fseq_cnt; i++ ){
     ulong wr_seq = fd_fseq_query( ctx->wr_fseq[ i ] );

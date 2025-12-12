@@ -1262,3 +1262,27 @@
 | <span class="metrics-name">snapwm_&#8203;accounts_&#8203;ignored</span> | gauge | Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts |
 
 </div>
+
+## Snaplh Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaplh_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snaplh_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snaplh_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+
+</div>
+
+## Snaplv Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaplv_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snaplv_&#8203;full_&#8203;duplicate_&#8203;accounts_&#8203;hashed</span> | gauge | Number of duplicate accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snaplv_&#8203;incremental_&#8203;duplicate_&#8203;accounts_&#8203;hashed</span> | gauge | Number of duplicate accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+
+</div>

@@ -6,6 +6,8 @@
 
 #include "utils/fd_slot_delta_parser.h"
 #include "utils/fd_ssparse.h"
+#include "../../ballet/lthash/fd_lthash.h"
+#include "../../ballet/lthash/fd_lthash_adder.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
@@ -16,13 +18,22 @@
 #define FD_SNAPWM_PAIR_SZ_MAX        (fd_vinyl_bstream_pair_sz(FD_RUNTIME_ACC_SZ_MAX))
 #define FD_SNAPWM_PAIR_BATCH_SZ_MAX  (FD_SNAPWM_PAIR_BATCH_CNT_MAX*FD_SNAPWM_PAIR_SZ_MAX)
 
+#define FD_SNAPWM_DUP_META_BATCH_CNT_MAX  (FD_SNAPWM_PAIR_BATCH_CNT_MAX)
+#define FD_SNAPWM_DUP_META_SZ             (sizeof(ulong)+sizeof(fd_vinyl_bstream_phdr_t))
+#define FD_SNAPWM_DUP_META_BATCH_SZ       (FD_SNAPWM_DUP_META_BATCH_CNT_MAX*FD_SNAPWM_DUP_META_SZ)
+
+#define FD_SNAPWM_DUP_BATCH_CREDIT_MIN  (1UL)
+#define FD_SNAPWM_DUP_LTHASH_CREDIT_MIN ((FD_LTHASH_LEN_BYTES+(ctx->hash_out.mtu-1))/ctx->hash_out.mtu)
+
 struct fd_snapwm_out_link {
-  ulong       idx;
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
-  ulong       chunk;
-  ulong       mtu;
+  ulong         idx;
+  fd_wksp_t *   mem;
+  ulong         chunk0;
+  ulong         wmark;
+  ulong         chunk;
+  ulong         mtu;
+  ulong         depth;
+  ulong const * consumer_fseq;
 };
 typedef struct fd_snapwm_out_link fd_snapwm_out_link_t;
 
@@ -74,6 +85,12 @@ struct fd_snapwm_tile {
 
     ulong txn_seq;  /* bstream seq of first txn record (in [seq_past,seq_present]) */
     uint  txn_active : 1;
+
+    ulong   duplicate_accounts_batch_sz;
+    ulong   duplicate_accounts_batch_cnt;
+
+    fd_lthash_adder_t adder;
+    fd_lthash_value_t running_lthash;
   } vinyl;
 };
 
@@ -128,7 +145,7 @@ fd_snapwm_vinyl_txn_begin( fd_snapwm_tile_t * ctx );
    written since txn_begin was called and updates the vinyl_meta index. */
 
 void
-fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx );
+fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx, fd_stem_context_t * stem );
 
 /* fd_snapwm_vinyl_txn_cancel abandons a transactional burst write.
    Assumes vinyl uses the io_mm backend.  Reverts the bstream state to
@@ -164,9 +181,10 @@ fd_snapwm_vinyl_shutdown( fd_snapwm_tile_t * ctx );
    It supports batch mode as well as single account (pair). */
 
 void
-fd_snapwm_vinyl_process_account( fd_snapwm_tile_t * ctx,
-                                 ulong              chunk,
-                                 ulong              acc_cnt );
+fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
+                                 ulong               chunk,
+                                 ulong               acc_cnt,
+                                 fd_stem_context_t * stem );
 
 /* fd_snapwm_vinyl_read_account retrieves an account from the vinyl
    database. */
@@ -177,6 +195,67 @@ fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
                               fd_account_meta_t * meta,
                               uchar *             data,
                               ulong               data_max );
+
+/* fd_snapwm_vinyl_duplicate_accounts_batch_{init,append,fini} handle
+   duplicate accounts batching when lthash computation is enabled.
+   The batch is needed to minimize the STEM_BURST, and make the stem
+   credit handling possible.  _fini is responsible for sending the
+   message downstream.
+
+   Typical usage:
+     fd_snapwm_vinyl_duplicate_accounts_batch_init( ctx, stem );
+     for(...) {
+       ...
+       fd_snapwm_vinyl_duplicate_accounts_batch_append( ctx, phdr, seq );
+     }
+     fd_snapwm_vinyl_duplicate_accounts_batch_fini( ctx, stem );
+
+   They all return 1 on success, and 0 otherwise.
+
+   IMPORTANT: there is an fseq check inside init, since every append
+   modifies the output link's dcache directly.  However, there is no
+   fseq check inside fini.  This is a performance optimization, which
+   requires no fd_stem_publish between init and fini. */
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_init( fd_snapwm_tile_t *  ctx,
+                                               fd_stem_context_t * stem );
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_append( fd_snapwm_tile_t *        ctx,
+                                                 fd_vinyl_bstream_phdr_t * phdr,
+                                                 ulong                     seq );
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_fini( fd_snapwm_tile_t *  ctx,
+                                               fd_stem_context_t * stem );
+
+/* fd_snapwm_vinyl_duplicate_accounts_lthash_{init,append,fini} handle
+   duplicate accounts lthash local calculation when lthash computation
+   is enabled.  This is typically only needed when the account is an
+   "old" duplicate (meaning that it corresponds to an older slot than
+   what is currently in the database).  _fini is responsible for
+   sending the message downstream.
+
+   Typical usage:
+     fd_snapwm_vinyl_duplicate_accounts_lthash_init( ctx, stem );
+     for(...) {
+       ...
+       fd_snapwm_vinyl_duplicate_accounts_lthash_append( ctx, pair );
+     }
+     fd_snapwm_vinyl_duplicate_accounts_lthash_fini( ctx, stem );
+
+   They all return 1 on success, and 0 otherwise.
+
+   IMPORTANT: the fseq check happens only inside fini, since append
+   only operates on internal variables.  Therefore, it is safe to have
+   fd_stem_publish in between init and fini. */
+int
+fd_snapwm_vinyl_duplicate_accounts_lthash_init( fd_snapwm_tile_t *  ctx,
+                                                fd_stem_context_t * stem );
+int
+fd_snapwm_vinyl_duplicate_accounts_lthash_append( fd_snapwm_tile_t * ctx,
+                                                  uchar *            pair );
+int
+fd_snapwm_vinyl_duplicate_accounts_lthash_fini( fd_snapwm_tile_t *  ctx,
+                                                fd_stem_context_t * stem );
 
 FD_PROTOTYPES_END
 
