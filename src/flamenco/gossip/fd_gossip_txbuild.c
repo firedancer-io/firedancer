@@ -24,7 +24,7 @@ fd_gossip_txbuild_init( fd_gossip_txbuild_t * txbuild,
                         uchar                 msg_type ) {
   txbuild->tag = msg_type;
   txbuild->bytes_len = 44UL; /* offsetof( crds_msg_t, crds ) */
-  txbuild->crds_len = 0UL;
+  txbuild->crds_cnt = 0UL;
 
   crds_msg_t * msg = (crds_msg_t *)txbuild->bytes;
   msg->msg_type = msg_type;
@@ -44,7 +44,7 @@ fd_gossip_txbuild_append( fd_gossip_txbuild_t * txbuild,
                           uchar const *         crds ) {
   FD_TEST( crds_len<=FD_GOSSIP_CRDS_MAX_SZ );
   FD_TEST( fd_gossip_txbuild_can_fit( txbuild, crds_len ) );
-  FD_TEST( txbuild->crds_len<sizeof(txbuild->crds)/sizeof(txbuild->crds[0]) );
+  FD_TEST( txbuild->crds_cnt<sizeof(txbuild->crds)/sizeof(txbuild->crds[0]) );
 
   fd_memcpy( &txbuild->bytes[ txbuild->bytes_len ], crds, crds_len );
 
@@ -53,10 +53,10 @@ fd_gossip_txbuild_append( fd_gossip_txbuild_t * txbuild,
 
   crds_val_hdr_t * hdr = (crds_val_hdr_t *)crds;
 
-  txbuild->crds[ txbuild->crds_len ].tag = hdr->tag;
-  txbuild->crds[ txbuild->crds_len ].off = (ushort)txbuild->bytes_len;
-  txbuild->crds[ txbuild->crds_len ].sz  = (ushort)crds_len;
-  txbuild->crds_len++;
+  txbuild->crds[ txbuild->crds_cnt ].tag = hdr->tag;
+  txbuild->crds[ txbuild->crds_cnt ].off = (ushort)txbuild->bytes_len;
+  txbuild->crds[ txbuild->crds_cnt ].sz  = (ushort)crds_len;
+  txbuild->crds_cnt++;
 
   txbuild->bytes_len += crds_len;
 }

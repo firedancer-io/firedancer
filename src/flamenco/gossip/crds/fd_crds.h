@@ -139,9 +139,8 @@ fd_crds_insert_failed_insert( fd_crds_t *   crds,
    Returns FD_CRDS_UPSERT_CHECK_UPSERTS if the value passes the fast checks.
    Returns >0 if the value is a duplicate, with the return value denoting the
    number of duplicates seen at this point (including current). Returns
-   FD_CRDS_UPSERT_CHECK_UNDETERMINED if further checks are needed
-   (e.g. hash comparison). Returns FD_CRDS_UPSERT_CHECK_FAILS for other
-   failures (e.g. too old). This will result in the candidate being purged.
+   FD_CRDS_UPSERT_CHECK_FAILS for other failures (e.g. too old). This will
+   result in the candidate being purged.
 
    Note that this function is not idempotent as duplicate counts are tracked by
    the CRDS table.
