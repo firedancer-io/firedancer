@@ -541,6 +541,7 @@ remove_contact_info( fd_crds_t *         crds,
                      long                now,
                      fd_stem_context_t * stem ) {
   if( FD_LIKELY( stem ) ) {
+    //TODO-AM: Filter identity contact info?
     fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
     msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
     msg->wallclock_nanos = now;
@@ -920,6 +921,7 @@ publish_update_msg( fd_crds_t *                         crds,
   ulong sz;
   switch( entry->key.tag ) {
     case FD_GOSSIP_VALUE_CONTACT_INFO:
+      //TODO-AM: Filter identity contact info?
       msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
       *msg->contact_info.contact_info = *entry->contact_info.ci->contact_info;
       msg->contact_info.idx = crds_contact_info_pool_idx( crds->contact_info.pool, entry->contact_info.ci );
