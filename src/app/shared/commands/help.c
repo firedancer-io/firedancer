@@ -17,6 +17,7 @@ help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
   /* fdctl does not have many flag arguments so we hard-code the
      --config parameter. */
   FD_LOG_STDOUT(( "        --config <PATH>    Path to config TOML file\n" ));
+  FD_LOG_STDOUT(( "        --log-path <PATH>  Path to log file (or \"\" for no log, \"-\" for stdout)\n" ));
   FD_LOG_STDOUT(( "        --version          Show the current software version\n" ));
   FD_LOG_STDOUT(( "        --help             Print this help message\n\n" ));
   FD_LOG_STDOUT(( "SUBCOMMANDS:\n" ));
