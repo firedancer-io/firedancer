@@ -1004,18 +1004,11 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
            Now figure out the state that the nonce account should
            advance to.
          */
-        fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-            runtime->funk,
-            &xid,
-            &txn_out->accounts.account_keys[ instr_accts[ 0UL ] ],
-            NULL,
-            &err,
-            NULL );
-        ulong acc_data_len = meta->dlen;
-
-        if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        fd_accdb_ro_t nonce[1];
+        if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, nonce, &xid, &txn_out->accounts.account_keys[ instr_accts[ 0UL ] ] ) ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
+        ulong acc_data_len = fd_accdb_ref_data_sz( nonce );
 
         fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( bank );
         fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
@@ -1044,10 +1037,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
         if( FD_UNLIKELY( !borrowed_account_data ) ) {
           FD_LOG_CRIT(( "Failed to allocate memory for nonce account" ));
         }
-        if( FD_UNLIKELY( !meta ) ) {
-          FD_LOG_CRIT(( "Failed to get meta for nonce account" ));
-        }
-        fd_memcpy( borrowed_account_data, meta, sizeof(fd_account_meta_t)+acc_data_len );
+        fd_memcpy( borrowed_account_data, nonce->meta, sizeof(fd_account_meta_t)+acc_data_len );
 
         if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
               txn_out->accounts.rollback_nonce,

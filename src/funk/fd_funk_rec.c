@@ -61,14 +61,6 @@ fd_funk_rec_txn_release( fd_funk_txn_map_query_t const * query ) {
   }
 }
 
-static void
-fd_funk_rec_key_set_pair( fd_funk_xid_key_pair_t *  key_pair,
-                          fd_funk_txn_xid_t const * xid,
-                          fd_funk_rec_key_t const * key ) {
-  fd_funk_txn_xid_copy( key_pair->xid, xid );
-  fd_funk_rec_key_copy( key_pair->key, key );
-}
-
 fd_funk_rec_t *
 fd_funk_rec_query_try( fd_funk_t *               funk,
                        fd_funk_txn_xid_t const * xid,
@@ -95,95 +87,6 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
     FD_LOG_CRIT(( "query returned err %d", err ));
   }
   return fd_funk_rec_map_query_ele( query );
-}
-
-fd_funk_rec_t const *
-fd_funk_rec_query_try_global( fd_funk_t const *         funk,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_funk_rec_key_t const * key,
-                              fd_funk_txn_xid_t *       txn_out,
-                              fd_funk_rec_query_t *     query ) {
-  if( FD_UNLIKELY( !funk  ) ) FD_LOG_CRIT(( "NULL funk"  ));
-  if( FD_UNLIKELY( !key   ) ) FD_LOG_CRIT(( "NULL key"   ));
-  if( FD_UNLIKELY( !query ) ) FD_LOG_CRIT(( "NULL query" ));
-
-  /* Attach to the funk transaction */
-
-  fd_funk_txn_map_query_t txn_query[1];
-  fd_funk_txn_t * txn = fd_funk_rec_txn_borrow( funk, xid, txn_query );
-
-  /* Look for the first element in the hash chain with the right
-     record key. This takes advantage of the fact that elements with
-     the same record key appear on the same hash chain in order of
-     newest to oldest. */
-
-  fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, xid, key );
-
-  fd_funk_rec_map_t const * rec_map = funk->rec_map;
-
-  ulong hash = fd_funk_rec_map_key_hash( pair, rec_map->map->seed );
-  ulong chain_idx = (hash & (rec_map->map->chain_cnt-1UL) );
-  fd_funk_rec_map_shmem_private_chain_t * chain = fd_funk_rec_map_shmem_private_chain( rec_map->map, hash );
-
-  /* Start a speculative record map transaction */
-
-  struct {
-    fd_funk_rec_map_txn_t txn;
-    fd_funk_rec_map_txn_private_info_t lock[1];
-  } txn_mem;
-  fd_funk_rec_map_txn_t * rec_txn;
-  fd_funk_rec_t const * res;
-
-retry:
-  res = NULL;
-  rec_txn = fd_funk_rec_map_txn_init( &txn_mem.txn, (void *)rec_map, 1UL );
-  txn_mem.lock[ 0 ].chain = chain;
-  txn_mem.txn.spec_cnt++;
-  if( FD_UNLIKELY( fd_funk_rec_map_txn_try( rec_txn, FD_MAP_FLAG_BLOCKING )!=FD_MAP_SUCCESS ) ) {
-    FD_LOG_CRIT(( "fd_funk_rec_map_txn_try failed" ));
-  }
-
-  query->ele     = NULL;
-  query->chain   = chain;
-  query->ver_cnt = txn_mem.lock[0].ver_cnt;
-
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( funk->rec_map, chain_idx );
-       !fd_funk_rec_map_iter_done( iter );
-       iter = fd_funk_rec_map_iter_next( iter ) ) {
-    fd_funk_rec_t const * ele = fd_funk_rec_map_iter_ele_const( iter );
-    if( FD_LIKELY( fd_funk_rec_key_eq( key, ele->pair.key ) ) ) {
-
-      /* For cur_txn in path from [txn] to [root] where root is NULL */
-
-      for( fd_funk_txn_t const * cur_txn = txn; ; cur_txn = fd_funk_txn_parent( cur_txn, funk->txn_pool ) ) {
-        /* If record ele is part of transaction cur_txn, we have a
-           match. According to the property above, this will be the
-           youngest descendent in the transaction stack. */
-
-        int match = FD_UNLIKELY( cur_txn ) ? /* opt for root find (FIXME: eliminate branch with cmov into txn_xid_eq?) */
-          fd_funk_txn_xid_eq( &cur_txn->xid, ele->pair.xid ) :
-          fd_funk_txn_xid_eq_root( ele->pair.xid );
-
-        if( FD_LIKELY( match ) ) {
-          if( txn_out ) {
-            *txn_out = *( cur_txn ? &cur_txn->xid : fd_funk_last_publish( funk ) );
-          }
-          query->ele = (fd_funk_rec_t *)ele;
-          res = query->ele;
-          goto found;
-        }
-
-        if( cur_txn == NULL ) break;
-      }
-    }
-  }
-
-found:
-  if( FD_UNLIKELY( fd_funk_rec_map_txn_test( rec_txn )!=FD_MAP_SUCCESS ) ) goto retry;
-  if( FD_LIKELY( txn ) ) fd_funk_txn_xid_assert( txn, pair->xid );
-  fd_funk_rec_txn_release( txn_query );
-  return res;
 }
 
 fd_funk_rec_t *

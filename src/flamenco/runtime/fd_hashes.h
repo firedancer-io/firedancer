@@ -101,15 +101,22 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
    On capture write failure, the function will FD_LOG_ERR and terminate.
    The function assumes all non-optional pointers are valid.
 
-   IMPORTANT: fd_hashes_update_lthash, or fd_hashes_update_lthash_from_funk,
-   must be called whenever an account is modified during transaction
-   execution. This includes sysvar accounts. */
+   IMPORTANT: fd_hashes_update_lthash must be called whenever an account
+   is modified. This includes sysvar accounts. */
 
 void
 fd_hashes_update_lthash( fd_txn_account_t const  * account,
                          fd_lthash_value_t const * prev_account_hash,
                          fd_bank_t               * bank,
                          fd_capture_ctx_t        * capture_ctx );
+
+void
+fd_hashes_update_lthash1( fd_pubkey_t const       * pubkey,
+                          fd_account_meta_t const * meta,
+                          void const *              data,
+                          fd_lthash_value_t const * prev_account_hash,
+                          fd_bank_t               * bank,
+                          fd_capture_ctx_t        * capture_ctx );
 
 /* fd_hashes_hash_bank computes the bank hash for a completed slot.  The
    bank hash is a deterministic hash of the slot's state including all

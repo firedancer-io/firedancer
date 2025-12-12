@@ -164,9 +164,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
 
     memcpy(  &(txn_out->accounts.account_keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
-    if( !fd_solfuzz_pb_load_account( &accts[j], runner->accdb, xid, &test_ctx->accounts[j], 0 ) ) {
-      return 0;
-    }
+    fd_account_meta_t * meta = fd_solfuzz_pb_load_account( runner->accdb, xid, &test_ctx->accounts[j], 0 );
+    if( !meta ) return 0;
+    fd_txn_account_new( &accts[j], acc_key, meta, 0 );
 
     fd_txn_account_t * acc = &accts[j];
     if( fd_txn_account_get_meta( acc ) ) {

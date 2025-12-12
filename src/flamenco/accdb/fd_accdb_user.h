@@ -47,6 +47,10 @@ struct fd_accdb_user_vt {
   (* close_rw)( fd_accdb_user_t * accdb,
                 fd_accdb_rw_t *   write );
 
+  fd_funk_txn_xid_t
+  (* ref_xid)( fd_accdb_user_t *     accdb,
+               fd_accdb_ro_t const * ro );
+
 };
 
 typedef struct fd_accdb_user_vt fd_accdb_user_vt_t;

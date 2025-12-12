@@ -26,9 +26,8 @@ FD_PROTOTYPES_BEGIN
 /* Creates / overwrites an account in funk given an input account state.
    On success, loads the account into acc.  Optionally, reject any
    zero-lamport accounts from being loaded in. */
-int
-fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
-                            fd_accdb_user_t *                 accdb,
+fd_account_meta_t *
+fd_solfuzz_pb_load_account( fd_accdb_user_t *                 accdb,
                             fd_funk_txn_xid_t const *         xid,
                             fd_exec_test_acct_state_t const * state,
                             uchar                             reject_zero_lamports );

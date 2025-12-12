@@ -2,11 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_loader_v4_program_h
 
 #include "../../fd_flamenco_base.h"
-#include "../context/fd_exec_instr_ctx.h"
-#include "../fd_system_ids.h"
-#include "../fd_executor.h"
-#include "../sysvar/fd_sysvar_rent.h"
-#include "../fd_borrowed_account.h"
 #include "fd_bpf_loader_program.h"
 
 /*
@@ -69,8 +64,9 @@ FD_FN_PURE uchar
 fd_loader_v4_status_is_finalized( fd_loader_v4_state_t const * state );
 
 fd_loader_v4_state_t const *
-fd_loader_v4_get_state( fd_txn_account_t const * program,
-                        int *                    err );
+fd_loader_v4_get_state( void const * data,
+                        ulong        data_sz,
+                        int *        err );
 
 int
 fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx );
