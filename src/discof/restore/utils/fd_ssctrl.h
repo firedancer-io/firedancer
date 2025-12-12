@@ -80,15 +80,23 @@
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
 
 /* snapla -> snapls */
-#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD        (9UL) /* Hash result sent from snapla to snapls */
+/* snaplh -> snaplv */
+#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD        (9UL) /* Hash result sent from snapla (snaplh) to snapls (snaplv) */
 
 /* snapin -> snapls */
-#define FD_SNAPSHOT_HASH_MSG_EXPECTED         (10UL) /* Hash result sent from snapin to snapls */
+/* snapin -> snapwm -> snaplv */
+#define FD_SNAPSHOT_HASH_MSG_EXPECTED         (10UL) /* Hash result sent from snapin to snapls or from snapin to snapwm to snaplv */
 
 /* snapin -> snapls */
 #define FD_SNAPSHOT_HASH_MSG_SUB              (11UL) /* Duplicate account sent from snapin to snapls, includes account header and data */
 #define FD_SNAPSHOT_HASH_MSG_SUB_HDR          (12UL) /* Duplicate account sent from snapin to snapls, only the account header, no data */
 #define FD_SNAPSHOT_HASH_MSG_SUB_DATA         (13UL) /* Duplicate account sent from snapin to snapls, only the account data, no header */
+/* snapwm -> snaplv */
+#define FD_SNAPSHOT_HASH_MSG_RESULT_SUB       (14UL) /* Duplicate partial hash result sent from snapwm to snaplv (to subtract) */
+/* snapwm -> snaplv -> snaplh */
+#define FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH   (15UL) /* Duplicate account(s) meta batch sent from snapwm to snaplv */
+
+
 
 /* Sent by snapct to tell snapld whether to load a local file or
    download from a particular external peer. */
@@ -146,5 +154,6 @@ struct fd_snapshot_full_account {
 typedef struct fd_snapshot_full_account fd_snapshot_full_account_t;
 
 #define FD_SNAPSHOT_MAX_SNAPLA_TILES (8UL)
+#define FD_SNAPSHOT_MAX_SNAPLH_TILES (8UL)
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssctrl_h */

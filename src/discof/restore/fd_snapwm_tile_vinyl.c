@@ -1,7 +1,10 @@
 #define _DEFAULT_SOURCE /* madvise */
 #include "fd_snapwm_tile_private.h"
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_ssparse.h"
 #include "utils/fd_vinyl_io_wd.h"
+#include "../../ballet/lthash/fd_lthash.h"
+#include "../../ballet/lthash/fd_lthash_adder.h"
 
 #include <errno.h>
 #include <fcntl.h>     /* open */
@@ -10,6 +13,8 @@
 #include <unistd.h>    /* close */
 
 #include "generated/fd_snapwm_tile_vinyl_seccomp.h"
+
+FD_STATIC_ASSERT( WD_WR_FSEQ_CNT_MAX<=FD_TOPO_MAX_TILE_IN_LINKS, "WD_WR_FSEQ_CNT_MAX" );
 
 /**********************************************************************\
 
@@ -153,19 +158,29 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
                   fd_mcache_depth( wr_link->mcache ), tile->snapwm.snapwr_depth ));
   }
 
-  if( FD_UNLIKELY( fd_topo_link_reliable_consumer_cnt( topo, wr_link )!=1UL ) ) {
-    FD_LOG_CRIT(( "snapwm_wr link must have exactly one reliable consumer" ));
+  ulong expected_wr_link_consumers_cnt = fd_topo_tile_name_cnt( topo, "snapwh" );
+  if( FD_UNLIKELY( fd_topo_link_reliable_consumer_cnt( topo, wr_link )!=expected_wr_link_consumers_cnt ) ) {
+    FD_LOG_CRIT(( "snapwm_wr link must have exactly %lu reliable consumers", expected_wr_link_consumers_cnt ));
   }
 
-  ulong wh_tile_id = fd_topo_find_tile( topo, "snapwh", 0UL );
-  FD_TEST( wh_tile_id!=ULONG_MAX );
-  fd_topo_tile_t * wh_tile = &topo->tiles[ wh_tile_id ];
-  FD_TEST( wh_tile->in_cnt==1 );
-  FD_TEST( wh_tile->in_link_id[0] == wr_link->id );
-  FD_CRIT( 0==strcmp( topo->links[ wh_tile->in_link_id[ 0 ] ].name, "snapwm_wh" ), "unexpected link found" );
-  ulong const * wh_fseq = wh_tile->in_link_fseq[ 0 ];
-  if( FD_UNLIKELY( !wh_fseq ) ) {
-    FD_LOG_CRIT(( "snapwm_wr link reliable consumer fseq not found" ));
+  ulong const * wh_fseq[WD_WR_FSEQ_CNT_MAX];
+  ulong wh_fseq_cnt = 0UL;
+  ulong wh_fseq_cnt_expected = fd_topo_tile_name_cnt( topo, "snapwh" );
+  FD_TEST( wh_fseq_cnt_expected<=WD_WR_FSEQ_CNT_MAX );
+  FD_TEST( wh_fseq_cnt_expected==fd_topo_link_reliable_consumer_cnt( topo, wr_link ) );
+  for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+    fd_topo_tile_t const * consumer_tile = &topo->tiles[ tile_idx ];
+    for( ulong in_idx=0UL; in_idx<consumer_tile->in_cnt; in_idx++ ) {
+      if( consumer_tile->in_link_id[ in_idx ]==wr_link->id ) {
+        FD_TEST( wh_fseq_cnt<WD_WR_FSEQ_CNT_MAX );
+        wh_fseq[ wh_fseq_cnt ] = consumer_tile->in_link_fseq[ in_idx ];
+        wh_fseq_cnt++;
+      }
+    }
+  }
+  if( FD_UNLIKELY( wh_fseq_cnt!=wh_fseq_cnt_expected ) ) {
+    FD_LOG_ERR(( "unable to find %lu fseq(s) for output link %s:%lu",
+                 wh_fseq_cnt, wr_link->name, wr_link->kind_id ));
   }
 
   /* Set up io_wd */
@@ -177,6 +192,7 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
                          wr_link->mcache,
                          wr_link->dcache,
                          wh_fseq,
+                         wh_fseq_cnt,
                          wr_link->mtu );
   if( FD_UNLIKELY( !ctx->vinyl.io_wd ) ) {
     FD_LOG_ERR(( "fd_vinyl_io_wd_init failed" ));
@@ -185,6 +201,12 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
   /* Start by using io_mm */
 
   ctx->vinyl.io = ctx->vinyl.io_mm;
+
+  ctx->vinyl.duplicate_accounts_batch_sz  = 0UL;
+  ctx->vinyl.duplicate_accounts_batch_cnt = 0UL;
+
+  fd_lthash_adder_new( &ctx->vinyl.adder );
+  fd_lthash_zero( &ctx->vinyl.running_lthash );
 }
 
 ulong
@@ -257,8 +279,39 @@ fd_snapwm_vinyl_txn_begin( fd_snapwm_tile_t * ctx ) {
   ctx->vinyl.txn_active = 1;
 }
 
+FD_FN_UNUSED static void
+streamlined_hash( fd_lthash_adder_t * restrict adder,
+                  fd_lthash_value_t * restrict running_lthash,
+                  uchar const *       restrict _pair ) {
+  uchar const * pair = _pair;
+  fd_vinyl_bstream_phdr_t const * phdr = (fd_vinyl_bstream_phdr_t const *)pair;
+  pair += sizeof(fd_vinyl_bstream_phdr_t);
+  fd_account_meta_t const * meta = (fd_account_meta_t const *)pair;
+  pair += sizeof(fd_account_meta_t);
+  uchar const * data = pair;
+
+  ulong data_len      = meta->dlen;
+  const char * pubkey = phdr->key.c;
+  ulong lamports      = meta->lamports;
+  const uchar * owner = meta->owner;
+  uchar executable = (uchar)( !meta->executable ? 0U : 1U) ;
+
+  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
+  if( FD_UNLIKELY( lamports==0UL ) ) return;
+
+  fd_lthash_adder_push_solana_account( adder,
+                                       running_lthash,
+                                       pubkey,
+                                       data,
+                                       data_len,
+                                       lamports,
+                                       executable,
+                                       owner );
+}
+
 void
-fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx ) {
+fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx,
+                            fd_stem_context_t * stem ) {
   FD_CRIT( ctx->vinyl.txn_active, "txn_commit called while not in txn" );
   FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
   fd_vinyl_io_t * io = ctx->vinyl.io_mm;
@@ -292,6 +345,9 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx ) {
   }
 
   /* Replay incremental account updates */
+  fd_snapwm_vinyl_duplicate_accounts_batch_init( ctx, stem );
+  fd_snapwm_vinyl_duplicate_accounts_lthash_init( ctx, stem );
+  ulong dup_batch_cnt = 0UL;
 
   fd_vinyl_meta_t * meta_map = ctx->vinyl.map;
   for( ulong seq=txn_seq0; fd_vinyl_seq_lt( seq, txn_seq1 ); ) {
@@ -317,8 +373,13 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx ) {
         ulong cur_slot   =      phdr.info.ul[ 1 ];
         if( exist_slot > cur_slot ) {
           ctx->metrics.accounts_ignored++;
+          FD_COMPILER_MFENCE();
+          fd_snapwm_vinyl_duplicate_accounts_lthash_append( ctx, (uchar*)block/*pair*/ );
+          FD_COMPILER_MFENCE();
           fd_memset( block, 0, block_sz );
           goto next;
+        } else {
+          dup_batch_cnt += (ulong)fd_snapwm_vinyl_duplicate_accounts_batch_append( ctx, &ele->phdr, ele->seq );
         }
         ctx->metrics.accounts_replaced++;
       }
@@ -343,7 +404,21 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx ) {
 
 next:
     seq += block_sz;
+
+    if( FD_UNLIKELY( dup_batch_cnt >= FD_SNAPWM_DUP_META_BATCH_CNT_MAX ) ) {
+      fd_snapwm_vinyl_duplicate_accounts_batch_fini( ctx, stem );
+      FD_COMPILER_MFENCE();
+      fd_snapwm_vinyl_duplicate_accounts_batch_init( ctx, stem );
+      dup_batch_cnt = 0UL;
+    }
   }
+
+  /* Batch fini must be invoked before lthash fini for two reasons:
+     the batch still needs to be processed downstream and there should
+     be no fd_stem_publish between batch init and fini. */
+  fd_snapwm_vinyl_duplicate_accounts_batch_fini( ctx, stem );
+  FD_COMPILER_MFENCE();
+  fd_snapwm_vinyl_duplicate_accounts_lthash_fini( ctx, stem );
 
   /* Persist above erases to disk */
 
@@ -426,13 +501,16 @@ bstream_alloc( fd_vinyl_io_t * io,
    whether to forward each of the accounts (pairs) to the database. */
 
 void
-fd_snapwm_vinyl_process_account( fd_snapwm_tile_t * ctx,
-                                 ulong              chunk,
-                                 ulong              acc_cnt ) {
+fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
+                                 ulong               chunk,
+                                 ulong               acc_cnt,
+                                 fd_stem_context_t * stem ) {
   fd_vinyl_io_t *   io  = ctx->vinyl.io;
   fd_vinyl_meta_t * map = ctx->vinyl.map;
 
   uchar * src = fd_chunk_to_laddr( ctx->in.wksp, chunk );
+
+  fd_snapwm_vinyl_duplicate_accounts_batch_init( ctx, stem );
 
   for( ulong acc_i=0UL; acc_i<acc_cnt; acc_i++ ) {
 
@@ -449,7 +527,7 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t * ctx,
     ctx->metrics.accounts_loaded++;
 
     fd_vinyl_meta_ele_t * ele = NULL;
-    if( ctx->full ) {  /* update index immediately */
+    if( ctx->full ) {
       ulong memo = fd_vinyl_key_memo( map->seed, &phdr->key );
       ele = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
       if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
@@ -461,6 +539,8 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t * ctx,
           ctx->metrics.accounts_ignored++;
           src += pair_sz;
           continue;
+        } else {
+          fd_snapwm_vinyl_duplicate_accounts_batch_append( ctx, &ele->phdr, ele->seq );
         }
         ctx->metrics.accounts_replaced++;
       }
@@ -479,6 +559,8 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t * ctx,
     ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
     if( ctx->full ) ele->seq = seq_after;
   }
+
+  fd_snapwm_vinyl_duplicate_accounts_batch_fini( ctx, stem );
 }
 
 void
@@ -565,4 +647,102 @@ fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
                   acct_addr_b58, (ulong)meta->dlen, data_max ));
   }
   memcpy( data, mmio+seq_data, meta->dlen );
+}
+
+/* handle_hash_out_fseq_check is a blocking operation */
+static inline void
+handle_hash_out_fseq_check( fd_snapwm_tile_t *  ctx,
+                            fd_stem_context_t * stem,
+                            ulong               min_credit ) {
+  ulong producer_fseq = fd_fseq_query( &stem->seqs[ ctx->hash_out.idx ] );
+  ulong consumer_fseq = fd_fseq_query( ctx->hash_out.consumer_fseq );
+  for(;;) {
+    ulong avail = ctx->hash_out.depth - ( producer_fseq - consumer_fseq );
+    if( FD_LIKELY( avail > min_credit ) ) break;
+    FD_SPIN_PAUSE();
+    consumer_fseq = fd_fseq_query( ctx->hash_out.consumer_fseq );
+  }
+}
+
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_init( fd_snapwm_tile_t *  ctx,
+                                               fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
+  ctx->vinyl.duplicate_accounts_batch_sz  = 0UL;
+  ctx->vinyl.duplicate_accounts_batch_cnt = 0UL;
+
+  /* fseq check is mandatory here, since append writes directly to
+     the dcache. */
+  handle_hash_out_fseq_check( ctx, stem, FD_SNAPWM_DUP_BATCH_CREDIT_MIN );
+  return 1;
+}
+
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_append( fd_snapwm_tile_t *        ctx,
+                                                 fd_vinyl_bstream_phdr_t * phdr,
+                                                 ulong                     seq ) {
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
+  uchar * data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+  data += ctx->vinyl.duplicate_accounts_batch_sz; /* offset into the chunk */
+  memcpy( data, &seq, sizeof(ulong) );
+  memcpy( data + sizeof(ulong), phdr, sizeof(fd_vinyl_bstream_phdr_t) );
+  ctx->vinyl.duplicate_accounts_batch_sz  += FD_SNAPWM_DUP_META_SZ;
+  ctx->vinyl.duplicate_accounts_batch_cnt +=1UL;
+  return 1;
+}
+
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_fini( fd_snapwm_tile_t * ctx,
+                                               fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
+
+  /* There is no fseq check in batch_fini.  This is a performance
+     optimization, which requires no other fd_stem_publish on the
+     output link in between init and fini. */
+
+  ulong batch_sz  = ctx->vinyl.duplicate_accounts_batch_sz;
+  ulong batch_cnt = ctx->vinyl.duplicate_accounts_batch_cnt;
+  if( FD_UNLIKELY( batch_cnt>FD_SSPARSE_ACC_BATCH_MAX ) ) {
+    FD_LOG_CRIT(( "batch_cnt %lu exceeds FD_SSPARSE_ACC_BATCH_MAX %lu", batch_cnt, FD_SSPARSE_ACC_BATCH_MAX ));
+  }
+  if( FD_UNLIKELY( !batch_sz ) ) return 0;
+  fd_stem_publish( stem, ctx->hash_out.idx, FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH, ctx->hash_out.chunk, batch_sz, 0UL, 0UL, batch_cnt/*tspub*/ );
+  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, batch_sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+  return 1;
+}
+
+int
+fd_snapwm_vinyl_duplicate_accounts_lthash_init( fd_snapwm_tile_t *  ctx,
+                                                fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
+  fd_lthash_zero( &ctx->vinyl.running_lthash );
+
+  (void)stem;
+  /* There is no fseq check in lthash_init, since append uses internal
+     adder and running_lthash, without accessing the dcache. */
+  return 1;
+}
+
+int
+fd_snapwm_vinyl_duplicate_accounts_lthash_append( fd_snapwm_tile_t * ctx,
+                                                  uchar *            pair ) {
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
+  streamlined_hash( &ctx->vinyl.adder, &ctx->vinyl.running_lthash, pair );
+  return 1;
+}
+
+int
+fd_snapwm_vinyl_duplicate_accounts_lthash_fini( fd_snapwm_tile_t * ctx,
+                                               fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
+
+  /* fseq check is mandatory here. */
+  handle_hash_out_fseq_check( ctx, stem, FD_SNAPWM_DUP_LTHASH_CREDIT_MIN );
+
+  fd_lthash_adder_flush( &ctx->vinyl.adder, &ctx->vinyl.running_lthash );
+  uchar * data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+  fd_memcpy( data, &ctx->vinyl.running_lthash, FD_LTHASH_LEN_BYTES );
+  fd_stem_publish( stem, ctx->hash_out.idx, FD_SNAPSHOT_HASH_MSG_RESULT_SUB, ctx->hash_out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
+  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, FD_LTHASH_LEN_BYTES, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+  return 1;
 }
