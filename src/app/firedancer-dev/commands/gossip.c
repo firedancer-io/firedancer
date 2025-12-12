@@ -876,7 +876,6 @@ gossip_cmd_fn( args_t *   args,
     total_overrun += overrun_count;
   }
   printf(" Total Overrun: %s\n", fmt_count( buf1, total_overrun ) );
-  printf(" Total ping tracked: %lu\n", gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKED_COUNT ) ] );
 
   for( ulong i=0UL; i<net_tile_cnt; i++ ) {
     if( FD_LIKELY( is_xdp ) ) {
@@ -1030,24 +1029,35 @@ gossip_cmd_fn( args_t *   args,
          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PUSH_STALE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PUSH_STALE ) ]) / (double)(push_insertion_total - prev_push_insertion_total) * 100.0,
          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PUSH_DUPLICATE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PUSH_DUPLICATE ) ]) / (double)(push_insertion_total - prev_push_insertion_total) * 100.0 );
 
-  printf( " +------------------------+--------------+  +------------+--------------+\n" );
-  printf( " | CRDS Type              | Count        |  | Ping Type  | Count        |\n" );
-  printf( " +------------------------+--------------+  +------------+--------------+\n" );
-  printf( " | Contact Info V1        | %s |"        "  | Unpinged   | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V1 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_UNPINGED ) ] ) );
-  printf( " | Contact Info V2        | %s |"        "  | Invalid    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_INVALID ) ] ) );
-  printf( " | Vote                   | %s |"        "  | Valid      | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VOTE ) ] ),            fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_VALID ) ] ) );
-  printf( " | Lowest Slot            | %s |"        "  | Refreshing | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_LOWEST_SLOT ) ] ),     fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_VALID_REFRESHING ) ] ) );
-  printf( " | Snapshot Hashes        | %s |"        "  +------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_SNAPSHOT_HASHES ) ] ) );
-  printf( " | Accounts Hashes        | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_ACCOUNTS_HASHES ) ] ) );
-  printf( " | Inc Snapshot Hashes    | %s |"        "  | Contact Info Events    | Count        |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_INCREMENTAL_SNAPSHOT_HASHES ) ] ) );
-  printf( " | Epoch Slots            | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_EPOCH_SLOTS ) ] ) );
-  printf( " | Version V1             | %s |"        "  | Unrecognized Socket    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V1 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, CONTACT_INFO_UNRECOGNIZED_SOCKET_TAGS ) ] ) );
-  printf( " | Version V2             | %s |"        "  | IPv6 Address           | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V2 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, CONTACT_INFO_IPV6 ) ] ) );
-  printf( " | Node Instance          | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_NODE_INSTANCE ) ] ) );
-  printf( " | Duplicate Shred        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_DUPLICATE_SHRED ) ] ) );
-  printf( " | Restart Last Voted     | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_LAST_VOTED_FORK_SLOTS ) ] ) );
-  printf( " | Restart Heaviest       | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_HEAVIEST_FORK ) ] ) );
-  printf( " +------------------------+--------------+\n\n" );
+  printf( " +------------------------+--------------+  +------------------------+--------------+\n" );
+  printf( " | CRDS Type              | Count        |  | Contact Info Events    | Count        |\n" );
+  printf( " +------------------------+--------------+  +------------------------+--------------+\n" );
+  printf( " | Contact Info V1        | %s |"        "  | Unrecognized Socket    | %s |\n",           fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V1 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, CONTACT_INFO_UNRECOGNIZED_SOCKET_TAGS ) ] ) );
+  printf( " | Contact Info V2        | %s |"        "  | IPv6 Address           | %s |\n",           fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, CONTACT_INFO_IPV6 ) ] ) );
+  printf( " | Vote                   | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VOTE ) ] ) );
+  printf( " | Lowest Slot            | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_LOWEST_SLOT ) ] ) );
+  printf( " | Snapshot Hashes        | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_SNAPSHOT_HASHES ) ] ) );
+  printf( " | Accounts Hashes        | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_ACCOUNTS_HASHES ) ] ) );
+  printf( " | Inc Snapshot Hashes    | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_INCREMENTAL_SNAPSHOT_HASHES ) ] ) );
+  printf( " | Epoch Slots            | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_EPOCH_SLOTS ) ] ) );
+  printf( " | Version V1             | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V1 ) ] ) );
+  printf( " | Version V2             | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V2 ) ] ) );
+  printf( " | Node Instance          | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_NODE_INSTANCE ) ] ) );
+  printf( " | Duplicate Shred        | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_DUPLICATE_SHRED ) ] ) );
+  printf( " | Restart Last Voted     | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_LAST_VOTED_FORK_SLOTS ) ] ) );
+  printf( " | Restart Heaviest       | %s |\n",                                                      fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_HEAVIEST_FORK ) ] ) );
+  printf( " +------------------------+--------------+\n" );
+  printf( " +-------------+--------------+ +-------------+--------------+ +-------------+--------------+\n" );
+  printf( " | Ping Events | Count        | | Pong Result | Count        | | Ping Peers  | Count        |\n" );
+  printf( " +-------------+--------------+ +-------------+--------------+ +-------------+--------------+\n" );
+  printf( " | Evicted     | %s |"        " | Untracked   | %s |"        " | Unpinged    | %s |\n",           fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_EVICTED_COUNT ) ] ),       fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_UNTRACKED ) ] ),   fmt_count( buf3, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_UNPINGED ) ] ) );
+  printf( " | Expired     | %s |"        " | Unsolicited | %s |"        " | Invalid     | %s |\n",           fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_EXPIRED ) ] ),             fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_UNSOLICITED ) ] ), fmt_count( buf3, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_INVALID ) ] ) );
+  printf( " | Retired     | %s |"        " | Address     | %s |"        " | Valid       | %s |\n",           fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_RETIRED ) ] ),             fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_ADDRESS ) ] ),     fmt_count( buf3, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_VALID ) ] ) );
+  printf( " | New Peer    | %s |"        " | Token       | %s |"        " | Refreshing  | %s |\n",           fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_TRACKED_COUNT ) ] ),       fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_TOKEN ) ] ),       fmt_count( buf3, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_VALID_REFRESHING ) ] ) );
+  printf( " | Staked      | %s |"        " | Success     | %s |"        " | Permanent   | %s |\n",           fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_STAKE_CHANGED_COUNT ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PONG_RESULT_SUCCESS ) ] ),     fmt_count( buf3, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKER_COUNT_PERMANENT ) ] ) );
+  printf( " | Addr Change | %s |"        " +-------------+--------------+ +-------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_ADDRESS_CHANGED_COUNT ) ] ) );
+  printf( " | Ping Sent   | %s |\n",                                                                         fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_PINGS ) ] ) );
+  printf( " +-------------+--------------+\n\n" );
 
 #define DIFFX(METRIC) gossip_metrics[ MIDX( COUNTER, TILE, METRIC ) ] - gossip_prev[ MIDX( COUNTER, TILE, METRIC ) ]
     ulong hkeep_ticks = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_PROCESSING_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_BACKPRESSURE_HOUSEKEEPING);
@@ -1108,7 +1118,7 @@ gossip_cmd_fn( args_t *   args,
       fmt_pct( buf3, (double)gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PURGED_COUNT ) ] / (double)gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PURGED_CAPACITY ) ] ),
       fmt_count( buf4, gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_PURGED_EVICTED_COUNT ) ] ),
       fmt_count( buf5, gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_PURGED_EXPIRED_COUNT ) ] ) );
-    printf( " +--------------+--------------+--------------+--------------+--------------+--------------+\n\n" );
+    printf( " +--------------+--------------+--------------+--------------+--------------+--------------+\n" );
 
     rx_deltas_t deltas = rx_deltas_aggregated( gossip_metrics, gossip_prev, &gossvf_tiles );
 

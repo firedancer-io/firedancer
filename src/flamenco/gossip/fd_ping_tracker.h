@@ -15,18 +15,18 @@
    not.
 
    Any peer which has tried to send us a gossip message within the last
-   two minutes is eligible to be pinged, except nodes with at least one
-   SOL of stake which are exempt from ping requirements.
+   twenty seconds is eligible to be pinged, except nodes with at least
+   one SOL of stake which are exempt from ping requirements.  Gossip
+   entrypoints are also exempt.
 
-   Once a peer has been pinged, we wait up to twenty seconds for a
-   response before trying again.  We repeatedly retry pinging the peer
-   until the peer responds, or their most recent message becomes older
-   than two minutes.
+   Once a peer has been pinged, we wait up to a second for a response
+   before trying again.  We repeatedly retry pinging the peer until the
+   peer responds, or their most recent message becomes older than twenty
+   seconds.
 
    Once a peer is validated by responding to a ping with a valid pong,
    it is considered valid for 20 minutes.  After 18 minutes, we will
-   begin pinging the peer again, every twenty seconds, to refresh the
-   peer. */
+   begin pinging the peer again, every second, to refresh the peer. */
 
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
@@ -45,27 +45,40 @@ struct fd_ping_tracker_metrics {
   ulong invalid_cnt;
   ulong valid_cnt;
   ulong refreshing_cnt;
+  ulong permanent_cnt;
 
-  ulong peers_evicted;
-
+  ulong ping_cnt;
   ulong tracked_cnt;
   ulong stake_changed_cnt;
   ulong address_changed_cnt;
+  ulong evicted_cnt;
+  ulong expired_cnt;
+  ulong retired_cnt;
 
-  ulong pong_result[ 6UL ];
+  ulong pong_result[ 5UL ];
 };
 
 typedef struct fd_ping_tracker_metrics fd_ping_tracker_metrics_t;
 
-#define FD_PING_TRACKER_CHANGE_TYPE_ACTIVE          (0)
-#define FD_PING_TRACKER_CHANGE_TYPE_INACTIVE        (1)
-#define FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED (2)
+/* Change callbacks are delivered whenever a peer's status changes.  A
+   peer can become active, become inactive, or be removed from the table
+   completely.
+
+   The callback includes the index of the peer in an imaginary array of
+   peers.  A given peer (identified by public key) will always have the
+   same index, including on its remove message.  Consumers of the change
+   callbacks can therefore maintain a simple array of peers. */
+
+#define FD_PING_TRACKER_CHANGE_TYPE_ACTIVE   (0)
+#define FD_PING_TRACKER_CHANGE_TYPE_INACTIVE (1)
+#define FD_PING_TRACKER_CHANGE_TYPE_REMOVE   (2)
 
 typedef void (*fd_ping_tracker_change_fn)( void *        ctx,
                                            uchar const * peer_pubkey,
                                            fd_ip4_port_t peer_address,
                                            long          now,
-                                           int           change_type );
+                                           int           change_type,
+                                           ulong         peer_idx );
 
 FD_PROTOTYPES_BEGIN
 
@@ -86,6 +99,9 @@ fd_ping_tracker_new( void *                    shmem,
 fd_ping_tracker_t *
 fd_ping_tracker_join( void * shpt );
 
+fd_ping_tracker_metrics_t const *
+fd_ping_tracker_metrics( fd_ping_tracker_t const * ping_tracker );
+
 /* fd_ping_tracker_track marks a peer for ping tracking.  This should be
    called every time a peer sends us a valid gossip contact info message
    so that we can start pinging them.
@@ -103,6 +119,16 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
                        fd_ip4_port_t       peer_address,
                        long                now );
 
+/* fd_ping_tracker_update_stake updates the stake amount associated with
+   the given peer.  It is not an error to call this for an untracked
+   peer.  This may cause peers to move in and out of exempted status. */
+
+void
+fd_ping_tracker_update_stake( fd_ping_tracker_t * ping_tracker,
+                              uchar const *       peer_pubkey,
+                              ulong               peer_stake,
+                              long                now );
+
 /* fd_ping_tracker_register registers a response pong from a peer so
    that they can be considered as valid.  It should be called any time
    a peer sends a valid-looking pong.  Valid looking, because it might
@@ -112,10 +138,19 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
 void
 fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
                           uchar const *       peer_pubkey,
-                          ulong               peer_stake,
                           fd_ip4_port_t       peer_address,
                           uchar const *       pong_token,
                           long                now );
+
+/* fd_ping_tracker_advance advances the ping tracker to the provided
+   time, checking various timeouts and performing actions as necessary.
+
+   This function is idempotent and should be called as often as possible
+   and before calling fd_ping_tracker_pop_request. */
+
+void
+fd_ping_tracker_advance( fd_ping_tracker_t * ping_tracker,
+                         long                now );
 
 /* fd_ping_tracker_pop_request informs the caller if a ping request
    needs to be sent to a peer.  If a ping request needs to be sent, the
@@ -138,7 +173,6 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token );
 
-fd_ping_tracker_metrics_t const *
-fd_ping_tracker_metrics( fd_ping_tracker_t const * ping_tracker );
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_ping_tracker_h */

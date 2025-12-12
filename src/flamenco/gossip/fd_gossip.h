@@ -149,7 +149,8 @@ fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
 void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,
                          fd_stake_weight_t const * stake_weights,
-                         ulong                     stake_weights_cnt );
+                         ulong                     stake_weights_cnt,
+                         long                      now );
 
 /* fd_gossip_advance advances the gossip protocol to the provided time,
    performing any necessary updates and actions along the way.  The

@@ -85,7 +85,8 @@ gossip_ping_tracker_change_fn( void *        _ctx,
                                uchar const * peer_pubkey,
                                fd_ip4_port_t peer_address,
                                long          now,
-                               int           change_type ) {
+                               int           change_type,
+                               ulong         peer_idx ) {
   (void)now;
 
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
@@ -93,7 +94,8 @@ gossip_ping_tracker_change_fn( void *        _ctx,
   fd_gossip_ping_update_t * ping_update = (fd_gossip_ping_update_t *)fd_chunk_to_laddr( ctx->gossvf_out->mem, ctx->gossvf_out->chunk );
   fd_memcpy( ping_update->pubkey.uc, peer_pubkey, 32UL );
   ping_update->gossip_addr.l = peer_address.l;
-  ping_update->remove = change_type!=FD_PING_TRACKER_CHANGE_TYPE_ACTIVE;
+  ping_update->change_type   = change_type;
+  ping_update->idx           = peer_idx;
 
   fd_stem_publish( ctx->stem, ctx->gossvf_out->idx, 0UL, ctx->gossvf_out->chunk, sizeof(fd_gossip_ping_update_t), 0UL, 0UL, 0UL );
   ctx->gossvf_out->chunk = fd_dcache_compact_next( ctx->gossvf_out->chunk, sizeof(fd_gossip_ping_update_t), ctx->gossvf_out->chunk0, ctx->gossvf_out->wmark );
@@ -122,18 +124,21 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_INVALID,          ping_tracker_metrics->invalid_cnt );
   FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_VALID,            ping_tracker_metrics->valid_cnt );
   FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_VALID_REFRESHING, ping_tracker_metrics->refreshing_cnt );
+  FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_PERMANENT,        ping_tracker_metrics->permanent_cnt );
 
-  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_STAKED,     ping_tracker_metrics->pong_result[ 0UL ] );
-  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_ENTRYPOINT, ping_tracker_metrics->pong_result[ 1UL ] );
-  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_UNTRACKED,  ping_tracker_metrics->pong_result[ 2UL ] );
-  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_ADDRESS,    ping_tracker_metrics->pong_result[ 3UL ] );
-  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_TOKEN,      ping_tracker_metrics->pong_result[ 4UL ] );
-  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_SUCCESS,    ping_tracker_metrics->pong_result[ 5UL ] );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_UNTRACKED,   ping_tracker_metrics->pong_result[ 0UL ] );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_UNSOLICITED, ping_tracker_metrics->pong_result[ 1UL ] );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_ADDRESS,     ping_tracker_metrics->pong_result[ 2UL ] );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_TOKEN,       ping_tracker_metrics->pong_result[ 3UL ] );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_SUCCESS,     ping_tracker_metrics->pong_result[ 4UL ] );
 
-  FD_MCNT_SET( GOSSIP, PING_TRACKER_EVICTED_COUNT,         ping_tracker_metrics->peers_evicted );
-  FD_MCNT_SET( GOSSIP, PING_TRACKED_COUNT,                 ping_tracker_metrics->tracked_cnt );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_EVICTED_COUNT,         ping_tracker_metrics->evicted_cnt );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_TRACKED_COUNT,         ping_tracker_metrics->tracked_cnt );
   FD_MCNT_SET( GOSSIP, PING_TRACKER_STAKE_CHANGED_COUNT,   ping_tracker_metrics->stake_changed_cnt );
   FD_MCNT_SET( GOSSIP, PING_TRACKER_ADDRESS_CHANGED_COUNT, ping_tracker_metrics->address_changed_cnt );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_PINGS,                 ping_tracker_metrics->ping_cnt );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_EXPIRED,               ping_tracker_metrics->expired_cnt );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_RETIRED,               ping_tracker_metrics->retired_cnt );
 
   fd_crds_metrics_t const * crds_metrics = fd_gossip_crds_metrics( ctx->gossip );
 
@@ -198,8 +203,9 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_stakes( fd_gossip_tile_ctx_t *        ctx,
                fd_stake_weight_msg_t const * msg ) {
+  long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
   ulong stakes_cnt = compute_id_weights_from_vote_weights( ctx->stake_weights_converted, msg->weights, msg->staked_cnt );
-  fd_gossip_stakes_update( ctx->gossip, ctx->stake_weights_converted, stakes_cnt );
+  fd_gossip_stakes_update( ctx->gossip, ctx->stake_weights_converted, stakes_cnt, now );
 }
 
 static void

@@ -29,8 +29,9 @@ ping_change_stub( void *        ctx,
                   uchar const * peer_pubkey,
                   fd_ip4_port_t peer_address,
                   long          now,
-                  int           change_type ) {
-  (void)ctx; (void)peer_pubkey; (void)peer_address; (void)now; (void)change_type;
+                  int           change_type,
+                  ulong         peer_idx ) {
+  (void)ctx; (void)peer_pubkey; (void)peer_address; (void)now; (void)change_type; (void)peer_idx;
 }
 
 static void

@@ -4,10 +4,8 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../disco/shred/fd_stake_ci.h"
 #include "../../flamenco/gossip/fd_gossip_private.h"
 #include "../../flamenco/gossip/fd_ping_tracker.h"
-#include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "generated/fd_gossvf_tile_seccomp.h"
@@ -17,9 +15,8 @@
 
 #define IN_KIND_SHRED_VERSION (0)
 #define IN_KIND_NET           (1)
-#define IN_KIND_REPLAY        (2)
-#define IN_KIND_PINGS         (3)
-#define IN_KIND_PEERS         (4)
+#define IN_KIND_PINGS         (2)
+#define IN_KIND_PEERS         (3)
 
 struct peer {
   fd_pubkey_t   pubkey;
@@ -32,36 +29,17 @@ struct peer {
 typedef struct peer peer_t;
 
 struct ping {
-  fd_pubkey_t pubkey;
+  fd_pubkey_t   pubkey;
   fd_ip4_port_t addr;
+  int           active;
 
   struct {
     ulong prev;
     ulong next;
   } map;
-
-  struct {
-    ulong next;
-  } pool;
 };
 
 typedef struct ping ping_t;
-
-struct stake {
-  fd_pubkey_t pubkey;
-  ulong       stake;
-
-  struct {
-    ulong prev;
-    ulong next;
-  } map;
-
-  struct {
-    ulong next;
-  } pool;
-};
-
-typedef struct stake stake_t;
 
 #define MAP_NAME               peer_map
 #define MAP_KEY                pubkey
@@ -72,31 +50,9 @@ typedef struct stake stake_t;
 #define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define POOL_NAME  ping_pool
-#define POOL_T     ping_t
-#define POOL_IDX_T ulong
-#define POOL_NEXT  pool.next
-#include "../../util/tmpl/fd_pool.c"
-
 #define MAP_NAME               ping_map
 #define MAP_KEY                pubkey
 #define MAP_ELE_T              ping_t
-#define MAP_KEY_T              fd_pubkey_t
-#define MAP_PREV               map.prev
-#define MAP_NEXT               map.next
-#define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
-#include "../../util/tmpl/fd_map_chain.c"
-
-#define POOL_NAME  stake_pool
-#define POOL_T     stake_t
-#define POOL_IDX_T ulong
-#define POOL_NEXT  pool.next
-#include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME               stake_map
-#define MAP_KEY                pubkey
-#define MAP_ELE_T              stake_t
 #define MAP_KEY_T              fd_pubkey_t
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
@@ -127,14 +83,8 @@ struct fd_gossvf_tile_ctx {
   peer_t *     peer_table;
   peer_map_t * peer_map;
 
-  ping_t *     pings;
+  ping_t *     ping_table;
   ping_map_t * ping_map;
-
-  struct {
-    ulong         count;
-    stake_t *     pool;
-    stake_map_t * map;
-  } stake;
 
   uchar payload[ FD_NET_MTU ];
   fd_ip4_port_t peer;
@@ -191,11 +141,9 @@ scratch_align( void ) {
          fd_ulong_max( alignof(fd_gossvf_tile_ctx_t),
          fd_ulong_max( alignof(peer_t),
          fd_ulong_max( peer_map_align(),
-         fd_ulong_max( ping_pool_align(),
+         fd_ulong_max( alignof(ping_t),
          fd_ulong_max( ping_map_align(),
-         fd_ulong_max( stake_pool_align(),
-         fd_ulong_max( stake_map_align(),
-                       fd_tcache_align() ) ) ) ) ) ) ) );
+                       fd_tcache_align() ) ) ) ) ) );
 }
 
 FD_FN_PURE static inline ulong
@@ -204,10 +152,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossvf_tile_ctx_t), sizeof(fd_gossvf_tile_ctx_t)                                               );
   l = FD_LAYOUT_APPEND( l, alignof(peer_t),               sizeof(peer_t)*FD_CONTACT_INFO_TABLE_SIZE                                  );
   l = FD_LAYOUT_APPEND( l, peer_map_align(),              peer_map_footprint( peer_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE ) ) );
-  l = FD_LAYOUT_APPEND( l, ping_pool_align(),             ping_pool_footprint(                        FD_PING_TRACKER_MAX )          );
+  l = FD_LAYOUT_APPEND( l, alignof(ping_t),               sizeof(ping_t)*FD_PING_TRACKER_MAX                                         );
   l = FD_LAYOUT_APPEND( l, ping_map_align(),              ping_map_footprint( ping_map_chain_cnt_est( FD_PING_TRACKER_MAX ) )        );
-  l = FD_LAYOUT_APPEND( l, stake_pool_align(),            stake_pool_footprint(                         MAX_STAKED_LEADERS )         );
-  l = FD_LAYOUT_APPEND( l, stake_map_align(),             stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) )       );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(),             fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )                      );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -241,7 +187,6 @@ before_frag( fd_gossvf_tile_ctx_t * ctx,
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: return 0;
     case IN_KIND_NET:           return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
-    case IN_KIND_REPLAY:        return 0;
     case IN_KIND_PINGS:         return 0;
     case IN_KIND_PEERS:         return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
                                        sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
@@ -264,26 +209,6 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
     uchar const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
     fd_memcpy( ctx->payload, src, sz );
   }
-}
-
-static inline void
-handle_stakes( fd_gossvf_tile_ctx_t *        ctx,
-               fd_stake_weight_msg_t const * msg ) {
-  fd_stake_weight_t stake_weights[ MAX_STAKED_LEADERS ];
-  ulong new_stakes_cnt = compute_id_weights_from_vote_weights( stake_weights, msg->weights, msg->staked_cnt );
-
-  for( ulong i=0UL; i<ctx->stake.count; i++ ) {
-    stake_map_idx_remove_fast( ctx->stake.map, i, ctx->stake.pool );
-  }
-
-  for( ulong i=0UL; i<new_stakes_cnt; i++ ) {
-    stake_t * entry = stake_pool_ele( ctx->stake.pool, i );
-    fd_memcpy( entry->pubkey.uc, stake_weights[i].key.uc, 32UL );
-    entry->stake = stake_weights[i].stake;
-
-    stake_map_idx_insert( ctx->stake.map, i, ctx->stake.pool );
-  }
-  ctx->stake.count = new_stakes_cnt;
 }
 
 static int
@@ -539,34 +464,19 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *   ctx,
   }
 }
 
-static inline int
-is_ping_active( fd_gossvf_tile_ctx_t *    ctx,
-                fd_contact_info_t const * contact_info ) {
-  fd_ip4_port_t const * gossip_addr = &contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
-
-  /* 1. If the node is an entrypoint, it is active */
-  if( FD_UNLIKELY( is_entrypoint( ctx, *gossip_addr ) ) ) return 1;
-
-  /* 2. If the node has more than 1 sol staked, it is active */
-  stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, &contact_info->pubkey, NULL, ctx->stake.pool );
-  if( FD_LIKELY( stake && stake->stake>=1000000000UL ) ) return 1;
-
-  /* 3. If the node has actively ponged a ping, it is active */
-  ping_t * ping = ping_map_ele_query( ctx->ping_map, &contact_info->pubkey, NULL, ctx->pings );
-  return ping!=NULL;
-}
-
 static int
 ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *    ctx,
                                fd_contact_info_t const * contact_info,
                                fd_stem_context_t *       stem ) {
-  fd_ip4_port_t const *     gossip_addr  = &contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
+  fd_ip4_port_t const * gossip_addr = &contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
 
   if( FD_UNLIKELY( gossip_addr->l==0U ) ) return 1; /* implies ipv6 address */
   int is_ip4_nonpublic = !ctx->allow_private_address && !fd_ip4_addr_is_public( gossip_addr->addr );
   if( FD_UNLIKELY( is_ip4_nonpublic ) ) return 1;
 
-  if( FD_UNLIKELY( !is_ping_active( ctx, contact_info ) ) ) {
+  ping_t const * ping = ping_map_ele_query( ctx->ping_map, &contact_info->pubkey, NULL, ctx->ping_table );
+
+  if( FD_UNLIKELY( !ping ) ) {
     fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t*)fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
     fd_memcpy( pingreq->pubkey.uc, contact_info->pubkey.uc, 32UL );
     fd_stem_publish( stem, 0UL, fd_gossvf_sig( gossip_addr->addr, gossip_addr->port, 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
@@ -576,11 +486,11 @@ ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *    ctx,
     char base58[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( contact_info->pubkey.uc, NULL, base58 );
     FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_addr->addr ), gossip_addr->port, ctx->ping_cnt ));
-    ctx->ping_cnt++;
 #endif
     return 1;
   }
-  return 0;
+
+  return !ping->active;
 }
 
 /* For push and pull response messages, verifies that contact info entries
@@ -652,27 +562,37 @@ handle_ping_update( fd_gossvf_tile_ctx_t *          ctx,
     fd_base58_encode_32( ping_update->pubkey.uc, NULL, base58 );
 #endif
 
-  if( FD_UNLIKELY( ping_update->remove ) ) {
-#if DEBUG_PINGS
-    ctx->ping_cnt--;
-    FD_LOG_NOTICE(( "removing ping for %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( ping_update->gossip_addr.addr ), fd_ushort_bswap( ping_update->gossip_addr.port ), ctx->ping_cnt ));
-#endif
+  FD_TEST( ping_update->idx<FD_PING_TRACKER_MAX );
+  ping_t * ping = ctx->ping_table + ping_update->idx;
 
-    ping_t * ping = ping_map_ele_remove( ctx->ping_map, &ping_update->pubkey, NULL, ctx->pings );
-    FD_TEST( ping );
-    ping_pool_ele_release( ctx->pings, ping );
-  } else {
+  switch( ping_update->change_type ) {
+    case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:
+    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE:
+      if( !fd_pubkey_eq( &ping->pubkey, &ping_update->pubkey ) ) {
 #if DEBUG_PINGS
-    ctx->ping_cnt++;
-    FD_LOG_NOTICE(( "adding ping for %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( ping_update->gossip_addr.addr ), fd_ushort_bswap( ping_update->gossip_addr.port ), ctx->ping_cnt ));
+        FD_TEST( fd_pubkey_check_zero( &ping->pubkey ) );
+        FD_TEST( NULL==ping_map_ele_query( ctx->ping_map, &ping_update->pubkey, NULL, ctx->ping_table ) );
+        ctx->ping_cnt++;
+        FD_LOG_NOTICE(( "adding ping for %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( ping_update->gossip_addr.addr ), fd_ushort_bswap( ping_update->gossip_addr.port ), ctx->ping_cnt ));
 #endif
+        ping->pubkey = ping_update->pubkey;
+        ping->addr.l = ping_update->gossip_addr.l;
+        ping_map_idx_insert( ctx->ping_map, ping_update->idx, ctx->ping_table );
+      }
+      ping->active = ping_update->change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE;
+      break;
 
-    FD_TEST( ping_pool_free( ctx->pings ) );
-    FD_TEST( !ping_map_ele_query( ctx->ping_map, &ping_update->pubkey, NULL, ctx->pings ) );
-    ping_t * ping = ping_pool_ele_acquire( ctx->pings );
-    ping->addr.l = ping_update->gossip_addr.l;
-    fd_memcpy( ping->pubkey.uc, ping_update->pubkey.uc, 32UL );
-    ping_map_ele_insert( ctx->ping_map, ping, ctx->pings );
+    case FD_PING_TRACKER_CHANGE_TYPE_REMOVE:
+#if DEBUG_PINGS
+      FD_TEST( fd_pubkey_eq( &ping->pubkey, &ping_update->pubkey ) );
+      ctx->ping_cnt--;
+      FD_LOG_NOTICE(( "removing ping for %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( ping_update->gossip_addr.addr ), fd_ushort_bswap( ping_update->gossip_addr.port ), ctx->ping_cnt ));
+#endif
+      ping_map_idx_remove_fast( ctx->ping_map, ping_update->idx, ctx->ping_table );
+      fd_memset( ping, 0, sizeof(*ping) );
+      break;
+
+    default: FD_LOG_ERR(( "unexpected ping tracker change type %d", ping_update->change_type ));
   }
 }
 
@@ -880,13 +800,6 @@ returnable_frag( fd_gossvf_tile_ctx_t * ctx,
       break;
     }
     case IN_KIND_NET: /*after_frag*/ break;
-    case IN_KIND_REPLAY: {
-      fd_stake_weight_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( msg->staked_cnt>MAX_STAKED_LEADERS ) )
-        FD_LOG_ERR(( "Malformed stake update with %lu stakes in it, but the maximum allowed is %lu", msg->staked_cnt, MAX_STAKED_LEADERS ));
-      handle_stakes( ctx, msg );
-      break;
-    }
     case IN_KIND_PINGS: {
       fd_gossip_ping_update_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       FD_TEST( sz==sizeof(fd_gossip_ping_update_t) );
@@ -944,10 +857,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_gossvf_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossvf_tile_ctx_t), sizeof(fd_gossvf_tile_ctx_t)                                               );
   void * _peer_table         = FD_SCRATCH_ALLOC_APPEND( l, alignof(peer_t),               sizeof(peer_t)*FD_CONTACT_INFO_TABLE_SIZE                                  );
   void * _peer_map           = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),              peer_map_footprint( peer_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE ) ) );
-  void * _ping_pool          = FD_SCRATCH_ALLOC_APPEND( l, ping_pool_align(),             ping_pool_footprint(                        FD_PING_TRACKER_MAX )          );
+  void * _ping_table         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ping_t),               sizeof(ping_t)*FD_PING_TRACKER_MAX                                         );
   void * _ping_map           = FD_SCRATCH_ALLOC_APPEND( l, ping_map_align(),              ping_map_footprint( ping_map_chain_cnt_est( FD_PING_TRACKER_MAX ) )        );
-  void * _stake_pool         = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),            stake_pool_footprint(                         MAX_STAKED_LEADERS )         );
-  void * _stake_map          = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),             stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) )       );
   void * _tcache             = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),             fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )                      );
 
   fd_memset( _peer_table, 0, sizeof(peer_t)*FD_CONTACT_INFO_TABLE_SIZE );
@@ -957,18 +868,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->peer_map = peer_map_join( peer_map_new( _peer_map, peer_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE ), ctx->seed ) );
   FD_TEST( ctx->peer_map );
 
-  ctx->pings = ping_pool_join( ping_pool_new( _ping_pool, FD_PING_TRACKER_MAX ) );
-  FD_TEST( ctx->pings );
+  fd_memset( _ping_table, 0, sizeof(ping_t)*FD_PING_TRACKER_MAX );
+  ctx->ping_table = _ping_table;
+  FD_TEST( ctx->ping_table );
 
   ctx->ping_map = ping_map_join( ping_map_new( _ping_map, ping_map_chain_cnt_est( FD_PING_TRACKER_MAX ), ctx->seed ) );
   FD_TEST( ctx->ping_map );
-
-  ctx->stake.count = 0UL;
-  ctx->stake.pool  = stake_pool_join( stake_pool_new( _stake_pool, MAX_STAKED_LEADERS ) );
-  FD_TEST( ctx->stake.pool );
-
-  ctx->stake.map = stake_map_join( stake_map_new( _stake_map, stake_map_chain_cnt_est( MAX_STAKED_LEADERS ), ctx->seed ) );
-  FD_TEST( ctx->stake.map );
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_idx = tile->kind_id;
@@ -1036,7 +941,6 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].kind = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
     }
-    else if( !strcmp( link->name, "replay_stake" ) ) ctx->in[ i ].kind = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
