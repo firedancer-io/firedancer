@@ -318,7 +318,6 @@ fd_runtime_freeze( fd_bank_t *         bank,
 
       /* TODO: is it ok to not check the overflow error here? */
       fd_txn_account_checked_add_lamports( rec, fees );
-      fd_txn_account_set_slot( rec, fd_bank_slot_get( bank ) );
 
       fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
       fd_txn_account_mutable_fini( rec, accdb, &prepare );
@@ -1018,6 +1017,7 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
     FD_LOG_CRIT(( "fd_runtime_finalize_account: account is not mutable" ));
   }
 
+  ulong               slot        = xid->ul[0];
   fd_pubkey_t const * key         = acc->pubkey;
   uchar       const * record_data = (uchar *)fd_txn_account_get_meta( acc );
   ulong               record_sz   = fd_account_meta_get_record_sz( acc->meta );
@@ -1033,6 +1033,7 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
       FD_LOG_ERR(( "fd_runtime_finalize_account: failed to prepare record (%i-%s)", err, fd_funk_strerror( err ) ));
     }
 
+    rec->slot = slot;
     if( FD_UNLIKELY( !fd_funk_val_truncate(
         rec,
         fd_funk_alloc( funk ),
@@ -1049,6 +1050,7 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
 
   } else {
 
+    prev_rec->slot = slot;
     if( FD_UNLIKELY( !fd_funk_val_truncate(
         prev_rec,
         fd_funk_alloc( funk ),
@@ -1133,7 +1135,8 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
    - Queries funk for the previous account version
    - Computes the hash of the previous version (or uses zero for new)
    - Calls fd_hashes_update_lthash with the computed previous hash
-   - Saves the new version of the account to Funk
+   - Saves the new version of the account to Funk (also updates the
+     record's slot field)
    - Notifies the replay tile that an account update has occurred, so it
      can write the account to the solcap file.
 
@@ -1251,7 +1254,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
       /* Reclaim any accounts that have 0-lamports, now that any related
          cache updates have been applied. */
-      fd_executor_reclaim_account( &txn_out->accounts.accounts[i], fd_bank_slot_get( bank ) );
+      fd_executor_reclaim_account( &txn_out->accounts.accounts[i] );
 
       fd_runtime_save_account( runtime->funk, &xid, &txn_out->accounts.accounts[i], bank, runtime->log.capture_ctx );
     }
