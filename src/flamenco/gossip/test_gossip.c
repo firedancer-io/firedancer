@@ -63,7 +63,6 @@ test_gossip_new_basic( void ) {
   FD_TEST( rng );
 
   static fd_gossip_out_ctx_t gossip_update_out = {0};
-  static fd_gossip_out_ctx_t gossip_net_out    = {0};
 
   void * shgossip = fd_gossip_new( mem,
                                    rng,
@@ -78,8 +77,7 @@ test_gossip_new_basic( void ) {
                                    NULL,
                                    ping_change_stub,
                                    NULL,
-                                   &gossip_update_out,
-                                   &gossip_net_out );
+                                   &gossip_update_out );
   FD_TEST( shgossip );
 
   fd_gossip_t * gossip = fd_gossip_join( shgossip );

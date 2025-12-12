@@ -86,7 +86,7 @@ struct fd_gossip_private {
   struct {
     long next_pull_request;
     long next_active_set_refresh;
-    long next_contact_info_refresh;
+    long next_my_contact_info_refresh;
     long next_flush_push_state;
   } timers;
 
@@ -110,7 +110,6 @@ struct fd_gossip_private {
      and must be flushed prior to a call to fd_active_set_rotate or
      fd_active_set_prune. */
   push_set_t *          active_pset;
-  fd_gossip_out_ctx_t * gossip_net_out;
 };
 
 FD_FN_CONST ulong
@@ -168,8 +167,7 @@ fd_gossip_new( void *                    shmem,
                void *                    sign_ctx,
                fd_ping_tracker_change_fn ping_tracker_change_fn,
                void *                    ping_tracker_change_fn_ctx,
-               fd_gossip_out_ctx_t *     gossip_update_out,
-               fd_gossip_out_ctx_t *     gossip_net_out ) {
+               fd_gossip_out_ctx_t *     gossip_update_out ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -201,8 +199,6 @@ fd_gossip_new( void *                    shmem,
   void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_gossip_align() ) == (ulong)shmem + fd_gossip_footprint( max_values, entrypoints_len  ) );
 
-  gossip->gossip_net_out  = gossip_net_out;
-
   gossip->entrypoints_cnt = entrypoints_len;
   fd_memcpy( gossip->entrypoints, entrypoints, entrypoints_len*sizeof(fd_ip4_port_t) );
 
@@ -232,7 +228,7 @@ fd_gossip_new( void *                    shmem,
 
   gossip->timers.next_pull_request = 0L;
   gossip->timers.next_active_set_refresh = 0L;
-  gossip->timers.next_contact_info_refresh = 0L;
+  gossip->timers.next_my_contact_info_refresh = 0L;
   gossip->timers.next_flush_push_state = 0L;
 
   gossip->send_fn  = send_fn;
@@ -364,10 +360,38 @@ active_push_set_insert( fd_gossip_t *       gossip,
   }
 }
 
-static void
-push_my_contact_info( fd_gossip_t *       gossip,
-                      fd_stem_context_t * stem,
-                      long now ){
+static inline void
+refresh_my_contact_info( fd_gossip_t *       gossip,
+                         fd_stem_context_t * stem,
+                         long                now ) {
+  gossip->my_contact_info.ci->wallclock_nanos = now;
+
+  fd_gossip_contact_info_encode( gossip->my_contact_info.ci,
+                                 gossip->my_contact_info.crds_val,
+                                 FD_GOSSIP_CRDS_MAX_SZ,
+                                 &gossip->my_contact_info.crds_val_sz );
+
+  gossip->sign_fn( gossip->sign_ctx,
+                   gossip->my_contact_info.crds_val+64UL,
+                   gossip->my_contact_info.crds_val_sz-64UL,
+                   FD_KEYGUARD_SIGN_TYPE_ED25519,
+                   gossip->my_contact_info.crds_val );
+
+  fd_gossip_view_crds_value_t view[1];
+  view->value_off = 0UL;
+  view->pubkey_off = 64UL+4UL;
+  view->wallclock_nanos = now;
+  view->length = (ushort)gossip->my_contact_info.crds_val_sz;
+  view->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
+  *view->ci_view->contact_info = *gossip->my_contact_info.ci;
+  view->ci_view->ip6_cnt = 0UL;
+  view->ci_view->unrecognized_socket_tag_cnt = 0UL;
+
+  int crds_res = fd_crds_checks_fast( gossip->crds, view, gossip->my_contact_info.crds_val, 0 /* from_push_msg */ );
+  if( FD_LIKELY( crds_res==FD_CRDS_UPSERT_CHECK_UPSERTS ) ) {
+    fd_crds_insert( gossip->crds, view, gossip->my_contact_info.crds_val, gossip->identity_stake, 1 /* is_from_me */, now, stem );
+  }
+
   active_push_set_insert( gossip,
                           gossip->my_contact_info.crds_val,
                           gossip->my_contact_info.crds_val_sz,
@@ -378,33 +402,17 @@ push_my_contact_info( fd_gossip_t *       gossip,
                           0 /* flush_immediately */ );
 }
 
-static inline void
-refresh_contact_info( fd_gossip_t * gossip,
-                      long          now ) {
-  gossip->my_contact_info.ci->wallclock_nanos = now;
-  fd_gossip_contact_info_encode( gossip->my_contact_info.ci,
-                                 gossip->my_contact_info.crds_val,
-                                 FD_GOSSIP_CRDS_MAX_SZ,
-                                 &gossip->my_contact_info.crds_val_sz );
-  gossip->sign_fn( gossip->sign_ctx,
-                   gossip->my_contact_info.crds_val+64UL,
-                   gossip->my_contact_info.crds_val_sz-64UL,
-                   FD_KEYGUARD_SIGN_TYPE_ED25519,
-                   gossip->my_contact_info.crds_val );
-
-  /* We don't have stem_ctx here so we pre-empt in next
-     fd_gossip_advance iteration instead. */
-  gossip->timers.next_contact_info_refresh = now;
-}
-
 void
 fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
                                fd_contact_info_t const * contact_info,
                                long                      now ) {
+  /* FIXME: If pubkey is already set and is being changed, invalidate whatever
+     is necessary for existing pubkey first. */
   fd_memcpy( gossip->identity_pubkey, contact_info->pubkey.uc, 32UL );
 
   *gossip->my_contact_info.ci = *contact_info;
-  refresh_contact_info( gossip, now );
+  gossip->my_contact_info.crds_val_sz = 0UL;
+  gossip->timers.next_my_contact_info_refresh = now;
 }
 
 ulong
@@ -742,7 +750,7 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
   int res = fd_crds_checks_fast( gossip->crds, view, crds_val, 0 );
   if( FD_UNLIKELY( res ) ) return -1;
 
-  fd_crds_entry_t const * entry = fd_crds_insert( gossip->crds, view, crds_val, gossip->identity_stake, 1, /* is_me */ now, stem );
+  fd_crds_entry_t const * entry = fd_crds_insert( gossip->crds, view, crds_val, gossip->identity_stake, 1 /* is_from_me */, now, stem );
   if( FD_UNLIKELY( !entry ) ) return -1;
 
   active_push_set_insert( gossip,
@@ -909,15 +917,14 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   fd_crds_advance( gossip->crds, now, stem );
   tx_ping( gossip, stem, now );
   flush_stale_push_states( gossip, stem, now );
+  if( FD_UNLIKELY( now>=gossip->timers.next_my_contact_info_refresh ) ) {
+    /* TODO: Frequency of this? More often if observing? */
+    refresh_my_contact_info( gossip, stem, now );
+    gossip->timers.next_my_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
+  }
   if( FD_UNLIKELY( now>=gossip->timers.next_pull_request ) ) {
     tx_pull_request( gossip, stem, now );
     gossip->timers.next_pull_request = next_pull_request( gossip, now );
-  }
-  if( FD_UNLIKELY( now>=gossip->timers.next_contact_info_refresh ) ) {
-    /* TODO: Frequency of this? More often if observing? */
-    refresh_contact_info( gossip, now );
-    push_my_contact_info( gossip, stem, now);
-    gossip->timers.next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
   }
   if( FD_UNLIKELY( now>=gossip->timers.next_active_set_refresh ) ) {
     rotate_active_set( gossip, stem, now );
@@ -930,6 +937,8 @@ fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
                               uchar const * peer_pubkey,
                               fd_ip4_port_t peer_address,
                               long          now ) {
+  int is_me = !memcmp( peer_pubkey, gossip->identity_pubkey, 32UL );
+  if( FD_UNLIKELY( is_me ) ) return;
   ulong origin_stake = get_stake( gossip, peer_pubkey );
   fd_ping_tracker_track( gossip->ping_tracker, peer_pubkey, origin_stake, peer_address, now );
 }

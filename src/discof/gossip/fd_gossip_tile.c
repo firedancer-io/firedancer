@@ -411,8 +411,7 @@ unprivileged_init( fd_topo_t *      topo,
                                                ctx,
                                                gossip_ping_tracker_change_fn,
                                                ctx,
-                                               ctx->gossip_out,
-                                               ctx->net_out ) );
+                                               ctx->gossip_out ) );
   FD_TEST( ctx->gossip );
 
   FD_MGAUGE_SET( GOSSIP, CRDS_CAPACITY,        tile->gossip.max_entries     );
