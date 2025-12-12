@@ -11,11 +11,16 @@
 #include "utils/fd_ssctrl.h"
 #include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/accdb/fd_accdb_user.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
+
+/* 300 here is from status_cache.rs::MAX_CACHE_ENTRIES which is the most
+   root slots Agave could possibly serve in a snapshot. */
+#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (300UL*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
 
 struct blockhash_group {
   uchar blockhash[ 32UL ];
@@ -80,7 +85,8 @@ struct fd_snapin_tile {
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
 
-  ulong txncache_entries_len;
+  ulong   txncache_entries_len;
+  ulong * txncache_entries_len_vinyl_ptr;
   fd_sstxncache_entry_t * txncache_entries;
 
   fd_txncache_fork_id_t txncache_root_fork_id;
@@ -112,22 +118,6 @@ struct fd_snapin_tile {
   fd_snapin_out_link_t manifest_out;
   fd_snapin_out_link_t gui_out;
   fd_snapin_out_link_t hash_out;
-
-  struct {
-    uchar * bstream_mem;
-    ulong   bstream_sz;
-
-    /* Vinyl in either io_wd or io_mm mode */
-    fd_vinyl_io_t * io;
-    fd_vinyl_io_t * io_wd;
-    fd_vinyl_io_t * io_mm;
-    ulong           io_seed;
-
-    fd_vinyl_meta_t map[1];
-
-    ulong txn_seq;  /* bstream seq of first txn record (in [seq_past,seq_present]) */
-    uint  txn_active : 1;
-  } vinyl;
 
   struct {
     uchar * pair;
@@ -165,14 +155,6 @@ FD_PROTOTYPES_END
 FD_PROTOTYPES_BEGIN
 
 #define FD_SNAPIN_IO_SPAD_MAX (64UL<<20) /* 64 MiB of I/O scratch space */
-
-/* fd_snapin_vinyl_privileged_init performs administrative tasks, such
-   as opening and mapping the bstream file descriptor. */
-
-void
-fd_snapin_vinyl_privileged_init( fd_snapin_tile_t * ctx,
-                                 fd_topo_t *        topo,
-                                 fd_topo_tile_t *   tile );
 
 /* fd_snapin_vinyl_unprivileged_init performs setup tasks after being
    sandboxed.  (anything that might be exposed to untrusted data) */
@@ -244,16 +226,9 @@ fd_snapin_vinyl_shutdown( fd_snapin_tile_t * ctx );
 
 /* Internal APIs for inserting accounts */
 
-void fd_snapin_process_account_header_vinyl( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-void fd_snapin_process_account_data_vinyl  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-void fd_snapin_process_account_batch_vinyl ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-
-void
-fd_snapin_read_account_vinyl( fd_snapin_tile_t *  ctx,
-                              void const *        acct_addr,
-                              fd_account_meta_t * meta,
-                              uchar *             data,
-                              ulong               data_max );
+int fd_snapin_process_account_header_vinyl( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+int fd_snapin_process_account_data_vinyl  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+int fd_snapin_process_account_batch_vinyl ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
 
 FD_PROTOTYPES_END
 
@@ -269,7 +244,7 @@ static inline int
 fd_snapin_process_account_header( fd_snapin_tile_t *            ctx,
                                   fd_ssparse_advance_result_t * result ) {
   if( ctx->use_vinyl ) {
-    fd_snapin_process_account_header_vinyl( ctx, result );
+    return fd_snapin_process_account_header_vinyl( ctx, result );
   } else {
     return fd_snapin_process_account_header_funk( ctx, result );
   }
@@ -280,7 +255,7 @@ static inline int
 fd_snapin_process_account_data( fd_snapin_tile_t *            ctx,
                                 fd_ssparse_advance_result_t * result ) {
   if( ctx->use_vinyl ) {
-    fd_snapin_process_account_data_vinyl( ctx, result );
+    return fd_snapin_process_account_data_vinyl( ctx, result );
   } else {
     return fd_snapin_process_account_data_funk( ctx, result );
   }
@@ -292,7 +267,7 @@ fd_snapin_process_account_batch( fd_snapin_tile_t *            ctx,
                                  fd_ssparse_advance_result_t * result,
                                  buffered_account_batch_t *    buffered_batch ) {
   if( ctx->use_vinyl ) {
-    fd_snapin_process_account_batch_vinyl( ctx, result );
+    return fd_snapin_process_account_batch_vinyl( ctx, result );
   } else {
     return fd_snapin_process_account_batch_funk( ctx, result, buffered_batch );
   }
@@ -305,8 +280,11 @@ fd_snapin_read_account( fd_snapin_tile_t *  ctx,
                         fd_account_meta_t * meta,
                         uchar *             data,
                         ulong               data_max ) {
+  /* fd_snapin_read_account will no longer be required in the snapin
+     tile once funk is deprecated from the snapshot load pipeline.
+     Under vinyl, this is implemented in the snapwm tile. */
   if( ctx->use_vinyl ) {
-    fd_snapin_read_account_vinyl( ctx, acct_addr, meta, data, data_max );
+    FD_LOG_ERR(( "read account is not supported under vinyl" ));
   } else {
     fd_snapin_read_account_funk( ctx, acct_addr, meta, data, data_max );
   }
