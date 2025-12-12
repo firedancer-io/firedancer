@@ -12,6 +12,8 @@
 
 #define NAME "snapwh"
 
+#define FD_SNAPWH_WR_FSEQ_CNT_MAX (16UL)
+
 struct fd_snapwh {
   /* Run loop */
   uint state;
@@ -25,7 +27,8 @@ struct fd_snapwh {
 
   /* ACKs / flow control */
   ulong *       up_fseq;
-  ulong const * wr_fseq;
+  ulong const * wr_fseq[FD_SNAPWH_WR_FSEQ_CNT_MAX];
+  ulong         wr_fseq_cnt;
   ulong         last_fseq;
   ulong         next_seq;
 
@@ -66,22 +69,22 @@ unprivileged_init( fd_topo_t *      topo,
   FD_CRIT( fd_dcache_app_sz( in_link->dcache )>=sizeof(ulong), "in_link dcache app region too small to hold io_seed" );
   snapwh->io_seed = (ulong const *)fd_dcache_app_laddr_const( in_link->dcache );
 
+  ulong wr_fseq_cnt_exp = fd_topo_tile_name_cnt( topo, "snapwr" );
+  FD_TEST( wr_fseq_cnt_exp<=FD_SNAPWH_WR_FSEQ_CNT_MAX );
+  ulong wr_fseq_cnt     = 0UL;
   fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ 0 ] ];
-  FD_TEST( fd_topo_link_reliable_consumer_cnt( topo, out_link )==1UL );
+  FD_TEST( fd_topo_link_reliable_consumer_cnt( topo, out_link )==wr_fseq_cnt_exp );
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     fd_topo_tile_t const * consumer_tile = &topo->tiles[ tile_idx ];
     for( ulong in_idx=0UL; in_idx<consumer_tile->in_cnt; in_idx++ ) {
       if( consumer_tile->in_link_id[ in_idx ]==out_link->id ) {
-        snapwh->wr_fseq = consumer_tile->in_link_fseq[ in_idx ];
-        break;
+        snapwh->wr_fseq[ wr_fseq_cnt ] = consumer_tile->in_link_fseq[ in_idx ];
+        wr_fseq_cnt++;
       }
     }
-    if( snapwh->wr_fseq ) break;
   }
-  if( FD_UNLIKELY( !snapwh->wr_fseq ) ) {
-    FD_LOG_ERR(( "unable to find fseq for output link %s:%lu",
-                 out_link->name, out_link->kind_id ));
-  }
+  snapwh->wr_fseq_cnt = wr_fseq_cnt;
+  FD_TEST( snapwh->wr_fseq_cnt==wr_fseq_cnt_exp );
 
   snapwh->state     = FD_SNAPSHOT_STATE_IDLE;
   snapwh->last_fseq = fd_fseq_query( snapwh->up_fseq );
@@ -131,10 +134,14 @@ before_credit( fd_snapwh_t *       ctx,
   }
 
   /* Reverse path bubble up flow control credits received from snapwr */
-  ulong wr_seq = fd_fseq_query( ctx->wr_fseq );
-  if( FD_UNLIKELY( wr_seq!=ctx->last_fseq ) ) {
-    fd_fseq_update( ctx->up_fseq, wr_seq );
-    ctx->last_fseq = wr_seq;
+  ulong wr_seq_min = ULONG_MAX;
+  for( ulong i=0; i<ctx->wr_fseq_cnt; i++ ){
+    ulong wr_seq = fd_fseq_query( ctx->wr_fseq[ i ] );
+    wr_seq_min = fd_ulong_min( wr_seq_min, wr_seq );
+  }
+  if( FD_UNLIKELY( wr_seq_min!=ctx->last_fseq ) ) {
+    fd_fseq_update( ctx->up_fseq, wr_seq_min );
+    ctx->last_fseq = wr_seq_min;
   }
 }
 
