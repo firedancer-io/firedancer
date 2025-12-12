@@ -1,4 +1,5 @@
 #include "fd_quic_test_helpers.h"
+#include "../fd_quic_private.h"
 #include "../../../util/net/fd_pcapng.h"
 #include <errno.h>
 #include <net/if.h>
@@ -170,6 +171,13 @@ fd_quic_new_anonymous_small( fd_wksp_t * wksp,
   };
 
   return fd_quic_new_anonymous( wksp, &quic_limits, role, rng );
+}
+
+void
+fd_quic_sync_clocks( fd_quic_t * quicA,
+                     fd_quic_t * quicB,
+                     long        now ) {
+  fd_quic_get_state( quicA )->now = fd_quic_get_state( quicB )->now = now;
 }
 
 static void

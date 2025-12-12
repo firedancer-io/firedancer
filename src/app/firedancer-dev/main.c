@@ -13,7 +13,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_dcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fseq;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
 extern fd_topo_obj_callbacks_t fd_obj_cb_cnc;
-extern fd_topo_obj_callbacks_t fd_obj_cb_opaque;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
@@ -24,7 +23,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
-extern fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp;
 
 extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta;
 extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta_ele;
@@ -36,7 +34,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_fseq,
   &fd_obj_cb_metrics,
   &fd_obj_cb_cnc,
-  &fd_obj_cb_opaque,
   &fd_obj_cb_dbl_buf,
   &fd_obj_cb_neigh4_hmap,
   &fd_obj_cb_fib4,
@@ -47,7 +44,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_txncache,
   &fd_obj_cb_banks,
   &fd_obj_cb_funk,
-  &fd_obj_cb_bank_hash_cmp,
   &fd_obj_cb_vinyl_meta,
   &fd_obj_cb_vinyl_meta_ele,
   &fd_obj_cb_vinyl_data,
@@ -61,6 +57,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_netns,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
+  &fd_cfg_stage_bonding,
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_offloads,
   &fd_cfg_stage_ethtool_loopback,
@@ -116,7 +113,10 @@ extern fd_topo_run_tile_t fd_tile_snapct;
 extern fd_topo_run_tile_t fd_tile_snapld;
 extern fd_topo_run_tile_t fd_tile_snapdc;
 extern fd_topo_run_tile_t fd_tile_snapin;
+extern fd_topo_run_tile_t fd_tile_snapwh;
 extern fd_topo_run_tile_t fd_tile_snapwr;
+extern fd_topo_run_tile_t fd_tile_snapla;
+extern fd_topo_run_tile_t fd_tile_snapls;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -151,9 +151,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_archiver_writer,
   &fd_tile_archiver_playback,
   &fd_tile_shredcap,
-#if FD_HAS_ROCKSDB
   &fd_tile_backtest,
-#endif
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
@@ -163,7 +161,10 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapld,
   &fd_tile_snapdc,
   &fd_tile_snapin,
+  &fd_tile_snapwh,
   &fd_tile_snapwr,
+  &fd_tile_snapla,
+  &fd_tile_snapls,
   &fd_tile_genesi,
   &fd_tile_ipecho,
   &fd_tile_vinyl,
@@ -187,6 +188,7 @@ extern action_t fd_action_dump;
 extern action_t fd_action_flame;
 extern action_t fd_action_help;
 extern action_t fd_action_metrics;
+extern action_t fd_action_metrics_record;
 extern action_t fd_action_load;
 extern action_t fd_action_pktgen;
 extern action_t fd_action_quic_trace;
@@ -198,6 +200,7 @@ extern action_t fd_action_sim;
 extern action_t fd_action_backtest;
 extern action_t fd_action_snapshot_load;
 extern action_t fd_action_repair;
+extern action_t fd_action_tower;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_ipecho_server;
 extern action_t fd_action_send_test;
@@ -216,6 +219,7 @@ action_t * ACTIONS[] = {
   &fd_action_set_identity,
   &fd_action_help,
   &fd_action_metrics,
+  &fd_action_metrics_record,
   &fd_action_version,
   &fd_action_bench,
   &fd_action_bundle_client,
@@ -233,6 +237,7 @@ action_t * ACTIONS[] = {
   &fd_action_backtest,
   &fd_action_snapshot_load,
   &fd_action_repair,
+  &fd_action_tower,
   &fd_action_shred_version,
   &fd_action_ipecho_server,
   &fd_action_send_test,

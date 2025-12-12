@@ -15,10 +15,8 @@ main( int     argc,
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_SINT    )==1 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_ULONG   )==1 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_SLONG   )==1 );
-# if FD_HAS_INT128
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_UINT128 )==1 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_SINT128 )==1 );
-# endif
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_FLOAT   )==1 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_DOUBLE  )==1 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_HASH256 )==1 );

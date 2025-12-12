@@ -97,8 +97,12 @@ fd_ed25519_point_neg( fd_ed25519_point_t *       r,
   _p03 = wwl( 8796093022189L, 8796093022189L, 8796093022189L, 8796093022189L, 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L );
   _p14 = wwl( 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L );
   _p25 = wwl( 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L, 1099511627775L, 1099511627775L, 1099511627775L, 1099511627775L );
-  FD_R43X6_QUAD_LANE_SUB_FAST( r->P, a->P, 1,0,0,1, _p, a->P );
-  FD_R43X6_QUAD_FOLD_UNSIGNED( r->P, r->P );
+  // FD_R43X6_QUAD_LANE_SUB_FAST( r->P, a->P, 1,0,0,1, _p, a->P );
+  // FD_R43X6_QUAD_FOLD_UNSIGNED( r->P, r->P );
+  int _mask = 0x99; /* 1001 1001 */
+  r->P03 = wwv_sub_if( _mask, _p03, a->P03, a->P03 );
+  r->P14 = wwv_sub_if( _mask, _p14, a->P14, a->P14 );
+  r->P25 = wwv_sub_if( _mask, _p25, a->P25, a->P25 );
   return r;
 }
 
@@ -131,7 +135,7 @@ fd_curve25519_into_precomputed( fd_ed25519_point_t * r ) {
   FD_R43X6_QUAD_PERMUTE      ( _ta, 1,0,2,3, r->P );            /* _ta = (Y1,   X1,   Z1,   T1   ), s61|s61|s61|s61 */
   FD_R43X6_QUAD_LANE_SUB_FAST( _ta, _ta, 1,0,0,0, _ta, r->P );  /* _ta = (Y1-X1,X1,   Z1,   T1   ), s62|s61|s61|s61 */
   FD_R43X6_QUAD_LANE_ADD_FAST( _ta, _ta, 0,1,0,0, _ta, r->P );  /* _ta = (Y1-X1,Y1+X1,Z1,   T1   ), s62|s62|s61|s61 */
-  FD_R43X6_QUAD_FOLD_UNSIGNED( r->P, _ta );                     /*   r = (Y1-X1,Y1+X1,Z1,   T1   ), u44|u44|u44|u44 */
+  FD_R43X6_QUAD_FOLD_SIGNED  ( r->P, _ta );                     /*   r = (Y1-X1,Y1+X1,Z1,   T1   ), u44|u44|u44|u44 */
 
   FD_R43X6_QUAD_DECL         ( _1112d );
   FD_R43X6_QUAD_1112d        ( _1112d );

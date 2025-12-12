@@ -363,5 +363,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_invalid_transitions() passed" ));
 
   test_random();
-  FD_LOG_NOTICE(( "test_random() passed" ));
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
+  return 0;
 }

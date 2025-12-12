@@ -96,7 +96,7 @@ struct fd_gui_validator_info {
 #define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT      (50UL)  /* 500ms / 10ms */
 #define FD_GUI_SCHEDULER_COUNT_SNAP_CNT              (512UL)
 #define FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT (50UL)  /* 500ms / 10ms */
-#define FD_GUI_TILE_TIMER_TILE_CNT                   (128UL)
+#define FD_GUI_TILE_TIMER_TILE_CNT                   (256UL)
 
 #define FD_GUI_VOTE_STATE_NON_VOTING (0)
 #define FD_GUI_VOTE_STATE_VOTING     (1)
@@ -134,6 +134,8 @@ struct fd_gui_validator_info {
 #define FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE  ( 4U)
 #define FD_GUI_TXN_FLAGS_FROM_BUNDLE     ( 8U)
 #define FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK (16U)
+
+#define FD_GUI_TURBINE_RECV_TIMESTAMPS (750UL)
 
 /* One use case for tracking ingress shred slot is to estimate when we
    have caught up to the tip of the blockchain.  A naive approach would
@@ -221,27 +223,26 @@ struct fd_gui_validator_info {
    bound heuristically. */
 #define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 6UL)
 
-#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST         (0UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE (1UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR  (2UL)
-#define FD_GUI_SLOT_SHRED_SHRED_REPLAYED         (3UL)
-#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE    (4UL)
+#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST          (0UL)
+#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE  (1UL)
+#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR   (2UL)
+#define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE  (3UL)
+#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE     (4UL)
+/* #define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START (5UL) // UNUSED */
+#define FD_GUI_SLOT_SHRED_SHRED_PUBLISHED         (6UL)
 
 #define FD_GUI_SLOT_RANKINGS_SZ (100UL)
 #define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
 #define FD_GUI_SLOT_RANKING_TYPE_DESC (1)
 
 struct fd_gui_tile_timers {
-  ulong caughtup_housekeeping_ticks;
-  ulong processing_housekeeping_ticks;
-  ulong backpressure_housekeeping_ticks;
-
-  ulong caughtup_prefrag_ticks;
-  ulong processing_prefrag_ticks;
-  ulong backpressure_prefrag_ticks;
-
-  ulong caughtup_postfrag_ticks;
-  ulong processing_postfrag_ticks;
+  ulong timers[ FD_METRICS_ENUM_TILE_REGIME_CNT ];
+  int   in_backp;
+  uint  status;
+  ulong heartbeat;
+  ulong backp_cnt;
+  ulong nvcsw;
+  ulong nivcsw;
 };
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
@@ -256,8 +257,22 @@ struct fd_gui_scheduler_counts {
 
 typedef struct fd_gui_scheduler_counts fd_gui_scheduler_counts_t;
 
+struct fd_gui_network_stats {
+  /* total bytes accumulated */
+  struct {
+    ulong turbine;
+    ulong gossip;
+    ulong tpu;
+    ulong repair;
+    ulong metric;
+  } in, out;
+};
+
+typedef struct fd_gui_network_stats fd_gui_network_stats_t;
+
 struct fd_gui_leader_slot {
   ulong slot;
+  fd_hash_t block_hash;
   long  leader_start_time; /* UNIX timestamp of when we first became leader in this slot */
   long  leader_end_time;   /* UNIX timestamp of when we stopped being leader in this slot */
 
@@ -305,9 +320,18 @@ struct fd_gui_leader_slot {
   } txs;
 
   fd_done_packing_t scheduler_stats[ 1 ];
+
+  uchar unbecame_leader: 1;
 };
 
 typedef struct fd_gui_leader_slot fd_gui_leader_slot_t;
+
+struct fd_gui_turbine_slot {
+ ulong slot;
+ long timestamp;
+};
+
+typedef struct fd_gui_turbine_slot fd_gui_turbine_slot_t;
 
 struct fd_gui_slot_completed {
   ulong slot;
@@ -331,7 +355,6 @@ struct fd_gui_slot_staged_shred_event {
   long   timestamp;
   ulong  slot;
   ushort shred_idx;
-  ushort fec_idx;
   uchar  event;
 };
 
@@ -372,8 +395,8 @@ struct fd_gui_slot_rankings {
 typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 
 struct fd_gui_ephemeral_slot {
-      ulong slot; /* ULONG_MAX indicates invalid/evicted */
-      long timestamp_arrival_nanos;
+  ulong slot; /* ULONG_MAX indicates invalid/evicted */
+  long timestamp_arrival_nanos;
 };
 typedef struct fd_gui_ephemeral_slot fd_gui_ephemeral_slot_t;
 
@@ -478,6 +501,8 @@ typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
 struct fd_gui_slot {
   ulong slot;
   ulong parent_slot;
+  ulong vote_slot;
+  ulong reset_slot;
   uint  max_compute_units;
   long  completed_time;
   int   mine;
@@ -520,6 +545,8 @@ struct fd_gui {
 
   long next_sample_400millis;
   long next_sample_100millis;
+  long next_sample_50millis;
+  long next_sample_12_5millis;
   long next_sample_10millis;
 
   ulong leader_slot;
@@ -618,6 +645,9 @@ struct fd_gui {
     ulong slot_caught_up;
     ulong slot_repair;
     ulong slot_turbine;
+    ulong slot_reset;
+    ulong slot_storage;
+    ulong active_fork_cnt;
 
     fd_gui_ephemeral_slot_t slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL ];
     fd_gui_ephemeral_slot_t slots_max_repair [ FD_GUI_REPAIR_SLOT_HISTORY_SZ +1UL ];
@@ -632,6 +662,8 @@ struct fd_gui {
 
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
+
+    fd_gui_network_stats_t network_stats_current[ 1 ];
 
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];
@@ -651,6 +683,9 @@ struct fd_gui {
   } summary;
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
+
+  /* used for estimating slot duration */
+  fd_gui_turbine_slot_t turbine_slots[ FD_GUI_TURBINE_RECV_TIMESTAMPS ];
 
   fd_gui_leader_slot_t leader_slots[ FD_GUI_LEADER_CNT ][ 1 ];
   ulong leader_slots_cnt;
@@ -708,6 +743,8 @@ struct fd_gui {
   fd_gui_peers_ctx_t * peers; /* full-client */
 
   struct {
+    ulong leader_shred_cnt;      /* A gauge counting the number of leader shreds seen on the SHRED_OUT link.  Resets at
+                                    the end of a leader slot.  This works because leader fecs are published in order. */
     ulong staged_next_broadcast; /* staged[ staged_next_broadcast % FD_GUI_SHREDS_STAGING_SZ ] is the first shred event
                                     that hasn't yet been broadcast to WebSocket clients */
     ulong staged_head;            /* staged_head % FD_GUI_SHREDS_STAGING_SZ is the first valid event in staged */
@@ -816,12 +853,29 @@ void
 fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      slot,
                      ulong      shred_idx,
-                     ulong      fec_idx,
                      int        is_turbine,
                      long       tsorig );
 
 void
+fd_gui_handle_leader_fec( fd_gui_t * gui,
+                          ulong      slot,
+                          ulong      fec_shred_cnt,
+                          int        is_end_of_slot,
+                          long       tsorig );
+
+void
+fd_gui_handle_exec_txn_done( fd_gui_t * gui,
+                             ulong      slot,
+                             ulong      start_shred_idx,
+                             ulong      end_shred_idx,
+                             long       tsorig_ns,
+                             long       tspub_ns );
+
+void
 fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now );
+
+void
+fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long now );
 
 void
 fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
@@ -833,6 +887,10 @@ fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
                                long                          now );
 
 void
+fd_gui_handle_notarization_update( fd_gui_t *                        gui,
+                                   fd_tower_slot_confirmed_t const * notar );
+
+void
 fd_gui_handle_tower_update( fd_gui_t *                   gui,
                             fd_tower_slot_done_t const * msg,
                             long                         now );
@@ -840,6 +898,10 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
 void
 fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_gui_slot_completed_t * slot_completed,
+                             fd_hash_t const *         block_hash,
+                             ulong                     vote_slot,
+                             ulong                     storage_slot,
+                             ulong                     identity_balance,
                              long                      now );
 
 void

@@ -84,6 +84,8 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   fee_rate_governor->min_lamports_per_signature    = manifest->fee_rate_governor.min_lamports_per_signature;
   fee_rate_governor->max_lamports_per_signature    = manifest->fee_rate_governor.max_lamports_per_signature;
   fee_rate_governor->burn_percent                  = manifest->fee_rate_governor.burn_percent;
+  /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/serde_snapshot.rs#L464-L466 */
+  fd_bank_rbh_lamports_per_sig_set( bank, manifest->lamports_per_signature );
 
   fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
   inflation->initial         = manifest->inflation_params.initial;
@@ -124,17 +126,15 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
 
   /* PoH */
   fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
-  fd_hash_t const * last_hash = fd_blockhashes_peek_last( bhq );
+  fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
   if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( bank, *last_hash );
 
   fd_bank_capitalization_set( bank, manifest->capitalization );
-  fd_bank_lamports_per_signature_set( bank, manifest->lamports_per_signature );
-  fd_bank_prev_lamports_per_signature_set( bank, manifest->lamports_per_signature );
   fd_bank_transaction_count_set( bank, manifest->transaction_count );
   fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
   fd_bank_tick_height_set( bank, manifest->tick_height );
   fd_bank_max_tick_height_set( bank, manifest->max_tick_height );
-  fd_bank_ns_per_slot_set( bank, manifest->ns_per_slot );
+  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } } );
   fd_bank_ticks_per_slot_set( bank, manifest->ticks_per_slot );
   fd_bank_genesis_creation_time_set( bank, manifest->creation_time_millis );
   fd_bank_slots_per_year_set( bank, manifest->slots_per_year );
@@ -258,7 +258,6 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->commission          = elem->commission;
     vote_state->last_vote_timestamp = elem->timestamp;
     vote_state->last_vote_slot      = elem->slot;
-    vote_state->stake               = elem->stake;
     vote_state->stake               = elem->stake;
   }
 

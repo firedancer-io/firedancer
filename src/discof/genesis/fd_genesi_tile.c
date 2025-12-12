@@ -6,7 +6,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/runtime/fd_txn_account.h"
 #include "../../flamenco/accdb/fd_accdb_admin.h"
-#include "../../flamenco/accdb/fd_accdb_user.h"
+#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../util/archive/fd_tar.h"
 
@@ -20,7 +20,9 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <linux/fs.h>
+#if FD_HAS_BZIP2
 #include <bzlib.h>
+#endif
 
 #include "generated/fd_genesi_tile_seccomp.h"
 
@@ -122,15 +124,16 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
 
   fd_pubkey_account_pair_global_t const * accounts = fd_genesis_solana_accounts_join( genesis );
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
   for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
     fd_pubkey_account_pair_global_t const * account = &accounts[ i ];
 
     /* FIXME use accdb API */
     fd_funk_rec_prepare_t prepare[1];
     fd_funk_rec_key_t key[1]; memcpy( key->uc, account->key.uc, sizeof(fd_pubkey_t) );
-    fd_funk_rec_t * rec = fd_funk_rec_prepare( ctx->accdb->funk, &root_xid, key, prepare, NULL );
+    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, &root_xid, key, prepare, NULL );
     FD_TEST( rec );
-    fd_account_meta_t * meta = fd_funk_val_truncate( rec, ctx->accdb->funk->alloc, ctx->accdb->funk->wksp, 16UL, sizeof(fd_account_meta_t)+account->account.data_len, NULL );
+    fd_account_meta_t * meta = fd_funk_val_truncate( rec, funk->alloc, funk->wksp, 16UL, sizeof(fd_account_meta_t)+account->account.data_len, NULL );
     FD_TEST( meta );
     void * data = (void *)( meta+1 );
     fd_memcpy( meta->owner, account->account.owner.uc, sizeof(fd_pubkey_t) );
@@ -139,7 +142,7 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     meta->executable = !!account->account.executable;
     meta->dlen = (uint)account->account.data_len;
     fd_memcpy( data, fd_solana_account_data_join( &account->account ), account->account.data_len );
-    fd_funk_rec_publish( ctx->accdb->funk, prepare );
+    fd_funk_rec_publish( funk, prepare );
 
     fd_lthash_value_t new_hash[1];
     fd_hashes_account_lthash( &account->key, meta, data, new_hash );
@@ -235,6 +238,9 @@ after_credit( fd_genesi_tile_t *  ctx,
     if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "failed to retrieve genesis.bin from any configured gossip entrypoints" ));
     if( FD_LIKELY( 1==result ) ) return;
 
+    uchar * decompressed = ctx->buffer;
+    ulong   actual_decompressed_sz = 0UL;
+#   if FD_HAS_BZIP2
     bz_stream bzstrm = {0};
     bzstrm.bzalloc = bz2_malloc;
     bzstrm.bzfree  = bz2_free;
@@ -242,8 +248,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     int bzerr = BZ2_bzDecompressInit( &bzstrm, 0, 0 );
     if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompressInit() failed (%d)", bzerr ));
 
-    uchar * decompressed = ctx->buffer;
-    ulong   decompressed_sz = GENESIS_MAX_SZ;
+    ulong decompressed_sz = GENESIS_MAX_SZ;
 
     bzstrm.next_in   = (char *)buffer;
     bzstrm.avail_in  = (uint)buffer_sz;
@@ -252,7 +257,11 @@ after_credit( fd_genesi_tile_t *  ctx,
     bzerr = BZ2_bzDecompress( &bzstrm );
     if( FD_UNLIKELY( BZ_STREAM_END!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompress() failed (%d)", bzerr ));
 
-    ulong actual_decompressed_sz = decompressed_sz - (ulong)bzstrm.avail_out;
+    actual_decompressed_sz = decompressed_sz - (ulong)bzstrm.avail_out;
+#   else
+    FD_LOG_ERR(( "This build does not include bzip2, which is required to boot from genesis.\n"
+                 "To install bzip2, re-run ./deps.sh +dev, make distclean, and make -j" ));
+#   endif
 
     FD_TEST( actual_decompressed_sz>=512UL );
 
@@ -462,8 +471,8 @@ unprivileged_init( fd_topo_t *      topo,
                            FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
   void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
 
-  FD_TEST( fd_accdb_admin_join( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
-  FD_TEST( fd_accdb_user_join ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_admin_join  ( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_user_v1_init( ctx->accdb,       fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
 
   fd_lthash_zero( ctx->lthash );
 

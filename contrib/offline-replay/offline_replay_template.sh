@@ -6,7 +6,6 @@ export FD_BRANCH="main"
 
 # Agave Repo
 export AGAVE_REPO="/path/to/agave"
-export AGAVE_LEDGER_TOOL="${AGAVE_REPO}/target/release/agave-ledger-tool"
 
 # Network Specific Parameters
 export NETWORK="mainnet"

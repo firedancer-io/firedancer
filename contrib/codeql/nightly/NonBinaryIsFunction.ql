@@ -12,6 +12,7 @@
 
 import cpp
 import semmle.code.cpp.rangeanalysis.new.SimpleRangeAnalysis
+import filter
 
 /**
  * A function whose name suggests it returns a boolean value (0 or 1).
@@ -33,7 +34,8 @@ where
   (
     lowerBound < 0 or
     upperBound > 1
-  )
+  ) and
+  included(rs.getLocation())
 select rs,
   "The function $@ is named like an `is` function but returns a value with bounds [" + lowerBound +
     ", " + upperBound + "].", f, f.getName()

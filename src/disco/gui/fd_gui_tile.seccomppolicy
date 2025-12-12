@@ -52,6 +52,19 @@ sendto: (not (or (eq (arg 0) 2)
                  (eq (arg 0) logfile_fd)
                  (eq (arg 0) gui_socket_fd)))
 
+# server: serving websockets quickly requires gathered IO writes
+#
+# arg 0 is the file descriptor to send to.  It can be any of the
+# connected client sockets returned by accept4(2).  To accomodate this,
+# we allow any file descriptor except those which we know are not these
+# connected clients, which are the log file, STDOUT, and the listening
+# socket itself.
+sendmmsg: (and (not (or (eq (arg 0) 2)
+                        (eq (arg 0) logfile_fd)
+                        (eq (arg 0) gui_socket_fd)))
+               (eq (arg 2) 1)
+               (eq (arg 3) "MSG_NOSIGNAL"))
+
 # server: serving pages over HTTP requires closing connections
 #
 # arg 0 is the file descriptor to close.  It can be any of the connected

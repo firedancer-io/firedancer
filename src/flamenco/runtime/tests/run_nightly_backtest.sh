@@ -49,10 +49,6 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-    -c|--cluster-version)
-        CLUSTER_VERSION="$2"
-        shift
-        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -95,7 +91,6 @@ echo "
         archiver_path = \"dump/$LEDGER/rocksdb\"
     [tiles.replay]
         snapshot = \"$SNAPSHOT\"
-        cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ \"$ONE_OFFS\" ]
     [tiles.gui]
         enabled = false
@@ -104,7 +99,7 @@ echo "
     max_account_records = $INDEX_MAX
     max_database_transactions = 1024
 [runtime]
-    max_love_slots = 128
+    max_live_slots = 128
     max_fork_width = 32
 [consensus]
     vote = false
@@ -120,7 +115,7 @@ echo "
 $OBJDIR/bin/firedancer-dev configure init all --config dump/${LEDGER}_backtest.toml &> /dev/null
 
 set -x
-  sudo $OBJDIR/bin/firedancer-dev backtest --config dump/${LEDGER}_backtest.toml &> /dev/null
+  $OBJDIR/bin/firedancer-dev backtest --config dump/${LEDGER}_backtest.toml &> /dev/null
 
 { set +x; } &> /dev/null
 

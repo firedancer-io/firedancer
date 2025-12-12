@@ -14,18 +14,17 @@ TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
-INGEST_MODE="rocksdb"
-CLUSTER_VERSION=""
+INGEST_MODE="shredcap"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
-HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
 REDOWNLOAD=1
 SKIP_CHECKSUM=1
 DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
+DISABLE_LTHASH_VERIFICATION=true
 
 if [[ -n "$CI" ]]; then
   SKIP_CHECKSUM=0
@@ -47,11 +46,6 @@ while [[ $# -gt 0 ]]; do
        ;;
     -a|--restore-archive)
        RESTORE_ARCHIVE="$LEDGER/$2"
-       shift
-       shift
-       ;;
-    -c|--cluster-version)
-       CLUSTER_VERSION="$2"
        shift
        shift
        ;;
@@ -97,11 +91,6 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
-    -h|--hugetlbfs-mount-path)
-        HUGE_TLBFS_MOUNT_PATH="$2"
-        shift
-        shift
-        ;;
     -v|--has-incremental)
         HAS_INCREMENTAL="$2"
         shift
@@ -121,6 +110,10 @@ while [[ $# -gt 0 ]]; do
     --log)
         LOG="$2"
         shift
+        shift
+        ;;
+    -lt|--lthash-verification)
+        DISABLE_LTHASH_VERIFICATION=false
         shift
         ;;
     -*|--*)
@@ -222,18 +215,21 @@ echo "
             allow_list = []
 [layout]
     shred_tile_count = 4
+    snapla_tile_count = 1
+    verify_tile_count = 2
+    exec_tile_count = 6
 [tiles]
     [tiles.archiver]
         enabled = true
         end_slot = $END_SLOT
         rocksdb_path = \"$DUMP/$LEDGER/rocksdb\"
-        shredcap_path = \"$DUMP/$LEDGER/slices.bin\"
-        bank_hash_path = \"$DUMP/$LEDGER/bank_hashes.bin\"
+        shredcap_path = \"$DUMP/$LEDGER/shreds.pcapng.zst\"
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
-        cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
+        enabled = false
+    [tiles.rpc]
         enabled = false
 [store]
     max_completed_shred_sets = 32768
@@ -249,9 +245,9 @@ echo "
     path = \"$LOG\"
 [paths]
     snapshots = \"$DUMP/$LEDGER\"
-[hugetlbfs]
-    mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
-    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE" > $DUMP_DIR/${LEDGER}_backtest.toml
+[development]
+    [development.snapshots]
+        disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION" > $DUMP_DIR/${LEDGER}_backtest.toml
 
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]
@@ -261,14 +257,22 @@ else
     genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
 fi
 
+
+if [[ "$INGEST_MODE" == "shredcap" ]]; then
+  if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+    $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
+  fi
+  echo "Converted rocksdb to shredcap"
+fi
+
 echo "Running backtest for $LEDGER"
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
 
-sudo killall firedancer-dev || true
+sudo killall firedancer-dev &> /dev/null || true
 
 set -x
-sudo "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
+"${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"&> /dev/null
 { status=$?; set +x; } &> /dev/null
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null

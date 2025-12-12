@@ -2,8 +2,6 @@
 #include "../../../../flamenco/types/fd_types_custom.h"
 #include "../../../../flamenco/runtime/fd_system_ids_pp.h"
 
-#include <linux/unistd.h>
-
 #define BENCHG_TRANSACTION_MODE_SMALL    0
 #define BENCHG_TRANSACTION_MODE_LARGE    1
 #define BENCHG_TRANSACTION_MODE_TRANSFER 2

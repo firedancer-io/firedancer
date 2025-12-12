@@ -161,19 +161,16 @@ fd_rust_duration_normalize ( fd_rust_duration_t * self ) {
 //
 int
 fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
-  fd_rust_duration_t *d = (fd_rust_duration_t *) ctx->data;
-  if( d->nanoseconds < 1000000000U )
+  if( (ulong)ctx->data + ( sizeof(ulong) + sizeof(uint) ) > (ulong)ctx->dataend )
+    return FD_BINCODE_ERR_OVERFLOW;
+
+  ulong seconds    = FD_LOAD( ulong, ctx->data );
+  uint nanoseconds = FD_LOAD( uint, (uchar*)ctx->data + sizeof(ulong) );
+
+  if( nanoseconds < 1000000000U )
     return FD_BINCODE_SUCCESS;
   ulong out;
-  if( __builtin_uaddl_overflow( d->seconds, d->nanoseconds/1000000000U, &out ) )
+  if( __builtin_uaddl_overflow( seconds, nanoseconds/1000000000U, &out ) )
     return FD_BINCODE_ERR_ENCODING;
   return FD_BINCODE_SUCCESS;
-}
-
-#define REDBLK_T fd_stake_weight_t_mapnode_t
-#define REDBLK_NAME fd_stake_weight_t_map
-#define REDBLK_IMPL_STYLE 2
-#include "../../util/tmpl/fd_redblack.c"
-long fd_stake_weight_t_map_compare( fd_stake_weight_t_mapnode_t * left, fd_stake_weight_t_mapnode_t * right ) {
-  return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }

@@ -215,11 +215,11 @@ encode_vote( send_test_ctx_t * ctx, fd_tower_slot_done_t * slot_done ) {
   /* Create minimal mock tower with one vote */
   uchar tower_mem[ FD_TOWER_FOOTPRINT ] __attribute__((aligned(FD_TOWER_ALIGN)));
   fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem ) );
-  fd_tower_votes_push_tail( tower, (fd_tower_vote_t){ .slot = vote_slot, .conf = 1 } );
+  fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = vote_slot, .conf = 1 } );
 
   /* Mock values */
   fd_lockout_offset_t lockouts_scratch[1];
-  fd_hash_t test_hash;
+  fd_hash_t test_hash = {0};
   fd_txn_p_t txn[1];
 
   /* Use fd_tower_to_vote_txn to generate the transaction */

@@ -2,6 +2,7 @@
 #include "generated/context.pb.h"
 #include "../fd_acc_mgr.h"
 #include "../../features/fd_features.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 #include <assert.h>
 
 int
@@ -20,7 +21,8 @@ fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
   /* Account must not yet exist */
-  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( accdb->funk, xid, pubkey, NULL, NULL, NULL) ) ) {
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
+  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( funk, xid, pubkey, NULL, NULL, NULL) ) ) {
     return 0;
   }
 
@@ -69,3 +71,26 @@ fd_solfuzz_pb_restore_features( fd_features_t *                    features,
   }
   return 1;
 }
+
+#if FD_HAS_FLATCC
+
+void
+fd_solfuzz_fb_restore_features( fd_features_t *                    features,
+                                SOL_COMPAT_NS(FeatureSet_table_t)  feature_set ) {
+  if( FD_UNLIKELY( !feature_set ) ) return;
+
+  fd_features_disable_all( features );
+  flatbuffers_uint64_vec_t input_features     = SOL_COMPAT_NS(FeatureSet_features( feature_set ));
+  ulong                    input_features_cnt = flatbuffers_uint64_vec_len( input_features );
+  for( ulong i=0UL; i<input_features_cnt; i++ ) {
+    ulong                   prefix = flatbuffers_uint64_vec_at( input_features, i );
+    fd_feature_id_t const * id     = fd_feature_id_query( prefix );
+    if( FD_UNLIKELY( !id ) ) {
+      FD_LOG_ERR(( "unsupported feature ID 0x%016lx", prefix ));
+    }
+    /* Enabled since genesis */
+    fd_features_set( features, id, 0UL );
+  }
+}
+
+#endif /* FD_HAS_FLATCC */

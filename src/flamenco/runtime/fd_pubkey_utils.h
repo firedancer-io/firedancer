@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_pubkey_utils_h
 
 #include "context/fd_exec_instr_ctx.h"
-#include "context/fd_exec_txn_ctx.h"
 
 #define MAX_SEEDS    (16UL)
 #define MAX_SEED_LEN (32UL)

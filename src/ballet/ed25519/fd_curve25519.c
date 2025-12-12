@@ -19,6 +19,18 @@
  * Ser/de
  */
 
+ void
+ fd_ed25519_debug( char const *               name,
+                   fd_ed25519_point_t const * a ) {
+  fd_f25519_t x[1], y[1], z[1], t[1];
+  fd_ed25519_point_to( x, y, z, t, a );
+  FD_LOG_WARNING(( "%s", name ));
+  fd_f25519_debug( "x", x );
+  fd_f25519_debug( "y", y );
+  fd_f25519_debug( "z", z );
+  fd_f25519_debug( "t", t );
+ }
+
 fd_ed25519_point_t *
 fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
                             uchar const          buf[ 32 ] ) {

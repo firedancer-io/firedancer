@@ -3,6 +3,7 @@
 
 #include "../../../../discof/restore/fd_snapct_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../util/tile/fd_tile.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -327,34 +328,57 @@ write_snapshots( config_t const * config,
   ulong snapld_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] );
   ulong snapdc_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapdc", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapdc", 0UL )*FD_METRICS_TOTAL_SZ ] );
   ulong snapin_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapin", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapin", 0UL )*FD_METRICS_TOTAL_SZ ] );
+  ulong snapls_tile_idx    = fd_topo_find_tile( &config->topo, "snapls", 0UL );
+  ulong snapls_total_ticks = snapls_tile_idx!=ULONG_MAX ? total_regime( &cur_tile[ snapls_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ snapls_tile_idx*FD_METRICS_TOTAL_SZ ] )  : 0UL;
   snapct_total_ticks = fd_ulong_max( snapct_total_ticks, 1UL );
   snapld_total_ticks = fd_ulong_max( snapld_total_ticks, 1UL );
   snapdc_total_ticks = fd_ulong_max( snapdc_total_ticks, 1UL );
   snapin_total_ticks = fd_ulong_max( snapin_total_ticks, 1UL );
+  snapls_total_ticks = fd_ulong_max( snapls_total_ticks, 1UL );
 
   double snapct_backp_pct = 100.0*(double)diff_tile( config, "snapct", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapct_total_ticks;
   double snapld_backp_pct = 100.0*(double)diff_tile( config, "snapld", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapld_total_ticks;
   double snapdc_backp_pct = 100.0*(double)diff_tile( config, "snapdc", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapdc_total_ticks;
   double snapin_backp_pct = 100.0*(double)diff_tile( config, "snapin", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapin_total_ticks;
+  double snapls_backp_pct = snapls_tile_idx!=ULONG_MAX ? 100.0*(double)diff_tile( config, "snapls", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapls_total_ticks : 0.0;
 
   double snapct_idle_pct = 100.0*(double)diff_tile( config, "snapct", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapct_total_ticks;
   double snapld_idle_pct = 100.0*(double)diff_tile( config, "snapld", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapld_total_ticks;
   double snapdc_idle_pct = 100.0*(double)diff_tile( config, "snapdc", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapdc_total_ticks;
   double snapin_idle_pct = 100.0*(double)diff_tile( config, "snapin", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapin_total_ticks;
+  double snapls_idle_pct = snapls_tile_idx!=ULONG_MAX ? 100.0*(double)diff_tile( config, "snapls", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapls_total_ticks : 0.0;
 
-  PRINT( "⚡ \033[1m\033[93mSNAPSHOTS...\033[0m\033[22m \033[1mSTATE\033[22m %s \033[1mPCT\033[22m %.1f %% \033[1mRX\033[22m %3.f MB/s \033[1mACC\033[22m %3.1f M/s \033[1mBACKP\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%% \033[1mBUSY\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%\033[K\n",
-    fd_snapct_state_str( state ),
-    progress,
-    megabytes_per_second,
-    million_accounts_per_second,
-    snapct_backp_pct,
-    snapld_backp_pct,
-    snapdc_backp_pct,
-    snapin_backp_pct,
-    100.0-snapct_idle_pct-snapct_backp_pct,
-    100.0-snapld_idle_pct-snapld_backp_pct,
-    100.0-snapdc_idle_pct-snapdc_backp_pct,
-    100.0-snapin_idle_pct-snapin_backp_pct );
+  if( FD_UNLIKELY( snapls_tile_idx!=ULONG_MAX ) ) {
+    PRINT( "⚡ \033[1m\033[93mSNAPSHOTS...\033[0m\033[22m \033[1mSTATE\033[22m %s \033[1mPCT\033[22m %.1f %% \033[1mRX\033[22m %3.f MB/s \033[1mACC\033[22m %3.1f M/s \033[1mBACKP\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%% \033[1mBUSY\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%\033[K\n",
+      fd_snapct_state_str( state ),
+      progress,
+      megabytes_per_second,
+      million_accounts_per_second,
+      snapct_backp_pct,
+      snapld_backp_pct,
+      snapdc_backp_pct,
+      snapin_backp_pct,
+      snapls_backp_pct,
+      100.0-snapct_idle_pct-snapct_backp_pct,
+      100.0-snapld_idle_pct-snapld_backp_pct,
+      100.0-snapdc_idle_pct-snapdc_backp_pct,
+      100.0-snapin_idle_pct-snapin_backp_pct,
+      100.0-snapls_idle_pct );
+  } else {
+    PRINT( "⚡ \033[1m\033[93mSNAPSHOTS...\033[0m\033[22m \033[1mSTATE\033[22m %s \033[1mPCT\033[22m %.1f %% \033[1mRX\033[22m %3.f MB/s \033[1mACC\033[22m %3.1f M/s \033[1mBACKP\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%% \033[1mBUSY\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%\033[K\n",
+      fd_snapct_state_str( state ),
+      progress,
+      megabytes_per_second,
+      million_accounts_per_second,
+      snapct_backp_pct,
+      snapld_backp_pct,
+      snapdc_backp_pct,
+      snapin_backp_pct,
+      100.0-snapct_idle_pct-snapct_backp_pct,
+      100.0-snapld_idle_pct-snapld_backp_pct,
+      100.0-snapdc_idle_pct-snapdc_backp_pct,
+      100.0-snapin_idle_pct-snapin_backp_pct );
+  }
 }
 
 static uint
@@ -449,6 +473,38 @@ write_replay( config_t const * config,
   return 1U;
 }
 
+static uint
+write_gui( config_t const * config,
+           ulong const *    cur_tile,
+           ulong const *    prev_tile ) {
+  (void)cur_tile;
+
+  ulong gui_tile_idx = fd_topo_find_tile( &config->topo, "gui", 0UL );
+  if( gui_tile_idx==ULONG_MAX ) return 0U;
+
+  ulong connection_count = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, CONNECTION_COUNT ) ]+
+                           cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, WEBSOCKET_CONNECTION_COUNT ) ];
+
+  ulong gui_total_ticks = total_regime( &cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ ] );
+  gui_total_ticks = fd_ulong_max( gui_total_ticks, 1UL );
+  double gui_backp_pct = 100.0*(double)diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)gui_total_ticks;
+  double gui_idle_pct = 100.0*(double)diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)gui_total_ticks;
+  double gui_busy_pct = 100.0 - gui_backp_pct - gui_idle_pct;
+
+  long sent_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAMES_SENT ) );
+  char * sent_frame_count_s = COUNT( (ulong)sent_frame_count );
+  long received_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAMES_RECEIVED ) );
+
+  PRINT( "👁  \033[1m\033[36mGUI.........\033[0m\033[22m \033[1mCONNS\033[22m %lu \033[1mFRAMES\033[22m %s in %s out \033[1mBW\033[22m %s in %s out \033[1mBUSY\033[22m %3.0f%% \033[K\n",
+    connection_count,
+    COUNT( (ulong)received_frame_count ),
+    sent_frame_count_s,
+    DIFF_BYTES( "gui", COUNTER, GUI, BYTES_READ ),
+    DIFF_BYTES( "gui", COUNTER, GUI, BYTES_WRITTEN ),
+    gui_busy_pct );
+  return 1U;
+}
+
 static void
 write_summary( config_t const * config,
                ulong const *    cur_tile,
@@ -491,6 +547,7 @@ write_summary( config_t const * config,
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
+  lines_printed += write_gui( config, cur_tile, prev_tile );
 
   PRINT( "\033[?7h" ); /* enable autowrap mode */
 }
@@ -527,7 +584,7 @@ snap_links( fd_topo_t const * topo,
   }
 }
 
-static ulong tiles[ 2UL*128UL*FD_METRICS_TOTAL_SZ ];
+static ulong tiles[ 2UL*FD_TILE_MAX*FD_METRICS_TOTAL_SZ ];
 static ulong links[ 2UL*4096UL*8UL*FD_METRICS_ALL_LINK_IN_TOTAL ];
 
 static void
@@ -545,7 +602,7 @@ run( config_t const * config,
     }
   }
 
-  FD_TEST( tile_cnt<=128UL );
+  FD_TEST( tile_cnt<=FD_TILE_MAX );
   FD_TEST( cons_cnt<=4096UL );
 
   snap_tiles( &config->topo, tiles );

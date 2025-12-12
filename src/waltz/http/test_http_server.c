@@ -21,8 +21,8 @@ test_oring( void ) {
     .ws_message = NULL,
   };
 
-  uchar scratch[ 1632896 ] __attribute__((aligned(128UL)));
-  FD_TEST( fd_http_server_footprint( params )==1632896 );
+  uchar scratch[ 1633024 ] __attribute__((aligned(128UL)));
+  FD_TEST( fd_http_server_footprint( params )==1633024 );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
 
   http->stage_off = 6UL;

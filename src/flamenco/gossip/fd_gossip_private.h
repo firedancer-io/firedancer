@@ -172,9 +172,6 @@ struct fd_gossip_view_contact_info {
   fd_contact_info_t contact_info[1];
   ulong             ip6_cnt;
   ulong             unrecognized_socket_tag_cnt;
-
-  ushort            ext_len;
-  ushort            ext_off;
 };
 
 typedef struct fd_gossip_view_contact_info fd_gossip_view_contact_info_t;
@@ -258,12 +255,12 @@ typedef struct fd_gossip_view_crds_container fd_gossip_view_crds_container_t;
 typedef struct fd_gossip_view_crds_container fd_gossip_view_pull_response_t;
 typedef struct fd_gossip_view_crds_container fd_gossip_view_push_t;
 struct fd_gossip_view_pull_request {
-  ulong bloom_keys_len;
+  ulong bloom_keys_len;  /* ulong count */
   ulong bloom_keys_offset;
 
   ulong bloom_len;
   ulong bloom_bits_offset;
-  ulong bloom_bits_cnt;
+  ulong bloom_bits_cnt;  /* bit count */
 
   ulong bloom_num_bits_set;
   ulong mask;
@@ -375,11 +372,12 @@ fd_gossip_contact_info_encode( fd_contact_info_t const * contact_info,
                                ulong *                   opt_encoded_sz );
 
 int
-fd_gossip_crds_vote_encode( uchar *       out_buf,
-                            ulong         out_buf_sz,
-                            uchar const * txn,
-                            ulong         txn_sz,
-                            uchar const * identity_pubkey,
-                            long          now,
-                            ulong *       opt_encoded_sz );
+fd_gossip_crds_vote_encode( uchar *                       out_buf,
+                            ulong                         out_buf_sz,
+                            uchar const *                 txn,
+                            ulong                         txn_sz,
+                            uchar const *                 identity_pubkey,
+                            long                          now,
+                            uchar                         vote_index,
+                            fd_gossip_view_crds_value_t * out_view );
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_private_h */

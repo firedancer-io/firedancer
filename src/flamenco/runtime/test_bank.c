@@ -269,7 +269,7 @@ main( int argc, char ** argv ) {
   char *      _page_sz = "gigantic";
   ulong       numa_idx = fd_shmem_numa_idx( 0 );
   fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
-                                                25UL,
+                                                4UL,
                                                 fd_shmem_cpu_idx( numa_idx ),
                                                 "wksp",
                                                 0UL );

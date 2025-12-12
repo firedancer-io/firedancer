@@ -3,8 +3,8 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/store/fd_store.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
+#include "../../funk/fd_funk.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -36,34 +36,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_banks = {
   .footprint = banks_footprint,
   .align     = banks_align,
   .new       = banks_new,
-};
-
-static ulong
-bh_cmp_footprint( fd_topo_t const *     topo,
-                  fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  return fd_bank_hash_cmp_footprint();
-}
-
-static ulong
-bh_cmp_align( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  return fd_bank_hash_cmp_align();
-}
-
-static void
-bh_cmp_new( fd_topo_t const *     topo,
-                   fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  FD_TEST( fd_bank_hash_cmp_new( fd_topo_obj_laddr( topo, obj->id ) ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp = {
-  .name      = "bh_cmp",
-  .footprint = bh_cmp_footprint,
-  .align     = bh_cmp_align,
-  .new       = bh_cmp_new,
 };
 
 static ulong

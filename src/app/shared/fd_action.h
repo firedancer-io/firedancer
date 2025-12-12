@@ -77,11 +77,16 @@ union fdctl_args {
   } flame;
 
   struct {
-    char manifest_path[ 256UL ];
-    char iptable_path[ 256UL ];
-    int  metrics_only;
-    int  forest_only;
-    int  sorted;
+    char const * pos_arg;
+    int          help;
+
+    /* options */
+
+    char         manifest_path[256UL];
+    char         iptable_path[256UL];
+    ulong        end_slot;
+    ulong        slot;
+    int          sort_by_slot;
   } repair;
 
   struct {
@@ -117,7 +122,21 @@ union fdctl_args {
   } metrics;
 
   struct {
+    char  topo[ 64 ];
+    ulong interval_ns;
+
+    ulong selectors_cnt;
+    struct fd_action_metrics_record_selector {
+      char  name[ 32 ];
+      char  kind[ 16 ];
+      ulong kind_id;
+    } selectors[ 128 ];
+  } metrics_record;
+
+  struct {
     uint fsck : 1;
+    uint fsck_lthash : 1;
+    uint lthash : 1;
     uint accounts_hist : 1;
     uint offline : 1;
     uint no_incremental : 1;
@@ -126,8 +145,8 @@ union fdctl_args {
     uint vinyl_server : 1;
 
     char snapshot_dir[ PATH_MAX ];
-    char vinyl_path   [ PATH_MAX ];
-    char vinyl_io     [ 3 ];
+    char vinyl_path  [ PATH_MAX ];
+    char vinyl_io    [ 3 ];
 
     ulong db_sz;
     ulong db_rec_max;
@@ -135,6 +154,16 @@ union fdctl_args {
     ulong cache_rec_max;
   } snapshot_load;
 
+  struct {
+    ulong max_entries;
+    ulong max_contact;
+    int   compact_mode;
+  } gossip;
+
+  struct {
+    char const * pos_arg;
+    int          help;
+  } tower;
 };
 
 typedef union fdctl_args args_t;

@@ -10,7 +10,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_mcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fseq;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
-extern fd_topo_obj_callbacks_t fd_obj_cb_opaque;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
@@ -21,14 +20,12 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
-extern fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
   &fd_obj_cb_dcache,
   &fd_obj_cb_fseq,
   &fd_obj_cb_metrics,
-  &fd_obj_cb_opaque,
   &fd_obj_cb_dbl_buf,
   &fd_obj_cb_neigh4_hmap,
   &fd_obj_cb_fib4,
@@ -39,7 +36,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_txncache,
   &fd_obj_cb_banks,
   &fd_obj_cb_funk,
-  &fd_obj_cb_bank_hash_cmp,
   NULL,
 };
 

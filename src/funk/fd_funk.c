@@ -270,13 +270,13 @@ fd_funk_delete( void * shfunk ) {
 
   fd_funk_rec_map_leave( rec_map );
 
-  /* Free the fd_alloc instance */
-
-  fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
-
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shmem->magic ) = 0UL;
   FD_COMPILER_MFENCE();
+
+  /* Free the fd_alloc instance */
+
+  fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
 
   return shmem;
 }

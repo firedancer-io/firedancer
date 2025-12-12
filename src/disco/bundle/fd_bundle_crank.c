@@ -200,7 +200,8 @@ fd_bundle_crank_gen_init( void                 * mem,
 
   uint  cerr[1];
   do {
-    char seed[13] = "TIP_ACCOUNT_0"; /* Not NUL terminated */
+    char seed[13];
+    fd_memcpy( seed, "TIP_ACCOUNT_0", 13 ); /* Not NUL terminated */
     uchar const * seed_ptr[1] = { (uchar const *)seed };
     ulong seed_len = 13;
     for( ulong i=0UL; i<8UL; i++ ) {
@@ -213,7 +214,8 @@ fd_bundle_crank_gen_init( void                 * mem,
   } while( 0 );
 
   do {
-    char seed[14] = "CONFIG_ACCOUNT"; /* Not NUL terminated */
+    char seed[14];
+    fd_memcpy( seed, "CONFIG_ACCOUNT", 14 ); /* Not NUL terminated */
     ulong seed_len = 14;
     uchar out_bump[1];
     uchar const * seed_ptr[1] = { (uchar const *)seed };
@@ -265,10 +267,10 @@ fd_bundle_crank_update_epoch( fd_bundle_crank_gen_t * g,
     uchar vote_pubkey  [32];
     ulong epoch;
   } seeds[1] = {{
-    .tip_distr_acct = "TIP_DISTRIBUTION_ACCOUNT",
-    .vote_pubkey    = { EXPAND_ARR32( g->crank3->validator_vote_account, 0 ) },
-    .epoch          = epoch
+    .vote_pubkey = { EXPAND_ARR32( g->crank3->validator_vote_account, 0 ) },
+    .epoch       = epoch
   }};
+  memcpy( seeds->tip_distr_acct, "TIP_DISTRIBUTION_ACCOUNT", 24 );
   FD_STATIC_ASSERT( sizeof(seeds)==24UL+32UL+8UL, seed_struct );
   ulong seed_len = sizeof(seeds);
   uint custom_err[1];

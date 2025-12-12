@@ -1,7 +1,6 @@
-#include "fd_genesis_client.h"
+#include "fd_genesis_client_private.h"
 
 #include "../../waltz/http/picohttpparser.h"
-#include "../../disco/topo/fd_topo.h"
 #include "../../util/fd_util.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
@@ -11,30 +10,7 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <sys/poll.h>
 #include <stdlib.h>
-
-struct fd_genesis_client_peer {
-  fd_ip4_port_t addr;
-
-  int writing;
-  ulong request_bytes_sent;
-  ulong response_bytes_read;
-  uchar response[ 10UL*1024UL*1024UL ]; /* 10 MiB max response */
-};
-
-typedef struct fd_genesis_client_peer fd_genesis_client_peer_t;
-
-struct fd_genesis_client_private {
-  long start_time_nanos;
-  ulong peer_cnt;
-  ulong remaining_peer_cnt;
-
-  struct pollfd pollfds[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
-  fd_genesis_client_peer_t peers[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
-
-  ulong magic;
-};
 
 FD_FN_CONST ulong
 fd_genesis_client_align( void ) {
@@ -192,6 +168,7 @@ rpc_phr_content_length( struct phr_header * headers,
     if( FD_LIKELY( strncasecmp( headers[i].name, "Content-Length", 14UL ) ) ) continue;
     char * end;
     ulong content_length = strtoul( headers[i].value, &end, 10 );
+    if( FD_UNLIKELY( content_length>UINT_MAX ) ) return ULONG_MAX; /* prevent overflow */
     if( FD_UNLIKELY( end==headers[i].value ) ) return ULONG_MAX;
     return content_length;
   }

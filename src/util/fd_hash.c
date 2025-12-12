@@ -1,4 +1,5 @@
 #include "fd_util_base.h"
+#include "bits/fd_bits.h"
 
 /* A cleaner implementation of xxhash-r39 (Open Source BSD licensed). */
 
@@ -27,10 +28,10 @@ fd_hash( ulong        seed,
     ulong z = seed - C1;
 
     do { /* All complete blocks of 32 */
-      w += (((ulong const *)p)[0])*C2; w = ROTATE_LEFT( w, 31 ); w *= C1;
-      x += (((ulong const *)p)[1])*C2; x = ROTATE_LEFT( x, 31 ); x *= C1;
-      y += (((ulong const *)p)[2])*C2; y = ROTATE_LEFT( y, 31 ); y *= C1;
-      z += (((ulong const *)p)[3])*C2; z = ROTATE_LEFT( z, 31 ); z *= C1;
+      w += FD_LOAD( ulong, p    )*C2; w = ROTATE_LEFT( w, 31 ); w *= C1;
+      x += FD_LOAD( ulong, p+ 8 )*C2; x = ROTATE_LEFT( x, 31 ); x *= C1;
+      y += FD_LOAD( ulong, p+16 )*C2; y = ROTATE_LEFT( y, 31 ); y *= C1;
+      z += FD_LOAD( ulong, p+24 )*C2; z = ROTATE_LEFT( z, 31 ); z *= C1;
       p += 32;
     } while( p<=stop32 );
 
@@ -45,13 +46,13 @@ fd_hash( ulong        seed,
   h += ((ulong)sz);
 
   while( (p+8)<=stop ) { /* Last 1 to 3 complete ulong's */
-    ulong w = ((ulong const *)p)[0];
+    ulong w = FD_LOAD( ulong, p );
     w *= C2; w = ROTATE_LEFT( w, 31 ); w *= C1; h ^= w; h = ROTATE_LEFT( h, 27 )*C1 + C4;
     p += 8;
   }
 
   if( (p+4)<=stop ) { /* Last complete uint */
-    ulong w = ((ulong)(((uint const *)p)[0]));
+    ulong w = ((ulong)FD_LOAD( uint, p ));
     w *= C1; h ^= w; h = ROTATE_LEFT( h, 23 )*C2 + C3;
     p += 4;
   }
@@ -92,18 +93,18 @@ fd_hash_memcpy( ulong                    seed,
     ulong z = seed - C1;
 
     do { /* All complete blocks of 32 */
-      ulong p0 = ((ulong const *)p)[0];
-      ulong p1 = ((ulong const *)p)[1];
-      ulong p2 = ((ulong const *)p)[2];
-      ulong p3 = ((ulong const *)p)[3];
+      ulong p0 = FD_LOAD( ulong, p    );
+      ulong p1 = FD_LOAD( ulong, p+ 8 );
+      ulong p2 = FD_LOAD( ulong, p+16 );
+      ulong p3 = FD_LOAD( ulong, p+24 );
       w += p0*C2; w = ROTATE_LEFT( w, 31 ); w *= C1;
       x += p1*C2; x = ROTATE_LEFT( x, 31 ); x *= C1;
       y += p2*C2; y = ROTATE_LEFT( y, 31 ); y *= C1;
       z += p3*C2; z = ROTATE_LEFT( z, 31 ); z *= C1;
-      ((ulong *)q)[0] = p0;
-      ((ulong *)q)[1] = p1;
-      ((ulong *)q)[2] = p2;
-      ((ulong *)q)[3] = p3;
+      FD_STORE( ulong, q,    p0 );
+      FD_STORE( ulong, q+ 8, p1 );
+      FD_STORE( ulong, q+16, p2 );
+      FD_STORE( ulong, q+24, p3 );
       p += 32;
       q += 32;
     } while( p<=stop32 );
@@ -119,17 +120,17 @@ fd_hash_memcpy( ulong                    seed,
   h += ((ulong)sz);
 
   while( (p+8)<=stop ) { /* Last 1 to 3 complete ulong's */
-    ulong p0 = ((ulong const *)p)[0];
+    ulong p0 = FD_LOAD( ulong, p );
     ulong w  = p0*C2; w = ROTATE_LEFT( w, 31 ); w *= C1; h ^= w; h = ROTATE_LEFT( h, 27 )*C1 + C4;
-    ((ulong *)q)[0] = p0;
+    FD_STORE( ulong, q, p0 );
     p += 8;
     q += 8;
   }
 
   if( (p+4)<=stop ) { /* Last complete uint */
-    uint p0 = ((uint const *)p)[0];
+    uint p0 = FD_LOAD( uint, p );
     ulong w = ((ulong)p0)*C1; h ^= w; h = ROTATE_LEFT( h, 23 )*C2 + C3;
-    ((uint *)q)[0] = p0;
+    FD_STORE( uint, q, p0 );
     p += 4;
     q += 4;
   }

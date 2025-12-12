@@ -20,8 +20,8 @@ FD_PROTOTYPES_BEGIN
 /* ts_est_ele_t is a temporary struct used for sorting vote accounts by
    last vote timestamp for clock sysvar calculation. */
 struct ts_est_ele {
-  long    timestamp;
-  uint128 stake; /* should really be fine as ulong, but we match Agave */
+  long        timestamp;
+  fd_w_u128_t stake; /* should really be fine as ulong, but we match Agave */
 };
 typedef struct ts_est_ele ts_est_ele_t;
 
@@ -64,7 +64,7 @@ fd_sysvar_clock_write( fd_bank_t *               bank,
    has zero lamports, this function returns NULL. */
 
 fd_sol_sysvar_clock_t *
-fd_sysvar_clock_read( fd_funk_t *               funk,
+fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
                       fd_funk_txn_xid_t const * xid,
                       fd_sol_sysvar_clock_t *   clock );
 

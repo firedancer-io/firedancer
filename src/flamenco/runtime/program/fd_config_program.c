@@ -3,6 +3,7 @@
 #include "../fd_executor.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_instr_ctx.h"
+#include "../../log_collector/fd_log_collector.h"
 
 /* Useful links:
 
@@ -29,9 +30,6 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L21 */
-  if( FD_UNLIKELY( ctx->instr->data==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
   if( FD_UNLIKELY( ctx->instr->data_sz>FD_TXN_MTU ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
@@ -129,8 +127,9 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
       int borrow_err = fd_exec_instr_ctx_try_borrow_instr_account( ctx, (uchar)counter, &signer_account );
       if( FD_UNLIKELY( borrow_err ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
+        FD_BASE58_ENCODE_32_BYTES( signer->uc, signer_b58 );
         fd_log_collector_printf_dangerous_max_127( ctx,
-          "account %s is not in account list", FD_BASE58_ENC_32_ALLOCA( signer ) );
+          "account %s is not in account list", signer_b58 );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
@@ -138,8 +137,9 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
       if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, (uchar)counter, NULL ) ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
+        FD_BASE58_ENCODE_32_BYTES( signer->uc, signer_b58 );
         fd_log_collector_printf_dangerous_max_127( ctx,
-          "account %s signer_key().is_none()", FD_BASE58_ENC_32_ALLOCA( signer ) );
+          "account %s signer_key().is_none()", signer_b58 );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
@@ -166,8 +166,9 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
         /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L97 */
         if( FD_UNLIKELY( !is_signer ) ) {
           /* Max msg_sz: 39 - 2 + 45 = 82 < 127 => we can use printf */
+          FD_BASE58_ENCODE_32_BYTES( signer->uc, signer_b58 );
           fd_log_collector_printf_dangerous_max_127( ctx,
-            "account %s is not in stored signer list", FD_BASE58_ENC_32_ALLOCA( signer ) );
+            "account %s is not in stored signer list", signer_b58 );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
       }
@@ -241,7 +242,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Prevent execution of migrated native programs */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, migrate_config_program_to_core_bpf ) ) ) {
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->bank, migrate_config_program_to_core_bpf ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 

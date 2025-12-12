@@ -94,14 +94,13 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  FD_TEST( fd_bloom_align    ()==FD_BLOOM_ALIGN     );
+  FD_TEST( fd_bloom_align()==FD_BLOOM_ALIGN );
 
   test_filters();
-  FD_LOG_NOTICE(( "test_filters() passed" ));
-
   test_add_contains();
-  FD_LOG_NOTICE(( "test_add_contains() passed" ));
-
   test_keys_oob();
-  FD_LOG_NOTICE(( "test_max_keys() passed" ));
+
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
+  return 0;
 }

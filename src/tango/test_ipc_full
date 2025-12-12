@@ -45,13 +45,13 @@ CORE_NEXT=$CORE_FIRST
 # Start up the receivers
 
 for((rx_idx=0;rx_idx<rx_cnt;rx_idx++)); do
-  taskset -c "$CORE_NEXT" "$UNIT_TEST"/test_frag_rx --tile-cpus "$CORE_NEXT" --cnc "${RX_CNC[rx_idx]}" --mcache "${TX_MCACHE[0]}" --dcache "${TX_DCACHE[0]}" --fseq "${RX_FSEQ[rx_idx]}" &
+  timeout 15 taskset -c "$CORE_NEXT" "$UNIT_TEST"/test_frag_rx --tile-cpus "$CORE_NEXT" --cnc "${RX_CNC[rx_idx]}" --mcache "${TX_MCACHE[0]}" --dcache "${TX_DCACHE[0]}" --fseq "${RX_FSEQ[rx_idx]}" &
   CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
 done
 
 # Start up the transmitter
 
-taskset -c "$CORE_NEXT" "$UNIT_TEST"/test_frag_tx --tile-cpus "$CORE_NEXT" --cnc "${TX_CNC[0]}" --mcache "${TX_MCACHE[0]}" --dcache "${TX_DCACHE[0]}" --fseqs "${RX_FSEQS}" "$@" &
+timeout 15 taskset -c "$CORE_NEXT" "$UNIT_TEST"/test_frag_tx --tile-cpus "$CORE_NEXT" --cnc "${TX_CNC[0]}" --mcache "${TX_MCACHE[0]}" --dcache "${TX_DCACHE[0]}" --fseqs "${RX_FSEQS}" "$@" &
 CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
 
 # Let run for a while

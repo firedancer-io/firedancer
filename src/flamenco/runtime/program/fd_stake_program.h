@@ -10,7 +10,6 @@
    Address: Stake11111111111111111111111111111111111111 */
 
 #include "../context/fd_exec_instr_ctx.h"
-#include "../context/fd_exec_txn_ctx.h"
 
 #define FD_STAKE_STATE_V2_SZ (200UL)
 

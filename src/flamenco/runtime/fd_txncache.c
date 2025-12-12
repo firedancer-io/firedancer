@@ -307,6 +307,7 @@ fd_txncache_finalize_fork( fd_txncache_t *       tc,
 static inline void
 remove_blockcache( fd_txncache_t * tc,
                    blockcache_t *  blockcache ) {
+  FD_TEST( blockcache->shmem->frozen>=0 );
   memcpy( tc->txnpages_free+tc->shmem->txnpages_free_cnt, blockcache->pages, blockcache->shmem->pages_cnt*sizeof(tc->txnpages_free[ 0 ]) );
   tc->shmem->txnpages_free_cnt = (ushort)(tc->shmem->txnpages_free_cnt+blockcache->shmem->pages_cnt);
 
@@ -412,11 +413,7 @@ fd_txncache_insert( fd_txncache_t *       tc,
   FD_TEST( fork->shmem->frozen<=1 );
   FD_TEST( fork->shmem->frozen>=0 );
   blockcache_t * blockcache = blockhash_on_fork( tc, fork, blockhash );
-
-  /* TODO: We can't print the full txnhash here typically because we
-     might only be able to see 20 bytes, but we need to print it for
-     diagnostic purposes. Remove once bug is identified. */
-  if( FD_UNLIKELY( !blockcache ) ) FD_LOG_CRIT(( "transaction %s refers to blockhash %s which does not exist on fork", FD_BASE58_ENC_32_ALLOCA( txnhash ), FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
+  FD_TEST( blockcache );
 
   for(;;) {
     fd_txncache_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
@@ -446,14 +443,10 @@ fd_txncache_query( fd_txncache_t *       tc,
   fd_rwlock_read( tc->shmem->lock );
 
   blockcache_t const * fork = &tc->blockcache_pool[ fork_id.val ];
-  blockcache_t const * blockcache = blockhash_on_fork( tc, fork, blockhash );
   FD_TEST( fork->shmem->frozen>=0 );
+  blockcache_t const * blockcache = blockhash_on_fork( tc, fork, blockhash );
+  FD_TEST( blockcache );
   FD_TEST( blockcache->shmem->frozen==2 );
-
-  /* TODO: We can't print the full txnhash here typically because we
-     might only be able to see 20 bytes, but we need to print it for
-     diagnostic purposes. Remove once bug is identified. */
-  if( FD_UNLIKELY( !blockcache ) ) FD_LOG_CRIT(( "transaction %s refers to blockhash %s which does not exist on fork", FD_BASE58_ENC_32_ALLOCA( txnhash ), FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
 
   int found = 0;
 

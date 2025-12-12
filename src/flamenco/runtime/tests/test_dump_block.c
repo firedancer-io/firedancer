@@ -2,7 +2,6 @@
 
 #include "fd_dump_pb.h"
 #include "fd_txn_harness.h"
-#include "../../../util/fd_util.h"
 #include "../context/fd_capture_ctx.h"
 #include "../fd_bank.h"
 #include "../fd_blockhashes.h"
@@ -12,6 +11,9 @@
 #include "../program/fd_stake_program.h"
 #include "../program/fd_vote_program.h"
 #include "../../../ballet/nanopb/pb_decode.h"
+#include "../../accdb/fd_accdb_admin.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
+
 #include "generated/block.pb.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -85,8 +87,8 @@ test_ctx_setup( void ) {
   /* Initialize funk */
   void * shfunk = fd_funk_new( funk_mem, wksp_tag, 42UL, TEST_FUNK_TXN_MAX, TEST_FUNK_REC_MAX );
   FD_TEST( shfunk );
-  FD_TEST( fd_accdb_admin_join( test_ctx->accdb_admin, funk_mem ) );
-  FD_TEST( fd_accdb_user_join ( test_ctx->accdb,       funk_mem ) );
+  FD_TEST( fd_accdb_admin_join  ( test_ctx->accdb_admin, funk_mem ) );
+  FD_TEST( fd_accdb_user_v1_init( test_ctx->accdb,       funk_mem ) );
 
   /* Allocate memory for banks */
   ulong  banks_footprint = fd_banks_footprint( TEST_BANK_MAX, TEST_FORK_MAX );
@@ -181,7 +183,7 @@ test_ctx_teardown( test_ctx_t * test_ctx ) {
   fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( test_ctx->banks ) ) );
 
   /* Clean up funk */
-  fd_accdb_user_leave( test_ctx->accdb, NULL );
+  fd_accdb_user_fini( test_ctx->accdb );
   void * shfunk = NULL;
   fd_accdb_admin_leave( test_ctx->accdb_admin, &shfunk );
   if( shfunk ) fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
@@ -362,8 +364,6 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   fd_bank_parent_slot_set( test_ctx->parent_bank, parent_slot - 1 );
   fd_bank_block_height_set( test_ctx->parent_bank, parent_slot );  /* Assume block_height == slot for simplicity */
   fd_bank_capitalization_set( test_ctx->parent_bank, input_ctx.slot_ctx.prev_epoch_capitalization );
-  fd_bank_lamports_per_signature_set( test_ctx->parent_bank, input_ctx.slot_ctx.prev_lps );
-  fd_bank_prev_lamports_per_signature_set( test_ctx->parent_bank, input_ctx.slot_ctx.prev_lps );
   fd_bank_hashes_per_tick_set( test_ctx->parent_bank, input_ctx.epoch_ctx.hashes_per_tick );
   fd_bank_ticks_per_slot_set( test_ctx->parent_bank, input_ctx.epoch_ctx.ticks_per_slot );
   fd_bank_slots_per_year_set( test_ctx->parent_bank, input_ctx.epoch_ctx.slots_per_year );
@@ -391,6 +391,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     frg->min_lamports_per_signature    = input_ctx.slot_ctx.fee_rate_governor.min_lamports_per_signature;
     frg->max_lamports_per_signature    = input_ctx.slot_ctx.fee_rate_governor.max_lamports_per_signature;
     frg->burn_percent                  = (uchar)input_ctx.slot_ctx.fee_rate_governor.burn_percent;
+    fd_runtime_new_fee_rate_governor_derived( test_ctx->parent_bank, input_ctx.slot_ctx.parent_signature_count );
   }
 
   /* Set inflation */
@@ -472,6 +473,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   fd_funk_txn_xid_t root_xid;
   fd_funk_txn_xid_set_root( &root_xid );
   fd_accdb_attach_child( test_ctx->accdb_admin, &root_xid, &test_ctx->parent_xid );
+  fd_funk_t * funk = fd_accdb_user_v1_funk( test_ctx->accdb );
 
   /* Load accounts into Funk */
   load_accounts_from_proto( test_ctx->accdb, &test_ctx->parent_xid, input_ctx.acct_states, input_ctx.acct_states_count );
@@ -488,10 +490,10 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     fd_memcpy( &pubkey, input_ctx.acct_states[i].address, sizeof(fd_pubkey_t) );
 
     /* Register vote account in current epoch */
-    register_vote_account_from_funk( test_ctx->accdb->funk, &test_ctx->parent_xid, vote_states_current, &pubkey );
+    register_vote_account_from_funk( funk, &test_ctx->parent_xid, vote_states_current, &pubkey );
 
     /* Register stake delegation */
-    register_stake_delegation_from_funk( test_ctx->accdb->funk, &test_ctx->parent_xid, stake_delegations, &pubkey );
+    register_stake_delegation_from_funk( funk, &test_ctx->parent_xid, stake_delegations, &pubkey );
   }
 
   fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
@@ -543,7 +545,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
       test_ctx->dump_ctx,
       test_ctx->banks,
       test_ctx->child_bank,
-      test_ctx->accdb->funk,
+      funk,
       test_ctx->capture_ctx
   );
 

@@ -594,14 +594,14 @@ fd_solcap_writer_stake_rewards_begin(
     ulong                payout_epoch,
     ulong                reward_epoch,
     ulong                inflation_lamports,
-    uint128              total_points
+    fd_w_u128_t          total_points
 ) {
   fd_solcap_StakeRewardEpoch epoch_pb = {
     .payout_epoch       = payout_epoch,
     .reward_epoch       = reward_epoch,
     .inflation_lamports = inflation_lamports,
   };
-  FD_STORE( uint128, epoch_pb.points, total_points );
+  FD_STORE( fd_w_u128_t, epoch_pb.points, total_points );
   return fd_solcap_write_protobuf( writer, &epoch_pb, fd_solcap_StakeRewardEpoch_fields, FD_SOLCAP_V1_REWARD_BEGIN_MAGIC );
 }
 

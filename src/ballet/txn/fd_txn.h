@@ -705,13 +705,14 @@ fd_txn_parse_core( uchar const             * payload,
                    ulong                     payload_sz,
                    void                    * out_buf,
                    fd_txn_parse_counters_t * counters_opt,
-                   ulong *                   payload_sz_opt );
+                   ulong *                   payload_sz_opt,
+                   ulong                     instr_max );
 
 
 /* fd_txn_parse: Convenient wrapper around fd_txn_parse_core that eliminates some optional arguments */
 static inline ulong
 fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt ) {
-  return fd_txn_parse_core( payload, payload_sz, out_buf, counters_opt, NULL );
+  return fd_txn_parse_core( payload, payload_sz, out_buf, counters_opt, NULL, FD_TXN_INSTR_MAX );
 }
 
 /* fd_txn_is_writable: Is the account at the supplied index writable

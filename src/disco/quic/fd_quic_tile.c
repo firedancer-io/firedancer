@@ -10,7 +10,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/unistd.h>
 #include <sys/random.h>
 
 #define OUT_IDX_VERIFY 0

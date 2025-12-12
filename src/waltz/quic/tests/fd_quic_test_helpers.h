@@ -2,7 +2,6 @@
 #define HEADER_fd_src_waltz_quic_tests_fd_quic_test_helpers_h
 
 #include "../fd_quic.h"
-#include "../fd_quic_private.h"
 #include "../../aio/fd_aio_pcapng.h"
 #include "../../udpsock/fd_udpsock.h"
 #include "../../tls/test_tls_helper.h"
@@ -77,12 +76,11 @@ fd_quic_new_anonymous_small( fd_wksp_t * wksp,
                              fd_rng_t *  rng );
 
 /* fd_quic_sync_clocks sets the clock of two QUICs to 'now'. */
-static inline void
+
+void
 fd_quic_sync_clocks( fd_quic_t * quicA,
                      fd_quic_t * quicB,
-                     long        now ) {
-  fd_quic_get_state( quicA )->now = fd_quic_get_state( quicB )->now = now;
-}
+                     long        now );
 
 /* fd_quic_virtual_pair_init sets up an aio loop between the two given QUIC
    objects.  That is, an fd_aio_send() call by quicA will trigger

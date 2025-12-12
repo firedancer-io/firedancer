@@ -6,23 +6,20 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Parses a snapshot filename like
+/* Parses a snapshot filename into components.
 
     incremental-snapshot-344185432-344209085-45eJ5C91fEenPRFc8NiqaDXMCHcPFwRUTMH3k1zY6a1B.tar.zst
     snapshot-344185432-BSP9ztdFEjwvkBo2LhHA47g9Q3PDwja9x5fj7taFRKH5.tar.zst
+    snapshot-369927872-AaswH3EY2QJtTL1rTGxKCKsJ6SAjAeAvNfJhgM9D4ytU.tar
 
-   into components.  Returns one of FD_SSARCHIVE_PARSE_*.  On success
-   the snapshot will be either a FULL or INCREMENTAL parse result.  If
-   incremental, the incremental slot will be set to ULONG_MAX, otherwise
-   it is set to the incremental slot number.  On success, the full slot
-   is always set and the hash is set if get_hash is true.  The hash is
-   the base58 decoded hash. */
+   Returns -1 on failure and 0 on success. */
 
 int
-fd_ssarchive_parse_filename( char *  _name,
-                             ulong * full_slot,
-                             ulong * incremental_slot,
-                             uchar   hash[ static FD_HASH_FOOTPRINT ] );
+fd_ssarchive_parse_filename( char const * _name,
+                             ulong *      full_slot,
+                             ulong *      incremental_slot,
+                             uchar        hash[ static FD_HASH_FOOTPRINT ],
+                             int *        is_zstd );
 
 /* Given a directory on the filesystem, determine the
    (full, incremental) slot pair, and the snapshot paths for them which
@@ -38,7 +35,9 @@ fd_ssarchive_latest_pair( char const * directory,
                           ulong *      full_slot,
                           ulong *      incremental_slot,
                           char         full_path[ static PATH_MAX ],
-                          char         incremental_path[ static PATH_MAX ] );
+                          char         incremental_path[ static PATH_MAX ],
+                          int *        full_is_zstd,
+                          int *        incremental_is_zstd );
 
 /* Given a directory on the file system, remove old snapshots by slot
    age until the number of full snapshots matches the

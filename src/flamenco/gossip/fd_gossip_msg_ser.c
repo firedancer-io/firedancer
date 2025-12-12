@@ -279,24 +279,26 @@ fd_gossip_contact_info_encode( fd_contact_info_t const * contact_info,
 }
 
 int
-fd_gossip_crds_vote_encode( uchar *       out_buf,
-                            ulong         out_buf_sz,
-                            uchar const * txn,
-                            ulong         txn_sz,
-                            uchar const * identity_pubkey,
-                            long          now,
-                            ulong *       opt_encoded_sz ) {
+fd_gossip_crds_vote_encode( uchar *                       out_buf,
+                            ulong                         out_buf_sz,
+                            uchar const *                 txn,
+                            ulong                         txn_sz,
+                            uchar const *                 identity_pubkey,
+                            long                          now,
+                            uchar                         vote_index,
+                            fd_gossip_view_crds_value_t * out_view ) {
+  fd_gossip_view_vote_t * vote = out_view->vote;
+
   SER_INIT( out_buf, out_buf_sz, 0U );
-  INC( 64U ); /* Reserve space for signature */
+  out_view->signature_off = CUR_OFFSET          ; /* Reserve space for signature */              ; INC( 64U );
+  out_view->tag           = FD_GOSSIP_VALUE_VOTE; FD_STORE( uint,  CURSOR, FD_GOSSIP_VALUE_VOTE ); INC(  4U );
 
-  FD_STORE( uint,  CURSOR, FD_GOSSIP_VALUE_VOTE )             ; INC( 4U );
-  FD_STORE( uchar, CURSOR, 0U )                               ; INC( 1U ); /* TODO: vote tower index, unused for now */
-  fd_memcpy( CURSOR, identity_pubkey, 32UL )                  ; INC( 32U );
-  fd_memcpy( CURSOR, txn,             txn_sz )                ; INC( (ushort)txn_sz );
-  FD_STORE( ulong, CURSOR, (ulong)FD_NANOSEC_TO_MILLI( now ) ); INC( 8U );
+  vote->index               = vote_index; FD_STORE ( uchar, CURSOR, vote_index )                       ; INC(  1U );
+  out_view->pubkey_off      = CUR_OFFSET; fd_memcpy( CURSOR, identity_pubkey, 32UL )                   ; INC( 32U );
+  vote->txn_off             = CUR_OFFSET; fd_memcpy( CURSOR, txn, txn_sz )                             ; INC( (ushort)txn_sz );
+  out_view->wallclock_nanos = now       ; FD_STORE ( ulong, CURSOR, (ulong)FD_NANOSEC_TO_MILLI( now ) ); INC(  8U );
 
-  if( opt_encoded_sz ) {
-    *opt_encoded_sz = BYTES_CONSUMED; /* Return the size of the encoded vote */
-  }
+  vote->txn_sz     = (ushort)txn_sz;
+  out_view->length = (ushort)BYTES_CONSUMED;
   return 0;
 }

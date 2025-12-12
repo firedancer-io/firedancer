@@ -153,12 +153,18 @@ fd_block_dump_context_reset( fd_block_dump_ctx_t * ctx ) {
 /****** Actual dumping functions ******/
 
 void
-fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
+fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
+                           fd_bank_t *         bank,
+                           fd_txn_in_t const * txn_in,
+                           fd_txn_out_t *      txn_out,
                            fd_instr_info_t *   instr,
                            ushort              instruction_idx );
 
 void
-fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx );
+fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
+                         fd_bank_t *         bank,
+                         fd_txn_in_t const * txn_in,
+                         fd_txn_out_t *      txn_out );
 
 /* Block dumping is a little bit different than the other harnesses due
    to the architecture of our system.  Unlike the other dumping
@@ -204,7 +210,9 @@ fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
                                 char const *    fn_name );
 
 void
-fd_dump_elf_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
+fd_dump_elf_to_protobuf( fd_runtime_t *      runtime,
+                         fd_bank_t *         bank,
+                         fd_txn_in_t const * txn_in,
                          fd_txn_account_t *  program_acc );
 
 FD_PROTOTYPES_END

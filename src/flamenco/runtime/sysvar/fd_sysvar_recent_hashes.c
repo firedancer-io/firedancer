@@ -53,7 +53,7 @@ register_blockhash( fd_bank_t *       bank,
   fd_blockhashes_t * bhq = fd_bank_block_hash_queue_modify( bank );
   fd_blockhash_info_t * bh = fd_blockhashes_push_new( bhq, hash );
   bh->fee_calculator = (fd_fee_calculator_t){
-    .lamports_per_signature = fd_bank_lamports_per_signature_get( bank )
+    .lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( bank )
   };
 }
 

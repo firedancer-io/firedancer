@@ -37,7 +37,6 @@ struct fd_configh {
     char  account_index_exclude_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
     char  accounts_index_path[ PATH_MAX ];
     char  accounts_hash_cache_path[ PATH_MAX ];
-    int   enable_accounts_disk_index;
     int   require_tower;
     char  snapshot_archive_format[ 10 ];
   } ledger;
@@ -109,12 +108,17 @@ struct fd_configf {
     ulong file_size_gib;
     ulong max_cache_entries;
     ulong cache_size_gib;
+    struct {
+       int  enabled;
+       uint queue_depth;
+    } io_uring;
   } vinyl;
 
   struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint sign_tile_count;
     uint gossvf_tile_count;
+    uint snapla_tile_count;
   } layout;
 
   struct {
@@ -157,6 +161,10 @@ struct fd_configf {
   } snapshots;
 
   struct {
+    int hard_fork_fatal;
+  } development;
+
+  struct {
     ulong max_completed_shred_sets;
   } store;
 };
@@ -181,6 +189,7 @@ struct fd_config_net {
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
     char rss_queue_mode[ 16 ]; /* "simple", "dedicated", or "auto" */
+    int  native_bond;
   } xdp;
 
   struct {
@@ -275,7 +284,6 @@ struct fd_config {
     char  mount_path[ PATH_MAX ];
     char  max_page_size[ 16 ];
     ulong gigantic_page_threshold_mib;
-    int   allow_hugepage_increase;
   } hugetlbfs;
 
   fd_config_net_t net;
@@ -336,6 +344,10 @@ struct fd_config {
     struct {
       char affinity[ AFFINITY_SZ ];
     } udpecho;
+
+    struct {
+      int disable_lthash_verification;
+    } snapshots;
 
     struct {
       char affinity[ AFFINITY_SZ ];
@@ -450,7 +462,6 @@ struct fd_config {
     } repair;
 
     struct {
-      char  cluster_version[ 32 ];
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
@@ -467,7 +478,6 @@ struct fd_config {
       ulong end_slot;
       char  rocksdb_path[ PATH_MAX ];
       char  shredcap_path[ PATH_MAX ];
-      char  bank_hash_path[ PATH_MAX ];
       char  ingest_mode[ 32 ];
     } archiver;
 
@@ -476,6 +486,10 @@ struct fd_config {
       char  folder_path[ PATH_MAX ];
       ulong write_buffer_size;
     } shredcap;
+
+    struct {
+      ulong max_vote_lookahead;
+    } tower;
 
   } tiles;
   struct {

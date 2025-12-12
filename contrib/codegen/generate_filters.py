@@ -310,12 +310,15 @@ if __name__ == '__main__':
 #ifndef HEADER_fd_{child_path}
 #define HEADER_fd_{child_path}
 
+#if defined(__linux__)
+
 #include "{util_path}/src/util/fd_util_base.h"
 #include <linux/audit.h>
 #include <linux/capability.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <linux/bpf.h>
+#include <linux/unistd.h>
 #include <sys/syscall.h>
 #include <signal.h>
 #include <stddef.h>
@@ -372,5 +375,8 @@ if __name__ == '__main__':
                         of.write(f"{padding}/* {comment} */\n\n")
             of.write("  };\n")
             of.write("  fd_memcpy( out, filter, sizeof( filter ) );\n")
-            of.write("}\n\n")
-            of.write("#endif\n")
+            of.write("}\n")
+            of.write("\n")
+            of.write("#endif /* defined(__linux__) */\n")
+            of.write("\n")
+            of.write(f"#endif /* HEADER_fd_{child_path} */\n")

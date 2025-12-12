@@ -16,6 +16,10 @@
 #define FD_ACCDB_FSCK_CORRUPT   3U /* data corruption detected */
 #define FD_ACCDB_FSCK_UNKNOWN   4U /* check stopped early */
 
+/* FD_ACCDB_FSCK_FLAGS_* are verification options */
+
+#define FD_ACCDB_FSCK_FLAGS_LTHASH (1U) /* compute lthash */
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_accdb_fsck_funk verifies a funk index.  Returns the high-level
@@ -24,7 +28,8 @@ FD_PROTOTYPES_BEGIN
    tag bits for integrity checking). */
 
 uint
-fd_accdb_fsck_funk( fd_funk_t * funk );
+fd_accdb_fsck_funk( fd_funk_t * funk,
+                    uint        flags );
 
 /* fd_accdb_fsck_vinyl verifies a bstream and meta index.  Returns the
    high-level result (FD_ACCDB_FSCK_*) and writes NOTICE/WARNING logs
@@ -33,7 +38,8 @@ fd_accdb_fsck_funk( fd_funk_t * funk );
 
 uint
 fd_accdb_fsck_vinyl( fd_vinyl_io_t *   io,     /* must be io_mm */
-                     fd_vinyl_meta_t * meta ); /* local join to meta index */
+                     fd_vinyl_meta_t * meta,   /* local join to meta index */
+                     uint              flags );
 
 FD_PROTOTYPES_END
 

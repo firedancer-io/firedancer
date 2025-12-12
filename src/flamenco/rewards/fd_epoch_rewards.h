@@ -110,7 +110,7 @@ struct fd_epoch_rewards {
 
   /* Stake rewards that still need to be distributed, grouped by
      partition */
-  uint128 total_points;
+  fd_w_u128_t total_points;
 
   /* Total stake rewards to distribute as calculated during the epoch
      boundary */

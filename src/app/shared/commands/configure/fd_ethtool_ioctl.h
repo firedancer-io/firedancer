@@ -172,28 +172,40 @@ fd_ethtool_ioctl_ntuple_clear( fd_ethtool_ioctl_t * ioc );
 /* fd_ethtool_ioctl_ntuple_set_udp_dport installs a flow steering rule
    at the given rule_idx to route all UDP/IPv4 packets with the given
    destination port to the given queue_idx.  Note that if a rule already
-   exists at rule_idx, it will be overwritten.  Returns nonzero on failure. */
+   exists at rule_idx, it will be overwritten.
+
+   In order to facilitate load balancing flows across multiple queues,
+   a nonzero rule_group_idx can be given.  rule_group_cnt must be a
+   nonzero power of 2.  This forms a mask of the lowest N bits of the
+   IPv4 source address and masked addresses matching rule_group_idx
+   are steered to the given queue_idx.  For example, we can create a
+   group of rules for queue 0 where the lowest bit of the address is 0
+   and a second set of rules for queue 1 where the lowest bit is 1.
+
+   Returns nonzero on failure. */
 
 int
 fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
                                        uint                 rule_idx,
                                        ushort               dport,
+                                       uint                 rule_group_idx,
+                                       uint                 rule_group_cnt,
                                        uint                 queue_idx );
 
 /* fd_ethtool_ioctl_ntuple_validate_udp_dport queries all ntuple
    rules and then sets valid to 1 if they match the expected set of
-   rules for the given UDP destination ports.  In other words,
-   this makes sure the existing rules are correct and that no other
-   rules are active.  If num_dports is zero, then this effectively
-   checks whether any rules exist.  dports is left in an
-   indeterminate state after this function returns.  Returns
+   rules for the given UDP destination ports and the given number of
+   queues (each queue should have a group of rules, one for each port
+   in dports).  In other words, this makes sure the existing rules are
+   correct and that no other rules are active.  If dports_cnt is zero,
+   then this effectively checks whether any rules exist.  Returns
    nonzero on failure (uncertain if valid or not). */
 
 int
 fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
-                                            ushort *             dports,
-                                            uint                 num_dports,
-                                            uint                 queue_idx,
+                                            ushort const *       dports,
+                                            uint                 dports_cnt,
+                                            uint                 queue_cnt,
                                             int *                valid );
 
 

@@ -10,7 +10,7 @@
     max_account_records = 200_000_000
 [snapshots]
     [snapshots.sources]
-        servers = [ "http://solana-testnet-rpc.jumpisolated.com:8899" ]
+        servers = [ "http://solana-testnet-rpc.jumpisolated.com:8899", "https://solana-testnet-tls.jumpisolated.com" ]
         [snapshots.sources.gossip]
             allow_any = false
             allow_list = []

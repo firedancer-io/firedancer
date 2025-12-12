@@ -78,4 +78,6 @@ main( int     argc,
   test_push_active_set();
 
   FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
+  return 0;
 }

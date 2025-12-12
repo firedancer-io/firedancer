@@ -799,6 +799,7 @@ fd_bundle_client_grpc_rx_msg(
     ulong        request_ctx
 ) {
   fd_bundle_tile_t * ctx = app_ctx;
+  ctx->metrics.proto_received_bytes += protobuf_sz;
   pb_istream_t istream = pb_istream_from_buffer( protobuf, protobuf_sz );
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:

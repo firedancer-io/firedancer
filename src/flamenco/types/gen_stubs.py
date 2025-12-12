@@ -92,7 +92,6 @@ for t,t2 in [("bool",1),
              ("hash",32),
              ("uchar[32]",32),
              ("signature",64),
-             ("uchar[128]",128),
              ("uchar[2048]",2048),]:
     fixedsizetypes[t] = t2
 
@@ -114,7 +113,6 @@ flattypes = {
   "hash",
   "uchar[32]",
   "signature",
-  "uchar[128]",
   "uchar[2048]",
   "flamenco_txn" # custom type
 }
@@ -133,7 +131,6 @@ fuzzytypes = {
     "hash",
     "uchar[32]",
     "signature",
-    "uchar[128]",
     "uchar[2048]",
 }
 
@@ -243,11 +240,10 @@ class PrimitiveMember(TypeNode):
         "double" :    lambda n: print(f'  double {n};',    file=header),
         "long" :      lambda n: print(f'  long {n};',      file=header),
         "uint" :      lambda n: print(f'  uint {n};',      file=header),
-        "uint128" :   lambda n: print(f'  uint128 {n};',   file=header),
+        "uint128" :   lambda n: print(f'  fd_w_u128_t {n};',   file=header),
         "bool" :      lambda n: print(f'  uchar {n};',     file=header),  # bool stored as uchar
         "uchar" :     lambda n: print(f'  uchar {n};',     file=header),
         "uchar[32]" : lambda n: print(f'  uchar {n}[32];', file=header),
-        "uchar[128]" :lambda n: print(f'  uchar {n}[128];', file=header),
         "uchar[2048]":lambda n: print(f'  uchar {n}[2048];', file=header),
         "ulong" :     lambda n: print(f'  ulong {n};',     file=header),
         "ushort" :    lambda n: print(f'  ushort {n};',    file=header)
@@ -317,7 +313,6 @@ class PrimitiveMember(TypeNode):
         "bool" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bool_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint8_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uchar[32]" : lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 32, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uchar[128]" :lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 128, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uchar[2048]":lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 2048, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "ulong" :     lambda n, varint, indent: PrimitiveMember.ulong_decode_footprint(n, varint, indent),
         "ushort" :    lambda n, varint, indent: PrimitiveMember.ushort_decode_footprint(n, varint, indent),
@@ -358,7 +353,6 @@ class PrimitiveMember(TypeNode):
         "bool" :      lambda n, varint, indent: print(f'{indent}  fd_bincode_bool_decode_unsafe( &self->{n}, ctx );', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  fd_bincode_uint8_decode_unsafe( &self->{n}, ctx );', file=body),
         "uchar[32]" : lambda n, varint, indent: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
-        "uchar[128]" :lambda n, varint, indent: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
         "uchar[2048]":lambda n, varint, indent: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
         "ulong" :     lambda n, varint, indent: PrimitiveMember.ulong_decode_unsafe(n, varint, indent),
         "ushort" :    lambda n, varint, indent: PrimitiveMember.ushort_decode_unsafe(n, varint, indent),
@@ -405,7 +399,6 @@ class PrimitiveMember(TypeNode):
         "bool" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bool_encode( (uchar)(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint8_encode( (uchar)(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uchar[32]" : lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uchar[128]" : lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uchar[2048]" : lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "ulong" :     lambda n, varint, indent: PrimitiveMember.ulong_encode(n, varint, indent),
         "ushort" :    lambda n, varint, indent: PrimitiveMember.ushort_encode(n, varint, indent),
@@ -431,7 +424,6 @@ class PrimitiveMember(TypeNode):
         "bool" :      lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char);', file=body),
         "uchar" :     lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char);', file=body),
         "uchar[32]" : lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char) * 32;', file=body),
-        "uchar[128]" :lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char) * 128;', file=body),
         "uchar[2048]":lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char) * 2048;', file=body),
         "ulong" :     lambda n, varint, inner, indent: print(f'{indent}  size += { ("fd_bincode_varint_size( self->" + n + " );") if varint else "sizeof(ulong);" }', file=body),
         "ushort" :    lambda n, varint, inner, indent: print(f'{indent}  size += { ("fd_bincode_compact_u16_size( &self->" + n + " );") if varint else "sizeof(ushort);" }', file=body),
@@ -456,7 +448,6 @@ class PrimitiveMember(TypeNode):
         "bool" :      lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_BOOL, "bool", level, {1 if varint else 0}  );', file=body),
         "uchar" :     lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, {1 if varint else 0}  );', file=body),
         "uchar[32]" : lambda n, varint, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level, {1 if varint else 0}  );', file=body),
-        "uchar[128]" :lambda n, varint, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level, {1 if varint else 0}  );', file=body),
         "uchar[2048]":lambda n, varint, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level, {1 if varint else 0}  );', file=body),
         "ulong" :     lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level, {1 if varint else 0}  );', file=body),
         "ushort" :    lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level, {1 if varint else 0}  );', file=body)
@@ -3028,7 +3019,6 @@ class OptionMember(TypeNode):
         "uint128" :   lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level, 0 );', file=body),
         "uchar" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );', file=body),
         "uchar[32]" : lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level, 0 );', file=body),
-        "uchar[128]" :lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level, 0 );', file=body),
         "uchar[2048]":lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level, 0 );', file=body),
         "ulong" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0 );', file=body),
         "ushort" :    lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level, 0 );', file=body),

@@ -92,11 +92,11 @@ concurrency:
 jobs:
   build_gcc:
     runs-on:
-      labels: rocky8
+      labels: rocky9
       group: fd-public-repo
     if: ${{ inputs.gcc != 'none' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -151,7 +151,7 @@ jobs:
       group: fd-public-repo
     if: ${{ inputs.clang != 'none' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -209,7 +209,7 @@ jobs:
       matrix:
         gcc_version: [12]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -220,6 +220,6 @@ jobs:
           if [ "${{ matrix.gcc_version }}" != "8" ]; then
             source /opt/rh/gcc-toolset-${{ matrix.gcc_version }}/enable
           fi
-          ./deps.sh +dev fetch install
+          ./deps.sh fetch install
           make -j clean
           make -j all

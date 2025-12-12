@@ -3,8 +3,9 @@
 #define _GNU_SOURCE
 #include "fd_solfuzz.h"
 #include "../fd_bank.h"
-#include "../fd_exec_stack.h"
 #include "../fd_runtime_stack.h"
+#include "../fd_runtime.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 #include <errno.h>
 #include <sys/mman.h>
 #include "../../../util/shmem/fd_shmem_private.h"
@@ -98,24 +99,32 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   /* Create objects */
   fd_memset( runner, 0, sizeof(fd_solfuzz_runner_t) );
-  runner->wksp = wksp;
+  runner->wksp     = wksp;
+  runner->wksp_tag = wksp_tag;
 
   void * shfunk   = fd_funk_new( funk_mem,   wksp_tag, 1UL, txn_max, rec_max );
   void * shpcache = fd_funk_new( pcache_mem, wksp_tag, 1UL, txn_max, rec_max );
   if( FD_UNLIKELY( !shfunk   ) ) goto bail1;
   if( FD_UNLIKELY( !shpcache ) ) goto bail1;
 
-  if( FD_UNLIKELY( !fd_accdb_admin_join( runner->accdb_admin, funk_mem ) ) ) goto bail2;
-  if( FD_UNLIKELY( !fd_accdb_user_join ( runner->accdb,       funk_mem ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_accdb_admin_join  ( runner->accdb_admin, funk_mem ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_accdb_user_v1_init( runner->accdb,       funk_mem ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_admin_join( runner->progcache_admin, pcache_mem ) ) ) goto bail2;
 
-  runner->exec_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_exec_stack_t), sizeof(fd_exec_stack_t), wksp_tag );
-  if( FD_UNLIKELY( !runner->exec_stack ) ) goto bail2;
+  runner->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
+  if( FD_UNLIKELY( !runner->runtime ) ) goto bail2;
   runner->exec_accounts = fd_wksp_alloc_laddr( wksp, alignof(fd_exec_accounts_t), sizeof(fd_exec_accounts_t), wksp_tag );
   if( FD_UNLIKELY( !runner->exec_accounts ) ) goto bail2;
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
+
+# if FD_HAS_FLATCC
+  /* TODO: Consider implementing custom allocators and emitters.
+     The default builder / emitter uses libc allocators */
+  int builder_err = flatcc_builder_init( runner->fb_builder );
+  if( FD_UNLIKELY( builder_err ) ) goto bail2;
+# endif
 
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
@@ -130,6 +139,12 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   runner->enable_vm_tracing = options->enable_vm_tracing;
   FD_TEST( runner->progcache->funk->shmem );
+
+  ulong tags[1] = { wksp_tag };
+  fd_wksp_usage_t usage[1];
+  fd_wksp_usage( wksp, tags, 1UL, usage );
+  runner->wksp_baseline_used_sz = usage->used_sz;
+
   return runner;
 
 bail2:
@@ -151,7 +166,7 @@ bail1:
 void
 fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
 
-  fd_accdb_user_leave( runner->accdb, NULL );
+  fd_accdb_user_fini( runner->accdb );
   void * shfunk = NULL;
   fd_accdb_admin_leave( runner->accdb_admin, &shfunk );
   if( shfunk ) fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
@@ -161,6 +176,10 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
   fd_progcache_admin_leave( runner->progcache_admin, &shpcache );
   if( shpcache ) fd_wksp_free_laddr( fd_funk_delete( shpcache ) );
 
+# if FD_HAS_FLATCC
+  flatcc_builder_clear( runner->fb_builder );
+# endif
+
   if( runner->spad  ) fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
   if( runner->banks ) fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( runner->banks ) ) );
   fd_wksp_free_laddr( runner );
@@ -169,10 +188,23 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
 void
 fd_solfuzz_runner_leak_check( fd_solfuzz_runner_t * runner ) {
   if( FD_UNLIKELY( fd_spad_frame_used( runner->spad ) ) ) {
-    FD_LOG_CRIT(( "solfuzz leaked a spad frame (bump allocator)" ));
+    FD_LOG_CRIT(( "leaked spad frame" ));
   }
 
-  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->accdb->funk->shmem->child_head_cidx ) ) ) ) {
-    FD_LOG_CRIT(( "solfuzz leaked a funk txn" ));
+  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->accdb_admin->funk->shmem->child_head_cidx ) ) ) ) {
+    FD_LOG_CRIT(( "leaked a funk txn in accdb" ));
+  }
+  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->progcache_admin->funk->shmem->child_head_cidx ) ) ) ) {
+    FD_LOG_CRIT(( "leaked a funk txn in progcache" ));
+  }
+
+  ulong tags[1] = { runner->wksp_tag };
+  fd_wksp_usage_t usage[1];
+  fd_wksp_usage( runner->wksp, tags, 1UL, usage );
+  if( FD_UNLIKELY( usage->used_sz != runner->wksp_baseline_used_sz ) ) {
+    FD_LOG_CRIT(( "leaked wksp allocations: %lu bytes with tag %lu (baseline %lu bytes, delta %+ld)",
+                  usage->used_sz, runner->wksp_tag,
+                  runner->wksp_baseline_used_sz,
+                  (long)usage->used_sz - (long)runner->wksp_baseline_used_sz ));
   }
 }

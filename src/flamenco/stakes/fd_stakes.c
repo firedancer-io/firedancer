@@ -1,10 +1,10 @@
 #include "fd_stakes.h"
 #include "../runtime/fd_bank.h"
-#include "../runtime/fd_system_ids.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "fd_stake_delegations.h"
+#include "../accdb/fd_accdb_impl_v1.h"
 
 ulong
 fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
@@ -79,38 +79,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
   fd_bank_total_epoch_stake_set( bank, total_stake );
 
-  /* This corresponding logic does not exist in the Agave client.  The
-     stakes from epoch T-2 are cached in the vote states struct in order
-     to make clock calulations more efficient.  This is purely an
-     optimization. */
-
-  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
-  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
-    fd_vote_states_iter_t vs_iter_[1];
-    for( fd_vote_states_iter_t * vs_iter = fd_vote_states_iter_init( vs_iter_, vote_states );
-        !fd_vote_states_iter_done( vs_iter );
-        fd_vote_states_iter_next( vs_iter ) ) {
-      fd_vote_state_ele_t * vote_state           = fd_vote_states_iter_ele( vs_iter );
-      fd_vote_state_ele_t * vote_state_prev_prev = fd_vote_states_query( vote_states_prev_prev, &vote_state->vote_account );
-      vote_state->stake_t_2 = !!vote_state_prev_prev ? vote_state_prev_prev->stake : 0UL;
-    }
-  }
-  fd_bank_vote_states_prev_prev_end_locking_query( bank );
-
-  /* Cache the stake from epoch T-1 for the vote accounts in the vote
-     states cache, to be sent to Tower for it's threshold checks. */
-  fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_locking_query( bank );
-  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
-    fd_vote_states_iter_t vs_iter_[1];
-    for( fd_vote_states_iter_t * vs_iter = fd_vote_states_iter_init( vs_iter_, vote_states );
-        !fd_vote_states_iter_done( vs_iter );
-        fd_vote_states_iter_next( vs_iter ) ) {
-      fd_vote_state_ele_t * vote_state      = fd_vote_states_iter_ele( vs_iter );
-      fd_vote_state_ele_t * vote_state_prev = fd_vote_states_query( vote_states_prev, &vote_state->vote_account );
-      vote_state->stake_t_1 = !!vote_state_prev ? vote_state_prev->stake : 0UL;
-    }
-  }
-  fd_bank_vote_states_prev_end_locking_query( bank );
   fd_bank_vote_states_end_locking_modify( bank );
 }
 
@@ -129,8 +97,9 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
      sysvar.  Afterward, we can refresh the stake values for the vote
      accounts for the new epoch. */
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb->funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 
@@ -169,7 +138,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
   fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &new_elem );
 
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb->funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 

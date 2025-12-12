@@ -1,14 +1,18 @@
 #ifndef HEADER_fd_src_waltz_xdp_fd_xdp1_h
 #define HEADER_fd_src_waltz_xdp_fd_xdp1_h
 
+#if defined(__linux__)
+
 #include "../../util/fd_util.h"
 
-struct fd_xdp_fds {
-  int xsk_map_fd;
-  int prog_link_fd;
-};
+FD_PROTOTYPES_BEGIN
 
-typedef struct fd_xdp_fds fd_xdp_fds_t;
+/* fd_xdp_gen_program generates an XDP program that steers incoming
+   Firedancer packets to AF_XDP sockets using XDP_REDIRECT.  Places the
+   eBPF program bytecode at code_buf.  xsks_fd is the XSKMAP file
+   descriptor.  If listen_ip_addr!=0, only redirects packets with a
+   matching dst IP address.  ports is a list of UDP dst ports to
+   redirect.  If allowed_gre==1, also forwards GRE-tunnelled packets. */
 
 ulong
 fd_xdp_gen_program( ulong          code_buf[ 512 ],
@@ -34,11 +38,23 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
    This function will print a diagnostic error message and terminate the
    process if it fails, and will not return in failure cases. */
 
+struct fd_xdp_fds {
+  uint if_idx;
+  int  xsk_map_fd;
+  int  prog_link_fd;
+};
+
+typedef struct fd_xdp_fds fd_xdp_fds_t;
+
 fd_xdp_fds_t
 fd_xdp_install( uint           if_idx,
                 uint           listen_ip4_addr,
                 ulong          ports_cnt,
                 ushort const * ports,
                 char const *   xdp_mode );
+
+FD_PROTOTYPES_END
+
+#endif /* defined(__linux__) */
 
 #endif /* HEADER_fd_src_waltz_xdp_fd_xdp1_h */

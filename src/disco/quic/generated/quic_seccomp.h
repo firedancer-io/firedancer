@@ -2,12 +2,15 @@
 #ifndef HEADER_fd_src_disco_quic_generated_quic_seccomp_h
 #define HEADER_fd_src_disco_quic_generated_quic_seccomp_h
 
+#if defined(__linux__)
+
 #include "../../../../src/util/fd_util_base.h"
 #include <linux/audit.h>
 #include <linux/capability.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <linux/bpf.h>
+#include <linux/unistd.h>
 #include <sys/syscall.h>
 #include <signal.h>
 #include <stddef.h>
@@ -65,4 +68,6 @@ static void populate_sock_filter_policy_quic( ulong out_cnt, struct sock_filter 
   fd_memcpy( out, filter, sizeof( filter ) );
 }
 
-#endif
+#endif /* defined(__linux__) */
+
+#endif /* HEADER_fd_src_disco_quic_generated_quic_seccomp_h */

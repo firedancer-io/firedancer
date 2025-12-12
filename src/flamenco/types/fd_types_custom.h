@@ -76,20 +76,6 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode                  fd_hash_decode
 #define fd_pubkey_eq                      fd_hash_eq
 
-struct __attribute__((aligned(8UL))) fd_option_slot {
-  uchar is_some;
-  ulong slot;
-};
-typedef struct fd_option_slot fd_option_slot_t;
-
-/* Index structure needed for transaction status (metadata) blocks */
-struct fd_txnstatusidx {
-    fd_ed25519_sig_t sig;
-    ulong offset;
-    ulong status_sz;
-};
-typedef struct fd_txnstatusidx fd_txnstatusidx_t;
-
 typedef struct fd_rust_duration fd_rust_duration_t;
 
 void
@@ -120,18 +106,5 @@ struct fd_stake_weight {
   ulong       stake;    /* total stake by identity */
 };
 typedef struct fd_stake_weight fd_stake_weight_t;
-
-struct fd_stake_weight_t_mapnode {
-    fd_stake_weight_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
-#define REDBLK_T fd_stake_weight_t_mapnode_t
-#define REDBLK_NAME fd_stake_weight_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
 
 #endif /* HEADER_fd_src_flamenco_types_fd_types_custom_h */

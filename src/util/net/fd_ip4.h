@@ -77,7 +77,7 @@ typedef union fd_ip4_hdr fd_ip4_hdr_t;
 
 /* FD_IP4_SET_IHL sets the IHL field in the supplied fd_ip4_hdr */
 
-#define FD_IP4_SET_IHL(ip4,value) ((uchar)( \
+#define FD_IP4_SET_IHL(ip4,value) (ip4).verihl = ((uchar)( \
       ( (uint)(ip4).verihl & 0xf0u ) | ( (uint)(value) & 0x0fu ) ))
 
 /* FD_IP4_VERIHL combines the supplied IHL and VERSION into a single verihl fields */

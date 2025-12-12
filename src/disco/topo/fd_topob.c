@@ -385,6 +385,9 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "snapld", /* FIREDANCER only */
     "snapdc", /* FIREDANCER only */
     "snapin", /* FIREDANCER only */
+    "snapwh", /* FIREDANCER only */
+    "snapla", /* FIREDANCER only */
+    "snapls", /* FIREDANCER only */
     "arch_f", /* FIREDANCER only */
     "arch_w", /* FIREDANCER only */
     "vinyl",  /* FIREDANCER only */
@@ -393,6 +396,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
   char const * CRITICAL_TILES[] = {
     "pack",
     "poh",
+    "gui",
     "snapdc", /* TODO: Snapshot loading speed depends on having full core */
     "snapin", /* TODO: Snapshot loading speed depends on having full core */
   };
@@ -651,6 +655,9 @@ fd_topob_finish( fd_topo_t *                topo,
     }
 
     ulong footprint = fd_ulong_align_up( offset, fd_topo_workspace_align() );
+
+    part_max = fd_ulong_max( part_max, wksp->min_part_max );
+    loose_sz = fd_ulong_max( loose_sz, wksp->min_loose_sz );
 
     /* Compute footprint for a workspace that can store our footprint,
        with an extra align of padding incase gaddr_lo is not aligned. */

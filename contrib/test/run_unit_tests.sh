@@ -8,7 +8,7 @@ set -euo pipefail
 JOBS=0
 NUMA_IDX=0
 PAGE_SZ=gigantic
-JOB_MEM=$((1<<31))  # 2GiB
+JOB_MEM=$((1<<32))  # 4GiB
 PAGE_CNT=
 TESTS=
 VERBOSE=0

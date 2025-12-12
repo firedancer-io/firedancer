@@ -222,6 +222,7 @@ fd_progcache_gc_root( fd_progcache_admin_t *         cache,
   old_rec->map_next = FD_FUNK_REC_IDX_NULL;
   fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
   fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
+  cache->metrics.gc_root_cnt++;
 }
 
 /* fd_progcache_gc_invalidation cleans up a "cache invalidate" record,
@@ -288,12 +289,14 @@ fd_progcache_publish_recs( fd_progcache_admin_t * cache,
     if( FD_UNLIKELY( prec->invalidate ) ) {
       /* Drop cache invalidate records */
       fd_progcache_gc_invalidation( cache, rec );
+      cache->metrics.gc_root_cnt++;
     } else {
       /* Migrate record to root */
       rec->prev_idx = FD_FUNK_REC_IDX_NULL;
       rec->next_idx = FD_FUNK_REC_IDX_NULL;
       fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
       fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
+      cache->metrics.root_cnt++;
     }
 
     head = next; /* next record */

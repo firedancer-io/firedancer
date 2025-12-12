@@ -117,7 +117,7 @@ fd_quic_conn_new( void *                   mem,
 
   if( layout.stream_map_off ) {
     ulong stream_map_laddr = (ulong)mem + layout.stream_map_off;
-    conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void *)stream_map_laddr, layout.stream_map_lg ) );
+    conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void *)stream_map_laddr, layout.stream_map_lg, (ulong)fd_tickcount() ) );
     if( FD_UNLIKELY( !conn->stream_map ) ) return NULL;
   }
 

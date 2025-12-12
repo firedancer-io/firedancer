@@ -504,6 +504,9 @@ user = ""
     file_size_gib = 16
     max_cache_entries = 1_000_000
     cache_size_gib = 2
+    [vinyl.io_uring]
+        enabled = false
+        queue_depth = 2048
 
 [runtime]
     # TODO: This is not respected, the max vote accounts seems to be
@@ -683,11 +686,7 @@ user = ""
     #
     # See the comments for the [tiles.net] section below for more
     # information.
-    #
-    # TODO: This should defaulted to 2 for Firedancer, but cannot be for
-    # now because changing it to 2 switches the networking rx_queue_mode
-    # to "simple" which decreases snapshot performance materially.
-    net_tile_count = 1
+    net_tile_count = 2
 
     # How many QUIC tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
@@ -802,6 +801,14 @@ user = ""
     # requests.
     sign_tile_count = 2
 
+    # How many snapshot lthash adder tiles to run.  Snapshot lthash
+    # adder tiles compute the hash of all accounts in the loaded
+    # snapshot in parallel. Too few and snapshot loading might be
+    # delayed.  Once the hash of the accounts in a snapshot is
+    # calculated, if it does not match the validator will abort with an
+    # error.
+    snapla_tile_count = 4
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a
@@ -856,14 +863,6 @@ user = ""
     # in MiB are backed by "gigantic" pages unless disabled via
     # max_page_size.
     gigantic_page_threshold_mib = 128
-
-    # Whether the hugetlbfs configure stage is allowed to increase the
-    # number of huge or gigantic pages available on the system.  If not
-    # allowed, and the system does not have enough huge or gigantic
-    # pages available to run the application, configuration will fail
-    # with an error.  If allowed, configuration will attempt to reserve
-    # enough pages from the kernel that running will always succeed.
-    allow_hugepage_increase = true
 
 # The network stack is provided by net tiles, which are responsible for
 # sending and receiving packets on the network.
@@ -941,9 +940,8 @@ user = ""
         #   Full list of network drivers supporting XDP:
         #   https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md#xdp
         #
-        # "generic"
-        #   Selects "skb" or "drv" automatically.  It is not recommended
-        #   to use this mode in production.
+        # "default"
+        #   Selects "skb" or "drv" automatically.
         #
         # If the kernel/hardware does not support driver mode, then
         # `firedancer run` will fail to start up with "operation not
@@ -993,15 +991,34 @@ user = ""
         #   traffic.
         #
         # "dedicated"
-        #   Reserves a dedicated hardware queue for each net tile.  For
-        #   now, only supports net_tile_count = 1.  Uses ethtool 'ntuple'
-        #   to route interesting packets based on UDP dst port.  This mode
+        #   Reserves a dedicated hardware queue for each net tile.  Uses
+        #   ethtool 'ntuple' rules to route incoming packets based on
+        #   UDP dst port.  Packets are load balanced across the dedicated
+        #   queues based on lowest bits of source address.  This mode
         #   may not work with some network device setups.
         #
         # "auto" (default)
         #   Attempts to run in "dedicated" mode but automatically falls
         #   back to "simple" mode if necessary.
         rss_queue_mode = "auto"
+
+        # Enable native network bonding support.
+        #
+        # If native_bond is set to 'true' and [net.interface] is a 'bond'
+        # type network device, install XDP config at bond slave devices
+        # instead of the bond device itself.
+        #
+        # Requires net_tile_count to be divisble by the number of slave
+        # devices.  This causes outgoing traffic to be load balanced with
+        # an arbitrary/opaque hash policy.  Supports up to 16 slave devices.
+        #
+        # Assumes that bond memberships don't change, i.e. running
+        # `ip link set dev eth1 master bond0` will crash Firedancer.
+        # However, it is fine to bring individual bonded devices down,
+        # or unplug cables for maintenance.  In other words, executing
+        # `ip link set dev eth1 down` while Firedancer is running is
+        # just fine.
+        native_bond = false
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
@@ -1324,7 +1341,7 @@ user = ""
         # To compute an appropriate value, multiply the expected Turbine
         # worst-case latency (tenths of seconds) by the expected
         # transaction rate, and divide by approx 25.
-        max_pending_shred_sets = 1024
+        max_pending_shred_sets = 32768
 
         # The shred tile listens on a specific port for shreds to
         # forward.  This argument controls which port that is.  The port
@@ -1357,9 +1374,21 @@ user = ""
         # Must be power of 2
         slot_max = 4096
 
-    [tiles.replay]
-        # TODO: What is this ... needs to be deleted
-        cluster_version =  "1.18.0"
+    # The tower tile runs the fork choice and tower rules to determine
+    # both what block to vote on and what block to build our own leader
+    # blocks on top of, as well as confirming blocks based on vote txns.
+    [tiles.tower]
+        # Solana reaches consensus via replay, but can "cluster confirm"
+        # slots ahead of the replay tip by listening to vote txns from
+        # gossip or TPU.  The larger max_vote_lookahead, the further
+        # ahead slots can be cluster confirmed before they are replayed.
+        #
+        # Specifically, tower will ignore gossip or TPU votes that are
+        # more than max_vote_lookahead slots ahead of the root.
+        #
+        # Note max_vote_lookahead must be >= max_live_slots and
+        # Firedancer will ignore a value where this is not the case.
+        max_vote_lookahead = 4096
 
     [tiles.send]
         # The port the send tile uses for QUIC, to send votes and other
@@ -1507,6 +1536,19 @@ user = ""
     # easily reproduced, but it decreases security and should not be
     # enabled during routine running of the validator.
     core_dump = true
+
+    # A hard fork occurs when our validator has some implementation
+    # difference in consensus rules and gets a different blockhash for
+    # a given slot than the rest of the cluster.
+    #
+    # Typically, we should assume that our validator is correct and keep
+    # running, but during development it can be useful to detect if we
+    # are on the minority hard fork and immediately exit or abort.
+    #
+    # If this option is true, the validator will immediately exit with
+    # an error if it detects a hard fork.  If false, the validator will
+    # log the hard fork event and continue running.
+    hard_fork_fatal = false
 
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
@@ -1735,3 +1777,13 @@ user = ""
     # production networking stack.
     [development.udpecho]
         affinity = "auto"
+
+    # Set to true to disable verification of the lthash in the
+    # snapshot loader.  This is not safe or supported in production
+    # and should only be used for development and testing purposes.
+    #
+    # If lthash verification is disabled, the validator will not
+    # start any lthash tiles and the value of `snapla_tile_count`
+    # in the layout will be ignored.
+    [development.snapshots]
+        disable_lthash_verification = true

@@ -18,7 +18,7 @@ process_rec( fd_funk_t *           funk,
   ulong        lamports   = meta->lamports;
   _Bool        executable = !!meta->executable;
   void const * owner      = meta->owner;
-  if( FD_LIKELY( lamports ) ) {
+  if( adder && FD_LIKELY( lamports ) ) {
     fd_lthash_adder_push_solana_account( adder, sum, pubkey, data, data_sz, lamports, executable, owner );
   }
 }
@@ -40,7 +40,9 @@ process_chain( fd_funk_t *         funk,
 }
 
 uint
-fd_accdb_fsck_funk( fd_funk_t * funk ) {
+fd_accdb_fsck_funk( fd_funk_t * funk,
+                    uint        flags ) {
+  _Bool const lthash = !!( flags & FD_ACCDB_FSCK_FLAGS_LTHASH );
 
   FD_LOG_NOTICE(( "FSCK starting integrity checks ..." ));
   long dt = -fd_log_wallclock();
@@ -53,10 +55,13 @@ fd_accdb_fsck_funk( fd_funk_t * funk ) {
   }
 
   FD_LOG_NOTICE(( "FSCK computing lthash ..." ));
-  fd_lthash_adder_t adder_[1];
-  fd_lthash_adder_t * adder = fd_lthash_adder_new( adder_ );
-  FD_TEST( adder );
   fd_lthash_value_t sum[1]; fd_lthash_zero( sum );
+  fd_lthash_adder_t adder_[1];
+  fd_lthash_adder_t * adder = NULL;
+  if( lthash ) {
+    adder = fd_lthash_adder_new( adder_ );
+    FD_TEST( adder );
+  }
   dt = -fd_log_wallclock();
 
   fd_funk_rec_map_t * rec_map = fd_funk_rec_map( funk );
@@ -64,11 +69,13 @@ fd_accdb_fsck_funk( fd_funk_t * funk ) {
   for( ulong i=0UL; i<chain_cnt; i++ ) process_chain( funk, i, adder, sum );
 
   dt += fd_log_wallclock();
-  fd_lthash_adder_flush( adder, sum );
-  uchar hash32[32]; fd_blake3_hash( sum->bytes, FD_LTHASH_LEN_BYTES, hash32 );
-  FD_BASE58_ENCODE_32_BYTES( sum->bytes, sum_enc    );
-  FD_BASE58_ENCODE_32_BYTES( hash32,     hash32_enc );
-  FD_LOG_NOTICE(( "FSCK: lthash[..32]=%s blake3(lthash)=%s", sum_enc, hash32_enc ));
+  if( lthash ) {
+    fd_lthash_adder_flush( adder, sum );
+    uchar hash32[32]; fd_blake3_hash( sum->bytes, FD_LTHASH_LEN_BYTES, hash32 );
+    FD_BASE58_ENCODE_32_BYTES( sum->bytes, sum_enc    );
+    FD_BASE58_ENCODE_32_BYTES( hash32,     hash32_enc );
+    FD_LOG_NOTICE(( "FSCK: lthash[..32]=%s blake3(lthash)=%s", sum_enc, hash32_enc ));
+  }
 
   return funk_err==FD_FUNK_SUCCESS ? FD_ACCDB_FSCK_NO_ERROR : FD_ACCDB_FSCK_CORRUPT;
 }

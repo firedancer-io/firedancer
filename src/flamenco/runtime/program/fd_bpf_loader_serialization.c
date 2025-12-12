@@ -1,6 +1,5 @@
 #include "fd_bpf_loader_serialization.h"
 #include "../fd_borrowed_account.h"
-#include "../fd_exec_stack.h"
 #include "../fd_runtime.h"
 
 /* This file is responsible for serializing and deserializing
@@ -263,8 +262,9 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
                                        uint *                    input_mem_regions_cnt,
                                        fd_vm_acc_region_meta_t * acc_region_metas,
                                        int                       stricter_abi_and_runtime_constraints,
-                                       int                       direct_mapping ) {
-  fd_pubkey_t * txn_accs = ctx->txn_ctx->account_keys;
+                                       int                       direct_mapping,
+                                       ulong *                   instr_data_offset ) {
+  fd_pubkey_t * txn_accs = ctx->txn_out->accounts.account_keys;
 
   uchar  acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
   ushort dup_acc_idx[ FD_INSTR_ACCT_MAX ]  = {0};
@@ -272,7 +272,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60
    */
-  uchar * serialized_params            = ctx->txn_ctx->exec_stack->bpf_loader_serialization.serialization_mem[ ctx->txn_ctx->instr_stack_sz-1UL ];
+  uchar * serialized_params            = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
@@ -382,9 +382,16 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
   FD_STORE( ulong, serialized_params, instr_data_len );
   serialized_params += sizeof(ulong);
 
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/program-runtime/src/serialization.rs#L568 */
+  ulong region_vaddr_offset = 0UL;
+  if( *input_mem_regions_cnt > 0 ) {
+    region_vaddr_offset = input_mem_regions[*input_mem_regions_cnt-1U].vaddr_offset +
+                          input_mem_regions[*input_mem_regions_cnt-1U].address_space_reserved;
+  }
+  *instr_data_offset = FD_VM_MEM_MAP_INPUT_REGION_START + region_vaddr_offset + (ulong)(serialized_params - curr_serialized_params_start);
+
   /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L559 */
-  uchar * instr_data = ctx->instr->data;
-  fd_memcpy( serialized_params, instr_data, instr_data_len );
+  fd_memcpy( serialized_params, ctx->instr->data, instr_data_len );
   serialized_params += instr_data_len;
 
   /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L560 */
@@ -539,8 +546,9 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
                                          uint *                    input_mem_regions_cnt,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
                                          int                       stricter_abi_and_runtime_constraints,
-                                         int                       direct_mapping ) {
-  fd_pubkey_t const * txn_accs = ctx->txn_ctx->account_keys;
+                                         int                       direct_mapping,
+                                         ulong *                   instr_data_offset ) {
+  fd_pubkey_t const * txn_accs = ctx->txn_out->accounts.account_keys;
 
   uchar  acc_idx_seen[FD_INSTR_ACCT_MAX] = {0};
   ushort dup_acc_idx[FD_INSTR_ACCT_MAX]  = {0};
@@ -548,7 +556,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v2.2.13/programs/bpf_loader/src/serialization.rs#L32
    */
-  uchar * serialized_params            = ctx->txn_ctx->exec_stack->bpf_loader_serialization.serialization_mem[ ctx->txn_ctx->instr_stack_sz-1UL ];
+  uchar * serialized_params            = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
@@ -624,8 +632,15 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
   FD_STORE( ulong, serialized_params, instr_data_len );
   serialized_params += sizeof(ulong);
 
-  uchar * instr_data = (uchar *)ctx->instr->data;
-  fd_memcpy( serialized_params, instr_data, instr_data_len );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.1/program-runtime/src/serialization.rs#L400 */
+  ulong region_vaddr_offset = 0UL;
+  if( *input_mem_regions_cnt > 0 ) {
+    region_vaddr_offset = input_mem_regions[*input_mem_regions_cnt-1U].vaddr_offset +
+                          input_mem_regions[*input_mem_regions_cnt-1U].address_space_reserved;
+  }
+  *instr_data_offset = FD_VM_MEM_MAP_INPUT_REGION_START + region_vaddr_offset + (ulong)(serialized_params - curr_serialized_params_start);
+
+  fd_memcpy( serialized_params, ctx->instr->data, instr_data_len );
   serialized_params += instr_data_len;
 
   FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx->instr->program_id] );
@@ -741,6 +756,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           int                       stricter_abi_and_runtime_constraints,
                                           int                       direct_mapping,
                                           uchar                     is_deprecated,
+                                          ulong *                   instr_data_offset,
                                           uchar **                  out /* output */ ) {
 
   /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L234-L237 */
@@ -756,12 +772,12 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
     *out = fd_bpf_loader_input_serialize_unaligned( instr_ctx, sz, pre_lens,
                                                     input_mem_regions, input_mem_regions_cnt,
                                                     acc_region_metas, stricter_abi_and_runtime_constraints,
-                                                    direct_mapping );
+                                                    direct_mapping, instr_data_offset );
   } else {
     *out = fd_bpf_loader_input_serialize_aligned( instr_ctx, sz, pre_lens,
                                                   input_mem_regions, input_mem_regions_cnt,
                                                   acc_region_metas, stricter_abi_and_runtime_constraints,
-                                                  direct_mapping );
+                                                  direct_mapping, instr_data_offset );
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;

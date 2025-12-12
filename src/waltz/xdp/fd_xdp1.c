@@ -108,6 +108,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( ldxb, r4, r2, 0                          );  // r4 = ip4_hdr->verihl
   *(code++) = FD_EBPF( and64_imm, r4, 0x0f                      );  // r4 = ip4_hdr->ihl (lsb of ip4_hrd->verihl)
   *(code++) = FD_EBPF( lsh64_imm, r4, 2                         );  // r4 = ip4_hdr->ihl*4 (length of ipv4 header)
+  *(code++) = FD_EBPF( jlt_imm, r4, 20, LBL_PASS                );  // if r4<20 goto LBL_PASS
   *(code++) = FD_EBPF( add64_reg, r4, r2                        );  // r4 = &ip4_hdr + length of ip4_hdr = start of next hdr
 
   /* Check if the next hdr is udp or gre */
@@ -160,6 +161,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( ldxb, r4, r2, 0                          );  // r4 = inner ip4_hdr->verihl
   *(code++) = FD_EBPF( and64_imm, r4, 0x0f                      );  // r4 = inner ip4_hdr->ihl
   *(code++) = FD_EBPF( lsh64_imm, r4, 2                         );  // r4 = ip4_hdr->ihl*4 (length of ipv4 header)
+  *(code++) = FD_EBPF( jlt_imm, r4, 20, LBL_PASS                );  // if r4<20 goto LBL_PASS
   *(code++) = FD_EBPF( add64_reg, r4, r2                        );  // r4 = start of udp_hdr
 
   /*
@@ -174,7 +176,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   /* udp check */
   ulong * udp_check = code;
 
-  /* check ip4's dst port */
+  /* check ip4's dst addr */
   if( listen_ip4_addr!=0 ) {
     *(code++) = FD_EBPF( ldxw, r5, r2, 16                       );
     *(code++) = FD_EBPF( jne_imm, r5, listen_ip4_addr, LBL_PASS );  // if ip4->daddr != listen_ip4_addr goto LBL_PASS
@@ -216,7 +218,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   /* Fill in jump labels */
 
   for( ulong i=0UL; i<code_cnt; i++ ) {
-    if( (code_buf[ i ] & 0x05)==0x05 ) {
+    if( (code_buf[ i ] & 0x07)==0x05 ) {
       ulong * jmp_target = 0;
       uint    jmp_label = (code_buf[ i ]>>16) & 0xFFFF;
       switch( jmp_label ) {
@@ -253,7 +255,7 @@ fd_xdp_install( uint           if_idx,
   if(      !strcmp( xdp_mode, "skb"     ) ) uxdp_mode = XDP_FLAGS_SKB_MODE;
   else if( !strcmp( xdp_mode, "drv"     ) ) uxdp_mode = XDP_FLAGS_DRV_MODE;
   else if( !strcmp( xdp_mode, "hw"      ) ) uxdp_mode = XDP_FLAGS_HW_MODE;
-  else if( !strcmp( xdp_mode, "generic" ) ) uxdp_mode = 0U;
+  else if( !strcmp( xdp_mode, "default" ) ) uxdp_mode = 0U;
   else FD_LOG_ERR(( "unknown XDP mode `%s`", xdp_mode ));
 
   uint true_port_cnt = 0U;
@@ -321,11 +323,11 @@ fd_xdp_install( uint           if_idx,
                    "support at https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md#xdp",
                    if_indextoname( if_idx, if_name ), errno, fd_io_strerror( errno ) ));
     } else {
-      FD_LOG_ERR(( "BPF_LINK_CREATE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_ERR(( "BPF_LINK_CREATE(if_idx=%u) failed (%i-%s)", if_idx, errno, fd_io_strerror( errno ) ));
     }
   }
 
-  if( FD_UNLIKELY( -1==close( prog_fd ) ) ) FD_LOG_ERR(( "close(%d) failed (%i-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( prog_fd ) ) ) FD_LOG_ERR(( "close(%d) failed (%i-%s)", prog_fd, errno, fd_io_strerror( errno ) ));
 
   return (fd_xdp_fds_t){
     .xsk_map_fd   = xsk_map_fd,

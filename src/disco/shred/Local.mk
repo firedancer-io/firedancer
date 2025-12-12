@@ -1,9 +1,10 @@
-ifdef FD_HAS_INT128
 $(call add-objs,fd_shred_dest,fd_disco)
 $(call add-objs,fd_shredder,fd_disco)
 $(call add-objs,fd_fec_resolver,fd_disco)
 $(call add-objs,fd_stake_ci,fd_disco)
+ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_shred_tile,fd_disco)
+endif
 $(call make-unit-test,test_shred_dest,test_shred_dest,fd_disco fd_flamenco fd_ballet fd_util)
 ifdef FD_ARCH_SUPPORTS_SANDBOX
 $(call make-unit-test,test_shred_tile,test_shred_tile,fdctl_shared fdctl_platform fd_disco fd_flamenco fd_ballet fd_tango fd_waltz fd_reedsol fd_funk fd_util)
@@ -16,5 +17,4 @@ $(call run-unit-test,test_stake_ci,)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_shredder,test_shredder,fd_disco fd_flamenco fd_ballet fd_util fd_reedsol)
 $(call run-unit-test,test_shredder,)
-endif
 endif

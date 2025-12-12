@@ -380,6 +380,7 @@ metric introduced.
 <tile name="bundle">
     <counter name="TransactionReceived" summary="Total count of transactions received, including transactions within bundles" />
     <counter name="PacketReceived" summary="Total count of packets received" />
+    <counter name="ProtoReceivedBytes" summary="Total count of bytes from received grpc protobuf payloads" />
     <counter name="BundleReceived" summary="Total count of bundles received" />
     <counter name="Errors" enum="BundleError" summary="Number of gRPC errors encountered" />
     <gauge name="HeapSize" summary="Workspace heap size" />
@@ -578,15 +579,6 @@ metric introduced.
     <int value="2" name="TooLow" label="Too low" />
 </enum>
 
-<enum name="BankLoadAddressLookupTable">
-    <int value="0" name="Success" label="Success" />
-    <int value="1" name="SlotHashesSysvarNotFound" label="The slot hashes syvar could not be found." />
-    <int value="2" name="AccountNotFound" label="The account storing the address lookup table was deactivated or could not be found." />
-    <int value="3" name="InvalidAccountOwner" label="The account that owns the referenced lookup table is not the address lookup table program." />
-    <int value="4" name="InvalidAccountData" label="The data for the referenced address lookup table is malformed." />
-    <int value="5" name="InvalidIndex" label="The referenced index in the address lookup table does not exist." />
-</enum>"
-
 <enum name="TransactionError">
     <int value="0" name="Success" label="Success" />
     <int value="1" name="AccountInUse" label="An account is already being processed in another transaction in a way that does not support parallelism." />
@@ -681,15 +673,23 @@ metric introduced.
     <int value="25" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
 </enum>
 
+<enum name="TransactionLanded">
+    <int value="0" name="LandedSuccess" label="Transaction landed" />
+    <int value="1" name="LandedFeesOnly" label="Transaction landed, but was fees only and did not execute" />
+    <int value="2" name="LandedFailed" label="Transaction landed, but failed to execute" />
+    <int value="3" name="Unlanded" label="Transaction did not land" />
+</enum>
+
 <tile name="bankf">
     <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction." />
+    <counter name="TransactionLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not." />
 </tile>
 
 <tile name="bank">
     <counter name="TransactionSanitizeFailure" summary="Number of transactions that failed to sanitize." />
     <counter name="TransactionNotExecutedFailure" summary="Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain." />
 
-    <counter name="TransactionLoadAddressTables" enum="BankLoadAddressLookupTable" summary="Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported." />
+    <counter name="TransactionLoadAddressTables" enum="LutResolveResult" summary="Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported." />
     <counter name="TransactionResult" enum="TransactionError" summary="Result of loading and executing a transaction." />
     <counter name="ProcessingFailed" summary="Count of transactions for which the processing stage failed and won't land on chain" />
     <counter name="FeeOnlyTransactions" summary="Count of transactions that will land on chain but without executing" />
@@ -750,8 +750,10 @@ metric introduced.
     <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
     <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
-    <counter name="ShredOutRcv"          summary="The number of times we received a repair shred" />
+    <counter name="ShredRepairRcv"       summary="The number of times we received a repair shred" />
+    <counter name="ShredRepairRcvBytes"  summary="The number bytes received from network packets with repair shreds. Bytes include network headers." />
     <counter name="ShredTurbineRcv"      summary="The number of times we received a turbine shred" />
+    <counter name="ShredTurbineRcvBytes" summary="The number bytes received from network packets with turbine shreds. Bytes include network headers." />
     <histogram name="StoreInsertWait" min="0.00000001" max="0.0005" converter="seconds">
         <summary>Time in seconds spent waiting for the store to insert a new FEC set</summary>
     </histogram>
@@ -794,6 +796,12 @@ metric introduced.
 
   <counter name="SlotsTotal" summary="Count of slots replayed successfully" />
   <counter name="TransactionsTotal" summary="Count of transactions processed overall on the current fork" />
+
+  <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
+  <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
+
+  <counter name="AccdbRooted" summary="Number of account database entries rooted" />
+  <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
 </tile>
 
 <tile name="storei">
@@ -820,13 +828,13 @@ metric introduced.
 <tile name="repair">
     <counter name="TotalPktCount"             clickhouse_exclude="true"                                 summary="How many network packets we have sent, including reqs, pings, pongs, etc." />
     <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
-    <gauge   name="SendPktRate"                                                                         summary="Rate of network packets we are sending, in packets per second coarsely" />
     <counter name="RepairedSlots"                                                                       summary="Until which slots have we fully repaired" />
     <counter name="CurrentSlot"                                                                         summary="Our view of the current cluster slot, max slot received" />
     <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
     <counter name="SignTileUnavail"                                                                     summary="How many times no sign tiles were available to send request" />
     <counter name="EagerRepairAggresses"                                                                summary="How many times we pass eager repair threshold" />
     <counter name="RerequestQueue"                                                                      summary="How many times we re-request a shred from the inflights queue" />
+    <counter name="MalformedPing"                                                                       summary="How many times we received a malformed ping" />
     <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
       <summary>Time in seconds it took to complete a slot</summary>
     </histogram>
@@ -1034,18 +1042,20 @@ metric introduced.
     <gauge name="PredictedSlot" summary="The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted" />
     <gauge name="GossipFreshCount" summary="Number of fresh gossip peers seen when collecting gossip peers. " />
     <gauge name="GossipTotalCount" summary="Number of total gossip peers seen when collecting gossip peers. " />
+    <counter name="SslAllocErrors" summary="Number of SSL allocation errors encountered. " />
 </tile>
 
 <tile name="snapld">
     <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
+    <counter name="SslAllocErrors" summary="Number of SSL allocation errors encountered. " />
 </tile>
 
 <tile name="snapdc">
     <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
     <gauge name="FullCompressedBytesRead" summary="Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="FullDecompressedBytesRead" summary="Number of bytes read so far from the decompressed file. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="FullDecompressedBytesWritten" summary="Number of bytes decompressed so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalCompressedBytesRead" summary="Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalDecompressedBytesRead" summary="Number of bytes read so far from the decompressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalDecompressedBytesWritten" summary="Number of bytes decompressed so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
 <tile name="snapin">
@@ -1060,8 +1070,28 @@ metric introduced.
     <gauge name="VinylBytesWritten" summary="Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted" />
 </tile>
 
+<tile name="snapwh">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN" />
+</tile>
+
+<tile name="snapla">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
+    <gauge name="FullAccountsHashed" summary="Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+</tile>
+
+<tile name="snapls">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
+    <gauge name="FullAccountsHashed" summary="Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
+
+    <gauge name="ConnectionCount" summary="The number of active http connections to the Prometheus endpoint" />
+    <counter name="BytesWritten" summary="The total number of bytes written to all responses on the Prometheus endpoint" />
+    <counter name="BytesRead" summary="The total number of bytes read from all requests to the Prometheus endpoint" />
 </tile>
 
 <tile name="ipecho">
@@ -1090,6 +1120,43 @@ metric introduced.
 
 <tile name="benchs">
     <counter name="TransactionsSent" summary="Number of benchmark packets sent" />
+</tile>
+
+<tile name="tower">
+
+    <!-- Vote txns from TPU / Gossip -->
+
+    <counter name="VoteTxnInvalid" summary="Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.)" />
+    <counter name="VoteTxnIgnored" summary="Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind)" />
+    <counter name="VoteTxnMismatch" summary="Number of times a vote txn mismatched our own block id" />
+
+    <!-- Tower voting decisions -->
+
+    <counter name="AncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
+    <counter name="SiblingConfirmed" summary="Duplicate sibling got confirmed (can't vote)" />
+    <counter name="SameFork" summary="Same fork as prev vote (can vote)" />
+    <counter name="SwitchPass" summary="Prev vote was on a different fork, but we are allowed to switch (can vote)" />
+    <counter name="SwitchFail" summary="Prev vote was on a different fork, and we are not allowed to switch (can't vote)" />
+    <counter name="LockoutFail" summary="Locked out (can't vote)" />
+    <counter name="ThresholdFail" summary="Did not pass threshold check (can't vote)" />
+    <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
+
+    <!-- Hard forks / bank hash cmp tracking -->
+
+    <counter name="HardForksSeen" summary="Number of hard forks we've seen (block ids with multiple candidate bank hashes)" />
+    <counter name="HardForksPruned" summary="Number of hard forks (candidate bank hashes) we've pruned" />
+    <gauge name="HardForksActive" summary="Currently active hard forks" />
+</tile>
+
+<tile name="gui">
+    <gauge name="ConnectionCount" summary="The number of active http connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection" />
+    <gauge name="WebsocketConnectionCount" summary="The number of active websocket connections to the GUI service" />
+
+    <counter name="WebsocketFramesSent" summary="The total number of websocket frames sent to all connections to the GUI service" />
+    <counter name="WebsocketFramesReceived" summary="The total number of websocket frames received from all connections to the GUI service" />
+
+    <counter name="BytesWritten" summary="The total number of bytes written to all connections to the GUI service" />
+    <counter name="BytesRead" summary="The total number of bytes read from all connections to the GUI service" />
 </tile>
 
 </metrics>

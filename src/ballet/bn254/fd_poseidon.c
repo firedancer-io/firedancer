@@ -91,11 +91,15 @@ fd_poseidon_init( fd_poseidon_t * pos,
 fd_poseidon_t *
 fd_poseidon_append( fd_poseidon_t * pos,
                     uchar const *   data,
-                    ulong           sz ) {
+                    ulong           sz,
+                    int             enforce_padding ) {
   if( FD_UNLIKELY( pos==NULL ) ) {
     return NULL;
   }
   if( FD_UNLIKELY( pos->cnt >= FD_POSEIDON_MAX_WIDTH ) ) {
+    return NULL;
+  }
+  if( FD_UNLIKELY( enforce_padding && sz!=32UL ) ) {
     return NULL;
   }
   /* Empty input and non-field are errors. Short element is extended with 0s. */

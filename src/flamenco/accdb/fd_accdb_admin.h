@@ -5,6 +5,11 @@
 
 struct fd_accdb_admin {
   fd_funk_t funk[1];
+
+  struct {
+    ulong root_cnt;
+    ulong gc_root_cnt;
+  } metrics;
 };
 
 typedef struct fd_accdb_admin fd_accdb_admin_t;

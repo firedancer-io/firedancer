@@ -2,8 +2,6 @@
 #include <math.h>
 
 #include "../runtime/fd_acc_mgr.h"
-#include "../runtime/fd_executor_err.h"
-#include "../runtime/program/fd_vote_program.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
@@ -13,6 +11,7 @@
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_runtime.h"
 #include "fd_epoch_rewards.h"
+#include "../accdb/fd_accdb_impl_v1.h"
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
@@ -136,7 +135,7 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L142 */
   if( FD_UNLIKELY( credits_in_vote < credits_in_stake ) ) {
-    result->points = 0;
+    result->points.ud = 0;
     result->new_credits_observed = credits_in_vote;
     result->force_credits_update_with_skipped_reward = 1;
     return;
@@ -147,7 +146,7 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L148 */
   if( FD_UNLIKELY( credits_in_vote == credits_in_stake ) ) {
-    result->points = 0;
+    result->points.ud = 0;
     result->new_credits_observed = credits_in_vote;
     result->force_credits_update_with_skipped_reward = 0;
     return;
@@ -187,7 +186,7 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
 
   }
 
-  result->points = points;
+  result->points.ud = points;
   result->new_credits_observed = new_credits_observed;
   result->force_credits_update_with_skipped_reward = 0;
 }
@@ -229,7 +228,7 @@ calculate_stake_points_and_credits( fd_funk_t *                    funk,
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L142 */
   if( FD_UNLIKELY( credits_in_vote < credits_in_stake ) ) {
-    result->points = 0;
+    result->points.ud = 0;
     result->new_credits_observed = credits_in_vote;
     result->force_credits_update_with_skipped_reward = 1;
     return;
@@ -240,7 +239,7 @@ calculate_stake_points_and_credits( fd_funk_t *                    funk,
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L148 */
   if( FD_UNLIKELY( credits_in_vote == credits_in_stake ) ) {
-    result->points = 0;
+    result->points.ud = 0;
     result->new_credits_observed = credits_in_vote;
     result->force_credits_update_with_skipped_reward = 0;
     return;
@@ -284,9 +283,58 @@ calculate_stake_points_and_credits( fd_funk_t *                    funk,
 
   }
 
-  result->points = points;
+  result->points.ud = points;
   result->new_credits_observed = new_credits_observed;
   result->force_credits_update_with_skipped_reward = 0;
+}
+
+struct fd_commission_split {
+  ulong voter_portion;
+  ulong staker_portion;
+  uint  is_split;
+};
+typedef struct fd_commission_split fd_commission_split_t;
+
+/// returns commission split as (voter_portion, staker_portion, was_split) tuple
+///
+/// if commission calculation is 100% one way or other, indicate with false for was_split
+
+// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L543
+void
+fd_vote_commission_split( uchar                   commission,
+                          ulong                   on,
+                          fd_commission_split_t * result ) {
+  uint commission_split = fd_uint_min( (uint)commission, 100 );
+  result->is_split      = (commission_split != 0 && commission_split != 100);
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L545
+  if( commission_split==0U ) {
+    result->voter_portion  = 0;
+    result->staker_portion = on;
+    return;
+  }
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L546
+  if( commission_split==100U ) {
+    result->voter_portion  = on;
+    result->staker_portion = 0;
+    return;
+  }
+  /* Note: order of operations may matter for int division. That's why I didn't make the
+   * optimization of getting out the common calculations */
+
+  // ... This is copied from the solana comments...
+  //
+  // Calculate mine and theirs independently and symmetrically instead
+  // of using the remainder of the other to treat them strictly
+  // equally. This is also to cancel the rewarding if either of the
+  // parties should receive only fractional lamports, resulting in not
+  // being rewarded at all. Thus, note that we intentionally discard
+  // any residual fractional lamports.
+
+  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L548
+  result->voter_portion =
+      (ulong)((uint128)on * (uint128)commission_split / (uint128)100);
+  result->staker_portion =
+      (ulong)((uint128)on * (uint128)( 100 - commission_split ) / (uint128)100);
 }
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
@@ -339,12 +387,12 @@ redeem_rewards( fd_funk_t *                     funk,
     result->new_credits_observed = stake_points_result.new_credits_observed;
     return 0;
   }
-  if( stake_points_result.points==0 || total_points==0 ) {
+  if( stake_points_result.points.ud==0 || total_points==0 ) {
     return 1;
   }
 
   /* FIXME: need to error out if the conversion from uint128 to u64 fails, also use 128 checked mul and div */
-  ulong rewards = (ulong)(stake_points_result.points * (uint128)(total_rewards) / (uint128) total_points);
+  ulong rewards = (ulong)(stake_points_result.points.ud * (uint128)(total_rewards) / (uint128) total_points);
   if( rewards == 0 ) {
     return 1;
   }
@@ -460,7 +508,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                         vote_state_ele,
                                         new_warmup_cooldown_rate_epoch,
                                         &stake_point_result );
-    total_points += stake_point_result.points;
+    total_points += stake_point_result.points.ud;
   }
 
   fd_bank_vote_states_end_locking_query( bank );
@@ -541,7 +589,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_vote_state_credits_t * realc_credit = !!runtime_stack->stakes.prev_vote_credits_used ?
                                              &runtime_stack->stakes.vote_credits[ vote_state_ele->idx ] : NULL;
 
-    /* redeem_rewards is actually just responisble for calculating the
+    /* redeem_rewards is actually just responsible for calculating the
        vote and stake rewards for each stake account.  It does not do
        rewards redemption: it is a misnomer. */
     fd_calculated_stake_rewards_t calculated_stake_rewards[1] = {0};
@@ -559,7 +607,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         calculated_stake_rewards );
 
     if( FD_UNLIKELY( err!=0 ) ) {
-      FD_LOG_DEBUG(( "redeem_rewards failed for %s with error %d", FD_BASE58_ENC_32_ALLOCA( &stake_delegation->stake_account ), err ));
       continue;
     }
 
@@ -618,7 +665,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
         epoch,
         epoch-1UL, /* FIXME: this is not strictly correct */
         *rewards_out,
-        points );
+        (fd_w_u128_t){ .ud=points } );
   }
 
   /* Calculate the stake and vote rewards for each account. We want to
@@ -692,7 +739,7 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   /* The agave client does not partition the stake rewards until the
      first distribution block.  We calculate the partitions during the
      boundary. */
-  result->validator_points             = points;
+  result->validator_points.ud          = points;
   result->validator_rewards            = total_rewards;
   result->validator_rate               = rewards.validator_rate;
   result->foundation_rate              = rewards.foundation_rate;
@@ -715,9 +762,10 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
      completed epoch.  We store the stake account rewards and vote
      states rewards in the bank */
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
   calculate_rewards_for_partitioning( bank,
-                                      accdb->funk,
+                                      funk,
                                       xid,
                                       runtime_stack,
                                       stake_delegations,
@@ -1029,7 +1077,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       distribution_starting_block_height,
       epoch_rewards->num_partitions,
       epoch_rewards->total_rewards,
-      epoch_rewards->total_points,
+      epoch_rewards->total_points.ud,
       parent_blockhash );
   fd_bank_epoch_rewards_end_locking_modify( bank );
 }
@@ -1107,7 +1155,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       stake_history,
       rewarded_epoch,
       epoch_rewards_sysvar->total_rewards,
-      epoch_rewards_sysvar->total_points,
+      epoch_rewards_sysvar->total_points.ud,
       runtime_stack );
 
   fd_epoch_rewards_t * epoch_rewards = fd_epoch_rewards_join( fd_bank_epoch_rewards_locking_modify( bank ) );

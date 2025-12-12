@@ -173,7 +173,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
-    ctx->metrics.txn_load_address_lookup_tables[ result ]++;
+    ctx->metrics.txn_load_address_lookup_tables[ (ulong)((long)FD_METRICS_COUNTER_BANK_TRANSACTION_LOAD_ADDRESS_TABLES_CNT+result-1L) ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) continue;
 
     writable_alt[ i ] = fd_bank_abi_get_lookup_addresses( (fd_bank_abi_txn_t *)abi_txn );
@@ -356,7 +356,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
 
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
-    ctx->metrics.txn_load_address_lookup_tables[ result ]++;
+    ctx->metrics.txn_load_address_lookup_tables[  (ulong)((long)FD_METRICS_COUNTER_BANK_TRANSACTION_LOAD_ADDRESS_TABLES_CNT+result-1L) ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) {
       execution_success = 0;
       continue;

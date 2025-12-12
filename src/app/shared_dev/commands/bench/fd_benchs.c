@@ -8,7 +8,6 @@
 #include "../../../../waltz/tls/test_tls_helper.h"
 
 #include <errno.h>
-#include <linux/unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>

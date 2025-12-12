@@ -5,47 +5,54 @@
 #include "../netlink/fd_netlink_tile.h"
 #include "../../app/shared/fd_config.h" /* FIXME layering violation */
 #include "../../util/pod/fd_pod_format.h"
+#include "fd_linux_bond.h"
 
+#include <errno.h>
 #include <net/if.h>
+#include <unistd.h>
 
 static void
 setup_xdp_tile( fd_topo_t *             topo,
-                ulong                   i,
+                ulong                   tile_kind_id,
                 fd_topo_tile_t *        netlink_tile,
                 ulong const *           tile_to_cpu,
-                fd_config_net_t const * net_cfg ) {
+                fd_config_net_t const * net_cfg,
+                char const *            if_phys,
+                ulong                   if_queue ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "net", "net", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
-  fd_topob_tile_in(  topo, "netlnk", 0UL, "metric_in", "net_netlnk", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "net",    i,                "net_netlnk", i );
+  fd_topob_tile_in(  topo, "netlnk", 0UL, "metric_in", "net_netlnk", tile_kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "net",    tile_kind_id,                "net_netlnk", tile_kind_id );
   fd_netlink_topo_join( topo, netlink_tile, tile );
 
   fd_topo_obj_t * umem_obj = fd_topob_obj( topo, "dcache", "net_umem" );
   fd_topob_tile_uses( topo, tile, umem_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", i );
+  fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", tile_kind_id );
 
-  FD_STATIC_ASSERT( sizeof(tile->xdp.interface)==IF_NAMESIZE, str_bounds );
-  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->xdp.interface ), net_cfg->interface, IF_NAMESIZE-1 ) );
+  FD_STATIC_ASSERT( sizeof(tile->xdp.if_virt)==IF_NAMESIZE, str_bounds );
+  fd_cstr_ncpy( tile->xdp.if_virt, net_cfg->interface, IF_NAMESIZE );
   tile->net.bind_address = net_cfg->bind_address_parsed;
 
-  tile->xdp.tx_flush_timeout_ns = (long)net_cfg->xdp.flush_timeout_micros * 1000L;
-  tile->xdp.xdp_rx_queue_size = net_cfg->xdp.xdp_rx_queue_size;
-  tile->xdp.xdp_tx_queue_size = net_cfg->xdp.xdp_tx_queue_size;
-  tile->xdp.zero_copy         = net_cfg->xdp.xdp_zero_copy;
-  fd_memset( tile->xdp.xdp_mode, 0, 4 );
-  fd_memcpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, strnlen( net_cfg->xdp.xdp_mode, 3 ) );  /* GCC complains about strncpy */
+  FD_STATIC_ASSERT( sizeof(tile->xdp.if_phys)==IF_NAMESIZE, str_bounds );
+  fd_cstr_ncpy( tile->xdp.if_phys, if_phys, IF_NAMESIZE );
+  tile->xdp.if_queue = (uint)if_queue;
 
-  tile->xdp.net.umem_dcache_obj_id= umem_obj->id;
-  tile->xdp.netdev_dbl_buf_obj_id = netlink_tile->netlink.netdev_dbl_buf_obj_id;
-  tile->xdp.fib4_main_obj_id      = netlink_tile->netlink.fib4_main_obj_id;
-  tile->xdp.fib4_local_obj_id     = netlink_tile->netlink.fib4_local_obj_id;
-  tile->xdp.neigh4_obj_id         = netlink_tile->netlink.neigh4_obj_id;
-  tile->xdp.neigh4_ele_obj_id     = netlink_tile->netlink.neigh4_ele_obj_id;
+  tile->xdp.tx_flush_timeout_ns = (long)net_cfg->xdp.flush_timeout_micros * 1000L;
+  tile->xdp.xdp_rx_queue_size   = net_cfg->xdp.xdp_rx_queue_size;
+  tile->xdp.xdp_tx_queue_size   = net_cfg->xdp.xdp_tx_queue_size;
+  tile->xdp.zero_copy           = net_cfg->xdp.xdp_zero_copy;
+  fd_cstr_ncpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, sizeof(tile->xdp.xdp_mode) );
+
+  tile->xdp.net.umem_dcache_obj_id = umem_obj->id;
+  tile->xdp.netdev_dbl_buf_obj_id  = netlink_tile->netlink.netdev_dbl_buf_obj_id;
+  tile->xdp.fib4_main_obj_id       = netlink_tile->netlink.fib4_main_obj_id;
+  tile->xdp.fib4_local_obj_id      = netlink_tile->netlink.fib4_local_obj_id;
+  tile->xdp.neigh4_obj_id          = netlink_tile->netlink.neigh4_obj_id;
 
   /* Allocate free ring */
 
   tile->xdp.free_ring_depth = tile->xdp.xdp_tx_queue_size;
-  if( i==0 ) {
+  if( tile_kind_id==0 ) {
     /* Allocate additional frames for loopback */
     tile->xdp.free_ring_depth += 16384UL;
   }
@@ -91,9 +98,48 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
 
-    for( ulong i=0UL; i<net_tile_cnt; i++ ) {
-      setup_xdp_tile( topo, i, netlink_tile, tile_to_cpu, net_cfg );
+    /* Enumerate network devices to attach to */
+    uint devices[ FD_NET_BOND_SLAVE_MAX ] = {0};
+    uint device_cnt = 1U;
+    if( net_cfg->xdp.native_bond && fd_bonding_is_master( net_cfg->interface ) ) {
+      fd_bonding_slave_iter_t iter_[1];
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, net_cfg->interface );
+      uint slave_cnt;
+      for( slave_cnt=0U;
+           /*         */ !fd_bonding_slave_iter_done( iter );
+           slave_cnt++,  fd_bonding_slave_iter_next( iter ) ) {
+        uint if_idx = if_nametoindex( fd_bonding_slave_iter_ele( iter ) );
+        if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", fd_bonding_slave_iter_ele( iter ) ));
+        devices[ slave_cnt ] = if_idx;
+      }
+      if( slave_cnt==0 ) {
+        FD_LOG_ERR(( "no bond slave devices detected on interface %s (see [net.xdp.native_bond])", net_cfg->interface ));
+      }
+      device_cnt = (uint)slave_cnt;
+    } else {
+      devices[ 0 ] = if_nametoindex( net_cfg->interface );
+      if( FD_UNLIKELY( !devices[ 0 ] ) ) FD_LOG_ERR(( "unsupported [net.interface]: `%s`", net_cfg->interface ));
+      device_cnt = 1U;
     }
+
+    /* Verify that net_tile_cnt is a multiple of device_cnt */
+    if( FD_UNLIKELY( net_tile_cnt%device_cnt!=0 ) ) {
+      FD_LOG_ERR(( "net tile count %lu must be a multiple of the number of slave devices %u (incompatible settings [layout.net_tile_count] and [net.xdp.native_bond])", net_tile_cnt, device_cnt ));
+    }
+    uint dev_queue_cnt = (uint)net_tile_cnt/device_cnt;
+
+    /* Assign XDP tiles to device queues */
+    ulong tile_kind_id = 0UL;
+    for( uint i=0UL; i<device_cnt; i++ ) {
+      char if_name[ IF_NAMESIZE ];
+      if( FD_UNLIKELY( !if_indextoname( devices[ i ], if_name ) ) ) {
+        FD_LOG_ERR(( "error initializing network stack: if_indextoname(%u) failed (try disabling [net.xdp.native_bond]?)", i ));
+      }
+      for( ulong j=0UL; j<dev_queue_cnt; j++ ) {
+        setup_xdp_tile( topo, tile_kind_id++, netlink_tile, tile_to_cpu, net_cfg, if_name, (uint)j );
+      }
+    }
+    FD_TEST( tile_kind_id==net_tile_cnt );
 
   } else if( 0==strcmp( net_cfg->provider, "socket" ) ) {
 
@@ -220,4 +266,99 @@ fd_topos_net_tile_finish( fd_topo_t * topo,
   fd_pod_insertf_ulong( topo->props, cum_frame_cnt, "obj.%lu.depth", umem_obj_id );
   fd_pod_insertf_ulong( topo->props, 2UL,           "obj.%lu.burst", umem_obj_id ); /* 4096 byte padding */
   fd_pod_insertf_ulong( topo->props, 2048UL,        "obj.%lu.mtu",   umem_obj_id );
+}
+
+void
+fd_topo_install_xdp( fd_topo_t const * topo,
+                     fd_xdp_fds_t *    fds,
+                     uint *            fds_cnt,
+                     uint              bind_addr,
+                     int               dry_run ) {
+  uint fds_max = *fds_cnt;
+  memset( fds, 0, fds_max*sizeof(fd_xdp_fds_t) );
+
+  uint if_cnt = 0U;
+# define ADD_IF_IDX( idx_ ) do {                      \
+    uint idx = (idx_);                                \
+    int found = 0;                                    \
+    for( uint i=0U; i<if_cnt; i++ ) {                 \
+      if( fds[ i ].if_idx==idx ) {                    \
+        found = 1;                                    \
+        break;                                        \
+      }                                               \
+    }                                                 \
+    if( !found ) {                                    \
+      FD_TEST( if_cnt<FD_NET_BOND_SLAVE_MAX+1 );      \
+      fds[ if_cnt++ ].if_idx = idx;                   \
+    }                                                 \
+  } while(0)
+
+  /* Create a list of unique fds */
+
+  ulong net_tile_cnt = fd_topo_tile_name_cnt( topo, "net" );
+  for( ulong tile_kind_id=0UL; tile_kind_id<net_tile_cnt; tile_kind_id++ ) {
+    ulong net_tile_id = fd_topo_find_tile( topo, "net", tile_kind_id );
+    FD_TEST( net_tile_id!=ULONG_MAX );
+    fd_topo_tile_t const * tile = &topo->tiles[ net_tile_id ];
+    uint if_idx = if_nametoindex( tile->xdp.if_phys ); FD_TEST( if_idx );
+    ADD_IF_IDX( if_idx );
+  }
+
+  /* Add loopback unless found */
+
+  uint lo_idx = if_nametoindex( "lo" ); FD_TEST( lo_idx );
+  ADD_IF_IDX( lo_idx );
+
+  /* Done with config discovery */
+
+  *fds_cnt = if_cnt;
+  int next_fd = 123462;
+  for( uint i=0U; i<if_cnt; i++ ) {
+    fds[ i ].xsk_map_fd   = next_fd++;
+    fds[ i ].prog_link_fd = next_fd++;
+  }
+  if( dry_run ) return;
+
+  /* Install */
+
+  ulong net0_tile_idx = fd_topo_find_tile( topo, "net", 0UL );
+  FD_TEST( net0_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
+
+  ushort udp_port_candidates[] = {
+    (ushort)net0_tile->xdp.net.legacy_transaction_listen_port,
+    (ushort)net0_tile->xdp.net.quic_transaction_listen_port,
+    (ushort)net0_tile->xdp.net.shred_listen_port,
+    (ushort)net0_tile->xdp.net.gossip_listen_port,
+    (ushort)net0_tile->xdp.net.repair_intake_listen_port,
+    (ushort)net0_tile->xdp.net.repair_serve_listen_port,
+    (ushort)net0_tile->xdp.net.send_src_port,
+  };
+
+  for( uint i=0U; i<if_cnt; i++ ) {
+    /* Override XDP mode for loopback */
+    char const * xdp_mode = net0_tile->xdp.xdp_mode;
+    if( fds[ i ].if_idx==1U ) xdp_mode = "skb";
+
+    fd_xdp_fds_t xdp_fds = fd_xdp_install(
+        fds[ i ].if_idx,
+        bind_addr,
+        sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
+        udp_port_candidates,
+        xdp_mode );
+    if( FD_UNLIKELY( -1==dup2( xdp_fds.xsk_map_fd, fds[ i ].xsk_map_fd ) ) ) {
+      FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( -1==close( xdp_fds.xsk_map_fd ) ) ) {
+      FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( -1==dup2( xdp_fds.prog_link_fd, fds[ i ].prog_link_fd ) ) ) {
+      FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( -1==close( xdp_fds.prog_link_fd ) ) ) {
+      FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
+# undef ADD_IF_IDX
 }

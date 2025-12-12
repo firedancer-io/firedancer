@@ -3,6 +3,7 @@
 #include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 #include "../fd_pubkey_utils.h"
+#include "../../log_collector/fd_log_collector.h"
 
 /* The dynamically sized portion of the system program instruction only
    comes from the seed.  This means in the worst case assuming that the
@@ -45,7 +46,7 @@ verify_seed_address( fd_exec_instr_ctx_t * ctx,
       "Create: address %s does not match derived address %s",
       FD_BASE58_ENC_32_ALLOCA( expected ),
       FD_BASE58_ENC_32_ALLOCA( actual ) );
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -81,7 +82,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
   if( transfer_amount > fd_borrowed_account_get_lamports( &from ) ) {
     /* Max msg_sz: 45 - 6 + 20 + 20 = 79 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx, "Transfer: insufficient lamports %lu, need %lu", fd_borrowed_account_get_lamports( &from ), transfer_amount );
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_RESULT_WITH_NEGATIVE_LAMPORTS;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_RESULT_WITH_NEGATIVE_LAMPORTS;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -127,7 +128,7 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_acct_idx ].index_in_transaction;
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Transfer: `from` account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_ctx->account_keys[ idx_in_txn ] ) );
+      "Transfer: `from` account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_out->accounts.account_keys[ idx_in_txn ] ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -171,7 +172,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
       "Allocate: account (account %s, base %s) already in use",
       FD_BASE58_ENC_32_ALLOCA( &account->acct->pubkey ),
       base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -181,7 +182,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
     /* Max msg_sz: 48 - 6 + 2*20 = 82 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Allocate: requested %lu, max allowed %lu", space, FD_RUNTIME_ACC_SZ_MAX );
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_INVALID_ACCT_DATA_LEN;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_INVALID_ACCT_DATA_LEN;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -280,7 +281,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
         "Allocate: 'to' (account %s, base %s) already in use",
         FD_BASE58_ENC_32_ALLOCA( &to.acct->pubkey ),
         base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
-      ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
+      ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -309,7 +310,7 @@ fd_system_program_exec_create_account( fd_exec_instr_ctx_t *                    
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L332 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L333-L339
      Authorization check is lifted out from 'allocate' to here. */
@@ -345,7 +346,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L382 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L383-L384 */
 
@@ -376,7 +377,7 @@ fd_system_program_exec_transfer( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L395 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L396-L402 */
 
@@ -394,7 +395,7 @@ fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *          
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L360 */
 
   if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( ctx, 2UL) ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L361-L367 */
 
@@ -440,7 +441,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L505 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L506-L507 */
   fd_guarded_borrowed_account_t account = {0};
@@ -472,7 +473,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L523 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#524-525 */
 
@@ -519,7 +520,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#543 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L544-L545 */
 
@@ -559,7 +560,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L410 */
 
   if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( ctx, 3UL ) ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L411-L421
      Inlined call to system_processor::transfer_with_seed */
@@ -575,7 +576,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_base_idx ].index_in_transaction;
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Transfer: 'from' account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_ctx->account_keys[ idx_in_txn ] ) );
+      "Transfer: 'from' account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_out->accounts.account_keys[ idx_in_txn ] ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -610,7 +611,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
       "Transfer: 'from' address %s does not match derived address %s",
       FD_BASE58_ENC_32_ALLOCA( from_key ),
       FD_BASE58_ENC_32_ALLOCA( address_from_seed ) );
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
+    ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -622,12 +623,6 @@ int
 fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_EXEC_CU_UPDATE( ctx, 150UL );
 
-  /* Deserialize the SystemInstruction enum */
-  uchar * data = ctx->instr->data;
-  if( FD_UNLIKELY( data==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
-
   if( FD_UNLIKELY( ctx->instr->data_sz>FD_SYSTEM_PROGRAM_INSTR_FOOTPRINT ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
@@ -636,10 +631,13 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   int decode_err;
   fd_system_program_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
-      system_program_instruction, instr_mem,
-      data, ctx->instr->data_sz,
+      system_program_instruction,
+      instr_mem,
+      ctx->instr->data,
+      ctx->instr->data_sz,
       FD_TXN_MTU,
-      &decode_err );
+      &decode_err
+  );
   if( FD_UNLIKELY( decode_err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

@@ -5,6 +5,11 @@
 
 struct fd_progcache_admin {
   fd_funk_t funk[1];
+
+  struct {
+    ulong root_cnt;
+    ulong gc_root_cnt;
+  } metrics;
 };
 
 typedef struct fd_progcache_admin fd_progcache_admin_t;

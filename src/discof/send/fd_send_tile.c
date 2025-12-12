@@ -163,9 +163,11 @@ quic_tx_aio_send( void *                    _ctx,
     if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
     uchar * buf = batch[ i ].buf;
     fd_ip4_hdr_t * ip4_hdr    = fd_type_pun( buf );
-    fd_udp_hdr_t * udp_hdr    = fd_type_pun( buf + sizeof(fd_ip4_hdr_t) );
-    uchar        * payload    = buf + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
-    ulong          payload_sz = batch[ i ].buf_sz - sizeof(fd_ip4_hdr_t) - sizeof(fd_udp_hdr_t);
+    ulong const    ip4_len    = FD_IP4_GET_LEN( *ip4_hdr );
+    fd_udp_hdr_t * udp_hdr    = fd_type_pun( buf + ip4_len );
+    uchar        * payload    = buf + ip4_len + sizeof(fd_udp_hdr_t);
+    FD_TEST( batch[ i ].buf_sz >= ip4_len + sizeof(fd_udp_hdr_t) );
+    ulong          payload_sz = batch[ i ].buf_sz - ip4_len - sizeof(fd_udp_hdr_t);
     send_to_net( ctx, ip4_hdr, udp_hdr, payload, payload_sz );
   }
 
@@ -533,18 +535,20 @@ during_frag( fd_send_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
-    FD_TEST( sz==sizeof(fd_tower_slot_done_t) );
+      if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
+        FD_TEST( sz==sizeof(fd_tower_slot_done_t) );
 
-    fd_tower_slot_done_t const * slot_done = fd_type_pun_const( dcache_entry );
+        fd_tower_slot_done_t const * slot_done = fd_type_pun_const( dcache_entry );
 
-    ulong const vote_slot   = slot_done->vote_slot;
-    ulong const vote_txn_sz = slot_done->vote_txn_sz;
-    if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return; /* no new vote to send */
+        ulong const vote_slot   = slot_done->vote_slot;
+        ulong const vote_txn_sz = slot_done->vote_txn_sz;
+        if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return; /* no new vote to send */
 
-    uchar vote_txn[ FD_TPU_MTU ];
-    fd_memcpy( vote_txn, slot_done->vote_txn, vote_txn_sz );
+        uchar vote_txn[ FD_TPU_MTU ];
+        fd_memcpy( vote_txn, slot_done->vote_txn, vote_txn_sz );
 
-    handle_vote_msg( ctx, vote_slot, vote_txn, vote_txn_sz );
+        handle_vote_msg( ctx, vote_slot, vote_txn, vote_txn_sz );
+    }
   }
 }
 

@@ -115,7 +115,9 @@ fd_dev_main( int                        argc,
     exit( 1 );
   }
 
+# if !FD_HAS_ASAN && !FD_HAS_MSAN
   fd_log_enable_signal_handler();
+# endif
   fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, topo_init );
 
   config.development.no_clone = config.development.no_clone || no_clone;

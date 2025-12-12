@@ -8,9 +8,11 @@
    where N=256 and is non-configurable. */
 
 #include "../../util/fd_util_base.h"
+
 struct fd_slot_metrics {
   ulong slot;
-  long  first_ts;
+
+  long  first_shred_ts;
   long  slot_complete_ts; /* tick */
 
   uint repair_cnt;
@@ -18,13 +20,22 @@ struct fd_slot_metrics {
 };
 typedef struct fd_slot_metrics fd_slot_metrics_t;
 
+struct fd_shred_metrics {
+  ulong slot;
+  uint  shred_idx;
+  ulong req_cnt;
+  ulong res_cnt;
+};
+typedef struct fd_shred_metrics fd_shred_metrics_t;
+
 #define FD_CATCHUP_METRICS_MAX 16384
 
 struct fd_repair_metrics_t {
-  fd_slot_metrics_t slots[ FD_CATCHUP_METRICS_MAX ];
-  uint              st;
-  uint              en;
-  ulong             turbine_slot0;
+  fd_slot_metrics_t  slots[FD_CATCHUP_METRICS_MAX];
+  fd_shred_metrics_t shreds[FD_CATCHUP_METRICS_MAX];
+  uint               st;
+  uint               en;
+  ulong              turbine_slot0;
 };
 typedef struct fd_repair_metrics_t fd_repair_metrics_t;
 

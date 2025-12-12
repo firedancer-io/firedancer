@@ -159,13 +159,6 @@ FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == FD_SHRED_MERKLE_ROOT_SZ, update FD
 
 FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing this limit! );
 
-/* Many static bounds are specified around the assumption that this is a
-   protocol limit on the max number of shreds in a slot. If this limit
-   changes, all the relevant usages in other areas of the Firedancer
-   codebase should be updated before modifying this assertion. */
-
-FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing this limit! );
-
 /* 36,536,320 bytes per slot */
 #define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_BLK_MAX)
 
@@ -365,7 +358,7 @@ FD_FN_CONST static inline uchar fd_shred_is_data( ulong type ) { return (type & 
 FD_FN_CONST static inline uchar fd_shred_is_code( ulong type ) { return (type & 0xC0UL)==0x40UL; }
 
 /* fd_shred_swap_type: changes data into code or vice versa without
-   affecting leagacy, merkle, chained, or resigned status.  For example,
+   affecting legacy, merkle, chained, or resigned status.  For example,
    fd_shred_swap_type( chained resigned data ) == chained resigned code.
    fd_shred_swap_type( merkle code ) == merkle data. */
 FD_FN_CONST static inline uchar

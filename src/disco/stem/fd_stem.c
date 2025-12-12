@@ -356,6 +356,8 @@ STEM_(run1)( ulong                        in_cnt,
     cr_max = fd_ulong_min( cr_max, out_depth[ cons_out[ cons_idx ] ] );
   }
 
+  if( FD_UNLIKELY( burst>cr_max ) ) FD_LOG_ERR(( "one or more out links have insufficient depth for STEM_BURST %lu. cr_max is %lu", burst, cr_max ));
+
   /* housekeeping init */
 
   if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
@@ -784,6 +786,13 @@ STEM_(run)( fd_topo_t *      topo,
                rng,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
                ctx );
+
+#ifdef STEM_CALLBACK_METRICS_WRITE
+  /* Write final metrics state before shutting down */
+  FD_COMPILER_MFENCE();
+  STEM_CALLBACK_METRICS_WRITE( ctx );
+  FD_COMPILER_MFENCE();
+#endif
 
   if( FD_LIKELY( tile->allow_shutdown ) ) {
     for( ulong i=0UL; i<tile->in_cnt; i++ ) {

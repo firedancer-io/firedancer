@@ -6,7 +6,6 @@
  */
 
 #include "../context/fd_exec_instr_ctx.h"
-#include "../context/fd_exec_txn_ctx.h"
 
 /* FD_ZKSDK_INSTR_{...} identify ZK ElGamal Proof Program instructions.
    https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/zk_elgamal_proof_program/instruction.rs#L48 */

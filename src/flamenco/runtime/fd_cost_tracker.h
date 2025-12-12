@@ -8,6 +8,7 @@
    dead. */
 
 #include "fd_executor.h"
+#include "fd_runtime_err.h"
 #include "../../disco/pack/fd_pack.h" /* TODO: Layering violation */
 #include "../../disco/pack/fd_pack_cost.h"
 
@@ -84,6 +85,32 @@ struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
 
 typedef struct fd_cost_tracker fd_cost_tracker_t;
 
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
+
+struct fd_usage_cost_details {
+  ulong signature_cost;
+  ulong write_lock_cost;
+  ulong data_bytes_cost;
+  ulong programs_execution_cost;
+  ulong loaded_accounts_data_size_cost;
+  ulong allocated_accounts_data_size;
+};
+typedef struct fd_usage_cost_details fd_usage_cost_details_t;
+
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L20-L23 */
+
+struct fd_transaction_cost {
+  uint type; /* FD_TXN_COST_TYPE_* */
+  union {
+    fd_usage_cost_details_t transaction;
+  };
+};
+
+typedef struct fd_transaction_cost fd_transaction_cost_t;
+
+#define FD_TXN_COST_TYPE_SIMPLE_VOTE 0U
+#define FD_TXN_COST_TYPE_TRANSACTION 1U
+
 FD_PROTOTYPES_BEGIN
 
 static inline int
@@ -126,14 +153,8 @@ fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
                       ulong                 slot );
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
-FD_FN_PURE static inline ulong
-fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
-  ulong cost = fd_ulong_sat_sub( fd_ulong_sat_add( txn_ctx->loaded_accounts_data_size,
-                                                   FD_ACCOUNT_DATA_COST_PAGE_SIZE ),
-                                 1UL );
-  cost /= FD_ACCOUNT_DATA_COST_PAGE_SIZE;
-  return fd_ulong_sat_mul( cost, FD_VM_HEAP_COST );
-}
+FD_FN_PURE ulong
+fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_txn_out_t const * txn_out );
 
 /* fd_cost_tracker_calculate_cost_and_add takes a transaction,
    calculates the cost of the transaction in terms of various block
@@ -154,8 +175,10 @@ fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_exec_txn_ctx_t cons
     https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
 
 int
-fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
-                                        fd_exec_txn_ctx_t const * txn_ctx );
+fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t * cost_tracker,
+                                        fd_bank_t *         bank,
+                                        fd_txn_in_t const * txn_in,
+                                        fd_txn_out_t *      txn_out );
 
 FD_PROTOTYPES_END
 

@@ -294,8 +294,8 @@
 #define FD_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT (( "FAIL: %s (%s)", #c, (m) )); } while(0)
 #define FD_ALERT(c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ALERT(( "FAIL: %s (%s)", #c, (m) )); } while(0)
 #else
-#define FD_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) __builtin_unreachable(); } while(0)
-#define FD_ALERT(c,m) do {                                                    } while(0)
+#define FD_CRIT( c,m) do { (void)(c); } while(0)
+#define FD_ALERT(c,m) do {            } while(0)
 #endif
 
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.

@@ -1,4 +1,4 @@
-#include "../fd_quic.h"
+#include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
 
 int server_complete = 0;

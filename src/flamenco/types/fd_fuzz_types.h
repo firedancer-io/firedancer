@@ -126,17 +126,6 @@ void *fd_epoch_schedule_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) 
   return mem;
 }
 
-void *fd_rent_collector_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_collector_t *self = (fd_rent_collector_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_collector_t);
-  fd_rent_collector_new(mem);
-  self->epoch = fd_rng_ulong( rng );
-  fd_epoch_schedule_generate( &self->epoch_schedule, alloc_mem, rng );
-  self->slots_per_year = fd_rng_double_o( rng );
-  fd_rent_generate( &self->rent, alloc_mem, rng );
-  return mem;
-}
-
 void *fd_stake_history_entry_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_stake_history_entry_t *self = (fd_stake_history_entry_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stake_history_entry_t);
@@ -188,39 +177,6 @@ void *fd_solana_account_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) 
   return mem;
 }
 
-void *fd_solana_account_stored_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_solana_account_stored_meta_t *self = (fd_solana_account_stored_meta_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_solana_account_stored_meta_t);
-  fd_solana_account_stored_meta_new(mem);
-  self->write_version_obsolete = fd_rng_ulong( rng );
-  self->data_len = fd_rng_ulong( rng );
-  LLVMFuzzerMutate( &self->pubkey[0], sizeof(self->pubkey), sizeof(self->pubkey) );
-  return mem;
-}
-
-void *fd_solana_account_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_solana_account_meta_t *self = (fd_solana_account_meta_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_solana_account_meta_t);
-  fd_solana_account_meta_new(mem);
-  self->lamports = fd_rng_ulong( rng );
-  self->rent_epoch = fd_rng_ulong( rng );
-  LLVMFuzzerMutate( &self->owner[0], sizeof(self->owner), sizeof(self->owner) );
-  self->executable = fd_rng_uchar( rng );
-  LLVMFuzzerMutate( self->padding, 3, 3 );
-  return mem;
-}
-
-void *fd_solana_account_hdr_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_solana_account_hdr_t *self = (fd_solana_account_hdr_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_solana_account_hdr_t);
-  fd_solana_account_hdr_new(mem);
-  fd_solana_account_stored_meta_generate( &self->meta, alloc_mem, rng );
-  fd_solana_account_meta_generate( &self->info, alloc_mem, rng );
-  LLVMFuzzerMutate( self->padding, 4, 4 );
-  fd_hash_generate( &self->hash, alloc_mem, rng );
-  return mem;
-}
-
 void *fd_delegation_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_delegation_t *self = (fd_delegation_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_delegation_t);
@@ -239,25 +195,6 @@ void *fd_stake_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_stake_new(mem);
   fd_delegation_generate( &self->delegation, alloc_mem, rng );
   self->credits_observed = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_reward_type_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_reward_type_t *self = (fd_reward_type_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_reward_type_t);
-  fd_reward_type_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 4;
-  return mem;
-}
-
-void *fd_reward_info_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_reward_info_t *self = (fd_reward_info_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_reward_info_t);
-  fd_reward_info_new(mem);
-  fd_reward_type_generate( &self->reward_type, alloc_mem, rng );
-  self->lamports = fd_rng_ulong( rng );
-  self->post_balance = fd_rng_ulong( rng );
-  self->commission = fd_rng_ulong( rng );
   return mem;
 }
 
@@ -817,39 +754,6 @@ void *fd_slot_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
     self->next_slot = NULL;
   }
   self->is_connected = fd_rng_uchar( rng );
-  self->entry_end_indexes_len = fd_rng_ulong( rng ) % 8;
-  if( self->entry_end_indexes_len ) {
-    self->entry_end_indexes = (uint *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + sizeof(uint)*self->entry_end_indexes_len;
-    LLVMFuzzerMutate( (uchar *) self->entry_end_indexes, sizeof(uint)*self->entry_end_indexes_len, sizeof(uint)*self->entry_end_indexes_len );
-  } else {
-    self->entry_end_indexes = NULL;
-  }
-  return mem;
-}
-
-void *fd_clock_timestamp_vote_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_clock_timestamp_vote_t *self = (fd_clock_timestamp_vote_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_clock_timestamp_vote_t);
-  fd_clock_timestamp_vote_new(mem);
-  fd_pubkey_generate( &self->pubkey, alloc_mem, rng );
-  self->timestamp = fd_rng_long( rng );
-  self->slot = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_clock_timestamp_votes_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_clock_timestamp_votes_t *self = (fd_clock_timestamp_votes_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_clock_timestamp_votes_t);
-  fd_clock_timestamp_votes_new(mem);
-  ulong votes_len = fd_rng_ulong( rng ) % 8;
-  self->votes_pool = fd_clock_timestamp_vote_t_map_join_new( alloc_mem, fd_ulong_max( votes_len, 15000 ) );
-  self->votes_root = NULL;
-  for( ulong i=0; i < votes_len; i++ ) {
-    fd_clock_timestamp_vote_t_mapnode_t * node = fd_clock_timestamp_vote_t_map_acquire( self->votes_pool );
-    fd_clock_timestamp_vote_generate( &node->elem, alloc_mem, rng );
-    fd_clock_timestamp_vote_t_map_insert( self->votes_pool, &self->votes_root, node );
-  }
   return mem;
 }
 
@@ -868,7 +772,7 @@ void *fd_sysvar_epoch_rewards_generate( void *mem, void **alloc_mem, fd_rng_t * 
   self->distribution_starting_block_height = fd_rng_ulong( rng );
   self->num_partitions = fd_rng_ulong( rng );
   fd_hash_generate( &self->parent_blockhash, alloc_mem, rng );
-  self->total_points = fd_rng_uint128( rng );
+  self->total_points = (fd_w_u128_t) { .ul={ fd_rng_ulong( rng ), fd_rng_ulong( rng ) } };
   self->total_rewards = fd_rng_ulong( rng );
   self->distributed_rewards = fd_rng_ulong( rng );
   self->active = fd_rng_uchar( rng );
@@ -901,23 +805,6 @@ void *fd_stake_config_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   }
   self->warmup_cooldown_rate = fd_rng_double_o( rng );
   self->slash_penalty = fd_rng_uchar( rng );
-  return mem;
-}
-
-void *fd_feature_entry_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_feature_entry_t *self = (fd_feature_entry_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_feature_entry_t);
-  fd_feature_entry_new(mem);
-  fd_pubkey_generate( &self->pubkey, alloc_mem, rng );
-  self->description_len = fd_rng_ulong( rng ) % 8;
-  if( self->description_len ) {
-    self->description = (uchar *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + self->description_len;
-    for( ulong i=0; i < self->description_len; ++i) { self->description[i] = fd_rng_uchar( rng ) % 0x80; }
-  } else {
-    self->description = NULL;
-  }
-  self->since_slot = fd_rng_ulong( rng );
   return mem;
 }
 
@@ -957,7 +844,7 @@ void *fd_partitioned_rewards_calculation_generate( void *mem, void **alloc_mem, 
   fd_partitioned_rewards_calculation_t *self = (fd_partitioned_rewards_calculation_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_partitioned_rewards_calculation_t);
   fd_partitioned_rewards_calculation_new(mem);
-  self->validator_points = fd_rng_uint128( rng );
+  self->validator_points = (fd_w_u128_t) { .ul={ fd_rng_ulong( rng ), fd_rng_ulong( rng ) } };
   self->old_vote_balance_and_staked = fd_rng_ulong( rng );
   self->validator_rewards = fd_rng_ulong( rng );
   self->validator_rate = fd_rng_double_o( rng );
@@ -1287,14 +1174,6 @@ void *fd_system_program_instruction_generate( void *mem, void **alloc_mem, fd_rn
   fd_system_program_instruction_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 13;
   fd_system_program_instruction_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void *fd_system_error_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_system_error_t *self = (fd_system_error_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_system_error_t);
-  fd_system_error_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 9;
   return mem;
 }
 
@@ -1990,16 +1869,6 @@ void *fd_address_lookup_table_state_generate( void *mem, void **alloc_mem, fd_rn
   return mem;
 }
 
-void *fd_gossip_ping_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_gossip_ping_t *self = (fd_gossip_ping_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_gossip_ping_t);
-  fd_gossip_ping_new(mem);
-  fd_pubkey_generate( &self->from, alloc_mem, rng );
-  fd_hash_generate( &self->token, alloc_mem, rng );
-  fd_signature_generate( &self->signature, alloc_mem, rng );
-  return mem;
-}
-
 void *fd_addrlut_create_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_addrlut_create_t *self = (fd_addrlut_create_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_addrlut_create_t);
@@ -2045,295 +1914,6 @@ void *fd_addrlut_instruction_generate( void *mem, void **alloc_mem, fd_rng_t * r
   fd_addrlut_instruction_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 5;
   fd_addrlut_instruction_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void *fd_repair_request_header_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_repair_request_header_t *self = (fd_repair_request_header_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_repair_request_header_t);
-  fd_repair_request_header_new(mem);
-  fd_signature_generate( &self->signature, alloc_mem, rng );
-  fd_pubkey_generate( &self->sender, alloc_mem, rng );
-  fd_pubkey_generate( &self->recipient, alloc_mem, rng );
-  self->timestamp = fd_rng_ulong( rng );
-  self->nonce = fd_rng_uint( rng );
-  return mem;
-}
-
-void *fd_repair_window_index_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_repair_window_index_t *self = (fd_repair_window_index_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_repair_window_index_t);
-  fd_repair_window_index_new(mem);
-  fd_repair_request_header_generate( &self->header, alloc_mem, rng );
-  self->slot = fd_rng_ulong( rng );
-  self->shred_index = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_repair_highest_window_index_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_repair_highest_window_index_t *self = (fd_repair_highest_window_index_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_repair_highest_window_index_t);
-  fd_repair_highest_window_index_new(mem);
-  fd_repair_request_header_generate( &self->header, alloc_mem, rng );
-  self->slot = fd_rng_ulong( rng );
-  self->shred_index = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_repair_orphan_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_repair_orphan_t *self = (fd_repair_orphan_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_repair_orphan_t);
-  fd_repair_orphan_new(mem);
-  fd_repair_request_header_generate( &self->header, alloc_mem, rng );
-  self->slot = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_repair_ancestor_hashes_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_repair_ancestor_hashes_t *self = (fd_repair_ancestor_hashes_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_repair_ancestor_hashes_t);
-  fd_repair_ancestor_hashes_new(mem);
-  fd_repair_request_header_generate( &self->header, alloc_mem, rng );
-  self->slot = fd_rng_ulong( rng );
-  return mem;
-}
-
-void fd_repair_protocol_inner_generate( fd_repair_protocol_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 7: {
-    fd_gossip_ping_generate( &self->pong, alloc_mem, rng );
-    break;
-  }
-  case 8: {
-    fd_repair_window_index_generate( &self->window_index, alloc_mem, rng );
-    break;
-  }
-  case 9: {
-    fd_repair_highest_window_index_generate( &self->highest_window_index, alloc_mem, rng );
-    break;
-  }
-  case 10: {
-    fd_repair_orphan_generate( &self->orphan, alloc_mem, rng );
-    break;
-  }
-  case 11: {
-    fd_repair_ancestor_hashes_generate( &self->ancestor_hashes, alloc_mem, rng );
-    break;
-  }
-  }
-}
-void *fd_repair_protocol_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_repair_protocol_t *self = (fd_repair_protocol_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_repair_protocol_t);
-  fd_repair_protocol_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 12;
-  fd_repair_protocol_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void fd_repair_response_inner_generate( fd_repair_response_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 0: {
-    fd_gossip_ping_generate( &self->ping, alloc_mem, rng );
-    break;
-  }
-  }
-}
-void *fd_repair_response_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_repair_response_t *self = (fd_repair_response_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_repair_response_t);
-  fd_repair_response_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 1;
-  fd_repair_response_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void fd_instr_error_enum_inner_generate( fd_instr_error_enum_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 25: {
-    self->custom = fd_rng_uint( rng );
-    break;
-  }
-  case 44: {
-    ulong slen = fd_rng_ulong( rng ) % 256;
-    char *buffer = (char *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + slen;
-    self->borsh_io_error = buffer;
-    LLVMFuzzerMutate( (uchar *)self->borsh_io_error, slen, slen );
-    self->borsh_io_error[slen] = '\0';
-    break;
-  }
-  }
-}
-void *fd_instr_error_enum_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_instr_error_enum_t *self = (fd_instr_error_enum_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_instr_error_enum_t);
-  fd_instr_error_enum_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 54;
-  fd_instr_error_enum_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void *fd_txn_instr_error_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_txn_instr_error_t *self = (fd_txn_instr_error_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_txn_instr_error_t);
-  fd_txn_instr_error_new(mem);
-  self->instr_idx = fd_rng_uchar( rng );
-  fd_instr_error_enum_generate( &self->error, alloc_mem, rng );
-  return mem;
-}
-
-void fd_txn_error_enum_inner_generate( fd_txn_error_enum_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 8: {
-    fd_txn_instr_error_generate( &self->instruction_error, alloc_mem, rng );
-    break;
-  }
-  case 30: {
-    self->duplicate_instruction = fd_rng_uchar( rng );
-    break;
-  }
-  case 31: {
-    self->insufficient_funds_for_rent = fd_rng_uchar( rng );
-    break;
-  }
-  case 35: {
-    self->program_execution_temporarily_restricted = fd_rng_uchar( rng );
-    break;
-  }
-  }
-}
-void *fd_txn_error_enum_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_txn_error_enum_t *self = (fd_txn_error_enum_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_txn_error_enum_t);
-  fd_txn_error_enum_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 37;
-  fd_txn_error_enum_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void fd_txn_result_inner_generate( fd_txn_result_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 1: {
-    fd_txn_error_enum_generate( &self->error, alloc_mem, rng );
-    break;
-  }
-  }
-}
-void *fd_txn_result_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_txn_result_t *self = (fd_txn_result_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_txn_result_t);
-  fd_txn_result_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 2;
-  fd_txn_result_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void *fd_calculated_stake_points_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_calculated_stake_points_t *self = (fd_calculated_stake_points_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_calculated_stake_points_t);
-  fd_calculated_stake_points_new(mem);
-  self->points = fd_rng_uint128( rng );
-  self->new_credits_observed = fd_rng_ulong( rng );
-  self->force_credits_update_with_skipped_reward = fd_rng_uchar( rng );
-  return mem;
-}
-
-void *fd_calculated_stake_rewards_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_calculated_stake_rewards_t *self = (fd_calculated_stake_rewards_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_calculated_stake_rewards_t);
-  fd_calculated_stake_rewards_new(mem);
-  self->staker_rewards = fd_rng_ulong( rng );
-  self->voter_rewards = fd_rng_ulong( rng );
-  self->new_credits_observed = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_duplicate_slot_proof_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_duplicate_slot_proof_t *self = (fd_duplicate_slot_proof_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_duplicate_slot_proof_t);
-  fd_duplicate_slot_proof_new(mem);
-  self->shred1_len = fd_rng_ulong( rng ) % 8;
-  if( self->shred1_len ) {
-    self->shred1 = (uchar *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + self->shred1_len;
-    for( ulong i=0; i < self->shred1_len; ++i) { self->shred1[i] = fd_rng_uchar( rng ) % 0x80; }
-  } else {
-    self->shred1 = NULL;
-  }
-  self->shred2_len = fd_rng_ulong( rng ) % 8;
-  if( self->shred2_len ) {
-    self->shred2 = (uchar *) *alloc_mem;
-    *alloc_mem = (uchar *) *alloc_mem + self->shred2_len;
-    for( ulong i=0; i < self->shred2_len; ++i) { self->shred2[i] = fd_rng_uchar( rng ) % 0x80; }
-  } else {
-    self->shred2 = NULL;
-  }
-  return mem;
-}
-
-void *fd_epoch_info_pair_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_epoch_info_pair_t *self = (fd_epoch_info_pair_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_info_pair_t);
-  fd_epoch_info_pair_new(mem);
-  fd_pubkey_generate( &self->account, alloc_mem, rng );
-  fd_stake_generate( &self->stake, alloc_mem, rng );
-  return mem;
-}
-
-void *fd_usage_cost_details_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_usage_cost_details_t *self = (fd_usage_cost_details_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_usage_cost_details_t);
-  fd_usage_cost_details_new(mem);
-  self->signature_cost = fd_rng_ulong( rng );
-  self->write_lock_cost = fd_rng_ulong( rng );
-  self->data_bytes_cost = fd_rng_ulong( rng );
-  self->programs_execution_cost = fd_rng_ulong( rng );
-  self->loaded_accounts_data_size_cost = fd_rng_ulong( rng );
-  self->allocated_accounts_data_size = fd_rng_ulong( rng );
-  return mem;
-}
-
-void fd_transaction_cost_inner_generate( fd_transaction_cost_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 1: {
-    fd_usage_cost_details_generate( &self->transaction, alloc_mem, rng );
-    break;
-  }
-  }
-}
-void *fd_transaction_cost_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_transaction_cost_t *self = (fd_transaction_cost_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_transaction_cost_t);
-  fd_transaction_cost_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 2;
-  fd_transaction_cost_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void *fd_rent_paying_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_paying_t *self = (fd_rent_paying_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_paying_t);
-  fd_rent_paying_new(mem);
-  self->lamports = fd_rng_ulong( rng );
-  self->data_size = fd_rng_ulong( rng );
-  return mem;
-}
-
-void fd_rent_state_inner_generate( fd_rent_state_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 1: {
-    fd_rent_paying_generate( &self->rent_paying, alloc_mem, rng );
-    break;
-  }
-  }
-}
-void *fd_rent_state_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_rent_state_t *self = (fd_rent_state_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_rent_state_t);
-  fd_rent_state_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 3;
-  fd_rent_state_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
 

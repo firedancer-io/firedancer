@@ -1,4 +1,3 @@
-ifdef FD_HAS_INT128
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_SECP256K1
 $(call add-hdrs,fd_vm_syscall.h fd_vm_syscall_macros.h fd_vm_cpi.h)
@@ -11,6 +10,5 @@ $(call make-unit-test,test_vm_syscalls,test_vm_syscalls,fd_flamenco fd_funk fd_u
 $(call run-unit-test,test_vm_syscalls)
 $(call run-unit-test,test_vm_syscall_cpi)
 $(call run-unit-test,test_vm_syscall_curve)
-endif
 endif
 endif

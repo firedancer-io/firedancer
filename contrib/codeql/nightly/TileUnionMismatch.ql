@@ -35,6 +35,4 @@ where
   not tileName.matches("%_" + t.toString() + "_%") and
   /* net "inheritance" case */
   not t.toString() = "net"
-  /* backtest is called archiver */
-  and not (t.toString() = "archiver" and tileName = "fd_backtest_tile.c")
 select t, t.getLocation().getFile().getBaseName()

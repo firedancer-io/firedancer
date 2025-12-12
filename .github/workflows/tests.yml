@@ -65,7 +65,7 @@ jobs:
         run: |
           sudo killall firedancer-dev || true
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -140,13 +140,6 @@ jobs:
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-test-vectors
-
-      - name: run solcap tests
-        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
-        run: |
-          sudo prlimit --pid $$ --memlock=-1:-1
-          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
-          DUMP=../dump make run-solcap-tests
 
       - name: run integration tests
         if: ${{ matrix.run-integration-tests }}

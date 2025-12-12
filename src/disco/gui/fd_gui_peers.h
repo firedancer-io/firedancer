@@ -26,6 +26,39 @@
 
 #include <math.h>
 
+/* Node in an IP geolocation binary trie.  The trie is built from a
+   compressed binary file with the following format:
+
+     num_country_codes: ulong count of country codes (little-endian)
+     country_codes: Array of 2-byte ASCII country codes
+     nodes: Series of 6-byte records containing:
+       uint network address (big-endian)
+       uchar prefix length (0-32), which defines the applicable network
+             mask
+       uchar country code index, into country_codes
+
+  In the trie, each node represents one bit position in an IP address.
+  Paths follow 0 (left child) and 1 (right child) bits from the IP's MSB
+  to LSB.  Nodes with has_prefix=1 indicate a match at that prefix
+  lengt country_code_idx references the 2-letter country code in the
+  table.  Maximum depth is 32 levels (for IPv4).  */
+
+struct fd_gui_ipinfo_node {
+  uchar has_prefix;
+  uchar country_code_idx;
+
+  struct fd_gui_ipinfo_node * left;
+  struct fd_gui_ipinfo_node * right;
+};
+
+typedef struct fd_gui_ipinfo_node fd_gui_ipinfo_node_t;
+
+struct fd_gui_country_code {
+  char cc[ 3 ];
+};
+
+typedef struct fd_gui_country_code fd_gui_country_code_t;
+
 #define FD_GUI_PEERS_NODE_NOP    (0)
 #define FD_GUI_PEERS_NODE_ADD    (1)
 #define FD_GUI_PEERS_NODE_UPDATE (2)
@@ -33,9 +66,9 @@
 
 #define FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT                 (256UL) /* maximum number of maintained active sort keys */
 #define FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ                    (200UL) /* the maximum number of rows a client can request for a table viewport */
-#define FD_GUI_PEERS_WS_VIEWPORT_UPDATE_INTERVAL_MILLIS    ( 100L)
-#define FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS    ( 100L)
-#define FD_GUI_PEERS_GOSSIP_STATS_UPDATE_INTERVAL_MILLIS   ( 100L)
+#define FD_GUI_PEERS_WS_VIEWPORT_UPDATE_INTERVAL_MILLIS    ( 150L)
+#define FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS    ( 150L)
+#define FD_GUI_PEERS_GOSSIP_STATS_UPDATE_INTERVAL_MILLIS   ( 300L)
 
 #define FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT (64UL)
 
@@ -89,6 +122,7 @@ struct fd_gui_peers_node {
   int valid;
   long update_time_nanos;
   fd_contact_info_t contact_info;
+  char name[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ];
 
   fd_gui_peers_metric_rate_t gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
   fd_gui_peers_metric_rate_t gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
@@ -103,6 +137,7 @@ struct fd_gui_peers_node {
   uchar       commission;
   ulong       epoch;
   ulong       epoch_credits;
+  uchar       country_code_idx;
   int         delinquent;
 
   struct {
@@ -235,21 +270,25 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_MULTI 1
 #include "../../util/tmpl/fd_map_chain.c"
 
-static int live_table_col_pubkey_lt( void const * a, void const * b ) { return memcmp( ((fd_pubkey_t *)a)->uc, ((fd_pubkey_t *)b)->uc, 32UL ) < 0; }
-static int live_table_col_long_lt  ( void const * a, void const * b ) { return *(long *)a < *(long *)b;                                            }
-static int live_table_col_ipv4_lt  ( void const * a, void const * b ) { return fd_uint_bswap(*(uint *)a) < fd_uint_bswap(*(uint *)b);              }
+static int live_table_col_pubkey_lt( void const * a, void const * b ) { return memcmp( ((fd_pubkey_t *)a)->uc, ((fd_pubkey_t *)b)->uc, 32UL ) < 0;   }
+static int live_table_col_long_lt  ( void const * a, void const * b ) { return *(long *)a < *(long *)b;                                              }
+static int live_table_col_uchar_lt ( void const * a, void const * b ) { return *(uchar *)a < *(uchar *)b;                                            }
+static int live_table_col_ipv4_lt  ( void const * a, void const * b ) { return fd_uint_bswap(*(uint *)a) < fd_uint_bswap(*(uint *)b);                }
+static int live_table_col_name_lt  ( void const * a, void const * b ) { return memcmp( (char *)a, (char *)b, FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ) < 0; }
 static int live_table_col_stake_lt ( void const * a, void const * b ) { return fd_long_if( *(ulong *)a>LONG_MAX, -1L, (long)*(ulong *)a ) < fd_long_if( *(ulong *)b>LONG_MAX, -1L, (long)*(ulong *)b ); }
 
 #define LIVE_TABLE_NAME fd_gui_peers_live_table
 #define LIVE_TABLE_TREAP treaps_live_table
 #define LIVE_TABLE_SORT_KEYS sort_keys_live_table
 #define LIVE_TABLE_DLIST dlist_live_table
-#define LIVE_TABLE_COLUMN_CNT (7UL)
+#define LIVE_TABLE_COLUMN_CNT (9UL)
 #define LIVE_TABLE_MAX_SORT_KEY_CNT FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
   LIVE_TABLE_COL_ENTRY( "Stake",        stake,                                                                    live_table_col_stake_lt  ), \
   LIVE_TABLE_COL_ENTRY( "Pubkey",       contact_info.pubkey,                                                      live_table_col_pubkey_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Name",         name,                                                                     live_table_col_name_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Country",      country_code_idx,                                                         live_table_col_uchar_lt  ), \
   LIVE_TABLE_COL_ENTRY( "IP Addr",      contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr,               live_table_col_ipv4_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Ingress Push", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Ingress Pull", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
@@ -257,7 +296,7 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
   LIVE_TABLE_COL_ENTRY( "Egress Pull",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), )
 #include "fd_gui_live_table_tmpl.c"
 
-#define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6 }, .dir = { -1, -1, -1, -1, -1, -1, -1 } })
+#define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, .dir = { -1, -1, -1, -1, -1, -1, -1, -1, -1 } })
 
 #define LIVE_TABLE_NAME fd_gui_peers_bandwidth_tracking
 #define LIVE_TABLE_TREAP treaps_bandwidth_tracking
@@ -283,7 +322,9 @@ struct fd_gui_peers_ws_conn {
   fd_gui_peers_node_t viewport[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ];
   fd_gui_peers_live_table_sort_key_t sort_key;
 };
+
 typedef struct fd_gui_peers_ws_conn fd_gui_peers_ws_conn_t;
+
 struct fd_gui_peers_ctx {
   long next_client_nanos; /* ns timestamp when we'll service the next ws client */
   long next_metric_rate_update_nanos; /* ns timestamp when we'll next update rate-of-change metrics */
@@ -307,9 +348,17 @@ struct fd_gui_peers_ctx {
   fd_gui_peers_gossip_stats_t gossip_stats  [ 1 ];
   fd_gui_peers_node_t contact_info_table[ FD_CONTACT_INFO_TABLE_SIZE ];
 
+  ulong slot_voted; /* last vote slot for this validator */
+
   fd_gui_peers_vote_t votes        [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   fd_gui_peers_vote_t votes_scratch[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ]; /* for fast stable sort */
+
+  struct {
+    fd_gui_ipinfo_node_t * nodes;
+    fd_gui_country_code_t country_code[ 512 ]; /* ISO 3166-1 alpha-2 country codes */
+  } ipinfo;
 };
+
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
 
 FD_PROTOTYPES_BEGIN
@@ -350,8 +399,8 @@ fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *  peers,
                                     int                   is_rx );
 
 /* fd_gui_peers_handle_gossip_message_tx parses frags on the gossip_out
-   link and uses the contact info update to build up the peer table.
-   */
+   link and uses the contact info update to build up the peer table. */
+
 void
 fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    fd_gossip_update_message_t const * update,
@@ -361,7 +410,8 @@ void
 fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
                                  fd_gui_peers_vote_t * votes,
                                  ulong                 vote_cnt,
-                                 long                  now );
+                                 long                  now,
+                                 fd_pubkey_t *         identity );
 
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
@@ -384,20 +434,24 @@ fd_gui_peers_ws_message( fd_gui_peers_ctx_t * peers,
    connection id of the new client.  now is a UNIX nanosecond timestamp
    for the current time. */
 void
-fd_gui_peers_ws_open( fd_gui_peers_ctx_t * peers, ulong ws_conn_id, long now );
+fd_gui_peers_ws_open( fd_gui_peers_ctx_t *  peers,
+                      ulong                 ws_conn_id,
+                      long                  now );
 
 /* fd_gui_peers_ws_close is a callback which should be triggered when an
    existing client closes their WebSocket connection.  ws_conn_id is the
    connection id of the client.*/
 void
-fd_gui_peers_ws_close( fd_gui_peers_ctx_t * peers, ulong ws_conn_id );
+fd_gui_peers_ws_close( fd_gui_peers_ctx_t * peers,
+                       ulong                ws_conn_id );
 
 /* fd_gui_peers_poll should be called in a the tile's main spin loop to
    periodically update peers internal state as well as publish new
    Websocket messages to clients. now is a UNIX nanosecond timestamp for
    the current time. */
 int
-fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now  );
+fd_gui_peers_poll( fd_gui_peers_ctx_t * peers,
+                   long                 now  );
 
 FD_PROTOTYPES_END
 

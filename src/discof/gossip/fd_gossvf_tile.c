@@ -9,6 +9,7 @@
 #include "../../flamenco/gossip/fd_ping_tracker.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../disco/net/fd_net_tile.h"
 #include "generated/fd_gossvf_tile_seccomp.h"
 
 #define DEBUG_PEERS (0)
@@ -181,6 +182,8 @@ struct fd_gossvf_tile_ctx {
     ulong       mtu;
   } in[ 64UL ];
 
+  fd_net_rx_bounds_t net_in_bounds[ 64UL ];
+
   struct {
     ulong       chunk0;
     ulong       chunk;
@@ -261,7 +264,7 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
              ulong                  sig,
              ulong                  chunk,
              ulong                  sz,
-             ulong                  ctl FD_PARAM_UNUSED ) {
+             ulong                  ctl ) {
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark, ctx->in[ in_idx ].mtu ));
 
@@ -272,7 +275,7 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
       break;
     }
     case IN_KIND_NET: {
-      uchar * src = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      uchar const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
       fd_memcpy( ctx->payload, src, sz );
       break;
     }
@@ -1022,7 +1025,10 @@ unprivileged_init( fd_topo_t *      topo,
     if(      !strcmp( link->name, "gossip_gossv" ) ) ctx->in[ i ].kind = IN_KIND_PINGS;
     else if( !strcmp( link->name, "ipecho_out"   ) ) ctx->in[ i ].kind = IN_KIND_SHRED_VERSION;
     else if( !strcmp( link->name, "gossip_out"   ) ) ctx->in[ i ].kind = IN_KIND_GOSSIP;
-    else if( !strcmp( link->name, "net_gossvf"   ) ) ctx->in[ i ].kind = IN_KIND_NET;
+    else if( !strcmp( link->name, "net_gossvf"   ) ) {
+      ctx->in[ i ].kind = IN_KIND_NET;
+      fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
+    }
     else if( !strcmp( link->name, "replay_stake" ) ) ctx->in[ i ].kind = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }

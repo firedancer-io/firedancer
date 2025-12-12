@@ -32,11 +32,16 @@
 #include "fd_metrics_snapdc.h"
 #include "fd_metrics_snapin.h"
 #include "fd_metrics_snapwr.h"
+#include "fd_metrics_snapwh.h"
+#include "fd_metrics_snapla.h"
+#include "fd_metrics_snapls.h"
 #include "fd_metrics_metric.h"
 #include "fd_metrics_ipecho.h"
 #include "fd_metrics_backt.h"
 #include "fd_metrics_exec.h"
 #include "fd_metrics_benchs.h"
+#include "fd_metrics_tower.h"
+#include "fd_metrics_gui.h"
 /* Start of LINK OUT metrics */
 
 #define FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF  (0UL)
@@ -173,7 +178,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_T
 
 #define FD_METRICS_TOTAL_SZ (8UL*254UL)
 
-#define FD_METRICS_TILE_KIND_CNT 32
+#define FD_METRICS_TILE_KIND_CNT 37
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

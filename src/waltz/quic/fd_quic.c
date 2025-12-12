@@ -444,7 +444,7 @@ fd_quic_init( fd_quic_t * quic ) {
   /* State: Initialize conn ID map */
 
   ulong  conn_map_laddr = (ulong)quic + layout.conn_map_off;
-  state->conn_map = fd_quic_conn_map_join( fd_quic_conn_map_new( (void *)conn_map_laddr, layout.lg_slot_cnt ) );
+  state->conn_map = fd_quic_conn_map_join( fd_quic_conn_map_new( (void *)conn_map_laddr, layout.lg_slot_cnt, (ulong)fd_tickcount() ) );
   if( FD_UNLIKELY( !state->conn_map ) ) {
     FD_LOG_WARNING(( "NULL conn_map" ));
     return NULL;
@@ -3767,7 +3767,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
     if( payload_ptr==frame_start ) {
       /* we have data to add, but none was added, presumably due
          so space in the datagram */
-      ulong free_bytes = (ulong)( payload_ptr - payload_end );
+      ulong free_bytes = (ulong)( payload_end - payload_ptr );
       /* sanity check */
       if( free_bytes > 64 ) {
         /* we should have been able to fit data into 64 bytes

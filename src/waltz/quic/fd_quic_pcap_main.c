@@ -82,13 +82,6 @@ union key32 {
 };
 typedef union key32 key32_t;
 
-static ulong map_seed;
-__attribute__((constructor)) static void random_seeds( void ) {
-  if( FD_UNLIKELY( !fd_rng_secure( &map_seed, sizeof(map_seed) ) ) ) {
-    FD_LOG_WARNING(( "fd_rng_secure failed" ));
-  }
-}
-
 /* Declare a map resolving Client Random => encryption keys */
 
 struct key_map {
@@ -108,7 +101,7 @@ typedef struct key_map key_map_t;
 #define MAP_KEY_NULL          ((key32_t){.ul={0,0,0,0}})
 #define MAP_KEY_EQUAL(k0,k1)  (0==memcmp((k0).key,(k1).key,32))
 #define MAP_KEY_EQUAL_IS_SLOW 0
-#define MAP_KEY_HASH(key)     fd_hash( map_seed, key.key, 32 )
+#define MAP_KEY_HASH(k,s)     fd_hash( s, k.key, 32 )
 #define MAP_KEY_INVAL(k)      ((0==k.ul[0]) & (0==k.ul[1]) & (0==k.ul[2]) & (0==k.ul[3]))
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map_dynamic.c"
@@ -152,12 +145,14 @@ quic_pcap_iter_new( quic_pcap_iter_t *         iter,
                     quic_pcap_params_t const * params ) {
   int lg_slot_cnt = fd_ulong_find_msb_w_default( fd_ulong_pow2_up( params->key_max*4 ), 0 );
 
+  ulong seed = (ulong)fd_tickcount();
+
   void * key_map_mem = aligned_alloc( key_map_align(), key_map_footprint( lg_slot_cnt ) );
-  key_map_t * key_map = key_map_join( key_map_new( key_map_mem, lg_slot_cnt ) );
+  key_map_t * key_map = key_map_join( key_map_new( key_map_mem, lg_slot_cnt, seed ) );
   if( FD_UNLIKELY( !key_map ) ) FD_LOG_ERR(( "key_map alloc failed" ));
 
   void * conn_map_mem = aligned_alloc( conn_map_align(), conn_map_footprint( lg_slot_cnt ) );
-  conn_map_t * conn_map = conn_map_join( conn_map_new( conn_map_mem, lg_slot_cnt ) );
+  conn_map_t * conn_map = conn_map_join( conn_map_new( conn_map_mem, lg_slot_cnt, seed+1UL ) );
   if( FD_UNLIKELY( !conn_map ) ) FD_LOG_ERR(( "conn_map alloc failed" ));
 
   FILE * pcap_file = fopen( params->pcap_path, "rb" );

@@ -1,4 +1,4 @@
-ifeq ($(wildcard $(OPT)/git/bzip2/bzlib.c),)
+ifeq ($(wildcard $(OPT)/include/bzlib.h),)
 $(warning "bzip2 not installed, skipping")
 else
 

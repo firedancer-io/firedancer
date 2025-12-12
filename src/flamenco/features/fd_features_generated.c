@@ -1151,8 +1151,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x17\x6a\x33\xb1\x19\x20\x80\x12\xaa\xff\x40\xb3\x2e\xc5\x22\x69\xbd\x38\x2a\x54\x46\xc6\xdb\x97\xd7\x85\x0c\x5f\x30\x02\x2d\x12"},
                                  /* 2aQJYqER2aKyb3cZw22v4SL2xMX7vwXBRWfvS4pTrtED */
     .name                      = "enable_loader_v4",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
-    .hardcode_for_fuzzing = 1 },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, require_rent_exempt_split_destination)>>3,
     .id                        = {"\xb2\xb3\xf3\xc6\xb4\x1c\x24\x4b\xbf\x84\xd9\x21\x6e\x67\x6e\x0b\x45\x16\xb4\xd6\x0c\x48\xe9\x7a\x45\x26\x74\xbc\x9d\x61\x72\xe0"},
@@ -1497,14 +1496,15 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xd7\xeb\x98\x87\x27\xcf\x64\x78\xbe\x0d\x81\x84\x03\x96\x2b\x10\x77\xb6\xc9\xcb\x3b\xfd\x6c\x3b\x95\xf6\xa4\x79\xee\x74\xde\xb8"},
                                  /* FXs1zh47QbNnhXcnB6YiAQoJ4sGB91tKF3UFHLcKT7PM */
     .name                      = "remove_accounts_executable_flag_checks",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {3, 0, 0},
     .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, fix_alt_bn128_multiplication_input_length)>>3,
     .id                        = {"\x08\xe8\xaa\x2e\x13\xc5\xc5\x54\xe2\xc3\xb4\x0e\x26\xb4\x64\x3b\xc7\xcb\x89\x6c\xc0\x06\x05\xaa\x65\x7f\x3a\x3d\x30\xee\xf9\x05"},
                                  /* bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN */
     .name                      = "fix_alt_bn128_multiplication_input_length",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {3, 1, 0},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, lift_cpi_caller_restriction)>>3,
     .id                        = {"\xf6\xd3\x41\xcb\x4b\xa2\x65\x9e\xac\xe7\x83\xef\x30\xe5\xfc\xc1\x9a\x94\x8b\x9b\x00\xba\x8a\xad\xf5\x2a\x6b\x9f\x65\x24\x5e\xc8"},
@@ -1668,15 +1668,39 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, stricter_abi_and_runtime_constraints)>>3,
-    .id                        = {"\xb1\xb1\x8b\xfe\x0c\x8c\xa8\x90\xaf\x61\x7d\x45\x2d\x08\xd5\x33\x88\xea\x0b\x0b\x87\x1f\xb6\x1c\x38\xc8\xeb\x19\x0f\xd7\x9f\x0a"},
-                                 /* CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM */
+    .id                        = {"\x0c\xdc\xaa\x60\x4d\xd8\x04\x50\x19\x27\xdb\xa5\x2d\x2a\x39\xcf\x51\xdb\xc9\xae\xd8\x06\xc9\xda\x36\x46\xb8\xf2\x41\x40\x59\xed"},
+                                 /* sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r */
     .name                      = "stricter_abi_and_runtime_constraints",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, account_data_direct_mapping)>>3,
-    .id                        = {"\x83\xaf\x45\x7d\x2d\x4b\x60\xe8\xb6\x8b\xde\xea\x1f\x99\x51\x97\x42\x3e\x2d\x9a\xd0\xe0\x8c\xa8\x44\x7f\x6a\xd4\x68\x43\x4e\x19"},
-                                 /* 9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ */
+    .id                        = {"\xb5\xfa\x43\x42\x67\x5e\x0c\x52\x3d\x10\xad\xbb\x78\x84\x1f\x16\x92\x1f\xf2\xb6\xe7\xcd\xe9\x60\x60\x84\x9a\xfd\x12\xb1\x01\x39"},
+                                 /* DFN8MyKpQqFW31qczcahgnnxcAHQc6P94wtTEX5EP1RA */
     .name                      = "account_data_direct_mapping",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, fix_alt_bn128_pairing_length_check)>>3,
+    .id                        = {"\x08\xe9\x40\xc0\xc3\x42\x8a\xf0\xbd\x9d\x09\x80\xa6\xce\x78\xcb\x1c\xc6\x57\x4e\x44\xfe\xf5\x52\xe7\x0c\x40\x70\xe9\x51\xec\x74"},
+                                 /* bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm */
+    .name                      = "fix_alt_bn128_pairing_length_check",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, poseidon_enforce_padding)>>3,
+    .id                        = {"\x0c\x3e\xd9\x52\x45\xee\x7b\x8c\x8a\xaf\x88\xa2\x5e\x37\x29\x76\x1d\xa5\xfb\xfa\x47\x48\xfd\xd4\x5a\xff\x2b\xb8\xfa\xd3\x1c\x98"},
+                                 /* poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb */
+    .name                      = "poseidon_enforce_padding",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, relax_intrabatch_account_locks)>>3,
+    .id                        = {"\xc6\xa7\x00\xfe\xbb\x94\x60\x86\xa8\x6e\x35\x1e\xe3\x45\x26\x30\x79\xd9\xef\x65\x88\xe3\x0f\x1d\xc6\x94\x10\x7c\xf8\x74\x15\x35"},
+                                 /* ENTRYnPAoT5Swwx73YDGzMp3XnNH1kxacyvLosRHza1i */
+    .name                      = "relax_intrabatch_account_locks",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, provide_instruction_data_offset_in_vm_r2)>>3,
+    .id                        = {"\x49\xa8\x3f\xba\xb8\x02\x48\x7c\x34\x1e\x07\x66\xab\xd9\x59\xba\x04\xfd\xce\xcc\xe6\xbf\xdf\xd4\xc6\xe1\x62\xec\x0b\x10\x26\x6f"},
+                                 /* 5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL */
+    .name                      = "provide_instruction_data_offset_in_vm_r2",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index = ULONG_MAX }
@@ -1928,8 +1952,12 @@ fd_feature_id_query( ulong prefix ) {
   case 0x3711b30f40730240: return &ids[ 240 ];
   case 0xc1309d1b0ae3e80c: return &ids[ 241 ];
   case 0x5c64cc1a9be3790a: return &ids[ 242 ];
-  case 0x90a88c0cfe8bb1b1: return &ids[ 243 ];
-  case 0xe8604b2d7d45af83: return &ids[ 244 ];
+  case 0x5004d84d60aadc0c: return &ids[ 243 ];
+  case 0x520c5e674243fab5: return &ids[ 244 ];
+  case 0xf08a42c3c040e908: return &ids[ 245 ];
+  case 0x8c7bee4552d93e0c: return &ids[ 246 ];
+  case 0x866094bbfe00a7c6: return &ids[ 247 ];
+  case 0x7c4802b8ba3fa849: return &ids[ 248 ];
   default: break;
   }
   return NULL;
@@ -2180,4 +2208,8 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program            
 FD_STATIC_ASSERT( offsetof( fd_features_t, raise_account_cu_limit                                  )>>3==242UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_abi_and_runtime_constraints                    )>>3==243UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, account_data_direct_mapping                             )>>3==244UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_pairing_length_check                      )>>3==245UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, poseidon_enforce_padding                                )>>3==246UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_intrabatch_account_locks                          )>>3==247UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, provide_instruction_data_offset_in_vm_r2                )>>3==248UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

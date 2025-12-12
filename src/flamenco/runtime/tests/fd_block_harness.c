@@ -10,6 +10,8 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
+#include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
 #include "../../stakes/fd_stakes.h"
 #include "../../types/fd_types.h"
@@ -171,7 +173,9 @@ static void
 fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *            vote_states,
                                                    fd_exec_test_vote_account_t * vote_accounts,
                                                    pb_size_t                     vote_accounts_cnt,
-                                                   fd_spad_t *                   spad ) {
+                                                   fd_runtime_stack_t *          runtime_stack,
+                                                   fd_spad_t *                   spad,
+                                                   uchar                         is_t_1 ) {
   FD_SPAD_FRAME_BEGIN( spad ) {
     for( uint i=0U; i<vote_accounts_cnt; i++ ) {
       fd_exec_test_acct_state_t * vote_account  = &vote_accounts[i].vote_account;
@@ -189,12 +193,43 @@ fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *           
           vote_data_len,
           NULL );
       if( res==NULL ) continue;
+      if( res->discriminant==fd_vote_state_versioned_enum_v0_23_5 ) continue;
 
       fd_vote_states_update_from_account( vote_states, &vote_address, vote_data, vote_data_len );
       fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &vote_address );
       vote_state->stake     += stake;
       vote_state->stake_t_1 += stake;
       vote_state->stake_t_2 += stake;
+
+      if( !is_t_1 ) continue;
+
+      /* Update vote credits for T-1 */
+      fd_vote_epoch_credits_t * epoch_credits = NULL;
+      switch( res->discriminant ) {
+        case fd_vote_state_versioned_enum_v0_23_5:
+          epoch_credits = res->inner.v0_23_5.epoch_credits;
+          break;
+        case fd_vote_state_versioned_enum_v1_14_11:
+          epoch_credits = res->inner.v1_14_11.epoch_credits;
+          break;
+        case fd_vote_state_versioned_enum_current:
+          epoch_credits = res->inner.current.epoch_credits;
+          break;
+        default:
+          __builtin_unreachable();
+      }
+
+      fd_vote_state_credits_t * vote_credits = &runtime_stack->stakes.vote_credits[ vote_state->idx ];
+      vote_credits->credits_cnt = 0UL;
+      for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+           !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+           iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+        fd_vote_epoch_credits_t const * credit_ele = deq_fd_vote_epoch_credits_t_iter_ele_const( epoch_credits, iter );
+        vote_credits->epoch[ vote_credits->credits_cnt ]        = (ushort)credit_ele->epoch;
+        vote_credits->credits[ vote_credits->credits_cnt ]      = credit_ele->credits;
+        vote_credits->prev_credits[ vote_credits->credits_cnt ] = credit_ele->prev_credits;
+        vote_credits->credits_cnt++;
+      }
     }
   } FD_SPAD_FRAME_END;
 }
@@ -203,6 +238,12 @@ static void
 fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_accdb_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache_admin );
+
+  /* In order to check for leaks in the workspace, we need to compact the
+     allocators. Without doing this, empty superblocks may be retained
+     by the fd_alloc instance, which mean we cannot check for leaks. */
+  fd_alloc_compact( runner->accdb_admin->funk->alloc );
+  fd_alloc_compact( runner->progcache_admin->funk->alloc );
 }
 
 /* Sets up block execution context from an input test case to execute
@@ -211,9 +252,10 @@ fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
 static fd_txn_p_t *
 fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                 fd_exec_test_block_context_t const * test_ctx,
-                                ulong *                              out_txn_cnt ) {
+                                ulong *                              out_txn_cnt,
+                                fd_hash_t *                          poh ) {
   fd_accdb_user_t * accdb = runner->accdb;
-  fd_funk_t *       funk  = runner->accdb->funk;
+  fd_funk_t *       funk  = fd_accdb_user_v1_funk( runner->accdb );
   fd_bank_t *       bank  = runner->bank;
   fd_banks_t *      banks = runner->banks;
 
@@ -253,16 +295,12 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_bank_capitalization_set( bank, test_ctx->slot_ctx.prev_epoch_capitalization );
 
-  fd_bank_lamports_per_signature_set( bank, 5000UL );
-
-  fd_bank_prev_lamports_per_signature_set( bank, test_ctx->slot_ctx.prev_lps );
-
   // self.max_tick_height = (self.slot + 1) * self.ticks_per_slot;
   fd_bank_hashes_per_tick_set( bank, test_ctx->epoch_ctx.hashes_per_tick );
 
   fd_bank_ticks_per_slot_set( bank, test_ctx->epoch_ctx.ticks_per_slot );
 
-  fd_bank_ns_per_slot_set( bank, 400000000 ); // TODO: restore from input
+  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ul={ 400000000,0 } } ); // TODO: restore from input
 
   fd_bank_genesis_creation_time_set( bank, test_ctx->epoch_ctx.genesis_creation_time );
 
@@ -278,6 +316,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     .max_lamports_per_signature    = test_ctx->slot_ctx.fee_rate_governor.max_lamports_per_signature,
     .burn_percent                  = (uchar)test_ctx->slot_ctx.fee_rate_governor.burn_percent
   };
+  /* https://github.com/firedancer-io/solfuzz-agave/blob/agave-v3.0.3/src/block.rs#L393-L396 */
+  fd_bank_rbh_lamports_per_sig_set( bank, FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE );
 
   fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
   *inflation = (fd_inflation_t){
@@ -349,7 +389,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       vote_states_prev,
       test_ctx->epoch_ctx.vote_accounts_t_1,
       test_ctx->epoch_ctx.vote_accounts_t_1_count,
-      runner->spad );
+      runtime_stack,
+      runner->spad,
+      1 );
   fd_bank_vote_states_prev_end_locking_modify( bank );
 
   /* Update vote cache for epoch T-2 */
@@ -358,7 +400,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       vote_states_prev_prev,
       test_ctx->epoch_ctx.vote_accounts_t_2,
       test_ctx->epoch_ctx.vote_accounts_t_2_count,
-      runner->spad );
+      runtime_stack,
+      runner->spad,
+      0 );
 
   /* Refresh vote accounts to calculate stake delegations */
   fd_solfuzz_block_refresh_vote_accounts(
@@ -393,8 +437,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
-      fd_bank_lamports_per_signature_set( bank, last->fee_calculator.lamports_per_signature );
-      fd_bank_prev_lamports_per_signature_set( bank, last->fee_calculator.lamports_per_signature );
+      fd_bank_rbh_lamports_per_sig_set( bank, last->fee_calculator.lamports_per_signature );
     }
   }
 
@@ -417,9 +460,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_sysvar_recent_hashes_update( bank, accdb, xid, NULL ); /* appends an entry */
   }
 
-  // Set the current poh from the input (we skip POH verification in this fuzzing target)
-  fd_hash_t * poh = fd_bank_poh_modify( bank );
-  fd_memcpy( poh->hash, test_ctx->slot_ctx.poh, sizeof(fd_hash_t) );
+  /* Set the poh from the input.  This is the blockhash that will get
+     inserted after. */
+  memcpy( poh, test_ctx->slot_ctx.poh, sizeof(fd_hash_t) );
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore_fuzz( bank, funk, xid );
@@ -451,10 +494,10 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
    fd_runtime_fuzz_block_ctx_create and executes it against the runtime.
    Returns the execution result. */
 static int
-fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
-                           fd_funk_txn_xid_t const * xid,
-                           fd_txn_p_t *              txn_ptrs,
-                           ulong                     txn_cnt ) {
+fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
+                           fd_txn_p_t *          txn_ptrs,
+                           ulong                 txn_cnt,
+                           fd_hash_t *           poh ) {
   int res = 0;
 
   // Prepare. Execute. Finalize.
@@ -471,17 +514,15 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
       fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( runner->bank ) );
     }
 
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb->funk, xid, runner->runtime_stack, capture_ctx );
+    fd_funk_t * funk = fd_accdb_user_v1_funk( runner->accdb );
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->idx } };
+
+    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, funk, &xid, runner->runtime_stack, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->accdb, xid, capture_ctx, runner->runtime_stack, &is_epoch_boundary );
-
-    res = fd_runtime_block_execute_prepare( runner->bank, runner->accdb, xid, runner->runtime_stack, capture_ctx );
-    if( FD_UNLIKELY( res ) ) {
-      return res;
-    }
+    fd_runtime_block_execute_prepare( runner->banks, runner->bank, runner->accdb, runner->runtime_stack, capture_ctx, &is_epoch_boundary );
 
     /* Sequential transaction execution */
     for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -489,36 +530,35 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
-      fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, xid, txn, &res );
-      txn_ctx->exec_err           = res;
+      fd_txn_in_t  txn_in = { .txn = txn, .exec_accounts = runner->exec_accounts, .bundle.is_bundle = 0 };
+      fd_txn_out_t txn_out;
+      fd_runtime_t * runtime = runner->runtime;
+      fd_log_collector_t log[1];
+      runtime->log.log_collector = log;
+      fd_solfuzz_txn_ctx_exec( runner, runtime, &txn_in, &res, &txn_out );
+      txn_out.err.exec_err = res;
 
-      if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
-        break;
+      if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
+        return 0;
       }
 
       /* Finalize the transaction */
-      fd_runtime_finalize_txn(
-          runner->accdb->funk,
-          runner->progcache,
-          NULL,
-          xid,
-          txn_ctx,
-          runner->bank,
-          capture_ctx,
-          NULL );
+      fd_runtime_commit_txn( runtime, runner->bank, &txn_in, &txn_out );
 
-      if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
-        break;
+      if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
+        return 0;
       }
 
-      res = FD_RUNTIME_EXECUTE_SUCCESS;
     }
 
+    /* At this point we want to set the poh.  This is what will get
+       updated in the blockhash queue. */
+    fd_bank_poh_set( runner->bank, *poh );
     /* Finalize the block */
-    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, xid, capture_ctx, 1 );
+    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, capture_ctx );
   } FD_SPAD_FRAME_END;
 
-  return res;
+  return 1;
 }
 
 /* Canonical (Agave-aligned) schedule hash
@@ -594,100 +634,28 @@ fd_solfuzz_block_hash_epoch_leaders( fd_solfuzz_runner_t *      runner,
 }
 
 static void
-fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *                runner,
-                                             fd_funk_txn_xid_t const *            xid,
-                                             fd_exec_test_block_effects_t *       effects,
-                                             fd_exec_test_block_context_t const * test_ctx ) {
+fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *          runner,
+                                             fd_funk_txn_xid_t const *      xid,
+                                             fd_exec_test_block_effects_t * effects ) {
   /* Read epoch schedule sysvar */
+  fd_funk_t * funk = fd_accdb_user_v1_funk( runner->accdb );
   fd_epoch_schedule_t es_;
-  fd_epoch_schedule_t *sched = fd_sysvar_epoch_schedule_read( runner->accdb->funk, xid, &es_ );
+  fd_epoch_schedule_t *sched = fd_sysvar_epoch_schedule_read( funk, xid, &es_ );
   FD_TEST( sched!=NULL );
 
-  ulong parent_slot = fd_bank_parent_slot_get( runner->bank );
+  /* We will capture the leader schedule for the current epoch that we
+     are in.  This will capture the leader schedule generated by an
+     epoch boundary if one was crossed. */
+  ulong epoch          = fd_bank_epoch_get( runner->bank );
+  ulong ls_slot0       = fd_epoch_slot0( sched, epoch );
+  ulong slots_in_epoch = fd_epoch_slot_cnt( sched, epoch );
 
-  /* Epoch we will use for effects (Agave: parent slot's leader schedule epoch) */
-  ulong agave_epoch    = fd_slot_to_leader_schedule_epoch( sched, parent_slot );
-  ulong agave_slot0    = fd_epoch_slot0( sched, agave_epoch );
-  ulong slots_in_epoch = fd_epoch_slot_cnt( sched, agave_epoch );
-
-  /* Temporary vote_states for building stake weights */
-  fd_vote_states_t *tmp_vs = fd_vote_states_join(
-      fd_vote_states_new(
-          fd_spad_alloc( runner->spad,
-                         fd_vote_states_align(),
-                         fd_vote_states_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) ),
-          FD_RUNTIME_MAX_VOTE_ACCOUNTS,
-          999UL /* stake_delegations_max */ ) );
-
-  /* Select stake source based on the Agave-consistent epoch */
-  /* Agave code pointers: see stake source selection in execute_block at
-     solfuzz-agave/src/block.rs (build_*_stake_delegations and
-     epoch_stakes inserts) */
-  if ( agave_epoch==fd_slot_to_leader_schedule_epoch( sched, parent_slot ) ) {
-    /* Same as parent epoch, so use vote_accounts_t_1 */
-    fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
-        tmp_vs,
-        test_ctx->epoch_ctx.vote_accounts_t_1,
-        test_ctx->epoch_ctx.vote_accounts_t_1_count,
-        runner->spad );
-  } else if ( agave_epoch==fd_slot_to_leader_schedule_epoch( sched, parent_slot )-1UL ) {
-    /* One before parent epoch, so use vote_accounts_t_2 */
-    fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
-        tmp_vs,
-        test_ctx->epoch_ctx.vote_accounts_t_2,
-        test_ctx->epoch_ctx.vote_accounts_t_2_count,
-        runner->spad );
-  } else if (agave_epoch==fd_slot_to_leader_schedule_epoch(sched, parent_slot)+1UL) {
-    /* One ahead of parent epoch, so use current acct_states */
-    for ( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
-      fd_txn_account_t acc[1];
-      fd_solfuzz_pb_load_account( acc, runner->accdb, xid, &test_ctx->acct_states[i], 1 );
-      fd_pubkey_t pubkey;
-      memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
-      fd_solfuzz_block_register_vote_account( runner->accdb->funk, xid, tmp_vs, &pubkey );
-    }
-    fd_stake_delegations_t * stake_delegations =
-        fd_stake_delegations_join(
-            fd_stake_delegations_new(
-                fd_spad_alloc( runner->spad,
-                               fd_stake_delegations_align(),
-                               fd_stake_delegations_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ),
-                FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
-    for ( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
-      fd_pubkey_t pubkey;
-      memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
-      fd_solfuzz_block_register_stake_delegation( runner->accdb->funk, xid, stake_delegations, &pubkey );
-    }
-    fd_solfuzz_block_refresh_vote_accounts( tmp_vs, tmp_vs, tmp_vs, stake_delegations, fd_bank_epoch_get( runner->bank ) );
-  }
-
-  /* Build weights from the selected stake source */
-  ulong vote_acc_cnt = fd_vote_states_cnt( tmp_vs );
-  fd_vote_stake_weight_t *weights =
-      fd_spad_alloc( runner->spad, alignof(fd_vote_stake_weight_t),
-                     vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
-  ulong weight_cnt = fd_stake_weights_by_node( tmp_vs, weights );
-
-  /* Build ephemeral leader schedule for the Agave epoch */
-  ulong fp = fd_epoch_leaders_footprint( weight_cnt, slots_in_epoch );
-  FD_TEST( fp!=0UL );
-  void *mem = fd_spad_alloc( runner->spad, fd_epoch_leaders_align(), fp );
-  ulong vote_keyed = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( runner->bank );
-  fd_epoch_leaders_t *effects_leaders = fd_epoch_leaders_join(
-      fd_epoch_leaders_new( mem,
-                            agave_epoch,
-                            agave_slot0,
-                            slots_in_epoch,
-                            weight_cnt,
-                            weights,
-                            0UL,
-                            vote_keyed ) );
-  FD_TEST( effects_leaders!=NULL );
+  fd_epoch_leaders_t const * effects_leaders = fd_bank_epoch_leaders_locking_query( runner->bank );
 
   /* Fill out effects struct from the Agave epoch info */
   effects->has_leader_schedule               = 1;
-  effects->leader_schedule.leaders_epoch     = agave_epoch;
-  effects->leader_schedule.leaders_slot0     = agave_slot0;
+  effects->leader_schedule.leaders_epoch     = epoch;
+  effects->leader_schedule.leaders_slot0     = ls_slot0;
   effects->leader_schedule.leaders_slot_cnt  = slots_in_epoch;
   effects->leader_schedule.leaders_sched_cnt = slots_in_epoch;
   effects->leader_schedule.leader_pub_cnt    = fd_solfuzz_block_hash_epoch_leaders(
@@ -695,6 +663,7 @@ fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *              
       LEADER_SCHEDULE_HASH_SEED,
       effects->leader_schedule.leader_schedule_hash
   );
+  fd_bank_epoch_leaders_end_locking_query( runner->bank );
 }
 
 ulong
@@ -709,16 +678,17 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     /* Set up the block execution context */
     ulong txn_cnt;
-    fd_txn_p_t * txn_ptrs = fd_solfuzz_pb_block_ctx_create( runner, input, &txn_cnt );
+    fd_hash_t poh = {0};
+    fd_txn_p_t * txn_ptrs = fd_solfuzz_pb_block_ctx_create( runner, input, &txn_cnt, &poh );
     if( txn_ptrs==NULL ) {
       fd_solfuzz_pb_block_ctx_destroy( runner );
       return 0;
     }
 
-    fd_funk_txn_xid_t xid  = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->idx } };
 
     /* Execute the constructed block against the runtime. */
-    int res = fd_solfuzz_block_ctx_exec( runner, &xid, txn_ptrs, txn_cnt );
+    int is_committable = fd_solfuzz_block_ctx_exec( runner, txn_ptrs, txn_cnt, &poh );
 
     /* Start saving block exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
@@ -733,13 +703,13 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     fd_memset( effects, 0, sizeof(fd_exec_test_block_effects_t) );
 
     /* Capture error status */
-    effects->has_error = !!( res );
+    effects->has_error = !is_committable;
 
     /* Capture capitalization */
-    effects->slot_capitalization = fd_bank_capitalization_get( runner->bank );
+    effects->slot_capitalization = !effects->has_error ? fd_bank_capitalization_get( runner->bank ) : 0UL;
 
     /* Capture hashes */
-    fd_hash_t bank_hash = fd_bank_bank_hash_get( runner->bank );
+    fd_hash_t bank_hash = !effects->has_error ? fd_bank_bank_hash_get( runner->bank ) : (fd_hash_t){0};
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     /* Capture cost tracker */
@@ -752,7 +722,7 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     fd_bank_cost_tracker_end_locking_query( runner->bank );
 
     /* Effects: build T-epoch (bank epoch), T-stakes ephemeral leaders and report */
-    fd_solfuzz_pb_build_leader_schedule_effects( runner, &xid, effects, input );
+    fd_solfuzz_pb_build_leader_schedule_effects( runner, &xid, effects );
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
     fd_solfuzz_pb_block_ctx_destroy( runner );

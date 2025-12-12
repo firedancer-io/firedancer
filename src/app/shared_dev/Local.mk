@@ -13,6 +13,7 @@ $(call add-objs,commands/dev,fddev_shared)
 $(call add-objs,commands/dump,fddev_shared)
 $(call add-objs,commands/flame,fddev_shared)
 $(call add-objs,commands/load,fddev_shared)
+$(call add-objs,commands/metrics_record,fddev_shared)
 $(call add-objs,commands/pktgen/pktgen,fddev_shared)
 $(call add-objs,commands/txn,fddev_shared)
 $(call add-objs,commands/udpecho/udpecho,fddev_shared)
@@ -29,9 +30,7 @@ $(call add-objs,commands/udpecho/fd_udpecho_tile,fddev_shared)
 $(call add-objs,commands/configure/netns,fddev_shared)
 $(call add-objs,commands/configure/keys,fddev_shared)
 $(call add-objs,commands/configure/kill,fddev_shared)
-ifdef FD_HAS_INT128
 $(call add-objs,commands/configure/genesis,fddev_shared)
-endif
 
 endif
 endif

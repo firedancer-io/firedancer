@@ -124,15 +124,15 @@ fd_vinyl_io_wd_append( fd_vinyl_io_t * io,
   fd_vinyl_io_wd_t * wd  = (fd_vinyl_io_wd_t *)io; /* Note: io must be non-NULL to have even been called */
   uchar const *      src = (uchar const *)_src;
 
-  wd_buf_t * buf = wd->buf_append;
-  FD_CRIT( buf, "no append buf" );
-  FD_CRIT( buf->state==WD_BUF_APPEND, "corrupt wd_buf" );
-  FD_CRIT( src>=buf->buf && (src+sz)<=buf->buf+wd->wr_mtu, "alloc invalidated" );
-
   /* Validate the input args. */
 
   ulong seq_future = wd->base->seq_future;
   if( FD_UNLIKELY( !sz ) ) return seq_future;
+
+  wd_buf_t * buf = wd->buf_append;
+  FD_CRIT( buf, "no append buf" );
+  FD_CRIT( buf->state==WD_BUF_APPEND, "corrupt wd_buf" );
+  FD_CRIT( src>=buf->buf && (src+sz)<=buf->buf+wd->wr_mtu, "alloc invalidated" );
 
   int bad_src   = !src || src<wd->wr_chunk0 || (src+sz)>wd->wr_chunk1;
   int bad_align = !fd_ulong_is_aligned( (ulong)src, FD_VINYL_BSTREAM_BLOCK_SZ );
@@ -461,6 +461,13 @@ fd_vinyl_io_wd_init( void *           lmem,
   wd->wr_chunk1 = wd->wr_base + (block_depth*block_mtu);
   wd->wr_fseq   = block_fseq;
   wd->wr_mtu    = block_mtu;
+
+  /* Set vinyl io_seed */
+
+  FD_CRIT( fd_dcache_app_sz( block_dcache )>=sizeof(ulong), "block_dcache app region too small to hold io_seed" );
+  FD_COMPILER_MFENCE();
+  FD_STORE( ulong, fd_dcache_app_laddr( block_dcache ), io_seed );
+  FD_COMPILER_MFENCE();
 
   /* Set up initial buffer list state */
 

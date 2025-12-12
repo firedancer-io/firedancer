@@ -13,14 +13,7 @@
 
 import cpp
 import filter
-
-class MemcpyFunction extends Function {
-  MemcpyFunction() {
-    this.hasGlobalOrStdName("memcpy")
-    or
-    this.hasGlobalName(["fd_memcpy", "__builtin_memcpy"])
-  }
-}
+import fd_memcpy
 
 class NotVoidChar extends Type {
   NotVoidChar() {

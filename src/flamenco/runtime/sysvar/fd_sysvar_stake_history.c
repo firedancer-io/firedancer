@@ -3,6 +3,7 @@
 #include "../fd_system_ids.h"
 #include "../fd_txn_account.h"
 #include "../fd_acc_mgr.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 
 /* Ensure that the size declared by our header matches the minimum size
    of the corresponding fd_types entry. */
@@ -66,8 +67,9 @@ fd_sysvar_stake_history_update( fd_bank_t *                                 bank
                                 fd_capture_ctx_t *                          capture_ctx,
                                 fd_epoch_stake_history_entry_pair_t const * pair ) {
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb->funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
     FD_LOG_CRIT(( "Failed to read stake history sysvar" ));
   }
 

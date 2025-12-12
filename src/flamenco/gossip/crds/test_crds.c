@@ -30,10 +30,8 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-
   test_crds_new_basic();
-  FD_LOG_NOTICE(( "test_crds_new_basic() passed" ));
+  FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
-

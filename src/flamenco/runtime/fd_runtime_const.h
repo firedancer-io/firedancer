@@ -2,6 +2,9 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 
 #include "../leaders/fd_leaders.h"
+#include "../types/fd_types.h"
+#include "../../ballet/txn/fd_txn.h" /* for fd_acct_addr_t */
+#include "../vm/fd_vm_base.h" /* fd_vm_trace_t */
 
 FD_PROTOTYPES_BEGIN
 
@@ -55,54 +58,193 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_GENESIS_CREATION_TIME_TESTNET (1580834132UL)
 #define FD_RUNTIME_GENESIS_CREATION_TIME_DEVNET  (1597081016UL)
 
-/* Tip accounts for mainnet and testnet for Jito support.
 
-  Mainnet:
-  DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh
-  HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe
-  96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5
-  ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49
-  ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt
-  DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL
-  3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT
-  Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY
+/* FeeStructure constants. Bank is always initialized with
+   `FeeStructure::default()`
+   https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/runtime/src/bank.rs#L1859
+   https://github.com/anza-xyz/solana-sdk/blob/badc2c40071e6e7f7a8e8452b792b66613c5164c/fee-structure/src/lib.rs#L100 */
+#define FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE (5000UL)
 
-  Testnet:
-  BkMx5bRzQeP6tUZgzEs3xeDWJfQiLYvNDqSgmGZKYJDq
-  CwWZzvRgmxj9WLLhdoWUVrHZ1J8db3w2iptKuAitHqoC
-  4uRnem4BfVpZBv7kShVxUYtcipscgZMSHi3B9CSL6gAA
-  AzfhMPcx3qjbvCK3UUy868qmc5L451W341cpFqdL3EBe
-  84DrGKhycCUGfLzw8hXsUYX9SnWdh2wW3ozsTPrC5xyg
-  7aewvu8fMf1DK4fKoMXKfs3h3wpAQ7r7D8T1C71LmMF
-  G2d63CEgKBdgtpYT2BuheYQ9HFuFCenuHLNyKVpqAuSD
-  F7ThiQUBYiEcyaxpmMuUeACdoiSLKg4SZZ8JSfpFNwAf
-*/
-
-/* TODO: This should be converted to map perfect */
-
-#define FD_TIP_ACCOUNTS_CNT (8UL)
-
-static const fd_pubkey_t MAINNET_TIP_ACCOUNTS[ 8 ] = {
-  {{ 0xbc, 0x2b, 0x57, 0x06, 0x5e, 0xf1, 0xdd, 0x66, 0x54, 0x30, 0xbe, 0x60, 0x6b, 0xa6, 0x59, 0x6c, 0x02, 0x95, 0x30, 0x1b, 0xad, 0xef, 0x8b, 0x5a, 0xfc, 0x41, 0x01, 0x41, 0x50, 0xf4, 0x12, 0x74 }},
-  {{ 0xf1, 0x87, 0xec, 0x87, 0xd1, 0xf7, 0x45, 0xcb, 0x3a, 0x03, 0x38, 0x4a, 0x26, 0xa6, 0x9e, 0xda, 0x0c, 0xa2, 0xd1, 0xaa, 0x0f, 0x41, 0xe4, 0x24, 0x16, 0x37, 0x7e, 0x91, 0xff, 0x5b, 0x5d, 0x31 }},
-  {{ 0x78, 0x52, 0x1c, 0xb1, 0x79, 0xce, 0xbb, 0x85, 0x89, 0xb5, 0x56, 0xa2, 0xd5, 0xec, 0x94, 0xd2, 0x49, 0x86, 0x82, 0xfd, 0xf9, 0xbb, 0x2a, 0xf5, 0xad, 0x64, 0xe4, 0x91, 0xcc, 0x41, 0x53, 0xda }},
-  {{ 0x88, 0xf1, 0xff, 0xa3, 0xa2, 0xdf, 0xe6, 0x17, 0xbd, 0xc4, 0xe3, 0x57, 0x32, 0x51, 0xa3, 0x22, 0xe3, 0xfc, 0xae, 0x81, 0xe5, 0xa4, 0x57, 0x39, 0x0e, 0x64, 0x75, 0x1c, 0x00, 0xa4, 0x65, 0xe2 }},
-  {{ 0x89, 0x07, 0x7d, 0x55, 0xa5, 0xbb, 0x13, 0x30, 0x76, 0x3e, 0xb7, 0x67, 0xf5, 0x5e, 0xc0, 0x77, 0xb4, 0x1a, 0x0d, 0x07, 0x5f, 0x7d, 0xe1, 0xd7, 0x3f, 0xba, 0xca, 0x3c, 0x63, 0xd5, 0x54, 0x71 }},
-  {{ 0xbf, 0x97, 0x1b, 0x59, 0x10, 0x8b, 0x5b, 0x85, 0xa0, 0x4f, 0xb0, 0x93, 0xf1, 0xe2, 0x1b, 0x4e, 0x3f, 0xd4, 0xc4, 0xc8, 0xf4, 0x87, 0xdd, 0x09, 0xb9, 0x57, 0x52, 0x76, 0x9f, 0x0d, 0xd8, 0xc3 }},
-  {{ 0x20, 0x26, 0x10, 0x1e, 0xc2, 0x03, 0x28, 0x96, 0x4a, 0x32, 0xab, 0xab, 0x13, 0x6c, 0x54, 0x05, 0xb9, 0x1f, 0x3a, 0xe3, 0x8e, 0xe4, 0xf6, 0x4c, 0xb6, 0xbd, 0xe8, 0x79, 0xb8, 0x68, 0x38, 0xd2 }},
-  {{ 0xb1, 0x4e, 0x0d, 0xe5, 0x5e, 0x9f, 0xba, 0x86, 0x39, 0x6e, 0xbf, 0xd5, 0x48, 0xcf, 0xf8, 0xc9, 0x20, 0x11, 0xea, 0xc7, 0xb7, 0x5b, 0xaa, 0x9b, 0x2d, 0x9c, 0x6a, 0x86, 0xf5, 0xa1, 0x71, 0x41 }}
+static const fd_cluster_version_t FD_RUNTIME_CLUSTER_VERSION = {
+  .major = 3UL,
+  .minor = 0UL,
+  .patch = 3UL
 };
 
-static const fd_pubkey_t TESTNET_TIP_ACCOUNTS[ 8 ] = {
-  {{ 0x9f, 0xb0, 0x88, 0x29, 0xdd, 0x15, 0xf4, 0x5d, 0x12, 0x90, 0x6f, 0xae, 0x14, 0xe0, 0x98, 0x59, 0xc8, 0x5a, 0x08, 0x5a, 0xe5, 0xab, 0xdd, 0x18, 0xd4, 0x06, 0x6e, 0xcb, 0xae, 0x33, 0x59, 0x04 }},
-  {{ 0xb1, 0x67, 0x5a, 0x84, 0xd4, 0x5c, 0xc8, 0x0e, 0xe2, 0x8b, 0x61, 0xcb, 0x77, 0x00, 0x57, 0x75, 0xcb, 0xec, 0x91, 0xc3, 0xb2, 0x0d, 0x02, 0x7d, 0x22, 0x23, 0x45, 0x57, 0xcd, 0xf0, 0xa2, 0xc7 }},
-  {{ 0x3a, 0x01, 0x4a, 0x29, 0xba, 0x3d, 0xc1, 0x18, 0x72, 0x58, 0x86, 0x66, 0x5b, 0xbc, 0xd4, 0xb1, 0x22, 0x11, 0x8b, 0x6d, 0x7a, 0xbb, 0x97, 0x68, 0x17, 0xd1, 0xab, 0x46, 0x4f, 0x0b, 0x84, 0xe7 }},
-  {{ 0x94, 0x7f, 0x0a, 0xb6, 0x0e, 0xc2, 0xb3, 0x78, 0xd7, 0xe5, 0x26, 0xfe, 0xc0, 0x0a, 0xe4, 0x83, 0x85, 0x6f, 0x7c, 0xfb, 0x80, 0x80, 0x9c, 0x93, 0x9d, 0xbb, 0xcf, 0x59, 0xf9, 0x55, 0x78, 0x3d }},
-  {{ 0x68, 0xd5, 0x14, 0x6a, 0xce, 0x68, 0x5e, 0x90, 0x68, 0x46, 0xae, 0xeb, 0x49, 0x25, 0xfc, 0xe3, 0xed, 0xff, 0xd2, 0x69, 0x2c, 0x06, 0x03, 0xe5, 0x33, 0x2c, 0x02, 0x38, 0xfc, 0x39, 0x4a, 0x03 }},
-  {{ 0x01, 0xaf, 0x89, 0xb0, 0x58, 0xdc, 0xaf, 0x4d, 0x6d, 0x7a, 0xa0, 0x9c, 0xf9, 0x7c, 0xfd, 0xf3, 0xc1, 0x57, 0xf4, 0x4d, 0x89, 0x61, 0xcd, 0x63, 0x30, 0x20, 0xf2, 0x74, 0x00, 0x99, 0x1e, 0x3e }},
-  {{ 0xdf, 0x49, 0xb0, 0x30, 0xe2, 0xa5, 0x16, 0x75, 0xfb, 0x82, 0xd4, 0x13, 0x7f, 0x96, 0x9a, 0x79, 0x8f, 0xc4, 0xa5, 0x91, 0xcc, 0xda, 0x47, 0x56, 0x16, 0x37, 0xa7, 0x60, 0x0e, 0xd6, 0xf9, 0xce }},
-  {{ 0xd1, 0xab, 0x4b, 0x38, 0x6a, 0x2e, 0x14, 0x66, 0x41, 0x55, 0xed, 0xc4, 0xb8, 0xa1, 0x10, 0xde, 0xfb, 0x01, 0x17, 0x53, 0x34, 0x51, 0xae, 0x60, 0xb5, 0xda, 0x02, 0xc2, 0x7e, 0xe8, 0xa7, 0x50 }}
-};
+/* Various constant values used by the runtime. */
+
+#define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
+
+#define DEFAULT_HASHES_PER_TICK  (12500)
+#define UPDATED_HASHES_PER_TICK2 (17500)
+#define UPDATED_HASHES_PER_TICK3 (27500)
+#define UPDATED_HASHES_PER_TICK4 (47500)
+#define UPDATED_HASHES_PER_TICK5 (57500)
+#define UPDATED_HASHES_PER_TICK6 (62500)
+
+#define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
+
+/* https://github.com/anza-xyz/agave/blob/0d34a1a160129c4293dac248e14231e9e773b4ce/program-runtime/src/compute_budget.rs#L139 */
+#define FD_MAX_INSTRUCTION_TRACE_LENGTH (64UL)
+/* https://github.com/anza-xyz/agave/blob/f70ab5598ccd86b216c3928e4397bf4a5b58d723/compute-budget/src/compute_budget.rs#L13 */
+#define FD_MAX_INSTRUCTION_STACK_DEPTH  (5UL)
+
+
+#define FD_RUNTIME_VM_TRACE_EVENT_MAX      (128UL<<20)
+#define FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX (2048UL)
+
+#define FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT (FD_RUNTIME_VM_TRACE_EVENT_MAX + sizeof(fd_vm_trace_t))
+#define FD_RUNTIME_VM_TRACE_STATIC_ALIGN     (8UL)
+
+/* Maximum CPI instruction data size. 10 KiB was chosen to ensure that
+   CPI instructions are not more limited than transaction instructions
+   if the size of transactions is doubled in the future.
+   https://github.com/anza-xyz/agave/blob/v3.1.1/transaction-context/src/lib.rs#L33 */
+#define FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN (10240UL)
+
+/* The bpf loader's serialization footprint is bounded in the worst case
+   by 64 unique writable accounts which are each 10MiB in size (bounded
+   by the amount of transaction accounts).  We can also have up to
+   FD_INSTR_ACCT_MAX (256) referenced accounts in an instruction.
+
+   - 8 bytes for the account count
+   For each account:
+     If duplicated:
+       - 8 bytes for each duplicated account
+    If not duplicated:
+     - header for each unique account (96 bytes)
+       - 1 account idx byte
+       - 1 is_signer byte
+       - 1 is_writable byte
+       - 1 executable byte
+       - 4 bytes for the original data length
+       - 32 bytes for the key
+       - 32 bytes for the owner
+       - 8 bytes for the lamports
+       - 8 bytes for the data length
+       - 8 bytes for the rent epoch
+     - 10MiB for the data (10485760 bytes)
+     - 10240 bytes for resizing the data
+     - 0 padding bytes because this is already 8 byte aligned
+   - 8 bytes for instruction data length
+   - 1232 bytes for the instruction data (TXN_MTU)
+   - 32 bytes for the program id
+
+  So the total footprint is:
+  8 header bytes +
+  192 duplicate accounts (256 instr accounts - 64 unique accounts) * 8 bytes     = 1536      duplicate account bytes +
+  64 unique accounts * (96 header bytes + 10485760 bytes + 10240 resizing bytes) = 671750144 unique account bytes +
+  8 + 1232 + 32                                                                  = 1272 bytes trailer bytes + program id = 671751416 bytes
+  Total footprint: 671752960 bytes
+
+  This is a reasonably tight-ish upper bound on the input region
+  footprint for a single instruction at a single stack depth.  In
+  reality the footprint would be slightly smaller because the
+  instruction data can't be equal to the transaction MTU.
+ */
+#define MAX_PERMITTED_DATA_INCREASE (10240UL) // 10KB
+#define FD_BPF_ALIGN_OF_U128        (8UL)
+#define FD_ACCOUNT_REC_ALIGN        (8UL)
+/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L37-L38 */
+#define FD_RUNTIME_EBPF_HOST_ALIGN  (16UL)
+#define FD_INSTR_ACCT_MAX            (256)
+
+
+#define FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)                                                                                              \
+                                              (1UL                         /* dup byte          */                                                        + \
+                                               sizeof(uchar)               /* is_signer         */                                                        + \
+                                               sizeof(uchar)               /* is_writable       */                                                        + \
+                                               sizeof(uchar)               /* executable        */                                                        + \
+                                               sizeof(uint)                /* original_data_len */                                                        + \
+                                               sizeof(fd_pubkey_t)         /* key               */                                                        + \
+                                               sizeof(fd_pubkey_t)         /* owner             */                                                        + \
+                                               sizeof(ulong)               /* lamports          */                                                        + \
+                                               sizeof(ulong)               /* data len          */                                                        + \
+                                               (direct_mapping ? FD_BPF_ALIGN_OF_U128 : FD_ULONG_ALIGN_UP( FD_RUNTIME_ACC_SZ_MAX, FD_BPF_ALIGN_OF_U128 )) + \
+                                               MAX_PERMITTED_DATA_INCREASE                                                                                + \
+                                               sizeof(ulong))              /* rent_epoch        */
+#define FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT (8UL) /* 1 dup byte + 7 bytes for padding */
+
+#define FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(account_lock_limit, direct_mapping)                                                                      \
+                                              (FD_ULONG_ALIGN_UP( (sizeof(ulong)         /* acct_cnt       */                                       + \
+                                                                   account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)        + \
+                                                                   (FD_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
+                                                                   sizeof(ulong)         /* instr data len */                                       + \
+                                                                   FD_TXN_MTU            /* No instr data  */                                       + \
+                                                                   sizeof(fd_pubkey_t)), /* program id     */                                          \
+                                                                   FD_RUNTIME_EBPF_HOST_ALIGN ))
+
+
+
+#define BPF_LOADER_SERIALIZATION_FOOTPRINT (671752960UL)
+FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0), bpf_loader_serialization_footprint );
+
+
+/* Some vote instruction types are dynamically sized:
+    - tower_sync_switch                (contains deque of fd_vote_lockout_t)
+    - tower_sync                       (contains deque of fd_vote_lockout_t)
+    - compact_vote_state_update_switch (vector of fd_lockout_offset_t)
+    - compact_vote_state_update        (vector of fd_lockout_offset_t)
+    - authorize_checked_with_seed      (char vector of current_authority_derived_key_seed)
+    - authorize_with_seed              (char vector of current_authority_derived_key_seed)
+    - update_vote_state_switch         (contains deque of fd_vote_lockout_t)
+    - update_vote_state                (contains deque of fd_vote_lockout_t)
+    - vote_switch                      (deque of slot numbers)
+    - vote                             (deque of slot numbers)
+   All other vote instruction types are statically sized.
+
+   A loose bound on the max amount of encoded fd_vote_lockout_t
+   possible is 1232 bytes/(12 bytes/per lockout) = 102 lockouts.  So
+   the worst case bound for the deque of fd_vote_lockout is
+   32 + (102 * sizeof(fd_vote_lockout_t)) = 1644 bytes.
+
+   The worst case vector of fd_lockout_offset_t is one where each
+   encoded element is 2 bytes.  This means that we can have 1232/2 =
+   616 elements.  They are represented as being 16 bytes each, so the
+   total footprint would be 9856 bytes.
+
+   The deque of slot numbers is a vector of ulong, which is 8 bytes.
+   So the worst case is 1232 bytes/8 bytes = 154 elements.  So, the
+   total footprint is 32 + (154 * 8 bytes) = 1264 bytes.
+
+   The worst case char vector is 1232 bytes as each element is 1 byte
+   up to the txn MTU.
+
+   With this, that means that the compact_vote_state_update_switch
+   can have the largest worst case footprint where the struct is
+   104 bytes (sizeof(fd_compact_vote_state_update_switch_t) + the
+   worst case lockout vector of 616 elements. */
+#define FD_LOCKOUT_OFFSET_FOOTPRINT   (9856UL)
+#define FD_VOTE_INSTRUCTION_FOOTPRINT (sizeof(fd_vote_instruction_t) + FD_LOCKOUT_OFFSET_FOOTPRINT)
+
+/* TODO: This is the value as generated by fd_types bincode decoding of
+   fd_vote_state_versioned_t.  This should eventually be replaced. */
+#define FD_VOTE_STATE_VERSIONED_FOOTPRINT (9248UL)
+
+/* The footprint of a fd_vote_authorized_voters_t struct is defined as a
+   fd_vote_authorized_voters_t followed by a pool and then a treap. */
+#define FD_AUTHORIZED_VOTERS_ALIGN     (128UL)
+#define FD_AUTHORIZED_VOTERS_FOOTPRINT (4888UL)
+
+/* TODO: These footprints are currently overprovisioned due to test
+   fixtures which currently violate protocol invariants. */
+
+/* The footprint of the landed votes is determined by a deque with max
+   cnt of 31.  The footprint is as follows:
+   alignof(DEQUE_T) == alignof(fd_landed_vote_t) == 8
+   sizeof(DEQUE_T)  == sizeof(fd_landed_vote_t)  == 24
+   return fd_ulong_align_up( fd_ulong_align_up( 32UL, alignof(DEQUE_T) ) + sizeof(DEQUE_T)*max, alignof(DEQUE_(private_t)) );
+   return fd_ulong_align_up( fd_ulong_align_up( 32UL, 8UL ) )            + 24UL*31UL, 8UL );
+   return fd_ulong_align_up( 32UL + 744, 8UL ) == 776 */
+#define FD_LANDED_VOTES_ALIGN     (32UL)
+#define FD_LANDED_VOTES_FOOTPRINT (FD_VOTE_STATE_VERSIONED_FOOTPRINT)
+
+/* The calculation for the landed votes footprint is the same as the
+   calculation for the landed votes but the sizeof(fd_vote_lockout_t)
+   is 16 bytes:
+   return fd_ulong_align_up( 32UL + 16UL * 31UL, 8UL ) == 528UL */
+#define FD_VOTE_LOCKOUTS_ALIGN     (32UL)
+#define FD_VOTE_LOCKOUTS_FOOTPRINT (FD_VOTE_STATE_VERSIONED_FOOTPRINT)
 
 FD_PROTOTYPES_END
 

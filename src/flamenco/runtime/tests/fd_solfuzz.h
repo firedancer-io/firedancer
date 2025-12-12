@@ -15,6 +15,9 @@
 #include "../../accdb/fd_accdb_user.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../progcache/fd_progcache_user.h"
+#if FD_HAS_FLATCC
+#include "flatcc/flatcc_builder.h"
+#endif
 
 /* A fd_solfuzz_runner_t object processes solfuzz inputs.  Can be reused
    for different inputs, even of different types.  Single-thread per
@@ -24,10 +27,13 @@
    each other (or any other allocations) just fine. */
 
 struct fd_solfuzz_runner {
-  fd_wksp_t *  wksp;
-  fd_spad_t *  spad;
-  fd_banks_t * banks;
-  fd_bank_t *  bank;
+  fd_wksp_t *    wksp;
+  ulong          wksp_tag;
+  ulong          wksp_baseline_used_sz;
+  fd_spad_t *    spad;
+  fd_banks_t *   banks;
+  fd_bank_t *    bank;
+  fd_runtime_t * runtime;
 
   fd_progcache_t       progcache[1];
   fd_progcache_admin_t progcache_admin[1];
@@ -38,9 +44,12 @@ struct fd_solfuzz_runner {
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */
 
-  fd_exec_stack_t *    exec_stack;
   fd_exec_accounts_t * exec_accounts;
   fd_runtime_stack_t * runtime_stack;
+
+# if FD_HAS_FLATCC
+  flatcc_builder_t     fb_builder[1]; /* Persistent flatbuffers builder */
+# endif
 
   int enable_vm_tracing;
 };
@@ -173,6 +182,12 @@ fd_solfuzz_pb_elf_loader_run( fd_solfuzz_runner_t * runner,
                               void *                output_buf,
                               ulong                 output_bufsz );
 
+#if FD_HAS_FLATCC
+int
+fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
+                              void const *          input_ );
+#endif
+
 int
 fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
                                   uchar const *         in,
@@ -205,6 +220,11 @@ int
 fd_solfuzz_pb_vm_interp_fixture( fd_solfuzz_runner_t * runner,
                                  uchar const *         in,
                                  ulong                 in_sz );
+
+/* Flatbuffers */
+int
+fd_solfuzz_fb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
+                                  uchar const *         in );
 
 FD_PROTOTYPES_END
 

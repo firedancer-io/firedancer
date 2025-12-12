@@ -4,8 +4,6 @@
 #include "../../../../ballet/json/cJSON_alloc.h"
 #include "../../../../util/net/fd_ip4.h"
 
-#include <linux/unistd.h>
-
 #define FD_BENCHO_STATE_INIT  0UL
 #define FD_BENCHO_STATE_WAIT  1UL
 #define FD_BENCHO_STATE_READY 2UL

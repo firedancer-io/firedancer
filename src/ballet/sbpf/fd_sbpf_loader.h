@@ -106,7 +106,7 @@
 #define FD_SBPF_PROGRAM_FOOTPRINT (sizeof(fd_sbpf_calldests_private_t)-sizeof(ulong) + sizeof(ulong)*FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT )
 
 /* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
-   vm is a handle to the running VM.  Returns 0 on suceess or an integer
+   vm is a handle to the running VM.  Returns 0 on success or an integer
    error code on failure.
 
    IMPORTANT SAFETY TIP!  See notes in
@@ -165,9 +165,10 @@ typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
 struct fd_sbpf_elf_info {
   ulong bin_sz;   /* size of ELF binary */
 
-  uint  text_off; /* File offset of .text section (overlaps rodata segment) */
-  uint  text_cnt; /* Instruction count */
-  ulong text_sz;  /* size of text segment. Guaranteed to be <= bin_sz. */
+  ulong calldests_max;  /* Size of calldests set */
+  uint  text_off;       /* File offset of .text section (overlaps rodata segment) */
+  uint  text_cnt;       /* Instruction count */
+  ulong text_sz;        /* size of text segment. Guaranteed to be <= bin_sz. */
 
   /* Known section indices
      In [-1,USHORT_MAX) where -1 means "not found" */

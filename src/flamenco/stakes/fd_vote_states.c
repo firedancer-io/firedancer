@@ -193,9 +193,6 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
   }
 
   fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele_acquire( vote_state_pool );
-  if( FD_UNLIKELY( !vote_state ) ) {
-    FD_LOG_CRIT(( "unable to acquire vote state" ));
-  }
 
   vote_state->vote_account = *vote_account;
   vote_state->stake        = 0UL;
@@ -330,9 +327,7 @@ fd_vote_states_reset_stakes( fd_vote_states_t * vote_states ) {
       FD_LOG_CRIT(( "unable to retrieve vote state" ));
     }
 
-    vote_state->stake     = 0UL;
-    vote_state->stake_t_1 = 0UL;
-    vote_state->stake_t_2 = 0UL;
+    vote_state->stake = 0UL;
   }
 }
 

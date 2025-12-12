@@ -257,8 +257,10 @@ or more slots behind that fork.
 
 A number showing the distance between the highest slot the validator has
 landed a vote for, and the current highest replayed slot on the
-validators fork choice. A distance of more than 150 means the validator
-is considered delinquent.
+validators fork choice. This value excludes skipped slots, unless the
+distance is larger than 2 epochs worth of slots (NOTE: skipped slots are
+not excluded on Frankendancer). A distance of more than 150 means the
+validator is considered delinquent.
 
 #### `summary.turbine_slot`
 | frequency       | type           | example |
@@ -293,6 +295,14 @@ The largest slot for which the validator sent out a repair request.
 This slot has the same problem as `summary.turbine_slot` (it might
 sporadically become unboundedly large) and provides the same guarantees.
 
+#### `summary.vote_slot`
+| frequency       | type           | example |
+|-----------------|----------------|---------|
+| *Once* + *Live* | `number\|null` | `100`   |
+
+The most recent slot this node has landed a vote for. Will typically be
+one slot behind the current slot on the leader schedule.
+
 #### `summary.caught_up_slot`
 | frequency       | type           | example |
 |-----------------|----------------|---------|
@@ -324,9 +334,11 @@ Frankendancer client will always publish `null` for this message
 | *Once*    | `CatchUpHistory` | see below |
 
 This validator records a history of all slots that were received from
-turbine as well as slots for which a repair request was made while it is
+turbine or repair responses, as well as shred events that occurred while
 catching up.  After catching up, slots are no longer recorded in this
-history.
+history. For repair and turbine slots, the history is available for the
+lifetime of the validator.  Shred events are only available if the
+validator is in the catching up phase.
 
 ::: details Example
 
@@ -336,12 +348,28 @@ history.
 	"key": "catch_up_history",
 	"value": {
         "repair": [11, 12, 13, ...],
-        "turbine": [21, 22, 23, ...]
+        "turbine": [21, 22, 23, ...],
+        "shreds": {
+            "reference_slot": 289245044,
+            "reference_ts": "1739657041588242791",
+            "slot_delta": [0, 0],
+            "shred_idx": [1234, null],
+            "event": [0, 1],
+            "event_ts_delta": ["1000000", "2000000"]
+        }
 	}
 }
 ```
 
 :::
+
+**`CatchUpHistory`**
+| Field      | Type          | Description |
+|------------|---------------|-------------|
+| repair     | `number[]`    | A list of all slots for which a repair shred was received that are older than `summary.caught_up_slot` |
+| turbine    | `number[]`    | A list of all slots for which a turbine shred was received that are older than `summary.caught_up_slot` |
+| shreds     | `SlotShreds`  | A list of shred events which have occurred for this validator in the past 15 seconds. If the validator has already caught up, or has not yet started catching up, then `null` |
+
 
 #### `summary.startup_time_nanos`
 | frequency | type     | example             |
@@ -351,6 +379,13 @@ history.
 A UNIX timestamp in nanoseconds of the validator's startup. The
 timestamp is taken by the gui tile during boot, so it occurs before the
 validator downloads a snapshot and fully catches up to the cluster.
+
+
+#### `summary.server_time_nanos`
+| frequency | type     | example             |
+|-----------|----------|---------------------|
+| *Once*    | `string` |  `"1719910299914232"` |
+
 
 #### `summary.startup_progress`
 | frequency       | type              | example |
@@ -575,11 +610,60 @@ the middle.
 Information about the tile topology of Firedancer. This is a list of
 tiles in the system.
 
+In Firedancer, available tiles are
+
+- netlnk: Helps the net tile perform network-stack related functions.
+Separated from the net tile for security/performance reasons.
+- net: Handles all ingress/egress network traffic.
+- metric: Serves system-wide metrics from shared memory to an HTTP
+Prometheus endpoint.
+- ipecho: Obtains shred version from cluster.
+- gossvf: "Gossip verify". Performs preliminary validation of untrusted
+gossip messages arriving from the network.
+- gossip: Handles trusted, parsed messages from gossvf tile.
+- shred: Parses, verifies, and reconstructs untrusted shred payloads
+from the network.
+- repair: Consumes parsed shreds from shred tile, issues repair requests
+for any missing shreds, and reconstructs the block.
+- replay: Consumes block shreds from repair and schedules execution and
+validation of block transactions.
+- exec: Executes replay transactions.
+- tower: Maintains consensus-related data structures and helps replay
+vote.
+- send: Sends vote transactions originating from this validator into our
+own TPU as well as to other leaders' TPU.
+- quic: Implements QUIC network protocol for receiving transactions.
+- verify: Verifies transaction signatures and performs preliminary
+deduplication.
+- dedup: Performs second deduplication pass for verified transactions.
+- resolv: Resolves transaction address lookup tables (i.e., tables of
+account addresses which transactions use but must be retrieved from the
+accounts database).
+- pack: Functions as transaction scheduler.
+- bank: Helps pack execute scheduled transactions.
+- poh: Generates block "ticks" and manages leader status.
+- sign: Generates signatures for various tiles which require them (e.g.
+repair, gossip).
+- rpc: Supports a subset of the Solana RPC API.
+- gui: Serves the GUI, which includes the WebSocket API described in
+this document.
+
+##### short-lived
+
+- snapct: Manages the snapshot loading state machine.
+- snapld: Loads snapshots from the network or from the file system.
+- snapdc: Decompresses snapshot data.
+- snapin: Inserts snapshot data into the accounts database.
+- genesi: Handles cluster bootstrapping if validator is booting a new
+cluster. If booting into an existing cluster, fetches cluster info (e.g.
+genesis hash).
+
 **`Tile`**
-| Field   | Type    | Description
-|---------|---------|------------
-| kind    | `string` | What kind of tile it is. One of `net`, `sock`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, `plugin`, or `http`.
-| kind_id | `number` | The index of the tile in its kind. For example, if there are four `verify` tiles they have `kind_id` values of 0, 1, 2, and 3 respectively.
+| Field   | Type    | Description |
+|---------|---------|-------------|
+| kind    | `string` | What kind of tile it is. In Firedancer, one of the above tiles. In Frankendancer, might be one of `net`, `sock`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, `plugin`, or `http` |
+| kind_id | `number` | The index of the tile in its kind. For example, if there are four `verify` tiles they have `kind_id` values of 0, 1, 2, and 3 respectively |
+| pid     | `number` | The process id of the tile |
 
 ::: details Example
 
@@ -671,6 +755,28 @@ producing) their slot. For example, if the last completed slot was
 `1001` and it has been 800 milliseconds since that slot, the estimated
 slot is likely to be `1003`.
 
+#### `summary.reset_slot`
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `275138349` |
+
+The slot corresponding to the head of the fork we've most recently
+chosen to vote for.  A fork choice is triggered by the completion of a
+replay slot, so the publish interval for this message is approximately
+one slot duration.
+
+#### `summary.storage_slot`
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `275138349` |
+
+The oldest active rooted slot across all banks in the bank pool.
+Active here means that the bank has a positive reference count, which
+means there is some consumer which is still using it. This slot is less
+than or equal to the current consensus root and is always on the
+canonical consensus fork. Banks for slots before this slot or slots on a
+non-canonical fork will have a reference count of zero.
+
 #### `summary.estimated_slot_duration_nanos`
 | frequency       | type     | example     |
 |-----------------|----------|-------------|
@@ -747,6 +853,56 @@ transactions per second.
     }
 }
 ```
+
+#### `summary.live_network_metrics`
+| frequency        | type             | example |
+|------------------|------------------|---------|
+| *Once* + *100ms* | `NetworkMetrics` | below   |
+
+Live network metrics provides a live view of network bandwidth
+utilization across the various protocols used in the client.
+
+The `protocols` list contains various different protocols the client
+uses to communicate with the internet.
+
+```json
+[
+    "turbine",
+    "gossip",
+    "tpu",
+    "repair",
+    "metrics"
+]
+```
+
+- turbine: the protocol used to disseminate blockchain data, which
+contains primarily executable transactions.
+- gossip: the protocol used to disseminate node metadata, including node
+IP addresses used to help nodes find each other on the network
+- tpu: "transaction processing unit", refers to the various subsystems
+in a client used to consume and forward incoming Solana transactions for
+their next leader slot.
+- repair: a client subsystem which requests any missing block data
+needed by the replay pipeline which may have been lost over the network
+- metrics: refers to the Firedancer metrics tile, which serves an http
+Prometheus metrics endpoint
+
+```json
+{
+    "topic": "summary",
+    "key": "live_network_metrics",
+    "value": {
+        "ingress": [12345432, 5431234, 92345, ...],
+        "egress": [12345432, 5431234, 92345, ...],
+    }
+}
+```
+
+**`NetworkMetrics`**
+| Field   | Type       | Description |
+|---------|------------|-------------|
+| ingress | `number[]` | `ingress[i]` is the total number of ingress network bytes for `protocols[i]` |
+| egress  | `number[]` | `egress[i]` is the total number of egress network bytes for `protocols[i]` |
 
 #### `summary.live_txn_waterfall`
 | frequency        | type               | example |
@@ -896,7 +1052,7 @@ potential underflow.
 #### `summary.live_tile_timers`
 | frequency        | type       | example |
 |------------------|------------|---------|
-| *Once* + *10ms*  | `number[]` | below   |
+| *Once* + *25ms*  | `number[]` | below   |
 
 Live tile timers is an array, one entry per tile, of how idle the tile
 was in the preceding 10 millisecond sampling window. A value of `-1`
@@ -933,6 +1089,114 @@ first connect by the `summary.tiles` message.
 ```
 
 :::
+
+#### `summary.live_tile_metrics`
+| frequency        | type          | example |
+|------------------|---------------|---------|
+| *Once* + *25ms*  | `TileMetrics` | below   |
+
+Live tile metrics is a live feed of various metrics related to tile
+health and resource utilization.
+
+The timers field is a matrix of percentages, where entry on row
+`i`, column `j` is the percentage of time tile `i` spent in `regimes[j]`
+over the previous 10 millisecond sampling window. A value of `-1`
+indicates no sample was taken in the window, typically because the tile
+was context switched out by the kernel or it is hung.
+
+The regimes array contains the processing states that a tile can exist
+in. Tile regimes are the cartesian product of the following two state
+vectors:
+
+State vector 1:
+
+- running: means that at the time the run loop executed, there was no
+upstream message I/O for the tile to handle.
+- processing: means that at the time the run loop executed, there was one or
+more messages for the tile to consume.
+- stalled: means that at the time the run loop executed, a downstream
+consumer of the messages produced by this tile is slow or stalled, and
+the message link for that consumer has filled up. This state causes the
+tile to stop processing upstream messages.
+
+State Vector 2:
+
+- maintenance: the portion of the run loop that executes infrequent,
+potentially CPU heavy tasks
+- routine: the portion of the run loop that executes regularly,
+regardless of the presence of incoming messages
+- handling: the portion of the run loop that executes as a side effect
+of an incoming message from an upstream producer tile
+
+```json
+[
+    "running_maintenance",
+    "processing_maintenance",
+    "stalled_maintenance",
+    "running_routine",
+    "processing_routine",
+    "stalled_routine",
+    "running_handling",
+    "processing_handling",
+    // "stalled_handling" is an impossible state, and is therefore excluded
+]
+```
+
+The tiles indicies `i` appear in the same order here that they are
+reported when you first connect by the `summary.tiles` message.
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "live_tile_metrics",
+    "value": {
+        "timers": [
+            [10.1, 0, 0, 15.3, 17, 58, 0, 0],
+            [10, 0, 0, 15, 17, 58, 0, 0],
+            ...
+        ],
+        "in_backp": [
+            0,
+            0,
+            ...
+        ],
+        "backp_msgs": [
+            0,
+            10,
+            ...
+        ],
+        "alive": [
+            1,
+            1,
+            ...
+        ],
+        "nvcsw": [
+            0,
+            1234,
+            ...
+        ],
+        "nivcsw": [
+            0,
+            3,
+            ...
+        ]
+    }
+}
+```
+
+:::
+
+**`TileMetrics`**
+| Field      | Type         | Description |
+|------------|--------------|-------------|
+| timers     | `(number[]\|null)[]` | `timers[i]` is `null` if no sample was taken in the window, typically because the tile was context switched out by the kernel or it is hung. Otherwise, `timers[i][j]` is the percentage of time from the last 10ms tile `i` spent in regime `regimes[j]` |
+| in_backp   | `(boolean\|null)[]`  | `in_backp[i]` is `null` if no sample was taken in the window. `in_backp[i]` is `true` if tile `i` is currently backpressured and `false` otherwise. See description of regimes above for more context |
+| backp_msgs | `(number\|null)[]`   | `backp_msgs[i]` is `null` if no sample was taken in the window. Otherwise, `backp_msgs[i]` is the number of times since startup that tile `i` has had to wait for one of more consumers to catch up to resume publishing |
+| alive      | `(number\|null)[]`   | `alive[i]` is `null` if no sample was taken in the window. Otherwise, `alive[i]` is `2` if tile `i` has permanently shut down, `1` if tile `i` has updated its heartbeat timer any time in the last 10ms, and `0` otherwise |
+| nvcsw      | `(number\|null)[]`   | `nvcsw[i]` is `null` if no sample was taken in the window. Otherwise, `nvcsw[i]` is the number of voluntary context switches the occurred for tile `i` since startup |
+| nivcsw     | `(number\|null)[]`   | `nivcsw[i]` is `null` if no sample was taken in the window. Otherwise, `nivcsw[i]` is the number of involuntary context switches the occurred for tile `i` since startup |
 
 ### block_engine
 Block engines are providers of additional transactions to the validator,
@@ -1072,7 +1336,7 @@ which is specified below.
 #### `gossip.network_stats`
 | frequency       | type                 | example     |
 |-----------------|----------------------|-------------|
-| *Once* + *10ms* | `GossipNetworkStats` | below       |
+| *Once* + *300ms* | `GossipNetworkStats` | below       |
 
 ::: details Example
 
@@ -1252,6 +1516,8 @@ default, until an update is made.
 
 - ("Stake", desc)
 - ("Pubkey", desc)
+- ("Name", desc)
+- ("Country", desc)
 - ("IP Addr", desc)
 - ("Ingress Push", desc)
 - ("Ingress Pull", desc)
@@ -1279,8 +1545,8 @@ direction of `0`. Not that the relative ordering of columns with
     "key": "query_sort",
     "id": 32,
     "params": {
-        "col": ["IP Addr", "Pubkey", "Stake", "Egress Pull", "Egress Push", "Ingress Pull", "Ingress Push"],
-        "dir": [1, 0, 0, 0, 0, 0, 0],
+        "col": ["IP Addr", "Pubkey", "Name", "Country", "Stake", "Egress Pull", "Egress Push", "Ingress Pull", "Ingress Push"],
+        "dir": [1, 0, 0, 0, 0, 0, 0, 0, 0],
     }
 }
 ```
@@ -1400,7 +1666,8 @@ identity is no longer in these three data sources, it will be removed.
                     "gossip": "93.119.195.160:8001",
                     "tpu": "192.64.85.26:8000",
                     // ... other sockets ...
-                }
+                },
+                "country_code": "CN"
             },
             "vote": [
                 {
@@ -1435,9 +1702,11 @@ identity is no longer in these three data sources, it will be removed.
 |---------------|----------------|-------------|
 | wallclock     | `number`       | Not entirely sure yet TODO |
 | shred_version | `number`       | A `u16` representing the shred version the validator is configured to use. The shred version is changed when the cluster restarts, and is used to make sure the validator is talking to nodes that have participated in the same cluster restart |
+| client_id     | `number\|null` | The client id broadcast by the validator on Gossip. Refer to https://github.com/solana-foundation/solana-validator-client-ids/blob/main/client-ids.csv for an officiel mapping of id to name. Will be `null` on Frankendancer. |
 | version       | `string\|null` | Software version being advertised by the validator. Might be `null` if the validator is not gossiping a version, or we have received the contact information but not the version yet. The version string, if not null, will always be formatted like `major`.`minor`.`patch` where `major`, `minor`, and `patch` are `u16`s |
 | feature_set   | `number\|null` | First four bytes of the `FeatureSet` hash interpreted as a little endian `u32`. Might be `null` if the validator is not gossiping a feature set, or we have received the contact information but not the feature set yet |
 | sockets       | `[key: string]: string` | A dictionary of sockets that are advertised by the validator. `key` will be one of gossip `serve_repair_quic`, `rpc`, `rpc_pubsub`, `serve_repair`, `tpu`, `tpu_forwards`, `tpu_forwards_quic`, `tpu_quic`, `tpu_vote`, `tvu`, `tvu_quic`, `tpu_vote_quic`, or `alpenglow`. The value is an address like `<addr>:<port>`: the location to send traffic to for this validator with the given protocol. Address might be either an IPv4 or an IPv6 address |
+| country_code  | `string\|null` | ISO 3166-1 alpha-2 country code of where the validator is located, determined by GeoIP lookup on the gossip IP address. Country code may not be correct and is a best estimate. If no country code could be determined, will be `null`. |
 
 **`PeerUpdateVoteAccount`**
 | Field           | Type           | Description |
@@ -1566,6 +1835,7 @@ initially replay one but the cluster votes on the other one.
 | transaction_fee              | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
+| vote_slot                    | `number\|null` | The most recent slot for which this valiadtor had landed a vote as of the time that this slot was replayed.  This is equivalent to the largest voted-for slot in this validator's on-chain vote account after the execution of `slot`. `vote_slot` will typically be one less than `slot`, though `vote_slot` may be arbitrarily small if the last successfully landed vote from this validator was long before `slot`. May be `null` if the vote account for this node does not exist |
 
 #### `slot.skipped_history`
 | frequency       | type       | example |
@@ -1596,7 +1866,7 @@ rooted.
 #### `slot.live_shreds`
 | frequency   | type          | example |
 |-------------|---------------|---------|
-| *10ms*      | `SlotShred[]` | below   |
+| *50ms*      | `SlotShreds` | below   |
 
 The validator sends a continous stream of update messages with detailed
 information about the time and duration of different shred state
@@ -1622,20 +1892,20 @@ and is broadcast to all WebSocket clients.
 
 :::
 
-**`SlotShred`**
+**`SlotShreds`**
 | Field           | Type               | Description |
 |-----------------|--------------------|-------------|
 | reference_slot  | `number`           | The smallest slot number across all the shreds in a given message |
 | reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
 | slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
 | shred_idxs      | `(number\|null)[]` | `shred_idxs[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
-| events          | `string[]`         | `events[i]` is the name of shred event `i`. Possible values are `repair_request`, `shred_received`, `shred_replayed`, and `slot_complete` |
+| events          | `number[]`         | `events[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
 | events_ts_delta | `string[]`         | `reference_ts + events_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occured |
 
 #### `slot.query_shreds`
 | frequency   | type          | example |
 |-------------|---------------|---------|
-| *Request*   | `SlotShred[]\null` | below   |
+| *Request*   | `SlotShreds\|null` | below   |
 
 | param | type     | description |
 |-------|----------|-------------|
@@ -1818,7 +2088,8 @@ explicitly mentioned, skipped slots are not included.
             "shreds": 123,
             "transaction_fee": 12345,
             "priority_fee": 123456,
-            "tips": 0
+            "tips": 0,
+            "vote_slot": 289245043
         }
     }
 }
@@ -1872,7 +2143,8 @@ explicitly mentioned, skipped slots are not included.
             "shreds": 123,
             "transaction_fee": 12345,
             "priority_fee": 123456,
-            "tips": 0
+            "tips": 0,
+            "vote_slot": 289245043
         },
         "waterfall": {
             "in": {
@@ -2034,7 +2306,8 @@ explicitly mentioned, skipped slots are not included.
             "shreds": 123,
             "transaction_fee": 12345,
             "priority_fee": 123456,
-            "tips": 0
+            "tips": 0,
+            "vote_slot": 289245043
         },
         "limits": {
             "used_total_block_cost": 10000000,
@@ -2049,6 +2322,8 @@ explicitly mentioned, skipped slots are not included.
             "max_total_microblocks": 32768
         },
         "scheduler_stats": {
+            "end_slot_reason": "timeout",
+            "block_hash": "9cjSTpZ82xeHouc3sDEzsQ8yZHKjvc8o46EstxfrprD1",
             "slot_schedule_counts": [123, 123, 123, 123, 123, 123, 123],
             "end_slot_schedule_counts": [0, 10, 0, 0, 0, 0, 0],
             "pending_smallest_cost": 3000,
@@ -2101,6 +2376,8 @@ explicitly mentioned, skipped slots are not included.
 |---------------------|---------------------------|-------------|
 | publish             | `SlotPublish`             | General information about the slot.  Contains several nullable fields in case a future slot is queried and he information is not known yet |
 | transactions        | `Transactions\|null`      | If the slot is not `mine`, will be `null`. Otherwise, metrics for the transactions in this slot. Arrays have a seperate entry for each scheduled transaction that was packed in this slot, and are ordered in the same order the transactions appear in the block. Note that not all scheduled transactions will land in the produced block (e.g. failed bundles are ignored), but these arrays nonetheless include metrics for excluded transactions |
+| limits              | `SlotLimits`              | The various protocol-derived resource limits and their corresponding utilization for this block. If `mine` is false, then this value is `null` |
+| scheduler_stats     | `SlotScheduleStats`       | Various metrics tracked by the transaction scheduler and collected at the end of a leader slot. If `mine` is false, then this value is `null` |
 
 **`TxnWaterfall`**
 | Field | Type              | Description |
@@ -2167,7 +2444,7 @@ explicitly mentioned, skipped slots are not included.
 | Field   | Type     | Description |
 |---------|----------|-------------|
 | account | `string` | The pubkey for this writeable account |
-| cost    | `string` | The total compute units for all transactions that list `account` as a writeable account |
+| cost    | `number` | The total compute units for all transactions that list `account` as a writeable account |
 
 **`SlotLimits`**
 | Field                        | Type              | Description |
@@ -2186,6 +2463,8 @@ explicitly mentioned, skipped slots are not included.
 **`SlotScheduleStats`**
 | Field                        | Type              | Description |
 |------------------------------|-------------------|-------------|
+| block_hash                   | `string`          | The final POH hash in the block as a base58 encoded string |
+| end_slot_reason              | `string`          | The reason pack ended packing for this leader slot. One of `"timeout"`, `"microblock_limit"`, or `"leader_switch"` |
 | slot_schedule_counts         | `number[]`        | `slot_schedule_counts[i]` is the number of transactions across the leader slot that had `["success", "fail_taken", "fail_fast_path", "fail_byte_limit", "fail_write_cost", "fail_slow_path", "fail_defer_skip"][i]` as the outcome after being scheduled. "success" means the transaction was successfully scheduled to a bank. "fail_cu_limit" means Pack skipped the transaction because it would have exceeded the block CU limit. "fail_fast_path" means Pack skipped the transaction because of account conflicts using the fast bitvector check. "fail_byte_limit" means Pack skipped the transaction because it would have exceeded the block data size limit. "fail_write_cost" means Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit. "fail_slow_path" means Pack skipped the transaction because of account conflicts using the full slow check. "fail_defer_skip" means Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times |
 | end_slot_schedule_counts     | `number[]`        | `end_slot_schedule_counts` has the same meaning as `slot_schedule_counts` except only transactions that occur after the last successfully scheduled transaction in the slot are counted |
 | pending_smallest_cost        | `number`          | The cost in compute units of the smallest eligible non-vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
@@ -2220,8 +2499,6 @@ explicitly mentioned, skipped slots are not included.
 | txn_signature                     | `string[]`          | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
 | txn_source_ipv4                   | `string[]`          | `txn_source_ipv4[i]` is the source ipv4 address for the `i`-th transaction in the slot |
 | txn_source_tpu                    | `string[]`          | `txn_source_tpu[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
-| limits                            | `SlotLimits`        | The various protocol-derived resource limits and their corresponding utilization for this block. If `mine` is false, then this value is `null` |
-| scheduler_stats                   | `SlotScheduleStats` | Various metrics tracked by the transaction scheduler and collected at the end of a leader slot. If `mine` is false, then this value is `null` |
 
 The source tpu for a transaction can be one of the following
 

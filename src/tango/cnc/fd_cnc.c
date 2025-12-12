@@ -264,7 +264,7 @@ fd_cnc_open( fd_cnc_t * cnc ) {
        running it is live.  Assume it is and tell the user to try again
        later. */
 
-    FD_LOG_WARNING(( "pid %lu currently command session and unable to diagnose pid's state (%i-%s); try again later?",
+    FD_LOG_WARNING(( "pid %lu currently has command session and unable to diagnose pid's state (%i-%s); try again later?",
                      cnc_pid, err, fd_io_strerror( err ) ));
     return FD_CNC_ERR_AGAIN;
   }

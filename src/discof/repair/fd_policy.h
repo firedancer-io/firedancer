@@ -116,7 +116,7 @@ typedef struct fd_policy_peer fd_policy_peer_t;
 #define MAP_MEMOIZE           0
 #define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
+#define MAP_KEY_HASH(key,s)   ((MAP_HASH_T)( (key).ul[1] ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_peer {
@@ -156,7 +156,7 @@ typedef struct fd_policy_peers fd_policy_peers_t;
 
 /* Policy parameters start */
 #define FD_POLICY_LATENCY_THRESH 80e6L /* less than this is a BEST peer, otherwise a WORST peer */
-#define FD_POLICY_DEDUP_TIMEOUT  100e6L /* how long wait to request the same shred */
+#define FD_POLICY_DEDUP_TIMEOUT  60e6L /* how long wait to request the same shred */
 
 /* Round robins through ALL the worst peers once, then round robins
    through ALL the best peers once, then round robins through ALL the
@@ -280,9 +280,6 @@ fd_policy_peer_latency_bucket( fd_policy_t * policy, long total_rtt /* ns */, ul
 
 void
 fd_policy_peer_response_update( fd_policy_t * policy, fd_pubkey_t const * to, long rtt );
-
-int
-fd_policy_passes_throttle_threshold( fd_policy_t * policy, fd_forest_blk_t * ele );
 
 void
 fd_policy_set_turbine_slot0( fd_policy_t * policy, ulong slot );

@@ -53,9 +53,6 @@ fd_bank_footprint( void ) {
       FD_LOG_CRIT(( "Failed to acquire " #name " pool element: pool is full" ));                                   \
     }                                                                                                              \
     fd_bank_##name##_t * child_##name = fd_bank_##name##_pool_ele_acquire( name##_pool );                          \
-    if( FD_UNLIKELY( !child_##name ) ) {                                                                           \
-      FD_LOG_CRIT(( "Failed to acquire " #name " pool element" ));                                                 \
-    }                                                                                                              \
     fd_rwlock_unwrite( fd_bank_get_##name##_pool_lock( bank ) );                                                   \
     /* If the dirty flag has not been set yet, we need to allocated a */                                           \
     /* new pool element and copy over the data from the parent idx.   */                                           \
@@ -821,6 +818,17 @@ fd_banks_advance_root( fd_banks_t * banks,
     #undef HAS_COW_0
     #undef HAS_COW_1
 
+    /* It is possible for a bank that never finished replaying to be
+       pruned away.  If the bank was never frozen, then it's possible
+       that the bank still owns a cost tracker pool element.  If this
+       is the case, we need to release the pool element. */
+    if( head->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( head )) ) {
+      FD_TEST( !(head->flags&FD_BANK_FLAGS_FROZEN) && head->flags&FD_BANK_FLAGS_REPLAYABLE );
+      FD_LOG_DEBUG(( "releasing cost tracker pool element for bank at index %lu at slot %lu", head->idx, fd_bank_slot_get( head ) ));
+      fd_bank_cost_tracker_pool_idx_release( fd_bank_get_cost_tracker_pool( head ), head->cost_tracker_pool_idx );
+      head->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( head ) );
+    }
+
     head->flags = 0UL;
     fd_banks_pool_ele_release( bank_pool, head );
     head = next;
@@ -1069,7 +1077,7 @@ fd_banks_new_bank( fd_banks_t * banks,
     FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu does not exist", parent_bank_idx ));
   }
   if( FD_UNLIKELY( !(parent_bank->flags&FD_BANK_FLAGS_INIT) ) ) {
-    FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu is already initialized", child_bank_idx ));
+    FD_LOG_CRIT(( "Invariant violation: parent bank with index %lu is uninitialized", parent_bank_idx ));
   }
 
   /* Link node->parent */
@@ -1132,35 +1140,4 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
   fd_bank_cost_tracker_pool_idx_release( fd_bank_get_cost_tracker_pool( bank ), bank->cost_tracker_pool_idx );
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_unwrite( &banks->rwlock );
-}
-
-int
-fd_banks_validate( fd_banks_t * banks ) {
-  fd_rwlock_read( &banks->rwlock );
-
-  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
-
-  FD_LOG_INFO(( "fd_banks_pool_free: %lu", fd_banks_pool_free( bank_pool ) ));
-
-  /* First check that the number of elements acquired by the CoW pools
-     is not greater than the number of elements in the bank pool. */
-  #define HAS_COW_1(type, name, footprint)                                                                                                                                                      \
-  fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                                                                                                         \
-  if( fd_bank_##name##_pool_used( name##_pool ) > fd_bank_pool_used( bank_pool ) ) {                                                                                                            \
-    FD_LOG_WARNING(( "Invariant violation: %s pool has more elements acquired than the bank pool %lu %lu", #name, fd_bank_##name##_pool_used( name##_pool ), fd_bank_pool_used( bank_pool ) )); \
-    fd_rwlock_unread( &banks->rwlock );                                                                                                                                                         \
-    return 1;                                                                                                                                                                                   \
-  }                                                                                                                                                                                             \
-
-  #define HAS_COW_0(type, name, footprint)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint)                                   \
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
-  fd_rwlock_unread( &banks->rwlock );
-
-  return 0;
 }

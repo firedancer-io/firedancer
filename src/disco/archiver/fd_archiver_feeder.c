@@ -2,9 +2,7 @@
 
 #include "fd_archiver.h"
 #include <unistd.h>
-#include <linux/unistd.h>
 #include <sys/socket.h>
-#include <linux/if_xdp.h>
 #include "generated/archiver_feeder_seccomp.h"
 
 /* The archiver feeder tiles forward fragments that we want to capture from a subset of

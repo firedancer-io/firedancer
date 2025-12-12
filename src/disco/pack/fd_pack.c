@@ -344,7 +344,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
@@ -360,7 +360,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
@@ -422,7 +422,7 @@ typedef struct fd_pack_penalty_treap fd_pack_penalty_treap_t;
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 /* PENALTY_TREAP_THRESHOLD: How many references to an account do we
@@ -454,6 +454,10 @@ struct fd_pack_private {
                                 generated in this block? */
   ulong      data_bytes_consumed; /* How much data is in this block so
                                      far ? */
+
+  /* counters / gauge for schedule outcome enums */
+  ulong      sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_CNT ];
+
   fd_rng_t * rng;
 
   ulong      cumulative_block_cost;
@@ -539,7 +543,7 @@ struct fd_pack_private {
 
   /* top_writers: A simple max heap of the top 5 writers in the slot,
      used by downstream consumers for monitoring purposes. */
-  fd_pack_addr_use_t top_writers[ FD_PACK_TOP_WRITERS_HEAP_SZ ];
+  fd_pack_addr_use_t top_writers[ FD_PACK_TOP_WRITERS_CNT ];
 
   /* At the end of every slot, we have to clear out writer_costs.  The
      map is large, but typically very sparsely populated.  As an
@@ -643,24 +647,6 @@ FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_
 /* Forward-declare some helper functions */
 static ulong delete_transaction( fd_pack_t * pack, fd_pack_ord_txn_t * txn, int delete_full_bundle, int move_from_penalty_treap );
 static inline void insert_bundle_impl( fd_pack_t * pack, ulong bundle_idx, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at );
-
-static inline void
-fd_pack_try_insert_top_writer( fd_pack_t * pack, fd_pack_addr_use_t const * writer_cost ) {
-   if( FD_UNLIKELY( !fd_pack_unwritable_contains( &writer_cost->key ) && !FD_PACK_TOP_WRITERS_SORT_BEFORE( pack->top_writers[ FD_PACK_TOP_WRITERS_HEAP_SZ-1UL ], (*writer_cost) ) ) ) {
-      int in_heap = 0;
-      for( ulong i = 0UL; i<(FD_PACK_TOP_WRITERS_HEAP_SZ-1UL); i++ ) {
-         if( !memcmp( &pack->top_writers[ i ].key.b, writer_cost->key.b, FD_TXN_ACCT_ADDR_SZ ) ) {
-            pack->top_writers[ i ].total_cost = writer_cost->total_cost;
-            in_heap = 1;
-            break;
-         }
-      }
-
-      if( FD_LIKELY( !in_heap ) ) fd_memcpy( &pack->top_writers[ FD_PACK_TOP_WRITERS_HEAP_SZ-1UL ], writer_cost, sizeof(fd_pack_addr_use_t) );
-
-      fd_pack_writer_cost_sort_insert( pack->top_writers, FD_PACK_TOP_WRITERS_HEAP_SZ );
-   }
-}
 
 FD_FN_PURE ulong
 fd_pack_footprint( ulong                    pack_depth,
@@ -766,6 +752,7 @@ fd_pack_new( void                   * mem,
   pack->pending_txn_cnt             = 0UL;
   pack->microblock_cnt              = 0UL;
   pack->data_bytes_consumed         = 0UL;
+  memset( pack->sched_results, 0, sizeof(pack->sched_results) );
   pack->rng                         = rng;
   pack->cumulative_block_cost       = 0UL;
   pack->cumulative_vote_cost        = 0UL;
@@ -782,7 +769,7 @@ fd_pack_new( void                   * mem,
 
   (void)trp_pool_leave( pool );
 
-  penalty_map_new( _penalty_map, lg_penalty_trp );
+  penalty_map_new( _penalty_map, lg_penalty_trp, 0UL );
 
   /* These treaps can have at most pack_depth elements at any moment,
      but they come from a pool of size pack_depth+extra_depth. */
@@ -800,9 +787,9 @@ fd_pack_new( void                   * mem,
   FD_PACK_BITSET_CLEAR( pack->bitset_rw_in_use );
   FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
 
-  acct_uses_new( _uses,        lg_uses_tbl_sz );
-  acct_uses_new( _writer_cost, lg_max_writers );
-  acct_uses_new( _bundle_temp, lg_bundle_temp );
+  acct_uses_new( _uses,        lg_uses_tbl_sz, 0UL );
+  acct_uses_new( _writer_cost, lg_max_writers, 0UL );
+  acct_uses_new( _bundle_temp, lg_bundle_temp, 0UL );
 
   pack->written_list     = _written_lst;
   pack->written_list_cnt = 0UL;
@@ -846,7 +833,7 @@ fd_pack_new( void                   * mem,
   for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) pack->bitset_avail[ i+1UL ] = (ushort)i;
   pack->bitset_avail_cnt = FD_PACK_BITSET_MAX;
 
-  bitset_map_new( _acct_bitset, lg_acct_in_trp );
+  bitset_map_new( _acct_bitset, lg_acct_in_trp, 0UL );
 
   fd_chkdup_new( pack->chkdup, rng );
 
@@ -1723,6 +1710,13 @@ fd_pack_metrics_write( fd_pack_t const * pack ) {
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_CONFLICTING, conflicting                 );
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_BUNDLES,     pending_bundle              );
   FD_MGAUGE_SET( PACK, SMALLEST_PENDING_TRANSACTION,       pack->pending_smallest->cus );
+
+  FD_MCNT_ENUM_COPY( PACK, TRANSACTION_SCHEDULE, pack->sched_results );
+}
+
+void
+fd_pack_get_sched_metrics( fd_pack_t const * pack, ulong * metrics ) {
+  fd_memcpy( metrics, pack->sched_results, sizeof(pack->sched_results) );
 }
 
 typedef struct {
@@ -1998,9 +1992,6 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       }
       in_wcost_table->total_cost += cur->compute_est;
 
-      /* keep track of top writable accounts */
-      fd_pack_try_insert_top_writer( pack, in_wcost_table );
-
       fd_pack_addr_use_t * use = acct_uses_insert( acct_in_use, acct_addr );
       use->in_use_by = bank_tile_mask | FD_PACK_IN_USE_WRITABLE;
 
@@ -2052,13 +2043,13 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) break;
   }
 
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_TAKEN,      txns_scheduled );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_CU_LIMIT,   cu_limit_c     );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_FAST_PATH,  fast_path      );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_BYTE_LIMIT, byte_limit_c   );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_WRITE_COST, write_limit_c  );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_SLOW_PATH,  slow_path      );
-  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_DEFER_SKIP, skip_c         );
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX      ] += txns_scheduled;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX   ] += cu_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX  ] += fast_path;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX ] += byte_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX ] += write_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX  ] += slow_path;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX ] += skip_c;
 
   /* If we scanned the whole treap and didn't break early, we now have a
      better estimate of the smallest. */
@@ -2214,7 +2205,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   /* Skip any that we've marked as won't fit in this block */
   while( FD_UNLIKELY( !treap_rev_iter_done( _cur ) && treap_rev_iter_ele( _cur, pool )->skip==pack->compressed_slot_number ) ) {
     _cur = treap_rev_iter_next( _cur, pool );
-    FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_DEFER_SKIP,  1UL );
+    pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX ]++;
   }
 
   if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
@@ -2263,7 +2254,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     if( FD_UNLIKELY( cur->compute_est>cu_limit ) ) {
       doesnt_fit = 1;
-      FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_CU_LIMIT,   1UL );
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX ]++;
       break;
     }
     cu_limit -= cur->compute_est;
@@ -2278,14 +2269,14 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     if( FD_UNLIKELY( cur->txn->payload_sz+MICROBLOCK_DATA_OVERHEAD>byte_limit ) ) {
       doesnt_fit = 1;
-      FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_BYTE_LIMIT, 1UL );
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX ]++;
       break;
     }
     byte_limit -= cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
 
     if( FD_UNLIKELY( !FD_PACK_BITSET_INTERSECT4_EMPTY( pack->bitset_rw_in_use, pack->bitset_w_in_use, cur->w_bitset, cur->rw_bitset ) ) ) {
       has_conflict = 1;
-      FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_FAST_PATH,  1UL );
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX ]++;
       break;
     }
 
@@ -2311,7 +2302,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
       ulong carried_cost                  = (ulong)in_bundle_temp->carried_cost;
       if( FD_UNLIKELY( current_cost + carried_cost + cur->compute_est > pack->lim->max_write_cost_per_acct ) ) {
         doesnt_fit = 1;
-        FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_WRITE_COST, 1UL );
+        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX ]++;
         break;
       }
 
@@ -2328,7 +2319,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
       if( FD_UNLIKELY( acct_uses_query( pack->acct_in_use, acct, null_use )->in_use_by ) ) {
         has_conflict = 1;
-        FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_SLOW_PATH,  1UL );
+        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX ]++;
         break;
       }
     }
@@ -2355,7 +2346,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
       if( FD_UNLIKELY( acct_uses_query( pack->acct_in_use,  *acct, null_use )->in_use_by & FD_PACK_IN_USE_WRITABLE ) ) {
         has_conflict = 1;
-        FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_SLOW_PATH,  1UL );
+        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX ]++;
         break;
       }
     }
@@ -2597,9 +2588,13 @@ fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_
     opt_limits_usage->vote_cost           = pack->cumulative_vote_cost;
     opt_limits_usage->block_data_bytes    = pack->data_bytes_consumed;
     opt_limits_usage->microblocks         = pack->microblock_cnt;
-    fd_memcpy( opt_limits_usage->top_write_acct_costs, pack->top_writers, sizeof(opt_limits_usage->top_write_acct_costs) );
   }
   if( FD_LIKELY( opt_limits ) ) fd_memcpy( opt_limits, pack->lim, sizeof(fd_pack_limits_t) );
+}
+
+void
+fd_pack_get_top_writers( fd_pack_t const * pack, fd_pack_addr_use_t top_writers[static FD_PACK_TOP_WRITERS_CNT] ) {
+  fd_memcpy( top_writers, pack->top_writers, sizeof(pack->top_writers) );
 }
 
 void
@@ -2639,8 +2634,6 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
     in_wcost_table->total_cost -= rebate->writer_rebates[i].rebate_cus;
     /* Important: Even if this is 0, don't delete it from the table so
        that the insert order doesn't get messed up. */
-
-    fd_pack_try_insert_top_writer( pack, in_wcost_table );
   }
 }
 
@@ -2686,6 +2679,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
   pack->initializer_bundle_state = FD_PACK_IB_STATE_NOT_INITIALIZED;
 
   acct_uses_clear( pack->acct_in_use  );
+  memset( pack->top_writers, 0, sizeof(pack->top_writers) );
 
   if( FD_LIKELY( pack->written_list_cnt<pack->written_list_max-1UL ) ) {
     /* The less dangerous way of doing this is to instead record the
@@ -2705,17 +2699,22 @@ fd_pack_end_block( fd_pack_t * pack ) {
        starting in the element after, but we'll never hit the MAP_MOVE
        case. */
     for( ulong i=0UL; i<pack->written_list_cnt; i++ ) {
+      fd_pack_addr_use_t * writer = pack->written_list[ pack->written_list_cnt - 1UL - i ];
+      /* build a small max heap with the top writer costs */
+      if( FD_UNLIKELY( !fd_pack_unwritable_contains( &writer->key ) && !FD_PACK_TOP_WRITERS_SORT_BEFORE( pack->top_writers[ FD_PACK_TOP_WRITERS_CNT-1UL ], (*writer) ) ) ) {
+          fd_memcpy( &pack->top_writers[ FD_PACK_TOP_WRITERS_CNT-1UL ], writer, sizeof(fd_pack_addr_use_t) );
+          fd_pack_writer_cost_sort_insert( pack->top_writers, FD_PACK_TOP_WRITERS_CNT );
+      }
+
       /* Clearing the cost field here is unnecessary (since it gets
          cleared on insert), but makes debugging a bit easier. */
-      pack->written_list[ pack->written_list_cnt - 1UL - i ]->total_cost = 0UL;
-      acct_uses_remove( pack->writer_costs, pack->written_list[ pack->written_list_cnt - 1UL - i ] );
+      writer->total_cost = 0UL;
+      acct_uses_remove( pack->writer_costs, writer );
     }
   } else {
     acct_uses_clear( pack->writer_costs );
   }
   pack->written_list_cnt = 0UL;
-
-  memset( pack->top_writers, 0, sizeof(pack->top_writers) );
 
   /* compressed_slot_number is > FD_PACK_SKIP_CNT, which means +1 is the
      max unless it overflows. */

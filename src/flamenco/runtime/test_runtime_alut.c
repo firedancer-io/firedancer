@@ -2,10 +2,8 @@
 
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
-#include "fd_alut_interp.h"
-#include "fd_acc_mgr.h"
 #include "fd_txn_account.h"
-#include "../accdb/fd_accdb_user.h"
+#include "../accdb/fd_accdb_impl_v1.h"
 #include "program/fd_address_lookup_table_program.h"
 #include "fd_system_ids.h"
 #include "../../ballet/txn/fd_txn.h"
@@ -28,8 +26,7 @@ typedef struct {
   void *              funk_shmem;
   fd_funk_t           funk_join[1];
   fd_funk_t *         funk;
-  fd_accdb_user_t     accdb_user[1];
-  fd_accdb_user_t *   accdb;
+  fd_accdb_user_t     accdb[1];
   fd_funk_txn_xid_t   xid;
   fd_funk_txn_t *     funk_txn;
 } test_ctx_t;
@@ -60,8 +57,7 @@ test_setup( fd_wksp_t * wksp ) {
   FD_TEST( ctx->funk );
 
   /* Set up accdb interface */
-  ctx->accdb = fd_accdb_user_join( fd_accdb_user_new( ctx->accdb_user ), ctx->funk_shmem );
-  FD_TEST( ctx->accdb );
+  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, ctx->funk_shmem ) );
 
   /* Set up root transaction and target transaction ID */
   fd_funk_txn_xid_t root_xid;

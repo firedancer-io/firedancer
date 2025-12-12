@@ -4,7 +4,9 @@
 #include "fd_racesan_weave.h"
 #include "../../util/fd_util.h"
 
-#if FD_HAS_RACESAN
+#define FIBER_MAX 2
+#define FIBER_STACK_MAX (1UL<<20)
+static void * g_fiber_stack[ FIBER_MAX ];
 
 static void
 cas_inc( uint * p ) {
@@ -50,17 +52,17 @@ test_racesan_async( void ) {
   uint seq = 0U;
 
   fd_racesan_async_t async[1];
-  fd_racesan_async_new( async, async_cas_inc, &seq );
+  fd_racesan_async_new( async, g_fiber_stack[0], FIBER_STACK_MAX, async_cas_inc, &seq );
 
-  FD_TEST( fd_racesan_async_step( async )==1 );
+  FD_TEST( fd_racesan_async_step( async )==FD_RACESAN_ASYNC_RET_HOOK );
   FD_TEST( fd_racesan_async_hook_name_eq( async, "cas_inc:post_load" ) );
 
   FD_VOLATILE( seq )++;
-  FD_TEST( fd_racesan_async_step( async )==1 );
+  FD_TEST( fd_racesan_async_step( async )==FD_RACESAN_ASYNC_RET_HOOK );
   FD_TEST( fd_racesan_async_hook_name_eq( async, "cas_inc:post_load" ) );
-  FD_TEST( fd_racesan_async_step( async )==0 );
-  FD_TEST( fd_racesan_async_step( async )==0 );
-  FD_TEST( fd_racesan_async_step( async )==0 );
+  FD_TEST( fd_racesan_async_step( async )==FD_RACESAN_ASYNC_RET_EXIT );
+  FD_TEST( fd_racesan_async_step( async )==FD_RACESAN_ASYNC_RET_EXIT );
+  FD_TEST( fd_racesan_async_step( async )==FD_RACESAN_ASYNC_RET_EXIT );
 
   FD_TEST( FD_VOLATILE_CONST( seq )==2 );
 
@@ -85,15 +87,15 @@ test_racesan_weave( void ) {
   fd_racesan_weave_new( weave );
 
   fd_racesan_async_t async_dbl[1];
-  FD_TEST( fd_racesan_async_new( async_dbl, async_cas_dbl, &seq ) );
+  FD_TEST( fd_racesan_async_new( async_dbl, g_fiber_stack[0], FIBER_STACK_MAX, async_cas_dbl, &seq ) );
   fd_racesan_weave_add( weave, async_dbl );
 
   fd_racesan_async_t async_inc[1];
-  FD_TEST( fd_racesan_async_new( async_inc, async_cas_inc, &seq ) );
+  FD_TEST( fd_racesan_async_new( async_inc, g_fiber_stack[1], FIBER_STACK_MAX, async_cas_inc, &seq ) );
   fd_racesan_weave_add( weave, async_inc );
 
   /* Run random interleavings */
-  ulong iter     = (ulong)1e6;
+  ulong iter     = (ulong)1e4;
   ulong step_max = 1024UL;
   for( ulong rem=iter; rem; rem-- ) {
     FD_VOLATILE( seq ) = 5U;
@@ -112,24 +114,19 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  for( ulong i=0UL; i<FIBER_MAX; i++ ) {
+    g_fiber_stack[ i ] = fd_racesan_stack_create( FIBER_STACK_MAX );
+  }
+
   test_racesan_async();
   test_racesan_weave();
   test_racesan_inject();
+
+  for( ulong i=0UL; i<FIBER_MAX; i++ ) {
+    fd_racesan_stack_destroy( g_fiber_stack[ i ], FIBER_STACK_MAX );
+  }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
-
-#else /* !FD_HAS_RACESAN */
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_NOTICE(( "skip: unit test requires FD_HAS_RACESAN" ));
-  fd_halt();
-  return 0;
-}
-
-#endif
