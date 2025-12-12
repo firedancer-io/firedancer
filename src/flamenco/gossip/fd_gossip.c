@@ -291,13 +291,14 @@ txbuild_flush( fd_gossip_t *         gossip,
                fd_stem_context_t *   stem,
                fd_ip4_port_t         dest_addr,
                long                  now ) {
-  if( FD_UNLIKELY( !txbuild->crds_len ) ) return;
+  if( FD_UNLIKELY( !txbuild->crds_cnt ) ) return;
 
   gossip->send_fn( gossip->send_ctx, stem, txbuild->bytes, txbuild->bytes_len, &dest_addr, (ulong)now );
 
   gossip->metrics->message_tx[ txbuild->tag ]++;
   gossip->metrics->message_tx_bytes[ txbuild->tag ] += txbuild->bytes_len+42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
-  for( ulong i=0UL; i<txbuild->crds_len; i++ ) {
+  for( ulong i=0UL; i<txbuild->crds_cnt; i++ ) {
+    FD_TEST( txbuild->crds[ i ].tag<=FD_GOSSIP_VALUE_LAST );
     if( FD_LIKELY( txbuild->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
       gossip->metrics->crds_tx_push[ txbuild->crds[ i ].tag ]++;
       gossip->metrics->crds_tx_push_bytes[ txbuild->crds[ i ].tag ] += txbuild->crds[ i ].sz;

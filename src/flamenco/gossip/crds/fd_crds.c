@@ -84,9 +84,7 @@ struct fd_crds_entry_private {
   uchar   value_bytes[ FD_GOSSIP_CRDS_MAX_SZ ];
   ushort  value_sz;
 
-  /* The value hash is the sha256 of the value_bytes.  It is used in
-     bloom filter generation and as a tiebreaker when a
-     fd_crds_checks_fast call returns CHECK_UNDETERMINED. */
+  /* The value hash is the sha256 of the value_bytes. */
   uchar   value_hash[ 32UL ];
   ulong   num_duplicates;
   ulong   stake;
@@ -451,7 +449,7 @@ fd_crds_new( void *                    shmem,
   void * _purged_dlist          = FD_SCRATCH_ALLOC_APPEND( l, purged_dlist_align(),                  purged_dlist_footprint() );
   void * _failed_inserts_dlist  = FD_SCRATCH_ALLOC_APPEND( l, failed_inserts_dlist_align(),          failed_inserts_dlist_footprint() );
   void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
-  void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
+  void * _ci_fresh_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
   void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max, purged_max ) );
 
@@ -491,7 +489,7 @@ fd_crds_new( void *                    shmem,
   crds->contact_info.pool = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
   FD_TEST( crds->contact_info.pool );
 
-  crds->contact_info.fresh_dlist = crds_contact_info_fresh_list_join( crds_contact_info_fresh_list_new( _ci_dlist ) );
+  crds->contact_info.fresh_dlist = crds_contact_info_fresh_list_join( crds_contact_info_fresh_list_new( _ci_fresh_dlist ) );
   FD_TEST( crds->contact_info.fresh_dlist );
 
   crds->contact_info.evict_dlist = crds_contact_info_evict_dlist_join( crds_contact_info_evict_dlist_new( _ci_evict_dlist ) );
@@ -545,13 +543,14 @@ remove_contact_info( fd_crds_t *         crds,
                      fd_crds_entry_t *   ci,
                      long                now,
                      fd_stem_context_t * stem ) {
-  if( FD_UNLIKELY( !stem ) ) return;
-  fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
-  msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
-  msg->wallclock_nanos = now;
-  fd_memcpy( msg->origin_pubkey, ci->key.pubkey, 32UL );
-  msg->contact_info_remove.idx = crds_contact_info_pool_idx( crds->contact_info.pool, ci->contact_info.ci );
-  fd_gossip_tx_publish_chunk( crds->gossip_update, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now );
+  if( FD_LIKELY( stem ) ) {
+    fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
+    msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+    msg->wallclock_nanos = now;
+    fd_memcpy( msg->origin_pubkey, ci->key.pubkey, 32UL );
+    msg->contact_info_remove.idx = crds_contact_info_pool_idx( crds->contact_info.pool, ci->contact_info.ci );
+    fd_gossip_tx_publish_chunk( crds->gossip_update, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now );
+  }
 
   if( FD_LIKELY( ci->stake ) ) crds->metrics->peer_staked_cnt--;
   else                         crds->metrics->peer_unstaked_cnt--;
@@ -813,18 +812,17 @@ int
 overrides_fast( fd_crds_entry_t const *             incumbent,
                 fd_gossip_view_crds_value_t const * candidate,
                 uchar const *                       payload ){
-  long existing_wc        = incumbent->wallclock_nanos;
-  long candidate_wc       = candidate->wallclock_nanos;
-  long existing_ci_onset  = incumbent->contact_info.instance_creation_wallclock_nanos;
-  long candidate_ci_onset = candidate->ci_view->contact_info->instance_creation_wallclock_nanos;
+  long existing_wc  = incumbent->wallclock_nanos;
+  long candidate_wc = candidate->wallclock_nanos;
 
   switch( candidate->tag ) {
-    case FD_GOSSIP_VALUE_CONTACT_INFO:
+    case FD_GOSSIP_VALUE_CONTACT_INFO: {
+      long existing_ci_onset  = incumbent->contact_info.instance_creation_wallclock_nanos;
+      long candidate_ci_onset = candidate->ci_view->contact_info->instance_creation_wallclock_nanos;
       if( FD_UNLIKELY( candidate_ci_onset>existing_ci_onset ) ) return 1;
       else if( FD_UNLIKELY( candidate_ci_onset<existing_ci_onset ) ) return 0;
-      else if( FD_UNLIKELY( candidate_wc>existing_wc ) ) return 1;
-      else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
       break;
+    }
     case FD_GOSSIP_VALUE_NODE_INSTANCE:
       if( FD_LIKELY( candidate->node_instance->token==incumbent->node_instance.token ) ) break;
       else if( FD_LIKELY( memcmp( payload+candidate->pubkey_off, incumbent->key.pubkey, 32UL ) ) ) break;
@@ -840,7 +838,6 @@ overrides_fast( fd_crds_entry_t const *             incumbent,
   else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
   return -1;
 }
-
 
 void
 fd_crds_insert_failed_insert( fd_crds_t *   crds,

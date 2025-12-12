@@ -14,7 +14,7 @@ struct fd_gossip_txbuild {
   ulong bytes_len;
   uchar bytes[ 1232UL ];
 
-  ulong crds_len;
+  ulong crds_cnt;
   struct {
    ulong tag;
    ulong off;
