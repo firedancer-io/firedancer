@@ -26,6 +26,11 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  /* Optional: force an immediate backtrace/abort to exercise crash logging.
+    Enable with --force-backtrace or FD_TEST_BACKTRACE=1. */
+  int force_backtrace = fd_env_strip_cmdline_int( &argc, &argv, "--force-backtrace", "FD_TEST_BACKTRACE", 0 );
+  if( FD_UNLIKELY( force_backtrace ) ) backtrace_test();
+
   /* Non-cancelling log messages */
   FD_LOG_DEBUG((   "Test DEBUG        (silent)"                                ));
   FD_LOG_INFO((    "Test INFO         (log file only)"                         ));
