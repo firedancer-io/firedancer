@@ -1,58 +1,39 @@
 #include "fd_solfuzz_private.h"
 #include "generated/context.pb.h"
-#include "../fd_acc_mgr.h"
 #include "../../features/fd_features.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include <assert.h>
 
-int
-fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
-                            fd_accdb_user_t *                 accdb,
+fd_account_meta_t *
+fd_solfuzz_pb_load_account( fd_accdb_user_t *                 accdb,
                             fd_funk_txn_xid_t const *         xid,
                             fd_exec_test_acct_state_t const * state,
                             uchar                             reject_zero_lamports ) {
-  if( reject_zero_lamports && state->lamports==0UL ) {
-    return 0;
-  }
+  if( reject_zero_lamports && state->lamports==0UL ) return NULL;
 
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
 
-  fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
+  fd_pubkey_t pubkey = FD_LOAD( fd_pubkey_t, state->address );
 
-  /* Account must not yet exist */
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
-  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( funk, xid, pubkey, NULL, NULL, NULL) ) ) {
-    return 0;
-  }
+  /* Account must not exist */
+  fd_accdb_peek_t peek[1];
+  if( FD_UNLIKELY( fd_accdb_peek( accdb, peek, xid, &pubkey ) ) ) return 0;
 
-  fd_funk_rec_prepare_t prepare = {0};
-
-  int ok = !!fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
-                                                    /* pubkey      */ pubkey,
-                                                    /* funk        */ accdb,
-                                                    /* xid         */ xid,
-                                                    /* do_create   */ 1,
-                                                    /* min_data_sz */ size,
-                                                    /* prepare     */ &prepare );
+  fd_accdb_rw_t rw[1];
+  int ok = !!fd_accdb_open_rw( accdb, rw, xid, &pubkey, size, FD_ACCDB_FLAG_CREATE );
   assert( ok );
 
-  if( state->data ) {
-    fd_txn_account_set_data( acc, state->data->bytes, size );
-  }
+  fd_accdb_ref_data_set    ( rw, state->data->bytes, size );
+  fd_accdb_ref_lamports_set( rw, state->lamports          );
+  fd_accdb_ref_exec_bit_set( rw, !!state->executable      );
+  fd_accdb_ref_owner_set   ( rw, state->owner             );
 
-  acc->starting_lamports = state->lamports;
-  acc->starting_dlen     = size;
-  fd_txn_account_set_lamports( acc, state->lamports );
-  fd_txn_account_set_executable( acc, state->executable );
-  fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );
+  FD_TEST( accdb->base.accdb_type == FD_ACCDB_TYPE_V1 );
+  fd_account_meta_t * meta = rw->meta;
 
-  /* make the account read-only by default */
-  fd_txn_account_set_readonly( acc );
-
-  fd_txn_account_mutable_fini( acc, accdb, &prepare );
-
-  return 1;
+  fd_accdb_close_rw( accdb, rw );
+  return meta;
 }
 
 int

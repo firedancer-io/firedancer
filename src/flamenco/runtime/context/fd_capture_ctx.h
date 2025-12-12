@@ -57,9 +57,6 @@ struct fd_capture_ctx {
   /* Syscall Capture */
   int                      dump_syscall_to_pb;
 
-  /* ELF Capture */
-  int                      dump_elf_to_pb;
-
   /* Account update buffer, account updates to be sent over the exec_replay link are buffered here
      to avoid passing stem down into the runtime.
 

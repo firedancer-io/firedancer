@@ -4,26 +4,24 @@
 /* fd_prog_load.h provides high-level APIs for loading Solana programs
    from the account database. */
 
-#include "../fd_flamenco_base.h"
 #include "../accdb/fd_accdb_user.h"
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_prog_load_elf loads a reference to program data from a funk-backed
-   account database.  *prog_addr gives the account address of the
-   program account (NOT the program data account).  Returns a pointer to
-   the first byte of the ELF binary on success.  *out_sz is set to the
-   size of the program data account.  *out_xid is set to the the txn
-   XID the program data account was written to.  On failure, returns
-   NULL.  Reasons for failure include: program account not found,
-   program not deployed, program data account not found, etc */
+/* fd_prog_load_elf opens a program data account.  prog_addr points to
+   the program account (not necessarily the same address as the program
+   data account).  Populates *ro and returns it on success.  Returns
+   NULL on failure (e.g. account not found, program not deployed).
+   On success, sets *out_offset to the byte offset within the program
+   data account's data region where the ELF binary starts. */
 
-uchar const *
+fd_accdb_ro_t *
 fd_prog_load_elf( fd_accdb_user_t *         accdb,
                   fd_funk_txn_xid_t const * xid,
+                  fd_accdb_ro_t *           ro,
                   void const *              prog_addr,
-                  ulong *                   out_sz,
-                  fd_funk_txn_xid_t *       out_xid );
+                  ulong *                   out_offset );
+
 /* FIXME provide an API to detect data race */
 /* FIXME clarify edge case where program account and program data
          account were modified in different funk txns */

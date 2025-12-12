@@ -286,7 +286,6 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->capture_ctx->dump_instr_to_pb      = tile->exec.dump_instr_to_pb;
       ctx->capture_ctx->dump_txn_to_pb        = tile->exec.dump_txn_to_pb;
       ctx->capture_ctx->dump_syscall_to_pb    = tile->exec.dump_syscall_to_pb;
-      ctx->capture_ctx->dump_elf_to_pb        = tile->exec.dump_elf_to_pb;
     }
 
     if( strlen( tile->exec.solcap_capture ) ) {

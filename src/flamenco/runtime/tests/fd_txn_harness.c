@@ -87,8 +87,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   for( ulong i = 0; i < test_ctx->account_shared_data_count; i++ ) {
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
-    fd_txn_account_t acc[1];
-    fd_solfuzz_pb_load_account( acc, accdb, &xid, &test_ctx->account_shared_data[i], 1 );
+    fd_solfuzz_pb_load_account( accdb, &xid, &test_ctx->account_shared_data[i], 1 );
   }
 
   /* Setup Bank manager */

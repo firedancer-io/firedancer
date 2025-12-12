@@ -165,6 +165,15 @@ fd_accdb_close_rw( fd_accdb_user_t * accdb,
   accdb->base.vt->close_rw( accdb, write );
 }
 
+/* fd_accdb_ref_xid returns the fork identifier in which the account
+   record was created.  FIXME better description */
+
+static inline fd_funk_txn_xid_t
+fd_accdb_ref_xid( fd_accdb_user_t *     accdb,
+                  fd_accdb_ro_t const * ro ) {
+  return accdb->base.vt->ref_xid( accdb, ro );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_sync_h */
