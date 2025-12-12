@@ -236,9 +236,9 @@ fd_snapin_vinyl_shutdown( fd_snapin_tile_t * ctx );
 
 /* Internal APIs for inserting accounts */
 
-void fd_snapin_process_account_header_vinyl( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-void fd_snapin_process_account_data_vinyl  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-void fd_snapin_process_account_batch_vinyl ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+int fd_snapin_process_account_header_vinyl( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+int fd_snapin_process_account_data_vinyl  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+int fd_snapin_process_account_batch_vinyl ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
 
 void
 fd_snapin_read_account_vinyl( fd_snapin_tile_t *  ctx,
@@ -261,7 +261,7 @@ static inline int
 fd_snapin_process_account_header( fd_snapin_tile_t *            ctx,
                                   fd_ssparse_advance_result_t * result ) {
   if( ctx->use_vinyl ) {
-    fd_snapin_process_account_header_vinyl( ctx, result );
+    return fd_snapin_process_account_header_vinyl( ctx, result );
   } else {
     return fd_snapin_process_account_header_funk( ctx, result );
   }
@@ -272,7 +272,7 @@ static inline int
 fd_snapin_process_account_data( fd_snapin_tile_t *            ctx,
                                 fd_ssparse_advance_result_t * result ) {
   if( ctx->use_vinyl ) {
-    fd_snapin_process_account_data_vinyl( ctx, result );
+    return fd_snapin_process_account_data_vinyl( ctx, result );
   } else {
     return fd_snapin_process_account_data_funk( ctx, result );
   }
@@ -284,7 +284,7 @@ fd_snapin_process_account_batch( fd_snapin_tile_t *            ctx,
                                  fd_ssparse_advance_result_t * result,
                                  buffered_account_batch_t *    buffered_batch ) {
   if( ctx->use_vinyl ) {
-    fd_snapin_process_account_batch_vinyl( ctx, result );
+    return fd_snapin_process_account_batch_vinyl( ctx, result );
   } else {
     return fd_snapin_process_account_batch_funk( ctx, result, buffered_batch );
   }

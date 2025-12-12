@@ -1,6 +1,7 @@
 #define _DEFAULT_SOURCE /* madvise */
 #include "fd_snapwm_tile_private.h"
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_ssparse.h"
 #include "utils/fd_vinyl_io_wd.h"
 
 #include <errno.h>
@@ -428,226 +429,245 @@ bstream_alloc( fd_vinyl_io_t * io,
 
 void
 fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
-                                 ulong              raw_chunk,
-                                 ulong              raw_sz ) {
+                                 ulong              chunk,
+                                 ulong              acc_cnt ) {
   fd_vinyl_io_t *   io  = ctx->vinyl.io;
   fd_vinyl_meta_t * map = ctx->vinyl.map;
 
-  uchar * src = fd_chunk_to_laddr( ctx->in.wksp, raw_chunk );
-  fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)src;
+  uchar * src = fd_chunk_to_laddr( ctx->in.wksp, chunk );
 
-  ulong val_esz    = fd_vinyl_bstream_ctl_sz  ( phdr->ctl );
+  for( ulong acc_i=0UL; acc_i<acc_cnt; acc_i++ ) {
 
-  (void)raw_sz; /* TODO use for verification? */
-  ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
-  uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
-  uchar * dst     = pair;
+    fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)src;
 
-  ulong account_header_slot = phdr->info.ul[1];
+    ulong val_esz    = fd_vinyl_bstream_ctl_sz  ( phdr->ctl );
 
-  fd_vinyl_meta_ele_t * ele = NULL;
-  if( ctx->full ) {  /* update index immediately */
-    ulong memo = fd_vinyl_key_memo( map->seed, &phdr->key );
-    ele = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
-    if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+    ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
+    uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+    uchar * dst     = pair;
 
-    if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
-      /* Drop current value if existing is newer */
-      ulong exist_slot = ele->phdr.info.ul[ 1 ];
-      if( exist_slot > account_header_slot ) {
-        return;
+    ulong account_header_slot = phdr->info.ul[1];
+
+    fd_vinyl_meta_ele_t * ele = NULL;
+    if( ctx->full ) {  /* update index immediately */
+      ulong memo = fd_vinyl_key_memo( map->seed, &phdr->key );
+      ele = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
+      if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+
+      if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
+        /* Drop current value if existing is newer */
+        ulong exist_slot = ele->phdr.info.ul[ 1 ];
+        if( exist_slot > account_header_slot ) {
+          src += pair_sz;
+          continue;
+        }
       }
+
+      ele->memo      = memo;
+      ele->phdr.ctl  = phdr->ctl;
+      ele->phdr.key  = phdr->key;
+      ele->phdr.info = phdr->info;
+      ele->seq       = ULONG_MAX; /* later init */
+      ele->line_idx  = ULONG_MAX;
     }
 
-    ele->memo      = memo;
-    ele->phdr.ctl  = phdr->ctl;
-    ele->phdr.key  = phdr->key;
-    ele->phdr.info = phdr->info;
-    ele->seq       = ULONG_MAX; /* later init */
-    ele->line_idx  = ULONG_MAX;
+    fd_memcpy( dst, src, pair_sz );
+    src += pair_sz;
+
+    ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
+    if( ctx->full ) ele->seq = seq_after;
+
+    ctx->metrics.accounts_inserted++;
   }
-
-  fd_memcpy( dst, src, pair_sz );
-
-  ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
-  if( ctx->full ) ele->seq = seq_after;
-
-  ctx->metrics.accounts_inserted++;
 }
 
 #elif FD_SNAPWM_IMPL_VERSION==1
 
 void
 fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
-                                 ulong              raw_chunk,
-                                 ulong              raw_sz ) {
+                                 ulong              chunk,
+                                 ulong              acc_cnt ) {
   fd_vinyl_io_t *   io  = ctx->vinyl.io;
   fd_vinyl_meta_t * map = ctx->vinyl.map;
 
-  uchar * src = fd_chunk_to_laddr( ctx->in.wksp, raw_chunk );
-  (void)raw_sz; /* TODO use for verification? */
+  uchar * src = fd_chunk_to_laddr( ctx->in.wksp, chunk );
 
-  fd_ssparse_advance_result_t * res = (fd_ssparse_advance_result_t *)src;
-  ulong const    data_len   = res->account_header.data_len;
-  uchar const *  pubkey     = src+0x60UL;
-  fd_vinyl_key_t key[1];    fd_vinyl_key_init( key, pubkey, 32UL );
-  ulong          lamports   = res->account_header.lamports;
-  uchar          owner[32]; memcpy( owner, src+0x40UL, 32UL );
-  _Bool          executable = !!res->account_header.executable;
+  for( ulong acc_i=0UL; acc_i<acc_cnt; acc_i++ ) {
 
-  ulong val_sz = sizeof(fd_account_meta_t) + data_len;
-  FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
+    fd_ssparse_advance_result_t * res = (fd_ssparse_advance_result_t *)src;
+    ulong const    data_len   = res->account_header.data_len;
+    uchar const *  pubkey     = src+0x60UL;
+    fd_vinyl_key_t key[1];    fd_vinyl_key_init( key, pubkey, 32UL );
+    ulong          lamports   = res->account_header.lamports;
+    uchar          owner[32]; memcpy( owner, src+0x40UL, 32UL );
+    _Bool          executable = !!res->account_header.executable;
 
-  ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
-  uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+    ulong src_sz = 0x88UL + data_len;
 
-  uchar * dst     = pair;
-  ulong   dst_rem = pair_sz;
+    ulong val_sz = sizeof(fd_account_meta_t) + data_len;
+    FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
-  FD_CRIT( dst_rem >= sizeof(fd_vinyl_bstream_phdr_t), "corruption detected" );
-  fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)dst;
-  phdr->ctl         = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
-  phdr->key         = *key;
-  phdr->info.val_sz = (uint)val_sz;
-  phdr->info.ul[1]  = res->account_header.slot;
+    ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
+    uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
 
-  dst     += sizeof(fd_vinyl_bstream_phdr_t);
-  dst_rem -= sizeof(fd_vinyl_bstream_phdr_t);
+    uchar * dst     = pair;
+    ulong   dst_rem = pair_sz;
 
-  ulong account_header_slot = phdr->info.ul[1];
+    FD_CRIT( dst_rem >= sizeof(fd_vinyl_bstream_phdr_t), "corruption detected" );
+    fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)dst;
+    phdr->ctl         = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
+    phdr->key         = *key;
+    phdr->info.val_sz = (uint)val_sz;
+    phdr->info.ul[1]  = res->account_header.slot;
 
-  fd_vinyl_meta_ele_t * ele = NULL;
-  if( ctx->full ) {  /* update index immediately */
-    ulong memo = fd_vinyl_key_memo( map->seed, &phdr->key );
-    ele = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
-    if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+    dst     += sizeof(fd_vinyl_bstream_phdr_t);
+    dst_rem -= sizeof(fd_vinyl_bstream_phdr_t);
 
-    if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
-      /* Drop current value if existing is newer */
-      ulong exist_slot = ele->phdr.info.ul[ 1 ];
-      if( exist_slot > account_header_slot ) {
-        return;
+    ulong account_header_slot = phdr->info.ul[1];
+
+    fd_vinyl_meta_ele_t * ele = NULL;
+    if( ctx->full ) {  /* update index immediately */
+      ulong memo = fd_vinyl_key_memo( map->seed, &phdr->key );
+      ele = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
+      if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+
+      if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
+        /* Drop current value if existing is newer */
+        ulong exist_slot = ele->phdr.info.ul[ 1 ];
+        if( exist_slot > account_header_slot ) {
+          src += fd_ulong_align_up( src_sz, 512UL);
+          continue;
+        }
       }
+
+      ele->memo      = memo;
+      ele->phdr.ctl  = phdr->ctl;
+      ele->phdr.key  = phdr->key;
+      ele->phdr.info = phdr->info;
+      ele->seq       = ULONG_MAX; /* later init */
+      ele->line_idx  = ULONG_MAX;
     }
 
-    ele->memo      = memo;
-    ele->phdr.ctl  = phdr->ctl;
-    ele->phdr.key  = phdr->key;
-    ele->phdr.info = phdr->info;
-    ele->seq       = ULONG_MAX; /* later init */
-    ele->line_idx  = ULONG_MAX;
+    FD_CRIT( dst_rem >= sizeof(fd_account_meta_t), "corruption detected" );
+    fd_account_meta_t * meta = (fd_account_meta_t *)dst;
+    memset( meta, 0, sizeof(fd_account_meta_t) ); /* bulk zero */
+    memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
+    meta->lamports   = lamports;
+    meta->slot       = res->account_header.slot;
+    meta->dlen       = (uint)data_len;
+    meta->executable = !!executable;
+
+    dst     += sizeof(fd_account_meta_t);
+    dst_rem -= sizeof(fd_account_meta_t);
+
+    FD_CRIT( dst_rem >= data_len, "corruption detected" );
+    fd_memcpy( dst, src+0x88UL, data_len );
+
+    src += fd_ulong_align_up( src_sz, 512UL);
+
+    dst     += data_len;
+    dst_rem -= data_len;
+
+    ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
+    if( ctx->full ) ele->seq = seq_after;
+
+    ctx->metrics.accounts_inserted++;
   }
-
-  FD_CRIT( dst_rem >= sizeof(fd_account_meta_t), "corruption detected" );
-  fd_account_meta_t * meta = (fd_account_meta_t *)dst;
-  memset( meta, 0, sizeof(fd_account_meta_t) ); /* bulk zero */
-  memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
-  meta->lamports   = lamports;
-  meta->slot       = res->account_header.slot;
-  meta->dlen       = (uint)data_len;
-  meta->executable = !!executable;
-
-  dst     += sizeof(fd_account_meta_t);
-  dst_rem -= sizeof(fd_account_meta_t);
-
-  FD_CRIT( dst_rem >= data_len, "corruption detected" );
-  fd_memcpy( dst, src+0x88UL, data_len );
-
-  dst     += data_len;
-  dst_rem -= data_len;
-
-  ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
-  if( ctx->full ) ele->seq = seq_after;
-
-  ctx->metrics.accounts_inserted++;
 }
 
 #elif FD_SNAPWM_IMPL_VERSION==2
 
 void
 fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
-                                 ulong              raw_chunk,
-                                 ulong              raw_sz ) {
+                                 ulong              chunk,
+                                 ulong              acc_cnt ) {
   fd_vinyl_io_t *   io  = ctx->vinyl.io;
   fd_vinyl_meta_t * map = ctx->vinyl.map;
 
-  uchar * src = fd_chunk_to_laddr( ctx->in.wksp, raw_chunk );
-  (void)raw_sz; /* TODO use for verification? */
+  uchar * src = fd_chunk_to_laddr( ctx->in.wksp, chunk );
 
-  uchar const *  frame      = src;
-  ulong const    data_len   = fd_ulong_load_8_fast( frame+0x08UL );
-  uchar const *  pubkey     = frame+0x10UL;
-  fd_vinyl_key_t key[1];    fd_vinyl_key_init( key, pubkey, 32UL );
-  ulong          lamports   = fd_ulong_load_8_fast( frame+0x30UL );
-  uchar          owner[32]; memcpy( owner, frame+0x40UL, 32UL );
-  _Bool          executable = !!frame[ 0x60UL ];
-  ulong          slot       = fd_ulong_load_8_fast( frame+0x80UL );
+  for( ulong acc_i=0UL; acc_i<acc_cnt; acc_i++ ) {
 
-  ulong val_sz = sizeof(fd_account_meta_t) + data_len;
-  FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
+    uchar const *  frame      = src;
+    ulong const    data_len   = fd_ulong_load_8_fast( frame+0x08UL );
+    uchar const *  pubkey     = frame+0x10UL;
+    fd_vinyl_key_t key[1];    fd_vinyl_key_init( key, pubkey, 32UL );
+    ulong          lamports   = fd_ulong_load_8_fast( frame+0x30UL );
+    uchar          owner[32]; memcpy( owner, frame+0x40UL, 32UL );
+    _Bool          executable = !!frame[ 0x60UL ];
+    ulong          slot       = fd_ulong_load_8_fast( frame+0x80UL );
 
-  ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
-  uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+    ulong src_sz = 0x88UL + data_len;
 
-  uchar * dst     = pair;
-  ulong   dst_rem = pair_sz;
+    ulong val_sz = sizeof(fd_account_meta_t) + data_len;
+    FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
-  FD_CRIT( dst_rem >= sizeof(fd_vinyl_bstream_phdr_t), "corruption detected" );
-  fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)dst;
-  phdr->ctl         = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
-  phdr->key         = *key;
-  phdr->info.val_sz = (uint)val_sz;
-  phdr->info.ul[1]  = slot;
+    ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
+    uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
 
-  dst     += sizeof(fd_vinyl_bstream_phdr_t);
-  dst_rem -= sizeof(fd_vinyl_bstream_phdr_t);
+    uchar * dst     = pair;
+    ulong   dst_rem = pair_sz;
 
-  ulong account_header_slot = phdr->info.ul[1];
+    FD_CRIT( dst_rem >= sizeof(fd_vinyl_bstream_phdr_t), "corruption detected" );
+    fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)dst;
+    phdr->ctl         = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
+    phdr->key         = *key;
+    phdr->info.val_sz = (uint)val_sz;
+    phdr->info.ul[1]  = slot;
 
-  fd_vinyl_meta_ele_t * ele = NULL;
-  if( ctx->full ) {  /* update index immediately */
-    ulong memo = fd_vinyl_key_memo( map->seed, &phdr->key );
-    ele = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
-    if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+    dst     += sizeof(fd_vinyl_bstream_phdr_t);
+    dst_rem -= sizeof(fd_vinyl_bstream_phdr_t);
 
-    if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
-      /* Drop current value if existing is newer */
-      ulong exist_slot = ele->phdr.info.ul[ 1 ];
-      if( exist_slot > account_header_slot ) {
-        return;
+    ulong account_header_slot = phdr->info.ul[1];
+
+    fd_vinyl_meta_ele_t * ele = NULL;
+    if( ctx->full ) {  /* update index immediately */
+      ulong memo = fd_vinyl_key_memo( map->seed, &phdr->key );
+      ele = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
+      if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+
+      if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
+        /* Drop current value if existing is newer */
+        ulong exist_slot = ele->phdr.info.ul[ 1 ];
+        if( exist_slot > account_header_slot ) {
+          src += fd_ulong_align_up( src_sz, 512UL);
+          continue;
+        }
       }
+
+      ele->memo      = memo;
+      ele->phdr.ctl  = phdr->ctl;
+      ele->phdr.key  = phdr->key;
+      ele->phdr.info = phdr->info;
+      ele->seq       = ULONG_MAX; /* later init */
+      ele->line_idx  = ULONG_MAX;
     }
 
-    ele->memo      = memo;
-    ele->phdr.ctl  = phdr->ctl;
-    ele->phdr.key  = phdr->key;
-    ele->phdr.info = phdr->info;
-    ele->seq       = ULONG_MAX; /* later init */
-    ele->line_idx  = ULONG_MAX;
+    FD_CRIT( dst_rem >= sizeof(fd_account_meta_t), "corruption detected" );
+    fd_account_meta_t * meta = (fd_account_meta_t *)dst;
+    memset( meta, 0, sizeof(fd_account_meta_t) ); /* bulk zero */
+    memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
+    meta->lamports   = lamports;
+    meta->slot       = slot;
+    meta->dlen       = (uint)data_len;
+    meta->executable = !!executable;
+
+    dst     += sizeof(fd_account_meta_t);
+    dst_rem -= sizeof(fd_account_meta_t);
+
+    FD_CRIT( dst_rem >= data_len, "corruption detected" );
+    fd_memcpy( dst, src+0x88UL, data_len );
+
+    src += fd_ulong_align_up( src_sz, 512UL);
+
+    dst     += data_len;
+    dst_rem -= data_len;
+
+    ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
+    if( ctx->full ) ele->seq = seq_after;
+
+    ctx->metrics.accounts_inserted++;
   }
-
-  FD_CRIT( dst_rem >= sizeof(fd_account_meta_t), "corruption detected" );
-  fd_account_meta_t * meta = (fd_account_meta_t *)dst;
-  memset( meta, 0, sizeof(fd_account_meta_t) ); /* bulk zero */
-  memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
-  meta->lamports   = lamports;
-  meta->slot       = slot;
-  meta->dlen       = (uint)data_len;
-  meta->executable = !!executable;
-
-  dst     += sizeof(fd_account_meta_t);
-  dst_rem -= sizeof(fd_account_meta_t);
-
-  FD_CRIT( dst_rem >= data_len, "corruption detected" );
-  fd_memcpy( dst, src+0x88UL, data_len );
-
-  dst     += data_len;
-  dst_rem -= data_len;
-
-  ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
-  if( ctx->full ) ele->seq = seq_after;
-
-  ctx->metrics.accounts_inserted++;
 }
 
 #endif
@@ -737,3 +757,5 @@ fd_snapwm_read_account_vinyl( fd_snapwm_tile_t *  ctx,
   }
   memcpy( data, mmio+seq_data, meta->dlen );
 }
+
+#undef FD_SNAPWM_IMPL_VERSION

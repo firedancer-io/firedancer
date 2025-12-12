@@ -151,8 +151,8 @@ fd_snapwm_vinyl_shutdown( fd_snapwm_tile_t * ctx );
 
 void
 fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx, 
-                                 ulong              raw_chunk,
-                                 ulong              raw_sz );
+                                 ulong              chunk,
+                                 ulong              acc_cnt );
 
 void
 fd_snapwm_read_account_vinyl( fd_snapwm_tile_t *  ctx,
@@ -169,9 +169,9 @@ FD_PROTOTYPES_BEGIN
 
 static inline int
 fd_snapwm_process_account( fd_snapwm_tile_t * ctx,
-                           ulong              raw_chunk,
-                           ulong              raw_sz ) {
-  fd_snapwm_process_account_vinyl( ctx, raw_chunk, raw_sz );
+                           ulong              chunk,
+                           ulong              acc_cnt ) {
+  fd_snapwm_process_account_vinyl( ctx, chunk, acc_cnt );
   return 0;
 }
 

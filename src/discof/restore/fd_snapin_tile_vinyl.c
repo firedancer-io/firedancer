@@ -23,23 +23,12 @@ fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
   (void)ctx; (void)topo; (void)tile; (void)io_mm_mem; (void)io_wd_mem;
 }
 
-static inline int
-hash_out_link_has_credit( fd_snapin_tile_t * ctx,
-                          ulong              cr_min ) {
-  ulong depth = ctx->stem->depths[ ctx->hash_out.idx ];
-  ulong seqp  = ctx->stem->seqs[ ctx->hash_out.idx ];
-  ulong seqc  = fd_fseq_query( ctx->hash_out_cons_fseq );
-  ulong diff  = seqp - seqc; /* wrap-around not supported (or expected) */
-  ulong avail = depth - diff;
-  return avail>=cr_min;
-}
-
 static inline void
 bstream_push_account( fd_snapin_tile_t * ctx ) {
   FD_CRIT( !ctx->vinyl_op.data_rem, "incomplete account store" );
   FD_CRIT( ctx->vinyl_op.pair,      "no store in progres"      );
 
-  fd_stem_publish( ctx->stem, ctx->hash_out.idx, FD_SNAPSHOT_MSG_DATA/*sig*/, ctx->hash_out.chunk, ctx->vinyl_op.pair_sz, 0UL, 0UL/*tsorig*/, 0UL/*tspub*/ );
+  fd_stem_publish( ctx->stem, ctx->hash_out.idx, FD_SNAPSHOT_MSG_DATA/*sig*/, ctx->hash_out.chunk, 1UL/*sz=acc_cnt*/, 0UL, 0UL/*tsorig*/, 0UL/*tspub*/ );
   ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, ctx->hash_out.mtu, ctx->hash_out.chunk0, ctx->hash_out.wmark );
 
   ctx->vinyl_op.pair     = NULL;
@@ -56,15 +45,11 @@ bstream_push_account( fd_snapin_tile_t * ctx ) {
 
 #if FD_SNAPIN_VINYL_IMPL_VERSION==0
 
-void
+int
 fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
                                         fd_ssparse_advance_result_t * result ) {
   FD_CRIT( !ctx->vinyl_op.dst_rem, "incomplete account store" );
   FD_CRIT( !ctx->vinyl_op.pair,    "incomplete account store" );
-
-  while( !hash_out_link_has_credit( ctx, 3+1/*cr_min*/ ) ) {
-    FD_SPIN_PAUSE();
-  }
 
   ulong val_sz = sizeof(fd_account_meta_t) + result->account_header.data_len;
   FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
@@ -109,20 +94,18 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
 
   if( !ctx->vinyl_op.data_rem ) {
     bstream_push_account( ctx );
+    return 1;
   }
+  return 0;
 }
 
 #elif FD_SNAPIN_VINYL_IMPL_VERSION==1
 
-void
+int
 fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
                                         fd_ssparse_advance_result_t * result ) {
   FD_CRIT( !ctx->vinyl_op.dst_rem, "incomplete account store" );
   FD_CRIT( !ctx->vinyl_op.pair,    "incomplete account store" );
-
-  while( !hash_out_link_has_credit( ctx, 3+1/*cr_min*/ ) ) {
-    FD_SPIN_PAUSE();
-  }
 
   ulong const data_len = result->account_header.data_len;
 
@@ -161,20 +144,18 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
 
   if( !ctx->vinyl_op.data_rem ) {
     bstream_push_account( ctx );
+    return 1;
   }
+  return 0;
 }
 
 #elif FD_SNAPIN_VINYL_IMPL_VERSION==2
 
-void
+int
 fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
                                         fd_ssparse_advance_result_t * result ) {
   FD_CRIT( !ctx->vinyl_op.dst_rem, "incomplete account store" );
   FD_CRIT( !ctx->vinyl_op.pair,    "incomplete account store" );
-
-  while( !hash_out_link_has_credit( ctx, 3+1/*cr_min*/ ) ) {
-    FD_SPIN_PAUSE();
-  }
 
   ulong const data_len = result->account_header.data_len;
 
@@ -200,17 +181,19 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
 
   if( !ctx->vinyl_op.data_rem ) {
     bstream_push_account( ctx );
+    return 1;
   }
+  return 0;
 }
 
 #endif
 
 /* fd_snapin_process_account_data_vinyl continues a bstream write (slow) */
 
-void
+int
 fd_snapin_process_account_data_vinyl( fd_snapin_tile_t *            ctx,
                                       fd_ssparse_advance_result_t * result ) {
-  if( FD_UNLIKELY( !ctx->vinyl_op.pair ) ) return; /* ignored account */
+  if( FD_UNLIKELY( !ctx->vinyl_op.pair ) ) return 0; /* ignored account */
 
   ulong chunk_sz = result->account_data.data_sz;
   if( FD_LIKELY( chunk_sz ) ) {
@@ -223,7 +206,9 @@ fd_snapin_process_account_data_vinyl( fd_snapin_tile_t *            ctx,
   }
   if( !ctx->vinyl_op.data_rem ) {  /* finish store */
     bstream_push_account( ctx );
+    return 1;
   }
+  return 0;
 }
 
 /* fd_snapin_process_account_batch_vinyl inserts a batch of unfragmented
@@ -234,13 +219,11 @@ fd_snapin_process_account_data_vinyl( fd_snapin_tile_t *            ctx,
 
 #if FD_SNAPIN_VINYL_IMPL_VERSION==0
 
-void
+int
 fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
                                        fd_ssparse_advance_result_t * result ) {
 
-  while( !hash_out_link_has_credit( ctx, 3+FD_SSPARSE_ACC_BATCH_MAX/*cr_min*/ ) ) {
-    FD_SPIN_PAUSE();
-  }
+  uchar * pair = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
 
   for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
 
@@ -257,7 +240,6 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
     ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
     FD_TEST( pair_sz<=ctx->hash_out.mtu );
-    uchar * pair = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
 
     uchar * dst     = pair;
     ulong   dst_rem = pair_sz;
@@ -290,22 +272,22 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     dst     += data_len;
     dst_rem -= data_len;
 
-    fd_stem_publish( ctx->stem, ctx->hash_out.idx, FD_SNAPSHOT_MSG_DATA/*sig*/, ctx->hash_out.chunk, pair_sz, 0UL, 0UL/*tsorig*/, 0UL/*tspub*/ );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, ctx->hash_out.mtu, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    pair += pair_sz;
 
     ctx->metrics.accounts_inserted++;
   }
+  fd_stem_publish( ctx->stem, ctx->hash_out.idx, FD_SNAPSHOT_MSG_DATA/*sig*/, ctx->hash_out.chunk, FD_SSPARSE_ACC_BATCH_MAX/*sz=acc_cnt*/, 0UL, 0UL/*tsorig*/, 0UL/*tspub*/ );
+  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, ctx->hash_out.mtu, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+  return 1;
 }
 
 #elif FD_SNAPIN_VINYL_IMPL_VERSION==1
 
-void
+int
 fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
                                        fd_ssparse_advance_result_t * result ) {
 
-  while( !hash_out_link_has_credit( ctx, 3+FD_SSPARSE_ACC_BATCH_MAX/*cr_min*/ ) ) {
-    FD_SPIN_PAUSE();
-  }
+  uchar * out = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
 
   for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
 
@@ -318,9 +300,8 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
     ulong const hdr_sz   = 0x88UL;
     ulong const out_sz = hdr_sz + data_len;
-    FD_TEST( out_sz<=ctx->hash_out.mtu );
+    FD_TEST( out_sz<=(ctx->hash_out.mtu/FD_SSPARSE_ACC_BATCH_MAX) );
 
-    uchar * out = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
     uchar * dst = out;
 
     fd_ssparse_advance_result_t res;
@@ -347,23 +328,22 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
     fd_memcpy( dst, frame+hdr_sz, data_len );
 
-    fd_stem_publish( ctx->stem, ctx->hash_out.idx, FD_SNAPSHOT_MSG_DATA/*sig*/, ctx->hash_out.chunk, out_sz, 0UL, 0UL/*tsorig*/, 0UL/*tspub*/ );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, ctx->hash_out.mtu, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    out += fd_ulong_align_up( out_sz, 512UL);
 
     ctx->metrics.accounts_inserted++;
   }
+  fd_stem_publish( ctx->stem, ctx->hash_out.idx, FD_SNAPSHOT_MSG_DATA/*sig*/, ctx->hash_out.chunk, FD_SSPARSE_ACC_BATCH_MAX/*sz=acc_cnt*/, 0UL, 0UL/*tsorig*/, 0UL/*tspub*/ );
+  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, ctx->hash_out.mtu, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+  return 1;
 }
 
 #elif FD_SNAPIN_VINYL_IMPL_VERSION==2
 
-void
+int
 fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
                                        fd_ssparse_advance_result_t * result ) {
 
-
-  while( !hash_out_link_has_credit( ctx, 3+FD_SSPARSE_ACC_BATCH_MAX/*cr_min*/ ) ) {
-    FD_SPIN_PAUSE();
-  }
+  uchar * out = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
 
   for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
 
@@ -372,19 +352,20 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
     ulong const hdr_sz   = 0x88UL;
     ulong const out_sz = hdr_sz + data_len;
-    FD_TEST( out_sz<=ctx->hash_out.mtu );
+    FD_TEST( out_sz<=(ctx->hash_out.mtu/FD_SSPARSE_ACC_BATCH_MAX) );
 
-    uchar * out = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
     uchar * dst = out;
 
     fd_memcpy( dst, frame, out_sz );
     fd_memcpy( dst+0x80UL, &result->account_batch.slot, 0x08UL );
 
-    fd_stem_publish( ctx->stem, ctx->hash_out.idx, FD_SNAPSHOT_MSG_DATA/*sig*/, ctx->hash_out.chunk, out_sz, 0UL, 0UL/*tsorig*/, 0UL/*tspub*/ );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, ctx->hash_out.mtu, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    out += fd_ulong_align_up( out_sz, 512UL);
 
     ctx->metrics.accounts_inserted++;
   }
+  fd_stem_publish( ctx->stem, ctx->hash_out.idx, FD_SNAPSHOT_MSG_DATA/*sig*/, ctx->hash_out.chunk, FD_SSPARSE_ACC_BATCH_MAX/*sz=acc_cnt*/, 0UL, 0UL/*tsorig*/, 0UL/*tspub*/ );
+  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, ctx->hash_out.mtu, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+  return 1;
 }
 
 #endif
@@ -406,3 +387,5 @@ fd_snapin_read_account_vinyl( fd_snapin_tile_t *  ctx,
   (void)data;
   (void)data_max;
 }
+
+#undef FD_SNAPIN_VINYL_IMPL_VERSION

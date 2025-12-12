@@ -74,7 +74,7 @@ transition_malformed( fd_snapwm_tile_t *  ctx,
 static int
 handle_data_frag( fd_snapwm_tile_t *  ctx,
                   ulong               chunk,
-                  ulong               sz,
+                  ulong               acc_cnt,
                   fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
     transition_malformed( ctx, stem );
@@ -89,9 +89,9 @@ handle_data_frag( fd_snapwm_tile_t *  ctx,
     FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
   }
 
-  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
+  // FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
 
-  fd_snapwm_process_account( ctx, chunk, sz );
+  fd_snapwm_process_account( ctx, chunk, acc_cnt );
 
   return 0;
 }
@@ -100,7 +100,6 @@ static void
 handle_control_frag( fd_snapwm_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig ) {
-  FD_LOG_WARNING(( "*** snapwm received sig %lu", sig ));                      
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
@@ -187,7 +186,7 @@ returnable_frag( fd_snapwm_tile_t *  ctx,
 
   /* TODO also support FD_SNAPSHOT_HASH_MSG_EXPECTED */
   ctx->stem = stem;
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz/*acc_cnt*/, stem );
   else                                           handle_control_frag( ctx, stem, sig );
   ctx->stem = NULL;
 

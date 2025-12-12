@@ -153,10 +153,10 @@ snapshot_load_topo( config_t * config,
     } else {
       /* TODO pending */
     }
-    fd_topob_link( topo, "snapin_wm", "snapin_wm",     64UL,   16UL<<20,                        1UL );
+    fd_topob_link( topo, "snapin_wm", "snapin_wm",     16UL,   128UL<<20,                       1UL ); /* FD_SSPARSE_ACC_BATCH_MAX * 16<<20 */
     fd_topo_link_t * snapwm_wh =
-    fd_topob_link( topo, "snapwm_wh", "snapwm_wr",     8UL,    16UL<<20,                        1UL );
-    fd_topob_link( topo, "snapwh_wr", "snapwm_wr",     8UL,    0UL,                             1UL );
+    fd_topob_link( topo, "snapwm_wh", "snapwm_wr",     16UL,    16UL<<20,                       1UL );
+    fd_topob_link( topo, "snapwh_wr", "snapwm_wr",     16UL,    0UL,                            1UL );
     fd_pod_insertf_ulong( topo->props, 8UL, "obj.%lu.app_sz",  snapwm_wh->dcache_obj_id );
   } else {
     if( FD_LIKELY( snapshot_lthash_disabled ) ) {
