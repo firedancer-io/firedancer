@@ -248,7 +248,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );
   CFG_POP      ( cstr,   capture.dump_proto_dir                           );
-  CFG_POP      ( bool,   capture.dump_elf_to_pb                           );
   CFG_POP      ( bool,   capture.dump_syscall_to_pb                       );
   CFG_POP      ( bool,   capture.dump_instr_to_pb                         );
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );

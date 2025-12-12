@@ -209,12 +209,6 @@ void
 fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
                                 char const *    fn_name );
 
-void
-fd_dump_elf_to_protobuf( fd_runtime_t *      runtime,
-                         fd_bank_t *         bank,
-                         fd_txn_in_t const * txn_in,
-                         fd_txn_account_t *  program_acc );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_fd_dump_pb_h */

@@ -496,7 +496,6 @@ struct fd_config {
     ulong capture_start_slot;
     char  dump_proto_dir[ PATH_MAX ];
     char  solcap_capture[ PATH_MAX ];
-    int   dump_elf_to_pb;
     int   dump_syscall_to_pb;
     int   dump_instr_to_pb;
     int   dump_txn_to_pb;
