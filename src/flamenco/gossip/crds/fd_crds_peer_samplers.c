@@ -172,7 +172,6 @@ wpeer_sampler_rem( wpeer_sampler_t * ps,
 ulong
 wpeer_sampler_peer_score( fd_crds_entry_t * peer,
                           long              now ) {
-  if( FD_UNLIKELY( !peer->contact_info.is_active ) ) return 0;
   ulong score  = BASE_WEIGHT;
         score += peer->stake;
   if( FD_UNLIKELY( peer->wallclock_nanos<now-60*1000L*1000L*1000L ) ) score/=100;
