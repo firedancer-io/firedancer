@@ -200,6 +200,7 @@ fd_stake_delegations_footprint( ulong max_stake_accounts );
 
 void *
 fd_stake_delegations_new( void * mem,
+                          ulong  seed,
                           ulong  max_stake_accounts,
                           int    leave_tombstones );
 
@@ -222,6 +223,12 @@ fd_stake_delegations_leave( fd_stake_delegations_t * self );
 
 void *
 fd_stake_delegations_delete( void * mem );
+
+/* fd_stake_delegations_init resets the state of a valid join of a
+   stake delegations struct. */
+
+void
+fd_stake_delegations_init( fd_stake_delegations_t * stake_delegations );
 
 /* fd_stake_delegations_update will either insert a new stake delegation
    if the pubkey doesn't exist yet, or it will update the stake

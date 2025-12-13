@@ -1449,7 +1449,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
     /* FIXME Why is there a previous blockhash at genesis?  Why is the
              last_hash field an option type in Agave, if even the first
              real block has a previous blockhash? */
-    /* TODO: Use a real seed here. */
     fd_blockhashes_t *    bhq  = fd_blockhashes_init( fd_bank_block_hash_queue_modify( bank ), 0UL );
     fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, genesis_hash );
     info->fee_calculator.lamports_per_signature = 0UL;
@@ -1478,7 +1477,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
     FD_LOG_CRIT(( "Failed to join and new a stake delegations" ));
   }
 
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   if( FD_UNLIKELY( !vote_states ) ) {
     FD_LOG_CRIT(( "Failed to join and new a vote states" ));
   }
