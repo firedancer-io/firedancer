@@ -1316,7 +1316,7 @@ unprivileged_init( fd_topo_t *      topo,
                             FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX ) );
   void * _selector        = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
 
-  fd_memcpy( &ctx->config, &tile->snapct, sizeof(ctx->config) );
+  ctx->config = tile->snapct;
   ctx->gossip_enabled   = gossip_enabled( tile );
   ctx->download_enabled = download_enabled( tile );
 
