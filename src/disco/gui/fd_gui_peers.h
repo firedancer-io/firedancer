@@ -357,6 +357,9 @@ struct fd_gui_peers_ctx {
     fd_gui_ipinfo_node_t * nodes;
     fd_gui_country_code_t country_code[ 512 ]; /* ISO 3166-1 alpha-2 country codes */
   } ipinfo;
+
+  ulong published_peers[ FD_CONTACT_INFO_TABLE_SIZE ];
+  ulong published_peers_sz;
 };
 
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;

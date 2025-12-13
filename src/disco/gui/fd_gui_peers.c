@@ -162,6 +162,8 @@ fd_gui_peers_new( void *             shmem,
     ctx->open_ws_conn_cnt  = 0UL;
     ctx->active_ws_conn_id = ULONG_MAX;
 
+    ctx->published_peers_sz = 0UL;
+
     ctx->slot_voted = ULONG_MAX;
 
     ctx->next_client_nanos              = now;
@@ -612,9 +614,9 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           fd_gui_peers_live_table_idx_insert        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
           fd_gui_peers_node_sock_map_idx_insert     ( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
 
-          /* broadcast update to WebSocket clients */
-          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ update->contact_info.idx }, 1UL );
-          fd_http_server_ws_broadcast( peers->http );
+          // /* broadcast update to WebSocket clients */
+          // fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ update->contact_info.idx }, 1UL );
+          // fd_http_server_ws_broadcast( peers->http );
         } else {
           FD_TEST( !fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, &update->contact_info.contact_info->pubkey, NULL, peers->contact_info_table ) );
 #if LOGGING
@@ -655,9 +657,16 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           fd_gui_printf_peers_view_resize( peers, fd_gui_peers_live_table_ele_cnt( peers->live_table ) );
           fd_http_server_ws_broadcast( peers->http );
 
-          /* broadcast update to WebSocket clients */
-          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_ADD }, (ulong[]){ update->contact_info.idx }, 1UL );
-          fd_http_server_ws_broadcast( peers->http );
+          ulong pubkey_hash = fd_hash( 42UL, update->contact_info.contact_info->pubkey.uc, sizeof(fd_pubkey_t) );
+          ulong pubkey_idx = fd_sort_up_ulong_split( peers->published_peers, peers->published_peers_sz, pubkey_hash );
+          if( FD_UNLIKELY( (pubkey_idx>=peers->published_peers_sz || pubkey_hash!=peers->published_peers[ pubkey_idx ]) && peers->published_peers_sz<FD_CONTACT_INFO_TABLE_SIZE ) ) {
+            peers->published_peers[ peers->published_peers_sz++ ] = pubkey_hash;
+            fd_sort_up_ulong_insert( peers->published_peers, peers->published_peers_sz );
+
+            /* broadcast update to WebSocket clients, only one time */
+            fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_ADD }, (ulong[]){ update->contact_info.idx }, 1UL );
+            fd_http_server_ws_broadcast( peers->http );
+          }
         }
         break;
       }
@@ -694,9 +703,9 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
         fd_gui_printf_peers_view_resize( peers, fd_gui_peers_live_table_ele_cnt( peers->live_table ) );
         fd_http_server_ws_broadcast( peers->http );
 
-        /* broadcast update to WebSocket clients */
-        fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_DELETE }, (ulong[]){ update->contact_info_remove.idx }, 1UL );
-        fd_http_server_ws_broadcast( peers->http );
+        // /* broadcast update to WebSocket clients */
+        // fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_DELETE }, (ulong[]){ update->contact_info_remove.idx }, 1UL );
+        // fd_http_server_ws_broadcast( peers->http );
         break;
       }
       default: break;
@@ -788,6 +797,10 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
     if( FD_UNLIKELY( peer_idx==ULONG_MAX ) ) continue; /* peer not on gossip */
 
     fd_gui_peers_node_t * peer = peers->contact_info_table + peer_idx;
+
+    /* Shard vote updates over a 10 second period. This prevents a huge
+       spike in stake updates the first time during startup. */
+    if( FD_LIKELY( (((ulong)now % (ulong)(10UL*1e9)) / (ulong)1e9) != (peer_idx % 10) ) ) continue;
 
     /* TODO: we only publish updates when stake changes, otherwise we'd
        have to republish for every peer every slot, which ends up being
