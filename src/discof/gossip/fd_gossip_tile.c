@@ -198,7 +198,10 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_stakes( fd_gossip_tile_ctx_t *        ctx,
                fd_stake_weight_msg_t const * msg ) {
-  ulong stakes_cnt = compute_id_weights_from_vote_weights( ctx->stake_weights_converted, msg->weights, msg->staked_cnt );
+  ulong staked_cnt = msg->staked_cnt;
+  if( FD_UNLIKELY( staked_cnt>MAX_STAKED_LEADERS ) )
+    FD_LOG_ERR(( "stake weight message with %lu>%lu stakes", msg->staked_cnt, MAX_STAKED_LEADERS ));
+  ulong stakes_cnt = compute_id_weights_from_vote_weights( ctx->stake_weights_converted, msg->weights, staked_cnt );
   fd_gossip_stakes_update( ctx->gossip, ctx->stake_weights_converted, stakes_cnt );
 }
 
