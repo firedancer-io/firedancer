@@ -54,7 +54,8 @@ metric introduced.
 <tile name="net">
     <counter name="RxPktCnt" summary="Packet receive count." />
     <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)." />
-    <counter name="RxUnderszCnt" summary="Number of incoming packets dropped due to being too small." />
+    <counter name="RxInvalidIp4Cnt" summary="Number of incoming packets dropped due to invalid IP4 header." />
+    <counter name="RxInvalidUdpCnt" summary="Number of incoming packets dropped due to invalid UDP header." />
     <counter name="RxFillBlockedCnt" summary="Number of incoming packets dropped due to fill ring being full." />
     <counter name="RxBackpressureCnt" summary="Number of incoming packets dropped due to backpressure." />
     <gauge name="RxBusyCnt" summary="Number of receive buffers currently busy." />

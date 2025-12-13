@@ -82,6 +82,29 @@ fd_ip4_udp_check( uint                 ip4_saddr,
   return (ushort)~ul;
 }
 
+/* fd_udp_hdr_validate validates a UDP header.
+
+   hdr points to the UDP header.
+   udp_sz is the number of bytes from beginning of UDP header to end of packet.
+
+   Returns FD_NET_SUCCESS if valid, or FD_NET_ERR_INVAL_UDP_HDR if the header is invalid:
+   - net_len and/or udp_sz is impossibly small
+   - net_len is larger than udp_sz */
+
+FD_FN_PURE static inline int
+fd_udp_hdr_validate( fd_udp_hdr_t const * hdr,
+                     ulong                udp_sz ) {
+  ushort net_len = fd_ushort_bswap( hdr->net_len );
+  /* Check for the following cases:
+     1. specified net_len is impossibly small
+     2. Specified net_len is larger than the remaining packet size
+     3. 1) + 2) imply remaining packet size is sufficient */
+  if( FD_UNLIKELY( (net_len<sizeof(fd_udp_hdr_t)) | (net_len>udp_sz) ) )
+    return FD_NET_ERR_INVAL_UDP_HDR;
+
+  return FD_NET_SUCCESS;
+}
+
 /* fd_udp_hdr_bswap reverses the endianness of all fields in the UDP
    header. */
 
