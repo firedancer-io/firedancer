@@ -38,6 +38,9 @@ $(call add-objs,fd_compute_budget_details,fd_flamenco)
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
 
+$(call add-hdrs,fd_genesis_parse.h)
+$(call add-objs,fd_genesis_parse,fd_flamenco)
+
 $(call add-hdrs,fd_txn_account.h)
 $(call add-objs,fd_txn_account,fd_flamenco)
 ifdef FD_HAS_INT128
