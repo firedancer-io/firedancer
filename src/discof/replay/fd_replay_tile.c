@@ -88,7 +88,7 @@
 
 #define DEBUG_LOGGING 0
 
-/* The first bank that that the replay tile produces either for genesis
+/* The first bank that the replay tile produces either for genesis
    or the snapshot boot will always be at bank index 0. */
 #define FD_REPLAY_BOOT_BANK_IDX (0UL)
 
