@@ -488,3 +488,13 @@ void
 fd_txn_account_set_mutable( fd_txn_account_t * acct ) {
   acct->is_mutable = 1;
 }
+
+fd_solana_account_meta_t
+fd_txn_account_get_solana_meta( fd_txn_account_t const * acct ) {
+  fd_solana_account_meta_t meta = {
+    .lamports   = acct->meta->lamports,
+    .executable = acct->meta->executable,
+  };
+  memcpy( meta.owner, acct->meta->owner, sizeof(fd_pubkey_t) );
+  return meta;
+}
