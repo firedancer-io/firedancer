@@ -55,14 +55,14 @@ jobs:
 
 
       - name: upload so artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           path: ${{ env.OBJ_DIR }}/lib/libfd_exec_sol_compat*.so
           name: libfd_exec_sol_compat
           retention-days: 14
 
       - name: upload .so with cov
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           path: ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat* # includes ${{ env.COV_OBJ_DIR}}/lib/libfd_exec_sol_compat_src/
           name: libfd_exec_sol_compat_cov
@@ -108,7 +108,7 @@ jobs:
           ls ${{ matrix.artifact_dir }}/fuzz-test
           ls ${{ matrix.artifact_dir }}/lib
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         name: Zip and upload to GitHub Artifacts
         id: artifact-zip-m1
         with:
