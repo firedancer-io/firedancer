@@ -1510,22 +1510,6 @@ typedef struct fd_addrlut_instruction fd_addrlut_instruction_t;
 
 FD_PROTOTYPES_BEGIN
 
-static inline void fd_hash_new( fd_hash_t * self ) { (void)self; }
-int fd_hash_encode( fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_hash_walk( void * w, fd_hash_t const * self, fd_types_walk_fn_t fun, const char * name, uint level, uint varint );
-static inline ulong fd_hash_size( fd_hash_t const * self ) { (void)self; return sizeof(fd_hash_t); }
-static inline ulong fd_hash_align( void ) { return alignof(fd_hash_t); }
-int fd_hash_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_hash_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_signature_new( fd_signature_t * self ) { (void)self; }
-int fd_signature_encode( fd_signature_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_signature_walk( void * w, fd_signature_t const * self, fd_types_walk_fn_t fun, const char * name, uint level, uint varint );
-static inline ulong fd_signature_size( fd_signature_t const * self ) { (void)self; return sizeof(fd_signature_t); }
-static inline ulong fd_signature_align( void ) { return alignof(fd_signature_t); }
-int fd_signature_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_signature_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 void fd_feature_new( fd_feature_t * self );
 int fd_feature_encode( fd_feature_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_feature_walk( void * w, fd_feature_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );

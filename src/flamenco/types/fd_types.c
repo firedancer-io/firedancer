@@ -8,60 +8,6 @@
 #endif
 #define SOURCE_fd_src_flamenco_types_fd_types_c
 #include "fd_types_custom.h"
-int fd_hash_encode( fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  return fd_bincode_bytes_encode( (uchar const *)self, sizeof(fd_hash_t), ctx );
-}
-void fd_hash_walk( void * w, fd_hash_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
-  fun( w, (uchar const *)self, name, FD_FLAMENCO_TYPE_HASH256, name, level, varint );
-}
-static int fd_hash_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return fd_bincode_bytes_decode_footprint( sizeof(fd_hash_t), ctx );
-}
-int fd_hash_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_hash_t);
-  void const * start_data = ctx->data;
-  int err = fd_hash_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_hash_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bincode_bytes_decode_unsafe( struct_mem, sizeof(fd_hash_t), ctx );
-  return;
-}
-void * fd_hash_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bincode_bytes_decode_unsafe( mem, sizeof(fd_hash_t), ctx );
-  return mem;
-}
-
-int fd_signature_encode( fd_signature_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  return fd_bincode_bytes_encode( (uchar const *)self, sizeof(fd_signature_t), ctx );
-}
-void fd_signature_walk( void * w, fd_signature_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
-  fun( w, (uchar const *)self, name, FD_FLAMENCO_TYPE_SIG512, name, level, varint );
-}
-static int fd_signature_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return fd_bincode_bytes_decode_footprint( sizeof(fd_signature_t), ctx );
-}
-int fd_signature_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_signature_t);
-  void const * start_data = ctx->data;
-  int err = fd_signature_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_signature_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bincode_bytes_decode_unsafe( struct_mem, sizeof(fd_signature_t), ctx );
-  return;
-}
-void * fd_signature_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bincode_bytes_decode_unsafe( mem, sizeof(fd_signature_t), ctx );
-  return mem;
-}
-
 int fd_feature_encode( fd_feature_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_bool_encode( self->has_activated_at, ctx );

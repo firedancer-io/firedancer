@@ -23,13 +23,6 @@
       "agave": "solana_pubkey::Pubkey"
     },
     {
-      "name": "signature",
-      "type": "opaque",
-      "walktype": "FD_FLAMENCO_TYPE_SIG512",
-      "size": "64",
-      "agave": "solana_signature::Signature"
-    },
-    {
       "name": "feature",
       "type": "struct",
       "fields": [

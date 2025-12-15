@@ -89,10 +89,7 @@ for t,t2 in [("bool",1),
              ("double",8),
              ("uint128",16),
              ("pubkey",32),
-             ("hash",32),
-             ("uchar[32]",32),
-             ("signature",64),
-             ("uchar[2048]",2048),]:
+             ("hash",32)]:
     fixedsizetypes[t] = t2
 
 # Set of types that do not contain nested local pointers
@@ -110,11 +107,7 @@ flattypes = {
   "double",
   "uint128",
   "pubkey",
-  "hash",
-  "uchar[32]",
-  "signature",
-  "uchar[2048]",
-  "flamenco_txn" # custom type
+  "hash"
 }
 
 # Types that are fixed size and valid for all possible bit patterns
@@ -129,9 +122,6 @@ fuzzytypes = {
     "uint128",
     "pubkey",
     "hash",
-    "uchar[32]",
-    "signature",
-    "uchar[2048]",
 }
 
 # Base class for all type nodes in the type system
@@ -199,7 +189,6 @@ class PrimitiveMember(TypeNode):
     Handles special cases like:
     - Variable-length integers (varint encoding)
     - String types (char*)
-    - Fixed-size arrays (uchar[32], etc.)
 
     Attributes:
         type: The primitive type name (e.g., "ulong", "char*")
@@ -236,15 +225,12 @@ class PrimitiveMember(TypeNode):
     emitMemberMap = {
         "char" :      lambda n: print(f'  char {n};',      file=header),
         "char*" :     lambda n: print(f'  char* {n};',     file=header),
-        "char[32]" :  lambda n: print(f'  char {n}[32];',  file=header),
         "double" :    lambda n: print(f'  double {n};',    file=header),
         "long" :      lambda n: print(f'  long {n};',      file=header),
         "uint" :      lambda n: print(f'  uint {n};',      file=header),
         "uint128" :   lambda n: print(f'  fd_w_u128_t {n};',   file=header),
         "bool" :      lambda n: print(f'  uchar {n};',     file=header),  # bool stored as uchar
         "uchar" :     lambda n: print(f'  uchar {n};',     file=header),
-        "uchar[32]" : lambda n: print(f'  uchar {n}[32];', file=header),
-        "uchar[2048]":lambda n: print(f'  uchar {n}[2048];', file=header),
         "ulong" :     lambda n: print(f'  ulong {n};',     file=header),
         "ushort" :    lambda n: print(f'  ushort {n};',    file=header)
     }
@@ -305,15 +291,12 @@ class PrimitiveMember(TypeNode):
     emitDecodeFootprintMap = {
         "char" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint8_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "char*" :     lambda n, varint, indent: PrimitiveMember.string_decode_footprint(n, varint, indent),
-        "char[32]" :  lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 32, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "double" :    lambda n, varint, indent: print(f'{indent}  err = fd_bincode_double_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "long" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint64_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uint" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint32_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uint128" :   lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint128_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "bool" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bool_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint8_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uchar[32]" : lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 32, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uchar[2048]":lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 2048, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "ulong" :     lambda n, varint, indent: PrimitiveMember.ulong_decode_footprint(n, varint, indent),
         "ushort" :    lambda n, varint, indent: PrimitiveMember.ushort_decode_footprint(n, varint, indent),
     }
@@ -345,15 +328,12 @@ class PrimitiveMember(TypeNode):
     emitDecodeMap = {
         "char" :      lambda n, varint, indent: print(f'{indent}  fd_bincode_uint8_decode_unsafe( (uchar *) &self->{n}, ctx );', file=body),
         "char*" :     lambda n, varint, indent: PrimitiveMember.string_decode_unsafe(n, varint, indent),
-        "char[32]" :  lambda n, varint, indent: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
         "double" :    lambda n, varint, indent: print(f'{indent}  fd_bincode_double_decode_unsafe( &self->{n}, ctx );', file=body),
         "long" :      lambda n, varint, indent: print(f'{indent}  fd_bincode_uint64_decode_unsafe( (ulong *) &self->{n}, ctx );', file=body),
         "uint" :      lambda n, varint, indent: print(f'{indent}  fd_bincode_uint32_decode_unsafe( &self->{n}, ctx );', file=body),
         "uint128" :   lambda n, varint, indent: print(f'{indent}  fd_bincode_uint128_decode_unsafe( &self->{n}, ctx );', file=body),
         "bool" :      lambda n, varint, indent: print(f'{indent}  fd_bincode_bool_decode_unsafe( &self->{n}, ctx );', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  fd_bincode_uint8_decode_unsafe( &self->{n}, ctx );', file=body),
-        "uchar[32]" : lambda n, varint, indent: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
-        "uchar[2048]":lambda n, varint, indent: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
         "ulong" :     lambda n, varint, indent: PrimitiveMember.ulong_decode_unsafe(n, varint, indent),
         "ushort" :    lambda n, varint, indent: PrimitiveMember.ushort_decode_unsafe(n, varint, indent),
     }
@@ -391,15 +371,12 @@ class PrimitiveMember(TypeNode):
     emitEncodeMap = {
         "char" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint8_encode( (uchar)(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "char*" :     lambda n, varint, indent: PrimitiveMember.string_encode(n, varint, indent),
-        "char[32]" :  lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_encode( &self->{n}[0], sizeof(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "double" :    lambda n, varint, indent: print(f'{indent}  err = fd_bincode_double_encode( self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "long" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint64_encode( (ulong)self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uint" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint32_encode( self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uint128" :   lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint128_encode( self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "bool" :      lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bool_encode( (uchar)(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  err = fd_bincode_uint8_encode( (uchar)(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uchar[32]" : lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uchar[2048]" : lambda n, varint, indent: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "ulong" :     lambda n, varint, indent: PrimitiveMember.ulong_encode(n, varint, indent),
         "ushort" :    lambda n, varint, indent: PrimitiveMember.ushort_encode(n, varint, indent),
     }
@@ -416,15 +393,12 @@ class PrimitiveMember(TypeNode):
     emitSizeMap = {
         "char" :      lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char);', file=body),
         "char*" :     lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(ulong) + strlen(self->{inner}{n});', file=body),
-        "char[32]" :  lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char) * 32;', file=body),
         "double" :    lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(double);', file=body),
         "long" :      lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(long);', file=body),
         "uint" :      lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(uint);', file=body),
         "uint128" :   lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(uint128);', file=body),
         "bool" :      lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char);', file=body),
         "uchar" :     lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char);', file=body),
-        "uchar[32]" : lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char) * 32;', file=body),
-        "uchar[2048]":lambda n, varint, inner, indent: print(f'{indent}  size += sizeof(char) * 2048;', file=body),
         "ulong" :     lambda n, varint, inner, indent: print(f'{indent}  size += { ("fd_bincode_varint_size( self->" + n + " );") if varint else "sizeof(ulong);" }', file=body),
         "ushort" :    lambda n, varint, inner, indent: print(f'{indent}  size += { ("fd_bincode_compact_u16_size( &self->" + n + " );") if varint else "sizeof(ushort);" }', file=body),
     }
@@ -447,8 +421,6 @@ class PrimitiveMember(TypeNode):
         "uint128" :   lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level, {1 if varint else 0}  );', file=body),
         "bool" :      lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_BOOL, "bool", level, {1 if varint else 0}  );', file=body),
         "uchar" :     lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, {1 if varint else 0}  );', file=body),
-        "uchar[32]" : lambda n, varint, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level, {1 if varint else 0}  );', file=body),
-        "uchar[2048]":lambda n, varint, inner: print(f'  fun( w, self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level, {1 if varint else 0}  );', file=body),
         "ulong" :     lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level, {1 if varint else 0}  );', file=body),
         "ushort" :    lambda n, varint, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level, {1 if varint else 0}  );', file=body)
     }
@@ -2199,8 +2171,6 @@ class OptionMember(TypeNode):
         "uint" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT, "uint", level, 0 );', file=body),
         "uint128" :   lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level, 0 );', file=body),
         "uchar" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );', file=body),
-        "uchar[32]" : lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level, 0 );', file=body),
-        "uchar[2048]":lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level, 0 );', file=body),
         "ulong" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0 );', file=body),
         "ushort" :    lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level, 0 );', file=body),
     }
@@ -2415,91 +2385,11 @@ def parseMember(namespace, json):
     return c(namespace, json)
 
 
-class OpaqueType(TypeNode):
-    def __init__(self, json):
-        super().__init__(json)
-        self.fullname = f'{namespace}_{json["name"]}'
-        self.walktype = (json["walktype"] if "walktype" in json else None)
-        self.size = (int(json["size"]) if "size" in json else None)
-        self.emitprotos = (bool(json["emitprotos"]) if "emitprotos" in json else True)
-        # All opaque types are flattypes
-        flattypes.add( self.name)
-
-    def emitHeader(self):
-        pass
-
-    def isFlat(self):
-        return True
-
-    def isFixedSize(self):
-        return self.size is not None
-
-    def fixedSize(self):
-        return self.size
-
-    def emitPrototypes(self):
-        if not self.emitprotos:
-            return
-        n = self.fullname
-        print(f"static inline void {n}_new( {n}_t * self ) {{ (void)self; }}", file=header)
-        print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char * name, uint level, uint varint );", file=header)
-        print(f"static inline ulong {n}_size( {n}_t const * self ) {{ (void)self; return sizeof({n}_t); }}", file=header)
-        print(f'static inline ulong {n}_align( void ) {{ return alignof({n}_t); }}', file=header)
-        print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
-        print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
-        print("", file=header)
-
-    def emitImpls(self):
-        if not self.emitprotos:
-            return
-        n = self.fullname
-        print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
-        print(f'  return fd_bincode_bytes_encode( (uchar const *)self, sizeof({n}_t), ctx );', file=body)
-        print("}", file=body)
-
-        if self.walktype is not None:
-            print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {{", file=body)
-            print(f'  fun( w, (uchar const *)self, name, {self.walktype}, name, level, varint );', file=body)
-            print("}", file=body)
-
-        print(f'static int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
-        print(f'  if( ctx->data>=ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
-        print(f'  return fd_bincode_bytes_decode_footprint( sizeof({n}_t), ctx );', file=body)
-        print(f'}}', file=body)
-
-        print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
-        print(f'  *total_sz += sizeof({n}_t);', file=body)
-        print(f'  void const * start_data = ctx->data;', file=body)
-        print(f'  int err = {n}_decode_footprint_inner( ctx, total_sz );', file=body)
-        print(f'  if( ctx->data>ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
-        print(f'  ctx->data = start_data;', file=body)
-        print(f'  return err;', file=body)
-        print(f'}}', file=body)
-
-        print(f'static void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  fd_bincode_bytes_decode_unsafe( struct_mem, sizeof({n}_t), ctx );', file=body)
-        print(f'  return;', file=body)
-        print(f'}}', file=body)
-
-        print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  fd_bincode_bytes_decode_unsafe( mem, sizeof({n}_t), ctx );', file=body)
-        print(f'  return mem;', file=body)
-        print(f'}}', file=body)
-
-        print("", file=body)
-
-    def emitPostamble(self):
-        pass
-
-
 # FIXME horrible code
 def extract_sub_type(member):
     if isinstance(member, str):
         return None
     if isinstance(member, PrimitiveMember):
-        return None
-    if isinstance(member, OpaqueType):
         return None
     if isinstance(member, BitVectorMember):
         return None
@@ -2507,8 +2397,6 @@ def extract_sub_type(member):
         return type_map[member.element] if member.element in type_map else None
     if hasattr(member, "type"):
         return type_map[member.type] if member.type in type_map else None
-    if hasattr(member, "dlist_t"):
-        return type_map[member.dlist_t] if member.dlist_t in type_map else None
     raise ValueError(f"Unknown type {member} in extract_sub_type")
 
 def extract_member_type(member):
@@ -2516,15 +2404,11 @@ def extract_member_type(member):
         return None
     if isinstance(member, PrimitiveMember):
         return None
-    if isinstance(member, OpaqueType):
-        return None
     if isinstance(member, BitVectorMember):
         return None
     if hasattr(member, "element"):
         return member
     if hasattr(member, "type"):
-        return member
-    if hasattr(member, "dlist_t"):
         return member
     raise ValueError(f"Unknown type {member} in extract_member_type")
 
@@ -3272,8 +3156,6 @@ def main():
     # Parse all type definitions from JSON
     alltypes = []
     for entry in entries:
-        if entry['type'] == 'opaque':
-            alltypes.append(OpaqueType(entry))
         if entry['type'] == 'struct':
             alltypes.append(StructType(entry))
         if entry['type'] == 'enum':
