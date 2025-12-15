@@ -474,6 +474,10 @@ rx_pull_request( fd_gossip_t *                         gossip,
       continue;
     }
 
+    /* Temporary measure: do not forward EpochSlots CRDS to reduce
+       bandwidth requirements. */
+    if( fd_crds_entry_tag( candidate )==FD_GOSSIP_VALUE_EPOCH_SLOTS ) continue;
+
     uchar const * crds_val;
     ulong         crds_size;
     fd_crds_entry_value( candidate, &crds_val, &crds_size );
@@ -534,8 +538,10 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                                         now,
                                                         stem );
     FD_TEST( candidate );
+    uint candidate_tag = fd_crds_entry_tag( candidate );
+
     gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PULL_RESPONSE_IDX ]++;
-    if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
+    if( FD_UNLIKELY( candidate_tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ){
       fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
 
       fd_ip4_port_t origin_addr = fd_contact_info_gossip_socket( contact_info );
@@ -543,6 +549,11 @@ rx_pull_response( fd_gossip_t *                          gossip,
       gossip->metrics->ci_rx_unrecognized_socket_tag_cnt += value->ci_view->unrecognized_socket_tag_cnt;
       gossip->metrics->ci_rx_ipv6_address_cnt            += value->ci_view->ip6_cnt;
     }
+
+    /* Temporary measure: do not forward EpochSlots CRDS to reduce
+      bandwidth requirements. */
+    if( candidate_tag==FD_GOSSIP_VALUE_EPOCH_SLOTS ) continue;
+
     active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now, 0 /* flush_immediately */ );
   }
 }
@@ -584,7 +595,10 @@ process_push_crds( fd_gossip_t *                       gossip,
                                                       now,
                                                       stem );
   FD_TEST( candidate );
-  if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {
+
+  uint candidate_tag = fd_crds_entry_tag( candidate );
+
+  if( FD_UNLIKELY( candidate_tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
 
     fd_ip4_port_t origin_addr = contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
@@ -592,6 +606,11 @@ process_push_crds( fd_gossip_t *                       gossip,
     gossip->metrics->ci_rx_unrecognized_socket_tag_cnt += value->ci_view->unrecognized_socket_tag_cnt;
     gossip->metrics->ci_rx_ipv6_address_cnt            += value->ci_view->ip6_cnt;
   }
+
+  /* Temporary measure: do not forward EpochSlots CRDS to reduce
+     bandwidth requirements. */
+  if( candidate_tag==FD_GOSSIP_VALUE_EPOCH_SLOTS ) return 0;
+
   active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now, 0 /* flush_immediately */ );
   return 0;
 }

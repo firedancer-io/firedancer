@@ -6,6 +6,7 @@
 
 #include "../../../disco/metrics/generated/fd_metrics_gossip.h"
 #include "../../../ballet/sha256/fd_sha256.h"
+#include <stdint.h>
 
 struct fd_crds_entry_private;
 typedef struct fd_crds_entry_private fd_crds_entry_t;
@@ -198,6 +199,11 @@ fd_crds_entry_value( fd_crds_entry_t const * entry,
                      uchar const **          value_bytes,
                      ulong *                 value_sz );
 
+/* fd_crds_entry_tag returns the CRDS value tag.  */
+
+uchar
+fd_crds_entry_tag( fd_crds_entry_t const * entry );
+
 uchar const *
 fd_crds_entry_pubkey( fd_crds_entry_t const * entry );
 
@@ -209,8 +215,10 @@ fd_crds_entry_hash( fd_crds_entry_t const * entry );
 /* fd_crds_entry_is_contact_info returns 1 if entry holds a Contact
     Info CRDS value. Assumes entry was populated with either
    fd_crds_populate_{preflight,full} */
-int
-fd_crds_entry_is_contact_info( fd_crds_entry_t const * entry );
+static inline int
+fd_crds_entry_is_contact_info( fd_crds_entry_t const * entry ) {
+  return fd_crds_entry_tag( entry )==FD_GOSSIP_VALUE_CONTACT_INFO;
+}
 
 /* fd_crds_contact_info returns a pointer to the contact info
    structure in the entry.  This is used to access the contact info

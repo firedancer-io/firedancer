@@ -1130,9 +1130,9 @@ make_contact_info_key( uchar const * pubkey,
   fd_memcpy( key_out->pubkey, pubkey, 32UL );
 }
 
-int
-fd_crds_entry_is_contact_info( fd_crds_entry_t const * entry ) {
-  return entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO;
+uchar
+fd_crds_entry_tag( fd_crds_entry_t const * entry ) {
+  return entry->key.tag;
 }
 
 fd_contact_info_t *
