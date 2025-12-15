@@ -138,6 +138,8 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   fd_crds_metrics_t const * crds_metrics = fd_gossip_crds_metrics( ctx->gossip );
 
   FD_MGAUGE_ENUM_COPY( GOSSIP, CRDS_COUNT,          crds_metrics->count );
+  FD_MCNT_ENUM_COPY  ( GOSSIP, CRDS_INSERT_COUNT,   crds_metrics->insert_count );
+  FD_MCNT_ENUM_COPY  ( GOSSIP, CRDS_REMOVE_COUNT,   crds_metrics->remove_count );
   FD_MCNT_SET(         GOSSIP, CRDS_EXPIRED_COUNT,  crds_metrics->expired_cnt );
   FD_MCNT_SET(         GOSSIP, CRDS_EVICTED_COUNT,  crds_metrics->evicted_cnt );
 
@@ -155,10 +157,11 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_COUNT,            metrics->message_tx );
   FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_BYTES,            metrics->message_tx_bytes );
 
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_COUNT,          metrics->crds_tx_push );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_BYTES,          metrics->crds_tx_push_bytes );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT, metrics->crds_tx_pull_response );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES, metrics->crds_tx_pull_response_bytes );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_COUNT,                   metrics->crds_tx_push );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_BYTES,                   metrics->crds_tx_push_bytes );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT,          metrics->crds_tx_pull_response );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES,          metrics->crds_tx_pull_response_bytes );
+  FD_MCNT_SET      ( GOSSIP, CRDS_TX_PULL_RESPONSE_FILTERED_COUNT, metrics->crds_tx_pull_response_filtered );
 
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX_COUNT,               metrics->crds_rx_count );
 

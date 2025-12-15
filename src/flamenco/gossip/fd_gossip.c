@@ -469,7 +469,10 @@ rx_pull_request( fd_gossip_t *                         gossip,
     /* TODO: Add jitter here? */
     // if( FD_UNLIKELY( fd_crds_value_wallclock( candidate )>contact_info->wallclock_nanos ) ) continue;
 
-    if( FD_UNLIKELY( !fd_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
+    if( FD_UNLIKELY( !fd_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) {
+      gossip->metrics->crds_tx_pull_response_filtered++;
+      continue;
+    }
 
     uchar const * crds_val;
     ulong         crds_size;

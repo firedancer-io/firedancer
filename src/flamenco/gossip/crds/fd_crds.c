@@ -585,6 +585,7 @@ fd_crds_release( fd_crds_t *       crds,
                  fd_crds_entry_t * value ) {
   crds_pool_ele_release( crds->pool, value );
   crds->metrics->count[ value->key.tag ]--;
+  crds->metrics->remove_count[ value->key.tag ]++;
 }
 
 static inline void
@@ -1007,6 +1008,7 @@ fd_crds_insert( fd_crds_t *                         crds,
   crds_entry_init( candidate_view, crds->sha256, payload, origin_stake, candidate );
 
   crds->metrics->count[ candidate->key.tag ]++;
+  crds->metrics->insert_count[ candidate->key.tag ]++;
 
   fd_crds_entry_t * incumbent = lookup_map_ele_query( crds->lookup_map, &candidate->key, NULL, crds->pool );
   uchar is_replacing = incumbent!=NULL;

@@ -26,7 +26,11 @@ typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 #define CRDS_MAX_CONTACT_INFO    (1<<15) /* 32768 */
 
 struct fd_crds_metrics {
-  ulong count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong count       [ FD_METRICS_ENUM_CRDS_VALUE_CNT ];  /* set size */
+  ulong insert_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];  /* total inserted */
+  ulong remove_count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];  /* total removed */
+  /* FIXME count is redundant, since it's just insert_count[ i ]-remove_count[ i ] */
+
   ulong expired_cnt;
   ulong evicted_cnt;
 

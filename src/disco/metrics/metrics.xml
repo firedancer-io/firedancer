@@ -936,6 +936,11 @@ metric introduced.
     <counter name="CrdsTxPushBytes" label="Total wire bytes of CRDS sent out in push messages" enum="CrdsValue" />
     <counter name="CrdsTxPullResponseCount" label="Number of CRDS values sent in pull response messages" enum="CrdsValue" />
     <counter name="CrdsTxPullResponseBytes" label="Total wire bytes of CRDS sent out in pull response messages" enum="CrdsValue" />
+    <counter name="CrdsTxPullResponseFilteredCount" label="Number of CRDS values omitted from pull response messages" />
+
+    <!-- Rate of change statistics for CRDS values -->
+    <counter name="CrdsInsertCount" label="Total number of CRDS values inserted" enum="CrdsValue" />
+    <counter name="CrdsRemoveCount" label="Total number of CRDS values evicted/expired/purged" enum="CrdsValue" />
 </tile>
 
 <enum name="GossvfMessageOutcome">
