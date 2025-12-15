@@ -1,5 +1,5 @@
 #include "fd_runtime.h"
-#include "context/fd_capture_ctx.h"
+#include "../capture/fd_capture_ctx.h"
 #include "fd_acc_mgr.h"
 #include "fd_alut_interp.h"
 #include "fd_bank.h"
@@ -843,15 +843,14 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
 
     uchar lthash_hash[FD_HASH_FOOTPRINT];
     fd_blake3_hash(lthash->bytes, FD_LTHASH_LEN_BYTES, lthash_hash );
-
-    fd_solcap_write_bank_preimage(
-          capture_ctx->capture,
-          new_bank_hash->hash,
-          fd_bank_prev_bank_hash_query( bank ),
-          NULL,
-          lthash_hash,
-          fd_bank_poh_query( bank )->hash,
-          fd_bank_signature_count_get( bank ) );
+    fd_capture_link_write_bank_preimage(
+      capture_ctx,
+      fd_bank_slot_get( bank ),
+      (fd_hash_t *)new_bank_hash->hash,
+      (fd_hash_t *)fd_bank_prev_bank_hash_query( bank ),
+      (fd_hash_t *)lthash_hash,
+      (fd_hash_t *)fd_bank_poh_query( bank )->hash,
+      fd_bank_signature_count_get( bank ) );
   }
 
   fd_bank_lthash_end_locking_query( bank );
@@ -1065,57 +1064,6 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
 
 }
 
-/* fd_runtime_buffer_solcap_account_update buffers an account
-   update event message in the capture context, which will be
-   sent to the replay tile via the exec_replay link.
-   This buffering is done to avoid passing stem down into the runtime.
-
-   TODO: remove this when solcap v2 is here. */
-static void
-fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
-                                         fd_bank_t *               bank,
-                                         fd_capture_ctx_t *        capture_ctx ) {
-
-  /* Check if we should publish the update */
-  if( FD_UNLIKELY( !capture_ctx || fd_bank_slot_get( bank )<capture_ctx->solcap_start_slot ) ) {
-    return;
-  }
-
-  /* Get account data */
-  fd_account_meta_t const * meta = fd_txn_account_get_meta( account );
-  void const * data              = fd_txn_account_get_data( account );
-
-  /* Calculate account hash using lthash */
-  fd_lthash_value_t lthash[1];
-  fd_hashes_account_lthash( account->pubkey, meta, data, lthash );
-
-  /* Calculate message size */
-  if( FD_UNLIKELY( capture_ctx->account_updates_len >= FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES ) ) {
-    FD_LOG_CRIT(( "cannot buffer solcap account update. this should never happen" ));
-    return;
-  }
-
-  /* Write the message to the buffer */
-  fd_capture_ctx_account_update_msg_t * account_update_msg = (fd_capture_ctx_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
-  account_update_msg->pubkey   = *account->pubkey;
-  account_update_msg->data_sz  = meta->dlen;
-  account_update_msg->bank_idx = bank->idx;
-  fd_solana_account_meta_init(
-      &account_update_msg->info,
-      fd_txn_account_get_lamports ( account ),
-      fd_txn_account_get_owner    ( account ),
-      fd_txn_account_is_executable( account )
-  );
-  memcpy( account_update_msg->hash.uc, lthash->bytes, sizeof(fd_hash_t) );
-  capture_ctx->account_updates_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
-
-  /* Write the account data to the buffer */
-  memcpy( capture_ctx->account_updates_buffer_ptr, data, meta->dlen );
-  capture_ctx->account_updates_buffer_ptr += meta->dlen;
-
-  capture_ctx->account_updates_len++;
-}
-
 /* fd_runtime_save_account is a convenience wrapper that looks
    up the previous account state from funk before updating the lthash
    and saving the new version of the account to funk.
@@ -1171,11 +1119,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
   }
 
   /* Mix in the account hash into the bank hash */
-  fd_hashes_update_lthash( account, prev_hash, bank, NULL );
-
-  /* Publish account update to replay tile for solcap writing
-     TODO: write in the exec tile with solcap v2 */
-  fd_runtime_buffer_solcap_account_update( account, bank, capture_ctx );
+  fd_hashes_update_lthash( account, prev_hash, bank, capture_ctx );
 
   /* Save the new version of the account to Funk */
   fd_runtime_finalize_account( funk, xid, account, funk_prev_rec );

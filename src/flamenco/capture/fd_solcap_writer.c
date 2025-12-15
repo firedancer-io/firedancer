@@ -1,139 +1,9 @@
 #include "fd_solcap_writer.h"
-#include "fd_solcap.pb.h"
 #include "fd_solcap_proto.h"
-#include "../../ballet/nanopb/pb_encode.h"
-#include "../../ballet/blake3/fd_blake3.h"
-
-#if !FD_HAS_HOSTED
-#error "fd_solcap_writer requires FD_HAS_HOSTED"
-#endif
 
 #include <errno.h>
-#include <stdio.h>
-
-/* Note on suffixes:
-
-    goff: file offset (as returned by fseek)
-    foff: file offset from beginning of solcap stream
-    coff: file offset from beginning of current chunk */
-
-/* fd_solcap_writer is the state of a capture writer.  Currently, it
-   is only able to capture the bank hash pre-image and chagned accounts.
-
-   The writer progresses with each API call to the writer functions.
-
-   Typically, the order is the following:
-
-   - fd_solcap_writer_set_slot advances to the next slot.  If there was
-     a previous slot in progress but not finished, discards buffers.
-   - fd_solcap_write_account writes an account chunk and buffers an
-     entry for the accounts table.
-   - fd_solcap_write_bank_preimage flushes the buffered accounts table
-     and writes the preimage chunk.  Slot is finished and ready for
-     next iteration. */
-
-struct fd_solcap_writer {
-  FILE * file;
-
-  /* Number of bytes between start of file and start of stream.
-     Usually 0.  Non-zero if the bank capture is contained in some
-     other file format. */
-  ulong stream_goff;
-
-  /* In-flight write of accounts table.
-     account_idx==0UL implies no chunk header has been written yet.
-     account_idx>=0UL implies AccountTable chunk write is pending.
-     account_idx>=FD_SOLCAP_ACC_TBL_CNT implies that AccountTable is
-     unable to fit records.  Table record will be skipped. */
-
-  ulong                   slot;
-  fd_solcap_account_tbl_t accounts[ FD_SOLCAP_ACC_TBL_CNT ];
-  uint                    account_idx;
-  ulong                   account_table_goff;
-
-  ulong first_slot;
-};
-
-/* FTELL_BAIL calls ftell on the given file, and bails the current
-   function with return code EIO if it fails. */
-
-#define FTELL_BAIL( file )                      \
-  (__extension__({                              \
-    long n = ftell( (file) );                   \
-    if( FD_UNLIKELY( n<0L ) ) {                 \
-      FD_LOG_WARNING(( "ftell failed (%d-%s)",  \
-        errno, strerror( errno ) ));            \
-      return EIO;                               \
-    }                                           \
-    (ulong)n;                                   \
-  }))
-
-/* FSEEK_BAIL calls fseek on the given file, and bails the current
-   function with return code EIO if it fails. */
-
-#define FSEEK_BAIL( file, off, whence )         \
-  (__extension__({                              \
-    int err = fseek( (file), (off), (whence) ); \
-    if( FD_UNLIKELY( err<0L ) ) {               \
-      FD_LOG_WARNING(( "fseek failed (%d-%s)",  \
-        errno, strerror( errno ) ));            \
-      return EIO;                               \
-    }                                           \
-    0;                                          \
-  }))
-
-/* FWRITE_BAIL calls fwrite on the given file, and bails the current
-   function with return code EIO if it fails. */
-
-#define FWRITE_BAIL( ptr, sz, cnt, file )          \
-  (__extension__({                                 \
-    ulong _cnt = (cnt);                            \
-    ulong n = fwrite( (ptr), (sz), _cnt, (file) ); \
-    if( FD_UNLIKELY( n!=_cnt ) ) {                 \
-      FD_LOG_WARNING(( "fwrite failed (%d-%s)",    \
-        errno, strerror( errno ) ));               \
-      return EIO;                                  \
-    }                                              \
-    0;                                             \
-  }))
-
-/* _skip_file writes zeros to the file */
-
-static int
-_skip_file( FILE * file,
-            ulong  skip ) {
-  if (skip == 0) return 0;
-
-  uchar zero[ skip ];
-  fd_memset( zero, 0, skip );
-
-  FWRITE_BAIL( zero, 1UL, skip, file );
-  return 0;
-}
-
-#define FSKIP_BAIL( file, skip )            \
-  do {                                      \
-    int err = _skip_file( (file), (skip) ); \
-    if( FD_UNLIKELY( err!=0 ) ) return err; \
-  } while(0)
-
-/* _align_file pads file with zero up to meet given align requirement.
-   align is a positive power of two. */
-
-static int
-_align_file( FILE * file,
-             ulong  align ) {
-  ulong pos  = FTELL_BAIL( file );
-  ulong skip = fd_ulong_align_up( pos, align ) - pos;
-  return _skip_file( file, skip );
-}
-
-#define FALIGN_BAIL( file, align )            \
-  do {                                        \
-    int err = _align_file( (file), (align) ); \
-    if( FD_UNLIKELY( err!=0 ) ) return err;   \
-  } while(0)
-
+#include <unistd.h>
+#include <fcntl.h>
 
 ulong
 fd_solcap_writer_align( void ) {
@@ -146,550 +16,270 @@ fd_solcap_writer_footprint( void ) {
 }
 
 fd_solcap_writer_t *
-fd_solcap_writer_new( void * mem ) {
-
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  memset( mem, 0, sizeof(fd_solcap_writer_t) );
-  return (fd_solcap_writer_t *)mem;
-}
-
-void *
-fd_solcap_writer_delete( fd_solcap_writer_t * writer ) {
-
-  if( FD_UNLIKELY( !writer ) ) return NULL;
-
-  writer->file = NULL;
-  return writer;
-}
-
-
-fd_solcap_writer_t *
 fd_solcap_writer_init( fd_solcap_writer_t * writer,
-                       void *               file ) {
+                       int                  fd ) {
 
   if( FD_UNLIKELY( !writer ) ) {
     FD_LOG_WARNING(( "NULL writer" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !file ) ) {
-    FD_LOG_WARNING(( "NULL file" ));
+  if( FD_UNLIKELY( fd < 0 ) ) {
+    FD_LOG_WARNING(( "invalid file descriptor" ));
     return NULL;
   }
 
-  /* Leave space for file headers */
+  writer->fd = fd;
 
-  long pos = ftell( file );
-  if( FD_UNLIKELY( pos<0L ) ) {
-    FD_LOG_WARNING(( "ftell failed (%d-%s)", errno, strerror( errno ) ));
-    return NULL;
-  }
-  ulong stream_goff = (ulong)pos;
-
-  uchar zero[ FD_SOLCAP_FHDR_SZ ] = {0};
-  ulong n = fwrite( zero, FD_SOLCAP_FHDR_SZ, 1UL, file );
-  if( FD_UNLIKELY( n!=1UL ) ) {
-    FD_LOG_WARNING(( "fwrite failed (%d-%s)", errno, strerror( errno ) ));
+  off_t pos = lseek( fd, 0L, SEEK_SET );
+  if( FD_UNLIKELY( pos < 0L ) ) {
+    FD_LOG_WARNING(( "lseek failed (%d-%s)", errno, strerror( errno ) ));
     return NULL;
   }
 
-  /* Init writer */
-  writer->file        = file;
-  writer->stream_goff = stream_goff;
+  /* Write Section Header Block (SHB) - PCapNG file header */
+  uint shb_size = (uint)(sizeof(fd_pcapng_shb_t) + 4U); /* +4 for redundant length */
+  fd_pcapng_shb_t shb = {
+    .block_type       = FD_PCAPNG_BLOCK_TYPE_SHB,
+    .block_sz         = shb_size,
+    .byte_order_magic = FD_PCAPNG_BYTE_ORDER_MAGIC,
+    .version_major    = 1,
+    .version_minor    = 0,
+    .section_sz       = ULONG_MAX  /* -1 = unlimited */
+  };
+  FD_TEST( sizeof(fd_pcapng_shb_t) == (ulong)write(fd, &shb, sizeof(fd_pcapng_shb_t)) );
+  /* Write redundant block length footer */
+  FD_TEST( 4U == (uint)write(fd, &shb_size, 4U) );
+
+  /* Write Interface Description Block (IDB) */
+  uint idb_size = (uint)(sizeof(fd_pcapng_idb_t) + 4U); /* +4 for redundant length */
+  fd_pcapng_idb_t idb = {
+    .block_type = FD_PCAPNG_BLOCK_TYPE_IDB,
+    .block_sz   = idb_size,
+    .link_type  = SOLCAP_IDB_HDR_LINK_TYPE,
+    ._pad_0a    = 0,
+    .snap_len   = SOLCAP_IDB_HDR_SNAP_LEN
+  };
+  FD_TEST( sizeof(fd_pcapng_idb_t) == (ulong)write(fd, &idb, sizeof(fd_pcapng_idb_t)) );
+  /* Write redundant block length footer */
+  FD_TEST( 4U == (uint)write(fd, &idb_size, 4U) );
 
   return writer;
 }
 
-/* fd_solcap_writer_flush writes the file header. */
+uint
+fd_solcap_write_account_hdr( fd_solcap_writer_t *             writer,
+                             fd_solcap_buf_msg_t *            msg_hdr,
+                             fd_solcap_account_update_hdr_t * account_update ) {
+  int fd = writer->fd;
 
-fd_solcap_writer_t *
-fd_solcap_writer_flush( fd_solcap_writer_t * writer ) {
+  ulong data_sz = account_update->data_sz;
 
-  if( FD_LIKELY( !writer ) ) return NULL;
+  uint packet_len = (uint)(sizeof(fd_solcap_chunk_int_hdr_t) +
+                        sizeof(fd_solcap_account_update_hdr_t) +
+                        data_sz);
 
-  /* Flush stream */
-  fflush( writer->file );
+  uint unaligned_block_len = (uint)(sizeof(fd_pcapng_epb_t) +
+                                 packet_len +
+                                 4U); /* +4 for redundant length footer */
 
-  /* Remember stream cursor */
+  uint block_len = (uint)((unaligned_block_len + 3UL) & ~3UL);
 
-  long cursor = ftell( writer->file );
-  if( FD_UNLIKELY( cursor<0L ) ) {
-    FD_LOG_WARNING(( "ftell failed (%d-%s)", errno, strerror( errno ) ));
-    return NULL;
-  }
-
-  /* Construct file header */
-
-  fd_solcap_FileMeta fmeta = {
-    .first_slot       = writer->first_slot,
-    .slot_cnt         = (ulong)fd_long_max( 0L, (long)writer->slot - (long)writer->first_slot ),
-    .main_block_magic = FD_SOLCAP_V1_BANK_MAGIC,
+  fd_pcapng_epb_t epb = {
+    .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
+    .block_sz   = block_len,
+    .if_idx     = 0,
+    .ts_hi      = 0,
+    .ts_lo      = 0,
+    .cap_len    = packet_len,
+    .orig_len   = packet_len
   };
+  FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
 
-  uchar meta[ 128UL ];
-  pb_ostream_t stream = pb_ostream_from_buffer( meta, sizeof(meta) );
-  if( FD_UNLIKELY( !pb_encode( &stream, fd_solcap_FileMeta_fields, &fmeta ) ) ) {
-    FD_LOG_WARNING(( "pb_encode failed (%s)", PB_GET_ERROR(&stream) ));
-    return NULL;
-  }
-
-  fd_solcap_fhdr_t fhdr = {
-    .magic       = FD_SOLCAP_V1_FILE_MAGIC,
-    .chunk0_foff = FD_SOLCAP_FHDR_SZ,
-    .meta_sz     = (uint)stream.bytes_written,
+  fd_solcap_chunk_int_hdr_t int_hdr = {
+    .block_type = SOLCAP_WRITE_ACCOUNT,
+    .slot =       (uint)msg_hdr->slot,
+    .txn_idx =    msg_hdr->txn_idx
   };
+  FD_TEST( sizeof(fd_solcap_chunk_int_hdr_t) == (ulong)write(fd, &int_hdr, sizeof(fd_solcap_chunk_int_hdr_t)) );
 
-  /* Write out file headers */
+  FD_TEST( sizeof(fd_solcap_account_update_hdr_t) == (ulong)write(fd, account_update, sizeof(fd_solcap_account_update_hdr_t)) );
 
-  if( FD_UNLIKELY( 0!=fseek( writer->file, (long)writer->stream_goff, SEEK_SET ) ) ) {
-    FD_LOG_WARNING(( "fseek failed (%d-%s)", errno, strerror( errno ) ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( 1UL!=fwrite( &fhdr, sizeof(fd_solcap_fhdr_t), 1UL, writer->file ) ) ) {
-    FD_LOG_WARNING(( "fwrite file header failed (%d-%s)", errno, strerror( errno ) ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( stream.bytes_written != fwrite( meta, 1UL, stream.bytes_written, writer->file ) ) ) {
-    FD_LOG_WARNING(( "fwrite file meta failed (%d-%s)", ferror( writer->file ), strerror( ferror( writer->file ) ) ));
-    return NULL;
-  }
-
-  /* Restore stream cursor */
-
-  if( FD_UNLIKELY( 0!=fseek( writer->file, cursor, SEEK_SET ) ) ) {
-    FD_LOG_WARNING(( "fseek failed (%d-%s)", errno, strerror( errno ) ));
-    return NULL;
-  }
-
-  return writer;
+  return block_len;
 }
 
-/* fd_solcap_flush_account_table writes the buffered account table out
-   to the stream. */
-
-static int
-fd_solcap_flush_account_table( fd_solcap_writer_t * writer ) {
-
-  /* Only flush if at least one account present. */
-
-  if( writer->account_idx == 0UL ) return 0;
-
-  /* Skip if table was overflowed. */
-
-  /* FIXME: This breaks account recording for epoch boundaries and needs to be fixed */
-  if( writer->account_idx >= FD_SOLCAP_ACC_TBL_CNT ) {
-    FD_LOG_WARNING(( "too many records in solcap accounts table - try increasing FD_SOLCAP_ACC_TBL_CNT" ));
-    writer->account_idx = 0UL;
-    return 0;
-  }
-
-  /* Leave space for header */
-
-  ulong chunk_goff = FTELL_BAIL( writer->file );
-  FSKIP_BAIL( writer->file, sizeof(fd_solcap_chunk_t) );
-
-  /* Translate account table to chunk-relative addressing */
-
-  for( uint i=0U; i<writer->account_idx; i++ )
-    writer->accounts[i].acc_coff -= (long)chunk_goff;
-
-  /* Write account table (at beginning of chunk) */
-
-  ulong account_table_coff = sizeof(fd_solcap_chunk_t);
-  ulong account_table_cnt  = writer->account_idx;
-
-  FWRITE_BAIL( writer->accounts,
-               sizeof(fd_solcap_account_tbl_t),
-               account_table_cnt,
-               writer->file );
-
-  /* Serialize account chunk metadata */
-
-  ulong meta_goff = FTELL_BAIL( writer->file );
-  fd_solcap_AccountTableMeta meta = {
-    .slot               = writer->slot,
-    .account_table_coff = account_table_coff,
-    .account_table_cnt  = account_table_cnt
-  };
-
-  uchar encoded[ FD_SOLCAP_ACTB_META_FOOTPRINT ];
-  pb_ostream_t stream = pb_ostream_from_buffer( encoded, sizeof(encoded) );
-  if( FD_UNLIKELY( !pb_encode( &stream, fd_solcap_AccountTableMeta_fields, &meta ) ) ) {
-    FD_LOG_WARNING(( "pb_encode failed (%s)", PB_GET_ERROR(&stream) ));
-    return EPROTO;
-  }
-
-  FWRITE_BAIL( encoded, 1UL,  stream.bytes_written, writer->file );
-  FALIGN_BAIL( writer->file, 8UL );
-
-  /* Serialize chunk header */
-
-  ulong chunk_end_goff = FTELL_BAIL( writer->file );
-
-  fd_solcap_chunk_t chunk = {
-    .magic     = FD_SOLCAP_V1_ACTB_MAGIC,
-    .meta_coff = (uint)( meta_goff - chunk_goff ),
-    .meta_sz   = (uint)stream.bytes_written,
-    .total_sz  = chunk_end_goff - chunk_goff
-  };
-
-  /* Write out chunk */
-
-  FSEEK_BAIL( writer->file, (long)chunk_goff, SEEK_SET );
-  FWRITE_BAIL( &chunk,  sizeof(fd_solcap_chunk_t), 1UL, writer->file );
-
-  /* Restore stream cursor */
-
-  FSEEK_BAIL( writer->file, (long)chunk_end_goff, SEEK_SET );
-
-  /* Wind up for next iteration */
-
-  writer->account_table_goff = chunk_goff;
-  writer->account_idx        = 0U;
-
+uint
+fd_solcap_write_data( fd_solcap_writer_t * writer,
+                      void const *         data,
+                      ulong                data_sz ) {
+  int fd = writer->fd;
+  FD_TEST( data_sz == (ulong)write(fd, data, data_sz) );
   return 0;
 }
 
-int
-fd_solcap_write_account( fd_solcap_writer_t *             writer,
-                         void const *                     key,
-                         fd_solana_account_meta_t const * meta,
-                         void const *                     data,
-                         ulong                            data_sz ) {
 
-  if( FD_LIKELY( !writer ) ) return 0;
+uint
+fd_solcap_write_bank_preimage( fd_solcap_writer_t *        writer,
+                               fd_solcap_buf_msg_t *       msg_hdr,
+                               fd_solcap_bank_preimage_t * bank_preimage ) {
+  int fd = writer->fd;
 
-  fd_solcap_account_tbl_t rec[1];
-  memset( rec, 0, sizeof(fd_solcap_account_tbl_t) );
-  memcpy( rec->key,  key,  32UL );
+  uint packet_len = (uint)(sizeof(fd_solcap_chunk_int_hdr_t) +
+                    sizeof(fd_solcap_bank_preimage_t));
 
-  fd_solcap_AccountMeta meta_pb[1] = {{
-    .lamports   = meta->lamports,
-    .executable = meta->executable,
-    .data_sz    = data_sz,
-  }};
-  memcpy( meta_pb->owner, meta->owner, 32UL );
+  uint unaligned_block_len = (uint)(sizeof(fd_pcapng_epb_t) +
+                            packet_len + 4U); /* +4 for redundant length footer */
 
-  return fd_solcap_write_account2( writer, rec, meta_pb, data, data_sz );
+  uint block_len = (uint)((unaligned_block_len + 3UL) & ~3UL);
+
+  fd_pcapng_epb_t epb = {
+  .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
+  .block_sz   = block_len,
+  .if_idx     = 0,
+  .ts_hi      = 0,
+  .ts_lo      = 0,
+  .cap_len    = packet_len,
+  .orig_len   = packet_len
+  };
+  FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
+
+  fd_solcap_chunk_int_hdr_t int_hdr = {
+  .block_type = SOLCAP_WRITE_BANK_PREIMAGE,
+  .slot = (uint)msg_hdr->slot,
+  .txn_idx = msg_hdr->txn_idx
+  };
+  FD_TEST( sizeof(fd_solcap_chunk_int_hdr_t) == (ulong)write(fd, &int_hdr, sizeof(fd_solcap_chunk_int_hdr_t)) );
+
+  FD_TEST( sizeof(fd_solcap_bank_preimage_t) == (ulong)write(fd, bank_preimage, sizeof(fd_solcap_bank_preimage_t)) );
+
+  return block_len;
 }
 
-int
-fd_solcap_write_account2( fd_solcap_writer_t *             writer,
-                          fd_solcap_account_tbl_t const *  tbl,
-                          fd_solcap_AccountMeta *          meta_pb,
-                          void const *                     data,
-                          ulong                            data_sz ) {
+uint
+fd_solcap_write_ftr( fd_solcap_writer_t * writer,
+                     uint                 block_len_redundant ) {
+  int fd = writer->fd;
+  off_t current_pos = lseek( fd, 0L, SEEK_CUR );
+  FD_TEST( current_pos >= 0L );
+  uint padding_needed = (-(uint)current_pos & 3);
 
-  if( FD_LIKELY( !writer ) ) return 0;
-
-  /* Locate chunk */
-
-  ulong chunk_goff = FTELL_BAIL( writer->file );
-
-  /* Write data */
-
-  ulong data_coff = sizeof(fd_solcap_chunk_t);
-  FSKIP_BAIL ( writer->file, data_coff );
-  FWRITE_BAIL( data, 1UL, data_sz, writer->file );
-  FALIGN_BAIL( writer->file, 8UL );
-
-  /* Serialize account meta */
-
-  ulong meta_goff = FTELL_BAIL( writer->file );
-
-  meta_pb->slot      = writer->slot;
-  meta_pb->data_coff = (long)data_coff;
-  meta_pb->data_sz   = data_sz;
-
-  uchar meta_pb_enc[ FD_SOLCAP_ACCOUNT_META_FOOTPRINT ];
-  pb_ostream_t stream = pb_ostream_from_buffer( meta_pb_enc, sizeof(meta_pb_enc) );
-  FD_TEST( pb_encode( &stream, fd_solcap_AccountMeta_fields, meta_pb ) );
-
-  /* Write account meta */
-
-  ulong meta_coff = meta_goff - chunk_goff;
-  FWRITE_BAIL( meta_pb_enc, 1UL, stream.bytes_written, writer->file );
-  FALIGN_BAIL( writer->file, 8UL );
-
-  /* Remember account table entry */
-
-  if( writer->account_idx < FD_SOLCAP_ACC_TBL_CNT ) {
-    fd_solcap_account_tbl_t * account = &writer->accounts[ writer->account_idx ];
-    *account = *tbl;
-
-    /* Since we don't yet know the final position of the account table,
-       we temporarily store a global offset.  This will later get
-       converted into a chunk offset. */
-    account->acc_coff = (long)chunk_goff;
+  /* Write padding to align to 4-byte boundary */
+  if( padding_needed > 0 ) {
+    static const char zeros[4] = {0};
+    FD_TEST( padding_needed == (uint)write(fd, zeros, padding_needed) );
   }
 
-  /* Serialize chunk header */
-
-  ulong chunk_end_goff = FTELL_BAIL( writer->file );
-
-  fd_solcap_chunk_t chunk = {
-    .magic     = FD_SOLCAP_V1_ACCT_MAGIC,
-    .meta_coff = (uint)meta_coff,
-    .meta_sz   = (uint)stream.bytes_written,
-    .total_sz  = chunk_end_goff - chunk_goff
-  };
-
-  /* Write out chunk */
-
-  FSEEK_BAIL( writer->file, (long)chunk_goff, SEEK_SET );
-  FWRITE_BAIL( &chunk, sizeof(fd_solcap_chunk_t), 1UL, writer->file );
-
-  /* Restore stream cursor */
-
-  FSEEK_BAIL( writer->file, (long)chunk_end_goff, SEEK_SET );
-
-  /* Wind up for next iteration */
-
-  writer->account_idx += 1U;
-
+  /* Write redundant block length footer (4 bytes) */
+  FD_TEST( 4U == (uint)write(fd, &block_len_redundant, 4U) );
   return 0;
 }
 
-void
-fd_solcap_writer_set_slot( fd_solcap_writer_t * writer,
-                          ulong                slot ) {
+uint
+fd_solcap_write_stake_rewards_begin( fd_solcap_writer_t * writer,
+                                     fd_solcap_buf_msg_t * msg_hdr,
+                                     fd_solcap_stake_rewards_begin_t * stake_rewards_begin ) {
+  int fd = writer->fd;
 
-  if( FD_LIKELY( !writer ) ) return;
+  uint packet_len = (uint)(sizeof(fd_solcap_chunk_int_hdr_t) +
+                           sizeof(fd_solcap_stake_rewards_begin_t));
 
-  /* Discard account table buffer */
-  writer->account_table_goff = 0UL;
-  writer->account_idx        = 0UL;
-  writer->slot               = slot;
+  uint unaligned_block_len = (uint)(sizeof(fd_pcapng_epb_t) +
+                                   packet_len + 4U); /* +4 for redundant length footer */
+
+  uint block_len = (uint)((unaligned_block_len + 3UL) & ~3UL);
+
+  fd_pcapng_epb_t epb = {
+    .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
+    .block_sz   = block_len,
+    .if_idx     = 0,
+    .ts_hi      = 0,
+    .ts_lo      = 0,
+    .cap_len    = packet_len,
+    .orig_len   = packet_len
+   };
+   FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
+
+   fd_solcap_chunk_int_hdr_t int_hdr = {
+    .block_type = SOLCAP_STAKE_REWARDS_BEGIN,
+    .slot = (uint)msg_hdr->slot,
+    .txn_idx = msg_hdr->txn_idx
+   };
+   FD_TEST( sizeof(fd_solcap_chunk_int_hdr_t) == (ulong)write(fd, &int_hdr, sizeof(fd_solcap_chunk_int_hdr_t)) );
+
+   FD_TEST( sizeof(fd_solcap_stake_rewards_begin_t) == (ulong)write(fd, stake_rewards_begin, sizeof(fd_solcap_stake_rewards_begin_t)) );
+
+   return block_len;
 }
 
-int
-fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer,
-                               void const *         bank_hash,
-                               void const *         prev_bank_hash,
-                               void const *         account_delta_hash,
-                               void const *         accounts_lt_hash_checksum,
-                               void const *         poh_hash,
-                               ulong                signature_cnt ) {
+uint
+fd_solcap_write_stake_account_payout( fd_solcap_writer_t * writer,
+                                      fd_solcap_buf_msg_t * msg_hdr,
+                                      fd_solcap_stake_account_payout_t * stake_account_payout ) {
+  int fd = writer->fd;
 
-  if( FD_LIKELY( !writer ) ) return 0;
+  uint packet_len = (uint)(sizeof(fd_solcap_chunk_int_hdr_t) +
+                           sizeof(fd_solcap_stake_account_payout_t));
 
-  fd_solcap_BankPreimage preimage_pb[1] = {{0}};
-  preimage_pb->signature_cnt = signature_cnt;
-  preimage_pb->account_cnt   = writer->account_idx;
-  memcpy( preimage_pb->bank_hash,                 bank_hash,          32UL );
-  memcpy( preimage_pb->prev_bank_hash,            prev_bank_hash,     32UL );
-  if (NULL != account_delta_hash )
-    memcpy( preimage_pb->account_delta_hash,        account_delta_hash, 32UL );
-  else
-    fd_memset( preimage_pb->account_delta_hash, 0, 32UL );
-  if( NULL != accounts_lt_hash_checksum )
-    memcpy( preimage_pb->accounts_lt_hash_checksum, accounts_lt_hash_checksum, 32UL );
-  else
-    fd_memset(preimage_pb->accounts_lt_hash_checksum, 0, 32UL );
-  memcpy( preimage_pb->poh_hash,                  poh_hash,           32UL );
+  uint unaligned_block_len = (uint)(sizeof(fd_pcapng_epb_t) +
+                                   packet_len + 4U); /* +4 for redundant length footer */
 
-  return fd_solcap_write_bank_preimage2( writer, preimage_pb );
-}
+  uint block_len = (uint)((unaligned_block_len + 3UL) & ~3UL);
 
-
-int
-fd_solcap_write_bank_preimage2( fd_solcap_writer_t *     writer,
-                                fd_solcap_BankPreimage * preimage_pb ) {
-
-  if( FD_LIKELY( !writer ) ) return 0;
-
-  int err = fd_solcap_flush_account_table( writer );
-  if( FD_UNLIKELY( err!=0 ) ) return err;
-
-  /* Leave space for header */
-
-  ulong chunk_goff = FTELL_BAIL( writer->file );
-  FSKIP_BAIL( writer->file, sizeof(fd_solcap_chunk_t) );
-
-  /* Fixup predefined entries */
-
-  preimage_pb->slot               = writer->slot;
-  if( writer->account_table_goff ) {
-    preimage_pb->account_cnt        = writer->account_idx;
-    preimage_pb->account_table_coff = (long)writer->account_table_goff - (long)chunk_goff;
-  }
-
-  /* Serialize bank preimage */
-
-  uchar preimage_pb_enc[ FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT ] = {0};
-  pb_ostream_t stream = pb_ostream_from_buffer( preimage_pb_enc, sizeof(preimage_pb_enc) );
-  FD_TEST( pb_encode( &stream, fd_solcap_BankPreimage_fields, preimage_pb ) );
-  ulong meta_sz = stream.bytes_written;
-
-  FWRITE_BAIL( preimage_pb_enc, 1UL, meta_sz, writer->file );
-  FALIGN_BAIL( writer->file, 8UL );
-  ulong chunk_end_goff = FTELL_BAIL( writer->file );
-
-  /* Serialize chunk header */
-
-  fd_solcap_chunk_t chunk = {
-    .magic     = FD_SOLCAP_V1_BANK_MAGIC,
-    .meta_coff = (uint)sizeof(fd_solcap_chunk_t),
-    .meta_sz   = (uint)meta_sz,
-    .total_sz  = chunk_end_goff - chunk_goff
+  fd_pcapng_epb_t epb = {
+    .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
+    .block_sz   = block_len,
+    .if_idx     = 0,
+    .ts_hi      = 0,
+    .ts_lo      = 0,
+    .cap_len    = packet_len,
+    .orig_len   = packet_len
   };
+  FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
 
-  /* Write out chunk */
+  fd_solcap_chunk_int_hdr_t int_hdr = {
+    .block_type = SOLCAP_STAKE_ACCOUNT_PAYOUT,
+    .slot = (uint)msg_hdr->slot,
+    .txn_idx = msg_hdr->txn_idx
+  };
+  FD_TEST( sizeof(fd_solcap_chunk_int_hdr_t) == (ulong)write(fd, &int_hdr, sizeof(fd_solcap_chunk_int_hdr_t)) );
 
-  FSEEK_BAIL( writer->file, (long)chunk_goff, SEEK_SET );
-  FWRITE_BAIL( &chunk, sizeof(fd_solcap_chunk_t), 1UL, writer->file );
+  FD_TEST( sizeof(fd_solcap_stake_account_payout_t) == (ulong)write(fd, stake_account_payout, sizeof(fd_solcap_stake_account_payout_t)) );
 
-  /* Restore stream cursor */
-
-  FSEEK_BAIL( writer->file, (long)chunk_end_goff, SEEK_SET );
-
-  return 0;
+  return block_len;
 }
 
-int fd_solcap_write_transaction2( fd_solcap_writer_t *    writer,
-                                  fd_solcap_Transaction * txn ) {
+uint
+fd_solcap_write_stake_reward_event( fd_solcap_writer_t * writer,
+                                     fd_solcap_buf_msg_t * msg_hdr,
+                                     fd_solcap_stake_reward_event_t * stake_reward_event ) {
+  int fd = writer->fd;
 
-  if( FD_LIKELY( !writer ) ) return 0;
+  uint packet_len = (uint)(sizeof(fd_solcap_chunk_int_hdr_t) +
+                           sizeof(fd_solcap_stake_reward_event_t));
 
-  /* Locate chunk */
-  ulong chunk_goff = FTELL_BAIL( writer->file );
-  FSKIP_BAIL( writer->file, sizeof(fd_solcap_chunk_t) );
+  uint unaligned_block_len = (uint)(sizeof(fd_pcapng_epb_t) +
+                                   packet_len + 4U); /* +4 for redundant length footer */
 
-  /* Serialize and write transaction */
-  uchar txn_pb_enc[ FD_SOLCAP_TRANSACTION_FOOTPRINT ];
-  pb_ostream_t stream = pb_ostream_from_buffer( txn_pb_enc, sizeof(txn_pb_enc) );
-  FD_TEST( pb_encode( &stream, fd_solcap_Transaction_fields, txn ) );
+  uint block_len = (uint)((unaligned_block_len + 3UL) & ~3UL);
 
-  FWRITE_BAIL( txn_pb_enc, 1UL, stream.bytes_written, writer->file );
-  FALIGN_BAIL( writer->file, 8UL );
-  ulong chunk_end_goff = FTELL_BAIL( writer->file );
-
-  /* Serialize chunk header */
-  fd_solcap_chunk_t chunk = {
-    .magic     = FD_SOLCAP_V1_TRXN_MAGIC,
-    .meta_coff = (uint)sizeof(fd_solcap_chunk_t),
-    .meta_sz   = (uint)stream.bytes_written,
-    .total_sz  = chunk_end_goff - chunk_goff
+  fd_pcapng_epb_t epb = {
+    .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
+    .block_sz   = block_len,
+    .if_idx     = 0,
+    .ts_hi      = 0,
+    .ts_lo      = 0,
+    .cap_len    = packet_len,
+    .orig_len   = packet_len
   };
+  FD_TEST( sizeof(fd_pcapng_epb_t) == (ulong)write(fd, &epb, sizeof(fd_pcapng_epb_t)) );
 
-  /* Write out chunk */
-  FSEEK_BAIL( writer->file, (long)chunk_goff, SEEK_SET );
-  FWRITE_BAIL( &chunk, sizeof(fd_solcap_chunk_t), 1UL, writer->file );
-
-  /* Restore stream cursor */
-
-  FSEEK_BAIL( writer->file, (long)chunk_end_goff, SEEK_SET );
-
-  return 0;
-}
-
-int
-fd_solcap_writer_stake_rewards_begin(
-    fd_solcap_writer_t * writer,
-    ulong                payout_epoch,
-    ulong                reward_epoch,
-    ulong                inflation_lamports,
-    fd_w_u128_t          total_points
-) {
-  fd_solcap_StakeRewardEpoch epoch_pb = {
-    .payout_epoch       = payout_epoch,
-    .reward_epoch       = reward_epoch,
-    .inflation_lamports = inflation_lamports,
+  fd_solcap_chunk_int_hdr_t int_hdr = {
+    .block_type = SOLCAP_STAKE_REWARD_EVENT,
+    .slot = (uint)msg_hdr->slot,
+    .txn_idx = msg_hdr->txn_idx
   };
-  FD_STORE( fd_w_u128_t, epoch_pb.points, total_points );
-  return fd_solcap_write_protobuf( writer, &epoch_pb, fd_solcap_StakeRewardEpoch_fields, FD_SOLCAP_V1_REWARD_BEGIN_MAGIC );
-}
+  FD_TEST( sizeof(fd_solcap_chunk_int_hdr_t) == (ulong)write(fd, &int_hdr, sizeof(fd_solcap_chunk_int_hdr_t)) );
 
-int
-fd_solcap_write_stake_reward_event(
-    fd_solcap_writer_t * writer,
-    fd_pubkey_t const *  stake_acc_addr,
-    fd_pubkey_t const *  vote_acc_addr,
-    uint                 commission,
-    long                 vote_rewards,
-    long                 stake_rewards,
-    long                 new_credits_observed
-) {
-  fd_solcap_StakeRewardEvent event = {
-    .commission           = commission,
-    .vote_rewards         = vote_rewards,
-    .stake_rewards        = stake_rewards,
-    .new_credits_observed = new_credits_observed
-  };
-  memcpy( event.stake_account_address, stake_acc_addr, 32UL );
-  memcpy( event.vote_account_address,  vote_acc_addr,  32UL );
-  return fd_solcap_write_protobuf( writer, &event, fd_solcap_StakeRewardEvent_fields, FD_SOLCAP_V1_REWARD_CALC_MAGIC );
-}
+  FD_TEST( sizeof(fd_solcap_stake_reward_event_t) == (ulong)write(fd, stake_reward_event, sizeof(fd_solcap_stake_reward_event_t)) );
 
-int
-fd_solcap_write_vote_account_payout(
-    fd_solcap_writer_t * writer,
-    fd_pubkey_t const *  vote_acc_addr,
-    ulong                update_slot,
-    ulong                lamports,
-    long                 lamports_delta
-) {
-  fd_solcap_VoteAccountPayout payout = {
-    .update_slot    = update_slot,
-    .lamports       = lamports,
-    .lamports_delta = lamports_delta
-  };
-  memcpy( payout.address, vote_acc_addr, 32UL );
-  return fd_solcap_write_protobuf( writer, &payout, fd_solcap_VoteAccountPayout_fields, FD_SOLCAP_V1_REWARD_VOTE_MAGIC );
-}
-
-int
-fd_solcap_write_stake_account_payout(
-    fd_solcap_writer_t * writer,
-    fd_pubkey_t const *  stake_acc_addr,
-    ulong                update_slot,
-    ulong                lamports,
-    long                 lamports_delta,
-    ulong                credits_observed,
-    long                 credits_observed_delta,
-    ulong                delegation_stake,
-    long                 delegation_stake_delta
-) {
-  fd_solcap_StakeAccountPayout payout = {
-    .update_slot            = update_slot,
-    .lamports               = lamports,
-    .lamports_delta         = lamports_delta,
-    .credits_observed       = credits_observed,
-    .credits_observed_delta = credits_observed_delta,
-    .delegation_stake       = delegation_stake,
-    .delegation_stake_delta = delegation_stake_delta
-  };
-  memcpy( payout.address, stake_acc_addr, 32UL );
-  return fd_solcap_write_protobuf( writer, &payout, fd_solcap_StakeAccountPayout_fields, FD_SOLCAP_V1_REWARD_STAKE_MAGIC );
-}
-
-int
-fd_solcap_write_protobuf( fd_solcap_writer_t *        writer,
-                          void const *                msg,
-                          struct pb_msgdesc_s const * desc,
-                          ulong                       magic ) {
-  if( FD_UNLIKELY( !writer ) ) return 0;
-
-  uchar buf[ 1UL<<20 ];
-  pb_ostream_t stream = pb_ostream_from_buffer( buf, sizeof(buf) );
-  if( FD_UNLIKELY( !pb_encode( &stream, desc, msg ) ) ) {
-    FD_LOG_WARNING(( "pb_encode failed (%s)", PB_GET_ERROR(&stream) ));
-    return EPROTO;
-  }
-
-  fd_solcap_chunk_t chunk = {
-    .magic     = magic,
-    .meta_coff = (uint)sizeof(fd_solcap_chunk_t),
-    .meta_sz   = (uint)stream.bytes_written,
-    .total_sz  = stream.bytes_written + sizeof(fd_solcap_chunk_t)
-  };
-
-  FWRITE_BAIL( &chunk, sizeof(fd_solcap_chunk_t), 1UL, writer->file );
-  FWRITE_BAIL( buf, 1UL, stream.bytes_written,         writer->file );
-  return 0;
+  return block_len;
 }
