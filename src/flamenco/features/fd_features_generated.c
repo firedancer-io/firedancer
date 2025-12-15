@@ -1703,6 +1703,24 @@ fd_feature_id_t const ids[] = {
     .name                      = "provide_instruction_data_offset_in_vm_r2",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, switch_to_chacha8_turbine)>>3,
+    .id                        = {"\xa7\xaf\x63\xf3\xce\xb1\x12\xfc\xc9\xd8\x71\xc1\x4e\x8f\x17\x9e\xd0\x6f\x9b\x70\xf8\x41\x1a\x92\x9e\x48\x46\xb5\x2a\x0e\x98\x0c"},
+                                 /* CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB */
+    .name                      = "switch_to_chacha8_turbine",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, alt_bn128_little_endian)>>3,
+    .id                        = {"\x08\xe9\x1e\x13\xdc\xdd\x4a\x1b\x2e\x74\x17\x90\x41\x13\xdf\xa7\xe6\x56\x26\xa8\x1f\x90\x65\x52\x79\xaf\x2c\x85\xb0\x8b\xf5\x4e"},
+                                 /* bnS3pWfLrxHRJvMyLm6EaYQkP7A2Fe9DxoKv4aGA8YM */
+    .name                      = "alt_bn128_little_endian",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, bls_pubkey_management_in_vote_account)>>3,
+    .id                        = {"\xc5\x13\x40\xbe\xb3\x91\x0a\x1d\x93\xd2\xe9\xa3\xc5\x85\x34\xb9\x67\xd2\xa8\x5e\x0a\x47\x42\x01\x13\x02\x5f\xa1\xd7\x4a\xb4\x83"},
+                                 /* EGJLweNUVskAPEwpjvNB7JT6uUi6h4mFhowNYXVSrimG */
+    .name                      = "bls_pubkey_management_in_vote_account",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1958,6 +1976,9 @@ fd_feature_id_query( ulong prefix ) {
   case 0x8c7bee4552d93e0c: return &ids[ 246 ];
   case 0x866094bbfe00a7c6: return &ids[ 247 ];
   case 0x7c4802b8ba3fa849: return &ids[ 248 ];
+  case 0xfc12b1cef363afa7: return &ids[ 249 ];
+  case 0x1b4adddc131ee908: return &ids[ 250 ];
+  case 0x1d0a91b3be4013c5: return &ids[ 251 ];
   default: break;
   }
   return NULL;
@@ -2212,4 +2233,7 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_pairing_length_check   
 FD_STATIC_ASSERT( offsetof( fd_features_t, poseidon_enforce_padding                                )>>3==246UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, relax_intrabatch_account_locks                          )>>3==247UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, provide_instruction_data_offset_in_vm_r2                )>>3==248UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, switch_to_chacha8_turbine                               )>>3==249UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, alt_bn128_little_endian                                 )>>3==250UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account                   )>>3==251UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
