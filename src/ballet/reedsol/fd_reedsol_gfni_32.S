@@ -9,6 +9,11 @@ gfni_const_tbl:
 .incbin "src/ballet/reedsol/constants/gfni_constants.bin"
 .previous
 
+# Make stack non-executable
+.section .note.GNU-stack,"",@progbits
+
+.text
+
 fd_reedsol_private_encode_32_32:
 .globl fd_reedsol_private_encode_32_32
 .cfi_startproc

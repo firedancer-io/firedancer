@@ -799,6 +799,9 @@ metric introduced.
 
   <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
   <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
+
+  <counter name="AccdbRooted" summary="Number of account database entries rooted" />
+  <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
 </tile>
 
 <tile name="storei">

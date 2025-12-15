@@ -155,6 +155,7 @@ struct fd_replay_tile {
      TODO: Add a flag to the toml to make this optional. */
   int has_identity_vote_rooted;
 
+  ulong        reasm_seed;
   fd_reasm_t * reasm;
 
   /* Replay state machine. */
@@ -162,6 +163,7 @@ struct fd_replay_tile {
   ulong                exec_cnt;
   fd_replay_out_link_t exec_out[ 1 ]; /* Sending work down to exec tiles */
 
+  ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
 
   int   has_genesis_hash;
@@ -325,11 +327,13 @@ struct fd_replay_tile {
         id to send a slot complete message to tower. */
   ulong               block_id_len;
   fd_block_id_ele_t * block_id_arr;
+  ulong               block_id_map_seed;
   fd_block_id_map_t * block_id_map;
 
   /* Capture-related configs */
-  fd_capture_ctx_t * capture_ctx;
-  FILE *             capture_file;
+  fd_capture_ctx_t *     capture_ctx;
+  FILE *                 capture_file;
+  fd_capture_link_buf_t  cap_repl_out[1];
 
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis. */
@@ -471,6 +475,9 @@ metrics_write( fd_replay_tile_t * ctx ) {
 
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  ctx->progcache_admin->metrics.root_cnt );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, ctx->progcache_admin->metrics.gc_root_cnt );
+
+  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,  ctx->accdb_admin->metrics.root_cnt    );
+  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT, ctx->accdb_admin->metrics.gc_root_cnt );
 }
 
 static inline ulong
@@ -591,10 +598,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
-
-  if( ctx->capture_ctx ) {
-    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, slot );
-  }
 
   fd_bank_shred_cnt_set( bank, 0UL );
   fd_bank_execution_fees_set( bank, 0UL );
@@ -751,10 +754,7 @@ static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
-
   bank->last_transaction_finished_nanos = fd_log_wallclock();
-
-  if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
 
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
 
@@ -1049,7 +1049,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     snapshot_slot = 0UL;
   }
 
-  if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
 }
 
 static inline int
@@ -1528,6 +1527,9 @@ dispatch_task( fd_replay_tile_t *  ctx,
       memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
       exec_msg->bank_idx = task->txn_exec->bank_idx;
       exec_msg->txn_idx  = task->txn_exec->txn_idx;
+      if( FD_UNLIKELY( ctx->capture_ctx ) ) {
+        exec_msg->capture_txn_idx = ctx->capture_ctx->current_txn_idx++;
+      }
       fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_EXEC<<32) | task->txn_exec->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
@@ -1921,31 +1923,10 @@ before_frag( fd_replay_tile_t * ctx,
 }
 
 static void
-process_solcap_account_update( fd_replay_tile_t *                          ctx,
-                               fd_capture_ctx_account_update_msg_t const * msg ) {
-
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
-  if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", msg->bank_idx ));
-  }
-
-  if( FD_UNLIKELY( !ctx->capture_ctx || !ctx->capture_ctx->capture ) ) return;
-  if( FD_UNLIKELY( fd_bank_slot_get( bank )<ctx->capture_ctx->solcap_start_slot ) ) return;
-
-  uchar const * account_data = (uchar const *)fd_type_pun_const( msg )+sizeof(fd_capture_ctx_account_update_msg_t);
-  fd_solcap_write_account( ctx->capture_ctx->capture, &msg->pubkey, &msg->info, account_data, msg->data_sz );
-}
-
-static void
 process_exec_task_done( fd_replay_tile_t *        ctx,
                         fd_stem_context_t *       stem,
                         fd_exec_task_done_msg_t * msg,
                         ulong                     sig ) {
-  if( FD_UNLIKELY( sig==0UL ) ) {
-    // FIXME remove this branch with new solcap
-    process_solcap_account_update( ctx, fd_type_pun( msg ) );
-    return;
-  }
 
   ulong exec_tile_idx = sig&0xFFFFFFFFUL;
 
@@ -2339,11 +2320,24 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
     tile->replay.bundle.enabled = 0;
   }
+
   if( FD_UNLIKELY( tile->replay.bundle.enabled ) ) {
     if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
       const uchar * vote_key = fd_keyload_load( tile->replay.bundle.vote_account_path, /* pubkey only: */ 1 );
       fd_memcpy( ctx->bundle.vote_account.uc, vote_key, 32UL );
     }
+  }
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->reasm_seed, sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->vote_tracker_seed, sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->block_id_map_seed, sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
   }
 }
 
@@ -2433,16 +2427,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || strcmp( "", tile->replay.dump_proto_dir ) ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
-  }
-
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
-    ctx->capture_ctx->checkpt_freq = ULONG_MAX;
-    ctx->capture_file = fopen( tile->replay.solcap_capture, "w+" );
-    if( FD_UNLIKELY( !ctx->capture_file ) ) FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.solcap_capture, errno, fd_io_strerror( errno ) ));
-
-    ctx->capture_ctx->capture_txns = 0;
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
-    fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
   }
 
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
@@ -2464,13 +2449,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->larger_max_cost_per_block = tile->replay.larger_max_cost_per_block;
 
-  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 1 << 20, 0 ) );
+  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 1 << 20, ctx->reasm_seed ) );
   FD_TEST( ctx->reasm );
 
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.max_live_slots, ctx->exec_cnt ), tile->replay.max_live_slots );
   FD_TEST( ctx->sched );
 
-  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, 0UL ) );
+  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, ctx->vote_tracker_seed ) );
   FD_TEST( ctx->vote_tracker );
 
   ctx->has_identity_vote_rooted = 0;
@@ -2486,14 +2471,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
-  ctx->slot_duration_nanos   = 350L*1000L*1000L; /* TODO: Not fixed ... not always 400ms ... */
+  ctx->slot_duration_nanos   = 350L*1000L*1000L; /* TODO: Not fixed ... not always 350ms ... */
   ctx->slot_duration_ticks   = (double)ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
   ctx->leader_bank           = NULL;
 
-  /* TODO: We need a real seed here. */
   ctx->block_id_len = tile->replay.max_live_slots;
   ctx->block_id_arr = (fd_block_id_ele_t *)block_id_arr_mem;
-  ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, 999UL ) );
+  ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, ctx->block_id_map_seed ) );
   FD_TEST( ctx->block_id_map );
 
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) {
@@ -2544,6 +2528,40 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
+
+  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
+    idx = fd_topo_find_tile_out_link( topo, tile, "cap_repl", 0UL );
+    FD_TEST( idx!=ULONG_MAX );
+    link = &topo->links[ tile->out_link_id[ idx ] ];
+
+
+    fd_capture_link_buf_t * cap_repl_out = ctx->cap_repl_out;
+    cap_repl_out->base.vt = &fd_capture_link_buf_vt;
+    cap_repl_out->idx     = idx;
+    cap_repl_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    cap_repl_out->chunk0  = fd_dcache_compact_chunk0( cap_repl_out->mem, link->dcache );
+    cap_repl_out->wmark   = fd_dcache_compact_wmark( cap_repl_out->mem, link->dcache, link->mtu );
+    cap_repl_out->chunk   = cap_repl_out->chunk0;
+    cap_repl_out->mcache  = link->mcache;
+    cap_repl_out->depth   = fd_mcache_depth( link->mcache );
+    cap_repl_out->seq     = 0UL;
+
+    ctx->capture_ctx->capctx_type.buf  = cap_repl_out;
+    ctx->capture_ctx->capture_link    = &cap_repl_out->base;
+    ctx->capture_ctx->current_txn_idx = 0UL;
+
+
+    ulong consumer_tile_idx = fd_topo_find_tile( topo, "solcap", 0UL );
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    cap_repl_out->fseq = NULL;
+    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {
+        cap_repl_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+        FD_TEST( cap_repl_out->fseq );
+        break;
+      }
+    }
+  }
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 

@@ -115,7 +115,7 @@ echo "
 $OBJDIR/bin/firedancer-dev configure init all --config dump/${LEDGER}_backtest.toml &> /dev/null
 
 set -x
-  sudo $OBJDIR/bin/firedancer-dev backtest --config dump/${LEDGER}_backtest.toml &> /dev/null
+  $OBJDIR/bin/firedancer-dev backtest --config dump/${LEDGER}_backtest.toml &> /dev/null
 
 { set +x; } &> /dev/null
 

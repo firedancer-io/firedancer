@@ -135,6 +135,8 @@ struct fd_gui_validator_info {
 #define FD_GUI_TXN_FLAGS_FROM_BUNDLE     ( 8U)
 #define FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK (16U)
 
+#define FD_GUI_TURBINE_RECV_TIMESTAMPS (750UL)
+
 /* One use case for tracking ingress shred slot is to estimate when we
    have caught up to the tip of the blockchain.  A naive approach would
    be to track the maximum seen slot.
@@ -236,6 +238,7 @@ struct fd_gui_validator_info {
 struct fd_gui_tile_timers {
   ulong timers[ FD_METRICS_ENUM_TILE_REGIME_CNT ];
   int   in_backp;
+  uint  status;
   ulong heartbeat;
   ulong backp_cnt;
   ulong nvcsw;
@@ -322,6 +325,13 @@ struct fd_gui_leader_slot {
 };
 
 typedef struct fd_gui_leader_slot fd_gui_leader_slot_t;
+
+struct fd_gui_turbine_slot {
+ ulong slot;
+ long timestamp;
+};
+
+typedef struct fd_gui_turbine_slot fd_gui_turbine_slot_t;
 
 struct fd_gui_slot_completed {
   ulong slot;
@@ -535,6 +545,8 @@ struct fd_gui {
 
   long next_sample_400millis;
   long next_sample_100millis;
+  long next_sample_50millis;
+  long next_sample_12_5millis;
   long next_sample_10millis;
 
   ulong leader_slot;
@@ -671,6 +683,9 @@ struct fd_gui {
   } summary;
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
+
+  /* used for estimating slot duration */
+  fd_gui_turbine_slot_t turbine_slots[ FD_GUI_TURBINE_RECV_TIMESTAMPS ];
 
   fd_gui_leader_slot_t leader_slots[ FD_GUI_LEADER_CNT ][ 1 ];
   ulong leader_slots_cnt;
@@ -858,6 +873,9 @@ fd_gui_handle_exec_txn_done( fd_gui_t * gui,
 
 void
 fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now );
+
+void
+fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long now );
 
 void
 fd_gui_handle_snapshot_update( fd_gui_t *                 gui,

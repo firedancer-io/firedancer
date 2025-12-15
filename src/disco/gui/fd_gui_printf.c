@@ -229,6 +229,13 @@ fd_gui_printf_startup_time_nanos( fd_gui_t * gui ) {
 }
 
 void
+fd_gui_printf_server_time_nanos( fd_gui_t * gui, long now ) {
+  jsonp_open_envelope( gui->http, "summary", "server_time_nanos" );
+    jsonp_long_as_str( gui->http, "value", now );
+  jsonp_close_envelope( gui->http );
+}
+
+void
 fd_gui_printf_vote_distance( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "vote_distance" );
     jsonp_ulong( gui->http, "value", gui->summary.vote_distance );
@@ -903,6 +910,8 @@ static void
 fd_gui_printf_tile_metrics( fd_gui_t *                   gui,
                                   fd_gui_tile_timers_t const * prev,
                                   fd_gui_tile_timers_t const * cur ) {
+  int sample_missing[ FD_TOPO_MAX_TILES ];
+
   jsonp_open_array( gui->http, "timers" );
   for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &gui->topo->tiles[ i ];
@@ -918,10 +927,10 @@ fd_gui_printf_tile_metrics( fd_gui_t *                   gui,
     ulong prev_total = 0UL;
     for( ulong j=0UL; j<FD_METRICS_ENUM_TILE_REGIME_CNT; j++ ) prev_total += prev[ i ].timers[ j ];
 
+    sample_missing[ i ] = cur_total==prev_total;
+
     if( FD_UNLIKELY( cur_total==prev_total ) ) {
-      jsonp_open_array( gui->http, NULL );
-        for( ulong j=0UL; j<FD_METRICS_ENUM_TILE_REGIME_CNT; j++ ) jsonp_double( gui->http, NULL, -1.0 );
-      jsonp_close_array( gui->http );
+      jsonp_null( gui->http, NULL );
     } else {
       jsonp_open_array( gui->http, NULL );
         for (ulong j = 0UL; j < FD_METRICS_ENUM_TILE_REGIME_CNT; j++) {
@@ -935,19 +944,34 @@ fd_gui_printf_tile_metrics( fd_gui_t *                   gui,
   jsonp_close_array( gui->http );
 
   jsonp_open_array( gui->http, "in_backp" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_bool( gui->http, NULL, cur[ i ].in_backp );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( sample_missing[ i ] ) ) jsonp_null( gui->http, NULL );
+      else                                     jsonp_bool( gui->http, NULL, cur[ i ].in_backp );
+    }
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "backp_msgs" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, cur[ i ].backp_cnt );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( sample_missing[ i ] ) ) jsonp_null( gui->http, NULL );
+      else                                     jsonp_ulong( gui->http, NULL, cur[ i ].backp_cnt );
+    }
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "alive" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, cur[ i ].heartbeat>prev[ i ].heartbeat );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( sample_missing[ i ] ) ) jsonp_null( gui->http, NULL );
+      else                                     jsonp_ulong( gui->http, NULL, fd_ulong_if( cur[ i ].status==2U, 2UL, (ulong)(cur[ i ].heartbeat>prev[ i ].heartbeat) ) );
+    }
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "nvcsw" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, cur[ i ].nvcsw );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( sample_missing[ i ] ) ) jsonp_null( gui->http, NULL );
+      else                                     jsonp_ulong( gui->http, NULL, cur[ i ].nvcsw );
+    }
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "nivcsw" );
-    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) jsonp_ulong( gui->http, NULL, cur[ i ].nivcsw );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      if( FD_UNLIKELY( sample_missing[ i ] ) ) jsonp_null( gui->http, NULL );
+      else                                     jsonp_ulong( gui->http, NULL, cur[ i ].nivcsw );
+    }
   jsonp_close_array( gui->http );
 }
 
@@ -1056,6 +1080,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
         char version[ 32 ];
         FD_TEST( fd_cstr_printf( version, sizeof( version ), NULL, "%u.%u.%u", gui->gossip.peers[ gossip_idx ].version.major, gui->gossip.peers[ gossip_idx ].version.minor, gui->gossip.peers[ gossip_idx ].version.patch ) );
         jsonp_string( gui->http, "version", version );
+        jsonp_null( gui->http, "client_id" ); /* TODO: Frankendancer support */
         jsonp_ulong( gui->http, "feature_set", gui->gossip.peers[ gossip_idx ].version.feature_set );
         jsonp_ulong( gui->http, "wallclock", gui->gossip.peers[ gossip_idx ].wallclock );
         jsonp_ulong( gui->http, "shred_version", gui->gossip.peers[ gossip_idx ].shred_version );
@@ -1133,6 +1158,7 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
       char version[ 32 ];
       FD_TEST( fd_cstr_printf( version, sizeof( version ), NULL, "%u.%u.%u", peer->contact_info.version.major, peer->contact_info.version.minor, peer->contact_info.version.patch ) );
       jsonp_string( peers->http, "version", version );
+      jsonp_ulong( peers->http, "client_id", peer->contact_info.version.client );
       jsonp_ulong( peers->http, "feature_set", peer->contact_info.version.feature_set );
       jsonp_long( peers->http, "wallclock", peer->contact_info.wallclock_nanos );
       jsonp_ulong( peers->http, "shred_version", peer->contact_info.shred_version );

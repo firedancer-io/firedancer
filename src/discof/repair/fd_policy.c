@@ -280,8 +280,8 @@ fd_policy_peer_insert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_por
     peer->stake         = 0;
 
     fd_peer_t * peer_ele = fd_peer_pool_ele_acquire( policy->peers.pool );
-    peer->pool_idx = fd_peer_pool_idx( policy->peers.pool, peer_ele );
-    peer_ele->identity = *key;
+    peer->pool_idx       = fd_peer_pool_idx( policy->peers.pool, peer_ele );
+    peer_ele->identity   = *key;
     fd_peer_dlist_ele_push_tail( policy->peers.slow, peer_ele, policy->peers.pool );
     return peer;
   }
@@ -290,6 +290,10 @@ fd_policy_peer_insert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_por
 
 fd_policy_peer_t *
 fd_policy_peer_query( fd_policy_t * policy, fd_pubkey_t const * key ) {
+  if( FD_UNLIKELY( memcmp( key->key, null_pubkey.key, 32UL ) == 0 ) ) {
+    FD_LOG_WARNING(( "Repair policy peer with null pubkey." ));
+    return NULL;
+  };
   return fd_policy_peer_map_query( policy->peers.map, *key, NULL );
 }
 
@@ -298,7 +302,6 @@ fd_policy_peer_remove( fd_policy_t * policy, fd_pubkey_t const * key ) {
   fd_policy_peer_t * peer = fd_policy_peer_map_query( policy->peers.map, *key, NULL );
   if( FD_UNLIKELY( !peer ) ) return 0;
   fd_peer_t * peer_ele = fd_peer_pool_ele( policy->peers.pool, peer->pool_idx );
-  fd_policy_peer_map_remove( policy->peers.map, peer );
 
   if( FD_UNLIKELY( policy->peers.select.iter == fd_peer_pool_idx( policy->peers.pool, peer_ele ) ) ) {
     /* In general removal during iteration is safe, except when the iterator is on the peer to be removed. */
@@ -309,6 +312,8 @@ fd_policy_peer_remove( fd_policy_t * policy, fd_pubkey_t const * key ) {
   fd_peer_dlist_t * bucket = fd_policy_peer_latency_bucket( policy, peer->total_lat, peer->res_cnt );
   fd_peer_dlist_ele_remove( bucket, peer_ele, policy->peers.pool );
   fd_peer_pool_ele_release( policy->peers.pool, peer_ele );
+
+  fd_policy_peer_map_remove( policy->peers.map, peer );
   return 1;
 }
 

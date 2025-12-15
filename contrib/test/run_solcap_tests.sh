@@ -1,13 +1,13 @@
 #!/bin/bash
-set -xeou pipefail
+set -eou pipefail
 
 source contrib/test/ledger_common.sh
 
 DUMP=${DUMP:="./dump"}
 OBJDIR=${OBJDIR:-build/native/gcc}
-echo $OBJDIR
+SKIP_INGEST=${SKIP_INGEST:-0}
 
-LEDGER="devnet-398736132-solcap"
+LEDGER="mainnet-376969880-solcap"
 REDOWNLOAD=1
 
 while [[ $# -gt 0 ]]; do
@@ -49,41 +49,86 @@ else
   check_ledger_checksum_and_redownload
 fi
 
-rm -rf $DUMP/$LEDGER/devnet-398736132_current.toml
-rm -rf $DUMP/$LEDGER/fd.solcap
-
-cp $DUMP/$LEDGER/devnet-398736132.toml $DUMP/$LEDGER/devnet-398736132_current.toml
+# Clone and build solcap-tools
+ORIG_DIR=$(pwd)
+cd $DUMP
+if [ ! -d "solcap-tools" ]; then
+  git clone https://github.com/firedancer-io/solcap-tools.git > /dev/null 2>&1
+fi
+cd solcap-tools
+git fetch origin > /dev/null 2>&1
+git checkout nishk/bp-fixes > /dev/null 2>&1
+git reset --hard origin/nishk/bp-fixes > /dev/null 2>&1
+cargo build --release > /dev/null 2>&1
+cd "$ORIG_DIR"
 
 export ledger_dir=$(realpath $DUMP/$LEDGER)
-sed -i "s#{ledger_dir}#${ledger_dir}#g" "$DUMP/$LEDGER/devnet-398736132_current.toml"
-sed -i "s/max_total_banks = [0-9]*/max_total_banks = 32/g" "$DUMP/$LEDGER/devnet-398736132_current.toml"
-sed -i -z "s/\[snapshots\].*\[layout\]/[layout]/" "$DUMP/$LEDGER/devnet-398736132_current.toml"
-sed -i "/writer_tile_count/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
-sed -i "/lock_pages/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
-sed -i "/heap_size_gib/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
-sed -i "/max_total_banks/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
-sed -i "/max_fork_width/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
-sed -i "/cluster_version/d" "$DUMP/$LEDGER/devnet-398736132_current.toml"
 
-echo "
-[gossip]
-  entrypoints = [ \"0.0.0.0:1\" ]" >> "$DUMP/$LEDGER/devnet-398736132_current.toml"
+cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
 
-echo "
 [snapshots]
     incremental_snapshots = false
     [snapshots.sources]
         servers = []
         [snapshots.sources.gossip]
             allow_any = false
-            allow_list = []" >> "$DUMP/$LEDGER/devnet-398736132_current.toml"
+            allow_list = []
+[layout]
+    shred_tile_count = 4
+    snapla_tile_count = 1
+    verify_tile_count = 2
+    exec_tile_count = 6
+[tiles]
+    [tiles.archiver]
+        enabled = true
+        end_slot = 376969900
+        rocksdb_path = "${ledger_dir}/rocksdb"
+        shredcap_path = "${ledger_dir}/shreds.pcapng.zst"
+        ingest_mode = "shredcap"
+    [tiles.replay]
+        enable_features = [  ]
+    [tiles.gui]
+        enabled = false
+    [tiles.rpc]
+        enabled = false
+[store]
+    max_completed_shred_sets = 32768
+[funk]
+    heap_size_gib = 1
+    max_account_records = 2000000
+    max_database_transactions = 64
+[runtime]
+    max_live_slots = 32
+    max_fork_width = 4
+[log]
+    level_stderr = "NOTICE"
+    path = "/tmp/ledger_log_solcap"
 
-$OBJDIR/bin/firedancer-dev configure init all --config $DUMP/$LEDGER/devnet-398736132_current.toml
-$OBJDIR/bin/firedancer-dev backtest --config $DUMP/$LEDGER/devnet-398736132_current.toml
-$OBJDIR/bin/firedancer-dev configure fini all --config $DUMP/$LEDGER/devnet-398736132_current.toml
+[paths]
+    snapshots = "${ledger_dir}"
 
-$OBJDIR/bin/fd_solcap_import $DUMP/$LEDGER/bank_hash_details/ $DUMP/$LEDGER/solana.solcap
-$OBJDIR/bin/fd_solcap_diff $DUMP/$LEDGER/solana.solcap $DUMP/$LEDGER/fd.solcap -v 4
+[capture]
+    solcap_capture = "${ledger_dir}/mainnet-376969880-solcap.solcap"
+[development]
+    [development.snapshots]
+        disable_lthash_verification = true
+[gossip]
+    entrypoints = [ "0.0.0.0:1" ]
+EOF
 
-# check that the ledger is not corrupted after a run
-check_ledger_checksum
+$OBJDIR/bin/firedancer-dev backtest --config $DUMP/$LEDGER/mainnet-376969880_current.toml
+
+# Run solcap-tools diff and check the summary for zero differences
+DIFF_OUTPUT=$($DUMP/solcap-tools/target/release/solcap-tools diff $DUMP/$LEDGER/mainnet-376969880-solcap.solcap $DUMP/$LEDGER/ledger_tool/bank_hash_details/ -v 5)
+echo "$DIFF_OUTPUT"
+
+SUMMARY=$(echo "$DIFF_OUTPUT" | tail -3) > /dev/null 2>&1
+DIFFERING_SLOTS=$(echo "$SUMMARY" | grep -ioP 'Differing Slots: \K\d+' || echo "") > /dev/null 2>&1
+DIFFERING_ACCOUNTS=$(echo "$SUMMARY" | grep -ioP 'Differing Accounts: \K\d+' || echo "") > /dev/null 2>&1
+
+if [[ "$DIFFERING_SLOTS" != "0" || "$DIFFERING_ACCOUNTS" != "0" ]]; then
+  echo -e "\033[0;31mFAIL\033[0m Solcap diff found mismatches! Differing Slots: $DIFFERING_SLOTS, Differing Accounts: $DIFFERING_ACCOUNTS" >&2
+  exit 1
+fi
+
+exit 0

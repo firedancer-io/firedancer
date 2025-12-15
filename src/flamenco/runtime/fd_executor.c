@@ -45,6 +45,18 @@ struct fd_native_prog_info {
 };
 typedef struct fd_native_prog_info fd_native_prog_info_t;
 
+/* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15 */
+struct fd_rent_state {
+  uint  discriminant;
+  ulong lamports;
+  ulong data_size;
+};
+typedef struct fd_rent_state fd_rent_state_t;
+
+#define FD_RENT_STATE_UNINITIALIZED (0U)
+#define FD_RENT_STATE_RENT_PAYING   (1U)
+#define FD_RENT_STATE_RENT_EXEMPT   (2U)
+
 #define MAP_PERFECT_NAME fd_native_program_fn_lookup_tbl
 #define MAP_PERFECT_LG_TBL_SZ 4
 #define MAP_PERFECT_T fd_native_prog_info_t
@@ -184,19 +196,19 @@ static uchar
 fd_executor_rent_transition_allowed( fd_rent_state_t const * pre_rent_state,
                                      fd_rent_state_t const * post_rent_state ) {
   switch( post_rent_state->discriminant ) {
-    case fd_rent_state_enum_uninitialized:
-    case fd_rent_state_enum_rent_exempt: {
+    case FD_RENT_STATE_UNINITIALIZED:
+    case FD_RENT_STATE_RENT_EXEMPT: {
       return 1;
     }
-    case fd_rent_state_enum_rent_paying: {
+    case FD_RENT_STATE_RENT_PAYING: {
       switch( pre_rent_state->discriminant ) {
-        case fd_rent_state_enum_uninitialized:
-        case fd_rent_state_enum_rent_exempt: {
+        case FD_RENT_STATE_UNINITIALIZED:
+        case FD_RENT_STATE_RENT_EXEMPT: {
           return 0;
         }
-        case fd_rent_state_enum_rent_paying: {
-          return post_rent_state->inner.rent_paying.data_size==pre_rent_state->inner.rent_paying.data_size &&
-                 post_rent_state->inner.rent_paying.lamports<=pre_rent_state->inner.rent_paying.lamports;
+        case FD_RENT_STATE_RENT_PAYING: {
+          return post_rent_state->data_size==pre_rent_state->data_size &&
+                 post_rent_state->lamports<=pre_rent_state->lamports;
         }
         default: {
           __builtin_unreachable();
@@ -227,26 +239,22 @@ fd_executor_get_account_rent_state( fd_account_meta_t const * meta, fd_rent_t co
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/svm_rent_collector.rs#L88-L89 */
   if( meta->lamports==0UL ) {
     return (fd_rent_state_t){
-      .discriminant = fd_rent_state_enum_uninitialized
+      .discriminant = FD_RENT_STATE_UNINITIALIZED
     };
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/svm_rent_collector.rs#L90-L94 */
   if( meta->lamports>=fd_rent_exempt_minimum_balance( rent, meta->dlen ) ) {
     return (fd_rent_state_t){
-      .discriminant = fd_rent_state_enum_rent_exempt
+      .discriminant = FD_RENT_STATE_RENT_EXEMPT
     };
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/svm_rent_collector.rs#L95-L99 */
   return (fd_rent_state_t){
-    .discriminant = fd_rent_state_enum_rent_paying,
-    .inner = {
-      .rent_paying = {
-        .lamports  = meta->lamports,
-        .data_size = meta->dlen
-      }
-    }
+    .discriminant = FD_RENT_STATE_RENT_PAYING,
+    .lamports     = meta->lamports,
+    .data_size    = meta->dlen
   };
 }
 
