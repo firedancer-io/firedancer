@@ -526,6 +526,9 @@
 | <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | The slot at which we last reset the replay stage, or 0 if unknown |
 | <span class="metrics-name">replay_&#8203;max_&#8203;live_&#8203;banks</span> | gauge | The maximum number of banks we can have alive |
 | <span class="metrics-name">replay_&#8203;live_&#8203;banks</span> | gauge | The number of banks we currently have alive |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;free</span> | gauge | The number of free FEC sets in the reassembly queue |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;slot</span> | gauge | Slot of the latest FEC set in the reassembly queue that can be replayed |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;fec_&#8203;idx</span> | gauge | FEC set index of the latest FEC set in the reassembly queue that can be replayed |
 | <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully |
 | <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall on the current fork |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;full</span> | counter | Times where sched is full and a FEC set can't be processed |

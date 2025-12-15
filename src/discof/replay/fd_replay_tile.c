@@ -407,6 +407,9 @@ struct fd_replay_tile {
     ulong slots_total;
     ulong transactions_total;
 
+    ulong reasm_latest_slot;
+    ulong reasm_latest_fec_idx;
+
     ulong sched_full;
     ulong reasm_empty;
     ulong leader_bid_wait;
@@ -475,13 +478,19 @@ metrics_write( fd_replay_tile_t * ctx ) {
   ulong live_banks = fd_banks_pool_max( bank_pool ) - fd_banks_pool_free( bank_pool );
   FD_MGAUGE_SET( REPLAY, LIVE_BANKS, live_banks );
 
+  ulong reasm_free = fd_reasm_free( ctx->reasm );
+  FD_MGAUGE_SET( REPLAY, REASM_FREE, reasm_free );
+
   FD_MCNT_SET( REPLAY, SLOTS_TOTAL, ctx->metrics.slots_total );
   FD_MCNT_SET( REPLAY, TRANSACTIONS_TOTAL, ctx->metrics.transactions_total );
 
-  FD_MCNT_SET( REPLAY, SCHED_FULL, ctx->metrics.sched_full );
-  FD_MCNT_SET( REPLAY, REASM_EMPTY, ctx->metrics.reasm_empty );
+  FD_MGAUGE_SET( REPLAY, REASM_LATEST_SLOT,    ctx->metrics.reasm_latest_slot );
+  FD_MGAUGE_SET( REPLAY, REASM_LATEST_FEC_IDX, ctx->metrics.reasm_latest_fec_idx );
+
+  FD_MCNT_SET( REPLAY, SCHED_FULL,      ctx->metrics.sched_full );
+  FD_MCNT_SET( REPLAY, REASM_EMPTY,     ctx->metrics.reasm_empty );
   FD_MCNT_SET( REPLAY, LEADER_BID_WAIT, ctx->metrics.leader_bid_wait );
-  FD_MCNT_SET( REPLAY, BANKS_FULL, ctx->metrics.banks_full );
+  FD_MCNT_SET( REPLAY, BANKS_FULL,      ctx->metrics.banks_full );
 
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  ctx->progcache_admin->metrics.root_cnt );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, ctx->progcache_admin->metrics.gc_root_cnt );
@@ -1617,8 +1626,13 @@ can_process_fec( fd_replay_tile_t * ctx ) {
 
   if( FD_UNLIKELY( (fec = fd_reasm_peek( ctx->reasm ))==NULL ) ) {
     ctx->metrics.reasm_empty++;
+    ctx->metrics.reasm_latest_slot    = ULONG_MAX;
+    ctx->metrics.reasm_latest_fec_idx = ULONG_MAX;
     return 0;
   }
+
+  ctx->metrics.reasm_latest_slot    = fec->slot;
+  ctx->metrics.reasm_latest_fec_idx = fec->fec_set_idx;
 
   if( FD_UNLIKELY( ctx->is_leader && fec->fec_set_idx==0U && fd_reasm_parent( ctx->reasm, fec )->bank_idx==ctx->leader_bank->idx ) ) {
     /* There's a race that's exceedingly rare, where we receive the
@@ -1918,8 +1932,6 @@ after_credit( fd_replay_tile_t *  ctx,
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
-  } else {
-
   }
 
   *charge_busy = replay( ctx, stem );
