@@ -13,6 +13,7 @@ void fd_gui_printf_commit_hash( fd_gui_t * gui );
 void fd_gui_printf_identity_key( fd_gui_t * gui );
 void fd_gui_printf_vote_key( fd_gui_t * gui );
 void fd_gui_printf_startup_time_nanos( fd_gui_t * gui );
+void fd_gui_printf_server_time_nanos( fd_gui_t * gui, long now );
 void fd_gui_printf_vote_state( fd_gui_t * gui );
 void fd_gui_printf_vote_distance( fd_gui_t * gui );
 void fd_gui_printf_turbine_slot( fd_gui_t * gui );

@@ -65,6 +65,9 @@ struct fd_sched_block {
   uint                shred_cnt;
   uint                fec_cnt;
   ulong               txn_idx[ FD_MAX_TXN_PER_SLOT ]; /* Indexed by parse order. */
+  long                txn_disp_ticks[ FD_MAX_TXN_PER_SLOT ]; /* Indexed by parse order. */
+  long                txn_done_ticks[ FD_MAX_TXN_PER_SLOT ]; /* Indexed by parse order. */
+  fd_ed25519_sig_t    txn_sigs[ FD_MAX_TXN_PER_SLOT ]; /* Indexed by parse order. */
 
   /* Parser state. */
   uchar               txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
@@ -165,6 +168,7 @@ struct fd_sched {
                                                                              not set in the bitset. */
   ulong               txn_pool_free_cnt;
   fd_txn_p_t          txn_pool[ FD_SCHED_MAX_DEPTH ];
+  uint                txn_idx_to_parse_idx[ FD_SCHED_MAX_DEPTH ];
   ulong               tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
   txn_bitset_t        exec_done_set[ txn_bitset_word_cnt ];      /* Indexed by txn_idx. */
   txn_bitset_t        sigverify_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
@@ -307,6 +311,20 @@ fd_sched_printf( fd_sched_t * sched,
   len = fd_ulong_if( ret<0, 0UL, fd_ulong_min( (ulong)ret, FD_SCHED_MAX_PRINT_BUF_SZ-sched->print_buf_sz-1UL ) );
   sched->print_buf[ sched->print_buf_sz+len ] = '\0';
   sched->print_buf_sz += len;
+}
+
+FD_FN_UNUSED static void
+log_block_txns( fd_sched_t * sched, fd_sched_block_t * block ) {
+  for( ulong i=0UL; i<block->txn_parsed_cnt; i++ ) {
+    sched->print_buf_sz = 0UL;
+    FD_BASE58_ENCODE_64_BYTES( block->txn_sigs[ i ], sig_str );
+    long disp_tick = block->txn_disp_ticks[ i ];
+    long done_tick = block->txn_done_ticks[ i ];
+    if( FD_LIKELY( disp_tick!=LONG_MAX && done_tick!=LONG_MAX ) ) fd_sched_printf( sched, "['%s',%ld,%ld],", sig_str, disp_tick, done_tick );
+    else if( FD_LIKELY( disp_tick!=LONG_MAX ) ) fd_sched_printf( sched, "['%s',%ld,None],", sig_str, disp_tick );
+    else fd_sched_printf( sched, "['%s',None,None],", sig_str );
+    FD_LOG_DEBUG(( "%s", sched->print_buf ));
+  }
 }
 
 FD_FN_UNUSED static void
@@ -822,6 +840,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     sched->metrics->txn_weighted_in_flight_cnt       += delta*txn_exec_busy_cnt;
     sched->txn_in_flight_last_tick = now;
 
+    block->txn_disp_ticks[ sched->txn_idx_to_parse_idx[ out->txn_exec->txn_idx ] ] = now;
+
     sched->txn_exec_ready_bitset[ 0 ] = fd_ulong_clear_bit( exec_ready_bitset0, (int)exec_tile_idx0);
     sched->tile_to_bank_idx[ exec_tile_idx0 ] = bank_idx;
 
@@ -975,6 +995,8 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       sched->metrics->txn_weighted_in_flight_cnt       += delta*txn_exec_busy_cnt;
       sched->txn_in_flight_last_tick = now;
 
+      block->txn_done_ticks[ sched->txn_idx_to_parse_idx[ txn_idx ] ] = now;
+
       block->txn_exec_done_cnt++;
       block->txn_exec_in_flight_cnt--;
       sched->metrics->txn_exec_done_cnt++;
@@ -1056,16 +1078,18 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
                   sched->active_bank_idx, bank_idx, block->slot, block->parent_slot ));
   }
 
+  FD_LOG_INFO(( "abandoning block %lu", block->slot ));
+  sched->print_buf_sz = 0UL;
+  print_all( sched, block );
+  FD_LOG_DEBUG(( "%s", sched->print_buf ));
+  log_block_txns( sched, block );
+
   subtree_abandon( sched, block );
 
   /* Reset the active block. */
   FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
   sched->active_bank_idx = ULONG_MAX;
   sched->metrics->deactivate_abandoned_cnt++;
-  FD_LOG_INFO(( "block %lu abandoned", block->slot ));
-  sched->print_buf_sz = 0UL;
-  print_all( sched, block );
-  FD_LOG_DEBUG(( "%s", sched->print_buf ));
   try_activate_block( sched );
 }
 
@@ -1486,7 +1510,11 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   fd_memcpy( TXN(txn_p),     txn,                                txn_sz );
   txn_bitset_remove( sched->exec_done_set, txn_idx );
   txn_bitset_remove( sched->sigverify_done_set, txn_idx );
+  sched->txn_idx_to_parse_idx[ txn_idx ] = block->txn_parsed_cnt;
+  memcpy( block->txn_sigs[ block->txn_parsed_cnt ], fd_txn_get_signatures( TXN(txn_p), txn_p->payload ), FD_TXN_SIGNATURE_SZ );
   block->txn_idx[ block->txn_parsed_cnt ] = txn_idx;
+  block->txn_disp_ticks[ block->txn_parsed_cnt ] = LONG_MAX;
+  block->txn_done_ticks[ block->txn_parsed_cnt ] = LONG_MAX;
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
 #if FD_SCHED_SKIP_SIGVERIFY

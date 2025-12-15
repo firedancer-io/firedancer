@@ -380,6 +380,13 @@ A UNIX timestamp in nanoseconds of the validator's startup. The
 timestamp is taken by the gui tile during boot, so it occurs before the
 validator downloads a snapshot and fully catches up to the cluster.
 
+
+#### `summary.server_time_nanos`
+| frequency | type     | example             |
+|-----------|----------|---------------------|
+| *Once*    | `string` |  `"1719910299914232"` |
+
+
 #### `summary.startup_progress`
 | frequency       | type              | example |
 |-----------------|-------------------|---------|
@@ -1045,7 +1052,7 @@ potential underflow.
 #### `summary.live_tile_timers`
 | frequency        | type       | example |
 |------------------|------------|---------|
-| *Once* + *10ms*  | `number[]` | below   |
+| *Once* + *25ms*  | `number[]` | below   |
 
 Live tile timers is an array, one entry per tile, of how idle the tile
 was in the preceding 10 millisecond sampling window. A value of `-1`
@@ -1086,7 +1093,7 @@ first connect by the `summary.tiles` message.
 #### `summary.live_tile_metrics`
 | frequency        | type          | example |
 |------------------|---------------|---------|
-| *Once* + *10ms*  | `TileMetrics` | below   |
+| *Once* + *25ms*  | `TileMetrics` | below   |
 
 Live tile metrics is a live feed of various metrics related to tile
 health and resource utilization.
@@ -1184,12 +1191,12 @@ reported when you first connect by the `summary.tiles` message.
 **`TileMetrics`**
 | Field      | Type         | Description |
 |------------|--------------|-------------|
-| timers     | `number[][]` | `timers[i][j]` is the percentage of time from the last 10ms tile `i` spent in regime `regimes[j]` |
-| in_backp   | `boolean[]`  | `in_backp[i]` is `true` if tile `i` is currently backpressured and `false` otherwise. See description of regimes above for more context |
-| backp_msgs | `number[]`   | `backp_msgs[i]` is the number of times since startup that tile `i` has had to wait for one of more consumers to catch up to resume publishing |
-| alive      | `boolean[]`  | `alive[i]` is `true` if tile `i` has updated its heartbeat timer any time in the last 10ms and `false` otherwise |
-| nvcsw      | `number[]`   | `nvcsw[i]` is the number of voluntary context switches the occurred for tile `i` since startup |
-| nivcsw     | `number[]`   | `nivcsw[i]` is the number of involuntary context switches the occurred for tile `i` since startup |
+| timers     | `(number[]\|null)[]` | `timers[i]` is `null` if no sample was taken in the window, typically because the tile was context switched out by the kernel or it is hung. Otherwise, `timers[i][j]` is the percentage of time from the last 10ms tile `i` spent in regime `regimes[j]` |
+| in_backp   | `(boolean\|null)[]`  | `in_backp[i]` is `null` if no sample was taken in the window. `in_backp[i]` is `true` if tile `i` is currently backpressured and `false` otherwise. See description of regimes above for more context |
+| backp_msgs | `(number\|null)[]`   | `backp_msgs[i]` is `null` if no sample was taken in the window. Otherwise, `backp_msgs[i]` is the number of times since startup that tile `i` has had to wait for one of more consumers to catch up to resume publishing |
+| alive      | `(number\|null)[]`   | `alive[i]` is `null` if no sample was taken in the window. Otherwise, `alive[i]` is `2` if tile `i` has permanently shut down, `1` if tile `i` has updated its heartbeat timer any time in the last 10ms, and `0` otherwise |
+| nvcsw      | `(number\|null)[]`   | `nvcsw[i]` is `null` if no sample was taken in the window. Otherwise, `nvcsw[i]` is the number of voluntary context switches the occurred for tile `i` since startup |
+| nivcsw     | `(number\|null)[]`   | `nivcsw[i]` is `null` if no sample was taken in the window. Otherwise, `nivcsw[i]` is the number of involuntary context switches the occurred for tile `i` since startup |
 
 ### block_engine
 Block engines are providers of additional transactions to the validator,
@@ -1329,7 +1336,7 @@ which is specified below.
 #### `gossip.network_stats`
 | frequency       | type                 | example     |
 |-----------------|----------------------|-------------|
-| *Once* + *10ms* | `GossipNetworkStats` | below       |
+| *Once* + *300ms* | `GossipNetworkStats` | below       |
 
 ::: details Example
 
@@ -1695,6 +1702,7 @@ identity is no longer in these three data sources, it will be removed.
 |---------------|----------------|-------------|
 | wallclock     | `number`       | Not entirely sure yet TODO |
 | shred_version | `number`       | A `u16` representing the shred version the validator is configured to use. The shred version is changed when the cluster restarts, and is used to make sure the validator is talking to nodes that have participated in the same cluster restart |
+| client_id     | `number\|null` | The client id broadcast by the validator on Gossip. Refer to https://github.com/solana-foundation/solana-validator-client-ids/blob/main/client-ids.csv for an officiel mapping of id to name. Will be `null` on Frankendancer. |
 | version       | `string\|null` | Software version being advertised by the validator. Might be `null` if the validator is not gossiping a version, or we have received the contact information but not the version yet. The version string, if not null, will always be formatted like `major`.`minor`.`patch` where `major`, `minor`, and `patch` are `u16`s |
 | feature_set   | `number\|null` | First four bytes of the `FeatureSet` hash interpreted as a little endian `u32`. Might be `null` if the validator is not gossiping a feature set, or we have received the contact information but not the feature set yet |
 | sockets       | `[key: string]: string` | A dictionary of sockets that are advertised by the validator. `key` will be one of gossip `serve_repair_quic`, `rpc`, `rpc_pubsub`, `serve_repair`, `tpu`, `tpu_forwards`, `tpu_forwards_quic`, `tpu_quic`, `tpu_vote`, `tvu`, `tvu_quic`, `tpu_vote_quic`, or `alpenglow`. The value is an address like `<addr>:<port>`: the location to send traffic to for this validator with the given protocol. Address might be either an IPv4 or an IPv6 address |
@@ -1858,7 +1866,7 @@ rooted.
 #### `slot.live_shreds`
 | frequency   | type          | example |
 |-------------|---------------|---------|
-| *10ms*      | `SlotShreds` | below   |
+| *50ms*      | `SlotShreds` | below   |
 
 The validator sends a continous stream of update messages with detailed
 information about the time and duration of different shred state

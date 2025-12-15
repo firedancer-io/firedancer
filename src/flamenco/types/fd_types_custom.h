@@ -76,20 +76,6 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode                  fd_hash_decode
 #define fd_pubkey_eq                      fd_hash_eq
 
-struct __attribute__((aligned(8UL))) fd_option_slot {
-  uchar is_some;
-  ulong slot;
-};
-typedef struct fd_option_slot fd_option_slot_t;
-
-/* Index structure needed for transaction status (metadata) blocks */
-struct fd_txnstatusidx {
-    fd_ed25519_sig_t sig;
-    ulong offset;
-    ulong status_sz;
-};
-typedef struct fd_txnstatusidx fd_txnstatusidx_t;
-
 typedef struct fd_rust_duration fd_rust_duration_t;
 
 void

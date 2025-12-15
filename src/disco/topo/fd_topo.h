@@ -630,6 +630,13 @@ struct fd_topo_tile {
       int  io_type; /* FD_VINYL_IO_TYPE_* */
       uint uring_depth;
     } vinyl;
+
+    struct {
+      ulong capture_start_slot;
+      char  solcap_capture[ PATH_MAX ];
+      int   recent_only;
+      ulong recent_slots_per_file;
+    } capctx;
   };
 };
 

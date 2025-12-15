@@ -891,6 +891,64 @@ repair_cmd_fn_waterfall( args_t *   args,
   }
 }
 
+static void
+repair_cmd_fn_peers( args_t *   args,
+                     config_t * config ) {
+  ctx_t *          repair_ctx;
+  fd_topo_wksp_t * repair_wksp;
+  repair_ctx_wksp( args, config, &repair_ctx, &repair_wksp );
+
+  fd_policy_t * policy = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->policy ) );
+
+  fd_peer_dlist_t *  best_dlist  = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, policy->peers.fast ) );
+  fd_peer_dlist_t *  worst_dlist = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, policy->peers.slow ) );
+  fd_peer_t *        pool        = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, policy->peers.pool ) );
+  fd_policy_peer_t * peers_map   = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, policy->peers.map ) );
+
+
+  printf("FAST REPAIR PEERS (latency < 80ms)\n");
+  int i = 1;
+  for( fd_peer_dlist_iter_t iter = fd_peer_dlist_iter_fwd_init( best_dlist, pool );
+        !fd_peer_dlist_iter_done( iter, best_dlist, pool );
+        iter = fd_peer_dlist_iter_fwd_next( iter, best_dlist, pool ) ) {
+      fd_peer_t * peer = fd_peer_dlist_iter_ele( iter, best_dlist, pool );
+      FD_BASE58_ENCODE_32_BYTES( peer->identity.key, p );
+      printf(" %d. %s\n", i, p );
+      i++;
+  }
+
+  printf("SLOW REPAIR PEERS (latency > 80ms)\n");
+  i = 1;
+  for( fd_peer_dlist_iter_t iter = fd_peer_dlist_iter_fwd_init( worst_dlist, pool );
+        !fd_peer_dlist_iter_done( iter, worst_dlist, pool );
+        iter = fd_peer_dlist_iter_fwd_next( iter, worst_dlist, pool ) ) {
+      fd_peer_t * peer = fd_peer_dlist_iter_ele( iter, worst_dlist, pool );
+      FD_BASE58_ENCODE_32_BYTES( peer->identity.key, p );
+      printf(" %d. %s\n", i, p);
+      i++;
+  }
+
+  for ( ulong i = 0; i < fd_policy_peer_map_slot_cnt( peers_map ); i++ ) {
+    fd_policy_peer_t * peer = &peers_map[ i ];
+    FD_TEST( fd_peer_pool_idx_test( pool, peer->pool_idx ) );
+  }
+
+  /* Specific peer info
+  fd_hash_t key = { .ul = {15638155844970609479UL, 7058397130238410853UL,
+    953861879773611379UL, 1223280701789465918UL } };
+  fd_policy_peer_t * peer = fd_policy_peer_map_query( peers_map, key, NULL );
+  if( FD_LIKELY( peer ) ) {
+    printf("Peer info:\n");
+    printf("  Key: %s\n", FD_BASE58_ENC_32_ALLOCA( &peer->key ));
+    printf("  Req Cnt: %lu\n", peer->req_cnt );
+    printf("  Res Cnt: %lu\n", peer->res_cnt );
+    printf("  First Req Ts: %ld\n", peer->first_req_ts );
+    printf("  Last Req Ts: %ld\n",  peer->last_req_ts );
+    printf("  Pool Index: %lu\n",   peer->pool_idx );
+  } */
+}
+
+
 static const char * HELP =
   "\n\n"
   "usage: repair [-h] {catchup,forest,waterfall} ...\n"
@@ -902,6 +960,7 @@ static const char * HELP =
   "    inflight            prints the inflight repairs\n"
   "    requests            prints the queued repair requests\n"
   "    waterfall           prints a waterfall diagram of recent slot completion times and response latencies\n"
+  "    peers               prints list of slow and fast repair peers\n"
   "\n"
   "optional arguments:\n"
   "  -h, --help            show this help message and exit\n";
@@ -953,6 +1012,12 @@ static const char * WATERFALL_HELP =
   "                        path to iptable file\n"
   "  --sort-by-slot        sort results by slot\n";
 
+static const char * PEERS_HELP =
+  "\n\n"
+  "usage: repair peers [-h]\n"
+  "\n"
+  "optional arguments:\n"
+  "  -h, --help            show this help message and exit\n";
 void
 repair_cmd_help( char const * arg ) {
   if      ( FD_LIKELY( !arg                        ) ) FD_LOG_NOTICE(( "%s", HELP           ));
@@ -961,6 +1026,7 @@ repair_cmd_help( char const * arg ) {
   else if ( FD_LIKELY( !strcmp( arg, "inflight"  ) ) ) FD_LOG_NOTICE(( "%s", INFLIGHT_HELP  ));
   else if ( FD_LIKELY( !strcmp( arg, "requests"  ) ) ) FD_LOG_NOTICE(( "%s", REQUESTS_HELP  ));
   else if ( FD_LIKELY( !strcmp( arg, "waterfall" ) ) ) FD_LOG_NOTICE(( "%s", WATERFALL_HELP ));
+  else if ( FD_LIKELY( !strcmp( arg, "peers"     ) ) ) FD_LOG_NOTICE(( "%s", PEERS_HELP     ));
   else                                                 FD_LOG_NOTICE(( "%s", HELP           ));
 }
 
@@ -1021,6 +1087,7 @@ repair_cmd_fn( args_t *   args,
   else if( !strcmp( args->repair.pos_arg, "inflight"  ) ) repair_cmd_fn_inflight ( args, config );
   else if( !strcmp( args->repair.pos_arg, "requests"  ) ) repair_cmd_fn_requests ( args, config );
   else if( !strcmp( args->repair.pos_arg, "waterfall" ) ) repair_cmd_fn_waterfall( args, config );
+  else if( !strcmp( args->repair.pos_arg, "peers"     ) ) repair_cmd_fn_peers    ( args, config );
   else                                                    repair_cmd_help( NULL );
 }
 

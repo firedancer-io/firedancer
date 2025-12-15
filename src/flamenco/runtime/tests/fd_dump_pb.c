@@ -776,15 +776,17 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
   for( ulong i = 0; i < txn_out->accounts.cnt; ++i ) {
-    fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_out->accounts.keys[i], runtime->funk, &xid );
-    if( FD_UNLIKELY( ret ) ) {
-      continue;
-    }
-
     // Make sure account is not a non-migrating builtin
     if( !is_builtin_account( &txn_out->accounts.keys[i] ) ) {
-      dump_account_state( txn_account->pubkey, txn_account->meta, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
+      dump_account_if_not_already_dumped(
+          runtime->funk,
+          &xid,
+          &txn_out->accounts.keys[i],
+          spad,
+          txn_context_msg->account_shared_data,
+          &txn_context_msg->account_shared_data_count,
+          NULL
+      );
     }
   }
 
@@ -794,13 +796,21 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_txn_account_t txn_account[1];
     fd_txn_acct_addr_lut_t const * addr_lut  = &address_lookup_tables[i];
     fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + addr_lut->addr_off);
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, alut_key, runtime->funk, &xid );
+
+    // Dump the LUT account itself if not already dumped
+    int ret = dump_account_if_not_already_dumped(
+        runtime->funk,
+        &xid,
+        alut_key,
+        spad,
+        txn_context_msg->account_shared_data,
+        &txn_context_msg->account_shared_data_count,
+        txn_account
+    );
     if( FD_UNLIKELY( ret ) ) continue;
 
-    dump_account_state( txn_account->pubkey, txn_account->meta, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
-
-    fd_acct_addr_t * lookup_addrs  = (fd_acct_addr_t *)&fd_txn_account_get_data( txn_account )[FD_LOOKUP_TABLE_META_SIZE];
-    ulong lookup_addrs_cnt         = (fd_txn_account_get_data_len( txn_account ) - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
+    fd_acct_addr_t * lookup_addrs = (fd_acct_addr_t *)&fd_txn_account_get_data( txn_account )[FD_LOOKUP_TABLE_META_SIZE];
+    ulong lookup_addrs_cnt        = (fd_txn_account_get_data_len( txn_account ) - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
 
     /* Dump any account state refererenced in ALUTs */
     uchar const * writable_lut_idxs = txn_payload + addr_lut->writable_off;
@@ -811,10 +821,15 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       fd_pubkey_t const * referenced_addr = fd_type_pun( &lookup_addrs[writable_lut_idxs[j]] );
       if( is_builtin_account( referenced_addr ) ) continue;
 
-      fd_txn_account_t referenced_account[1];
-      ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, runtime->funk, &xid );
-      if( FD_UNLIKELY( ret ) ) continue;
-      dump_account_state( referenced_account->pubkey, referenced_account->meta, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
+      dump_account_if_not_already_dumped(
+          runtime->funk,
+          &xid,
+          referenced_addr,
+          spad,
+          txn_context_msg->account_shared_data,
+          &txn_context_msg->account_shared_data_count,
+          NULL
+      );
     }
 
     uchar const * readonly_lut_idxs = txn_payload + addr_lut->readonly_off;
@@ -825,10 +840,15 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       fd_pubkey_t const * referenced_addr = fd_type_pun( &lookup_addrs[readonly_lut_idxs[j]] );
       if( is_builtin_account( referenced_addr ) ) continue;
 
-      fd_txn_account_t referenced_account[1];
-      ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, runtime->funk, &xid );
-      if( FD_UNLIKELY( ret ) ) continue;
-      dump_account_state( referenced_account->pubkey, referenced_account->meta, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
+      dump_account_if_not_already_dumped(
+          runtime->funk,
+          &xid,
+          referenced_addr,
+          spad,
+          txn_context_msg->account_shared_data,
+          &txn_context_msg->account_shared_data_count,
+          NULL
+      );
     }
   }
 
@@ -841,24 +861,15 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   /* Dump sysvars */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], runtime->funk, &xid );
-    if( ret != FD_ACC_MGR_SUCCESS ) {
-      continue;
-    }
-
-    // Make sure the account doesn't exist in the output accounts yet
-    int account_exists = 0;
-    for( ulong j = 0; j < txn_out->accounts.cnt; j++ ) {
-      if ( 0 == memcmp( txn_out->accounts.keys[j].key, fd_dump_sysvar_ids[i], sizeof(fd_pubkey_t) ) ) {
-        account_exists = true;
-        break;
-      }
-    }
-    // Copy it into output
-    if (!account_exists) {
-      dump_account_state( txn_account->pubkey, txn_account->meta, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
-    }
+    dump_account_if_not_already_dumped(
+        runtime->funk,
+        &xid,
+        fd_dump_sysvar_ids[i],
+        spad,
+        txn_context_msg->account_shared_data,
+        &txn_context_msg->account_shared_data_count,
+        NULL
+    );
   }
 
   /* Transaction Context -> tx */

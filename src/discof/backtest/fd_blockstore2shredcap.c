@@ -27,8 +27,10 @@ usage( int rc ) {
     "Extract rooted blocks from Agave RocksDB.\n"
     "Produces shredcap 0.1 (pcapng) file containing shreds and bank hashes.\n"
     "\n"
-    "  --rocksdb <path>  Agave RocksDB directory\n"
-    "  --out     <path>  File path to new shredcap file (fails if file already exists)\n"
+    "  --rocksdb    <path>  Agave RocksDB directory\n"
+    "  --out        <path>  File path to new shredcap file (fails if file already exists)\n"
+    "  --start-slot <n>     Start slot (inclusive)\n"
+    "  --end-slot   <n>     End slot (inclusive)\n"
 #   if FD_HAS_ZSTD
     "  --zstd            Output compressed .pcapng.zst stream instead of raw pcapng\n"
     "  --zstd-level      Zstandard compression level\n"
@@ -127,6 +129,9 @@ main( int     argc,
   (void)zstd_level;
 # endif
 
+  ulong start_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--start-slot", NULL, 0UL       );
+  ulong end_slot   = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",   NULL, ULONG_MAX );
+
   if( FD_UNLIKELY( !rocksdb_path ) ) {
     fputs( "Error: --rocksdb not specified\n", stderr );
     return usage( 1 );
@@ -142,7 +147,7 @@ main( int     argc,
   if( FD_UNLIKELY( !rocks_mem ) ) FD_LOG_ERR(( "out of memory" ));
   fd_backtest_rocksdb_t * rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( rocks_mem, rocksdb_path ) );
   if( FD_UNLIKELY( !rocksdb ) ) FD_LOG_ERR(( "failed to open RocksDB at %s", rocksdb_path ));
-  fd_backtest_rocksdb_init( rocksdb, 0UL );
+  fd_backtest_rocksdb_init( rocksdb, start_slot );
 
   int out_fd = open( out_path, O_WRONLY|O_CREAT|O_EXCL, 0644 );
   if( FD_UNLIKELY( out_fd<0 ) ) FD_LOG_ERR(( "failed to create file %s (%i-%s)", out_path, errno, fd_io_strerror( errno ) ));
@@ -188,6 +193,7 @@ main( int     argc,
     if( !root_ok ) break;
     uchar const * bank_hash = fd_backtest_rocksdb_bank_hash( rocksdb, root_slot );
     if( FD_UNLIKELY( !bank_hash ) ) FD_LOG_ERR(( "failed to extract bank hash for root slot %lu", root_slot ));
+    if( root_slot>end_slot ) break;
 
     write_bank_hash( out, root_slot, shred_cnt, bank_hash );
 
