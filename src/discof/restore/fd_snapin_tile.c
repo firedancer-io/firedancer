@@ -770,6 +770,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
   ctx->lthash_disabled = tile->snapin.lthash_disabled;
 
+  ctx->boot_timestamp = fd_log_wallclock();
+
   FD_TEST( fd_accdb_admin_join  ( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   FD_TEST( fd_accdb_user_v1_init( ctx->accdb,       fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->accdb_admin->funk ) );
