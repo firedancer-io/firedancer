@@ -797,6 +797,11 @@ metric introduced.
   <counter name="SlotsTotal" summary="Count of slots replayed successfully" />
   <counter name="TransactionsTotal" summary="Count of transactions processed overall on the current fork" />
 
+  <counter name="SchedFull" summary="Times where sched is full and a FEC set can't be processed" />
+  <counter name="ReasmEmpty" summary="Times where reasm is empty and a FEC set can't be processed" />
+  <counter name="LeaderBidWait" summary="Times where replay is blocked by the the PoH tile not sending an end of leader message" />
+  <counter name="BanksFull" summary="Times where banks are full and a FEC set can't be processed" />
+
   <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
   <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
 
