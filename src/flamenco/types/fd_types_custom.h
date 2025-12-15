@@ -75,7 +75,6 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode_footprint_inner  fd_hash_decode_footprint_inner
 #define fd_pubkey_decode                  fd_hash_decode
 #define fd_pubkey_eq                      fd_hash_eq
-#define fd_pubkey_generate                fd_hash_generate
 
 typedef struct fd_rust_duration fd_rust_duration_t;
 
@@ -126,17 +125,6 @@ static inline void fd_hash_decode_inner( void * struct_mem, void ** alloc_mem, f
   (void)alloc_mem;
   fd_bincode_bytes_decode_unsafe( struct_mem, sizeof(fd_hash_t), ctx );
   return;
-}
-
-/* FIXME remove unused type fuzzers */
-
-size_t LLVMFuzzerMutate(uchar *data, size_t size, size_t max_size);
-FD_FN_UNUSED static void *fd_hash_generate(void *mem, void **alloc_mem, fd_rng_t * rng) {
-  (void)rng;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_hash_t);
-  fd_hash_new(mem);
-  LLVMFuzzerMutate( (uchar *) mem, sizeof(fd_hash_t), sizeof(fd_hash_t));
-  return mem;
 }
 
 #endif /* HEADER_fd_src_flamenco_types_fd_types_custom_h */
