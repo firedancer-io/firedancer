@@ -826,45 +826,6 @@ void *fd_cluster_version_generate( void *mem, void **alloc_mem, fd_rng_t * rng )
   return mem;
 }
 
-void *fd_stake_reward_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_stake_reward_t *self = (fd_stake_reward_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stake_reward_t);
-  fd_stake_reward_new(mem);
-  self->prev = fd_rng_ulong( rng );
-  self->next = fd_rng_ulong( rng );
-  self->parent = fd_rng_ulong( rng );
-  fd_pubkey_generate( &self->stake_pubkey, alloc_mem, rng );
-  self->credits_observed = fd_rng_ulong( rng );
-  self->lamports = fd_rng_ulong( rng );
-  self->valid = fd_rng_uchar( rng );
-  return mem;
-}
-
-void *fd_partitioned_rewards_calculation_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_partitioned_rewards_calculation_t *self = (fd_partitioned_rewards_calculation_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_partitioned_rewards_calculation_t);
-  fd_partitioned_rewards_calculation_new(mem);
-  self->validator_points = (fd_w_u128_t) { .ul={ fd_rng_ulong( rng ), fd_rng_ulong( rng ) } };
-  self->old_vote_balance_and_staked = fd_rng_ulong( rng );
-  self->validator_rewards = fd_rng_ulong( rng );
-  self->validator_rate = fd_rng_double_o( rng );
-  self->foundation_rate = fd_rng_double_o( rng );
-  self->prev_epoch_duration_in_years = fd_rng_double_o( rng );
-  self->capitalization = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_prev_epoch_inflation_rewards_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_prev_epoch_inflation_rewards_t *self = (fd_prev_epoch_inflation_rewards_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_prev_epoch_inflation_rewards_t);
-  fd_prev_epoch_inflation_rewards_new(mem);
-  self->validator_rewards = fd_rng_ulong( rng );
-  self->prev_epoch_duration_in_years = fd_rng_double_o( rng );
-  self->validator_rate = fd_rng_double_o( rng );
-  self->foundation_rate = fd_rng_double_o( rng );
-  return mem;
-}
-
 void *fd_vote_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_vote_t *self = (fd_vote_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_t);

@@ -595,44 +595,6 @@
       ]
     },
     {
-      "name": "stake_reward",
-      "type": "struct",
-      "fields": [
-        { "name": "prev",             "type": "ulong", "decode": false, "encode": false, "walk": false  },
-        { "name": "next",             "type": "ulong", "decode": false, "encode": false, "walk": false  },
-        { "name": "parent",           "type": "ulong", "decode": false, "encode": false, "walk": false  },
-        { "name": "stake_pubkey",     "type": "pubkey"},
-        { "name": "credits_observed", "type": "ulong" },
-        { "name": "lamports",         "type": "ulong" },
-        { "name": "valid",            "type": "uchar" }
-
-      ]
-    },
-    {
-      "name": "partitioned_rewards_calculation",
-      "type": "struct",
-      "fields": [
-        { "name": "validator_points",             "type": "uint128" },
-        { "name": "old_vote_balance_and_staked",  "type": "ulong" },
-        { "name": "validator_rewards",            "type": "ulong" },
-        { "name": "validator_rate",               "type": "double" },
-        { "name": "foundation_rate",              "type": "double" },
-        { "name": "prev_epoch_duration_in_years", "type": "double" },
-        { "name": "capitalization",               "type": "ulong" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L118"
-    },
-    {
-      "name": "prev_epoch_inflation_rewards",
-      "type": "struct",
-      "fields": [
-        { "name": "validator_rewards", "type": "ulong" },
-        { "name": "prev_epoch_duration_in_years", "type": "double" },
-        { "name": "validator_rate", "type": "double" },
-        { "name": "foundation_rate", "type": "double" }
-      ]
-    },
-    {
       "name": "vote",
       "type": "struct",
       "fields": [

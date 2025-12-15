@@ -742,7 +742,7 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   /* The agave client does not partition the stake rewards until the
      first distribution block.  We calculate the partitions during the
      boundary. */
-  result->validator_points.ud          = points;
+  result->validator_points             = points;
   result->validator_rewards            = total_rewards;
   result->validator_rate               = rewards.validator_rate;
   result->foundation_rate              = rewards.foundation_rate;
@@ -842,7 +842,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
   epoch_rewards->distributed_rewards = distributed_rewards;
   epoch_rewards->total_rewards       = rewards_calc_result->validator_rewards;
-  epoch_rewards->total_points        = rewards_calc_result->validator_points;
+  epoch_rewards->total_points.ud     = rewards_calc_result->validator_points;
   fd_bank_epoch_rewards_end_locking_modify( bank );
 }
 
