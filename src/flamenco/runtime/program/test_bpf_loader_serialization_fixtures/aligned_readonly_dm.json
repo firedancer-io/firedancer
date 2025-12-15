@@ -1,0 +1,68 @@
+{
+  "name": "aligned_readonly_dm",
+  "description": "Stricter ABI + direct mapping. Read-only account in aligned mode.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoW45WuEolI/6aVaTN2gY3UdDUiHzxgAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "gQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "AQIDBAU=",
+        "owner": "gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": false
+      }
+    ],
+    "instruction_data": "7v8=",
+    "program_id": "gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": true,
+    "account_data_direct_mapping": true,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": false
+  },
+  "output": {
+    "result": 0,
+    "buffer": "AQAAAAAAAAD/AAAAAAAAAIEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADoAwAAAAAAAAUAAAAAAAAAAAAAAAAAAAD//////////wIAAAAAAAAA7v+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "AQAAAAAAAAD/AAAAAAAAAIEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADoAwAAAAAAAAUAAAAAAAAA"
+      },
+      {
+        "vm_addr": 17179869280,
+        "is_writable": false,
+        "data": "AQIDBAU="
+      },
+      {
+        "vm_addr": 17179879525,
+        "is_writable": true,
+        "data": "AAAA//////////8CAAAAAAAAAO7/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869200,
+        "vm_lamports_addr": 17179869264,
+        "vm_owner_addr": 17179869232,
+        "vm_data_addr": 17179869280
+      }
+    ],
+    "instruction_data_offset": 17179879544
+  }
+}

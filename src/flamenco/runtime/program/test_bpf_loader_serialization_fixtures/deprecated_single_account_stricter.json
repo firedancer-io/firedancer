@@ -1,0 +1,68 @@
+{
+  "name": "deprecated_single_account_stricter",
+  "description": "Stricter ABI only. Basic unaligned serialization with one writable account, no realloc buffer.",
+  "input": {
+    "accounts": [
+      {
+        "pubkey": "AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 0,
+        "data": "",
+        "owner": "Aqj2kU6IoWu9I5WFX2QE2bT0VreCG7AUV0lCjAAAAAA=",
+        "executable": true,
+        "rent_epoch": 0
+      },
+      {
+        "pubkey": "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "lamports": 1000,
+        "data": "AQIDBAU=",
+        "owner": "AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "executable": false,
+        "rent_epoch": 100
+      }
+    ],
+    "instruction_accounts": [
+      {
+        "index_in_transaction": 1,
+        "is_signer": false,
+        "is_writable": true
+      }
+    ],
+    "instruction_data": "3q2+7w==",
+    "program_id": "AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "stricter_abi_and_runtime_constraints": true,
+    "account_data_direct_mapping": false,
+    "mask_out_rent_epoch_in_vm_serialization": true,
+    "is_deprecated_loader": true
+  },
+  "output": {
+    "result": 0,
+    "buffer": "AQAAAAAAAAD/AAEEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAABQAAAAAAAAABAgMEBQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//////////BAAAAAAAAADerb7vAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "regions": [
+      {
+        "vm_addr": 17179869184,
+        "is_writable": true,
+        "data": "AQAAAAAAAAD/AAEEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOgDAAAAAAAABQAAAAAAAAA="
+      },
+      {
+        "vm_addr": 17179869243,
+        "is_writable": true,
+        "data": "AQIDBAU="
+      },
+      {
+        "vm_addr": 17179869248,
+        "is_writable": true,
+        "data": "AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8EAAAAAAAAAN6tvu8DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      }
+    ],
+    "accounts_metadata": [
+      {
+        "original_data_len": 5,
+        "vm_key_addr": 17179869195,
+        "vm_lamports_addr": 17179869227,
+        "vm_owner_addr": 17179869248,
+        "vm_data_addr": 17179869243
+      }
+    ],
+    "instruction_data_offset": 17179869297
+  }
+}
