@@ -310,19 +310,6 @@ fd_flamenco_yaml_walk( void *       _self,
     fprintf( file, "'%s'\n", buf );
     break;
   }
-  case FD_FLAMENCO_TYPE_HASH16384: {
-    /* FIXME: This currently truncates the hash */
-    char hex[ 256 ];
-    fd_hex_encode( hex, arg, 128 );
-    fprintf( file, "'%s... (truncated)'\n", hex );
-    break;
-  }
-  case FD_FLAMENCO_TYPE_SIG512: {
-    char buf[ FD_BASE58_ENCODED_64_SZ ];
-    fd_base58_encode_64( arg, NULL, buf );
-    fprintf( file, "'%s'\n", buf );
-    break;
-  }
   case FD_FLAMENCO_TYPE_CSTR:
     fprintf( file, "'%s'\n", (char const *)arg );
     break;

@@ -24,9 +24,7 @@
 #define FD_FLAMENCO_TYPE_FLOAT     (0x0c)
 #define FD_FLAMENCO_TYPE_DOUBLE    (0x0d)
 #define FD_FLAMENCO_TYPE_HASH256   (0x0e)  /* pubkey, account */
-#define FD_FLAMENCO_TYPE_SIG512    (0x0f)
 #define FD_FLAMENCO_TYPE_CSTR      (0x10)
-#define FD_FLAMENCO_TYPE_HASH16384 (0x12)
 #define FD_FLAMENCO_TYPE_ENUM_DISC (0x13)
 
 #define FD_FLAMENCO_TYPE_ARR       (0x20)

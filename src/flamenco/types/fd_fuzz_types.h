@@ -10,27 +10,6 @@
 
 size_t LLVMFuzzerMutate(uchar *data, size_t size, size_t max_size);
 
-void *fd_hash_generate(void *mem, void **alloc_mem, fd_rng_t * rng) {
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_hash_t);
-  fd_hash_new(mem);
-  LLVMFuzzerMutate( (uchar *) mem, sizeof(fd_hash_t), sizeof(fd_hash_t));
-  return mem;
-}
-
-void *fd_pubkey_generate(void *mem, void **alloc_mem, fd_rng_t * rng) {
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_pubkey_t);
-  fd_pubkey_new(mem);
-  LLVMFuzzerMutate( (uchar *) mem, sizeof(fd_pubkey_t), sizeof(fd_pubkey_t));
-  return mem;
-}
-
-void *fd_signature_generate(void *mem, void **alloc_mem, fd_rng_t * rng) {
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_signature_t);
-  fd_signature_new(mem);
-  LLVMFuzzerMutate( (uchar *) mem, sizeof(fd_signature_t), sizeof(fd_signature_t));
-  return mem;
-}
-
 void *fd_feature_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_feature_t *self = (fd_feature_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_feature_t);

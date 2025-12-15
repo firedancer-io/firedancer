@@ -20,7 +20,6 @@ main( int     argc,
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_FLOAT   )==1 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_DOUBLE  )==1 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_HASH256 )==1 );
-  FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_SIG512  )==1 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_CSTR    )==1 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_ARR     )==0 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_ARR_END )==0 );
@@ -44,7 +43,6 @@ main( int     argc,
   FD_TEST( fd_flamenco_type_is_collection( FD_FLAMENCO_TYPE_FLOAT   )==0 );
   FD_TEST( fd_flamenco_type_is_collection( FD_FLAMENCO_TYPE_DOUBLE  )==0 );
   FD_TEST( fd_flamenco_type_is_collection( FD_FLAMENCO_TYPE_HASH256 )==0 );
-  FD_TEST( fd_flamenco_type_is_collection( FD_FLAMENCO_TYPE_SIG512  )==0 );
   FD_TEST( fd_flamenco_type_is_collection( FD_FLAMENCO_TYPE_CSTR    )==0 );
   FD_TEST( fd_flamenco_type_is_collection( FD_FLAMENCO_TYPE_ARR     )==1 );
   FD_TEST( fd_flamenco_type_is_collection( FD_FLAMENCO_TYPE_ARR_END )==1 );

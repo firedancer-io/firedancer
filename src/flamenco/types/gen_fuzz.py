@@ -55,10 +55,7 @@ for t,t2 in [("bool",1),
              ("double",8),
              ("uint128",16),
              ("pubkey",32),
-             ("hash",32),
-             ("uchar[32]",32),
-             ("signature",64),
-             ("uchar[2048]",2048),]:
+             ("hash",32)]:
     fixedsizetypes[t] = t2
 
 # Types that are fixed size and valid for all possible bit patterns
@@ -71,10 +68,7 @@ fuzzytypes = {
     "double",
     "uint128",
     "pubkey",
-    "hash",
-    "uchar[32]",
-    "signature",
-    "uchar[2048]",
+    "hash"
 }
 
 class TypeNode:
@@ -107,15 +101,12 @@ class PrimitiveMember(TypeNode):
     emitMemberMap = {
         "char" :      lambda n: print(f'  char {n};',      file=header),
         "char*" :     lambda n: print(f'  char* {n};',     file=header),
-        "char[32]" :  lambda n: print(f'  char {n}[32];',  file=header),
         "double" :    lambda n: print(f'  double {n};',    file=header),
         "long" :      lambda n: print(f'  long {n};',      file=header),
         "uint" :      lambda n: print(f'  uint {n};',      file=header),
         "uint128" :   lambda n: print(f'  uint128 {n};',   file=header),
         "bool" :      lambda n: print(f'  uchar {n};',     file=header),
         "uchar" :     lambda n: print(f'  uchar {n};',     file=header),
-        "uchar[32]" : lambda n: print(f'  uchar {n}[32];', file=header),
-        "uchar[2048]":lambda n: print(f'  uchar {n}[2048];', file=header),
         "ulong" :     lambda n: print(f'  ulong {n};',     file=header),
         "ushort" :    lambda n: print(f'  ushort {n};',    file=header)
     }
@@ -154,15 +145,12 @@ class PrimitiveMember(TypeNode):
     emitGenerateMap = {
         "char" :      lambda n, varint, indent: print(f'{indent}  fd_bincode_uint8_decode_unsafe( (uchar *) &self->{n}, ctx );', file=body),
         "char*" :     lambda n, varint, indent: PrimitiveMember.string_generate(n, varint, indent),
-        "char[32]" :  lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
         "double" :    lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_double_o( rng );', file=body),
         "long" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_long( rng );', file=body),
         "uint" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uint( rng );', file=body),
         "uint128" :   lambda n, varint, indent: print(f'{indent}  self->{n} = (fd_w_u128_t) {{ .ul={{ fd_rng_ulong( rng ), fd_rng_ulong( rng ) }} }};', file=body),
         "bool" :      lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
         "uchar" :     lambda n, varint, indent: print(f'{indent}  self->{n} = fd_rng_uchar( rng );', file=body),
-        "uchar[32]" : lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
-        "uchar[2048]":lambda n, varint, indent: print(f'{indent}  LLVMFuzzerMutate( &self->{n}[0], sizeof(self->{n}), sizeof(self->{n}) );', file=body),
         "ulong" :     lambda n, varint, indent: PrimitiveMember.ulong_generate(n, varint, indent),
         "ushort" :    lambda n, varint, indent: PrimitiveMember.ushort_generate(n, varint, indent),
     }
@@ -450,35 +438,6 @@ def parseMember(namespace, json):
         c = StructMember
     return c(namespace, json)
 
-class OpaqueType(TypeNode):
-    def __init__(self, json):
-        super().__init__(json)
-        self.fullname = f'{namespace}_{json["name"]}'
-        self.walktype = (json["walktype"] if "walktype" in json else None)
-        self.size = (int(json["size"]) if "size" in json else None)
-        self.emitprotos = (bool(json["emitprotos"]) if "emitprotos" in json else True)
-
-    def emitHeader(self):
-        pass
-
-    def isFixedSize(self):
-        return self.size is not None
-
-    def fixedSize(self):
-        return self.size
-
-    def emitImpls(self):
-        n = self.fullname
-
-        print(f'void *{n}_generate(void *mem, void **alloc_mem, fd_rng_t * rng) {{', file=body)
-        print(f'  *alloc_mem = (uchar *) *alloc_mem + sizeof({n}_t);', file=body)
-        print(f'  {n}_new(mem);', file=body)
-        print(f'  LLVMFuzzerMutate( (uchar *) mem, sizeof({n}_t), sizeof({n}_t));', file=body)
-        print(f'  return mem;', file=body)
-        print("}", file=body)
-
-        print("", file=body)
-
 class StructType(TypeNode):
     def __init__(self, json):
         super().__init__(json)
@@ -628,8 +587,6 @@ class EnumType:
 def main():
     alltypes = []
     for entry in entries:
-        if entry['type'] == 'opaque':
-            alltypes.append(OpaqueType(entry))
         if entry['type'] == 'struct':
             alltypes.append(StructType(entry))
         if entry['type'] == 'enum':

@@ -3,11 +3,8 @@
 #include "fd_types_custom.h"
 #include "fd_types_reflect_private.h"
 #pragma GCC diagnostic ignored "-Wpedantic"
-ulong fd_types_vt_list_cnt = 118;
+ulong fd_types_vt_list_cnt = 115;
 fd_types_vt_t const fd_types_vt_list[] = {
-  { .name="fd_hash", .name_len=7, .align=FD_HASH_ALIGN, .new_=(void *)fd_hash_new, .decode=(void *)fd_hash_decode, .size=(void *)fd_hash_size, .walk=(void *)fd_hash_walk, .decode_footprint=(void *)fd_hash_decode_footprint, .encode=(void *)fd_hash_encode  },
-  { .name="fd_pubkey", .name_len=9, .align=FD_PUBKEY_ALIGN, .new_=(void *)fd_pubkey_new, .decode=(void *)fd_pubkey_decode, .size=(void *)fd_pubkey_size, .walk=(void *)fd_pubkey_walk, .decode_footprint=(void *)fd_pubkey_decode_footprint, .encode=(void *)fd_pubkey_encode  },
-  { .name="fd_signature", .name_len=12, .align=FD_SIGNATURE_ALIGN, .new_=(void *)fd_signature_new, .decode=(void *)fd_signature_decode, .size=(void *)fd_signature_size, .walk=(void *)fd_signature_walk, .decode_footprint=(void *)fd_signature_decode_footprint, .encode=(void *)fd_signature_encode  },
   { .name="fd_feature", .name_len=10, .align=FD_FEATURE_ALIGN, .new_=(void *)fd_feature_new, .decode=(void *)fd_feature_decode, .size=(void *)fd_feature_size, .walk=(void *)fd_feature_walk, .decode_footprint=(void *)fd_feature_decode_footprint, .encode=(void *)fd_feature_encode  },
   { .name="fd_fee_calculator", .name_len=17, .align=FD_FEE_CALCULATOR_ALIGN, .new_=(void *)fd_fee_calculator_new, .decode=(void *)fd_fee_calculator_decode, .size=(void *)fd_fee_calculator_size, .walk=(void *)fd_fee_calculator_walk, .decode_footprint=(void *)fd_fee_calculator_decode_footprint, .encode=(void *)fd_fee_calculator_encode  },
   { .name="fd_fee_rate_governor", .name_len=20, .align=FD_FEE_RATE_GOVERNOR_ALIGN, .new_=(void *)fd_fee_rate_governor_new, .decode=(void *)fd_fee_rate_governor_decode, .size=(void *)fd_fee_rate_governor_size, .walk=(void *)fd_fee_rate_governor_walk, .decode_footprint=(void *)fd_fee_rate_governor_decode_footprint, .encode=(void *)fd_fee_rate_governor_encode  },
