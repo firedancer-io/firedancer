@@ -336,7 +336,7 @@ fd_num_precompiles( void ) {
 }
 
 uchar
-fd_is_migrating_builtin_program( fd_bank_t *         bank,
+fd_is_migrating_builtin_program( fd_bank_t const *   bank,
                                  fd_pubkey_t const * pubkey,
                                  uchar *             migrated_yet ) {
   *migrated_yet = 0;

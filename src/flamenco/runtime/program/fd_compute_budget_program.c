@@ -14,7 +14,7 @@
 #define MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT (3000UL)
 
 FD_FN_PURE static inline uchar
-get_program_kind( fd_bank_t *            bank,
+get_program_kind( fd_bank_t const *      bank,
                   fd_txn_in_t const *    txn_in,
                   fd_txn_instr_t const * instr ) {
   fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( TXN( txn_in->txn ), txn_in->txn->payload );
@@ -114,7 +114,7 @@ fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out ) {
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L54-L99 */
 int
-fd_executor_compute_budget_program_execute_instructions( fd_bank_t *         bank,
+fd_executor_compute_budget_program_execute_instructions( fd_bank_t const *   bank,
                                                          fd_txn_in_t const * txn_in,
                                                          fd_txn_out_t *      txn_out ) {
   fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
