@@ -1401,7 +1401,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
                                fd_txn_out_t *      txn_out,
                                ushort              idx,
                                uchar * *           writable_accs_mem,
-                               ulong *             writable_accs_idx ) {
+                               ulong *             writable_accs_idx_out ) {
   /* To setup a transaction account, we need to first retrieve a
      read-only handle to the account from the database. */
 
@@ -1459,7 +1459,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
        staging regions for the account. If the account exists, we need to
        copy the account data into the staging area; otherwise, we need to
        initialize a new metadata. */
-    uchar * new_raw_data = writable_accs_mem[ (*writable_accs_idx)++ ];
+    uchar * new_raw_data = writable_accs_mem[ (*writable_accs_idx_out)++ ];
     ulong   dlen         = !!meta ? meta->dlen : 0UL;
 
     if( FD_LIKELY( meta ) ) {

@@ -1225,7 +1225,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ),   txn_out->details.priority_fee );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), txn_out->details.signature_count );
 
-  if( !txn_out->details.is_simple_vote ){
+  if( !txn_out->details.is_simple_vote ) {
     FD_ATOMIC_FETCH_AND_ADD( fd_bank_nonvote_txn_count_modify( bank ), 1 );
     if( FD_UNLIKELY( txn_out->err.exec_err ) ) {
       FD_ATOMIC_FETCH_AND_ADD( fd_bank_nonvote_failed_txn_count_modify( bank ), 1 );
