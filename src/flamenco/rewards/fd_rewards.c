@@ -557,13 +557,12 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     new_warmup_cooldown_rate_epoch = NULL;
   }
 
-
   ulong minimum_stake_delegation = get_minimum_stake_delegation( bank );
-  ulong stake_delegation_cnt     = fd_stake_delegations_cnt( stake_delegations );
 
   fd_vote_states_t * vote_states = !!runtime_stack->stakes.prev_vote_credits_used ? fd_bank_vote_states_prev_locking_modify( bank ) : fd_bank_vote_states_locking_modify( bank );
 
-  fd_epoch_rewards_t * epoch_rewards = fd_epoch_rewards_join( fd_epoch_rewards_new( fd_bank_epoch_rewards_locking_modify( bank ), stake_delegation_cnt ) );
+  fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_locking_modify( bank );
+  fd_epoch_rewards_init( epoch_rewards );
 
   /* Reset the vote rewards for each vote account. */
   fd_memset( runtime_stack->stakes.vote_rewards, 0UL, sizeof(runtime_stack->stakes.vote_rewards) );

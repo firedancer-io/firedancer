@@ -29,7 +29,7 @@ int main( int argc, char * * argv ) {
 
   /* No mem passed in. */
 
-  epoch_rewards_mem = fd_epoch_rewards_new( NULL, STAKE_ACC_MAX );
+  epoch_rewards_mem = fd_epoch_rewards_new( NULL, STAKE_ACC_MAX, 0UL );
   FD_TEST( !epoch_rewards_mem );
 
   /* Correctly aligned memory. Successful new() call. */
@@ -37,7 +37,7 @@ int main( int argc, char * * argv ) {
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_epoch_rewards_align(), fd_epoch_rewards_footprint( STAKE_ACC_MAX ), 1UL );
   FD_TEST( mem );
 
-  epoch_rewards_mem = fd_epoch_rewards_new( mem, STAKE_ACC_MAX );
+  epoch_rewards_mem = fd_epoch_rewards_new( mem, STAKE_ACC_MAX, 0UL );
   FD_TEST( epoch_rewards_mem );
 
   /* Fail join due to bad magic. */
@@ -48,7 +48,7 @@ int main( int argc, char * * argv ) {
   epoch_rewards = fd_epoch_rewards_join( epoch_rewards_mem );
   FD_TEST( !epoch_rewards );
 
-  epoch_rewards_mem = fd_epoch_rewards_new( mem, STAKE_ACC_MAX );
+  epoch_rewards_mem = fd_epoch_rewards_new( mem, STAKE_ACC_MAX, 0UL );
   FD_TEST( epoch_rewards_mem );
 
   FD_TEST( !fd_epoch_rewards_join( NULL ) );
