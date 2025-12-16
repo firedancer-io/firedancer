@@ -555,6 +555,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       txn_out.err.exec_err = res;
 
       if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
+        fd_runtime_cancel_txn( runtime, &txn_out );
         return 0;
       }
 

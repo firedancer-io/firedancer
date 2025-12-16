@@ -3,6 +3,35 @@
 
 #include "fd_runtime_helpers.h"
 
+/* The general structure for executing transactions in Firedancer is as
+   follows if we think about transaction execution as part of a state
+   machine:
+
+   the starting and ending state are represented by the bank and the
+   runtime.  The bank holds all Solana state not represented by an
+   account (see fd_bank.c/h for more details) and each bank is per-slot.
+   The runtime holds valid joins to other important data structures such
+   as the accounts database, accounts mem pool. status cache, and
+   program cache.  The runtime also owns bounded out temporary memory
+   regions used for transaction execution.  So we expect the state of
+   the runtime and the bank to change as a result of execution.
+
+   The transaction, or the input to said state machine is represented by
+   a fd_txn_in_t.  The fd_txn_in_t is just a parsed transaction message
+   and any state that may have accrued as a result of bundle execution.
+
+   Executing a transaction produces a set of results.  This is
+   represented by a fd_txn_out_t.  The fd_txn_out_t consists of any
+   information that needs to be applied to the bank and runtime.
+
+   We can execute a fd_txn_in_t against a given fd_runtime_t and a
+   fd_bank_t and expect to produce a fd_txn_out_t.  Then a fd_txn_out_t
+   can be applied/committed on top of a fd_runtime_t and fd_bank_t.
+   Execution is done via fd_runtime_prepare_and_execute_txn.  If a
+   transaction is committable, it should be committed via
+   fd_runtime_commit_txn.  If a transaction is not committable, it
+   should be canceled via fd_runtime_cancel_txn.  */
+
 struct fd_runtime {
   fd_accdb_user_t * accdb;
   fd_funk_t *       funk;
@@ -35,9 +64,9 @@ struct fd_runtime {
   } instr;
 
   struct {
-   /* The sysvar instructions account is a special account that is
-      modified through the course of transaction execution, but its
-      results are not committed to the bank or accounts database. */
+    /* The sysvar instructions account is a special account that is
+       modified through the course of transaction execution, but its
+       results are not committed to the bank or accounts database. */
     uchar                     sysvar_instructions_mem[ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
 
     /* The executable accounts are derived from the accounts in the
@@ -293,7 +322,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
    and frees any resources that may have been acquired.  A transaction
    should only be canceled when the transaction is not committable.
    1. An invalid transaction that causes a block to be rejected/
-      considered 'bad'.
+      considered invalid/'bad'.
    2. All transactions in a bundle with a failed transaction should be
       canceled as they will not be included in the block. */
 
