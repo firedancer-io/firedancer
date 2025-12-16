@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_capture_fd_solcap_writer_h
 
 #include "fd_solcap_proto.h"
-#include "fd_solcap.pb.h"
 #include "../types/fd_types_custom.h"
 
 /* fd_solcap_writer_t produces pcapng dumps containing solcap packets.

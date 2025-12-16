@@ -24,7 +24,6 @@
 #include "tests/fd_dump_pb.h"
 
 #include "../log_collector/fd_log_collector.h"
-#include "../types/fd_types_yaml.h"
 
 #include "../../ballet/base58/fd_base58.h"
 
@@ -1793,11 +1792,4 @@ fd_executor_instr_strerror( int err ) {
   }
 
   return "";
-}
-
-// This is purely linker magic to force the inclusion of the yaml type walker so that it is
-// available for debuggers
-void
-fd_debug_symbology(void) {
-  (void)fd_get_types_yaml();
 }

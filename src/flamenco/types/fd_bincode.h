@@ -3,24 +3,6 @@
 
 #include "../../util/fd_util.h"
 
-typedef void
-(* fd_types_walk_fn_t)( void *       self,
-                        void const * arg,
-                        char const * name,
-                        int          type,
-                        char const * type_name,
-                        uint         level,
-                        uint         varint );
-
-typedef void
-(* fd_types_walk_fn_t)( void *       self,
-                        void const * arg,
-                        char const * name,
-                        int          type,
-                        char const * type_name,
-                        uint         level,
-                        uint         varint );
-
 /* Context argument used for encoding */
 struct fd_bincode_encode_ctx {
   /* Current position in data buffer */
