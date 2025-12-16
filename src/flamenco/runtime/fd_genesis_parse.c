@@ -42,13 +42,13 @@ fd_genesis_parse( void *        genesis_mem,
   }
   for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
     fd_genesis_account_t * account = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_genesis_account_t), sizeof(fd_genesis_account_t) );
-    genesis->accounts_off[ i ] = (uint)( (ulong)account - (ulong)genesis );
+    genesis->accounts_off[ i ] = (uint)((ulong)account-(ulong)genesis);
     if( FD_UNLIKELY( genesis->accounts_off[ i ] + sizeof(fd_genesis_account_t) > FD_GENESIS_MAX_MESSAGE_SIZE ) ) {
       FD_LOG_WARNING(( "genesis accounts offset %u exceeds supported max size %lu", genesis->accounts_off[ i ], FD_GENESIS_MAX_MESSAGE_SIZE ));
       return NULL;
     }
-    CHECK_LEFT( 32U ); fd_memcpy( account->pubkey, CURSOR, 32U ); INC( 32U );
-    CHECK_LEFT( 8U );  account->meta.lamports = FD_LOAD( ulong, CURSOR ); INC( 8U );
+    CHECK_LEFT( 32U ); fd_memcpy( account->pubkey, CURSOR, 32U );           INC( 32U );
+    CHECK_LEFT( 8U );  account->meta.lamports = FD_LOAD( ulong, CURSOR );   INC( 8U );
     CHECK_LEFT( 8U );  account->meta.dlen = (uint)FD_LOAD( ulong, CURSOR ); INC( 8U );
     if( FD_UNLIKELY( account->meta.dlen>FD_RUNTIME_ACC_SZ_MAX ) ) {
       FD_LOG_WARNING(( "genesis builtin account data length %u exceeds supported max size %lu", account->meta.dlen, FD_RUNTIME_ACC_SZ_MAX ));
@@ -60,10 +60,10 @@ fd_genesis_parse( void *        genesis_mem,
     }
     CHECK_LEFT( account->meta.dlen );
     uchar * data = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), account->meta.dlen );
-    fd_memcpy( data, CURSOR, account->meta.dlen ); INC( account->meta.dlen );
-    CHECK_LEFT( 32U ); fd_memcpy( account->meta.owner, CURSOR, 32U ); INC( 32U );
-    CHECK_LEFT( 1U ); account->meta.executable = FD_LOAD( uchar, CURSOR ); INC( 1U );
-    CHECK_LEFT( 8U ); INC( 8U ); /* don't care about rent epoch */
+    fd_memcpy( data, CURSOR, account->meta.dlen );                          INC( account->meta.dlen );
+    CHECK_LEFT( 32U ); fd_memcpy( account->meta.owner, CURSOR, 32U );       INC( 32U );
+    CHECK_LEFT( 1U );  account->meta.executable = FD_LOAD( uchar, CURSOR ); INC( 1U );
+    CHECK_LEFT( 8U );                                                       INC( 8U ); /* don't care about rent epoch */
   }
 
   CHECK_LEFT( 8U ); genesis->builtin_len  = FD_LOAD( ulong, CURSOR ); INC( 8U );
@@ -73,14 +73,14 @@ fd_genesis_parse( void *        genesis_mem,
   }
   for( ulong i=0UL; i<genesis->builtin_len; i++ ) {
     fd_genesis_account_t * account = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_genesis_account_t), sizeof(fd_genesis_account_t) );
-    genesis->builtin_off[ i ] = (uint)( (ulong)account - (ulong)genesis );
+    genesis->builtin_off[ i ] = (uint)((ulong)account-(ulong)genesis);
     if( FD_UNLIKELY( genesis->builtin_off[ i ] + sizeof(fd_genesis_account_t) > FD_GENESIS_MAX_MESSAGE_SIZE ) ) {
       FD_LOG_WARNING(( "genesis builtin offset %lu exceeds supported max size %lu", genesis->builtin_off[ i ] + sizeof(fd_genesis_account_t), FD_GENESIS_MAX_MESSAGE_SIZE ));
       return NULL;
     }
-    CHECK_LEFT( 32U ); fd_memcpy( account->pubkey, CURSOR, 32U ); INC( 32U );
-    CHECK_LEFT( 8U ); account->meta.lamports = FD_LOAD( ulong, CURSOR ); INC( 8U );
-    CHECK_LEFT( 8U ); account->meta.dlen = (uint)FD_LOAD( ulong, CURSOR ); INC( 8U );
+    CHECK_LEFT( 32U ); fd_memcpy( account->pubkey, CURSOR, 32U );           INC( 32U );
+    CHECK_LEFT( 8U );  account->meta.lamports = FD_LOAD( ulong, CURSOR );   INC( 8U );
+    CHECK_LEFT( 8U );  account->meta.dlen = (uint)FD_LOAD( ulong, CURSOR ); INC( 8U );
     if( FD_UNLIKELY( account->meta.dlen>FD_RUNTIME_ACC_SZ_MAX ) ) {
       FD_LOG_WARNING(( "genesis builtin account data length %u exceeds supported max size %lu", account->meta.dlen, FD_RUNTIME_ACC_SZ_MAX ));
       return NULL;
@@ -91,10 +91,10 @@ fd_genesis_parse( void *        genesis_mem,
     }
     CHECK_LEFT( account->meta.dlen );
     uchar * data = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), account->meta.dlen );
-    fd_memcpy( data, CURSOR, account->meta.dlen ); INC( account->meta.dlen );
-    CHECK_LEFT( 32U ); fd_memcpy( account->meta.owner, CURSOR, 32U ); INC( 32U );
-    CHECK_LEFT( 1U ); account->meta.executable = FD_LOAD( uchar, CURSOR ); INC( 1U );
-    CHECK_LEFT( 8U ); INC( 8U ); /* don't care about rent epoch */
+    fd_memcpy( data, CURSOR, account->meta.dlen );                          INC( account->meta.dlen );
+    CHECK_LEFT( 32U ); fd_memcpy( account->meta.owner, CURSOR, 32U );       INC( 32U );
+    CHECK_LEFT( 1U );  account->meta.executable = FD_LOAD( uchar, CURSOR ); INC( 1U );
+    CHECK_LEFT( 8U );                                                       INC( 8U ); /* don't care about rent epoch */
   }
 
   genesis->total_sz = (ulong)(FD_SCRATCH_ALLOC_FINI( l, alignof(fd_genesis_t) )) - (ulong)genesis_mem;
@@ -141,7 +141,7 @@ fd_genesis_parse( void *        genesis_mem,
   CHECK_LEFT( 8U ); genesis->inflation.taper           = FD_LOAD( double, CURSOR ); INC( 8U );
   CHECK_LEFT( 8U ); genesis->inflation.foundation      = FD_LOAD( double, CURSOR ); INC( 8U );
   CHECK_LEFT( 8U ); genesis->inflation.foundation_term = FD_LOAD( double, CURSOR ); INC( 8U );
-  CHECK_LEFT( 8U ); INC( 8U ); /* unused */
+  CHECK_LEFT( 8U );                                                                 INC( 8U ); /* unused */
 
   CHECK_LEFT( 8U ); genesis->epoch_schedule.slots_per_epoch             = FD_LOAD( ulong, CURSOR ); INC( 8U );
   CHECK_LEFT( 8U ); genesis->epoch_schedule.leader_schedule_slot_offset = FD_LOAD( ulong, CURSOR ); INC( 8U );

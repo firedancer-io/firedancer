@@ -4,7 +4,6 @@
 #include "../../util/fd_util_base.h"
 #include "../fd_flamenco_base.h"
 
-
 /* These two constants are not defined at the Solana protocol level
    and are instead used to bound out the amount of memory that will be
    allocated for the genesis message. */

@@ -26,9 +26,6 @@
 
 #include "generated/fd_genesi_tile_seccomp.h"
 
-
-#define GENESIS_MAX_SZ (10UL*1024UL*1024UL) /* 10 MiB */
-
 static void *
 bz2_malloc( void * opaque,
             int    items,
@@ -67,8 +64,8 @@ struct fd_genesi_tile {
   uchar expected_genesis_hash[ 32UL ];
   ushort expected_shred_version;
 
-  uchar genesis[ GENESIS_MAX_SZ ] __attribute__((aligned(alignof(fd_genesis_t)))); /* 10 MiB buffer for decoded genesis */
-  uchar buffer[ GENESIS_MAX_SZ ]; /* 10 MiB buffer for reading genesis file */
+  uchar genesis[ FD_GENESIS_MAX_MESSAGE_SIZE ] __attribute__((aligned(alignof(fd_genesis_t)))); /* 10 MiB buffer for decoded genesis */
+  uchar buffer[ FD_GENESIS_MAX_MESSAGE_SIZE ]; /* 10 MiB buffer for reading genesis file */
 
   char genesis_path[ PATH_MAX ];
 
@@ -238,7 +235,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     int bzerr = BZ2_bzDecompressInit( &bzstrm, 0, 0 );
     if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompressInit() failed (%d)", bzerr ));
 
-    ulong decompressed_sz = GENESIS_MAX_SZ;
+    ulong decompressed_sz = FD_GENESIS_MAX_MESSAGE_SIZE;
 
     bzstrm.next_in   = (char *)buffer;
     bzstrm.avail_in  = (uint)buffer_sz;
