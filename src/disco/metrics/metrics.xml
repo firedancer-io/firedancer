@@ -803,7 +803,7 @@ metric introduced.
 
   <counter name="SchedFull" summary="Times where sched is full and a FEC set can't be processed" />
   <counter name="ReasmEmpty" summary="Times where reasm is empty and a FEC set can't be processed" />
-  <counter name="LeaderBidWait" summary="Times where replay is blocked by the the PoH tile not sending an end of leader message" />
+  <counter name="LeaderBidWait" summary="Times where replay is blocked by the PoH tile not sending an end of leader message" />
   <counter name="BanksFull" summary="Times where banks are full and a FEC set can't be processed" />
 
   <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />

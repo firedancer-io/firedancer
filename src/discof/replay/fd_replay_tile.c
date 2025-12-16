@@ -1626,8 +1626,6 @@ can_process_fec( fd_replay_tile_t * ctx ) {
 
   if( FD_UNLIKELY( (fec = fd_reasm_peek( ctx->reasm ))==NULL ) ) {
     ctx->metrics.reasm_empty++;
-    ctx->metrics.reasm_latest_slot    = ULONG_MAX;
-    ctx->metrics.reasm_latest_fec_idx = ULONG_MAX;
     return 0;
   }
 
