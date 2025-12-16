@@ -69,7 +69,7 @@ typedef struct fd_snapwm_tile fd_snapwm_tile_t;
 
 FD_PROTOTYPES_BEGIN
 
-#define FD_SNAPIN_IO_SPAD_MAX (64UL<<20) /* 64 MiB of I/O scratch space */
+#define FD_SNAPWM_IO_SPAD_MAX (64UL<<20) /* 64 MiB of I/O scratch space */
 
 /* fd_snapwm_vinyl_privileged_init performs administrative tasks, such
    as opening and mapping the bstream file descriptor. */
@@ -150,7 +150,7 @@ fd_snapwm_vinyl_shutdown( fd_snapwm_tile_t * ctx );
 /* Internal APIs for inserting accounts */
 
 void
-fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx, 
+fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
                                  ulong              chunk,
                                  ulong              acc_cnt );
 

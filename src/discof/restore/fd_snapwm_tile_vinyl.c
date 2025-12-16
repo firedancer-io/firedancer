@@ -125,7 +125,7 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
 
   ctx->vinyl.io_mm =
     fd_vinyl_io_mm_init( io_mm_mem,
-                         FD_SNAPIN_IO_SPAD_MAX,
+                         FD_SNAPWM_IO_SPAD_MAX,
                          ctx->vinyl.bstream_mem,
                          ctx->vinyl.bstream_sz,
                          1,
@@ -446,7 +446,7 @@ fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
     uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
     uchar * dst     = pair;
 
-    ulong account_header_slot = phdr->info.ul[1];
+    ulong const account_header_slot = phdr->info.ul[1];
 
     fd_vinyl_meta_ele_t * ele = NULL;
     if( ctx->full ) {  /* update index immediately */
@@ -456,8 +456,8 @@ fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
 
       if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
         /* Drop current value if existing is newer */
-        ulong exist_slot = ele->phdr.info.ul[ 1 ];
-        if( exist_slot > account_header_slot ) {
+        ulong const exist_slot = ele->phdr.info.ul[ 1 ];
+        if( FD_UNLIKELY( exist_slot > account_header_slot ) ) {
           src += pair_sz;
           continue;
         }

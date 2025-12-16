@@ -7,31 +7,31 @@
 
 #define NAME "snapwm"
 
-/* The snapwm tile is a state machine that parses and loads a full
-   and optionally an incremental snapshot.  It is responsible for
-   loading accounts into vinyl database. */
+// /* The snapwm tile is a state machine that parses and loads a full
+//    and optionally an incremental snapshot.  It is responsible for
+//    loading accounts into vinyl database. */
 
-struct fd_blockhash_entry {
-  fd_hash_t blockhash;
+// struct fd_blockhash_entry {
+//   fd_hash_t blockhash;
 
-  struct {
-    ulong prev;
-    ulong next;
-  } map;
-};
+//   struct {
+//     ulong prev;
+//     ulong next;
+//   } map;
+// };
 
-typedef struct fd_blockhash_entry fd_blockhash_entry_t;
+// typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 
-#define MAP_NAME                           blockhash_map
-#define MAP_KEY                            blockhash
-#define MAP_KEY_T                          fd_hash_t
-#define MAP_ELE_T                          fd_blockhash_entry_t
-#define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed)             (fd_hash((seed),(key),sizeof(fd_hash_t)))
-#define MAP_PREV                           map.prev
-#define MAP_NEXT                           map.next
-#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
-#include "../../util/tmpl/fd_map_chain.c"
+// #define MAP_NAME                           blockhash_map
+// #define MAP_KEY                            blockhash
+// #define MAP_KEY_T                          fd_hash_t
+// #define MAP_ELE_T                          fd_blockhash_entry_t
+// #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0),(k1), sizeof(fd_hash_t)))
+// #define MAP_KEY_HASH(key,seed)             (fd_hash((seed),(key),sizeof(fd_hash_t)))
+// #define MAP_PREV                           map.prev
+// #define MAP_NEXT                           map.next
+// #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+// #include "../../util/tmpl/fd_map_chain.c"
 
 static inline int
 should_shutdown( fd_snapwm_tile_t * ctx ) {
@@ -52,7 +52,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapwm_tile_t),      sizeof(fd_snapwm_tile_t)                             );
   l = FD_LAYOUT_APPEND( l, fd_vinyl_io_wd_align(), fd_vinyl_io_wd_footprint( tile->snapwm.snapwr_depth ) );
-  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( FD_SNAPIN_IO_SPAD_MAX     ) );
+  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( FD_SNAPWM_IO_SPAD_MAX     ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -258,7 +258,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapwm_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapwm_tile_t), sizeof(fd_snapwm_tile_t)                              );
   void *           _io_wd = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_wd_align(),    fd_vinyl_io_wd_footprint( tile->snapwm.snapwr_depth ) );
-  void *           _io_mm = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_mm_align(),    fd_vinyl_io_mm_footprint( FD_SNAPIN_IO_SPAD_MAX     ) );
+  void *           _io_mm = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_mm_align(),    fd_vinyl_io_mm_footprint( FD_SNAPWM_IO_SPAD_MAX     ) );
 
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
