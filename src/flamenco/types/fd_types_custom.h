@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_types_fd_types_custom_h
 
 #include "../fd_flamenco_base.h"
-#include "fd_types_meta.h"
 #include "fd_bincode.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
@@ -69,7 +68,6 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_size                    fd_hash_size
 #define fd_pubkey_check_zero              fd_hash_check_zero
 #define fd_pubkey_set_zero                fd_hash_set_zero
-#define fd_pubkey_walk                    fd_hash_walk
 #define fd_pubkey_decode_inner            fd_hash_decode_inner
 #define fd_pubkey_decode_footprint        fd_hash_decode_footprint
 #define fd_pubkey_decode_footprint_inner  fd_hash_decode_footprint_inner
@@ -110,9 +108,6 @@ typedef struct fd_stake_weight fd_stake_weight_t;
 static inline void fd_hash_new( fd_hash_t * self ) { (void)self; }
 static inline int fd_hash_encode( fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   return fd_bincode_bytes_encode( (uchar const *)self, sizeof(fd_hash_t), ctx );
-}
-static inline void fd_hash_walk( void * w, fd_hash_t const * self, fd_types_walk_fn_t fun, const char * name, uint level, uint varint ) {
-  fun( w, (uchar const *)self, name, FD_FLAMENCO_TYPE_HASH256, name, level, varint );
 }
 static inline ulong fd_hash_size( fd_hash_t const * self ) { (void)self; return sizeof(fd_hash_t); }
 static inline ulong fd_hash_align( void ) { return alignof(fd_hash_t); }

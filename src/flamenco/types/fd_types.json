@@ -10,14 +10,12 @@
     {
       "name": "hash",
       "type": "opaque",
-      "walktype": "FD_FLAMENCO_TYPE_HASH256",
       "size": "32",
       "agave": "solana_hash::Hash"
     },
     {
       "name": "pubkey",
       "type": "opaque",
-      "walktype": "FD_FLAMENCO_TYPE_HASH256",
       "size": "32",
       "emitprotos": false,
       "agave": "solana_pubkey::Pubkey"
@@ -258,10 +256,10 @@
       "fields": [
           { "name": "epoch", "type": "ulong" },
           { "name": "pubkey", "type": "pubkey" },
-          { "name": "parent", "type": "ulong", "decode": false, "encode": false, "walk": false },
-          { "name": "left", "type": "ulong", "decode": false, "encode": false, "walk": false },
-          { "name": "right", "type": "ulong", "decode": false, "encode": false, "walk": false },
-          { "name": "prio", "type": "ulong", "decode": false, "encode": false, "walk": false }
+          { "name": "parent", "type": "ulong", "decode": false, "encode": false },
+          { "name": "left", "type": "ulong", "decode": false, "encode": false },
+          { "name": "right", "type": "ulong", "decode": false, "encode": false },
+          { "name": "prio", "type": "ulong", "decode": false, "encode": false }
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/authorized_voters.rs#L9"
     },

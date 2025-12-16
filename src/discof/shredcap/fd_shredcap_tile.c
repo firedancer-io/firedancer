@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include "generated/fd_shredcap_tile_seccomp.h"
