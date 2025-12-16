@@ -1344,7 +1344,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       } while(0);
 
       /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Deployed program %s", FD_BASE58_ENC_32_ALLOCA( program_id ) );
+      FD_BASE58_ENCODE_32_BYTES( program_id->uc, program_id_b58 );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Deployed program %s", program_id_b58 );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L692-L699 */
 
@@ -1363,7 +1364,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      FD_LOG_INFO(( "Program deployed %s", FD_BASE58_ENC_32_ALLOCA( program.pubkey ) ));
+      FD_BASE58_ENCODE_32_BYTES( program.pubkey->uc, program_b58 );
+      FD_LOG_INFO(( "Program deployed %s", program_b58 ));
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L700 */
       fd_borrowed_account_drop( &program );
@@ -1644,7 +1646,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
       //TODO: this is likely the incorrect program_id, do we have new_program_id?
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Upgraded program %s", FD_BASE58_ENC_32_ALLOCA( program_id ) );
+      FD_BASE58_ENCODE_32_BYTES( program_id->uc, program_id_b58 );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Upgraded program %s", program_id_b58 );
 
       break;
     }
@@ -1742,7 +1745,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Max msg_sz: 16 - 2 + 45 = 59 < 127 => we can use printf */
       if( new_authority ) {
-        fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority Some(%s)", FD_BASE58_ENC_32_ALLOCA( new_authority ) );
+        FD_BASE58_ENCODE_32_BYTES( new_authority->uc, new_authority_b58 );
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority Some(%s)", new_authority_b58 );
       } else {
         fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority None" );
       }
@@ -1846,7 +1850,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* Max msg_sz: 16 - 2 + 45 = 59 < 127 => we can use printf */
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority %s", FD_BASE58_ENC_32_ALLOCA( new_authority_key ) );
+      FD_BASE58_ENCODE_32_BYTES( new_authority_key->uc, new_authority_b58 );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority %s", new_authority_b58 );
 
       /* implicit drop of account */
 
@@ -1901,8 +1906,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           return err;
         }
         /* Max msg_sz: 23 - 2 + 45 = 66 < 127 => we can use printf */
-        fd_log_collector_printf_dangerous_max_127( instr_ctx,
-          "Closed Uninitialized %s", FD_BASE58_ENC_32_ALLOCA( close_key ) );
+        FD_BASE58_ENCODE_32_BYTES( close_key->uc, close_key_b58 );
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "Closed Uninitialized %s", close_key_b58 );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1057-L1068 */
       } else if( fd_bpf_upgradeable_loader_state_is_buffer( close_account_state ) ) {
@@ -1922,8 +1927,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         if( FD_UNLIKELY( err ) ) return err;
 
         /* Max msg_sz: 16 - 2 + 45 = 63 < 127 => we can use printf */
-        fd_log_collector_printf_dangerous_max_127( instr_ctx,
-          "Closed Buffer %s", FD_BASE58_ENC_32_ALLOCA( close_key ) );
+        FD_BASE58_ENCODE_32_BYTES( close_key->uc, close_key_b58 );
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "Closed Buffer %s", close_key_b58 );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1069-L1129 */
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( close_account_state ) ) {
@@ -1993,8 +1998,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         /* Max msg_sz: 17 - 2 + 45 = 60 < 127 => we can use printf */
-        fd_log_collector_printf_dangerous_max_127( instr_ctx,
-          "Closed Program %s", FD_BASE58_ENC_32_ALLOCA( close_key ) );
+        FD_BASE58_ENCODE_32_BYTES( close_key->uc, close_key_b58 );
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "Closed Program %s", close_key_b58 );
 
         /* program account is dropped when it goes out of scope */
       } else {
@@ -2401,7 +2406,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_borrowed_account_drop( &programdata );
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1506 */
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Migrated program %s", FD_BASE58_ENC_32_ALLOCA( program_address ) );
+      FD_BASE58_ENCODE_32_BYTES( program_address->uc, program_address_b58 );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Migrated program %s", program_address_b58 );
 
       break;
     }

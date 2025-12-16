@@ -1,4 +1,7 @@
-#include "fd_vm_private.h"
+#include "fd_vm.h"
+#include "../../ballet/sbpf/fd_sbpf_instr.h"
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/murmur3/fd_murmur3.h"
 #include <stddef.h>
 #include <assert.h>
 
