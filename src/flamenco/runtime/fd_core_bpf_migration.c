@@ -372,15 +372,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   }
 
   assert( new_target_program_data->data_sz>=PROGRAMDATA_METADATA_SIZE );
-  if( FD_UNLIKELY( !fd_directly_invoke_loader_v3_deploy(
-      bank,
-      funk,
-      funk->shmem,
-      &target->program_account->addr,
-      new_target_program_data->data   +PROGRAMDATA_METADATA_SIZE,
-      new_target_program_data->data_sz-PROGRAMDATA_METADATA_SIZE ) ) ) {
-    return;
-  }
+  /* FIXME call fd_directly_invoke_loader_v3_deploy */
 
   ulong lamports_to_burn;
   if( FD_UNLIKELY( __builtin_uaddl_overflow(

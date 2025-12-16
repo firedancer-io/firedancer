@@ -76,28 +76,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
 
-/* Public APIs */
-
-/* This function is called from `fd_runtime.c` and only performs the ELF
-   and VM validation checks necessary to deploy a program, specifically
-   for the core native program BPF migration. Since this call is done at
-   the epoch boundary every time a new BPF core migration feature is
-   activated, we need to mock up a transaction and instruction context
-   for execution.  We do not do any funk operations here - instead, the
-   BPF cache entry will be created at the end of the block.  Because of
-   this, our logic is slightly different than Agave's.  See the
-   documentation for our `fd_deploy_program` for more information.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L155-L233 */
-
-int
-fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
-                                     fd_funk_t *         funk,
-                                     void *              accdb_shfunk,
-                                     fd_pubkey_t const * program_key,
-                                     uchar const *       elf,
-                                     ulong               elf_sz );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_bpf_loader_program_h */
