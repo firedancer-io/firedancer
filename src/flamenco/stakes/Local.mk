@@ -10,6 +10,13 @@ $(call run-unit-test,test_stake_delegations)
 endif
 endif
 
+$(call add-hdrs,fd_stake_warmup_cooldown_allowance.h)
+$(call add-objs,fd_stake_warmup_cooldown_allowance,fd_flamenco)
+ifdef FD_HAS_HOSTED
+$(call make-unit-test,test_stake_warmup_cooldown_allowance,test_stake_warmup_cooldown_allowance,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_stake_warmup_cooldown_allowance)
+endif
+
 $(call add-hdrs,fd_vote_states.h)
 $(call add-objs,fd_vote_states,fd_flamenco)
 ifdef FD_HAS_HOSTED
