@@ -4,22 +4,16 @@
 #include "fd_hashes.h"
 #include "fd_txncache.h"
 #include "fd_compute_budget_details.h"
-#include "../capture/fd_capture_ctx.h"
+#include "fd_cost_tracker.h"
 #include "context/fd_exec_instr_ctx.h"
 #include "info/fd_instr_info.h"
 #include "../features/fd_features.h"
+#include "../capture/fd_capture_ctx.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
-
-struct fd_exec_accounts {
-  uchar rollback_nonce_account_mem[ FD_ACC_TOT_SZ_MAX ]           __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-  uchar rollback_fee_payer_mem[ FD_ACC_TOT_SZ_MAX ]               __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-  uchar accounts_mem[ MAX_TX_ACCOUNT_LOCKS ][ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-};
-typedef struct fd_exec_accounts fd_exec_accounts_t;
 
 /* Return data for syscalls */
 

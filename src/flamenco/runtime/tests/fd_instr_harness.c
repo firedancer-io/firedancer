@@ -49,7 +49,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   ctx->txn_out = txn_out;
   ctx->txn_in  = txn_in;
 
-  txn_in->exec_accounts = runner->exec_accounts;
+  memset( txn_out->accounts.metas, 0, sizeof(fd_account_meta_t) * MAX_TX_ACCOUNT_LOCKS );
 
   memset( txn_out->accounts.metas, 0, sizeof(fd_account_meta_t) * MAX_TX_ACCOUNT_LOCKS );
 
@@ -110,10 +110,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_out->accounts.cnt     = 0UL;
   runtime->accounts.executable_cnt   = 0UL;
 
-  txn_out->details.programs_to_reverify_cnt       = 0UL;
-  txn_out->details.loaded_accounts_data_size      = 0UL;
-  txn_out->details.loaded_accounts_data_size_cost = 0UL;
-  txn_out->details.accounts_resize_delta          = 0UL;
+  txn_out->details.programs_to_reverify_cnt  = 0UL;
+  txn_out->details.loaded_accounts_data_size = 0UL;
+  txn_out->details.accounts_resize_delta     = 0UL;
 
   memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   txn_out->details.return_data.len = 0;
