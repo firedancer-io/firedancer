@@ -275,7 +275,10 @@ after_credit( fd_genesi_tile_t *  ctx,
     FD_TEST( !ctx->bootstrap );
     ulong size = 512UL+fd_tar_meta_get_size( meta );
 
-    fd_genesis_t * genesis = fd_genesis_parse( ctx->buffer, size, ctx->genesis );
+    fd_genesis_t * genesis = fd_genesis_parse( ctx->genesis, ctx->buffer, size );
+    if( FD_UNLIKELY( !genesis ) ) {
+      FD_LOG_ERR(( "unable to decode downloaded solana genesis file due to violated hardcoded limits" ));
+    }
 
     verify_cluster_type( genesis, hash, ctx->genesis_path );
 
@@ -333,7 +336,10 @@ process_local_genesis( fd_genesi_tile_t * ctx,
 
   if( FD_UNLIKELY( -1==close( ctx->in_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_genesis_t * genesis = fd_genesis_parse( ctx->buffer, size, ctx->genesis );
+  fd_genesis_t * genesis = fd_genesis_parse( ctx->genesis, ctx->buffer, size );
+  if( FD_UNLIKELY( !genesis ) ) {
+    FD_LOG_ERR(( "unable to decode solana genesis from local file due to violated hardcoded limits" ));
+  }
 
   union {
     uchar  c[ 32 ];

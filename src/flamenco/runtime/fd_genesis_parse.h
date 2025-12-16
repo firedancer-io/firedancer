@@ -81,13 +81,30 @@ typedef struct fd_genesis fd_genesis_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_genesis_parse is a bincode parser for an encoded genesis type.
-   TODO:FIXME: finish documeting this */
+/* fd_genesis_parse is a bincode parser for an encoded genesis type
+   which outputs a pointer to a decoded struct (fd_genesis_t).
+   A genesis_mem which is a region of memory assumed to be at minimum
+   of footprint FD_GENESIS_MAX_MESSAGE_SIZE with alignment of
+   alignof(fd_genesis_t) is passed in along with a binary blob (bin) of
+   size (bin_sz).
+
+   The data in the binary blob will be assumed to be a bincode encoded
+   genesis type and will be decoded into a fd_genesis_t
+   type using the memory in genesis_mem.  If the type is a valid bincode
+   encoded genesis type and it doesn't violate any Solana cluster
+   protocol limits as well as any Firedancer specific buffer limits
+   (e.g. number of accounts, total accounts footprint, etc.) then a
+   pointer to a valid fd_genesis_t will be returned.  If the decoding
+   fails due to being an invalid input or violating aforementioned
+   limits, then NULL will be returned.
+
+   The bincode encoded type matches the Agave client GenesisConfig type.
+   https://github.com/anza-xyz/solana-sdk/blob/genesis-config%40v3.0.0/genesis-config/src/lib.rs#L59 */
 
 fd_genesis_t *
-fd_genesis_parse( uchar const * mem_in,
-                  ulong         sz_in,
-                  uchar *       genesis_out );
+fd_genesis_parse( void *        genesis_mem,
+                  uchar const * bin,
+                  ulong         bin_sz );
 
 FD_PROTOTYPES_END
 

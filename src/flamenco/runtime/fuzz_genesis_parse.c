@@ -61,7 +61,7 @@ int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
-  if( !fd_genesis_parse( data, size, genesis_buf ) ) return 0;
+  if( !fd_genesis_parse( genesis_buf, data, size ) ) return 0;
   /* In the genesis, the only two fields that are not fixed size are the
      accounts and the built-in accounts.  The offsets and bounds of each
      of the accounts are checked here. */
