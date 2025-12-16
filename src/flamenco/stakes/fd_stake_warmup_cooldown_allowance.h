@@ -3,8 +3,9 @@
 
 #include "../types/fd_types.h"
 
-/* Implements stake warmup/cooldown allowance calculations from
-   https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/warmup_cooldown_allowance.rs */
+/* Port of stake warmup/cooldown allowance calculations
+   https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs */
 
 #define FD_STAKE_BASIS_POINTS_PER_UNIT             (10000UL)
 #define FD_STAKE_ORIGINAL_WARMUP_COOLDOWN_RATE_BPS (2500UL) /* 25% */
@@ -30,4 +31,3 @@ fd_stake_calculate_deactivation_allowance( ulong                          curren
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_stake_warmup_cooldown_allowance_h */
-

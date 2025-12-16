@@ -4,7 +4,14 @@
 
 #include "../../util/bits/fd_sat.h"
 
+/* Source of truth:
+   https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L95 */
+
+/* Legacy float constants referenced by the Rust tests:
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/state.rs#L33 */
 static const double DEFAULT_WARMUP_COOLDOWN_RATE = 0.25;
+/* https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/state.rs#L35 */
 static const double NEW_WARMUP_COOLDOWN_RATE     = 0.09;
 
 static inline ulong
@@ -12,6 +19,8 @@ abs_diff_ulong( ulong a, ulong b ) {
   return ( a > b ) ? ( a - b ) : ( b - a );
 }
 
+/* C equivalent of Rust's `ulp::max_ulp_tolerance` ("4x ULP tolerance")
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/ulp.rs#L32 */
 static inline ulong
 max_ulp_tolerance( ulong int_result, ulong float_result ) {
   ulong maxv = ( int_result > float_result ) ? int_result : float_result;
@@ -35,6 +44,8 @@ legacy_warmup_cooldown_rate( ulong epoch, ulong const * new_rate_activation_epoc
            : NEW_WARMUP_COOLDOWN_RATE;
 }
 
+/* Legacy f64 oracle used by the Rust proptest
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L369 */
 static ulong
 calculate_stake_delta_f64_legacy( ulong account_portion,
                                   ulong cluster_portion,
@@ -60,6 +71,8 @@ xorshift64star( ulong * s ) {
   return x * 2685821657736338717UL;
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L104 */
 static void
 test_rate_bps_before_activation_epoch_uses_prev_rate( void ) {
   ulong epoch      = 9UL;
@@ -68,6 +81,8 @@ test_rate_bps_before_activation_epoch_uses_prev_rate( void ) {
   FD_TEST( bps==FD_STAKE_ORIGINAL_WARMUP_COOLDOWN_RATE_BPS );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L112 */
 static void
 test_rate_bps_at_or_after_activation_epoch_uses_curr_rate( void ) {
   ulong activation = 10UL;
@@ -79,6 +94,8 @@ test_rate_bps_at_or_after_activation_epoch_uses_curr_rate( void ) {
   FD_TEST( fd_stake_warmup_cooldown_rate_bps( epoch2, &activation )==FD_STAKE_TOWER_WARMUP_COOLDOWN_RATE_BPS );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L127 */
 static void
 test_rate_bps_none_activation_epoch_behaves_like_prev_rate( void ) {
   ulong epoch = 123UL;
@@ -86,6 +103,8 @@ test_rate_bps_none_activation_epoch_behaves_like_prev_rate( void ) {
   FD_TEST( bps==FD_STAKE_ORIGINAL_WARMUP_COOLDOWN_RATE_BPS );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L136 */
 static void
 test_activation_zero_cases_return_zero( void ) {
   fd_stake_history_entry_t prev1 = { .activating = 10UL, .effective = 100UL, .deactivating = 0UL };
@@ -98,6 +117,8 @@ test_activation_zero_cases_return_zero( void ) {
   FD_TEST( fd_stake_calculate_activation_allowance( 0UL, 5UL, &prev3, &(ulong){0UL} )==0UL );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L163 */
 static void
 test_activation_basic_proportional_prev_rate( void ) {
   ulong current_epoch = 99UL;
@@ -108,6 +129,8 @@ test_activation_basic_proportional_prev_rate( void ) {
   FD_TEST( result==50UL );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L179 */
 static void
 test_activation_caps_at_account_portion_when_network_allowance_is_large( void ) {
   ulong current_epoch = 99UL;
@@ -120,6 +143,8 @@ test_activation_caps_at_account_portion_when_network_allowance_is_large( void ) 
   FD_TEST( result==account_portion );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L199 */
 static void
 test_activation_overflow_scenario_still_rate_limits( void ) {
   ulong supply_lamports = 400000000000000000UL;
@@ -156,6 +181,8 @@ test_activation_overflow_scenario_still_rate_limits( void ) {
   FD_TEST( actual_result<=ideal_allowance );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L255 */
 static void
 test_cooldown_zero_cases_return_zero( void ) {
   fd_stake_history_entry_t prev1 = { .deactivating = 10UL, .effective = 100UL, .activating = 0UL };
@@ -168,6 +195,8 @@ test_cooldown_zero_cases_return_zero( void ) {
   FD_TEST( fd_stake_calculate_deactivation_allowance( 0UL, 5UL, &prev3, &(ulong){0UL} )==0UL );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L282 */
 static void
 test_cooldown_basic_proportional_curr_rate( void ) {
   ulong current_epoch = 5UL;
@@ -179,6 +208,8 @@ test_cooldown_basic_proportional_curr_rate( void ) {
   FD_TEST( result==180UL );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L298 */
 static void
 test_cooldown_caps_at_account_portion_when_network_allowance_is_large( void ) {
   ulong current_epoch = 0UL;
@@ -190,6 +221,8 @@ test_cooldown_caps_at_account_portion_when_network_allowance_is_large( void ) {
   FD_TEST( result==account_portion );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L319 */
 static void
 test_activation_and_cooldown_are_symmetric_given_same_inputs( void ) {
   ulong epoch      = 42UL;
@@ -203,6 +236,8 @@ test_activation_and_cooldown_are_symmetric_given_same_inputs( void ) {
   FD_TEST( act==cool );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L336 */
 static void
 test_integer_division_truncation_matches_expected( void ) {
   ulong account_portion   = 100UL;
@@ -216,6 +251,8 @@ test_integer_division_truncation_matches_expected( void ) {
   FD_TEST( result==90UL );
 }
 
+/* Rust uses `proptest! { ... with_cases(10_000) }`; this is a deterministic port.
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L385 */
 static void
 test_rate_limited_change_consistent_with_legacy( void ) {
   ulong rng = 0x123456789abcdef0UL;
@@ -292,4 +329,3 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 }
-

@@ -6,6 +6,8 @@
 #error "fd_stake_warmup_cooldown_allowance requires FD_HAS_INT128"
 #endif
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L8 */
 ulong
 fd_stake_warmup_cooldown_rate_bps( ulong epoch, ulong const * new_rate_activation_epoch ) {
   return ( epoch < ( new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX ) )
@@ -13,6 +15,8 @@ fd_stake_warmup_cooldown_rate_bps( ulong epoch, ulong const * new_rate_activatio
            : FD_STAKE_TOWER_WARMUP_COOLDOWN_RATE_BPS;
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L55 */
 static inline ulong
 rate_limited_stake_change( ulong epoch,
                            ulong account_portion,
@@ -23,6 +27,10 @@ rate_limited_stake_change( ulong epoch,
 
   ulong rate_bps = fd_stake_warmup_cooldown_rate_bps( epoch, new_rate_activation_epoch );
 
+  /* change = (account_portion * cluster_effective * rate_bps) /
+              (cluster_portion * BASIS_POINTS_PER_UNIT)
+     Saturating u128 multiply chain in Rust:
+     https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L69 */
   __uint128_t numerator =
       fd_uint128_sat_mul( fd_uint128_sat_mul( (__uint128_t)account_portion, (__uint128_t)cluster_effective ),
                           (__uint128_t)rate_bps );
@@ -38,6 +46,8 @@ rate_limited_stake_change( ulong epoch,
   return (ulong)delta;
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L20 */
 ulong
 fd_stake_calculate_activation_allowance( ulong                          current_epoch,
                                          ulong                          account_activating_stake,
@@ -50,6 +60,8 @@ fd_stake_calculate_activation_allowance( ulong                          current_
                                     new_rate_activation_epoch );
 }
 
+/* https://github.com/solana-program/stake/pull/152
+   https://github.com/solana-program/stake/blob/9719141dc60e0f03f5865a5091136d3d3dcbebfa/interface/src/warmup_cooldown_allowance.rs#L39 */
 ulong
 fd_stake_calculate_deactivation_allowance( ulong                          current_epoch,
                                            ulong                          account_deactivating_stake,
@@ -61,4 +73,3 @@ fd_stake_calculate_deactivation_allowance( ulong                          curren
                                     prev_epoch_cluster_state->effective,
                                     new_rate_activation_epoch );
 }
-
