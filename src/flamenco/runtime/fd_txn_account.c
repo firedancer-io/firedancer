@@ -122,27 +122,26 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
                                         fd_pubkey_t const *       pubkey,
                                         fd_funk_t const *         funk,
                                         fd_funk_txn_xid_t const * xid ) {
+  fd_accdb_user_t accdb[1];
+  fd_accdb_user_v1_init( accdb, funk->shmem );
 
-  int err = FD_ACC_MGR_SUCCESS;
-  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      funk,
-      xid,
-      pubkey,
-      NULL,
-      &err,
-      NULL );
-
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    return err;
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) {
+    fd_accdb_user_fini( accdb );
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
+  /* HACKY: Convert accdb_rw writable reference into txn_account.
+     In the future, use fd_accdb_modify_publish instead */
+  accdb->base.ro_active--;
   if( FD_UNLIKELY( !fd_txn_account_new(
         acct,
         pubkey,
-        (fd_account_meta_t *)meta,
+        (fd_account_meta_t *)ro->meta,
         0 ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
+  fd_accdb_user_fini( accdb );
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -424,14 +423,4 @@ fd_txn_account_set_readonly( fd_txn_account_t * acct ) {
 void
 fd_txn_account_set_mutable( fd_txn_account_t * acct ) {
   acct->is_mutable = 1;
-}
-
-fd_solana_account_meta_t
-fd_txn_account_get_solana_meta( fd_txn_account_t const * acct ) {
-  fd_solana_account_meta_t meta = {
-    .lamports   = acct->meta->lamports,
-    .executable = acct->meta->executable,
-  };
-  memcpy( meta.owner, acct->meta->owner, sizeof(fd_pubkey_t) );
-  return meta;
 }
