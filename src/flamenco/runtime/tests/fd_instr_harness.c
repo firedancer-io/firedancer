@@ -51,6 +51,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   memset( txn_out->accounts.metas, 0, sizeof(fd_account_meta_t) * MAX_TX_ACCOUNT_LOCKS );
 
+  memset( txn_out->accounts.metas, 0, sizeof(fd_account_meta_t) * MAX_TX_ACCOUNT_LOCKS );
+
   /* Bank manager */
   fd_banks_clear_bank( runner->banks, runner->bank );
 
