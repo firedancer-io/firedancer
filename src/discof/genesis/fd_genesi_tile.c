@@ -67,7 +67,6 @@ struct fd_genesi_tile {
   uchar expected_genesis_hash[ 32UL ];
   ushort expected_shred_version;
 
-  ulong genesis_sz;
   uchar genesis[ GENESIS_MAX_SZ ] __attribute__((aligned(alignof(fd_genesis_t)))); /* 10 MiB buffer for decoded genesis */
   uchar buffer[ GENESIS_MAX_SZ ]; /* 10 MiB buffer for reading genesis file */
 
@@ -201,14 +200,16 @@ after_credit( fd_genesi_tile_t *  ctx,
   if( FD_LIKELY( ctx->local_genesis ) ) {
     FD_TEST( -1!=ctx->in_fd );
 
+    fd_genesis_t * genesis = fd_type_pun( ctx->genesis );
+
     uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     if( FD_UNLIKELY( ctx->bootstrap ) ) {
       fd_memcpy( dst, &ctx->lthash->bytes, sizeof(fd_lthash_value_t) );
       fd_memcpy( dst+sizeof(fd_lthash_value_t), &ctx->genesis_hash, sizeof(fd_hash_t) );
-      fd_memcpy( dst+sizeof(fd_lthash_value_t)+sizeof(fd_hash_t), ctx->genesis, ctx->genesis_sz );
+      fd_memcpy( dst+sizeof(fd_lthash_value_t)+sizeof(fd_hash_t), ctx->genesis, genesis->total_sz );
 
       fd_stem_publish( stem, 0UL, GENESI_SIG_BOOTSTRAP_COMPLETED, ctx->out_chunk, 0UL, 0UL, 0UL, 0UL );
-      ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, ctx->genesis_sz+sizeof(fd_hash_t)+sizeof(fd_lthash_value_t), ctx->out_chunk0, ctx->out_wmark );
+      ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, genesis->total_sz+sizeof(fd_hash_t)+sizeof(fd_lthash_value_t), ctx->out_chunk0, ctx->out_wmark );
     } else {
       fd_memcpy( dst, ctx->genesis_hash, sizeof(fd_hash_t) );
       fd_stem_publish( stem, 0UL, GENESI_SIG_GENESIS_HASH, ctx->out_chunk, sizeof(fd_hash_t), 0UL, 0UL, 0UL );
@@ -274,8 +275,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     FD_TEST( !ctx->bootstrap );
     ulong size = 512UL+fd_tar_meta_get_size( meta );
 
-    ctx->genesis_sz = 0UL;
-    fd_genesis_t * genesis = fd_genesis_parse( ctx->buffer, size, &ctx->genesis_sz, ctx->genesis );
+    fd_genesis_t * genesis = fd_genesis_parse( ctx->buffer, size, ctx->genesis );
 
     verify_cluster_type( genesis, hash, ctx->genesis_path );
 
@@ -333,8 +333,7 @@ process_local_genesis( fd_genesi_tile_t * ctx,
 
   if( FD_UNLIKELY( -1==close( ctx->in_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  ctx->genesis_sz = 0UL;
-  fd_genesis_t * genesis = fd_genesis_parse( ctx->buffer, size, &ctx->genesis_sz, ctx->genesis );
+  fd_genesis_t * genesis = fd_genesis_parse( ctx->buffer, size, ctx->genesis );
 
   union {
     uchar  c[ 32 ];

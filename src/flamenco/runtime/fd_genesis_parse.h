@@ -25,6 +25,10 @@ struct fd_genesis_account {
 typedef struct fd_genesis_account fd_genesis_account_t;
 
 struct fd_genesis {
+  /* total_sz represents the total memory footprint taken up by
+     fd_genesis_t and the variable length data that follows. */
+  ulong total_sz;
+
   ulong creation_time;
   uint  cluster_type;
 
@@ -71,15 +75,18 @@ struct fd_genesis {
   ulong builtin_len;
   uint  builtin_off[ FD_GENESIS_BUILTIN_MAX_COUNT ];
 
+  /* variable length account data follows */
 };
 typedef struct fd_genesis fd_genesis_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_genesis_parse is a bincode parser for an encoded genesis type.
+   TODO:FIXME: finish documeting this */
+
 fd_genesis_t *
 fd_genesis_parse( uchar const * mem_in,
                   ulong         sz_in,
-                  ulong *       sz_out,
                   uchar *       genesis_out );
 
 FD_PROTOTYPES_END

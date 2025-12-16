@@ -17,11 +17,13 @@ LLVMFuzzerInitialize( int  *   argc,
 }
 
 static int
-genesis_accounts_check( uchar * genesis_buf,
-                        ulong   genesis_sz ) {
+genesis_accounts_check( uchar genesis_buf[ static FD_GENESIS_MAX_MESSAGE_SIZE ] ) {
 
   fd_genesis_t * genesis                = fd_type_pun( genesis_buf );
+  ulong          genesis_sz             = genesis->total_sz;
   ulong          lowest_expected_offset = sizeof(fd_genesis_t);
+
+  if( FD_UNLIKELY( genesis_sz>FD_GENESIS_MAX_MESSAGE_SIZE ) ) return 0;
 
   if( FD_UNLIKELY( genesis->accounts_len>FD_GENESIS_ACCOUNT_MAX_COUNT ) ) return 0;
   for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
@@ -58,14 +60,12 @@ genesis_accounts_check( uchar * genesis_buf,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
-  ulong genesis_sz = 0UL;
-  if( !fd_genesis_parse( data, size, &genesis_sz, genesis_buf ) ) return 0;
-  if( FD_UNLIKELY( genesis_sz>FD_GENESIS_MAX_MESSAGE_SIZE ) ) return 0;
 
+  if( !fd_genesis_parse( data, size, genesis_buf ) ) return 0;
   /* In the genesis, the only two fields that are not fixed size are the
      accounts and the built-in accounts.  The offsets and bounds of each
      of the accounts are checked here. */
-  assert( genesis_accounts_check( genesis_buf, genesis_sz ) );
+  assert( genesis_accounts_check( genesis_buf ) );
 
   return 0;
 }

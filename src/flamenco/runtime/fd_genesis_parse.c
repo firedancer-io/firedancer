@@ -27,7 +27,6 @@
 fd_genesis_t *
 fd_genesis_parse( uchar const * payload,
                   ulong         payload_sz,
-                  ulong *       sz_out,
                   uchar *       genesis_out ) {
   FD_SCRATCH_ALLOC_INIT( l, genesis_out );
   fd_genesis_t * genesis = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_genesis_t), sizeof(fd_genesis_t) );
@@ -98,7 +97,7 @@ fd_genesis_parse( uchar const * payload,
     CHECK_LEFT( 8U ); INC( 8U ); /* don't care about rent epoch */
   }
 
-  *sz_out = (ulong)(FD_SCRATCH_ALLOC_FINI( l, alignof(fd_genesis_t) )) - (ulong)genesis_out;
+  genesis->total_sz = (ulong)(FD_SCRATCH_ALLOC_FINI( l, alignof(fd_genesis_t) )) - (ulong)genesis_out;
 
   CHECK_LEFT( 8U ); ulong rewards_len = FD_LOAD( ulong, CURSOR ); INC( 8U );
   for( ulong i=0UL; i<rewards_len; i++ ) {
