@@ -3,13 +3,8 @@
 
 #include "fd_vm.h"
 
-#include "../../ballet/sbpf/fd_sbpf_instr.h"
-#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/fd_runtime_const.h"
 #include "../runtime/fd_runtime.h"
-#include "../features/fd_features.h"
-#include "../runtime/context/fd_exec_instr_ctx.h"
 #include "fd_vm_base.h"
 
 /* FD_VM_ALIGN_RUST_{} define the alignments for relevant rust types.

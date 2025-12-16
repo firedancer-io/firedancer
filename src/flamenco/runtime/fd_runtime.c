@@ -1857,13 +1857,3 @@ fd_account_meta_checked_sub_lamports( fd_account_meta_t * meta, ulong lamports )
   meta->lamports = balance_post;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
-
-void
-fd_account_meta_resize( fd_account_meta_t * meta,
-                        ulong               dlen ) {
-  ulong old_sz    = meta->dlen;
-  ulong new_sz    = dlen;
-  ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
-  fd_memset( fd_account_data( meta ) + old_sz, 0, memset_sz );
-  meta->dlen = (uint)dlen;
-}

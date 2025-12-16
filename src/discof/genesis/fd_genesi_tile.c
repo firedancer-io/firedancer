@@ -4,7 +4,6 @@
 #include "fd_genesis_client.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../flamenco/runtime/fd_txn_account.h"
 #include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_hashes.h"

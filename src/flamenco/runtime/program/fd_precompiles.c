@@ -224,6 +224,8 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
   Secp256K1
 */
 
+#if FD_HAS_SECP256K1
+
 int
 fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
 
@@ -329,6 +331,8 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+#endif
 
 /*
   Secp256r1
