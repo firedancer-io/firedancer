@@ -822,7 +822,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
 
-    fd_hashes_update_lthash( vote_rec, prev_hash,bank, capture_ctx );
+    fd_hashes_update_lthash( vote_rec->pubkey, vote_rec->meta, prev_hash,bank, capture_ctx );
     fd_txn_account_mutable_fini( vote_rec, accdb, &prepare );
 
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
@@ -877,7 +877,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
   fd_txn_account_set_slot( stake_acc_rec, fd_bank_slot_get( bank ) );
 
   fd_stake_state_v2_t stake_state[1] = {0};
-  if( fd_stake_get_state( stake_acc_rec, stake_state ) != 0 ) {
+  if( fd_stake_get_state( stake_acc_rec->meta, stake_state ) != 0 ) {
     FD_LOG_DEBUG(( "failed to read stake state for %s", FD_BASE58_ENC_32_ALLOCA( stake_pubkey ) ));
     return 1;
   }
@@ -927,7 +927,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
     FD_LOG_ERR(( "write_stake_state failed" ));
   }
 
-  fd_hashes_update_lthash( stake_acc_rec, prev_hash, bank, capture_ctx );
+  fd_hashes_update_lthash( stake_acc_rec->pubkey, stake_acc_rec->meta, prev_hash, bank, capture_ctx );
   fd_txn_account_mutable_fini( stake_acc_rec, accdb, &prepare );
 
   return 0;

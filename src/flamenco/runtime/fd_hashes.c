@@ -76,15 +76,15 @@ fd_hashes_hash_bank( fd_lthash_value_t const * lthash,
 }
 
 void
-fd_hashes_update_lthash( fd_txn_account_t const  * account,
+fd_hashes_update_lthash( fd_pubkey_t const *       pubkey,
+                         fd_account_meta_t const * meta,
                          fd_lthash_value_t const * prev_account_hash,
                          fd_bank_t               * bank,
                          fd_capture_ctx_t        * capture_ctx ) {
 
   /* Hash the new version of the account */
   fd_lthash_value_t new_hash[1];
-  fd_account_meta_t const * meta = fd_txn_account_get_meta( account );
-  fd_hashes_account_lthash( account->pubkey, meta, fd_txn_account_get_data( account ), new_hash );
+  fd_hashes_account_lthash( pubkey, meta, fd_account_data( meta ), new_hash );
 
   /* Subtract the old hash of the account from the bank lthash */
   fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
@@ -97,20 +97,20 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
 
   if( capture_ctx && capture_ctx->capture &&
       fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
-    fd_solana_account_meta_t meta[1];
+    fd_solana_account_meta_t solana_meta[1];
     fd_solana_account_meta_init(
-        meta,
-        fd_txn_account_get_lamports ( account ),
-        fd_txn_account_get_owner    ( account ),
-        fd_txn_account_is_executable( account )
+        solana_meta,
+        meta->lamports,
+        meta->owner,
+        meta->executable
     );
     fd_capture_link_write_account_update(
       capture_ctx,
       capture_ctx->current_txn_idx,
-      account->pubkey,
-      meta,
+      pubkey,
+      solana_meta,
       fd_bank_slot_get( bank ),
-      fd_txn_account_get_data( account ),
-      fd_txn_account_get_data_len( account ) );
+      fd_account_data( meta ),
+      meta->dlen );
   }
 }

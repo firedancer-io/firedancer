@@ -287,7 +287,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     fd_guarded_borrowed_account_t callee_acct = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, instruction_accounts[i].index_in_caller, &callee_acct );
 
-    fd_pubkey_t const *       account_key = callee_acct.acct->pubkey;
+    fd_pubkey_t const *       account_key = callee_acct.pubkey;
     fd_account_meta_t const * acc_meta    = fd_borrowed_account_get_acc_meta( &callee_acct );
 
     /* If the account is known and executable, we only need to consume the compute units.
@@ -541,21 +541,21 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
     return 1;
   }
 
-  fd_txn_account_t * callee_acc = borrowed_callee_acc.acct;
+  fd_account_meta_t * callee_meta = borrowed_callee_acc.meta;
   /* Update the caller account lamports with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1191 */
-  *(caller_account->lamports) = fd_txn_account_get_lamports( callee_acc );
+  *(caller_account->lamports) = callee_meta->lamports;
 
   /* Update the caller account owner with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1192 */
-  fd_pubkey_t const * updated_owner = fd_txn_account_get_owner( callee_acc );
+  fd_pubkey_t const * updated_owner = (fd_pubkey_t const *)callee_meta->owner;
   if( updated_owner ) *caller_account->owner = *updated_owner;
   else                fd_memset( caller_account->owner, 0,             sizeof(fd_pubkey_t) );
 
   /* Update the caller account data with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1194-L1195 */
   ulong prev_len = *caller_account->ref_to_len_in_vm;
-  ulong post_len = fd_txn_account_get_data_len( callee_acc );
+  ulong post_len = callee_meta->dlen;
 
   /* Calculate the address space reserved for the account. With stricter_abi_and_runtime_constraints
      and deprecated loader, the reserved space equals original length (no realloc space).
@@ -638,7 +638,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1254-L1265 */
   if( !(vm->stricter_abi_and_runtime_constraints && vm->direct_mapping) ) {
-    fd_memcpy( caller_account->serialized_data, fd_txn_account_get_data( callee_acc ), post_len );
+    fd_memcpy( caller_account->serialized_data, fd_account_data( callee_meta ), post_len );
   }
 
 
@@ -740,7 +740,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Derive PDA signers ************************************************/
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
-  fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_out->accounts.account_keys[ vm->instr_ctx->instr->program_id ];
+  fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_out->accounts.keys[ vm->instr_ctx->instr->program_id ];
   /* This is the equivalent of translate_slice in translate_signers:
      https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L595 */
   if( FD_LIKELY( signers_seeds_cnt > 0UL ) ) {
@@ -905,7 +905,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
        caller accounts can't be changed during a CPI execution. */
     if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, callee_account_keys[i] ) ) {
       ushort              idx_in_txn = vm->instr_ctx->instr->accounts[ callee_account_keys[i] ].index_in_transaction;
-      fd_pubkey_t const * callee     = &vm->instr_ctx->txn_out->accounts.account_keys[ idx_in_txn ];
+      fd_pubkey_t const * callee     = &vm->instr_ctx->txn_out->accounts.keys[ idx_in_txn ];
       err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[ caller_accounts_to_update[i] ], caller_accounts + i, (uchar)callee_account_keys[i], callee);
       if( FD_UNLIKELY( err ) ) {
         return err;
@@ -922,7 +922,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
       /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1033-L1034 */
       fd_guarded_borrowed_account_t borrowed_callee_acc = {0};
       ushort idx_in_txn          = vm->instr_ctx->instr->accounts[ callee_account_keys[i] ].index_in_transaction;
-      fd_pubkey_t const * callee = &vm->instr_ctx->txn_out->accounts.account_keys[ idx_in_txn ];
+      fd_pubkey_t const * callee = &vm->instr_ctx->txn_out->accounts.keys[ idx_in_txn ];
       err = fd_exec_instr_ctx_try_borrow_instr_account_with_key( vm->instr_ctx, callee, &borrowed_callee_acc );
       if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
         return 1;

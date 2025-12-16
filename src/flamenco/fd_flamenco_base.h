@@ -116,6 +116,11 @@ struct fd_account_meta {
 };
 typedef struct fd_account_meta fd_account_meta_t;
 
+FD_FN_PURE static inline uchar *
+fd_account_data( fd_account_meta_t const * acc ) {
+  return (uchar *)( acc+1 );
+}
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_acct_addr_cstr converts the given Solana address into a base58-

@@ -113,7 +113,7 @@ fd_solfuzz_block_register_vote_account( fd_funk_t  *              funk,
   }
 
   /* Account must be initialized correctly */
-  if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc ) ) ) {
+  if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc->meta ) ) ) {
     return;
   }
 
@@ -149,7 +149,7 @@ fd_solfuzz_block_register_stake_delegation( fd_funk_t *               funk,
 
   /* Stake state must exist and be initialized correctly */
   fd_stake_state_v2_t stake_state;
-  if( FD_UNLIKELY( fd_stake_get_state( acc, &stake_state ) || !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+  if( FD_UNLIKELY( fd_stake_get_state( acc->meta, &stake_state ) || !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
     return;
   }
 
@@ -352,8 +352,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
   vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
-    fd_txn_account_t acc[1];
-    fd_solfuzz_pb_load_account( acc, accdb, xid, &test_ctx->acct_states[i], 1 );
+    fd_solfuzz_pb_load_account( runner->runtime, accdb, xid, &test_ctx->acct_states[i], 1, i, NULL );
 
     /* Update vote accounts cache for epoch T */
     fd_pubkey_t pubkey;
