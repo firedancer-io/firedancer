@@ -406,6 +406,14 @@ struct fd_replay_tile {
 
     ulong slots_total;
     ulong transactions_total;
+
+    ulong reasm_latest_slot;
+    ulong reasm_latest_fec_idx;
+
+    ulong sched_full;
+    ulong reasm_empty;
+    ulong leader_bid_wait;
+    ulong banks_full;
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
@@ -470,8 +478,19 @@ metrics_write( fd_replay_tile_t * ctx ) {
   ulong live_banks = fd_banks_pool_max( bank_pool ) - fd_banks_pool_free( bank_pool );
   FD_MGAUGE_SET( REPLAY, LIVE_BANKS, live_banks );
 
+  ulong reasm_free = fd_reasm_free( ctx->reasm );
+  FD_MGAUGE_SET( REPLAY, REASM_FREE, reasm_free );
+
   FD_MCNT_SET( REPLAY, SLOTS_TOTAL, ctx->metrics.slots_total );
   FD_MCNT_SET( REPLAY, TRANSACTIONS_TOTAL, ctx->metrics.transactions_total );
+
+  FD_MGAUGE_SET( REPLAY, REASM_LATEST_SLOT,    ctx->metrics.reasm_latest_slot );
+  FD_MGAUGE_SET( REPLAY, REASM_LATEST_FEC_IDX, ctx->metrics.reasm_latest_fec_idx );
+
+  FD_MCNT_SET( REPLAY, SCHED_FULL,      ctx->metrics.sched_full );
+  FD_MCNT_SET( REPLAY, REASM_EMPTY,     ctx->metrics.reasm_empty );
+  FD_MCNT_SET( REPLAY, LEADER_BID_WAIT, ctx->metrics.leader_bid_wait );
+  FD_MCNT_SET( REPLAY, BANKS_FULL,      ctx->metrics.banks_full );
 
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  ctx->progcache_admin->metrics.root_cnt );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, ctx->progcache_admin->metrics.gc_root_cnt );
@@ -1600,8 +1619,18 @@ replay( fd_replay_tile_t *  ctx,
 static int
 can_process_fec( fd_replay_tile_t * ctx ) {
   fd_reasm_fec_t * fec;
-  if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched, 1UL ) ) ) return 0;
-  if( FD_UNLIKELY( (fec = fd_reasm_peek( ctx->reasm ))==NULL ) ) return 0;
+  if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched, 1UL ) ) ) {
+    ctx->metrics.sched_full++;
+    return 0;
+  }
+
+  if( FD_UNLIKELY( (fec = fd_reasm_peek( ctx->reasm ))==NULL ) ) {
+    ctx->metrics.reasm_empty++;
+    return 0;
+  }
+
+  ctx->metrics.reasm_latest_slot    = fec->slot;
+  ctx->metrics.reasm_latest_fec_idx = fec->fec_set_idx;
 
   if( FD_UNLIKELY( ctx->is_leader && fec->fec_set_idx==0U && fd_reasm_parent( ctx->reasm, fec )->bank_idx==ctx->leader_bank->idx ) ) {
     /* There's a race that's exceedingly rare, where we receive the
@@ -1618,12 +1647,16 @@ can_process_fec( fd_replay_tile_t * ctx ) {
        ordering invariants in banks and sched. */
     FD_TEST( ctx->recv_block_id );
     FD_TEST( !ctx->recv_poh );
+    ctx->metrics.leader_bid_wait++;
     return 0;
   }
 
   /* If fec_set_idx is 0, we need a new bank for a new slot.  Banks must
      not be full in this case. */
-  if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && fec->fec_set_idx==0 ) ) return 0;
+  if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && fec->fec_set_idx==0 ) ) {
+    ctx->metrics.banks_full++;
+    return 0;
+  }
 
   /* Otherwise, banks may not be full, so we can always create a new
      bank if needed.  Or, if banks are full, the current fec set's
