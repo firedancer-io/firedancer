@@ -21,7 +21,7 @@ static const fd_pubkey_t null_pubkey = {{ 0 }};
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
-/* This 45 byte struct gets hashed to compute the seed for Chacha20 to
+/* This 45 byte struct gets hashed to compute the seed for ChaCha to
    compute the shred destinations. */
 struct __attribute__((packed)) shred_dest_input {
   ulong slot;
@@ -157,7 +157,7 @@ void * fd_shred_dest_delete( void * mem ) {
     1. construct a list of all the unstaked validators,
     2. delete the leader (if present)
     then repeatedly:
-    3. choose the chacha20rng_roll( |unstaked| )th element.
+    3. choose the chacha_rng_roll( |unstaked| )th element.
     4. swap the last element in unstaked with the chosen element
     5. return and remove the chosen element (which is now in the last
     position, so remove is O(1)).
@@ -191,7 +191,7 @@ sample_unstaked_noprepare( fd_shred_dest_t  * sdest,
   ulong unstaked_cnt = sdest->unstaked_cnt - (ulong)remove_in_interval;
   if( FD_UNLIKELY( unstaked_cnt==0UL ) ) return FD_WSAMPLE_EMPTY;
 
-  ulong sample = sdest->staked_cnt + fd_chacha20_rng_ulong_roll( sdest->rng, unstaked_cnt );
+  ulong sample = sdest->staked_cnt + fd_chacha_rng_ulong_roll( sdest->rng, unstaked_cnt );
   return fd_ulong_if( (!remove_in_interval) | (sample<remove_idx), sample, sample+1UL );
 }
 
@@ -219,7 +219,7 @@ static inline ulong
 sample_unstaked( fd_shred_dest_t * sdest ) {
   if( FD_UNLIKELY( sdest->unstaked_unremoved_cnt==0UL ) ) return FD_WSAMPLE_EMPTY;
 
-  ulong sample = fd_chacha20_rng_ulong_roll( sdest->rng, sdest->unstaked_unremoved_cnt );
+  ulong sample = fd_chacha_rng_ulong_roll( sdest->rng, sdest->unstaked_unremoved_cnt );
   ulong to_return = sdest->unstaked[sample];
   sdest->unstaked[sample] = sdest->unstaked[--sdest->unstaked_unremoved_cnt];
   return to_return;
@@ -261,7 +261,8 @@ fd_shred_dest_idx_t *
 fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
                              fd_shred_t const * const * input_shreds,
                              ulong                      shred_cnt,
-                             fd_shred_dest_idx_t      * out ) {
+                             fd_shred_dest_idx_t      * out,
+                             int                        use_chacha8 ) {
 
   if( FD_UNLIKELY( shred_cnt==0UL ) ) return out;
 
@@ -290,7 +291,7 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
 
   int any_staked_candidates = sdest->staked_cnt > (ulong)source_validator_is_staked;
   for( ulong i=0UL; i<shred_cnt; i++ ) {
-    fd_wsample_seed_rng( fd_wsample_get_rng( sdest->staked ), dest_hash_outputs[ i ] );
+    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ], use_chacha8 );
     /* Map FD_WSAMPLE_INDETERMINATE to FD_SHRED_DEST_NO_DEST */
     if( FD_LIKELY( any_staked_candidates ) ) out[i] = (fd_shred_dest_idx_t)fd_ulong_min( fd_wsample_sample( sdest->staked ), FD_SHRED_DEST_NO_DEST );
     else                                     out[i] = (fd_shred_dest_idx_t)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
@@ -308,7 +309,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
                                 ulong                      out_stride,
                                 ulong                      fanout,
                                 ulong                      dest_cnt,
-                                ulong                    * opt_max_dest_cnt ) {
+                                ulong                    * opt_max_dest_cnt,
+                                int                        use_chacha8 ) {
 
   /* The logic here is a little tricky since we are keeping track of
      staked and unstaked separately and only logically concatenating
@@ -358,7 +360,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     if( FD_LIKELY( query && leader_is_staked ) ) fd_wsample_remove_idx( sdest->staked, leader_idx );
 
     ulong my_idx         = 0UL;
-    fd_wsample_seed_rng( fd_wsample_get_rng( sdest->staked ), dest_hash_outputs[ i ] ); /* Seeds both samplers since the rng is shared */
+    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ], use_chacha8 ); /* Seeds both samplers since the rng is shared */
 
     if( FD_UNLIKELY( !i_am_staked ) ) {
       /* If there's excluded stake, we don't know about any unstaked

@@ -31,20 +31,20 @@ main( int     argc,
     0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
     0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
   };
-  FD_TEST( fd_chacha20_rng_init( rng, key ) );
+  FD_TEST( fd_chacha_rng_init( rng, key, FD_CHACHA_RNG_ALGO_CHACHA20 ) );
 
   /* Test output */
 
-  FD_TEST( fd_chacha20_rng_ulong( rng )==0x6a19c5d97d2bfd39UL );
+  FD_TEST( fd_chacha_rng_ulong( rng )==0x6a19c5d97d2bfd39UL );
   ulong x = 0UL;
-  for( ulong i=0UL; i<100000UL; i++ ) x ^= fd_chacha20_rng_ulong( rng );
+  for( ulong i=0UL; i<100000UL; i++ ) x ^= fd_chacha_rng_ulong( rng );
   FD_TEST( x==0xb425be48c89d4f75UL );
 
-#define RNG_TEST( name ) \
+#define RNG_TEST( name, algo ) \
   do { \
     FD_LOG_NOTICE(( "Benchmarking " #name )); \
     key[ 0 ]++; \
-    FD_TEST( fd_chacha20_rng_init( rng, key ) ); \
+    FD_TEST( fd_chacha_rng_init( rng, key, algo ) ); \
  \
     /* warmup */ \
     for( ulong rem=1000000UL; rem; rem-- ) name( rng ); \
@@ -62,14 +62,14 @@ main( int     argc,
     FD_LOG_NOTICE(( "  ~%6.3f ns / ulong",             ns      )); \
   } while(0);
 
-  RNG_TEST( fd_chacha20_rng_ulong );
-  RNG_TEST( fd_chacha8_rng_ulong  );
+  RNG_TEST( fd_chacha_rng_ulong, FD_CHACHA_RNG_ALGO_CHACHA8 );
+  RNG_TEST( fd_chacha_rng_ulong, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
-#define REFILL_TEST( name, stride )                                    \
+#define REFILL_TEST( name, stride, algo )                              \
   do {                                                                 \
     FD_LOG_NOTICE(( "Benchmarking " #name ));                          \
     key[ 0 ]++;                                                        \
-    FD_TEST( fd_chacha20_rng_init( rng, key ) );                       \
+    FD_TEST( fd_chacha_rng_init( rng, key, algo ) );                   \
                                                                        \
     /* warmup */                                                       \
     for( ulong rem=100000UL; rem; rem-- ) {                            \
@@ -90,15 +90,15 @@ main( int     argc,
   } while(0);
 
 # if FD_HAS_AVX512
-  REFILL_TEST( fd_chacha8_rng_refill_avx512,  16*FD_CHACHA_BLOCK_SZ );
-  REFILL_TEST( fd_chacha20_rng_refill_avx512, 16*FD_CHACHA_BLOCK_SZ );
+  REFILL_TEST( fd_chacha8_rng_refill_avx512,  16*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
+  REFILL_TEST( fd_chacha20_rng_refill_avx512, 16*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
 # endif
 # if FD_HAS_AVX
-  REFILL_TEST( fd_chacha8_rng_refill_avx,      8*FD_CHACHA_BLOCK_SZ );
-  REFILL_TEST( fd_chacha20_rng_refill_avx,     8*FD_CHACHA_BLOCK_SZ );
+  REFILL_TEST( fd_chacha8_rng_refill_avx,      8*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
+  REFILL_TEST( fd_chacha20_rng_refill_avx,     8*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
 # endif
-  REFILL_TEST( fd_chacha8_rng_refill_seq,      1*FD_CHACHA_BLOCK_SZ );
-  REFILL_TEST( fd_chacha20_rng_refill_seq,     1*FD_CHACHA_BLOCK_SZ );
+  REFILL_TEST( fd_chacha8_rng_refill_seq,      1*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
+  REFILL_TEST( fd_chacha20_rng_refill_seq,     1*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
   /* Test leave/delete */
 

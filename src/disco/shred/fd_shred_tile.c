@@ -16,6 +16,8 @@
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
 #include <linux/unistd.h>
 
@@ -260,6 +262,38 @@ typedef struct {
   uchar block_ids[ BLOCK_IDS_TABLE_CNT ][ FD_SHRED_MERKLE_ROOT_SZ ];
 } fd_shred_ctx_t;
 
+/* shred features are generally considered active at the epoch *following*
+   the epoch in which the feature gate is activated.
+
+   As an optimization, when the activation slot is received, it is converted
+   into the first slot of the subsequent epoch.  This allows for a more
+   efficient check (shred_slot >= feature_slot) and avoids the overhead of
+   repeatedly converting slots into epochs for comparison.
+
+   In Agave, this is done with check_feature_activation():
+   https://github.com/anza-xyz/agave/blob/v3.1.4/turbine/src/cluster_nodes.rs#L771
+   https://github.com/anza-xyz/agave/blob/v3.1.4/core/src/shred_fetch_stage.rs#L456
+
+   Note that this function does not currently handle warmup epochs (i.e.,
+   local clusters).  This limitation is acceptable for now, as it only
+   affects thetransition period during which a feature is being
+   implemented and activated. */
+static inline ulong
+fd_shred_get_feature_activation_slot0( ulong feature_slot, fd_shred_ctx_t * ctx ) {
+  /* we need info about the epoch schedule (specifically slot_cnt).
+     if we don't know any schedule (yet), we return ULONG_MAX, i.e. feature inactive. */
+  fd_epoch_leaders_t * lsched = ctx->stake_ci->epoch_info[ 0 ].lsched
+    ? ctx->stake_ci->epoch_info[ 0 ].lsched
+    : ctx->stake_ci->epoch_info[ 1 ].lsched;
+  if( lsched==NULL ) {
+    return ULONG_MAX;
+  }
+  /* compute the activation epoch, add one, return the first slot. */
+  fd_epoch_schedule_t default_schedule[1] = {{ lsched->slot_cnt, lsched->slot_cnt, 0, 0, 0 }};
+  ulong feature_epoch = 1 + fd_slot_to_epoch( default_schedule, feature_slot, NULL );
+  return fd_epoch_slot0( default_schedule, feature_epoch );
+}
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -443,6 +477,10 @@ during_frag( fd_shred_ctx_t * ctx,
 
       fd_shred_features_activation_t const * act_data = (fd_shred_features_activation_t const *)dcache_entry;
       memcpy( ctx->features_activation, act_data, sizeof(fd_shred_features_activation_t) );
+
+      for( ulong i=0; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ ) {
+        ctx->features_activation->slots[i] = fd_shred_get_feature_activation_slot0( ctx->features_activation->slots[i], ctx );
+      }
     }
     else { /* (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) */
       /* This is a frag from the PoH tile.  We'll copy it to our pending
@@ -913,7 +951,8 @@ after_frag( fd_shred_ctx_t *    ctx,
             the shred, but still send it to the blockstore. */
           fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
           if( FD_UNLIKELY( !sdest ) ) break;
-          fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt );
+          int use_chacha8 = ( shred->slot >= ctx->features_activation->switch_to_chacha8_turbine );
+          fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt, use_chacha8 );
           if( FD_UNLIKELY( !dests ) ) break;
 
           for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++ ) send_shred( ctx, stem, *out_shred, ctx->adtl_dests_retransmit+i, ctx->tsorig );
@@ -1112,6 +1151,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     if( FD_UNLIKELY( !k ) ) return;
     fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, new_shreds[ 0 ]->slot );
     if( FD_UNLIKELY( !sdest ) ) return;
+    int use_chacha8 = ( new_shreds[ 0 ]->slot >= ctx->features_activation->switch_to_chacha8_turbine );
 
     ulong out_stride;
     ulong max_dest_cnt[1];
@@ -1124,14 +1164,14 @@ after_frag( fd_shred_ctx_t *    ctx,
       /* In the case of feature activation, the fanout used below is
           the same as the one calculated/modified previously at the
           beginning of after_frag() for IN_KIND_NET in this slot. */
-      dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
+      dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt, use_chacha8 );
     } else {
       for( ulong i=0UL; i<k; i++ ) {
         for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, ctx->tsorig );
       }
       out_stride = 1UL;
       *max_dest_cnt = 1UL;
-      dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests );
+      dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests, use_chacha8 );
     }
     if( FD_UNLIKELY( !dests ) ) return;
 
