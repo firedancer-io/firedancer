@@ -802,11 +802,11 @@ snapshot_load_cmd_fn( args_t *   args,
           ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
           ( (double)( snapin_backp-snapin_backp_old )*ns_per_tick )/1e7 );
       if( snapls_tile ) {
-        printf( "%3.0f%%,%3.0f%%",
+        printf( ",%3.0f%%,%3.0f%%",
           ( (double)( snapla_backp-snapla_backp_old )*ns_per_tick )/1e7,
           ( (double)( snapls_backp-snapls_backp_old )*ns_per_tick )/1e7 );
       } else if( snapwr_tile ) {
-        printf( "%3.0f%%,%3.0f%%",
+        printf( ",%3.0f%%,%3.0f%%",
           ( (double)( snapwm_backp-snapwm_backp_old )*ns_per_tick )/1e7,
           ( (double)( snapwh_backp-snapwh_backp_old )*ns_per_tick )/1e7 );
       }
@@ -817,11 +817,11 @@ snapshot_load_cmd_fn( args_t *   args,
           100-( ( (double)( snapdc_wait-snapdc_wait_old )*ns_per_tick )/1e7 ),
           100-( ( (double)( snapin_wait-snapin_wait_old )*ns_per_tick )/1e7 ) );
       if( snapls_tile )  {
-        printf( " %3.0f%%,%3.0f%%",
+        printf( ",%3.0f%%,%3.0f%%",
           100-( ( (double)( snapla_wait-snapla_wait_old )*ns_per_tick )/1e7 ),
           100-( ( (double)( snapls_wait-snapls_wait_old )*ns_per_tick )/1e7 ) );
       } else if( snapwr_tile ) {
-        printf( " %3.0f%%,%3.0f%%,%3.0f%%",
+        printf( ",%3.0f%%,%3.0f%%,%3.0f%%",
           100-( ( (double)( snapwm_wait-snapwm_wait_old )*ns_per_tick )/1e7 ),
           100-( ( (double)( snapwh_wait-snapwh_wait_old )*ns_per_tick )/1e7 ),
           100-( ( (double)( snapwr_wait-snapwr_wait_old )*ns_per_tick )/1e7 ) );
