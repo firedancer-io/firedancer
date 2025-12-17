@@ -7,6 +7,10 @@ ifdef FD_HAS_ZSTD
 $(call add-objs,fd_snapdc_tile,fd_discof)
 endif # FD_HAS_ZSTD
 $(call add-objs,fd_snapin_tile fd_snapin_tile_funk fd_snapin_tile_vinyl,fd_discof)
+ifdef FD_HAS_HOSTED
+$(call make-unit-test,test_snapin_tile,test_snapin_tile,fd_discof fd_disco fd_flamenco fd_vinyl fd_funk fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_snapin_tile)
+endif # FD_HAS_HOSTED
 endif # FD_HAS_SSE
 $(call add-objs,fd_snapwh_tile,fd_discof)
 $(call add-objs,fd_snapwr_tile,fd_discof)
