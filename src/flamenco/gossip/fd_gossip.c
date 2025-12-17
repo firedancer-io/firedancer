@@ -796,7 +796,7 @@ tx_pull_request( fd_gossip_t *       gossip,
   ulong  num_bits       = fd_bloom_num_bits( max_items, BLOOM_FALSE_POSITIVE_RATE, max_bits );
 
   double _mask_bits     = ceil( log2( (double)num_items / max_items ) );
-  uint   mask_bits      = _mask_bits >= 0.0 ? (uint)_mask_bits : 0UL;
+  uint   mask_bits      = _mask_bits >= 0.0 ? fd_uint_min( (uint)_mask_bits, 63U ) : 0UL;
   ulong  mask           = fd_rng_ulong( gossip->rng ) | (~0UL>>(mask_bits));
 
   uchar payload[ FD_GOSSIP_MTU ] = {0};
@@ -860,12 +860,8 @@ static inline long
 next_pull_request( fd_gossip_t const * gossip,
                    long                now ) {
   (void)gossip;
-  /* TODO: Not always every 200 micros ... we should send less frequently
-     the table is smaller.  Agave sends 1024 every 200 millis, but
-     reduces 1024 to a lower amount as the table size shrinks...
-     replicate this in the frequency domain. */
-  /* TODO: Jitter */
-  return now+1600L*1000L;
+  /* TODO: Dynamic, jitter, etc. */
+  return now + 32L*1000L*1000L;
 }
 
 static inline void
