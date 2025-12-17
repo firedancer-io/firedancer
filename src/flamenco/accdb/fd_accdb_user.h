@@ -57,6 +57,7 @@ struct fd_accdb_user_base {
 
   ulong rw_active;
   ulong ro_active;
+  ulong created_cnt;
 };
 
 typedef struct fd_accdb_user_base fd_accdb_user_base_t;

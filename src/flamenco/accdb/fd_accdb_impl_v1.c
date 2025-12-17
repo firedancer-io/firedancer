@@ -275,6 +275,7 @@ fd_accdb_prep_create( fd_accdb_rw_t *           rw,
 
   fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( accdb->funk->rec_pool, NULL, 1, NULL );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_CRIT(( "Failed to modify account: DB record pool is out of memory" ));
+  accdb->base.created_cnt++;
 
   memset( rec, 0, sizeof(fd_funk_rec_t) );
   rec->val_gaddr = fd_wksp_gaddr_fast( accdb->funk->wksp, val );

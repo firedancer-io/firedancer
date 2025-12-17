@@ -533,10 +533,12 @@
 | <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall on the current fork |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;full</span> | counter | Times where sched is full and a FEC set can't be processed |
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;empty</span> | counter | Times where reasm is empty and a FEC set can't be processed |
-| <span class="metrics-name">replay_&#8203;leader_&#8203;bid_&#8203;wait</span> | counter | Times where replay is blocked by the the PoH tile not sending an end of leader message |
+| <span class="metrics-name">replay_&#8203;leader_&#8203;bid_&#8203;wait</span> | counter | Times where replay is blocked by the PoH tile not sending an end of leader message |
 | <span class="metrics-name">replay_&#8203;banks_&#8203;full</span> | counter | Times where banks are full and a FEC set can't be processed |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;reverted</span> | counter | Number of account database records reverted |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;gc_&#8203;root</span> | counter | Number of account database entries garbage collected |
 
@@ -1133,6 +1135,7 @@
 | <span class="metrics-name">exec_&#8203;progcache_&#8203;fill_&#8203;fails</span> | counter | Number of program cache load fails (tombstones inserted) |
 | <span class="metrics-name">exec_&#8203;progcache_&#8203;dup_&#8203;inserts</span> | counter | Number of time two tiles raced to insert the same cache entry |
 | <span class="metrics-name">exec_&#8203;progcache_&#8203;invalidations</span> | counter | Number of program cache invalidations |
+| <span class="metrics-name">exec_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
 
 </div>
 

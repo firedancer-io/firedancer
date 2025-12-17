@@ -98,6 +98,9 @@ metrics_write( fd_exec_tile_ctx_t * ctx ) {
   FD_MCNT_SET( EXEC, PROGCACHE_FILL_TOT_SZ,   progcache->metrics->fill_tot_sz    );
   FD_MCNT_SET( EXEC, PROGCACHE_INVALIDATIONS, progcache->metrics->invalidate_cnt );
   FD_MCNT_SET( EXEC, PROGCACHE_DUP_INSERTS,   progcache->metrics->dup_insert_cnt );
+
+  fd_accdb_user_t * accdb = ctx->accdb;
+  FD_MCNT_SET( EXEC, ACCDB_CREATED, accdb->base.created_cnt );
 }
 
 /* Publish the txn finalized message to the replay tile */

@@ -110,6 +110,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_t * admin,
     rec_idx = next_idx;
     rec_cnt++;
   }
+  admin->metrics.revert_cnt += rec_cnt;
   FD_LOG_INFO(( "accdb freed %lu records while cancelling txn %lu:%lu",
                 rec_cnt, txn->xid.ul[0], txn->xid.ul[1] ));
 
