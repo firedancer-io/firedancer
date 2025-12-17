@@ -69,8 +69,6 @@ struct fd_snapwm_tile {
 
 typedef struct fd_snapwm_tile fd_snapwm_tile_t;
 
-/* Vinyl APIs *********************************************************/
-
 FD_PROTOTYPES_BEGIN
 
 #define FD_SNAPWM_IO_SPAD_MAX (64UL<<20) /* 64 MiB of I/O scratch space */
@@ -151,42 +149,17 @@ fd_snapwm_vinyl_wd_fini( fd_snapwm_tile_t * ctx );
 void
 fd_snapwm_vinyl_shutdown( fd_snapwm_tile_t * ctx );
 
-/* Internal APIs for inserting accounts */
-
 void
-fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
+fd_snapwm_vinyl_process_account( fd_snapwm_tile_t * ctx,
                                  ulong              chunk,
                                  ulong              acc_cnt );
 
 void
-fd_snapwm_read_account_vinyl( fd_snapwm_tile_t *  ctx,
+fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
                               void const *        acct_addr,
                               fd_account_meta_t * meta,
                               uchar *             data,
                               ulong               data_max );
-
-FD_PROTOTYPES_END
-
-/* Generic APIs *******************************************************/
-
-FD_PROTOTYPES_BEGIN
-
-static inline int
-fd_snapwm_process_account( fd_snapwm_tile_t * ctx,
-                           ulong              chunk,
-                           ulong              acc_cnt ) {
-  fd_snapwm_process_account_vinyl( ctx, chunk, acc_cnt );
-  return 0;
-}
-
-static inline void
-fd_snapwm_read_account( fd_snapwm_tile_t *  ctx,
-                        void const *        acct_addr,
-                        fd_account_meta_t * meta,
-                        uchar *             data,
-                        ulong               data_max ) {
-  fd_snapwm_read_account_vinyl( ctx, acct_addr, meta, data, data_max );
-}
 
 FD_PROTOTYPES_END
 

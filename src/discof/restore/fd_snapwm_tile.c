@@ -71,7 +71,7 @@ verify_slot_deltas_with_slot_history( fd_snapwm_tile_t * ctx ) {
     fd_slot_history_global_t o;
   } decoded;
   FD_STATIC_ASSERT( offsetof( __typeof__(decoded), buf)==offsetof( __typeof__(decoded), o ), memory_layout );
-  fd_snapwm_read_account( ctx, &fd_sysvar_slot_history_id, &meta, data, sizeof(data) );
+  fd_snapwm_vinyl_read_account( ctx, &fd_sysvar_slot_history_id, &meta, data, sizeof(data) );
 
   if( FD_UNLIKELY( !meta.lamports || !meta.dlen ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account missing or empty" ));
@@ -132,7 +132,7 @@ handle_data_frag( fd_snapwm_tile_t *  ctx,
 
   // FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
 
-  fd_snapwm_process_account( ctx, chunk, acc_cnt );
+  fd_snapwm_vinyl_process_account( ctx, chunk, acc_cnt );
 
   return 0;
 }

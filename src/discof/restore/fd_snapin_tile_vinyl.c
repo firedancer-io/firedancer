@@ -386,6 +386,7 @@ fd_snapin_read_account_vinyl( fd_snapin_tile_t *  ctx,
   (void)meta;
   (void)data;
   (void)data_max;
+  FD_LOG_ERR(( "fd_snapin_read_account_vinyl is not supported here" ));
 }
 
 #undef FD_SNAPIN_VINYL_IMPL_VERSION

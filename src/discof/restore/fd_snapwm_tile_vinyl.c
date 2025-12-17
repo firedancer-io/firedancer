@@ -428,7 +428,7 @@ bstream_alloc( fd_vinyl_io_t * io,
 #if FD_SNAPWM_IMPL_VERSION==0
 
 void
-fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
+fd_snapwm_vinyl_process_account( fd_snapwm_tile_t * ctx,
                                  ulong              chunk,
                                  ulong              acc_cnt ) {
   fd_vinyl_io_t *   io  = ctx->vinyl.io;
@@ -484,7 +484,7 @@ fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
 #elif FD_SNAPWM_IMPL_VERSION==1
 
 void
-fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
+fd_snapwm_vinyl_process_account( fd_snapwm_tile_t * ctx,
                                  ulong              chunk,
                                  ulong              acc_cnt ) {
   fd_vinyl_io_t *   io  = ctx->vinyl.io;
@@ -578,7 +578,7 @@ fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
 #elif FD_SNAPWM_IMPL_VERSION==2
 
 void
-fd_snapwm_process_account_vinyl( fd_snapwm_tile_t * ctx,
+fd_snapwm_vinyl_process_account( fd_snapwm_tile_t * ctx,
                                  ulong              chunk,
                                  ulong              acc_cnt ) {
   fd_vinyl_io_t *   io  = ctx->vinyl.io;
@@ -684,7 +684,7 @@ fd_snapwm_vinyl_shutdown( fd_snapwm_tile_t * ctx ) {
 }
 
 void
-fd_snapwm_read_account_vinyl( fd_snapwm_tile_t *  ctx,
+fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
                               void const *        acct_addr,
                               fd_account_meta_t * meta,
                               uchar *             data,
