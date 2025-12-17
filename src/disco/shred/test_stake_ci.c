@@ -89,8 +89,8 @@ check_destinations( fd_stake_ci_t const * info,
     memset( buf, *c, 32UL );
     FD_TEST( fd_memeq( buf, fd_shred_dest_idx_to_dest( sdest, (fd_shred_dest_idx_t)i )->pubkey.uc, 32UL ) );
   }
-  c = unstaked_dests;
-  for(; *c; c++, i++ ) {
+  c = unstaked_dests + strlen( unstaked_dests ) - 1;
+  for(; c >= unstaked_dests; c--, i++ ) { /* unstaked nodes are in reverse order: ABC -> CBA */
     uchar buf[ 32 ];
     memset( buf, *c, 32UL );
     FD_TEST( fd_memeq( buf, fd_shred_dest_idx_to_dest( sdest, (fd_shred_dest_idx_t)i )->pubkey.uc, 32UL ) );
@@ -322,10 +322,12 @@ test_changing_contact_info( void ) {
   fd_stake_ci_dest_add_fini( info, 2UL );
 
   fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->ip4  == 0x11111111U );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->ip4  == 0x11111111U ); /* A, staked */
   FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->port == 0x2222      );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->ip4  == 0x33333333U );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->port == 0x5555      );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->ip4  == 1 );           /* I, unstaked */
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->port == 0 );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 2 )->ip4  == 0x33333333U ); /* B, unstaked */
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 2 )->port == 0x5555      );
 
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
@@ -391,6 +393,7 @@ test_set_identity( void ) {
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABCDEF" ) );  fd_stake_ci_stake_msg_fini( info );
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABCHJZ" ) );
+  check_destinations( info, 0UL, "ABCDEF",  "HIJZ" );
   /* ABCDEF staked, HIJZ unstaked */
 
   fd_pubkey_t new[1];
@@ -416,6 +419,7 @@ test_set_identity( void ) {
   /* staked->staked */
   fd_memset( new, 'B', sizeof(fd_pubkey_t) );
   fd_stake_ci_set_identity( info, new );
+  check_destinations( info, 1UL, "ABCDN",  "HIJZ" );
 }
 
  void
