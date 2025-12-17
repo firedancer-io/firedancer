@@ -219,6 +219,45 @@ fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
 }
 
 fd_accdb_peek_t *
+fd_accdb_peek_root( fd_accdb_user_v1_t * accdb,
+                    fd_accdb_peek_t *    peek,
+                    void const *         address ) {
+  fd_funk_t const * funk = accdb->funk;
+  fd_funk_rec_key_t key[1]; memcpy( key->uc, address, 32UL );
+
+  /* Hash key to chain */
+  fd_funk_xid_key_pair_t pair[1];
+  fd_funk_txn_xid_set_root( pair->xid );
+  fd_funk_rec_key_copy( pair->key, key );
+  fd_funk_rec_t * rec = NULL;
+  for(;;) {
+    fd_funk_rec_query_t query[1];
+    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
+    if( FD_UNLIKELY( err==FD_MAP_ERR_AGAIN ) ) {
+      /* FIXME: random backoff */
+      FD_SPIN_PAUSE();
+      continue;
+    }
+    if( err==FD_MAP_ERR_KEY ) return NULL;
+    FD_CRIT( err==FD_MAP_SUCCESS, "fd_funk_rec_map_query_try failed" );
+    rec = fd_funk_rec_map_query_ele( query );
+    break;
+  }
+
+  *peek = (fd_accdb_peek_t) {
+    .acc = {{
+      .rec  = rec,
+      .meta = fd_funk_val( rec, funk->wksp )
+    }},
+    .spec = {{
+      .key  = *key,
+      .keyp = rec->pair.key
+    }}
+  };
+  return peek;
+}
+
+fd_accdb_peek_t *
 fd_accdb_user_v1_peek( fd_accdb_user_t *         accdb,
                        fd_accdb_peek_t *         peek,
                        fd_funk_txn_xid_t const * xid,
@@ -293,7 +332,7 @@ fd_accdb_prep_create( fd_accdb_rw_t *           rw,
   *rw = (fd_accdb_rw_t) {
     .rec       = rec,
     .meta      = meta,
-    .published = 0
+    .published = !fd_funk_txn_xid_eq_root( xid )
   };
   return rw;
 }
@@ -365,34 +404,54 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
 
   int const flag_create   = !!( flags & FD_ACCDB_FLAG_CREATE   );
   int const flag_truncate = !!( flags & FD_ACCDB_FLAG_TRUNCATE );
-  if( FD_UNLIKELY( flags & ~(FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE) ) ) {
+  int const flag_root     = !!( flags & FD_ACCDB_FLAG_ROOT     );
+  if( FD_UNLIKELY( flags & ~(FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE|FD_ACCDB_FLAG_ROOT) ) ) {
     FD_LOG_CRIT(( "invalid flags for open_rw: %#02x", (uint)flags ));
   }
 
-  /* Pivot to different fork */
-  fd_accdb_load_fork( v1, xid );
-  ulong txn_idx = v1->tip_txn_idx;
-  if( FD_UNLIKELY( txn_idx==ULONG_MAX ) ) {
-    FD_LOG_CRIT(( "fd_accdb_user_v1_open_rw failed: XID %lu:%lu is rooted", xid->ul[0], xid->ul[1] ));
-  }
-  if( FD_UNLIKELY( txn_idx >= fd_funk_txn_pool_ele_max( v1->funk->txn_pool ) ) ) {
-    FD_LOG_CRIT(( "memory corruption detected: invalid txn_idx %lu (max %lu)",
-                  txn_idx, fd_funk_txn_pool_ele_max( v1->funk->txn_pool ) ));
-  }
-  fd_funk_txn_t * txn = &v1->funk->txn_pool->ele[ txn_idx ];
-  if( FD_UNLIKELY( !fd_funk_txn_xid_eq( &txn->xid, xid ) ) ) {
-    FD_LOG_CRIT(( "Failed to modify account: data race detected on fork node (expected XID %lu:%lu, found %lu:%lu)",
-                  xid->ul[0],     xid->ul[1],
-                  txn->xid.ul[0], txn->xid.ul[1] ));
-  }
-  if( FD_UNLIKELY( fd_funk_txn_is_frozen( txn ) ) ) {
-    FD_LOG_CRIT(( "Failed to modify account: XID %lu:%lu has children/is frozen", xid->ul[0], xid->ul[1] ));
+  /* Query old value */
+
+  fd_accdb_peek_t   peek_[1];
+  fd_accdb_peek_t * peek = NULL;
+  fd_funk_txn_xid_t key_xid = *xid;
+  if( FD_UNLIKELY( flag_root ) ) {
+
+    /* Modifying rooted record in-place */
+    fd_funk_txn_xid_t const * last_publish = fd_funk_last_publish( v1->funk );
+    if( FD_UNLIKELY( !fd_funk_txn_xid_eq( xid, last_publish ) ) ) {
+      FD_LOG_CRIT(( "fd_accdb_user_v1_open_rw failed: user requested ROOT mode, but XID %lu:%lu is not the last published XID (%lu:%lu)",
+                    xid->ul[0],          xid->ul[1],
+                    last_publish->ul[0], last_publish->ul[1] ));
+    }
+    fd_funk_txn_xid_set_root( &key_xid );
+    peek = fd_accdb_peek_root( v1, peek_, address );
+
+  } else {
+
+    /* Normal transactional update, pivot to different fork */
+    fd_accdb_load_fork( v1, xid );
+    ulong txn_idx = v1->tip_txn_idx;
+    if( FD_UNLIKELY( txn_idx==ULONG_MAX ) ) {
+      FD_LOG_CRIT(( "fd_accdb_user_v1_open_rw failed: XID %lu:%lu is rooted", xid->ul[0], xid->ul[1] ));
+    }
+    if( FD_UNLIKELY( txn_idx >= fd_funk_txn_pool_ele_max( v1->funk->txn_pool ) ) ) {
+      FD_LOG_CRIT(( "memory corruption detected: invalid txn_idx %lu (max %lu)",
+                    txn_idx, fd_funk_txn_pool_ele_max( v1->funk->txn_pool ) ));
+    }
+    fd_funk_txn_t * txn = &v1->funk->txn_pool->ele[ txn_idx ];
+    if( FD_UNLIKELY( !fd_funk_txn_xid_eq( &txn->xid, xid ) ) ) {
+      FD_LOG_CRIT(( "Failed to modify account: data race detected on fork node (expected XID %lu:%lu, found %lu:%lu)",
+                    xid->ul[0],     xid->ul[1],
+                    txn->xid.ul[0], txn->xid.ul[1] ));
+    }
+    if( FD_UNLIKELY( fd_funk_txn_is_frozen( txn ) ) ) {
+      FD_LOG_CRIT(( "Failed to modify account: XID %lu:%lu has children/is frozen", xid->ul[0], xid->ul[1] ));
+    }
+    peek = fd_accdb_peek_funk( v1, peek_, xid, address );
+
   }
 
-  /* Query old record value */
-
-  fd_accdb_peek_t peek[1];
-  if( FD_UNLIKELY( !fd_accdb_peek_funk( v1, peek, xid, address ) ) ) {
+  if( FD_UNLIKELY( !peek ) ) {
 
     /* Record not found */
     if( !flag_create ) return NULL;
@@ -405,7 +464,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
     memset( val, 0, sizeof(fd_account_meta_t) );
     return fd_accdb_prep_create( rw, v1, xid, address, val, sizeof(fd_account_meta_t), val_max );
 
-  } else if( fd_funk_txn_xid_eq( peek->acc->rec->pair.xid, xid ) ) {
+  } else if( fd_funk_txn_xid_eq( peek->acc->rec->pair.xid, &key_xid ) ) {
 
     /* Mutable record found, modify in-place */
     fd_funk_rec_t * rec = (void *)( peek->acc->ref->rec_laddr );
@@ -449,7 +508,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
       FD_LOG_CRIT(( "Failed to modify account: data race detected, account was removed while being read" ));
     }
 
-    return fd_accdb_prep_create( rw, v1, xid, address, val, val_sz, val_max );
+    return fd_accdb_prep_create( rw, v1, &key_xid, address, val, val_sz, val_max );
 
   }
 }
