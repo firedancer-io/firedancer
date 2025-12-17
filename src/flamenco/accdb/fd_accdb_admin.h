@@ -9,6 +9,7 @@ struct fd_accdb_admin {
   struct {
     ulong root_cnt;
     ulong gc_root_cnt;
+    ulong revert_cnt;
   } metrics;
 };
 

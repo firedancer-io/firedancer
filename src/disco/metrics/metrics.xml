@@ -809,6 +809,8 @@ metric introduced.
   <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
   <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
 
+  <counter name="AccdbCreated" summary="Number of account database records created" />
+  <counter name="AccdbReverted" summary="Number of account database records reverted" />
   <counter name="AccdbRooted" summary="Number of account database entries rooted" />
   <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
 </tile>
@@ -1125,6 +1127,7 @@ metric introduced.
     <counter name="ProgcacheFillFails" summary="Number of program cache load fails (tombstones inserted)" />
     <counter name="ProgcacheDupInserts" summary="Number of time two tiles raced to insert the same cache entry" />
     <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
+    <counter name="AccdbCreated" summary="Number of account database records created" />
 </tile>
 
 <tile name="benchs">
