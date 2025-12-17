@@ -841,7 +841,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_block_id_ele_t * parent_ele = fd_block_id_map_ele_query( ctx->block_id_map, parent_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !parent_ele ) ) {
-    FD_LOG_CRIT(( "invariant violation: parent bank index not found for merkle root %s", FD_BASE58_ENC_32_ALLOCA( parent_block_id->uc ) ));
+    FD_BASE58_ENCODE_32_BYTES( parent_block_id->key, parent_block_id_b58 );
+    FD_LOG_CRIT(( "invariant violation: parent bank index not found for merkle root %s", parent_block_id_b58 ));
   }
   ulong parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent_ele );
 
@@ -1678,7 +1679,11 @@ process_fec_set( fd_replay_tile_t *  ctx,
   long shacq_start, shacq_end, shrel_end;
 
   FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
-    if( FD_UNLIKELY( !fd_store_link( ctx->store, &reasm_fec->key, &reasm_fec->cmr ) ) ) FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ), FD_BASE58_ENC_32_ALLOCA( &reasm_fec->cmr ), reasm_fec->slot, reasm_fec->fec_set_idx ));
+    if( FD_UNLIKELY( !fd_store_link( ctx->store, &reasm_fec->key, &reasm_fec->cmr ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
+      FD_BASE58_ENCODE_32_BYTES( reasm_fec->cmr.key, cmr_b58 );
+      FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", key_b58, cmr_b58, reasm_fec->slot, reasm_fec->fec_set_idx ));
+    }
   } FD_STORE_SHARED_LOCK_END;
   fd_histf_sample( ctx->metrics.store_link_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0L ) );
   fd_histf_sample( ctx->metrics.store_link_work, (ulong)fd_long_max( shrel_end - shacq_end,   0L ) );
@@ -1739,7 +1744,9 @@ process_fec_set( fd_replay_tile_t *  ctx,
   fd_sched_fec_t sched_fec[ 1 ];
 
 # if DEBUG_LOGGING
-  FD_LOG_INFO(( "replay processing FEC set for slot %lu fec_set_idx %u, mr %s cmr %s", reasm_fec->slot, reasm_fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ), FD_BASE58_ENC_32_ALLOCA( &reasm_fec->cmr ) ));
+  FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
+  FD_BASE58_ENCODE_32_BYTES( reasm_fec->cmr.key, cmr_b58 );
+  FD_LOG_INFO(( "replay processing FEC set for slot %lu fec_set_idx %u, mr %s cmr %s", reasm_fec->slot, reasm_fec->fec_set_idx, key_b58, cmr_b58 ));
 # endif
 
   /* Read FEC set from the store.  This should happen before we try to
@@ -1757,7 +1764,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
          repair has notified is if the FEC was on a minority fork that
          has already been published away.  In this case we abandon the
          entire slice because it is no longer relevant.  */
-      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ) ));
+      FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
+      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
       return;
     }
     FD_TEST( store_fec );
@@ -1805,7 +1813,8 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) {
-    FD_LOG_CRIT(( "invariant violation: block id ele not found for consensus root %s", FD_BASE58_ENC_32_ALLOCA( &ctx->consensus_root ) ));
+    FD_BASE58_ENCODE_32_BYTES( ctx->consensus_root.key, consensus_root_b58 );
+    FD_LOG_CRIT(( "invariant violation: block id ele not found for consensus root %s", consensus_root_b58 ));
   }
   ulong target_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
@@ -2045,7 +2054,8 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->reset_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) {
-    FD_LOG_CRIT(( "invariant violation: block id ele doesn't exist for reset block id: %s, slot: %lu", FD_BASE58_ENC_32_ALLOCA( &msg->reset_block_id ), msg->reset_slot ));
+    FD_BASE58_ENCODE_32_BYTES( msg->reset_block_id.key, reset_block_id_b58 );
+    FD_LOG_CRIT(( "invariant violation: block id ele doesn't exist for reset block id: %s, slot: %lu", reset_block_id_b58, msg->reset_slot ));
   }
   ulong reset_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
@@ -2215,7 +2225,8 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
     xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
 
     if( FD_UNLIKELY( expected_shred_version!=xor ) ) {
-      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash %s and hard forks", expected_shred_version, xor, FD_BASE58_ENC_32_ALLOCA( &ctx->genesis_hash ) ));
+      FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash, genesis_hash_b58 );
+      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash %s and hard forks", expected_shred_version, xor, genesis_hash_b58 ));
     }
   }
 }

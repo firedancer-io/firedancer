@@ -294,7 +294,8 @@ fd_runtime_freeze( fd_bank_t *         bank,
           0UL,
           &prepare );
       if( FD_UNLIKELY( !ok ) ) {
-        FD_LOG_WARNING(( "fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for leader (%s) failed", FD_BASE58_ENC_32_ALLOCA( leader ) ));
+        FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
+        FD_LOG_WARNING(( "fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for leader (%s) failed", leader_b58 ));
         burn = fd_ulong_sat_add( burn, fees );
         fd_bank_epoch_leaders_end_locking_query( bank );
         break;
@@ -456,12 +457,14 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6732-L6751 */
     if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
-      FD_LOG_DEBUG(( "Migrating builtin program %s to core BPF", FD_BASE58_ENC_32_ALLOCA( builtins[i].pubkey->key ) ));
+      FD_BASE58_ENCODE_32_BYTES( builtins[i].pubkey->key, pubkey_b58 );
+      FD_LOG_DEBUG(( "Migrating builtin program %s to core BPF", pubkey_b58 ));
       fd_migrate_builtin_to_core_bpf( bank, accdb, xid, runtime_stack, builtins[i].core_bpf_migration_config, capture_ctx );
     }
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6753-L6774 */
     if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && FD_FEATURE_JUST_ACTIVATED_OFFSET( bank, builtins[i].enable_feature_offset ) ) {
-      FD_LOG_DEBUG(( "Enabling builtin program %s", FD_BASE58_ENC_32_ALLOCA( builtins[i].pubkey->key ) ));
+      FD_BASE58_ENCODE_32_BYTES( builtins[i].pubkey->key, pubkey_b58 );
+      FD_LOG_DEBUG(( "Enabling builtin program %s", pubkey_b58 ));
       fd_write_builtin_account( bank, accdb, xid, capture_ctx, *builtins[i].pubkey, builtins[i].data,strlen(builtins[i].data) );
     }
   }
@@ -470,7 +473,8 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
   fd_stateless_builtin_program_t const * stateless_builtins = fd_stateless_builtins();
   for( ulong i=0UL; i<fd_num_stateless_builtins(); i++ ) {
     if( stateless_builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), stateless_builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
-      FD_LOG_DEBUG(( "Migrating stateless builtin program %s to core BPF", FD_BASE58_ENC_32_ALLOCA( stateless_builtins[i].pubkey->key ) ));
+      FD_BASE58_ENCODE_32_BYTES( stateless_builtins[i].pubkey->key, pubkey_b58 );
+      FD_LOG_DEBUG(( "Migrating stateless builtin program %s to core BPF", pubkey_b58 ));
       fd_migrate_builtin_to_core_bpf( bank, accdb, xid, runtime_stack, stateless_builtins[i].core_bpf_migration_config, capture_ctx );
     }
   }
@@ -1465,10 +1469,12 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
 
         fd_features_t * features = fd_bank_features_modify( bank );
         if( feature->has_activated_at ) {
-          FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ), feature->activated_at ));
+          FD_BASE58_ENCODE_32_BYTES( acc->key.key, pubkey_b58 );
+          FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", pubkey_b58, feature->activated_at ));
           fd_features_set( features, found, feature->activated_at );
         } else {
-          FD_LOG_DEBUG(( "Feature %s not activated (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ) ));
+          FD_BASE58_ENCODE_32_BYTES( acc->key.key, pubkey_b58 );
+          FD_LOG_DEBUG(( "Feature %s not activated (genesis)", pubkey_b58 ));
           fd_features_set( features, found, ULONG_MAX );
         }
       }

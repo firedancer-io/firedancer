@@ -148,7 +148,8 @@ fd_store_insert( fd_store_t * store,
                  ulong        part_idx,
                  fd_hash_t  * merkle_root ) {
   if( FD_UNLIKELY( fd_store_query_const( store, merkle_root ) ) ) {
-    FD_LOG_WARNING(( "Merkle root %s already in store.  Ignoring insert.", FD_BASE58_ENC_32_ALLOCA( merkle_root ) ));
+    FD_BASE58_ENCODE_32_BYTES( merkle_root->key, merkle_root_b58 );
+    FD_LOG_WARNING(( "Merkle root %s already in store.  Ignoring insert.", merkle_root_b58 ));
     return NULL;
   }
 
@@ -178,8 +179,16 @@ fd_store_fec_t *
 fd_store_link( fd_store_t * store, fd_hash_t * merkle_root, fd_hash_t * chained_merkle_root ) {
 
 # if FD_STORE_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_store_query_const( store, merkle_root         ) ) ) { FD_LOG_WARNING(( "missing merkle root %s",         FD_BASE58_ENC_32_ALLOCA( merkle_root         ) ) ); return NULL; }
-  if( FD_UNLIKELY( !fd_store_query_const( store, chained_merkle_root ) ) ) { FD_LOG_WARNING(( "missing chained merkle root %s", FD_BASE58_ENC_32_ALLOCA( chained_merkle_root ) ) ); return NULL; }
+  if( FD_UNLIKELY( !fd_store_query_const( store, merkle_root         ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( merkle_root->key, merkle_root_b58 );
+    FD_LOG_WARNING(( "missing merkle root %s", merkle_root_b58 ) );
+    return NULL;
+  }
+  if( FD_UNLIKELY( !fd_store_query_const( store, chained_merkle_root ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( chained_merkle_root->key, chained_merkle_root_b58 );
+    FD_LOG_WARNING(( "missing chained merkle root %s", chained_merkle_root_b58 ) );
+    return NULL;
+  }
 # endif
 
   fd_store_pool_t   pool   = fd_store_pool( store );
@@ -203,7 +212,11 @@ fd_store_publish( fd_store_t *      store,
                   fd_hash_t const * merkle_root ) {
 
 # if FD_STORE_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_store_query( store, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
+  if( FD_UNLIKELY( !fd_store_query( store, merkle_root ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( merkle_root->key, merkle_root_b58 );
+    FD_LOG_WARNING(( "merkle root %s not found", merkle_root_b58 ));
+    return NULL;
+  }
 # endif
 
   fd_store_map_t  * map  = fd_store_map ( store );
@@ -319,7 +332,8 @@ print( fd_store_t const * store, fd_store_fec_t const * fec, int space, const ch
   if( fec == NULL ) return;
   if( space > 0 ) printf( "\n" );
   for( int i = 0; i < space; i++ ) printf( " " );
-  printf( "%s%s", prefix, FD_BASE58_ENC_32_ALLOCA( &fec->key.mr ) );
+  FD_BASE58_ENCODE_32_BYTES( fec->key.mr.key, key_mr_b58 );
+  printf( "%s%s", prefix, key_mr_b58 );
 
   fd_store_pool_t pool = fd_store_pool( store );
   fd_store_fec_t const * curr = fd_store_pool_ele_const( &pool, fec->child );
