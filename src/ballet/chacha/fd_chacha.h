@@ -7,9 +7,9 @@
 
 #define FD_CHACHA_BLOCK_SZ (64UL)
 
-/* FD_CHACHA20_KEY_SZ is the size of the ChaCha20 encryption key */
+/* FD_CHACHA_KEY_SZ is the size of the ChaCha20 encryption key */
 
-#define FD_CHACHA20_KEY_SZ (32UL)
+#define FD_CHACHA_KEY_SZ (32UL)
 
 FD_PROTOTYPES_BEGIN
 

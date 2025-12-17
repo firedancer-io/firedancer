@@ -4,7 +4,7 @@
 
 #define SORT_NAME sort_pubkey
 #define SORT_KEY_T fd_shred_dest_weighted_t
-#define SORT_BEFORE(a,b) (memcmp( (a).pubkey.uc, (b).pubkey.uc, 32UL )<0)
+#define SORT_BEFORE(a,b) (memcmp( (a).pubkey.uc, (b).pubkey.uc, 32UL )>0)
 #include "../../util/tmpl/fd_sort.c"
 
 #define SORT_NAME sort_weights_by_stake_id
@@ -370,7 +370,7 @@ fd_stake_ci_set_identity( fd_stake_ci_t *     info,
       for(; j<staked_cnt; j++ ) info->shred_dest_temp[ j ] = *fd_shred_dest_idx_to_dest( ei->sdest, (fd_shred_dest_idx_t)j );
       for(; j<staked_cnt+unstaked_cnt; j++ ) {
         fd_shred_dest_weighted_t * wj = fd_shred_dest_idx_to_dest( ei->sdest, (fd_shred_dest_idx_t)j );
-        if( FD_UNLIKELY( (memcmp( wj->pubkey.uc, identity_key->uc, 32UL )>=0) ) ) break;
+        if( FD_UNLIKELY( (memcmp( wj->pubkey.uc, identity_key->uc, 32UL )<=0) ) ) break;
         info->shred_dest_temp[ j ] = *wj;
       }
 

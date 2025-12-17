@@ -114,7 +114,7 @@ fd_epoch_leaders_new( void  *                  shmem,
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_MOD ) );
   uchar key[ 32 ] = {0};
   memcpy( key, &epoch, sizeof(ulong) );
-  fd_chacha20_rng_init( rng, key );
+  fd_chacha_rng_init( rng, key, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
   void * _wsample = fd_wsample_new_init( wsample_mem, rng, pub_cnt, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
   for( ulong i=0UL; i<pub_cnt; i++ ) _wsample = fd_wsample_new_add( _wsample, stakes[i].stake );
