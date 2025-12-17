@@ -678,9 +678,9 @@ during_frag( fd_shred_ctx_t * ctx,
     if( FD_UNLIKELY( fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR ) ) ctx->metrics->repair_rcv_cnt++;
     else                                                                    ctx->metrics->turbine_rcv_cnt++;
 
-    /* Drop unchained merkle shreds (if feature is active) */
+    /* Drop unchained merkle shreds */
     int is_unchained = !fd_shred_is_chained( fd_shred_type( shred->variant ) );
-    if( FD_UNLIKELY( is_unchained && shred->slot >= ctx->features_activation->drop_unchained_merkle_shreds ) ) {
+    if( FD_UNLIKELY( is_unchained ) ) {
       ctx->metrics->shred_rejected_unchained_cnt++;
       ctx->skip_frag = 1;
       return;
@@ -893,39 +893,6 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
     ctx->metrics->shred_processing_result[ rv + FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ]++;
-
-    /* Fanout is subject to feature activation. The code below replicates
-        Agave's get_data_plane_fanout() in turbine/src/cluster_nodes.rs
-        on 2025-03-25. Default Agave's DATA_PLANE_FANOUT = 200UL.
-        TODO once the experiments are disabled, consider removing these
-        fanout variations from the code. */
-    if( FD_LIKELY( shred->slot >= ctx->features_activation->disable_turbine_fanout_experiments ) ) {
-      fanout = 200UL;
-    } else {
-      if( FD_LIKELY( shred->slot >= ctx->features_activation->enable_turbine_extended_fanout_experiments ) ) {
-        switch( shred->slot % 359 ) {
-          case  11UL: fanout = 1152UL;  break;
-          case  61UL: fanout = 1280UL;  break;
-          case 111UL: fanout = 1024UL;  break;
-          case 161UL: fanout = 1408UL;  break;
-          case 211UL: fanout =  896UL;  break;
-          case 261UL: fanout = 1536UL;  break;
-          case 311UL: fanout =  768UL;  break;
-          default   : fanout =  200UL;
-        }
-      } else {
-        switch( shred->slot % 359 ) {
-          case  11UL: fanout =   64UL;  break;
-          case  61UL: fanout =  768UL;  break;
-          case 111UL: fanout =  128UL;  break;
-          case 161UL: fanout =  640UL;  break;
-          case 211UL: fanout =  256UL;  break;
-          case 261UL: fanout =  512UL;  break;
-          case 311UL: fanout =  384UL;  break;
-          default   : fanout =  200UL;
-        }
-      }
-    }
 
     if( FD_UNLIKELY( ctx->shred_out_idx!=ULONG_MAX &&  /* Only send to repair in full Firedancer */
                      spilled_fec.slot!=0 && spilled_fec.max_dshred_idx!=FD_SHRED_BLK_MAX ) ) {
