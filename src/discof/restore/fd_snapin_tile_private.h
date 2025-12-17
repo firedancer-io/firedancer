@@ -104,23 +104,6 @@ struct fd_snapin_tile {
   fd_snapin_out_link_t manifest_out;
   fd_snapin_out_link_t gui_out;
   fd_snapin_out_link_t hash_out;
-  ulong *              hash_out_cons_fseq;
-
-  struct {
-    uchar * bstream_mem;
-    ulong   bstream_sz;
-
-    /* Vinyl in either io_wd or io_mm mode */
-    fd_vinyl_io_t * io;
-    fd_vinyl_io_t * io_wd;
-    fd_vinyl_io_t * io_mm;
-    ulong           io_seed;
-
-    fd_vinyl_meta_t map[1];
-
-    ulong txn_seq;  /* bstream seq of first txn record (in [seq_past,seq_present]) */
-    uint  txn_active : 1;
-  } vinyl;
 
   struct {
     uchar * pair;

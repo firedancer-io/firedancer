@@ -9,31 +9,9 @@
 
 #define NAME "snapwm"
 
-// /* The snapwm tile is a state machine that parses and loads a full
-//    and optionally an incremental snapshot.  It is responsible for
-//    loading accounts into vinyl database. */
-
-// struct fd_blockhash_entry {
-//   fd_hash_t blockhash;
-
-//   struct {
-//     ulong prev;
-//     ulong next;
-//   } map;
-// };
-
-// typedef struct fd_blockhash_entry fd_blockhash_entry_t;
-
-// #define MAP_NAME                           blockhash_map
-// #define MAP_KEY                            blockhash
-// #define MAP_KEY_T                          fd_hash_t
-// #define MAP_ELE_T                          fd_blockhash_entry_t
-// #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-// #define MAP_KEY_HASH(key,seed)             (fd_hash((seed),(key),sizeof(fd_hash_t)))
-// #define MAP_PREV                           map.prev
-// #define MAP_NEXT                           map.next
-// #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
-// #include "../../util/tmpl/fd_map_chain.c"
+/* The snapwm tile is a state machine responsible for loading accounts
+   into vinyl database.  It processes pre-assembled bstream pairs
+   and handles vinyl's meta_map and bstream actual allocation. */
 
 static inline int
 should_shutdown( fd_snapwm_tile_t * ctx ) {

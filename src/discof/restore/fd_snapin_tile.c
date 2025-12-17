@@ -839,22 +839,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->hash_out = out1( topo, tile, snapin_out_link->name );
   }
 
-  ctx->hash_out_cons_fseq = NULL;
-  if( 0==strcmp( snapin_out_link->name, "snapin_wm" ) ) {
-    FD_TEST( fd_topo_link_reliable_consumer_cnt( topo, snapin_out_link )==1UL );
-    for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
-      fd_topo_tile_t const * consumer_tile = &topo->tiles[ tile_idx ];
-      for( ulong in_idx=0UL; in_idx<consumer_tile->in_cnt; in_idx++ ) {
-        if( consumer_tile->in_link_id[ in_idx ]==snapin_out_link->id ) {
-          ctx->hash_out_cons_fseq = consumer_tile->in_link_fseq[ in_idx ];
-          break;
-        }
-      }
-      if( ctx->hash_out_cons_fseq ) break;
-    }
-    FD_TEST( ctx->hash_out_cons_fseq );
-  }
-
   fd_ssparse_reset( ctx->ssparse );
   fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
   fd_slot_delta_parser_init( ctx->slot_delta_parser );

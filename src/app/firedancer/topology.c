@@ -1203,16 +1203,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->snapin.use_vinyl = !!config->firedancer.vinyl.enabled;
     tile->snapin.lthash_disabled = !!config->development.snapshots.disable_lthash_verification;
-    if( tile->snapin.use_vinyl ) {
-      strcpy( tile->snapin.vinyl_path, config->paths.accounts );
-      tile->snapin.vinyl_meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "vinyl.meta_map",  ULONG_MAX );
-      tile->snapin.vinyl_meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "vinyl.meta_pool", ULONG_MAX );
-
-      ulong in_wr_link_id = fd_topo_find_link( &config->topo, "snapin_wm", 0UL );
-      FD_TEST( in_wr_link_id!=ULONG_MAX );
-      fd_topo_link_t * in_wr_link = &config->topo.links[ in_wr_link_id ];
-      tile->snapin.snapwr_depth = in_wr_link->depth;
-    }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapwm" ) ) ) {
 
