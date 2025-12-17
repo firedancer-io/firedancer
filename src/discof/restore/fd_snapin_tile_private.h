@@ -80,7 +80,8 @@ struct fd_snapin_tile {
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
 
-  ulong txncache_entries_len;
+  ulong   txncache_entries_len;
+  ulong * txncache_entries_len_vinyl_ptr;
   fd_sstxncache_entry_t * txncache_entries;
 
   fd_txncache_fork_id_t txncache_root_fork_id;

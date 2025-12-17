@@ -4,6 +4,8 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 
 #define NAME "snapwm"
 
@@ -50,9 +52,9 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapwm_tile_t),      sizeof(fd_snapwm_tile_t)                             );
-  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_wd_align(), fd_vinyl_io_wd_footprint( tile->snapwm.snapwr_depth ) );
-  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( FD_SNAPWM_IO_SPAD_MAX     ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapwm_tile_t), sizeof(fd_snapwm_tile_t)                              );
+  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_wd_align(),    fd_vinyl_io_wd_footprint( tile->snapwm.snapwr_depth ) );
+  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_mm_align(),    fd_vinyl_io_mm_footprint( FD_SNAPWM_IO_SPAD_MAX     ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -69,6 +71,67 @@ transition_malformed( fd_snapwm_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+}
+
+/* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
+   sysvar account after loading a snapshot.  The full database
+   architecture is only instantiated after snapshot loading, so this
+   function uses a primitive/cache-free mechanism to query the parts of
+   the account database that are available.
+
+   Returns 0 if verification passed, -1 if not. */
+
+static int
+verify_slot_deltas_with_slot_history( fd_snapwm_tile_t * ctx ) {
+  /* Do a raw read of the slot history sysvar account from the database.
+     Requires approx 500kB stack space. */
+
+  fd_account_meta_t meta;
+  uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
+  union {
+    uchar buf[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ];
+    fd_slot_history_global_t o;
+  } decoded;
+  FD_STATIC_ASSERT( offsetof( __typeof__(decoded), buf)==offsetof( __typeof__(decoded), o ), memory_layout );
+  fd_snapwm_read_account( ctx, &fd_sysvar_slot_history_id, &meta, data, sizeof(data) );
+
+  if( FD_UNLIKELY( !meta.lamports || !meta.dlen ) ) {
+    FD_LOG_WARNING(( "SlotHistory sysvar account missing or empty" ));
+    return -1;
+  }
+  if( FD_UNLIKELY( meta.dlen > FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) ) {
+    FD_LOG_WARNING(( "SlotHistory sysvar account data too large: %u bytes", meta.dlen ));
+    return -1;
+  }
+  if( FD_UNLIKELY( !fd_memeq( meta.owner, fd_sysvar_owner_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( meta.owner, owner_b58 );
+    FD_LOG_WARNING(( "SlotHistory sysvar owner is invalid: %s != sysvar_owner_id", owner_b58 ));
+    return -1;
+  }
+
+  if( FD_UNLIKELY(
+      !fd_bincode_decode_static_global(
+          slot_history,
+          &decoded.o,
+          data,
+          meta.dlen,
+          NULL )
+  ) ) {
+    FD_LOG_WARNING(( "SlotHistory sysvar account data is corrupt" ));
+    return -1;
+  }
+
+  ulong txncache_entries_len = fd_ulong_load_8( ctx->txncache_entries_len_ptr );
+  if( FD_UNLIKELY( !txncache_entries_len ) ) FD_LOG_WARNING(( "txncache_entries_len %lu", txncache_entries_len ));
+
+  for( ulong i=0UL; i<txncache_entries_len; i++ ) {
+    fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
+    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+      FD_LOG_WARNING(( "slot %lu missing from SlotHistory sysvar account", entry->slot ));
+      return -1;
+    }
+  }
+  return 0;
 }
 
 static int
@@ -144,7 +207,12 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       if( ctx->vinyl.txn_active ) {
         fd_snapwm_vinyl_txn_commit( ctx );
       }
-      /* TODO verify_slot_deltas_with_slot_history( ctx ) */
+
+      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
+        FD_LOG_WARNING(( "slot deltas verification failed" ));
+        transition_malformed( ctx, stem );
+        break;
+      }
       break;
     }
 
@@ -269,7 +337,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
-  if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1", tile->in_cnt ));
+  if( FD_UNLIKELY( tile->in_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 2", tile->in_cnt ));
 
   ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapwm_ct", 0UL );
   if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapwm_ls", 0UL );
@@ -281,14 +349,28 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->hash_out = out1( topo, tile, "snapwm_ls" );
   }
 
-  fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
-  FD_TEST( 0==strcmp( in_link->name, "snapin_wm" ) );
-  fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
-  ctx->in.wksp                   = in_wksp->wksp;
-  ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
-  ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
-  ctx->in.mtu                    = in_link->mtu;
-  ctx->in.pos                    = 0UL;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
+    if( 0==strcmp( in_link->name, "snapin_wm" ) ) {
+      fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
+      ctx->in.wksp                   = in_wksp->wksp;
+      ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
+      ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
+      ctx->in.mtu                    = in_link->mtu;
+      ctx->in.pos                    = 0UL;
+    } else if( 0==strcmp( in_link->name, "snapin_txn" ) ) {
+      fd_topo_wksp_t * in_wksp       = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
+      ulong chunk0                   = fd_dcache_compact_chunk0( in_wksp->wksp, in_link->dcache );
+      fd_sstxncache_entry_t * txncache_base = fd_chunk_to_laddr( in_wksp->wksp, chunk0 );
+      ctx->txncache_entries_len_ptr  = (ulong*)txncache_base;
+      FD_TEST( sizeof(ulong)<=sizeof(fd_sstxncache_entry_t) );
+      ctx->txncache_entries          = txncache_base + 1UL;
+    } else {
+      FD_LOG_ERR(( "tile `" NAME "` unrecognized in link %s", in_link->name ));
+    }
+  }
+  FD_TEST( !!ctx->in.wksp          );
+  FD_TEST( !!ctx->txncache_entries );
 
   fd_snapwm_vinyl_unprivileged_init( ctx, topo, tile, _io_mm, _io_wd );
 }

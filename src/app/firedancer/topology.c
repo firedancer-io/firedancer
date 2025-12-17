@@ -443,6 +443,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "snapld_dc"   );
     fd_topob_wksp( topo, "snapdc_in"   );
     if( vinyl_enabled ) {
+      fd_topob_wksp( topo, "snapin_txn");
       fd_topob_wksp( topo, "snapin_wm" );
       fd_topob_wksp( topo, "snapwm_wr" );
       if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
@@ -497,6 +498,7 @@ fd_topo_initialize( config_t * config ) {
       } else {
         /* TODO pending */
       }
+      /**/             fd_topob_link( topo, "snapin_txn",   "snapin_txn",     4UL,              (ulong)((3764697600UL+64UL)/4),                      1UL ); /* mtu=(sizeof(fd_sstxncache_entry_t)*(FD_SNAPIN_TXNCACHE_MAX_ENTRIES+1UL))/depth */
       /**/             fd_topob_link( topo, "snapin_wm",    "snapin_wm",    256UL,                                    16UL<<20,                     16UL );
       fd_topo_link_t * snapwm_wh =
       /**/             fd_topob_link( topo, "snapwm_wh",    "snapwm_wr",    4UL,                                      16UL<<20,                      1UL );
@@ -691,6 +693,8 @@ fd_topo_initialize( config_t * config ) {
       }
       /**/            fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_wm",    0UL                                                );
       /**/            fd_topob_tile_in (    topo, "snapwm",  0UL,          "metric_in", "snapin_wm",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      /**/            fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_txn",   0UL                                                );
+      /**/            fd_topob_tile_in (    topo, "snapwm",  0UL,          "metric_in", "snapin_txn",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
       /**/            fd_topob_tile_out(    topo, "snapwm",  0UL,                       "snapwm_wh",    0UL                                                );
       /**/            fd_topob_tile_in (    topo, "snapwh",  0UL,          "metric_in", "snapwm_wh",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
       /**/            fd_topob_tile_out(    topo, "snapwh",  0UL,                       "snapwh_wr",    0UL                                                );

@@ -4,6 +4,7 @@
 /* fd_snapwm_tile_private.h contains private APIs for the "snapwm" tile,
    which is the tile responsible for directing vinyl database writes. */
 
+#include "utils/fd_slot_delta_parser.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
@@ -28,6 +29,9 @@ struct fd_snapwm_tile {
   long boot_timestamp;
 
   fd_stem_context_t *      stem;
+
+  fd_sstxncache_entry_t * txncache_entries;
+  ulong *                 txncache_entries_len_ptr;
 
   struct {
     ulong full_bytes_read;

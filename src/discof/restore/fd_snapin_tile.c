@@ -73,8 +73,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),            fd_txncache_footprint( tile->snapin.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                     );
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                     );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
-  l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
+  l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS );
+  if( !tile->snapin.use_vinyl ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -354,6 +356,10 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
     insert_cnt++;
     fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, entry->blockhash, entry->txnhash );
+  }
+
+  if( !!ctx->use_vinyl && !!ctx->txncache_entries_len_vinyl_ptr ) {
+    memcpy( ctx->txncache_entries_len_vinyl_ptr, &ctx->txncache_entries_len, sizeof(ulong) );
   }
 
   FD_LOG_INFO(( "inserted %lu/%lu transactions into the txncache", insert_cnt, ctx->txncache_entries_len ));
@@ -763,8 +769,25 @@ unprivileged_init( fd_topo_t *      topo,
   void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots ) );
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                              );
   void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                              );
-  ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   ctx->blockhash_offsets  = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
+
+  if( !tile->snapin.use_vinyl ) {
+    ctx->txncache_entries = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+    ctx->txncache_entries_len_vinyl_ptr = NULL;
+  } else {
+    /* only the dcache of snapin_txn is of use here */
+    fd_snapin_out_link_t snapin_txn = out1( topo, tile, "snapin_txn" );
+    FD_TEST( !!snapin_txn.mem );
+    ulong depth = topo->links[ tile->out_link_id[ snapin_txn.idx ] ].depth;
+    FD_TEST( ( depth*snapin_txn.mtu )==( sizeof(fd_sstxncache_entry_t)*(FD_SNAPIN_TXNCACHE_MAX_ENTRIES+1UL) ) );
+    /* Although only the first 8 bytes are needed for txncache_entries_len,
+       it is easier to handle mtu in multiples of fd_sstxncache_entry_t. */
+    fd_sstxncache_entry_t * txncache_base = fd_chunk_to_laddr( snapin_txn.mem, snapin_txn.chunk0 );
+    ctx->txncache_entries_len_vinyl_ptr   = (ulong*)txncache_base;
+    FD_TEST( sizeof(ulong)<=sizeof(fd_sstxncache_entry_t) );
+    memset( ctx->txncache_entries_len_vinyl_ptr, 0, sizeof(ulong) );
+    ctx->txncache_entries                 = txncache_base + 1UL;
+  }
 
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
