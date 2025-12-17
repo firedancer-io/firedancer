@@ -4,7 +4,6 @@
 #include "../fd_flamenco_base.h"
 #include "fd_bincode.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
-#include "../../ballet/ed25519/fd_ed25519.h"
 
 #define FD_SIGNATURE_ALIGN (8UL)
 
