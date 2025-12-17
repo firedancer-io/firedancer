@@ -42,10 +42,11 @@ verify_seed_address( fd_exec_instr_ctx_t * ctx,
 
   if( FD_UNLIKELY( 0!=memcmp( actual->uc, expected->uc, sizeof(fd_pubkey_t) ) ) ) {
     /* Log msg_sz can be more or less than 127 bytes */
+    FD_BASE58_ENCODE_32_BYTES( expected->key, expected_b58 );
+    FD_BASE58_ENCODE_32_BYTES( actual->key,   actual_b58   );
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Create: address %s does not match derived address %s",
-      FD_BASE58_ENC_32_ALLOCA( expected ),
-      FD_BASE58_ENC_32_ALLOCA( actual ) );
+      expected_b58, actual_b58 );
     ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -127,8 +128,9 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_acct_idx ].index_in_transaction;
+    FD_BASE58_ENCODE_32_BYTES( ctx->txn_out->accounts.keys[ idx_in_txn ].key, key_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Transfer: `from` account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_out->accounts.keys[ idx_in_txn ] ) );
+      "Transfer: `from` account %s must sign", key_b58 );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -156,10 +158,12 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
 
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 35 - 2 + 125 = 158 */
+    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, account_b58 );
+    FD_BASE58_ENCODE_32_BYTES( base->key,            base_b58    );
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Allocate: 'to' (account %s, base %s) must sign",
-      FD_BASE58_ENC_32_ALLOCA( &account->pubkey ),
-      base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
+      account_b58,
+      base ? base_b58 : "None" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -168,10 +172,12 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( ( fd_borrowed_account_get_data_len( account ) != 0UL ) ||
                    ( 0!=memcmp( fd_borrowed_account_get_owner( account ), fd_solana_system_program_id.uc, 32UL ) ) ) ) {
     /* Max msg_sz: 35 - 2 + 125 = 158 */
+    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, account_b58 );
+    FD_BASE58_ENCODE_32_BYTES( base->key,            base_b58    );
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Allocate: account (account %s, base %s) already in use",
-      FD_BASE58_ENC_32_ALLOCA( &account->pubkey ),
-      base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
+      account_b58,
+      base ? base_b58 : "None" );
     ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -218,10 +224,12 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
 
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 28 - 2 + 125 = 151 */
+    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, account_b58 );
+    FD_BASE58_ENCODE_32_BYTES( base->key,            base_b58    );
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Allocate: 'to' (account %s, base %s) must sign",
-      FD_BASE58_ENC_32_ALLOCA( &account->pubkey ),
-      base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
+      account_b58,
+      base ? base_b58 : "None" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -277,10 +285,12 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
 
     if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &to ) ) ) {
       /* Max msg_sz: 41 - 2 + 125 = 164 */
+      FD_BASE58_ENCODE_32_BYTES( to.pubkey->key, to_b58 );
+      FD_BASE58_ENCODE_32_BYTES( base->key,  base_b58 );
       fd_log_collector_printf_inefficient_max_512( ctx,
         "Allocate: 'to' (account %s, base %s) already in use",
-        FD_BASE58_ENC_32_ALLOCA( &to.pubkey ),
-        base ? FD_BASE58_ENC_32_ALLOCA( base ) : "None" );
+        to_b58,
+        base ? base_b58 : "None" );
       ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
@@ -575,8 +585,9 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
     if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_base_idx ].index_in_transaction;
+    FD_BASE58_ENCODE_32_BYTES( ctx->txn_out->accounts.keys[ idx_in_txn ].key, key_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Transfer: 'from' account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_out->accounts.keys[ idx_in_txn ] ) );
+      "Transfer: 'from' account %s must sign", key_b58 );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -607,10 +618,12 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
                               from_key->uc,
                               sizeof(fd_pubkey_t) ) ) ) {
     /* Log msg_sz can be more or less than 127 bytes */
+    FD_BASE58_ENCODE_32_BYTES( from_key->key,          from_key_b58          );
+    FD_BASE58_ENCODE_32_BYTES( address_from_seed->key, address_from_seed_b58 );
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Transfer: 'from' address %s does not match derived address %s",
-      FD_BASE58_ENC_32_ALLOCA( from_key ),
-      FD_BASE58_ENC_32_ALLOCA( address_from_seed ) );
+      from_key_b58,
+      address_from_seed_b58 );
     ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }

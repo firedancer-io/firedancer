@@ -242,10 +242,11 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       uchar * signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
       int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, bank, txn_in, txn_out );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
+      FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
       FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
                     "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
                     "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
-                    FD_BASE58_ENC_64_ALLOCA( signature ), res, cost_tracker->block_cost, cost_tracker->vote_cost,
+                    signature_b58, res, cost_tracker->block_cost, cost_tracker->vote_cost,
                     cost_tracker->allocated_accounts_data_size,
                     cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
                     cost_tracker->account_cost_limit ));
@@ -411,10 +412,11 @@ handle_bundle( fd_bank_ctx_t *     ctx,
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
         int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, bank, txn_in, txn_out );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
+        FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
         FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
                       "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
                       "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
-                      FD_BASE58_ENC_64_ALLOCA( signature ), res, cost_tracker->block_cost, cost_tracker->vote_cost,
+                      signature_b58, res, cost_tracker->block_cost, cost_tracker->vote_cost,
                       cost_tracker->allocated_accounts_data_size,
                       cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
                       cost_tracker->account_cost_limit ));

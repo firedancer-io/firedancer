@@ -309,17 +309,18 @@ handle_new_contact_info( fd_capture_tile_ctx_t * ctx,
   fd_ip4_port_t tvu    = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU ];
   fd_ip4_port_t repair = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ];
 
+  FD_BASE58_ENCODE_32_BYTES( msg->contact_info.contact_info->pubkey.uc, pubkey_b58 );
   if( FD_UNLIKELY( tvu.l!=0UL ) ){
     snprintf( tvu_buf, sizeof(tvu_buf),
               "%u,%u(tvu),%s,%d\n",
-              tvu.addr, tvu.port, FD_BASE58_ENC_32_ALLOCA(msg->contact_info.contact_info->pubkey.uc), 1);
+              tvu.addr, tvu.port, pubkey_b58, 1);
     int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, tvu_buf, strlen(tvu_buf) );
     FD_TEST( err==0 );
   }
   if( FD_UNLIKELY( repair.l!=0UL ) ){
     snprintf( repair_buf, sizeof(repair_buf),
               "%u,%u(repair),%s,%d\n",
-              repair.addr, repair.port, FD_BASE58_ENC_32_ALLOCA(msg->contact_info.contact_info->pubkey.uc), 1);
+              repair.addr, repair.port, pubkey_b58, 1);
     int err = fd_io_buffered_ostream_write( &ctx->peers_ostream, repair_buf, strlen(repair_buf) );
     FD_TEST( err==0 );
   }

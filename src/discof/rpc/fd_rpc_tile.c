@@ -497,7 +497,8 @@ getGenesisHash( fd_rpc_tile_t * ctx,
     return response;
   }
 
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%lu}\n", FD_BASE58_ENC_32_ALLOCA( ctx->genesis_hash ), request_id );
+  FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash, genesis_hash_b58 );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%lu}\n", genesis_hash_b58, request_id );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -578,7 +579,8 @@ getIdentity( fd_rpc_tile_t * ctx,
              cJSON const *   params ) {
   (void)params;
 
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%lu}\n", FD_BASE58_ENC_32_ALLOCA( ctx->identity_pubkey ), request_id );
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, identity_pubkey_b58 );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%lu}\n", identity_pubkey_b58, request_id );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -665,13 +667,14 @@ getLatestBlockhash( fd_rpc_tile_t * ctx,
     return response;
   }
 
+  FD_BASE58_ENCODE_32_BYTES( bank->block_hash, block_hash_b58 );
   jsonp_open_envelope( ctx->http );
     jsonp_open_object( ctx->http, "context" );
       jsonp_ulong( ctx->http, "slot", bank->slot );
     jsonp_close_object( ctx->http );
 
     jsonp_open_object( ctx->http, "value" );
-      jsonp_string( ctx->http, "blockhash", FD_BASE58_ENC_32_ALLOCA( bank->block_hash ) );
+      jsonp_string( ctx->http, "blockhash", block_hash_b58 );
       jsonp_ulong( ctx->http, "lastValidBlockHeight", 0UL /* TODO: Implement */ );
     jsonp_close_object( ctx->http );
   jsonp_close_envelope( ctx->http, request_id );

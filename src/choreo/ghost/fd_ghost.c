@@ -231,7 +231,11 @@ fd_ghost_insert( fd_ghost_t      * ghost,
   fd_ghost_blk_t * blk  = blk_map_ele_query( ghost->blk_map, block_id, NULL, pool );
 
 # if FD_GHOST_USE_HANDHOLDING
-  if( FD_UNLIKELY( blk                ) ) { FD_LOG_WARNING(( "[%s] hash %s already in ghost", __func__, FD_BASE58_ENC_32_ALLOCA( block_id ) )); return NULL; }
+  if( FD_UNLIKELY( blk                ) ) {
+    FD_BASE58_ENCODE_32_BYTES( block_id->key, block_id_b58 );
+    FD_LOG_WARNING(( "[%s] hash %s already in ghost", __func__, block_id_b58 ));
+    return NULL;
+  }
   if( FD_UNLIKELY( !pool_free( pool ) ) ) { FD_LOG_WARNING(( "[%s] ghost full",               __func__                                      )); return NULL; }
 # endif
 
@@ -303,7 +307,10 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
     fd_ghost_blk_t * ancestor = blk_map_ele_query( ghost->blk_map, &vtr->prev_block_id, NULL, pool );
     while( FD_LIKELY( ancestor ) ) {
       int cf = __builtin_usubl_overflow( ancestor->stake, vtr->prev_stake, &ancestor->stake );
-      if( FD_UNLIKELY( cf ) ) FD_LOG_CRIT(( "[%s] overflow: %lu - %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, vtr->prev_stake, ancestor->slot, FD_BASE58_ENC_32_ALLOCA( &ancestor->id ) ));
+      if( FD_UNLIKELY( cf ) ) {
+        FD_BASE58_ENCODE_32_BYTES( ancestor->id.key, ancestor_id_b58 );
+        FD_LOG_CRIT(( "[%s] overflow: %lu - %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, vtr->prev_stake, ancestor->slot, ancestor_id_b58 ));
+      }
       ancestor = pool_ele( pool, ancestor->parent );
     }
   }
@@ -317,7 +324,10 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
   fd_ghost_blk_t * ancestor = blk;
   while( FD_LIKELY( ancestor ) ) {
     int cf = __builtin_uaddl_overflow( ancestor->stake, stake, &ancestor->stake );
-    if( FD_UNLIKELY( cf ) ) FD_LOG_CRIT(( "[%s] overflow: %lu + %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, stake, ancestor->slot, FD_BASE58_ENC_32_ALLOCA( &ancestor->id ) ));
+    if( FD_UNLIKELY( cf ) ) {
+      FD_BASE58_ENCODE_32_BYTES( ancestor->id.key, ancestor_id_b58 );
+      FD_LOG_CRIT(( "[%s] overflow: %lu + %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, stake, ancestor->slot, ancestor_id_b58 ));
+    }
     ancestor = pool_ele( ghost->pool, ancestor->parent );
   }
   vtr->prev_block_id = blk->id;

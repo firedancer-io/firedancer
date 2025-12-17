@@ -33,10 +33,8 @@ $(call add-hdrs,fd_stake_program.h)
 $(call add-objs,fd_stake_program,fd_flamenco)
 endif
 
-ifdef FD_HAS_ALLOCA
 $(call add-hdrs,fd_system_program.h)
 $(call add-objs,fd_system_program fd_system_program_nonce,fd_flamenco)
-endif
 
 $(call add-hdrs,fd_vote_program.h)
 $(call add-objs,fd_vote_program,fd_flamenco)

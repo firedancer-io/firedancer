@@ -266,7 +266,8 @@ fd_validate_fee_payer( fd_pubkey_t const * pubkey,
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L301-L304 */
   if( FD_UNLIKELY( meta->lamports==0UL ) ) {
-    FD_LOG_DEBUG(( "Fee payer doesn't exist %s", FD_BASE58_ENC_32_ALLOCA( pubkey ) ));
+    FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+    FD_LOG_DEBUG(( "Fee payer doesn't exist %s", pubkey_b58 ));
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 
@@ -1003,7 +1004,8 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
                                              FD_FEE_PAYER_TXN_IDX,
                                              fd_runtime_account_check_fee_payer_writable );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_DEBUG(( "Fee payer isn't writable %s", FD_BASE58_ENC_32_ALLOCA( &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX] ) ));
+    FD_BASE58_ENCODE_32_BYTES( txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX].uc, pubkey_b58 );
+    FD_LOG_DEBUG(( "Fee payer isn't writable %s", pubkey_b58 ));
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 

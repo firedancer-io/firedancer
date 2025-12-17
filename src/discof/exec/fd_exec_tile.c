@@ -116,7 +116,8 @@ publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
   msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
   if( FD_UNLIKELY( msg->txn_exec->err ) ) {
     uchar * signature = (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off;
-    FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d signature=%s", ctx->txn_out.err.txn_err, FD_BASE58_ENC_64_ALLOCA( signature ) ));
+    FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
+    FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d signature=%s", ctx->txn_out.err.txn_err, signature_b58 ));
   }
 
   fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( fd_tickcount() ) );
