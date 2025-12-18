@@ -334,6 +334,7 @@ fd_topo_initialize( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
   ulong lta_tile_cnt    = config->firedancer.layout.snapla_tile_count;
+  ulong snapwr_tile_cnt = config->firedancer.layout.snapwr_tile_count;
 
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
   int vinyl_enabled     = !!config->firedancer.vinyl.enabled;
@@ -603,7 +604,8 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
     if(vinyl_enabled)  fd_topob_tile( topo, "snapwm", "snapwm", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
     if(vinyl_enabled)  fd_topob_tile( topo, "snapwh", "snapwh", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
-    if(vinyl_enabled)  fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
+    if(vinyl_enabled)  FOR(snapwr_tile_cnt)
+                       fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
 
     if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
       if(vinyl_enabled) {
@@ -698,8 +700,8 @@ fd_topo_initialize( config_t * config ) {
       /**/            fd_topob_tile_out(    topo, "snapwm",  0UL,                       "snapwm_wh",    0UL                                                );
       /**/            fd_topob_tile_in (    topo, "snapwh",  0UL,          "metric_in", "snapwm_wh",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
       /**/            fd_topob_tile_out(    topo, "snapwh",  0UL,                       "snapwh_wr",    0UL                                                );
-      /**/            fd_topob_tile_in (    topo, "snapwr",  0UL,          "metric_in", "snapwh_wr",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", 0UL ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapwm_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+      FOR(snapwr_tile_cnt) fd_topob_tile_in(topo, "snapwr",    i,          "metric_in", "snapwh_wr",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      FOR(snapwr_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", i ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapwm_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
     } else {
       if( FD_UNLIKELY( snapshot_lthash_disabled ) ) {
                         fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_ct",    0UL                                                );

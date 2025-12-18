@@ -809,6 +809,13 @@ user = ""
     # error.
     snapla_tile_count = 4
 
+    # How many snapshot vinyl-based write tiles to run.  Depending on
+    # the specific hardware configuration, multiple snapwr tiles may
+    # be required to achieve high throughput.  It is also possible to
+    # tradeoff throughput and tile count.  This value is only valid
+    # when vinyl is enabled.
+    snapwr_tile_count = 2
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a
