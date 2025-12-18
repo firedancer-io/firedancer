@@ -814,6 +814,7 @@ metric introduced.
   <counter name="AccdbReverted" summary="Number of account database records reverted" />
   <counter name="AccdbRooted" summary="Number of account database entries rooted" />
   <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
+  <counter name="AccdbReclaimed" summary="Number of account database entries reclaimed (deletion rooted)" />
 </tile>
 
 <tile name="storei">

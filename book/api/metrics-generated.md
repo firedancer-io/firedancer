@@ -542,6 +542,7 @@
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;reverted</span> | counter | Number of account database records reverted |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;gc_&#8203;root</span> | counter | Number of account database entries garbage collected |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;reclaimed</span> | counter | Number of account database entries reclaimed (deletion rooted) |
 
 </div>
 
