@@ -136,6 +136,26 @@ struct fd_runtime {
     ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */
     ulong                     refcnt[ MAX_TX_ACCOUNT_LOCKS ];            /* Reference count for each account */
   } accounts;
+
+  struct {
+
+    /* Ticks spent spent preparing a txn-level VM (zeroing memory,
+       copying account data, etc) */
+    ulong vm_setup_cum_ticks;
+
+    /* Ticks spent committing txn-level VM results (copying account
+       data, etc) */
+    ulong vm_commit_cum_ticks;
+
+    /* Ticks spent in top-levl VM interpreter (includes CPI setup/commit
+       ticks) */
+    ulong vm_exec_cum_ticks;
+
+    /* Ticks spent preparing/committing a cross-program invocation) */
+    ulong cpi_setup_cum_ticks;
+    ulong cpi_commit_cum_ticks;
+
+  } metrics;
 };
 typedef struct fd_runtime fd_runtime_t;
 

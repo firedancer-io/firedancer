@@ -1119,6 +1119,20 @@ metric introduced.
     <gauge name="StartSlot" summary="The slot at which the backtest started" />
 </tile>
 
+<enum name="TxnRegime">
+    <int value="0" name="Setup" label="Transaction setup" />
+    <int value="1" name="Exec" label="Transaction execution (includes VM setup/execution)" />
+    <int value="2" name="Commit" label="Transaction result commit" />
+</enum>
+
+<enum name="VmRegime">
+    <int value="0" name="Setup" label="VM setup" />
+    <int value="1" name="Commit" label="VM commit" />
+    <int value="2" name="SetupCpi" label="VM setup (CPI)" />
+    <int value="3" name="CommitCpi" label="VM commit (CPI)" />
+    <int value="4" name="Interpreter" label="VM interpreter execution" />
+</enum>
+
 <tile name="exec">
     <counter name="ProgcacheMisses" summary="Number of program cache misses" />
     <counter name="ProgcacheHits" summary="Number of program cache hits" />
@@ -1128,6 +1142,9 @@ metric introduced.
     <counter name="ProgcacheDupInserts" summary="Number of time two tiles raced to insert the same cache entry" />
     <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
     <counter name="AccdbCreated" summary="Number of account database records created" />
+
+    <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes." />
+    <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes." />
 </tile>
 
 <tile name="benchs">
