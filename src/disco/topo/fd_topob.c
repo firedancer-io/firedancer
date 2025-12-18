@@ -347,6 +347,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "bencho",
     "genesi", /* FIREDANCER ONLY */
     "ipecho", /* FIREDANCER ONLY */
+    "snapwr", /* FIREDANCER ONLY */
   };
 
   char const * ORDERED[] = {
@@ -386,7 +387,6 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "snapin", /* FIREDANCER only */
     "snapwm", /* FIREDANCER only */
     "snapwh", /* FIREDANCER only */
-    "snapwr", /* FIREDANCER ONLY */
     "snapla", /* FIREDANCER only */
     "snapls", /* FIREDANCER only */
     "arch_f", /* FIREDANCER only */
@@ -403,7 +403,6 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "snapin", /* TODO: Snapshot loading speed depends on having full core */
     "snapwm", /* TODO: Snapshot loading speed depends on having full core */
     "snapwh", /* TODO: Snapshot loading speed depends on having full core */
-    "snapwr", /* TODO: Snapshot loading speed depends on having full core */
   };
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
