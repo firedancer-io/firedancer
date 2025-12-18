@@ -72,6 +72,17 @@ typedef struct fd_exec_tile_ctx {
 
   fd_runtime_t runtime[1];
 
+  struct {
+    /* Ticks spent preparing a txn (database reads, account copies) */
+    ulong txn_setup_cum_ticks;
+
+    /* Ticks spent executing a txn (includes any VM time) */
+    ulong txn_exec_cum_ticks;
+
+    /* Ticks spent committing a txn (database writes) */
+    ulong txn_commit_cum_ticks;
+  } metrics;
+
 } fd_exec_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -98,6 +109,20 @@ metrics_write( fd_exec_tile_ctx_t * ctx ) {
   FD_MCNT_SET( EXEC, PROGCACHE_FILL_TOT_SZ,   progcache->metrics->fill_tot_sz    );
   FD_MCNT_SET( EXEC, PROGCACHE_INVALIDATIONS, progcache->metrics->invalidate_cnt );
   FD_MCNT_SET( EXEC, PROGCACHE_DUP_INSERTS,   progcache->metrics->dup_insert_cnt );
+
+  FD_MCNT_SET( EXEC, TXN_REGIME_SETUP,  ctx->metrics.txn_setup_cum_ticks   );
+  FD_MCNT_SET( EXEC, TXN_REGIME_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
+  FD_MCNT_SET( EXEC, TXN_REGIME_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
+
+  fd_runtime_t const * runtime = ctx->runtime;
+  ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks +
+                     runtime->metrics.cpi_commit_cum_ticks;
+  ulong exec_ticks = runtime->metrics.vm_exec_cum_ticks - cpi_ticks;
+  FD_MCNT_SET( EXEC, VM_REGIME_SETUP,       runtime->metrics.vm_setup_cum_ticks   );
+  FD_MCNT_SET( EXEC, VM_REGIME_COMMIT,      runtime->metrics.vm_commit_cum_ticks  );
+  FD_MCNT_SET( EXEC, VM_REGIME_SETUP_CPI,   runtime->metrics.cpi_setup_cum_ticks  );
+  FD_MCNT_SET( EXEC, VM_REGIME_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
+  FD_MCNT_SET( EXEC, VM_REGIME_INTERPRETER, exec_ticks                            );
 
   fd_accdb_user_t * accdb = ctx->accdb;
   FD_MCNT_SET( EXEC, ACCDB_CREATED, accdb->base.created_cnt );
@@ -180,6 +205,24 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         ctx->dispatch_time_comp = tspub;
         ctx->slot = fd_bank_slot_get( ctx->bank );
         publish_txn_finalized_msg( ctx, stem );
+
+        /* Update metrics */
+        ulong setup_dt  = (ulong)ctx->txn_out.details.exec_start_timestamp   - (ulong)ctx->txn_out.details.prep_start_timestamp;
+        ulong exec_dt   = (ulong)ctx->txn_out.details.commit_start_timestamp - (ulong)ctx->txn_out.details.exec_start_timestamp;
+        ulong commit_dt = (ulong)fd_tickcount()                              - (ulong)ctx->txn_out.details.commit_start_timestamp;
+        if( FD_UNLIKELY( ctx->txn_out.details.prep_start_timestamp==LONG_MAX ) ) {
+          setup_dt = 0UL;
+        }
+        if( FD_UNLIKELY( ctx->txn_out.details.exec_start_timestamp==LONG_MAX ) ) {
+          setup_dt = 0UL;
+          exec_dt  = 0UL;
+        }
+        if( FD_UNLIKELY( ctx->txn_out.details.commit_start_timestamp==LONG_MAX ) ) {
+          commit_dt = 0UL;
+        }
+        ctx->metrics.txn_setup_cum_ticks  += setup_dt;
+        ctx->metrics.txn_exec_cum_ticks   += exec_dt;
+        ctx->metrics.txn_commit_cum_ticks += commit_dt;
 
         break;
       }
@@ -361,6 +404,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->log.enable_vm_tracing    = 0;
   ctx->runtime->log.tracing_mem          = &ctx->tracing_mem[0][0];
   ctx->runtime->log.capture_ctx          = ctx->capture_ctx;
+
+  memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
+  memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 }
 
 static ulong

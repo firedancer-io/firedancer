@@ -675,6 +675,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
                            ulong   signers_seeds_va,
                            ulong   signers_seeds_cnt,
                            ulong * _ret ) {
+  long const regime0 = fd_tickcount();
 
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
@@ -907,9 +908,14 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      so that the callee cannot use compute units that the caller has already used. */
   vm->instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
 
+  long const regime1 = fd_tickcount();
+
   /* Execute the CPI instruction in the runtime */
   int err_exec = fd_execute_instr( vm->instr_ctx->runtime, vm->instr_ctx->bank, vm->instr_ctx->txn_in, vm->instr_ctx->txn_out, instruction_to_execute );
   ulong instr_exec_res = (ulong)err_exec;
+
+  long const regime2 = fd_tickcount();
+  vm->instr_ctx->runtime->metrics.cpi_setup_cum_ticks += (ulong)( regime1-regime0 );
 
   /* Set the CU meter to the instruction context's transaction context's compute meter,
      so that the caller can't use compute units that the callee has already used. */
@@ -957,6 +963,9 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
       }
     }
   }
+
+  long const regime3 = fd_tickcount();
+  vm->instr_ctx->runtime->metrics.cpi_commit_cum_ticks += (ulong)( regime3-regime2 );
 
   return FD_VM_SUCCESS;
 }

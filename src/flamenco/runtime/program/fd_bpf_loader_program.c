@@ -376,6 +376,7 @@ int
 fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                 fd_progcache_rec_t const * cache_entry,
                 uchar                      is_deprecated ) {
+  long const regime0 = fd_tickcount();
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
 
@@ -479,8 +480,19 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
   }
 
+  long const regime1 = fd_tickcount();
+
   int exec_err = fd_vm_exec( vm );
   instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
+
+  long const regime2 = fd_tickcount();
+
+  if( instr_ctx->instr->stack_height==1 ) {
+    instr_ctx->runtime->metrics.vm_setup_cum_ticks  += (ulong)( regime1-regime0 );
+    instr_ctx->runtime->metrics.vm_exec_cum_ticks   += (ulong)( regime2-regime1 );
+  } else {
+    instr_ctx->runtime->metrics.cpi_setup_cum_ticks += (ulong)( regime1-regime0 );
+  }
 
   if( FD_UNLIKELY( vm->trace ) ) {
     err = fd_vm_trace_printf( vm->trace, vm->syscalls );
@@ -625,11 +637,15 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   err = fd_bpf_loader_input_deserialize_parameters(
     instr_ctx, pre_lens, input, input_sz, stricter_abi_and_runtime_constraints, direct_mapping, is_deprecated );
-  if( FD_UNLIKELY( err ) ) {
-    return err;
+
+  long const regime3 = fd_tickcount();
+  if( instr_ctx->instr->stack_height==1 ) {
+    instr_ctx->runtime->metrics.cpi_commit_cum_ticks += (ulong)( regime3-regime2 );
+  } else {
+    instr_ctx->runtime->metrics.vm_commit_cum_ticks  += (ulong)( regime3-regime2 );
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return err;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1358-L1539 */
