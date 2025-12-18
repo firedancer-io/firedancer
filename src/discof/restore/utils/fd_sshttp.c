@@ -402,8 +402,8 @@ follow_redirect( fd_sshttp_t *        http,
 
   http->hops--;
 
-  ulong        location_len;
-  char const * location = NULL;
+  ulong        location_len = 0UL;
+  char const * location     = NULL;
 
   for( ulong i=0UL; i<header_cnt; i++ ) {
     if( FD_UNLIKELY( headers[ i ].name_len == 8 && !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
@@ -448,7 +448,7 @@ follow_redirect( fd_sshttp_t *        http,
     }
   }
 
-  if( FD_UNLIKELY( !location ) ) {
+  if( FD_UNLIKELY( !location_len ) ) {
     FD_LOG_WARNING(( "no location header in redirect response" ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;

@@ -272,7 +272,7 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
     }
   }
 
-  if( FD_UNLIKELY( !location ) ) {
+  if( FD_UNLIKELY( !location_len ) ) {
     FD_LOG_WARNING(( "no location header in redirect response" ));
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
