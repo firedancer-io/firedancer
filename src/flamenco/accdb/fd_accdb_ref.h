@@ -170,26 +170,6 @@ fd_accdb_ref_slot_set( fd_accdb_rw_t * rw,
 
 FD_PROTOTYPES_END
 
-/* fd_accdb_guardr_t tracks a rwlock being held as read-only.
-   Destroying this guard object detaches the caller's thread from the
-   rwlock. */
-
-struct fd_accbd_guardr {
-  fd_rwlock_t * rwlock;
-};
-
-typedef struct fd_accdb_guardr fd_accdb_guardr_t;
-
-/* fd_accdb_guardw_t tracks an rwlock being held exclusively.
-   Destroying this guard object detaches the caller's thread from the
-   lock. */
-
-struct fd_accdb_guardw {
-  fd_rwlock_t * rwlock;
-};
-
-typedef struct fd_accdb_guardw fd_accdb_guardw_t;
-
 /* fd_accdb_spec_t tracks a speculative access to a shared resource.
    Destroying this guard object marks the end of a speculative access. */
 
