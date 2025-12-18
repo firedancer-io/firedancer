@@ -592,13 +592,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( !ctx->use_vinyl ) {
-        if( ctx->full ) {
-          fd_accdb_clear( ctx->accdb_admin );
-        } else {
-          fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
-          fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
-        }
+      if( ctx->full ) {
+        fd_accdb_clear( ctx->accdb_admin );
+      } else {
+        fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
+        fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
       }
       break;
 
@@ -612,11 +610,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( !ctx->use_vinyl ) {
-        fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
-        fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
-        fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
-      }
+      fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
+      fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
+      fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
       break;
     }
 
@@ -636,19 +632,19 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
           transition_malformed( ctx, stem );
           break;
         }
-
-        /* Publish any remaining funk txn */
-        if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->accdb_admin->funk ) ) ) {
-          fd_accdb_advance_root( ctx->accdb_admin, ctx->xid );
-        }
-        FD_TEST( !fd_funk_last_publish_is_frozen( ctx->accdb_admin->funk ) );
-
-        /* Make 'Last published' XID equal the restored slot number */
-        fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };
-        fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &target_xid );
-        fd_accdb_advance_root( ctx->accdb_admin,           &target_xid );
-        fd_funk_txn_xid_copy( ctx->xid, &target_xid );
       }
+
+      /* Publish any remaining funk txn */
+      if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->accdb_admin->funk ) ) ) {
+        fd_accdb_advance_root( ctx->accdb_admin, ctx->xid );
+      }
+      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->accdb_admin->funk ) );
+
+      /* Make 'Last published' XID equal the restored slot number */
+      fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };
+      fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &target_xid );
+      fd_accdb_advance_root( ctx->accdb_admin,           &target_xid );
+      fd_funk_txn_xid_copy( ctx->xid, &target_xid );
 
       fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
