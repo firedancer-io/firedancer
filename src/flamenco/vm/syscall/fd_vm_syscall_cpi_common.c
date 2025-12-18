@@ -678,7 +678,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  FD_VM_CU_UPDATE( vm, FD_VM_INVOKE_UNITS );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L815-L818 */
+  FD_VM_CU_UPDATE( vm, get_cpi_invoke_unit_cost( vm->instr_ctx->bank ) );
 
   /* Translate instruction ********************************************/
   /* translate_instruction is the first thing that agave does
@@ -719,7 +720,20 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Agave consumes CU in translate_instruction
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
   if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
-    FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
+    ulong total_cu_translation_cost = VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT;
+
+    /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L686-L699 */
+    if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, increase_cpi_account_info_limit ) ) {
+      /* Agave bills the same regardless of ABI */
+      ulong account_meta_translation_cost =
+        fd_ulong_sat_mul(
+          VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ),
+          FD_VM_RUST_ACCOUNT_META_SIZE ) /
+        FD_VM_CPI_BYTES_PER_UNIT;
+      total_cu_translation_cost = fd_ulong_sat_add( total_cu_translation_cost, account_meta_translation_cost );
+    }
+
+    FD_VM_CU_UPDATE( vm, total_cu_translation_cost );
   }
 
   /* Final checks for translate_instruction
@@ -834,7 +848,15 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;
   }
 
-  fd_pubkey_t const * acct_info_keys[ FD_CPI_MAX_ACCOUNT_INFOS ];
+  /* Consume compute units proportional to the number of account infos, if
+     increase_cpi_account_info_limit is active.
+     https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L968-L980 */
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, increase_cpi_account_info_limit ) ) {
+    ulong account_infos_bytes = fd_ulong_sat_mul( acct_info_cnt, FD_VM_ACCOUNT_INFO_BYTE_SIZE );
+    FD_VM_CU_UPDATE( vm, account_infos_bytes / FD_VM_CPI_BYTES_PER_UNIT );
+  }
+
+  fd_pubkey_t const * acct_info_keys[ FD_CPI_MAX_ACCOUNT_INFOS_SIMD_0339 ];
   for( ulong acct_idx = 0UL; acct_idx < acct_info_cnt; acct_idx++ ) {
     /* Translate each pubkey address specified in account_infos.
        Failed translation should lead to an access violation and
