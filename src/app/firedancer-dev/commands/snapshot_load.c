@@ -92,10 +92,8 @@ snapshot_load_topo( config_t * config,
   snapin_tile->allow_shutdown = 1;
 
   /* "snapwr": Snapshot writer tile */
-  int vinyl_enabled = config->firedancer.vinyl.enabled;
   ulong snapwr_cnt = 2;
-  fd_topo_tile_t * snapwr_tile[snapwr_cnt];
-  FOR(snapwr_cnt) snapwr_tile[i] = NULL;
+  int vinyl_enabled = config->firedancer.vinyl.enabled;
   if( vinyl_enabled ) {
 
     fd_topob_wksp( topo, "snapwm" );
@@ -107,8 +105,7 @@ snapshot_load_topo( config_t * config,
     snapwh_tile->allow_shutdown = 1;
 
     fd_topob_wksp( topo, "snapwr" );
-    FOR(snapwr_cnt) snapwr_tile[i] = fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", ULONG_MAX, 0, 0 );
-    FOR(snapwr_cnt) snapwr_tile[i]->allow_shutdown = 1;
+    FOR(snapwr_cnt) fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", ULONG_MAX, 0, 0 )->allow_shutdown = 1;
   }
 
   fd_topob_wksp( topo, "snapct_ld"    );
@@ -205,7 +202,8 @@ snapshot_load_topo( config_t * config,
     fd_topob_tile_in ( topo, "snapwh", 0UL, "metric_in", "snapwm_wh", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_out( topo, "snapwh", 0UL,              "snapwh_wr", 0UL );
     FOR(snapwr_cnt) fd_topob_tile_in ( topo, "snapwr", i, "metric_in", "snapwh_wr", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(snapwr_cnt) fd_topob_tile_uses( topo, snapwr_tile[ i ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapwm_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+    FOR(snapwr_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", i ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapwm_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+
   } else {
     if( FD_LIKELY( !snapshot_lthash_disabled ) ) {
       FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapla", i,   "metric_in", "snapdc_in",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
