@@ -130,7 +130,7 @@ handle_data_frag( fd_snapwm_tile_t *  ctx,
     FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
   }
 
-  // FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
+  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && (acc_cnt*(16UL<<20))<=ctx->in.mtu );
 
   fd_snapwm_vinyl_process_account( ctx, chunk, acc_cnt );
 
@@ -230,7 +230,6 @@ returnable_frag( fd_snapwm_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  /* TODO also support FD_SNAPSHOT_HASH_MSG_EXPECTED */
   ctx->stem = stem;
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz/*acc_cnt*/, stem );
   else                                           handle_control_frag( ctx, stem, sig );
@@ -356,7 +355,7 @@ unprivileged_init( fd_topo_t *      topo,
 /* Control fragments can result in one extra publish to forward the
    message down the pipeline, in addition to the result / malformed
    message. Can send one duplicate account message as well. */
-#define STEM_BURST 3UL /* TODO needs adjustment */
+#define STEM_BURST 3UL
 
 #define STEM_LAZY  1000L
 

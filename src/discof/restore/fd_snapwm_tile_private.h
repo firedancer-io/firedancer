@@ -149,10 +149,17 @@ fd_snapwm_vinyl_wd_fini( fd_snapwm_tile_t * ctx );
 void
 fd_snapwm_vinyl_shutdown( fd_snapwm_tile_t * ctx );
 
+/* fd_snapwm_vinyl_process_account reads a set of pre-generated bstream
+   pairs and decides whether to actually add then to the vinyl database.
+   It supports batch mode as well as single account (pair). */
+
 void
 fd_snapwm_vinyl_process_account( fd_snapwm_tile_t * ctx,
                                  ulong              chunk,
                                  ulong              acc_cnt );
+
+/* fd_snapwm_vinyl_read_account retrieves an account from the vinyl
+   database. */
 
 void
 fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
