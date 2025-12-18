@@ -220,6 +220,7 @@ fd_progcache_gc_root( fd_progcache_admin_t *         cache,
   int rm_err = fd_funk_rec_map_remove( funk->rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
   if( rm_err==FD_MAP_ERR_KEY ) return;
   if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed: %i-%s", rm_err, fd_map_strerror( rm_err ) ));
+  FD_COMPILER_MFENCE();
 
   /* Phase 2: Invalidate record */
 

@@ -1,4 +1,5 @@
 #include "fd_accdb_admin.h"
+#include "../fd_flamenco_base.h"
 
 fd_accdb_admin_t *
 fd_accdb_admin_join( fd_accdb_admin_t * ljoin,
@@ -214,6 +215,36 @@ fd_accdb_cancel( fd_accdb_admin_t *        accdb,
   fd_accdb_txn_cancel_tree( accdb, txn );
 }
 
+/* fd_accdb_chain_reclaim "reclaims" a zero-lamport account by removing
+   its underlying record. */
+
+static void
+fd_accdb_chain_reclaim( fd_accdb_admin_t * accdb,
+                        fd_funk_rec_t *    rec ) {
+  fd_funk_t * funk = accdb->funk;
+
+  /* Phase 1: Remove record from map */
+
+  fd_funk_xid_key_pair_t pair = rec->pair;
+  fd_funk_rec_query_t query[1];
+  int rm_err = fd_funk_rec_map_remove( funk->rec_map, &pair, NULL, query, FD_MAP_FLAG_BLOCKING );
+  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed (%i-%s)", rm_err, fd_map_strerror( rm_err ) ));
+  FD_COMPILER_MFENCE();
+
+  /* Phase 2: Invalidate record */
+
+  fd_funk_rec_t * old_rec = query->ele;
+  memset( &old_rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
+  FD_COMPILER_MFENCE();
+
+  /* Phase 3: Free record */
+
+  old_rec->map_next = FD_FUNK_REC_IDX_NULL;
+  fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
+  fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
+  accdb->metrics.reclaim_cnt++;
+}
+
 /* fd_accdb_chain_gc_root cleans up a stale "rooted" version of a
    record. */
 
@@ -227,7 +258,8 @@ fd_accdb_chain_gc_root( fd_accdb_admin_t *             accdb,
   fd_funk_rec_query_t query[1];
   int rm_err = fd_funk_rec_map_remove( funk->rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
   if( rm_err==FD_MAP_ERR_KEY ) return;
-  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed: %i-%s", rm_err, fd_map_strerror( rm_err ) ));
+  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed (%i-%s)", rm_err, fd_map_strerror( rm_err ) ));
+  FD_COMPILER_MFENCE();
 
   /* Phase 2: Invalidate record */
 
@@ -257,6 +289,7 @@ fd_accdb_publish_recs( fd_accdb_admin_t * accdb,
   uint head = txn->rec_head_idx;
   txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
   txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
+  fd_wksp_t * funk_wksp = accdb->funk->wksp;
   while( !fd_funk_rec_idx_is_null( head ) ) {
     fd_funk_rec_t * rec = &accdb->funk->rec_pool->ele[ head ];
 
@@ -266,13 +299,21 @@ fd_accdb_publish_recs( fd_accdb_admin_t * accdb,
     fd_funk_txn_xid_set_root( pair->xid );
     fd_accdb_chain_gc_root( accdb, pair );
 
-    /* Migrate record to root */
+    /* Root or reclaim record */
     uint next = rec->next_idx;
-    rec->prev_idx = FD_FUNK_REC_IDX_NULL;
-    rec->next_idx = FD_FUNK_REC_IDX_NULL;
-    fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
-    fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
-    accdb->metrics.root_cnt++;
+    fd_account_meta_t const * meta = fd_funk_val( rec, funk_wksp );
+    FD_CRIT( meta && rec->val_sz>=sizeof(fd_account_meta_t), "invalid funk record value" );
+    if( FD_LIKELY( meta->lamports ) ) {
+      /* Migrate record to root */
+      rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+      rec->next_idx = FD_FUNK_REC_IDX_NULL;
+      fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
+      fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
+      accdb->metrics.root_cnt++;
+    } else {
+      /* Remove record */
+      fd_accdb_chain_reclaim( accdb, rec );
+    }
 
     head = next; /* next record */
   }
