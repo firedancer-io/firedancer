@@ -1499,10 +1499,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "solcap" ) ) ) {
 
-    tile->capctx.capture_start_slot = config->capture.capture_start_slot;
-    strncpy( tile->capctx.solcap_capture, config->capture.solcap_capture, sizeof(tile->capctx.solcap_capture) );
-    tile->capctx.recent_only = config->capture.recent_only;
-    tile->capctx.recent_slots_per_file = config->capture.recent_slots_per_file;
+    tile->solcap.capture_start_slot = config->capture.capture_start_slot;
+    strncpy( tile->solcap.solcap_capture, config->capture.solcap_capture, sizeof(tile->solcap.solcap_capture) );
+    tile->solcap.recent_only = config->capture.recent_only;
+    tile->solcap.recent_slots_per_file = config->capture.recent_slots_per_file;
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));
