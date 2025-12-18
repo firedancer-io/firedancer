@@ -7,9 +7,10 @@ struct fd_accdb_admin {
   fd_funk_t funk[1];
 
   struct {
-    ulong root_cnt;
-    ulong gc_root_cnt;
-    ulong revert_cnt;
+    ulong root_cnt;     /* moved to database root */
+    ulong reclaim_cnt;  /* 0 lamport account removed while rooting */
+    ulong gc_root_cnt;  /* stale rooted revisions removed while rooting */
+    ulong revert_cnt;   /* abandoned by consensus */
   } metrics;
 };
 

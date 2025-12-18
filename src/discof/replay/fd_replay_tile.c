@@ -498,10 +498,11 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  ctx->progcache_admin->metrics.root_cnt );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, ctx->progcache_admin->metrics.gc_root_cnt );
 
-  FD_MCNT_SET( REPLAY, ACCDB_CREATED,  ctx->accdb->base.created_cnt          );
-  FD_MCNT_SET( REPLAY, ACCDB_REVERTED, ctx->accdb_admin->metrics.revert_cnt  );
-  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,   ctx->accdb_admin->metrics.root_cnt    );
-  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,  ctx->accdb_admin->metrics.gc_root_cnt );
+  FD_MCNT_SET( REPLAY, ACCDB_CREATED,   ctx->accdb->base.created_cnt          );
+  FD_MCNT_SET( REPLAY, ACCDB_REVERTED,  ctx->accdb_admin->metrics.revert_cnt  );
+  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,    ctx->accdb_admin->metrics.root_cnt    );
+  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,   ctx->accdb_admin->metrics.gc_root_cnt );
+  FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED, ctx->accdb_admin->metrics.reclaim_cnt );
 }
 
 static inline ulong
