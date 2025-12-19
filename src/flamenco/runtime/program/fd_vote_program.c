@@ -1509,9 +1509,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_processor.rs#L64-L67 */
   fd_guarded_borrowed_account_t me = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &me );
-  if( FD_UNLIKELY( 0 != memcmp( fd_borrowed_account_get_owner( &me ),
-                                fd_solana_vote_program_id.key,
-                                sizeof( fd_pubkey_t ) ) ) ) {
+  if( FD_UNLIKELY( !fd_pubkey_eq( fd_borrowed_account_get_owner( &me ), &fd_solana_vote_program_id ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
 
