@@ -68,9 +68,20 @@ struct fd_bank_ctx {
 
   fd_log_collector_t log_collector[ 1 ];
 
+  float ns_per_tick;
+
   struct {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
     ulong txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_CNT ];
+
+    /* Ticks spent preparing a txn (database reads, account copies) */
+    ulong txn_setup_cum_ticks;
+
+    /* Ticks spent executing a txn (includes any VM time) */
+    ulong txn_exec_cum_ticks;
+
+    /* Ticks spent committing a txn (database writes) */
+    ulong txn_commit_cum_ticks;
   } metrics;
 };
 
@@ -96,6 +107,20 @@ static inline void
 metrics_write( fd_bank_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( BANKF, TRANSACTION_RESULT, ctx->metrics.txn_result );
   FD_MCNT_ENUM_COPY( BANKF, TRANSACTION_LANDED, ctx->metrics.txn_landed );
+
+  FD_MCNT_SET( EXEC, TXN_REGIME_SETUP,  ctx->metrics.txn_setup_cum_ticks   );
+  FD_MCNT_SET( EXEC, TXN_REGIME_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
+  FD_MCNT_SET( EXEC, TXN_REGIME_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
+
+  fd_runtime_t const * runtime = ctx->runtime;
+  ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks +
+                     runtime->metrics.cpi_commit_cum_ticks;
+  ulong exec_ticks = runtime->metrics.vm_exec_cum_ticks - cpi_ticks;
+  FD_MCNT_SET( EXEC, VM_REGIME_SETUP,       runtime->metrics.vm_setup_cum_ticks   );
+  FD_MCNT_SET( EXEC, VM_REGIME_COMMIT,      runtime->metrics.vm_commit_cum_ticks  );
+  FD_MCNT_SET( EXEC, VM_REGIME_SETUP_CPI,   runtime->metrics.cpi_setup_cum_ticks  );
+  FD_MCNT_SET( EXEC, VM_REGIME_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
+  FD_MCNT_SET( EXEC, VM_REGIME_INTERPRETER, exec_ticks                            );
 }
 
 static int
@@ -159,26 +184,32 @@ hash_transactions( void *       mem,
 }
 
 static inline void
-handle_microblock( fd_bank_ctx_t *     ctx,
-                   ulong               seq,
-                   ulong               sig,
-                   ulong               sz,
-                   ulong               begin_tspub,
-                   fd_stem_context_t * stem ) {
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
+handle_microblock( fd_bank_ctx_t *     const ctx,
+                   ulong               const seq,
+                   ulong               const sig,
+                   ulong               const sz,
+                   ulong               const begin_tspub,
+                   fd_stem_context_t * const stem ) {
+  long tickcount              = fd_tickcount();
+  long microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
 
-  ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
+  uchar * const dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
+
+  ulong const slot = fd_disco_poh_sig_slot( sig );
+  ulong const txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
   FD_TEST( bank );
   ulong bank_slot = fd_bank_slot_get( bank );
   FD_TEST( bank_slot==slot );
 
+  fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
+
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ 0 ];
     ctx->txn_in->bundle.is_bundle = 0;
+    long txn_start_ticks = fd_tickcount();
 
     fd_txn_out_t * txn_out = &ctx->txn_out[ 0 ];
 
@@ -201,6 +232,14 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     /* Stash the result in the flags value so that pack can inspect it. */
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
+
+    ctx->metrics.txn_setup_cum_ticks += (ulong)( txn_out->timings.exec_start_ticks - txn_start_ticks );
+    ctx->metrics.txn_exec_cum_ticks  += (ulong)( txn_out->timings.exec_end_ticks   - txn_out->timings.exec_start_ticks );
+
+    trailer->txn_preload_end_nanos = (float)( txn_start_ticks                   - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_start_nanos       = trailer->txn_preload_end_nanos;
+    trailer->txn_load_end_nanos    = (float)( txn_out->timings.exec_start_ticks - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_end_nanos         = (float)( txn_out->timings.exec_end_ticks   - microblock_start_ticks ) * ctx->ns_per_tick;
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
@@ -290,6 +329,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                    txn_out->err.txn_err ));
     }
 
+    ctx->metrics.txn_commit_cum_ticks += (ulong)( fd_tickcount() - txn_out->timings.exec_end_ticks );
   }
 
   /* Indicate to pack tile we are done processing the transactions so
@@ -299,24 +339,10 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   /* Now produce the merkle hash of the transactions for inclusion
      (mixin) to the PoH hash.  This is done on the bank tile because
      it shards / scales horizontally here, while PoH does not. */
-  fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
   trailer->pack_txn_idx = ctx->_txn_idx;
   trailer->tips         = ctx->txn_out[ 0 ].details.tips;
 
-  long tickcount                 = fd_tickcount();
-  long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
-  long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
-
-  long tx_preload_end_ticks = fd_long_if( ctx->txn_out[ 0 ].details.prep_start_timestamp!=LONG_MAX,   ctx->txn_out[ 0 ].details.prep_start_timestamp,   microblock_start_ticks );
-  long tx_start_ticks       = fd_long_if( ctx->txn_out[ 0 ].details.load_start_timestamp!=LONG_MAX,   ctx->txn_out[ 0 ].details.load_start_timestamp,   tx_preload_end_ticks   );
-  long tx_load_end_ticks    = fd_long_if( ctx->txn_out[ 0 ].details.exec_start_timestamp!=LONG_MAX,   ctx->txn_out[ 0 ].details.exec_start_timestamp,   tx_start_ticks         );
-  long tx_end_ticks         = fd_long_if( ctx->txn_out[ 0 ].details.commit_start_timestamp!=LONG_MAX, ctx->txn_out[ 0 ].details.commit_start_timestamp, tx_load_end_ticks      );
-
-  trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-  trailer->txn_start_pct       = (uchar)(((double)(tx_start_ticks       - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-  trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-  trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
@@ -340,12 +366,14 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 }
 
 static inline void
-handle_bundle( fd_bank_ctx_t *     ctx,
-               ulong               seq,
-               ulong               sig,
-               ulong               sz,
-               ulong               begin_tspub,
-               fd_stem_context_t * stem ) {
+handle_bundle( fd_bank_ctx_t *     const ctx,
+               ulong               const seq,
+               ulong               const sig,
+               ulong               const sz,
+               ulong               const begin_tspub,
+               fd_stem_context_t * const stem ) {
+  long const tickcount              = fd_tickcount();
+  long const microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
 
   fd_txn_p_t * txns = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
@@ -357,8 +385,9 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   ulong bank_slot = fd_bank_slot_get( bank );
   FD_TEST( bank_slot==slot );
 
-  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
-  ulong                  tips        [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  fd_acct_addr_t const * writable_alt   [ MAX_TXN_PER_MICROBLOCK ] = { NULL };
+  ulong                  tips           [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  long                   txn_start_ticks[ MAX_TXN_PER_MICROBLOCK ] = { 0L };
 
   int execution_success = 1;
 
@@ -369,6 +398,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_txn_p_t *   txn     = &txns[ i ];
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ i ];
     fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
+    txn_start_ticks[ i ] = fd_tickcount();
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
@@ -472,19 +502,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx+i );
 
-    long tickcount                 = fd_tickcount();
-    long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
-    long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
-
-    long tx_preload_end_ticks = fd_long_if( ctx->txn_out[ i ].details.prep_start_timestamp!=LONG_MAX,   ctx->txn_out[ i ].details.prep_start_timestamp,   microblock_start_ticks );
-    long tx_start_ticks       = fd_long_if( ctx->txn_out[ i ].details.load_start_timestamp!=LONG_MAX,   ctx->txn_out[ i ].details.load_start_timestamp,   tx_preload_end_ticks   );
-    long tx_load_end_ticks    = fd_long_if( ctx->txn_out[ i ].details.exec_start_timestamp!=LONG_MAX,   ctx->txn_out[ i ].details.exec_start_timestamp,   tx_start_ticks         );
-    long tx_end_ticks         = fd_long_if( ctx->txn_out[ i ].details.commit_start_timestamp!=LONG_MAX, ctx->txn_out[ i ].details.commit_start_timestamp, tx_load_end_ticks      );
-
-    trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-    trailer->txn_start_pct       = (uchar)(((double)(tx_start_ticks       - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-    trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-    trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+    trailer->txn_preload_end_nanos = (float)( txn_start_ticks[ i ] - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_start_nanos       = trailer->txn_preload_end_nanos;
+    trailer->txn_load_end_nanos    = (float)( ctx->txn_out[ i ].timings.exec_start_ticks - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_end_nanos         = (float)( ctx->txn_out[ i ].timings.exec_end_ticks   - microblock_start_ticks ) * ctx->ns_per_tick;
 
     ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
     fd_stem_publish( stem, ctx->out_poh->idx, bank_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( tickcount ) );
@@ -608,6 +629,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->log.capture_ctx          = NULL;
   ctx->runtime->log.dumping_mem          = NULL;
   ctx->runtime->log.tracing_mem          = NULL;
+  memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
@@ -628,6 +650,8 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->out_pack = out1( topo, tile, "bank_pack" );
 
   ctx->enable_rebates = ctx->out_pack->idx!=ULONG_MAX;
+
+  ctx->ns_per_tick = 1.f / (float)fd_tempo_tick_per_ns( NULL );
 }
 
 static ulong

@@ -200,10 +200,6 @@ struct fd_txn_out {
     ulong                       priority_fee;                   /* Priority fee paid by the fee payer in the transaction */
     ulong                       tips;                           /* Jito tips paid during execution */
     ulong                       signature_count;                /* Number of signatures in the transaction */
-    long                        prep_start_timestamp;
-    long                        load_start_timestamp;
-    long                        exec_start_timestamp;
-    long                        commit_start_timestamp;
     /* When a program is deployed or upgraded, we must queue it to be
         updated in the program cache (if it exists already) so that
         the cache entry's ELF / sBPF information can be updated for
@@ -214,6 +210,12 @@ struct fd_txn_out {
     uchar                       programs_to_reverify_cnt;
     fd_pubkey_t                 programs_to_reverify[ MAX_TX_ACCOUNT_LOCKS ];
   } details;
+
+  /* fd_tickcount() observations at various txn processing steps */
+  struct {
+    long exec_start_ticks;
+    long exec_end_ticks;
+  } timings;
 
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139

@@ -131,7 +131,8 @@ metrics_write( fd_exec_tile_ctx_t * ctx ) {
 /* Publish the txn finalized message to the replay tile */
 static void
 publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
-                           fd_stem_context_t *  stem ) {
+                           fd_stem_context_t *  stem,
+                           long                 tickcount ) {
   fd_exec_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
   msg->bank_idx                  = ctx->bank->idx;
   msg->txn_exec->txn_idx         = ctx->txn_idx;
@@ -145,7 +146,7 @@ publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
     FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d signature=%s", ctx->txn_out.err.txn_err, signature_b58 ));
   }
 
-  fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( tickcount ) );
 
   ctx->exec_replay_out->chunk = fd_dcache_compact_next( ctx->exec_replay_out->chunk, sizeof(*msg), ctx->exec_replay_out->chunk0, ctx->exec_replay_out->wmark );
 }
@@ -170,6 +171,8 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
     }
     switch( sig>>32 ) {
       case FD_EXEC_TT_TXN_EXEC: {
+        long txn_start_ticks = fd_tickcount();
+
         /* Execute. */
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
@@ -204,25 +207,13 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         ctx->txn_idx = msg->txn_idx;
         ctx->dispatch_time_comp = tspub;
         ctx->slot = fd_bank_slot_get( ctx->bank );
-        publish_txn_finalized_msg( ctx, stem );
+        long txn_end_ticks = fd_tickcount();
+        publish_txn_finalized_msg( ctx, stem, txn_end_ticks );
 
         /* Update metrics */
-        ulong setup_dt  = (ulong)ctx->txn_out.details.exec_start_timestamp   - (ulong)ctx->txn_out.details.prep_start_timestamp;
-        ulong exec_dt   = (ulong)ctx->txn_out.details.commit_start_timestamp - (ulong)ctx->txn_out.details.exec_start_timestamp;
-        ulong commit_dt = (ulong)fd_tickcount()                              - (ulong)ctx->txn_out.details.commit_start_timestamp;
-        if( FD_UNLIKELY( ctx->txn_out.details.prep_start_timestamp==LONG_MAX ) ) {
-          setup_dt = 0UL;
-        }
-        if( FD_UNLIKELY( ctx->txn_out.details.exec_start_timestamp==LONG_MAX ) ) {
-          setup_dt = 0UL;
-          exec_dt  = 0UL;
-        }
-        if( FD_UNLIKELY( ctx->txn_out.details.commit_start_timestamp==LONG_MAX ) ) {
-          commit_dt = 0UL;
-        }
-        ctx->metrics.txn_setup_cum_ticks  += setup_dt;
-        ctx->metrics.txn_exec_cum_ticks   += exec_dt;
-        ctx->metrics.txn_commit_cum_ticks += commit_dt;
+        ctx->metrics.txn_setup_cum_ticks  += (ulong)( ctx->txn_out.timings.exec_start_ticks - txn_start_ticks );
+        ctx->metrics.txn_exec_cum_ticks   += (ulong)( ctx->txn_out.timings.exec_end_ticks   - ctx->txn_out.timings.exec_start_ticks );
+        ctx->metrics.txn_commit_cum_ticks += (ulong)( txn_end_ticks                         - ctx->txn_out.timings.exec_end_ticks );
 
         break;
       }

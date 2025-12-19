@@ -3030,10 +3030,10 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
                                  ulong        txn_cnt,
                                  fd_txn_p_t * txns,
                                  ulong        pack_txn_idx,
-                                 uchar        txn_start_pct,
-                                 uchar        txn_load_end_pct,
-                                 uchar        txn_end_pct,
-                                 uchar        txn_preload_end_pct,
+                                 float        txn_start_nanos,
+                                 float        txn_load_end_nanos,
+                                 float        txn_end_nanos,
+                                 float        txn_preload_end_nanos,
                                  ulong        tips ) {
   if( FD_UNLIKELY( 1UL!=txn_cnt ) ) FD_LOG_ERR(( "gui expects 1 txn per microblock from bank, found %lu", txn_cnt ));
 
@@ -3058,10 +3058,10 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     txn_entry->compute_units_consumed    = txn_p->bank_cu.actual_consumed_cus & 0x1FFFFFU;
     txn_entry->error_code                = (txn_p->flags >> 24)               & 0x3FU;
     txn_entry->timestamp_delta_end_nanos = (int)(now - lslot->leader_start_time);
-    txn_entry->txn_start_pct             = txn_start_pct;
-    txn_entry->txn_load_end_pct          = txn_load_end_pct;
-    txn_entry->txn_end_pct               = txn_end_pct;
-    txn_entry->txn_preload_end_pct       = txn_preload_end_pct;
+    txn_entry->txn_start_nanos           = txn_start_nanos;
+    txn_entry->txn_load_end_nanos        = txn_load_end_nanos;
+    txn_entry->txn_end_nanos             = txn_end_nanos;
+    txn_entry->txn_preload_end_nanos     = txn_preload_end_nanos;
     txn_entry->tips                      = tips;
     txn_entry->flags                    |= (uchar)FD_GUI_TXN_FLAGS_ENDED;
     txn_entry->flags                    &= (uchar)(~(uchar)FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK);
