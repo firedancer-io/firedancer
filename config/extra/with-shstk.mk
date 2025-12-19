@@ -1,0 +1,2 @@
+CPPFLAGS+=-mshstk
+LDFLAGS+=-mshstk
