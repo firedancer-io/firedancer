@@ -25,15 +25,17 @@ FD_PROTOTYPES_BEGIN
    See hash_rewards_into_partitions() and
    Bank::get_reward_distribution_num_blocks().
 
-   We can find a loose bound by assuming FD_BANKS_SLOTS_PER_EPOCH is the
+   We can find a loose bound by assuming FD_RUNTIME_SLOTS_PER_EPOCH is the
    number of slots in an epoch, there can be:
-   FD_BANKS_SLOTS_PER_EPOCH / MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH
+   FD_RUNTIME_SLOTS_PER_EPOCH / MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH
    == 43200UL partitions.
 
    However, it is possible to find a tighter bound. If we assume that
-   the max number of stake accounts is FD_BANKS_MAX_STAKE_ACCOUNTS,
-   then the max number of partiitions is
-   (FD_BANKS_MAX_STAKE_ACCOUNTS / (STAKE_ACCOUNT_STORES_PER_BLOCK + (FD_BANKS_MAX_STAKE_ACCOUNTS % STAKE_ACCOUNT_STORES_PER_BLOCK)))
+   the max number of stake accounts is FD_RUNTIME_MAX_STAKE_ACCOUNTS,
+   then the max number of partitions is
+   div_ceil(FD_RUNTIME_MAX_STAKE_ACCOUNTS, STAKE_ACCOUNT_STORES_PER_BLOCK)
+   == FD_RUNTIME_MAX_STAKE_ACCOUNTS / STAKE_ACCOUNT_STORES_PER_BLOCK
+      + (FD_RUNTIME_MAX_STAKE_ACCOUNTS % STAKE_ACCOUNT_STORES_PER_BLOCK != 0)
    == 733UL partitions.
 */
 #define FD_REWARDS_MAX_PARTITIONS ((FD_RUNTIME_MAX_STAKE_ACCOUNTS / STAKE_ACCOUNT_STORES_PER_BLOCK) + (FD_RUNTIME_MAX_STAKE_ACCOUNTS % STAKE_ACCOUNT_STORES_PER_BLOCK != 0))
@@ -49,9 +51,9 @@ FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_
 
    pool's private meta:     32 bytes   + 96 bytes align       = 128 bytes
    all pool members:        64 bytes   * 3M                   = 192 MB
-   total pool footprint:                                      = 192,000,160 bytes
+   total pool footprint:                                      = 192,000,128 bytes
 
-   map footprint:           sizeof(MAP_T) + chain_cnt*sizeof(MAP_IDX_T), alignof(MAP_T))
+   map footprint:           align_up( sizeof(MAP_T) + chain_cnt*sizeof(MAP_IDX_T), alignof(MAP_T) )
    chain_cnt:               2097152 chains is the largest power of 2 less than 3M.
    sizeof(MAP_T):           24 bytes
    alignof(MAP_T):          8 bytes
@@ -61,7 +63,7 @@ FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_
    each dlist:              16 bytes for sizeof(DLIST_T)      = 16 bytes
    all dlists:              16 bytes   * 733 max partitions   = 11,728 bytes
 
-   total footprint:         5,984 bytes + 192,000,160 bytes + 8,388,632 bytes + 11728 bytes = 200,406,504 bytes
+   total footprint:         5,984 bytes + 192,000,128 bytes + 8,388,632 bytes + 11,728 bytes = 200,406,472 bytes
    total footprint + align: align up to 128 bytes = 200,406,528 bytes
 */
 #define FD_EPOCH_REWARDS_FOOTPRINT (200406528UL)
@@ -134,7 +136,7 @@ struct fd_epoch_rewards {
   ulong dlists_offset;
 
   /* This will be followed by a pool of fd_epoch_stake_reward_t. This
-     pool will be sized out to FD_BANKS_MAX_STAKE_ACCOUNTS. */
+     pool will be sized out to FD_RUNTIME_MAX_STAKE_ACCOUNTS. */
 
   /* The pool will be followed by up to FD_REWARDS_MAX_PARTITIONS
      that will all need to be joined. */
