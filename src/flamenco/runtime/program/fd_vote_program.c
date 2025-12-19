@@ -80,7 +80,7 @@ get_vote_state_handler_checked( fd_borrowed_account_t const * vote_account,
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unsupported version: %d", target_version ));
   }
 }
 
@@ -98,7 +98,7 @@ check_vote_account_length( fd_borrowed_account_t const * vote_account,
       expected = FD_VOTE_STATE_V4_SZ;
       break;
     default:
-    __builtin_unreachable();
+    FD_LOG_CRIT(( "unsupported version: %d", target_version ));
   }
   if( FD_UNLIKELY( length!=expected ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -148,7 +148,7 @@ init_vote_account_state( fd_exec_instr_ctx_t *         ctx,
       );
       return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unsupported version: %d", target_version ));
   }
 }
 
@@ -796,7 +796,7 @@ authorize( fd_exec_instr_ctx_t *         ctx,
       break;
     }
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unsupported vote_authorize discriminant: %u", vote_authorize.discriminant ));
   }
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L758 */
@@ -1763,7 +1763,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     } else if( instruction->discriminant == fd_vote_instruction_enum_vote_switch ) {
       vote = &instruction->inner.vote_switch.vote;
     } else {
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unsupported instruction discriminant: %u", instruction->discriminant ));
     }
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L155
@@ -1829,7 +1829,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
       vote_state_update = &instruction->inner.update_vote_state_switch.vote_state_update;
       break;
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unsupported instruction discriminant: %u", instruction->discriminant ));
     }
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L171

@@ -724,7 +724,7 @@ fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return 0; // v4 vote states are always initialized
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", self->discriminant ));
   }
 }
 

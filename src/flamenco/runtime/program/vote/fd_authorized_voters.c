@@ -159,6 +159,6 @@ fd_authorized_voters_get_and_update_authorized_voter( fd_vote_state_versioned_t 
     case fd_vote_state_versioned_enum_v4:
       return fd_vote_state_v4_get_and_update_authorized_voter( &self->inner.v4, current_epoch, pubkey );
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", self->discriminant ));
   }
 }
