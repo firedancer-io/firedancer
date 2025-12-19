@@ -19,8 +19,8 @@ fd_authorized_voters_new( ulong               epoch,
 
   authorized_voters->pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( pool_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
   authorized_voters->treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( treap_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
-  if( 0 == fd_vote_authorized_voters_pool_free( authorized_voters->pool ) ) {
-    FD_LOG_CRIT(( "Authorized_voter pool is empty" ));
+  if( FD_UNLIKELY( !fd_vote_authorized_voters_pool_free( authorized_voters->pool ) ) ) {
+    FD_LOG_CRIT(( "invariant violation: max authorized voter count of vote account exceeded" ));
   }
   fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( authorized_voters->pool );
   ele->epoch  = epoch;
@@ -136,8 +136,8 @@ fd_authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorize
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L32
   if( !existed ) {
     /* insert cannot fail because !existed */
-    if( 0 == fd_vote_authorized_voters_pool_free( self->pool) ) {
-      FD_LOG_CRIT(( "Authorized_voter pool is empty" ));
+    if( FD_UNLIKELY( !fd_vote_authorized_voters_pool_free( self->pool ) ) ) {
+      FD_LOG_CRIT(( "invariant violation: max authorized voter count of vote account exceeded" ));
     }
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
     ele->epoch                       = epoch;

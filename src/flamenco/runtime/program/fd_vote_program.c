@@ -708,7 +708,7 @@ process_new_vote_state( fd_exec_instr_ctx_t *       ctx,
   if( FD_LIKELY( has_timestamp ) ) {
     /* new_state asserted nonempty at function beginning */
     if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( new_state ) ) ) {
-      FD_LOG_CRIT(( "Landed votes is empty" ));
+      FD_LOG_CRIT(( "invariant violation: landed votes is empty" ));
     }
     ulong last_slot = deq_fd_landed_vote_t_peek_tail( new_state )->lockout.slot;
     rc              = fd_vsv_process_timestamp( ctx, versioned, last_slot, timestamp );
