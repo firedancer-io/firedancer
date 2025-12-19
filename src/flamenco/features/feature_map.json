@@ -204,7 +204,7 @@
   {"name":"partitioned_epoch_rewards_superfeature","pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8","cleaned_up":[2,2,0],"hardcode_for_fuzzing":1},
   {"name":"enable_secp256r1_precompile","pubkey":"srremy31J5Y25FrAApwVb9kZcfXbusYMMsvTK9aWv5q", "old":"sryYyFwxzJop1Bh9XpyiVWjZP4nfHExiqNp3Dh71W9i"},
   {"name":"get_sysvar_syscall_enabled", "pubkey": "CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq","hardcode_for_fuzzing":1},
-  {"name":"disable_sbpf_v0_execution", "pubkey": "XTestFeature1111111111111111111111111111111","comment":"IMPORTANT: NEED REKEY"},
+  {"name":"disable_sbpf_v0_execution", "pubkey": "TestFeature11111111111111111111111111111111"},
   {"name":"reenable_sbpf_v0_execution", "pubkey": "TestFeature21111111111111111111111111111111","comment":"for test only"},
   {"name":"enable_sbpf_v1_deployment_and_execution", "pubkey": "JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG"},
   {"name":"enable_sbpf_v2_deployment_and_execution", "pubkey": "F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP"},

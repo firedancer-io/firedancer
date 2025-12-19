@@ -221,7 +221,7 @@ union fd_features {
     /* 0x81fcbfa0d0f6b105 */ ulong partitioned_epoch_rewards_superfeature;
     /* 0xa3a6f94db269070d */ ulong enable_secp256r1_precompile;
     /* 0x829062f252ef5ba8 */ ulong get_sysvar_syscall_enabled;
-    /* 0x1db51f609c8fcd07 */ ulong disable_sbpf_v0_execution;
+    /* 0xe5937c9dd5edd306 */ ulong disable_sbpf_v0_execution;
     /* 0xe5937c9dd5edd306 */ ulong reenable_sbpf_v0_execution;
     /* 0xefc2cb9c2b40f3ff */ ulong enable_sbpf_v1_deployment_and_execution;
     /* 0x408e6a8a269a6ad1 */ ulong enable_sbpf_v2_deployment_and_execution;

@@ -1422,8 +1422,8 @@ fd_feature_id_t const ids[] = {
     .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_sbpf_v0_execution)>>3,
-    .id                        = {"\x07\xcd\x8f\x9c\x60\x1f\xb5\x1d\xe6\xc6\x4a\x0c\x80\xee\x74\x45\xb1\x33\x0c\x00\xc8\x85\x66\xfd\xbf\x9c\x04\xb1\x80\x00\x00\x00"},
-                                 /* XTestFeature1111111111111111111111111111111 */
+    .id                        = {"\x06\xd3\xed\xd5\x9d\x7c\x93\xe5\xc4\x81\x7f\x31\x00\x63\xe8\x0e\xdb\x52\x6f\x61\x2e\x94\x3d\x11\x53\x42\x60\x37\x00\x00\x00\x00"},
+                                 /* TestFeature11111111111111111111111111111111 */
     .name                      = "disable_sbpf_v0_execution",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1926,7 +1926,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x81fcbfa0d0f6b105: return &ids[ 202 ];
   case 0xa3a6f94db269070d: return &ids[ 203 ];
   case 0x829062f252ef5ba8: return &ids[ 204 ];
-  case 0x1db51f609c8fcd07: return &ids[ 205 ];
+  case 0xe5937c9dd5edd306: return &ids[ 205 ];
   case 0xe5937c9dd5edd306: return &ids[ 206 ];
   case 0xefc2cb9c2b40f3ff: return &ids[ 207 ];
   case 0x408e6a8a269a6ad1: return &ids[ 208 ];
