@@ -704,10 +704,7 @@ fd_vsv_deserialize( fd_borrowed_account_t const * vote_account,
     return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
   }
 
-  int rc = fd_vsv_get_state( vote_account->meta, vote_state_mem );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_vsv_get_state( vote_account->meta, vote_state_mem );
 }
 
 int
