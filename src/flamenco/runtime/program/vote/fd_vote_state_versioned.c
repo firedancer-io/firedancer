@@ -34,7 +34,7 @@ last_lockout( fd_vote_state_versioned_t * self ) {
       votes = self->inner.v4.votes;
       break;
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 
   if( deq_fd_landed_vote_t_empty( votes ) ) return NULL;
@@ -83,7 +83,7 @@ fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return &self->inner.v4.authorized_withdrawer;
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -95,7 +95,7 @@ fd_vsv_get_commission( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return (uchar)(self->inner.v4.inflation_rewards_commission_bps/100);
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -126,7 +126,7 @@ fd_vsv_get_root_slot( fd_vote_state_versioned_t * self ) {
       if( !self->inner.v4.has_root_slot ) return NULL;
       return &self->inner.v4.root_slot;
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -138,7 +138,7 @@ fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return &self->inner.v4.last_timestamp;
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -154,7 +154,7 @@ fd_vsv_get_epoch_credits_mutable( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return self->inner.v4.epoch_credits;
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -166,7 +166,7 @@ fd_vsv_get_votes_mutable( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       return self->inner.v4.votes;
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -196,7 +196,7 @@ fd_vsv_set_state( fd_borrowed_account_t *     self,
       .dataend = data + dlen };
   do {
     int err = fd_vote_state_versioned_encode( state, &encode );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vote_state_versioned_encode failed (%d)", err ));
+    if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "fd_vote_state_versioned_encode failed (%d)", err ));
   } while(0);
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -213,7 +213,7 @@ fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
     case fd_vote_state_versioned_enum_v4:
       return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", versioned->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", versioned->discriminant ));
   }
 }
 
@@ -230,7 +230,7 @@ fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
       break;
     }
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -302,7 +302,7 @@ fd_vsv_set_commission( fd_vote_state_versioned_t * self,
       self->inner.v4.inflation_rewards_commission_bps = commission*100;
       break;
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -335,7 +335,7 @@ fd_vsv_set_last_timestamp( fd_vote_state_versioned_t *       self,
       self->inner.v4.last_timestamp = *last_timestamp;
       break;
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -579,7 +579,7 @@ fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
     case fd_vote_state_versioned_enum_v4:
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -648,7 +648,7 @@ fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
     case fd_vote_state_versioned_enum_v4:
       return FD_EXECUTOR_INSTR_SUCCESS;
     default:
-      FD_LOG_ERR(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }
 }
 
@@ -681,7 +681,7 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
     default:
-      FD_LOG_ERR(( "unsupported target version" ));
+      FD_LOG_CRIT(( "unsupported target version" ));
   }
 }
 

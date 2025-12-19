@@ -707,8 +707,8 @@ process_new_vote_state( fd_exec_instr_ctx_t *       ctx,
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L750
   if( FD_LIKELY( has_timestamp ) ) {
     /* new_state asserted nonempty at function beginning */
-    if( deq_fd_landed_vote_t_empty( new_state ) ) {
-      FD_LOG_ERR(( "Landed votes is empty" ));
+    if( FD_UNLIKELY( deq_fd_landed_vote_t_empty( new_state ) ) ) {
+      FD_LOG_CRIT(( "Landed votes is empty" ));
     }
     ulong last_slot = deq_fd_landed_vote_t_peek_tail( new_state )->lockout.slot;
     rc              = fd_vsv_process_timestamp( ctx, versioned, last_slot, timestamp );
@@ -2058,7 +2058,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
 
   default:
-    FD_LOG_ERR(( "unsupported vote instruction: %u", instruction->discriminant ));
+    FD_LOG_CRIT(( "unsupported vote instruction: %u", instruction->discriminant ));
   }
 
   return rc;

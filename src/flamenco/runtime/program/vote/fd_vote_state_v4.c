@@ -102,7 +102,7 @@ fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t *                
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L474-L475 */
   if( 0 == fd_vote_authorized_voters_pool_free( self->authorized_voters.pool) ) {
-    FD_LOG_ERR(( "Authorized_voter pool is empty" ));
+    FD_LOG_CRIT(( "Authorized_voter pool is empty" ));
   }
 
   fd_vote_authorized_voter_t * ele =
