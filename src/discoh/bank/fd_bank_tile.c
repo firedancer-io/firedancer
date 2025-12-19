@@ -45,6 +45,8 @@ typedef struct {
   ulong       rebates_for_slot;
   fd_pack_rebate_sum_t rebater[ 1 ];
 
+  float ns_per_tick;
+
   struct {
     ulong txn_load_address_lookup_tables[ 6 ];
     ulong transaction_result[ 41 ];
@@ -295,19 +297,18 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   trailer->pack_txn_idx = ctx->_txn_idx;
   trailer->tips = 0UL;
 
-  long tickcount                 = fd_tickcount();
-  long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
-  long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
+  long tickcount              = fd_tickcount();
+  long microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
 
   long tx_start_ticks       = (long)out_timestamps[ 0 ];
   long tx_load_end_ticks    = (long)out_timestamps[ 1 ];
   long tx_end_ticks         = (long)out_timestamps[ 2 ];
   long tx_preload_end_ticks = (long)out_timestamps[ 3 ];
 
-  trailer->txn_start_pct       = (uchar)(((double)(tx_start_ticks       - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-  trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-  trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-  trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+  trailer->txn_start_nanos       = (float)( tx_start_ticks       - microblock_start_ticks ) * ctx->ns_per_tick;
+  trailer->txn_load_end_nanos    = (float)( tx_load_end_ticks    - microblock_start_ticks ) * ctx->ns_per_tick;
+  trailer->txn_end_nanos         = (float)( tx_end_ticks         - microblock_start_ticks ) * ctx->ns_per_tick;
+  trailer->txn_preload_end_nanos = (float)( tx_preload_end_ticks - microblock_start_ticks ) * ctx->ns_per_tick;
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
@@ -468,19 +469,18 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx+i );
 
-    long tickcount                 = fd_tickcount();
-    long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
-    long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
+    long tickcount              = fd_tickcount();
+    long microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
 
     long tx_start_ticks       = (long)out_timestamps[ 4*i + 0 ];
     long tx_load_end_ticks    = (long)out_timestamps[ 4*i + 1 ];
     long tx_end_ticks         = (long)out_timestamps[ 4*i + 2 ];
     long tx_preload_end_ticks = (long)out_timestamps[ 4*i + 3 ];
 
-    trailer->txn_start_pct       = (uchar)(((double)(tx_start_ticks       - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-    trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-    trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-    trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+    trailer->txn_start_nanos       = (float)( tx_start_ticks       - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_load_end_nanos    = (float)( tx_load_end_ticks    - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_end_nanos         = (float)( tx_end_ticks         - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_preload_end_nanos = (float)( tx_preload_end_ticks - microblock_start_ticks ) * ctx->ns_per_tick;
 
     ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
     fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, (ulong)fd_frag_meta_ts_comp( tickcount ) );
@@ -567,6 +567,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->rebate_chunk0 = fd_dcache_compact_chunk0( ctx->rebate_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
   ctx->rebate_wmark  = fd_dcache_compact_wmark ( ctx->rebate_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
   ctx->rebate_chunk  = ctx->rebate_chunk0;
+
+  ctx->ns_per_tick = 1.f / (float)fd_tempo_tick_per_ns( NULL );
 }
 
 /* For a bundle, one bundle might burst into at most 5 separate PoH mixins, since the

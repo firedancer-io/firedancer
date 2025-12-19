@@ -408,6 +408,14 @@
 | <span class="metrics-name">bank_&#8203;executed_&#8203;failed_&#8203;transactions</span> | counter | Count of transactions that execute on chain but failed |
 | <span class="metrics-name">bank_&#8203;successful_&#8203;transactions</span> | counter | Count of transactions that execute on chain and succeed |
 | <span class="metrics-name">bank_&#8203;cost_&#8203;model_&#8203;undercount</span> | counter | Count of transactions that used more CUs than the cost model should have permitted them to |
+| <span class="metrics-name">bank_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes. (Transaction setup) |
+| <span class="metrics-name">bank_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes. (Transaction execution (includes VM setup/execution)) |
+| <span class="metrics-name">bank_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes. (Transaction result commit) |
+| <span class="metrics-name">bank_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM setup) |
+| <span class="metrics-name">bank_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM commit) |
+| <span class="metrics-name">bank_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM setup (CPI)) |
+| <span class="metrics-name">bank_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM commit (CPI)) |
+| <span class="metrics-name">bank_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM interpreter execution) |
 
 </div>
 
@@ -1144,6 +1152,8 @@
 | <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM setup (CPI)) |
 | <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM commit (CPI)) |
 | <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM interpreter execution) |
+| <span class="metrics-name">exec_&#8203;executed_&#8203;failed_&#8203;transactions</span> | counter | Count of transactions that execute on chain but failed |
+| <span class="metrics-name">exec_&#8203;successful_&#8203;transactions</span> | counter | Count of transactions that execute on chain and succeed |
 
 </div>
 
