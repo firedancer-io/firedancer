@@ -366,16 +366,15 @@ solana_bpf_loader_program::syscalls::cpi::check_authorized_program:
 https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1032
 
 It determines if the given program_id is authorized to execute a CPI call.
-
-FIXME: return type
- */
-static inline ulong
+Returns 1 if authorized, 0 otherwise.
+*/
+static inline int
 fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                                             fd_bank_t *         bank,
                                             uchar const *       instruction_data,
                                             ulong               instruction_data_len ) {
   /* FIXME: do this in a branchless manner? using bitwise comparison would probably be faster */
-  return ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_native_loader_id.key) ||
+  return !( fd_vm_syscall_cpi_check_id(program_id, fd_solana_native_loader_id.key) ||
            fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_program_id.key) ||
            fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_deprecated_program_id.key) ||
            ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key) &&
