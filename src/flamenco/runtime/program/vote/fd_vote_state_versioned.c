@@ -714,8 +714,7 @@ int
 fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self ) {
   switch( self->discriminant ) {
     case fd_vote_state_versioned_enum_v0_23_5: {
-      fd_pubkey_t pubkey_default = { 0 };
-      return !memcmp( &self->inner.v0_23_5.authorized_voter, &pubkey_default, sizeof( fd_pubkey_t ) );
+      return fd_pubkey_check_zero( &self->inner.v0_23_5.authorized_voter );
     }
     case fd_vote_state_versioned_enum_v1_14_11:
       return fd_authorized_voters_is_empty( &self->inner.v1_14_11.authorized_voters );
