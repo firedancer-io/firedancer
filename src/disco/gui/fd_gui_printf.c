@@ -2378,6 +2378,12 @@ fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers ) {
         jsonp_open_array( peers->http, "count" );
           for( ulong i = 0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_active_cnt[ i ] );
         jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "count_rx" );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_cnt_rx[ i ] );
+        jsonp_close_array( peers->http );
+        jsonp_open_array( peers->http, "bytes_rx" );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_bytes_rx[ i ] );
+        jsonp_close_array( peers->http );
         jsonp_open_array( peers->http, "count_tx" );
           for( ulong i = 0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_cnt_tx[ i ] );
         jsonp_close_array( peers->http );
@@ -2393,10 +2399,10 @@ fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers ) {
           for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_bytes_tx[ i ] );
         jsonp_close_array( peers->http );
         jsonp_open_array( peers->http, "num_messages_rx" );
-          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_count_rx[ i ] );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_cnt_rx[ i ]   );
         jsonp_close_array( peers->http );
         jsonp_open_array( peers->http, "num_messages_tx" );
-          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_count_tx[ i ] );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_cnt_tx[ i ]   );
         jsonp_close_array( peers->http );
       jsonp_close_object( peers->http );
     jsonp_close_object( peers->http );
