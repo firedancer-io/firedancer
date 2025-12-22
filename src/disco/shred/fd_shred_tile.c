@@ -556,10 +556,6 @@ during_frag( fd_shred_ctx_t * ctx,
         /* chained_merkle_root also applies to resigned FEC sets. */
         load_for_32_shreds = FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ;
       }
-      if( FD_LIKELY( IS_FIREDANCER ) ) {
-        pending_batch_wmark = FD_SHRED_BATCH_WMARK_NORMAL;
-        load_for_32_shreds  = FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
-      }
 
       /* If this microblock completes the block, the batch is then
          finalized here.  Otherwise, we check whether the new entry
