@@ -640,9 +640,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   long const regime3 = fd_tickcount();
   if( instr_ctx->instr->stack_height==1 ) {
-    instr_ctx->runtime->metrics.cpi_commit_cum_ticks += (ulong)( regime3-regime2 );
+    instr_ctx->runtime->metrics.vm_commit_cum_ticks += (ulong)( regime3-regime2 );
   } else {
-    instr_ctx->runtime->metrics.vm_commit_cum_ticks  += (ulong)( regime3-regime2 );
+    instr_ctx->runtime->metrics.cpi_commit_cum_ticks  += (ulong)( regime3-regime2 );
   }
 
   return err;
