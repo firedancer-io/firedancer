@@ -733,21 +733,17 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
     return 1;
   }
 
-  /* This is big enough for both v3 and v1_14_11 and can be reused
-     (DEFAULT_PRIOR_VOTERS_OFFSET>DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) */
-  uchar zero_data[ DEFAULT_PRIOR_VOTERS_OFFSET ] = {0};
-
   /* VoteStateV3::is_correct_size_and_initialized
      https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L509-L514 */
   if( FD_LIKELY( data_len==FD_VOTE_STATE_V3_SZ &&
-                 memcmp( data+VERSION_OFFSET, zero_data, DEFAULT_PRIOR_VOTERS_OFFSET ) ) ) {
+                 !fd_mem_iszero( data+VERSION_OFFSET, DEFAULT_PRIOR_VOTERS_OFFSET ) ) ) {
     return 1;
   }
 
   /* VoteState1_14_11::is_correct_size_and_initialized
      https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_1_14_11.rs#L63-L69 */
   if( FD_LIKELY( data_len==FD_VOTE_STATE_V2_SZ &&
-                 memcmp( data+VERSION_OFFSET, zero_data, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 ) ) ) {
+                 !fd_mem_iszero( data+VERSION_OFFSET, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 ) ) ) {
     return 1;
   }
 
