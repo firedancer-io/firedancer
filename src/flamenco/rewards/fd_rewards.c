@@ -893,6 +893,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
     return 1;
   }
 
+  ulong old_credits_observed                      = stake_state->inner.stake.stake.credits_observed;
   stake_state->inner.stake.stake.credits_observed = new_credits_observed;
   stake_state->inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->inner.stake.stake.delegation.stake,
                                                                       reward_lamports );
@@ -919,7 +920,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
                                                     fd_txn_account_get_lamports( stake_acc_rec ),
                                                     (long)reward_lamports,
                                                     new_credits_observed,
-                                                    (long)( new_credits_observed - stake_state->inner.stake.stake.credits_observed ),
+                                                    (long)( new_credits_observed - old_credits_observed ),
                                                     stake_state->inner.stake.stake.delegation.stake,
                                                     (long)reward_lamports );
   }
