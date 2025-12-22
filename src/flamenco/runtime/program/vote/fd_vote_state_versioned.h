@@ -17,7 +17,8 @@ FD_PROTOTYPES_BEGIN
 /* Decodes the vote account data and stores the decoded state in
    vote_state_mem. The caller must provide a buffer at vote_state_mem
    that is aligned to FD_VOTE_STATE_VERSIONED_ALIGN and has at least
-   FD_VOTE_STATE_VERSIONED_FOOTPRINT bytes of space.
+   FD_VOTE_STATE_VERSIONED_FOOTPRINT bytes of space.  Returns
+   FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA if decoding fails.
    https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1074 */
 int
 fd_vsv_get_state( fd_account_meta_t const * meta,
@@ -162,7 +163,8 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
    vote account data and stores the decoded state in vote_state_mem.
    The caller must provide a buffer at vote_state_mem that is aligned to
    FD_VOTE_STATE_VERSIONED_ALIGN and has at least
-   FD_VOTE_STATE_VERSIONED_FOOTPRINT bytes of space.
+   FD_VOTE_STATE_VERSIONED_FOOTPRINT bytes of space.  Returns an error
+   if decoding fails or if the account is a v_0_23_5 account.
    https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L195-L246 */
 int
 fd_vsv_deserialize( fd_borrowed_account_t const * vote_account,
