@@ -228,8 +228,5 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );
 
-void
-fd_fec_resolver_print_done( fd_fec_resolver_t * resolver, fd_wksp_t * wksp, fd_wksp_t * resolver_wksp );
-
 FD_PROTOTYPES_END
 #endif /* HEADER_fd_src_disco_shred_fd_fec_resolver_h */
