@@ -178,7 +178,7 @@ fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *                
   fd_pubkey_t * latest_authorized_pubkey = &latest_authorized->pubkey;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L799
-  if( fd_pubkey_eq( latest_authorized_pubkey, authorized_pubkey ) ) {
+  if( !fd_pubkey_eq( latest_authorized_pubkey, authorized_pubkey ) ) {
     fd_vote_prior_voters_t * prior_voters = &self->prior_voters;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L801
