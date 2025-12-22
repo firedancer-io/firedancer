@@ -14,7 +14,6 @@ TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
-INGEST_MODE="shredcap"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
@@ -71,11 +70,6 @@ while [[ $# -gt 0 ]]; do
        ;;
     -o|--one-offs)
        ONE_OFFS="$2"
-       shift
-       ;;
-    -i|--ingest-mode)
-       INGEST_MODE="$2"
-       shift
        shift
        ;;
     --zst)
@@ -222,9 +216,7 @@ echo "
     [tiles.archiver]
         enabled = true
         end_slot = $END_SLOT
-        rocksdb_path = \"$DUMP/$LEDGER/rocksdb\"
         shredcap_path = \"$DUMP/$LEDGER/shreds.pcapng.zst\"
-        ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
@@ -258,10 +250,8 @@ else
 fi
 
 
-if [[ "$INGEST_MODE" == "shredcap" ]]; then
-  if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
-    $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
-  fi
+if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+  $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
   echo "Converted rocksdb to shredcap"
 fi
 
