@@ -59,7 +59,7 @@ typedef struct test_ctx {
   fd_block_dump_ctx_t * dump_ctx;
 
   /* Capture context (required for dump function) */
-  fd_capture_ctx_t * capture_ctx;
+  fd_capture_ctx_t capture_ctx[1];
 } test_ctx_t;
 
 /* Setup function - initializes all test infrastructure */
@@ -147,12 +147,7 @@ test_ctx_setup( void ) {
   FD_TEST( test_ctx->dump_ctx );
 
   /* Allocate capture context */
-  ulong  capture_ctx_footprint = fd_capture_ctx_footprint();
-  void * capture_ctx_mem       = fd_wksp_alloc_laddr( test_ctx->wksp, fd_capture_ctx_align(), capture_ctx_footprint, wksp_tag++ );
-  FD_TEST( capture_ctx_mem );
-
-  test_ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
-  FD_TEST( test_ctx->capture_ctx );
+  memset( test_ctx->capture_ctx, 0, sizeof(fd_capture_ctx_t) );
 
   /* Set up capture context for dumping */
   test_ctx->capture_ctx->dump_proto_output_dir = TEST_OUTPUT_DIR;
@@ -170,9 +165,6 @@ test_ctx_setup( void ) {
 static void
 test_ctx_teardown( test_ctx_t * test_ctx ) {
   if( !test_ctx ) return;
-
-  /* Clean up capture context */
-  fd_wksp_free_laddr( fd_capture_ctx_delete( fd_capture_ctx_leave( test_ctx->capture_ctx ) ) );
 
   /* Clean up dump context */
   fd_wksp_free_laddr( fd_block_dump_context_delete( fd_block_dump_context_leave( test_ctx->dump_ctx ) ) );

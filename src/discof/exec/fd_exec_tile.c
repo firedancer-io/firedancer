@@ -33,15 +33,13 @@ typedef struct fd_exec_tile_ctx {
 
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
-  link_ctx_t            exec_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+  link_ctx_t            exec_replay_out[ 1 ];
   link_ctx_t            exec_sig_out[ 1 ];
 
   fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
   fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
 
-  /* Capture context for debugging runtime execution. */
-  fd_capture_ctx_t *    capture_ctx;
-  fd_capture_link_buf_t cap_exec_out[1];
+  fd_capture_ctx_t      capture_ctx[1];
 
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
@@ -96,7 +94,6 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t)                         );
-  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint()                         );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->exec.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT                     );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -259,8 +256,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_exec_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
 
-  void * capture_ctx_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
-  void * _txncache         = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->exec.max_live_slots ) );
+  void * _txncache         = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(), fd_txncache_footprint( tile->exec.max_live_slots ) );
   uchar * pc_scratch       = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
   ulong  scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
@@ -356,38 +352,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* Capture context                                                 */
   /********************************************************************/
 
-  ctx->capture_ctx               = NULL;
-  if( FD_UNLIKELY( strlen( tile->exec.solcap_capture ) || strlen( tile->exec.dump_proto_dir ) ) ) {
-
-    ulong tile_idx = tile->kind_id;
-    ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_exec", tile_idx );
-    FD_TEST( idx!=ULONG_MAX );
-    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
-    fd_capture_link_buf_t * cap_exec_out = ctx->cap_exec_out;
-    cap_exec_out->base.vt = &fd_capture_link_buf_vt;
-    cap_exec_out->idx     = idx;
-    cap_exec_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-    cap_exec_out->chunk0  = fd_dcache_compact_chunk0( cap_exec_out->mem, link->dcache );
-    cap_exec_out->wmark   = fd_dcache_compact_wmark( cap_exec_out->mem, link->dcache, link->mtu );
-    cap_exec_out->chunk   = cap_exec_out->chunk0;
-    cap_exec_out->mcache  = link->mcache;
-    cap_exec_out->depth   = fd_mcache_depth( link->mcache );
-    cap_exec_out->seq     = 0UL;
-
-    ulong consumer_tile_idx = fd_topo_find_tile(topo, "solcap", 0UL);
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
-    cap_exec_out->fseq = NULL;
-    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {
-        cap_exec_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
-        FD_TEST( cap_exec_out->fseq );
-        break;
-      }
-    }
-
-    ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
-    ctx->capture_ctx->solcap_start_slot = tile->exec.capture_start_slot;
-
+  memset( ctx->capture_ctx, 0, sizeof(fd_capture_ctx_t) );
     if( strlen( tile->exec.dump_proto_dir ) ) {
       ctx->capture_ctx->dump_proto_output_dir = tile->exec.dump_proto_dir;
       ctx->capture_ctx->dump_proto_start_slot = tile->exec.capture_start_slot;
@@ -396,10 +361,6 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->capture_ctx->dump_syscall_to_pb    = tile->exec.dump_syscall_to_pb;
       ctx->capture_ctx->dump_elf_to_pb        = tile->exec.dump_elf_to_pb;
     }
-
-    ctx->capture_ctx->capctx_type.buf = cap_exec_out;
-    ctx->capture_ctx->capture_link    = &cap_exec_out->base;
-  }
 
   /********************************************************************/
   /* Runtime                                                          */
