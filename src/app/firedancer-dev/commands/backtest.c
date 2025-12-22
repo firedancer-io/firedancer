@@ -27,7 +27,6 @@
 #include "../../../discof/tower/fd_tower_tile.h"
 #include "../../../discof/replay/fd_exec.h"
 #include "../../../ballet/lthash/fd_lthash.h"
-#include "../../../flamenco/capture/fd_capture_ctx.h"
 #include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../flamenco/progcache/fd_progcache_admin.h"
 
@@ -51,7 +50,6 @@ backtest_topo( config_t * config ) {
 
   int disable_snap_loader      = !config->gossip.entrypoints_cnt;
   int snap_vinyl               = !!config->firedancer.vinyl.enabled;
-  int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
@@ -101,14 +99,6 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "exec" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
   FOR(exec_tile_cnt) fd_topob_tile( topo, "exec", "exec", "metric_in", cpu_idx++, 0, 0 );
-
-  /**********************************************************************/
-  /* Add the capture tile to topo                                       */
-  /**********************************************************************/
-  if( solcap_enabled ) {
-    fd_topob_wksp( topo, "solcap" );
-    fd_topob_tile( topo, "solcap", "solcap", "metric_in", cpu_idx++, 0, 0 );
-  }
 
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
@@ -329,18 +319,6 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
-
-  if( FD_UNLIKELY( solcap_enabled ) ) {
-    /* 32 sections of SOLCAP_WRITE_ACCOUNT_DATA_MTU bytes each ≈ 4MB.
-       This is done to ideally avoid cache thrashing and allow for all
-       the links to sit on L3 cache. */
-    fd_topob_link( topo, "cap_repl", "solcap", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
-    fd_topob_tile_out( topo, "replay", 0UL, "cap_repl", 0UL );
-    fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_repl", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(exec_tile_cnt) fd_topob_link( topo, "cap_exec", "solcap", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
-    FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "cap_exec", i );
-    FOR(exec_tile_cnt) fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_exec", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
 
   fd_topob_wksp( topo, "store" );
   fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.store.max_completed_shred_sets, 1 );
