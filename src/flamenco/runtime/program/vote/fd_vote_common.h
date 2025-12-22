@@ -24,7 +24,7 @@ fd_vote_credits_for_vote_at_index( fd_landed_vote_t const * votes,
                                    ulong                    index );
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L773-L778 */
-uchar
+int
 fd_vote_contains_slot( fd_landed_vote_t const * votes,
                        ulong                    slot );
 

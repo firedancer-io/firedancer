@@ -57,7 +57,7 @@ fd_vote_credits_for_vote_at_index( fd_landed_vote_t const * votes,
   return credits;
 }
 
-uchar
+int
 fd_vote_contains_slot( fd_landed_vote_t const * votes,
                        ulong                    slot ) {
   /* Logic is copied from slice::binary_search_by() in Rust. While not fully optimized,
