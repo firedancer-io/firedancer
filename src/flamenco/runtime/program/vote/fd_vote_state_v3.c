@@ -7,9 +7,8 @@
 
 /* from_vote_state_1_14_11 converts a "v3" vote state object into
    the older "v1.14.11" version.  This destroys the "v3" object in
-   the process. */
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L67
+   the process.
+   https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L67 */
 static void
 from_vote_state_1_14_11( fd_vote_state_v3_t *      vote_state,
                          fd_vote_state_1_14_11_t * vote_state_1_14_11, /* out */
@@ -44,7 +43,6 @@ from_vote_state_1_14_11( fd_vote_state_v3_t *      vote_state,
 
 }
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L65-L73 */
 void
 fd_vote_program_v3_create_new( fd_vote_init_t * const        vote_init,
                                fd_sol_sysvar_clock_t const * clock,
@@ -61,7 +59,6 @@ fd_vote_program_v3_create_new( fd_vote_init_t * const        vote_init,
   vote_state->prior_voters.is_empty = 1;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L414-L434 */
 int
 fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                          fd_borrowed_account_t *     vote_account,
@@ -97,11 +94,6 @@ fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
   return fd_vsv_set_state( vote_account, versioned );
 }
 
-/* This is more than just a deserialization - this function attempts
-   to deserialize whatever vote state version the vote account has,
-   and then tries to convert it into a v3 vote account (unless its a
-   v4 account, where it fails automatically).
-   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L119-L124 */
 int
 fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
                               uchar *                       vote_state_mem,
@@ -125,7 +117,6 @@ fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
   return fd_vsv_try_convert_to_v3( versioned, authorized_voters_mem, landed_votes_mem );
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L828
 int
 fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_v3_t * self,
                                                   ulong                current_epoch,
@@ -143,7 +134,6 @@ fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_v3_t * self,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L263-L321 */
 int
 fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *                      ctx,
                                            fd_vote_state_v3_t *                       self,

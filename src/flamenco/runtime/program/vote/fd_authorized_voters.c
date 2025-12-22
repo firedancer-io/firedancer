@@ -2,11 +2,6 @@
 #include "fd_vote_state_v3.h"
 #include "fd_vote_state_v4.h"
 
-/**********************************************************************/
-/* impl AuthorizedVoters                                              */
-/**********************************************************************/
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L17
 fd_vote_authorized_voters_t *
 fd_authorized_voters_new( ulong               epoch,
                           fd_pubkey_t const * pubkey,
@@ -30,7 +25,6 @@ fd_authorized_voters_new( ulong               epoch,
   return authorized_voters;
 }
 
-// Helper to create an empty AuthorizedVoters structure (for default/uninitialized states)
 fd_vote_authorized_voters_t *
 fd_authorized_voters_new_empty( uchar * mem ) {
   FD_SCRATCH_ALLOC_INIT( l, mem );
@@ -48,13 +42,11 @@ fd_authorized_voters_is_empty( fd_vote_authorized_voters_t * self ) {
   return fd_vote_authorized_voters_treap_ele_cnt( self->treap ) == 0;
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L80
 int
 fd_authorized_voters_contains( fd_vote_authorized_voters_t * self, ulong epoch ) {
   return !!fd_vote_authorized_voters_treap_ele_query( self->treap, epoch, self->pool );
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L72
 fd_vote_authorized_voter_t *
 fd_authorized_voters_last( fd_vote_authorized_voters_t * self ) {
   fd_vote_authorized_voters_treap_rev_iter_t iter =
@@ -62,7 +54,6 @@ fd_authorized_voters_last( fd_vote_authorized_voters_t * self ) {
   return fd_vote_authorized_voters_treap_rev_iter_ele( iter, self->pool );
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L43
 void
 fd_authorized_voters_purge_authorized_voters( fd_vote_authorized_voters_t * self,
                                               ulong                         current_epoch ) {
@@ -92,7 +83,6 @@ fd_authorized_voters_purge_authorized_voters( fd_vote_authorized_voters_t * self
 
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L91
 fd_vote_authorized_voter_t *
 fd_authorized_voters_get_or_calculate_authorized_voter_for_epoch( fd_vote_authorized_voters_t * self,
                                                                   ulong                         epoch,
@@ -124,7 +114,6 @@ fd_authorized_voters_get_or_calculate_authorized_voter_for_epoch( fd_vote_author
   return res;
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L28
 fd_vote_authorized_voter_t *
 fd_authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorized_voters_t * self,
                                                                ulong                         epoch ) {

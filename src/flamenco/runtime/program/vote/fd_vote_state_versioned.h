@@ -4,6 +4,10 @@
 #include "../../fd_borrowed_account.h"
 #include "../../../types/fd_types.h"
 
+/* fd_vote_state_versioned contains common logic for all supported vote
+   state versions, and implements most methods from Agave's
+   VoteStateHandle. */
+
 FD_PROTOTYPES_BEGIN
 
 /**********************************************************************/
@@ -15,6 +19,8 @@ int
 fd_vsv_get_state( fd_account_meta_t const * meta,
                   uchar *                   res );
 
+/* Returns a const pointer to the authorized withdrawer for the
+   appropriate vote state version.*/
 fd_pubkey_t const *
 fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self );
 

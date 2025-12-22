@@ -7,19 +7,19 @@
 #include "fd_authorized_voters.h"
 #include "../../fd_runtime.h"
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42 */
 #define DEFAULT_PRIOR_VOTERS_OFFSET 114
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L886
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L886 */
 #define VERSION_OFFSET (4UL)
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L887
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L887 */
 #define DEFAULT_PRIOR_VOTERS_END (118)
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L6
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L6 */
 #define DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 (82UL)
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L60
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L60 */
 #define DEFAULT_PRIOR_VOTERS_END_1_14_11 (86UL)
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L780-L785 */
@@ -46,7 +46,6 @@ last_lockout( fd_vote_state_versioned_t * self ) {
 /* Getters                                                            */
 /**********************************************************************/
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1074 */
 int
 fd_vsv_get_state( fd_account_meta_t const * meta,
                   uchar *                   res ) {
@@ -69,8 +68,6 @@ fd_vsv_get_state( fd_account_meta_t const * meta,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* Returns a const pointer to the authorized withdrawer for the
-   appropriate vote state version.*/
 fd_pubkey_t const *
 fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
   switch( self->discriminant ) {

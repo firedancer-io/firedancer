@@ -5,11 +5,6 @@
 #include "../fd_vote_program.h"
 #include "../../fd_runtime.h"
 
-/**********************************************************************/
-/* VoteStateV4                                                        */
-/**********************************************************************/
-
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L600-L619 */
 void
 fd_vote_state_v4_create_new( fd_pubkey_t const *           vote_pubkey,
                              fd_vote_init_t const *        vote_init,
@@ -28,7 +23,6 @@ fd_vote_state_v4_create_new( fd_pubkey_t const *           vote_pubkey,
   vote_state->block_revenue_commission_bps     = DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L576-L595 */
 int
 fd_vote_state_v4_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                          fd_borrowed_account_t *     vote_account,

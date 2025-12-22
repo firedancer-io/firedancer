@@ -18,7 +18,6 @@ fd_vote_signature_verify( fd_pubkey_t *       epoch_authorized_voter,
   return authorized_withdrawer_signer ? 0 : fd_vote_verify_authorized_signer( epoch_authorized_voter, signers );
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L668
 uchar
 fd_vote_compute_vote_latency( ulong voted_for_slot, ulong current_slot ) {
   return (uchar)fd_ulong_min( fd_ulong_sat_sub( current_slot, voted_for_slot ), UCHAR_MAX );

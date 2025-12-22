@@ -3,6 +3,8 @@
 
 #include "../../fd_borrowed_account.h"
 
+/* fd_vote_state_v4 mirrors Agave's VoteStateV4 methods. */
+
 FD_PROTOTYPES_BEGIN
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L600-L619 */
