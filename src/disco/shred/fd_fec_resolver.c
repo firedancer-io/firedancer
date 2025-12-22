@@ -24,7 +24,6 @@ struct __attribute__((aligned(32UL))) set_ctx {
   ulong                 total_rx_shred_cnt;
   ulong                 fec_set_idx;
   /* The shred index of the first parity shred in this FEC set */
-  ulong                 parity_idx0;
   uchar                 data_variant;
   uchar                 parity_variant;
   /* If this FEC set has resigned shreds, this is our signature of the
@@ -485,6 +484,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     ctx->set  = set_to_use;
     ctx->tree = tree;
     ctx->root = *_root;
+    ctx->fec_set_idx = shred->fec_set_idx;
     ctx->total_rx_shred_cnt = 0UL;
     ctx->data_variant   = fd_uchar_if(  is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
     ctx->parity_variant = fd_uchar_if( !is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
@@ -496,7 +496,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     }
 
     /* Reset the FEC set */
-    ctx->parity_idx0           = SHRED_CNT_NOT_SET;
     d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( ctx->set->data_shred_rcvd   ) ) ) );
     p_rcvd_join( p_rcvd_new( p_rcvd_delete( p_rcvd_leave( ctx->set->parity_shred_rcvd ) ) ) );
 
@@ -521,11 +520,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
     int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, out_merkle_root );
     if( !rv ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  }
-
-  if( FD_UNLIKELY( (ctx->parity_idx0==SHRED_CNT_NOT_SET) & (!is_data_shred) ) ) {
-    ctx->parity_idx0           = shred->idx - in_type_idx;
-    ctx->fec_set_idx           = shred->fec_set_idx;
   }
 
   /* At this point, the shred has passed Merkle validation and is new.
@@ -554,16 +548,9 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
      so we can consider it done either way.  First though, since ctx_map_remove
      can change what's at *ctx, so unpack the values before we do that */
 
-  if( FD_UNLIKELY( ctx->parity_idx0==SHRED_CNT_NOT_SET ) ) {
-    /* No coding shred no problem */
-    ctx->fec_set_idx = shred->fec_set_idx;
-    ctx->parity_idx0 = shred->fec_set_idx;
-  }
-
   fd_fec_set_t        * set            = ctx->set;
   fd_bmtree_commit_t  * tree           = ctx->tree;
   ulong                 fec_set_idx    = ctx->fec_set_idx;
-  ulong                 parity_idx0    = ctx->parity_idx0;
   wrapped_sig_t         retran_sig     = ctx->retransmitter_sig;
   uchar                 parity_variant = ctx->parity_variant;
   uchar                 data_variant   = ctx->data_variant;
@@ -625,7 +612,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       fd_memcpy( p_shred->signature, shred->signature, sizeof(fd_ed25519_sig_t) );
       p_shred->variant       = parity_variant;
       p_shred->slot          = shred->slot;
-      p_shred->idx           = (uint)(i + parity_idx0);
+      p_shred->idx           = (uint)(i + fec_set_idx); /* index of first parity shred is always == fec_set_idx */
       p_shred->version       = shred->version;
       p_shred->fec_set_idx   = (uint)fec_set_idx;
       p_shred->code.data_cnt = (ushort)FD_REEDSOL_DATA_SHREDS_MAX;
@@ -784,11 +771,6 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t  *  resolver,
 
   set_ctx_t * ctx = ctx_map_query( resolver->curr_map, *w_sig, NULL );
   if( FD_UNLIKELY( !ctx ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-
-  /* Error if already received parity shred (cnts are only knowable from
-     receiving a coding shred). */
-
-  if( FD_UNLIKELY( ctx->parity_idx0 != SHRED_CNT_NOT_SET ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   /* Error if gaps in receives to last data shred. Implies that the FEC
      set is still incomplete. */
