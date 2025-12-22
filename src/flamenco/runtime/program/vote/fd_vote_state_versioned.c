@@ -48,7 +48,7 @@ last_lockout( fd_vote_state_versioned_t * self ) {
 
 int
 fd_vsv_get_state( fd_account_meta_t const * meta,
-                  uchar *                   res ) {
+                  uchar *                   vote_state_mem ) {
 
   fd_bincode_decode_ctx_t decode = {
     .data    = fd_account_data( meta ),
@@ -63,7 +63,7 @@ fd_vsv_get_state( fd_account_meta_t const * meta,
 
   FD_TEST( total_sz<=FD_VOTE_STATE_VERSIONED_FOOTPRINT );
 
-  fd_vote_state_versioned_decode( res, &decode );
+  fd_vote_state_versioned_decode( vote_state_mem, &decode );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
