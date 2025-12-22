@@ -1189,7 +1189,7 @@ get_stake_status( fd_exec_instr_ctx_t const *    invoke_context,
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/vote/state/mod.rs#L740
 static ulong
-get_credits( fd_vote_state_t const * vote_state ) {
+get_credits( fd_vote_state_v3_t const * vote_state ) {
 
     return ( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits )
               ? 0
@@ -1205,7 +1205,7 @@ redelegate_stake( fd_exec_instr_ctx_t const *   ctx,
                   fd_stake_t *                  stake,
                   ulong                         stake_lamports,
                   fd_pubkey_t const *           voter_pubkey,
-                  fd_vote_state_t const *       vote_state,
+                  fd_vote_state_v3_t const *       vote_state,
                   fd_sol_sysvar_clock_t const * clock,
                   fd_stake_history_t const *    stake_history,
                   uint *                        custom_err ) {
@@ -1247,10 +1247,10 @@ redelegate_stake( fd_exec_instr_ctx_t const *   ctx,
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L202
 static fd_stake_t
-new_stake( ulong                   stake,
-           fd_pubkey_t const *     voter_pubkey,
-           fd_vote_state_t const * vote_state,
-           ulong                   activation_epoch ) {
+new_stake( ulong                      stake,
+           fd_pubkey_t const *        voter_pubkey,
+           fd_vote_state_v3_t const * vote_state,
+           ulong                      activation_epoch ) {
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L208
   return ( fd_stake_t ){
       .delegation       = {.voter_pubkey         = *voter_pubkey,
@@ -1465,7 +1465,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
                                 ctx->runtime->stake_program.delegate.landed_votes_mem );
     fd_stake_t stake = new_stake( stake_amount,
                                   vote_pubkey,
-                                  &vote_state->inner.current,
+                                  &vote_state->inner.v3,
                                   clock->epoch );
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L343
     fd_stake_state_v2_t new_stake_state = { .discriminant = fd_stake_state_v2_enum_stake,
@@ -1502,7 +1502,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
                            &stake,
                            stake_amount,
                            vote_pubkey,
-                           &vote_state->inner.current,
+                           &vote_state->inner.v3,
                            clock,
                            stake_history,
                            &ctx->txn_out->err.custom_err );
@@ -2443,7 +2443,7 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
   fd_vote_convert_to_current( delinquent_vote_state_versioned,
                               ctx->runtime->stake_program.deactivate_delinquent.delinquent_authorized_voters_mem,
                               ctx->runtime->stake_program.deactivate_delinquent.delinquent_landed_votes_mem );
-  fd_vote_state_t delinquent_vote_state = delinquent_vote_state_versioned->inner.current;
+  fd_vote_state_v3_t delinquent_vote_state = delinquent_vote_state_versioned->inner.v3;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_state.rs#L924 */
   fd_guarded_borrowed_account_t reference_vote_account = {0};
@@ -2459,7 +2459,7 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
   fd_vote_convert_to_current( reference_vote_state_versioned,
                               ctx->runtime->stake_program.deactivate_delinquent.reference_authorized_voters_mem,
                               ctx->runtime->stake_program.deactivate_delinquent.reference_landed_votes_mem );
-  fd_vote_state_t reference_vote_state = reference_vote_state_versioned->inner.current;
+  fd_vote_state_v3_t reference_vote_state = reference_vote_state_versioned->inner.v3;
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L933
   if( !acceptable_reference_epoch_credits( reference_vote_state.epoch_credits, current_epoch ) ) {

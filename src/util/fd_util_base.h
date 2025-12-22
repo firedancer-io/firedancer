@@ -1231,6 +1231,16 @@ fd_memeq( void const * s1,
 
 #endif
 
+/* Returns 1 if all sz bytes starting at s are zero, 0 otherwise. */
+FD_FN_PURE static inline int
+fd_mem_iszero( uchar const * s,
+               ulong         sz ) {
+  for( ulong i=0UL; i<sz; i++ ) {
+   if( s[i]!=0 ) return 0;
+  }
+  return 1;
+}
+
 /* fd_hash(seed,buf,sz), fd_hash_memcpy(seed,d,s,sz):  High quality
    (full avalanche) high speed variable length buffer -> 64-bit hash
    function (memcpy_hash is often as fast as plain memcpy).  Based on
