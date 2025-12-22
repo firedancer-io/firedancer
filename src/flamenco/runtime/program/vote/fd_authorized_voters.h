@@ -4,6 +4,8 @@
 #include "../../../types/fd_types.h"
 #include "../../../../util/fd_util_base.h"
 
+FD_PROTOTYPES_BEGIN
+
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L17
 fd_vote_authorized_voters_t *
 fd_authorized_voters_new( ulong               epoch,
@@ -46,6 +48,8 @@ int
 fd_authorized_voters_get_and_update_authorized_voter( fd_vote_state_versioned_t * self,
                                                       ulong                       current_epoch,
                                                       fd_pubkey_t **              pubkey /* out */ );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_authorized_voters_h */
 

@@ -6,6 +6,8 @@
 #include "../../../types/fd_types.h"
 #include "../../sysvar/fd_sysvar.h"
 
+FD_PROTOTYPES_BEGIN
+
 /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L65-L73 */
 void
 fd_vote_program_v3_create_new( fd_vote_init_t * const        vote_init,
@@ -46,6 +48,8 @@ fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *                
                                            ulong                                      target_epoch,
                                            /* "verify" closure */ int                 authorized_withdrawer_signer,
                                            /* "verify" closure */ fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_state_v3_h */
 

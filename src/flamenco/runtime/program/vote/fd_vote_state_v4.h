@@ -3,6 +3,8 @@
 
 #include "../../fd_borrowed_account.h"
 
+FD_PROTOTYPES_BEGIN
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L600-L619 */
 void
 fd_vote_state_v4_create_new( fd_pubkey_t const *           vote_pubkey,
@@ -32,6 +34,8 @@ fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t *                
                                            ulong                                      target_epoch,
                                            /* "verify" closure */ int                 authorized_withdrawer_signer,
                                            /* "verify" closure */ fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_state_v4_h */
 

@@ -4,6 +4,8 @@
 #include "../../fd_borrowed_account.h"
 #include "../../../types/fd_types.h"
 
+FD_PROTOTYPES_BEGIN
+
 /**********************************************************************/
 /* Getters                                                            */
 /**********************************************************************/
@@ -162,6 +164,8 @@ fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self );
    https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L189-L193 */
 int
 fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_state_versioned_h */
 

@@ -4,6 +4,8 @@
 #include "../../../types/fd_types.h"
 #include "../../fd_executor.h"
 
+FD_PROTOTYPES_BEGIN
+
 // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L985
 int
 fd_vote_verify_authorized_signer( fd_pubkey_t const * authorized,
@@ -27,6 +29,8 @@ fd_vote_credits_for_vote_at_index( fd_landed_vote_t const * votes,
 int
 fd_vote_contains_slot( fd_landed_vote_t const * votes,
                        ulong                    slot );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_common_h */
 
