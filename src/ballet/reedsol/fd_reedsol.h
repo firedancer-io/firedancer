@@ -26,8 +26,8 @@
    Solana needs and performance.  The common case for both shred counts
    to be set to 32. */
 
-#define FD_REEDSOL_DATA_SHREDS_MAX   (67UL)
-#define FD_REEDSOL_PARITY_SHREDS_MAX (67UL)
+#define FD_REEDSOL_DATA_SHREDS_MAX   (32UL)
+#define FD_REEDSOL_PARITY_SHREDS_MAX (32UL)
 
 #define FD_REEDSOL_ALIGN     (128UL)
 #define FD_REEDSOL_FOOTPRINT (2304UL) /* 18*ALIGN */

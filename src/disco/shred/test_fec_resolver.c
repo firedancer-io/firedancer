@@ -64,16 +64,13 @@ static int
 sets_eq( fd_fec_set_t const * a, fd_fec_set_t const * b ) {
   if( (a==NULL) ^ (b==NULL) ) return 0;
 
-  if( a->data_shred_cnt   != b->data_shred_cnt   ) return 0;
-  if( a->parity_shred_cnt != b->parity_shred_cnt ) return 0;
-
-  for( ulong i=0UL; i<a->data_shred_cnt; i++ ) if( !fd_memeq( a->data_shreds[i], b->data_shreds[i], FD_SHRED_MIN_SZ ) ) {
+  for( ulong i=0UL; i<FD_REEDSOL_DATA_SHREDS_MAX; i++ ) if( !fd_memeq( a->data_shreds[i], b->data_shreds[i], FD_SHRED_MIN_SZ ) ) {
     FD_LOG_NOTICE(( "data shred %lu not equal", i ));
     FD_LOG_HEXDUMP_NOTICE(( "a:", a->data_shreds[i], FD_SHRED_MIN_SZ ));
     FD_LOG_HEXDUMP_NOTICE(( "b:", b->data_shreds[i], FD_SHRED_MIN_SZ ));
     return 0;
   }
-  for( ulong i=0UL; i<a->parity_shred_cnt; i++ ) if( !fd_memeq( a->parity_shreds[i], b->parity_shreds[i], FD_SHRED_MAX_SZ ) ) {
+  for( ulong i=0UL; i<FD_REEDSOL_PARITY_SHREDS_MAX; i++ ) if( !fd_memeq( a->parity_shreds[i], b->parity_shreds[i], FD_SHRED_MAX_SZ ) ) {
     FD_LOG_NOTICE(( "parity shred %lu not equal", i ));
     FD_LOG_HEXDUMP_NOTICE(( "a:", a->parity_shreds[i], FD_SHRED_MAX_SZ ));
     FD_LOG_HEXDUMP_NOTICE(( "b:", b->parity_shreds[i], FD_SHRED_MAX_SZ ));
@@ -663,74 +660,6 @@ test_merkle_root( void ) {
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 }
 
-void
-test_force_complete( void ) {
-  signer_ctx_t signer_ctx[ 1 ];
-  signer_ctx_init( signer_ctx, test_private_key );
-
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
-  fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
-  fd_shredder_set_shred_version( shredder, SHRED_VER );
-
-  uchar const * pubkey = test_private_key+32UL;
-  fd_entry_batch_meta_t meta[1];
-  fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->block_complete = 1;
-
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
-
-  fd_fec_set_t _set[ 2 ];
-  uchar * ptr = fec_set_memory;
-  ptr = allocate_fec_set( _set+0, ptr );
-
-  fd_fec_set_t out_sets[ 4UL ];
-  for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
-
-
-  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL, NULL );
-  FD_TEST( fd_shredder_fini_batch( shredder ) );
-
-  fd_fec_set_t const * out_fec[1];
-  fd_shred_t const   * out_shred[1];
-  fd_bmtree_node_t     out_merkle_root[1];
-
-  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX ) );
-  fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
-
-  for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) {
-    if( j == 2 ) continue;
-    ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY );
-  }
-
-  /* obviously not last shred */
-
-  fd_shred_t const * shred1 = fd_shred_parse( set0->data_shreds[ 1 ], 2048 );
-  FD_TEST( fd_fec_resolver_force_complete( resolver, shred1, out_fec, out_merkle_root ) == FD_FEC_RESOLVER_SHRED_REJECTED );
-
-  /* error due to gaps, missing 2 */
-
-  fd_shred_t const * last_shred = fd_shred_parse( set0->data_shreds[ set0->data_shred_cnt - 1 ], 2048 );
-  FD_TEST( fd_fec_resolver_force_complete( resolver, last_shred, out_fec, out_merkle_root ) == FD_FEC_RESOLVER_SHRED_REJECTED );
-
-  /* add the missing shred */
-
-  ADD_SHRED( resolver, set0->data_shreds[ 2 ], OKAY );
-
-  uchar temp = set0->data_shreds[ set0->data_shred_cnt - 1 ][0];
-  set0->data_shreds[ set0->data_shred_cnt - 1 ][0] = 42;
-
-  /* error due to signature */
-
-  FD_TEST( fd_fec_resolver_force_complete( resolver, shred1, out_fec, out_merkle_root ) == FD_FEC_RESOLVER_SHRED_REJECTED );
-
-  /* success */
-
-  set0->data_shreds[ set0->data_shred_cnt - 1 ][0] = temp;
-  FD_TEST( fd_fec_resolver_force_complete( resolver, last_shred, out_fec, out_merkle_root ) == FD_FEC_RESOLVER_SHRED_COMPLETES );
-
-  fd_fec_resolver_delete( fd_fec_resolver_leave( resolver ) );
-}
-
 uchar fec_set_memory_1[ 2048UL * FD_REEDSOL_DATA_SHREDS_MAX   ];
 uchar fec_set_memory_2[ 2048UL * FD_REEDSOL_PARITY_SHREDS_MAX ];
 
@@ -893,7 +822,6 @@ main( int     argc,
   test_shred_version();
   test_shred_reject();
   test_merkle_root();
-  test_force_complete();
   test_chained_merkle_shreds();
 
   FD_LOG_NOTICE(( "pass" ));

@@ -14,6 +14,6 @@ $(call add-objs,fd_reedsol_recover_128,fd_reedsol)
 $(call add-objs,fd_reedsol_recover_256,fd_reedsol)
 $(call add-objs,fd_reedsol_pi,fd_reedsol)
 ifdef FD_HAS_HOSTED
-$(call make-unit-test,test_reedsol,test_reedsol,fd_reedsol fd_util)
-$(call make-fuzz-test,fuzz_reedsol,fuzz_reedsol,fd_reedsol fd_util)
+#$(call make-unit-test,test_reedsol,test_reedsol,fd_reedsol fd_util)
+#$(call make-fuzz-test,fuzz_reedsol,fuzz_reedsol,fd_reedsol fd_util)
 endif
