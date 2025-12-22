@@ -31,18 +31,19 @@ fd_vote_credits_for_vote_at_index( fd_landed_vote_t const * votes,
   fd_landed_vote_t const * landed_vote = deq_fd_landed_vote_t_peek_index_const( votes, index );
   ulong                    latency     = landed_vote == NULL ? 0 : landed_vote->latency;
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L683
-  ulong              max_credits =  VOTE_CREDITS_MAXIMUM_PER_SLOT;
+  ulong                    max_credits =  VOTE_CREDITS_MAXIMUM_PER_SLOT;
 
-  // If latency is 0, this means that the Lockout was created and stored from a software version
-  // that did not store vote latencies; in this case, 1 credit is awarded
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L691
-  if( FD_UNLIKELY( latency == 0 ) ) {
+  /* If latency is 0, this means that the Lockout was created and stored
+     from a software version that did not store vote latencies; in this
+     case, 1 credit is awarded.
+     https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L691 */
+  if( FD_UNLIKELY( latency==0UL ) ) {
     return 1;
   }
 
   ulong diff = 0;
   int   cf   = fd_ulong_checked_sub( latency, VOTE_CREDITS_GRACE_SLOTS, &diff );
-  if( cf != 0 || diff == 0 ) {
+  if( cf || diff==0UL ) {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L697
     return max_credits;
   }
