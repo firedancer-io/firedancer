@@ -2,9 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_state_v4_h
 
 #include "../../fd_borrowed_account.h"
-#include "../../fd_executor.h"
-#include "../../../types/fd_types.h"
-#include "../../sysvar/fd_sysvar.h"
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L600-L619 */
 void
