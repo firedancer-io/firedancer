@@ -47,7 +47,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar const * data_shreds = test->data;
   uchar parity_shreds[ SHRED_SZ_MAX * FD_REEDSOL_PARITY_SHREDS_MAX ];
   uchar recovered_shreds[ SHRED_SZ_MAX * ( FD_REEDSOL_PARITY_SHREDS_MAX+1UL ) ];
-  
+
   uchar const * d[ FD_REEDSOL_DATA_SHREDS_MAX   ];
   uchar *       p[ FD_REEDSOL_PARITY_SHREDS_MAX ];
   uchar *       r[ FD_REEDSOL_PARITY_SHREDS_MAX+1UL ];

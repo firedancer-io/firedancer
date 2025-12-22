@@ -137,7 +137,7 @@ repair_topo( config_t * config ) {
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
-  ulong pending_fec_shreds_depth = fd_ulong_min( fd_ulong_pow2_up( config->tiles.shred.max_pending_shred_sets * FD_REEDSOL_DATA_SHREDS_MAX ), USHORT_MAX + 1 /* dcache max */ );
+  ulong pending_fec_shreds_depth = fd_ulong_min( fd_ulong_pow2_up( config->tiles.shred.max_pending_shred_sets * FD_REEDSOL_FEC_SHRED_CNT), USHORT_MAX + 1 /* dcache max */ );
 
   /*                                  topo, link_name,      wksp_name,      depth,                                    mtu,                           burst */
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );

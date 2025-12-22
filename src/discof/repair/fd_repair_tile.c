@@ -246,7 +246,6 @@ struct ctx {
   ulong snap_out_chunk;
 
   uint      shred_tile_cnt;
-  out_ctx_t shred_out_ctx[ MAX_SHRED_TILE_CNT ];
 
   /* repair_sign links (to sign tiles 1+) - for round-robin distribution */
 
@@ -843,40 +842,6 @@ after_frag( ctx_t * ctx,
       }
       after_shred( ctx, sig, shred, nonce );
     }
-
-    /* Check if there are FECs to force complete. Algorithm: window
-       through the idxs in interval [i, j). If j = next fec_set_idx
-       then we know we can force complete the FEC set interval [i, j)
-       (assuming it wasn't already completed based on `cmpl`). */
-
-    fd_forest_blk_t * blk = fd_forest_query( ctx->forest, shred->slot );
-    if( blk ) {
-      uint i = blk->consumed_idx + 1;
-      for( uint j = i; j < blk->buffered_idx + 1; j++ ) {
-        if( FD_UNLIKELY( fd_forest_blk_idxs_test( blk->fecs, j ) ) ) {
-          if( FD_UNLIKELY( fd_forest_blk_idxs_test( blk->cmpl, j ) ) ) {
-            /* already been completed without force complete */
-          } else {
-            /* force completeable */
-            fd_fec_sig_t * fec_sig  = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
-            if( FD_LIKELY( fec_sig ) ) {
-              ulong          sig      = fd_ulong_load_8( fec_sig->sig );
-              ulong          tile_idx = sig % ctx->shred_tile_cnt;
-              uint           last_idx = j - i;
-
-              uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
-              memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
-              fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
-              fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
-              ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-            }
-          }
-          /* advance consumed */
-          blk->consumed_idx = j;
-          i = j + 1;
-        }
-      }
-    }
     /* update metrics */
     ctx->metrics->repaired_slots = fd_forest_highest_repaired_slot( ctx->forest );
     return;
@@ -1053,15 +1018,6 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->net_out_wmark  = fd_dcache_compact_wmark( ctx->net_out_mem, link->dcache, link->mtu );
       ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-    } else if( 0==strcmp( link->name, "repair_shred" ) ) {
-
-      out_ctx_t * shred_out = &ctx->shred_out_ctx[ ctx->shred_tile_cnt++ ];
-      shred_out->idx        = out_idx;
-      shred_out->mem        = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      shred_out->chunk0     = fd_dcache_compact_chunk0( shred_out->mem, link->dcache );
-      shred_out->wmark      = fd_dcache_compact_wmark( shred_out->mem, link->dcache, link->mtu );
-      shred_out->chunk      = shred_out->chunk0;
-
     } else if( 0==strcmp( link->name, "repair_sign" ) ) {
 
       out_ctx_t * repair_sign_out  = &ctx->repair_sign_out_ctx[ ctx->repair_sign_cnt ];
@@ -1167,7 +1123,7 @@ metrics_write( ctx_t * ctx ) {
 /* TODO: This is not correct, but is temporary and will be fixed
    when fixed FEC 32 goes in, and we can finally get rid of force
    completes BS. */
-#define STEM_BURST (64UL)
+#define STEM_BURST (2UL)
 
 /* Sign manual credit management, backpressuring, sign tile count, &
    sign speed effect this lazy value. The main goal of repair's highest
