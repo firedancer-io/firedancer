@@ -850,9 +850,11 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 static void
 fd_runtime_update_bank_hash( fd_bank_t *        bank,
                              fd_capture_ctx_t * capture_ctx ) {
+  (void)capture_ctx;
   /* Save the previous bank hash, and the parents signature count */
   fd_hash_t const * prev_bank_hash = NULL;
-  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
+  ulong const slot = fd_bank_slot_get( bank );
+  if( FD_LIKELY( slot!=0UL ) ) {
     prev_bank_hash = fd_bank_bank_hash_query( bank );
     fd_bank_prev_bank_hash_set( bank, *prev_bank_hash );
   } else {
@@ -862,32 +864,15 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
   fd_bank_parent_signature_cnt_set( bank, fd_bank_signature_count_get( bank ) );
 
   /* Compute the new bank hash */
-  fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
-  fd_hash_t new_bank_hash[1] = { 0 };
-  fd_hashes_hash_bank(
-      lthash,
-      prev_bank_hash,
-      (fd_hash_t *)fd_bank_poh_query( bank )->hash,
-      fd_bank_signature_count_get( bank ),
-      new_bank_hash );
+  fd_lthash_value_t const * lthash  = fd_bank_lthash_locking_query( bank );
+  fd_hash_t const *         poh     = fd_bank_poh_query           ( bank );
+  ulong const               sig_cnt = fd_bank_signature_count_get ( bank );
+
+  fd_hash_t new_bank_hash[1];
+  fd_hashes_hash_bank( lthash, prev_bank_hash, poh, sig_cnt, new_bank_hash );
 
   /* Update the bank hash */
   fd_bank_bank_hash_set( bank, *new_bank_hash );
-
-  if( capture_ctx != NULL && capture_ctx->capture != NULL &&
-    fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
-
-    uchar lthash_hash[FD_HASH_FOOTPRINT];
-    fd_blake3_hash(lthash->bytes, FD_LTHASH_LEN_BYTES, lthash_hash );
-    fd_capture_link_write_bank_preimage(
-      capture_ctx,
-      fd_bank_slot_get( bank ),
-      (fd_hash_t *)new_bank_hash->hash,
-      (fd_hash_t *)fd_bank_prev_bank_hash_query( bank ),
-      (fd_hash_t *)lthash_hash,
-      (fd_hash_t *)fd_bank_poh_query( bank )->hash,
-      fd_bank_signature_count_get( bank ) );
-  }
 
   fd_bank_lthash_end_locking_query( bank );
 }
