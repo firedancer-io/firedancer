@@ -10,7 +10,7 @@
 #define FD_EXEC_TT_TXN_EXEC      (1UL) /* Transaction execution. */
 #define FD_EXEC_TT_TXN_SIGVERIFY (2UL) /* Transaction sigverify. */
 #define FD_EXEC_TT_LTHASH        (3UL) /* Account lthash. */
-#define FD_EXEC_TT_POH_VERIFY    (4UL) /* PoH hash verification. */
+#define FD_EXEC_TT_POH_HASH      (4UL) /* PoH hashing. */
 
 /* Sent from the replay tile to the exec tiles.  These describe one of
    several types of tasks for an exec tile.  An idx to the bank in the
@@ -20,7 +20,7 @@
 struct fd_exec_txn_exec_msg {
   ulong      bank_idx;
   ulong      txn_idx;
-  fd_txn_p_t txn;
+  fd_txn_p_t txn[ 1 ];
 
   /* Used currently by solcap to maintain ordering of messages
      this will change to using txn sigs eventually */
@@ -31,13 +31,22 @@ typedef struct fd_exec_txn_exec_msg fd_exec_txn_exec_msg_t;
 struct fd_exec_txn_sigverify_msg {
   ulong      bank_idx;
   ulong      txn_idx;
-  fd_txn_p_t txn;
+  fd_txn_p_t txn[ 1 ];
 };
 typedef struct fd_exec_txn_sigverify_msg fd_exec_txn_sigverify_msg_t;
+
+struct fd_exec_poh_hash_msg {
+  ulong     bank_idx;
+  ulong     mblk_idx;
+  ulong     hashcnt;
+  fd_hash_t hash[ 1 ];
+};
+typedef struct fd_exec_poh_hash_msg fd_exec_poh_hash_msg_t;
 
 union fd_exec_task_msg {
   fd_exec_txn_exec_msg_t      txn_exec;
   fd_exec_txn_sigverify_msg_t txn_sigverify;
+  fd_exec_poh_hash_msg_t      poh_hash;
 };
 typedef union fd_exec_task_msg fd_exec_task_msg_t;
 
@@ -63,11 +72,19 @@ struct fd_exec_txn_sigverify_done_msg {
 };
 typedef struct fd_exec_txn_sigverify_done_msg fd_exec_txn_sigverify_done_msg_t;
 
+struct fd_exec_poh_hash_done_msg {
+  ulong     mblk_idx;
+  ulong     hashcnt;
+  fd_hash_t hash[ 1 ];
+};
+typedef struct fd_exec_poh_hash_done_msg fd_exec_poh_hash_done_msg_t;
+
 struct fd_exec_task_done_msg {
   ulong bank_idx;
   union {
     fd_exec_txn_exec_done_msg_t      txn_exec[ 1 ];
     fd_exec_txn_sigverify_done_msg_t txn_sigverify[ 1 ];
+    fd_exec_poh_hash_done_msg_t      poh_hash[ 1 ];
   };
 };
 typedef struct fd_exec_task_done_msg fd_exec_task_done_msg_t;

@@ -213,11 +213,6 @@ echo "
         [snapshots.sources.gossip]
             allow_any = false
             allow_list = []
-[layout]
-    shred_tile_count = 4
-    snapla_tile_count = 1
-    verify_tile_count = 2
-    exec_tile_count = 6
 [tiles]
     [tiles.archiver]
         enabled = true
@@ -255,6 +250,21 @@ if [[ -z "$GENESIS" ]]; then
 else
   echo "[paths]
     genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
+fi
+
+if [[ "$DISABLE_LTHASH_VERIFICATION" == "true" ]]; then
+  echo "
+[layout]
+    shred_tile_count = 4
+    snapla_tile_count = 1
+    verify_tile_count = 2" >> $DUMP_DIR/${LEDGER}_backtest.toml
+else
+  echo "
+[layout]
+    shred_tile_count = 4
+    snapla_tile_count = 1
+    verify_tile_count = 2
+    exec_tile_count = 6" >> $DUMP_DIR/${LEDGER}_backtest.toml
 fi
 
 
