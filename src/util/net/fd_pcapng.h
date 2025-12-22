@@ -195,6 +195,7 @@ fd_pcapng_idb_defaults( fd_pcapng_idb_opts_t * opt,
 
 /* FD_PCAPNG_LINKTYPE_*: Link types (currently only Ethernet supported) */
 
+#define FD_PCAPNG_LINKTYPE_NULL       (0U) /* BSD loopback */
 #define FD_PCAPNG_LINKTYPE_ETHERNET   (1U) /* IEEE 802.3 Ethernet */
 #define FD_PCAPNG_LINKTYPE_RAW      (101U) /* IPv4 or IPv6 */
 #define FD_PCAPNG_LINKTYPE_COOKED   (113U) /* Linux "cooked" capture */
