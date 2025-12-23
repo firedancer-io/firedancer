@@ -78,7 +78,12 @@ fd_long_sat_sub( long x, long y ) {
   return fd_long_if( cf, (long)((ulong)x >> 63) + LONG_MAX, res );
 }
 
-/* fd_long_sat_mul is left as an exercise to the reader */
+FD_FN_CONST static inline long
+fd_long_sat_mul( long x, long y ) {
+  long res;
+  int cf = __builtin_smull_overflow ( x, y, &res );
+  return fd_long_if( cf, (long)((ulong)((x ^ y) >> 63)) + LONG_MAX, res );
+}
 
 FD_FN_CONST static inline uint
 fd_uint_sat_add( uint x, uint y ) {

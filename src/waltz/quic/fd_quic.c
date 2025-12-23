@@ -2710,7 +2710,7 @@ fd_quic_apply_peer_params( fd_quic_conn_t *                   conn,
 
   /* set the max_idle_timeout to the min of our and peer max_idle_timeout */
   if( peer_tp->max_idle_timeout_ms ) {
-    long peer_max_idle_timeout_ns = (long)peer_tp->max_idle_timeout_ms * (long)1e6;
+    long peer_max_idle_timeout_ns = fd_long_sat_mul( (long)peer_tp->max_idle_timeout_ms, (long)1e6);
     conn->idle_timeout_ns         = fd_long_min( peer_max_idle_timeout_ns, conn->idle_timeout_ns );
   }
 
