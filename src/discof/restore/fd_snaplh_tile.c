@@ -4,7 +4,6 @@
 #include "../../ballet/lthash/fd_lthash_adder.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
-#include "../../flamenco/runtime/fd_hashes.h"
 #include "generated/fd_snaplh_tile_seccomp.h"
 
 #include "utils/fd_ssctrl.h"
@@ -100,6 +99,9 @@ struct fd_snaplh_tile {
     ulong             rd_req_cnt;
 
     fd_vinyl_io_t *   io;
+    #if IO_URING_ENABLED
+    struct io_uring * ring;
+    #endif
   } vinyl;
 
   struct {
@@ -116,6 +118,13 @@ struct fd_snaplh_tile {
   in_link_t   in[2];
   uchar       in_kind[2];
   out_link_t  out;
+
+  struct {
+    ulong q_requests;
+    ulong q_bytes;
+    long  t_acc;
+    long  t0;
+  } stats;
 };
 
 typedef struct fd_snaplh_tile fd_snaplh_t;
@@ -294,9 +303,40 @@ rd_req_ctx_update_status( ulong rd_req_ctx,
   return rd_req_ctx_from_parts( rd_req_ctx_get_idx( rd_req_ctx ), status );
 }
 
+static void
+print_stats ( fd_snaplh_t * ctx ) {
+  long   t_run     = fd_log_wallclock() - ctx->stats.t0;
+  double t_per_req = ( (double)ctx->stats.t_acc / (double)ctx->stats.q_requests ) / (double)1e9;
+  // double bw_KBs    = ( (double)ctx->stats.q_bytes / (double)1e3 ) / ( (double)ctx->stats.t_acc / (double)1e9 );
+  double bw_MBs    = ( (double)ctx->stats.q_bytes / (double)1e6 ) / ( (double)t_run / (double)1e9 );
+  double iops      = (double)ctx->stats.q_requests / (double)t_run;
+  // FD_LOG_NOTICE(( "*** ctx->stats.q_requests  %12lu", ctx->stats.q_requests ));
+  // FD_LOG_NOTICE(( "*** ctx->stats.q_bytes     %12lu", ctx->stats.q_bytes    ));
+  // FD_LOG_NOTICE(( "*** ctx->stats.t_acc       %12ld", ctx->stats.t_acc      ));
+  // FD_LOG_NOTICE(( "*** t_per_req              %12ld", t_per_req  ));
+  // FD_LOG_NOTICE(( "*** bw_MBs             %.2f MB/s", bw_MBs  ));
+  // FD_LOG_NOTICE(( "*** ctx->stats t_run %20ld | q_req %12lu | q_bytes %16lu | t_acc %20ld | t_per_req %12.3f | iops %12.3f | bw_MBs %12.3f |",
+  FD_LOG_NOTICE(( "*** ctx->stats rd_req_max %4lu | t_run %ld ns (%.3f s) | q_req %lu | q_bytes %lu B | t_acc %ld ns | t_per_req %.3f s | iops %.3f | bw %.3f MB/s |",
+    VINYL_LTHASH_RD_REQ_MAX,
+    t_run, (double)t_run / (double)1e9,
+    ctx->stats.q_requests,
+    ctx->stats.q_bytes,
+    ctx->stats.t_acc,
+    t_per_req,
+    iops,
+    bw_MBs ));
+}
+
+
 FD_FN_UNUSED static void
 handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
                                          fd_vinyl_io_rd_t * rd_req ) {
+
+  /* .......... */
+  long t0; fd_memcpy( &t0, ((uchar*)rd_req)+32UL, sizeof(ulong) );
+  long t1 = fd_log_wallclock();
+  ctx->stats.t_acc += t1 - t0;
+  /* .......... */
 
   ulong idx = rd_req_ctx_get_idx( rd_req->ctx );
 
@@ -320,55 +360,38 @@ handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
   streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair );
 }
 
-#if 0
-FD_FN_UNUSED static void
-handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
-                                ulong                     seq,
-                                fd_vinyl_bstream_phdr_t * acc_hdr ) {
-
-  ulong free_i = 0UL;
-  ulong *                   in_seq  = &ctx->vinyl.pending.seq[ free_i ];
-  fd_vinyl_bstream_phdr_t * in_phdr = &ctx->vinyl.pending.phdr[ free_i ];
-  memcpy( in_seq,  &seq, sizeof(ulong) );
-  memcpy( in_phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t) );
-  ulong val_esz = fd_vinyl_bstream_ctl_sz( in_phdr->ctl );
-  ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
-  ctx->vinyl.pending.status[ free_i ]     = VINYL_LTHASH_RD_REQ_PEND;
-  ctx->vinyl.pending.seq[ free_i ]        = in_seq[0];
-  ctx->vinyl.pending.rd_req[ free_i ].seq = in_seq[0];
-  ctx->vinyl.pending.rd_req[ free_i ].sz  = pair_sz;
-
-  fd_vinyl_io_read( ctx->vinyl.io, &ctx->vinyl.pending.rd_req[ free_i ] );
-  ctx->vinyl.pending.status[ free_i ] = VINYL_LTHASH_RD_REQ_SENT;
-  ctx->vinyl.rd_req_cnt++;
-
-  fd_vinyl_io_rd_t * rd_req =  &ctx->vinyl.pending.rd_req[ free_i ];
-  while( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, FD_VINYL_IO_FLAG_BLOCKING )==FD_VINYL_SUCCESS ) {
-    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
-    ctx->vinyl.pending.status[ rd_req->ctx ] = VINYL_LTHASH_RD_REQ_FREE;
-    ctx->vinyl.pending.seq[ rd_req->ctx ] = ULONG_MAX;
-    rd_req->sz = 0UL;
-    ctx->vinyl.rd_req_cnt--;
-  }
-  FD_TEST( !ctx->vinyl.rd_req_cnt  );
-}
-#else
-FD_FN_UNUSED static void
-handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
-                                ulong                     seq,
-                                fd_vinyl_bstream_phdr_t * acc_hdr ) {
-
-  /* Consume as many ready requests as possible. */
-  if( FD_LIKELY( !!ctx->vinyl.rd_req_cnt ) ) {
-    fd_vinyl_io_rd_t * rd_req = NULL;
-    while( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )==FD_VINYL_SUCCESS ) {
-      handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
-      rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
-      rd_req->seq = ULONG_MAX;
-      rd_req->sz  = 0UL;
-      ctx->vinyl.rd_req_cnt--;
+static inline ulong
+consume_available_cqes( fd_snaplh_t * ctx,
+                        int           peek_first ) {
+  if( FD_LIKELY( !ctx->vinyl.rd_req_cnt ) ) return 0;
+  ulong processed_cnt = 0UL;
+  for(;;) {
+    #if IO_URING_ENABLED
+    if( FD_UNLIKELY( !!peek_first ) ) {
+      struct io_uring_cqe * cqe = NULL;
+      io_uring_peek_cqe( ctx->vinyl.ring, &cqe ); if( !cqe ) break;
     }
+    #else
+    (void)peek_first;
+    #endif
+    fd_vinyl_io_rd_t * rd_req = NULL;
+    if( FD_LIKELY( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )!=FD_VINYL_SUCCESS ) ) break;
+    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
+    rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
+    rd_req->seq = ULONG_MAX;
+    rd_req->sz  = 0UL;
+    ctx->vinyl.rd_req_cnt--;
+    processed_cnt++;
   }
+  return processed_cnt;
+}
+
+FD_FN_UNUSED static void
+handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
+                                ulong                     seq,
+                                fd_vinyl_bstream_phdr_t * acc_hdr ) {
+
+  ctx->stats.t0 = fd_long_min( ctx->stats.t0, fd_log_wallclock() );
 
   /* Find a free slot */
   ulong free_i = ULONG_MAX;
@@ -402,11 +425,18 @@ handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
   rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_PEND );
   rd_req->seq = seq;
   rd_req->sz  = pair_sz;
+  /* ........... */
+  long t0 = fd_log_wallclock();
+  fd_memcpy( ((uchar*)rd_req)+32UL, &t0, sizeof(ulong) );
+  ctx->stats.q_requests++;
+  ctx->stats.q_bytes += pair_sz;
+  /* ........... */
   fd_vinyl_io_read( ctx->vinyl.io, rd_req );
   rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_SENT );
   ctx->vinyl.rd_req_cnt++;
+
+  consume_available_cqes( ctx, 0/*peek_first*/ );
 }
-#endif
 
 FD_FN_UNUSED static void
 handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
@@ -439,6 +469,9 @@ handle_lthash_completion( fd_snaplh_t * ctx,
     /* TODO should this be sent in after_credit ? */
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, FD_LTHASH_LEN_BYTES, ctx->out.chunk0, ctx->out.wmark );
+    /* ............ */
+    print_stats( ctx );
+    /* ............ */
     return FD_SNAPSHOT_STATE_IDLE;
   }
   return ctx->state;
@@ -449,24 +482,7 @@ before_credit( fd_snaplh_t *       ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
-  *charge_busy = 0;
-
-  #if IO_URING_ENABLED
-  if( FD_UNLIKELY( !ctx->vinyl.rd_req_cnt ) ) return;
-
-  /* Consume as many ready requests as possible. */
-  fd_vinyl_io_rd_t * rd_req = NULL;
-  while( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )==FD_VINYL_SUCCESS ) {
-    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
-    rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
-    rd_req->seq = ULONG_MAX;
-    rd_req->sz  = 0UL;
-    ctx->vinyl.rd_req_cnt--;
-    *charge_busy = 1;
-  }
-  #else
-  (void)ctx;
-  #endif
+  *charge_busy = !!consume_available_cqes( ctx, 1/*peek_first*/ );
 }
 
 static void
@@ -563,6 +579,10 @@ handle_control_frag( fd_snaplh_t * ctx,
       fd_lthash_zero( &ctx->running_lthash_sub );
       fd_lthash_adder_new( ctx->adder );
       fd_lthash_adder_new( ctx->adder_sub );
+      /* ......... */
+      memset( &ctx->stats, 0, sizeof(ctx->stats) );
+      ctx->stats.t0 = LONG_MAX;
+      /* ......... */
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -711,15 +731,16 @@ privileged_init( fd_topo_t *      topo,
 
   #if IO_URING_ENABLED
 
-  FD_LOG_NOTICE(( "using io_uring" ));
+  FD_LOG_INFO(( "using io_uring version: %d.%d\n", io_uring_major_version(), io_uring_minor_version()));
+
   /* Join the bstream using io_ur */
   struct io_uring * ring = _ring_mem;
   uint depth = 2 * VINYL_LTHASH_RD_REQ_MAX;
   struct io_uring_params params = {
     .flags = IORING_SETUP_CQSIZE |
-              IORING_SETUP_COOP_TASKRUN |
-              IORING_SETUP_SINGLE_ISSUER,
-    .features = IORING_SETUP_DEFER_TASKRUN,
+             IORING_SETUP_DEFER_TASKRUN |
+             IORING_SETUP_SINGLE_ISSUER |
+             IORING_SETUP_COOP_TASKRUN,
     .cq_entries = depth
   };
   int init_err = io_uring_queue_init_params( depth, ring, &params );
@@ -739,6 +760,8 @@ privileged_init( fd_topo_t *      topo,
   fd_vinyl_io_t * io = fd_vinyl_io_ur_init( uring_mem, VINYL_LTHASH_IO_SPAD_MAX, dev_fd, ring );
   FD_TEST( io );
   ctx->vinyl.io = io;
+
+  ctx->vinyl.ring = ring;
   #endif
 }
 
@@ -811,7 +834,7 @@ unprivileged_init( fd_topo_t *      topo,
     rd_req->ctx = rd_req_ctx_from_parts( i, VINYL_LTHASH_RD_REQ_FREE );
     rd_req->dst = ((uchar*)block_mem) + i*VINYL_LTHASH_BLOCK_MAX_SZ;
   }
-  ctx->vinyl.rd_req_cnt  = 0UL;
+  ctx->vinyl.rd_req_cnt = 0UL;
 
   ctx->state                   = FD_SNAPSHOT_STATE_IDLE;
   ctx->full                    = 1;
@@ -824,10 +847,14 @@ unprivileged_init( fd_topo_t *      topo,
   fd_lthash_zero( &ctx->running_lthash );
   fd_lthash_zero( &ctx->running_lthash_sub );
   FD_LOG_NOTICE(( "*** hash_tile_idx %lu out of %lu", ctx->hash_tile_idx, ctx->num_hash_tiles ));
+
+  /* .......... */
+  memset( &ctx->stats, 0, sizeof(ctx->stats) );
+  /* .......... */
+
 }
 
-/* TODO should it be 1UL ? */
-#define STEM_BURST 2UL /* one control message and one malformed message or one hash result message */
+#define STEM_BURST 1UL
 #define STEM_LAZY  1000L
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snaplh_t

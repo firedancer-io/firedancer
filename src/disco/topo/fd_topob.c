@@ -401,6 +401,9 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "gui",
     "snapdc", /* TODO: Snapshot loading speed depends on having full core */
     "snapin", /* TODO: Snapshot loading speed depends on having full core */
+    "snapwh",
+    "snaplh",
+    "snaplv",
   };
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
