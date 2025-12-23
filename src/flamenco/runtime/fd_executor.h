@@ -40,7 +40,7 @@ uchar
 fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey );
 
 int
-fd_executor_verify_transaction( fd_bank_t *         bank,
+fd_executor_verify_transaction( fd_bank_t const *   bank,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out );
 

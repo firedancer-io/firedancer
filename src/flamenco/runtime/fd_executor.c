@@ -401,10 +401,17 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L5725-L5753 */
 int
-fd_executor_verify_transaction( fd_bank_t *         bank,
+fd_executor_verify_transaction( fd_bank_t const *   bank,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out ) {
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
+
+  /* SIMD-0160: enforce static limit on number of instructions.
+     https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L4710-L4716 */
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, static_instruction_limit ) &&
+                   TXN( txn_in->txn )->instr_cnt > FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+    return FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L566-L569 */
   err = fd_executor_compute_budget_program_execute_instructions( bank, txn_in, txn_out );
