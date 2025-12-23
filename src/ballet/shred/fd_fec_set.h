@@ -23,6 +23,9 @@ struct fd_fec_set {
   d_rcvd_t data_shred_rcvd  [ d_rcvd_word_cnt ];
   p_rcvd_t parity_shred_rcvd[ p_rcvd_word_cnt ];
 
+  ulong data_shred_cnt;   /* In practice always FD_REEDSOL_DATA_SHREDS_MAX */
+  ulong parity_shred_cnt; /* In practice always FD_REEDSOL_PARITY_SHREDS_MAX */
+
   uchar * data_shreds  [ FD_REEDSOL_DATA_SHREDS_MAX   ];
   uchar * parity_shreds[ FD_REEDSOL_PARITY_SHREDS_MAX ];
 };

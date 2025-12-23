@@ -313,6 +313,9 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     memcpy( chained_merkle_root, root, FD_SHRED_MERKLE_ROOT_SZ );
   }
 
+  result->data_shred_cnt   = data_shred_cnt;
+  result->parity_shred_cnt = parity_shred_cnt;
+
   return result;
 }
 

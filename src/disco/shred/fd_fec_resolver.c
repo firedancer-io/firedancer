@@ -371,7 +371,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   if( !is_data_shred ) { /* Roughly 50/50 branch */
     if( FD_UNLIKELY( (shred->code.data_cnt!=FD_REEDSOL_DATA_SHREDS_MAX) | (shred->code.code_cnt!=FD_REEDSOL_PARITY_SHREDS_MAX) ) ) {
       FD_BASE58_ENCODE_32_BYTES( leader_pubkey, s );
-      FD_LOG_CRIT(( "shred->code.data_cnt != 32. leader %s", s ) );
+      FD_LOG_WARNING(( "shred->code.data_cnt != 32. leader %s", s ) );
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
     if( FD_UNLIKELY( (ulong)shred->fec_set_idx+(ulong)shred->code.data_cnt>=resolver->max_shred_idx                          ) )
@@ -382,7 +382,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   if( FD_UNLIKELY( ( shred->fec_set_idx % FD_REEDSOL_DATA_SHREDS_MAX ) != 0UL ) ) {
     FD_BASE58_ENCODE_32_BYTES( leader_pubkey, s );
-    FD_LOG_CRIT(( "shred->fec_set_idx %u slot %lu mod FD_REEDSOL_DATA_SHREDS_MAX != 0. leader %s", shred->fec_set_idx, shred->slot, s ) );
+    FD_LOG_WARNING(( "shred->fec_set_idx %u slot %lu mod FD_REEDSOL_DATA_SHREDS_MAX != 0. leader %s", shred->fec_set_idx, shred->slot, s ) );
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
