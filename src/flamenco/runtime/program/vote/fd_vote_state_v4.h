@@ -27,15 +27,17 @@ fd_vote_state_v4_get_and_update_authorized_voter( fd_vote_state_v4_t * self,
                                                   ulong                current_epoch,
                                                   fd_pubkey_t **       pubkey /* out */ );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L450-L478 */
+/* authorized_withdrawer_signer and signers are parameters to a closure
+   called verify, which is passed into the associated Agave method.
+   https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L450-L478 */
 int
-fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t *                      ctx,
-                                           fd_vote_state_v4_t *                       self,
-                                           fd_pubkey_t const *                        authorized_pubkey,
-                                           ulong                                      current_epoch,
-                                           ulong                                      target_epoch,
-                                           /* "verify" closure */ int                 authorized_withdrawer_signer,
-                                           /* "verify" closure */ fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] );
+fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
+                                           fd_vote_state_v4_t *  self,
+                                           fd_pubkey_t const *   authorized_pubkey,
+                                           ulong                 current_epoch,
+                                           ulong                 target_epoch,
+                                           int                   authorized_withdrawer_signer,
+                                           fd_pubkey_t const *   signers[static FD_TXN_SIG_MAX] );
 
 FD_PROTOTYPES_END
 

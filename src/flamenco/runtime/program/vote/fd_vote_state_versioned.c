@@ -232,13 +232,13 @@ fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
 }
 
 int
-fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *                      ctx,
-                                 fd_vote_state_versioned_t *                self,
-                                 fd_pubkey_t const *                        authorized_pubkey,
-                                 ulong                                      current_epoch,
-                                 ulong                                      target_epoch,
-                                 /* "verify" closure */ int                 authorized_withdrawer_signer,
-                                 /* "verify" closure */ fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] ) {
+fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
+                                 fd_vote_state_versioned_t * self,
+                                 fd_pubkey_t const *         authorized_pubkey,
+                                 ulong                       current_epoch,
+                                 ulong                       target_epoch,
+                                 int                         authorized_withdrawer_signer,
+                                 fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX] ) {
   switch( self->discriminant ) {
     case fd_vote_state_versioned_enum_v3:
       return fd_vote_state_v3_set_new_authorized_voter(

@@ -135,13 +135,13 @@ fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_v3_t * self,
 }
 
 int
-fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *                      ctx,
-                                           fd_vote_state_v3_t *                       self,
-                                           fd_pubkey_t const *                        authorized_pubkey,
-                                           ulong                                      current_epoch,
-                                           ulong                                      target_epoch,
-                                           /* "verify" closure */ int                 authorized_withdrawer_signer,
-                                           /* "verify" closure */ fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] ) {
+fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
+                                           fd_vote_state_v3_t *  self,
+                                           fd_pubkey_t const *   authorized_pubkey,
+                                           ulong                 current_epoch,
+                                           ulong                 target_epoch,
+                                           int                   authorized_withdrawer_signer,
+                                           fd_pubkey_t const *   signers[static FD_TXN_SIG_MAX] ) {
   int           rc;
   fd_pubkey_t * epoch_authorized_voter = NULL;
 
