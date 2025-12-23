@@ -16,6 +16,8 @@
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
 /* The shred tile handles shreds from two data sources: shreds generated
    from microblocks from the banking tile, and shreds retransmitted from
@@ -259,6 +261,26 @@ typedef struct {
   fd_bmtree_node_t out_merkle_roots[ FD_SHRED_BATCH_FEC_SETS_MAX ];
   uchar block_ids[ BLOCK_IDS_TABLE_CNT ][ FD_SHRED_MERKLE_ROOT_SZ ];
 } fd_shred_ctx_t;
+
+/* shred features are generally considered active at the epoch *following*
+   the epoch in which the feature gate is activated.
+   fd_shred_check_feature_activation() performs the check and it's equivalent
+   to the rust functions check_feature_activation():
+   https://github.com/anza-xyz/agave/blob/v3.1.4/turbine/src/cluster_nodes.rs#L771
+   https://github.com/anza-xyz/agave/blob/v3.1.4/core/src/shred_fetch_stage.rs#L456 */
+static inline int
+fd_shred_check_feature_activation( ulong shred_slot, ulong feature_slot, fd_shred_ctx_t * ctx ) {
+  fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, shred_slot );
+  if( lsched==NULL ) {
+    /* when the shred slot is out of a reasonable range it won't be propagated,
+       so the feature activation doesn't really matter */
+    return 0;
+  }
+  fd_epoch_schedule_t default_schedule[1] = {{ lsched->slot_cnt, lsched->slot_cnt, 0, 0, 0 }};
+  ulong shred_epoch = fd_slot_to_epoch( default_schedule, shred_slot, NULL );
+  ulong feature_epoch = fd_slot_to_epoch( default_schedule, feature_slot, NULL );
+  return feature_epoch < shred_epoch;
+}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -917,7 +939,8 @@ after_frag( fd_shred_ctx_t *    ctx,
             the shred, but still send it to the blockstore. */
           fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
           if( FD_UNLIKELY( !sdest ) ) break;
-          fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt );
+          int use_chacha8 = fd_shred_check_feature_activation( shred->slot, ctx->features_activation->switch_to_chacha8_turbine, ctx );
+          fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt, use_chacha8 );
           if( FD_UNLIKELY( !dests ) ) break;
 
           for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++ ) send_shred( ctx, stem, *out_shred, ctx->adtl_dests_retransmit+i, ctx->tsorig );
@@ -1117,6 +1140,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     if( FD_UNLIKELY( !k ) ) return;
     fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, new_shreds[ 0 ]->slot );
     if( FD_UNLIKELY( !sdest ) ) return;
+    int use_chacha8 = fd_shred_check_feature_activation( new_shreds[ 0 ]->slot, ctx->features_activation->switch_to_chacha8_turbine, ctx );
 
     ulong out_stride;
     ulong max_dest_cnt[1];
@@ -1129,14 +1153,14 @@ after_frag( fd_shred_ctx_t *    ctx,
       /* In the case of feature activation, the fanout used below is
           the same as the one calculated/modified previously at the
           beginning of after_frag() for IN_KIND_NET in this slot. */
-      dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
+      dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt, use_chacha8 );
     } else {
       for( ulong i=0UL; i<k; i++ ) {
         for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, ctx->tsorig );
       }
       out_stride = 1UL;
       *max_dest_cnt = 1UL;
-      dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests );
+      dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests, use_chacha8 );
     }
     if( FD_UNLIKELY( !dests ) ) return;
 

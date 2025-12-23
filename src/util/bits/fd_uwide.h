@@ -88,6 +88,12 @@ static inline void
 fd_uwide_mul( ulong * FD_RESTRICT _zh, ulong * FD_RESTRICT _zl,
               ulong               x,
               ulong               y ) {
+#if FD_HAS_INT128
+    /* Compiles to one mulx instruction */
+    uint128 res = (uint128)x * (uint128)y;
+    *_zh = (ulong)(res>>64);
+    *_zl = (ulong) res;
+#else
   ulong x1  = x>>32;  ulong x0  = (ulong)(uint)x;   /* both 2^32-1 @ worst case (x==y==2^64-1) */
   ulong y1  = y>>32;  ulong y0  = (ulong)(uint)y;   /* both 2^32-1 @ worst case */
 
@@ -103,6 +109,7 @@ fd_uwide_mul( ulong * FD_RESTRICT _zh, ulong * FD_RESTRICT _zl,
   /* zh 2^64 + zl == 2^128-2^65+1 @ worst case */
 
   *_zh = zh; *_zl = zl;
+#endif
 }
 
 /* fd_uwide_find_msb returns floor( log2 <xh,xl> ) exactly.  Assumes

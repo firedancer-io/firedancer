@@ -4,7 +4,7 @@
 
 #define SORT_NAME sort_pubkey
 #define SORT_KEY_T fd_shred_dest_weighted_t
-#define SORT_BEFORE(a,b) (memcmp( (a).pubkey.uc, (b).pubkey.uc, 32UL )<0)
+#define SORT_BEFORE(a,b) (memcmp( (a).pubkey.uc, (b).pubkey.uc, 32UL )>0)
 #include "../../util/tmpl/fd_sort.c"
 
 #define SORT_NAME sort_weights_by_stake_id

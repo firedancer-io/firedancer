@@ -6,9 +6,7 @@
    fd_rng is a better choice in all other cases. */
 
 #include "fd_chacha.h"
-#if !FD_HAS_INT128
 #include "../../util/bits/fd_uwide.h"
-#endif
 
 /* FD_CHACHA_RNG_DEBUG controls debug logging.  0 is off; 1 is on. */
 
@@ -231,16 +229,31 @@ fd_chacha20_rng_ulong_roll( fd_chacha_rng_t * rng,
                                   (n << (63 - fd_ulong_find_msb( n ) )) - 1UL );
 
   for( int i=0; 1; i++ ) {
-    ulong   v   = fd_chacha20_rng_ulong( rng );
-#if FD_HAS_INT128
-    /* Compiles to one mulx instruction */
-    uint128 res = (uint128)v * (uint128)n;
-    ulong   hi  = (ulong)(res>>64);
-    ulong   lo  = (ulong) res;
-#else
+    ulong v = fd_chacha20_rng_ulong( rng );
     ulong hi, lo;
     fd_uwide_mul( &hi, &lo, v, n );
-#endif
+
+#   if FD_CHACHA_RNG_DEBUG
+    FD_LOG_DEBUG(( "roll (attempt %d): n=%016lx zone: %016lx v=%016lx lo=%016lx hi=%016lx", i, n, zone, v, lo, hi ));
+#   else
+    (void)i;
+#   endif /* FD_CHACHA_RNG_DEBUG */
+
+    if( FD_LIKELY( lo<=zone ) ) return hi;
+  }
+}
+
+static inline ulong
+fd_chacha8_rng_ulong_roll( fd_chacha_rng_t * rng,
+                           ulong             n ) {
+  ulong const zone = fd_ulong_if( rng->mode==FD_CHACHA_RNG_MODE_MOD,
+                                  ULONG_MAX - (ULONG_MAX-n+1UL)%n,
+                                  (n << (63 - fd_ulong_find_msb( n ) )) - 1UL );
+
+  for( int i=0; 1; i++ ) {
+    ulong v = fd_chacha8_rng_ulong( rng );
+    ulong hi, lo;
+    fd_uwide_mul( &hi, &lo, v, n );
 
 #   if FD_CHACHA_RNG_DEBUG
     FD_LOG_DEBUG(( "roll (attempt %d): n=%016lx zone: %016lx v=%016lx lo=%016lx hi=%016lx", i, n, zone, v, lo, hi ));

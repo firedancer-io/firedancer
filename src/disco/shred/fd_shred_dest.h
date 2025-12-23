@@ -161,7 +161,8 @@ fd_shred_dest_idx_t *
 fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
                              fd_shred_t const * const * input_shreds,
                              ulong                      shred_cnt,
-                             fd_shred_dest_idx_t      * out );
+                             fd_shred_dest_idx_t      * out,
+                             int                        use_chacha8 );
 
 /* fd_shred_dest_compute_children computes the source validator's
    children in the Turbine tree for each of the provided shreds.
@@ -205,7 +206,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
                                 ulong                      out_stride,
                                 ulong                      fanout,
                                 ulong                      dest_cnt,
-                                ulong                    * opt_max_dest_cnt );
+                                ulong                    * opt_max_dest_cnt,
+                                int                        use_chacha8 );
 
 /* fd_shred_dest_idx_to_dest maps a destination index (as produced by
    fd_shred_dest_compute_children or fd_shred_dest_compute_first) to an

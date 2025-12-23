@@ -59,9 +59,19 @@ fd_chacha_rng_delete( void * shrng ) {
 }
 
 fd_chacha_rng_t *
+fd_chacha8_rng_init( fd_chacha_rng_t * rng,
+                      void const *      key ) {
+  memcpy( rng->key, key, FD_CHACHA_KEY_SZ );
+  rng->buf_off  = 0UL;
+  rng->buf_fill = 0UL;
+  fd_chacha8_rng_private_refill( rng );
+  return rng;
+}
+
+fd_chacha_rng_t *
 fd_chacha20_rng_init( fd_chacha_rng_t * rng,
                       void const *      key ) {
-  memcpy( rng->key, key, FD_CHACHA20_KEY_SZ );
+  memcpy( rng->key, key, FD_CHACHA_KEY_SZ );
   rng->buf_off  = 0UL;
   rng->buf_fill = 0UL;
   fd_chacha20_rng_private_refill( rng );
