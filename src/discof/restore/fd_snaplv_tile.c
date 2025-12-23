@@ -1,17 +1,9 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../ballet/lthash/fd_lthash.h"
-#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 
 #include "utils/fd_ssctrl.h"
-
-#include "generated/fd_snaplv_tile_seccomp.h"
-
-#include <errno.h>
-#include <sys/stat.h> /* fstat */
-#include <fcntl.h> /* open */
-#include <unistd.h> /* close */
 
 #define NAME "snaplv"
 
@@ -24,9 +16,6 @@
 #define OUT_LINK_CT (1)
 
 #define VINYL_LTHASH_PENDING_MAX  (8UL)
-#define VINYL_LTHASH_BLOCK_ALIGN  (512UL) /* O_DIRECT would require 4096UL */
-#define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
-FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
 
 struct out_link {
   fd_wksp_t * mem;
@@ -48,11 +37,6 @@ struct fd_snaplv_tile {
   out_link_t          out_link[ 2 ];
 
   struct {
-    int               dev_fd;
-    ulong             dev_sz;
-    ulong             dev_base;
-    void *            pair_mem;
-    void *            pair_tmp;
     ulong const *     bstream_seq;
     ulong             bstream_seq_last;
     struct {
@@ -134,8 +118,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snaplv_t),     sizeof(fd_snaplv_t)       );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
   return FD_LAYOUT_FINI( l, alignof(fd_snaplv_t) );
 }
 
@@ -461,65 +443,6 @@ after_credit( fd_snaplv_t *  ctx,
   }
 }
 
-/* TODO seccomp needs adjustment */
-static ulong
-populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
-                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
-                      ulong                  out_fds_cnt,
-                      int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
-
-  ulong out_cnt = 0;
-  out_fds[ out_cnt++ ] = 2UL; /* stderr */
-  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
-    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  }
-
-  return out_cnt;
-}
-
-static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
-                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
-                          ulong                  out_cnt,
-                          struct sock_filter *   out ) {
-  populate_sock_filter_policy_fd_snaplv_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_fd_snaplv_tile_instr_cnt;
-}
-
-static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snaplv_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplv_t), sizeof(fd_snaplv_t) );
-
-  /* Set up io_bd dependencies */
-
-  char const * bstream_path = tile->snaplv.vinyl_path;
-  /* Note: it would be possible to use O_DIRECT, but it would require
-     VINYL_LTHASH_BLOCK_ALIGN to be 4096UL, which substantially
-     increases the read overhead, making it slower (keep in mind that
-     a rather large subset of mainnet accounts typically fits inside
-     one FD_VINYL_BSTREAM_BLOCK_SZ. */
-  int dev_fd = open( bstream_path, O_RDONLY|O_CLOEXEC, 0444 );
-  if( FD_UNLIKELY( dev_fd<0 ) ) {
-    FD_LOG_ERR(( "open(%s,O_RDONLY|O_CLOEXEC, 0444) failed (%i-%s)",
-                 bstream_path, errno, fd_io_strerror( errno ) ));
-  }
-
-  struct stat st;
-  if( FD_UNLIKELY( 0!=fstat( dev_fd, &st ) ) ) FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", bstream_path, errno, strerror( errno ) ));
-  ctx->vinyl.dev_fd  = dev_fd;
-  ulong bstream_sz   = (ulong)st.st_size;
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( bstream_sz, FD_VINYL_BSTREAM_BLOCK_SZ ) ) ) {
-    FD_LOG_ERR(( "vinyl file %s has misaligned size (%lu bytes)", bstream_path, bstream_sz ));
-  }
-  ctx->vinyl.dev_sz   = bstream_sz;
-  ctx->vinyl.dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
-}
-
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -527,11 +450,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaplv_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplv_t), sizeof(fd_snaplv_t)         );
-  void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
-  void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ );
-
-  ctx->vinyl.pair_mem = pair_mem;
-  ctx->vinyl.pair_tmp = pair_tmp;
 
   ulong expected_in_cnt = 1UL + fd_topo_tile_name_cnt( topo, "snaplh" );
   if( FD_UNLIKELY( tile->in_cnt!=expected_in_cnt ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected %lu",  tile->in_cnt, expected_in_cnt ));
@@ -623,6 +541,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_lthash_zero( &ctx->running_lthash );
 }
 
+/* TODO adjust */
 #define STEM_BURST 2UL /* one control message and one malformed message */
 #define STEM_LAZY  1000L
 
@@ -638,11 +557,8 @@ unprivileged_init( fd_topo_t *      topo,
 
 fd_topo_run_tile_t fd_tile_snaplv = {
   .name                     = NAME,
-  .populate_allowed_fds     = populate_allowed_fds,
-  .populate_allowed_seccomp = populate_allowed_seccomp,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
