@@ -73,11 +73,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),            fd_txncache_footprint( tile->snapin.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                     );
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                     );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
-  l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
-  if( tile->snapin.use_vinyl ) {
-    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_wd_align(), fd_vinyl_io_wd_footprint( tile->snapin.snapwr_depth ) );
-    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( FD_SNAPIN_IO_SPAD_MAX     ) );
+  l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS );
+  if( !tile->snapin.use_vinyl ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -362,6 +360,10 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, entry->blockhash, entry->txnhash );
   }
 
+  if( !!ctx->use_vinyl && !!ctx->txncache_entries_len_vinyl_ptr ) {
+    memcpy( ctx->txncache_entries_len_vinyl_ptr, &ctx->txncache_entries_len, sizeof(ulong) );
+  }
+
   FD_LOG_INFO(( "inserted %lu/%lu transactions into the txncache", insert_cnt, ctx->txncache_entries_len ));
 
   /* Then finalize all the banks (freezing them) and setting the txnhash
@@ -572,7 +574,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
-      fd_ssparse_batch_enable( ctx->ssparse, sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+      fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
@@ -584,12 +586,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
       fd_memset( &ctx->vinyl_op, 0, sizeof(ctx->vinyl_op) );
-      if( ctx->use_vinyl ) {
-        if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) {
-          fd_snapin_vinyl_txn_begin( ctx );
-        }
-        fd_snapin_vinyl_wd_init( ctx );
-      }
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -598,18 +594,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( ctx->use_vinyl ) {
-        fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_cancel( ctx );
-        }
+      if( ctx->full ) {
+        fd_accdb_clear( ctx->accdb_admin );
       } else {
-        if( ctx->full ) {
-          fd_accdb_clear( ctx->accdb_admin );
-        } else {
-          fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
-          fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
-        }
+        fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
+        fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
       }
       break;
 
@@ -622,13 +611,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         return;
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-
-      if( ctx->use_vinyl ) {
-        fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_commit( ctx );
-        }
-      }
 
       fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
       fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
@@ -646,17 +628,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( ctx->use_vinyl ) {
-        fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_commit( ctx );
+      if( !ctx->use_vinyl ) {
+        if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
+          FD_LOG_WARNING(( "slot deltas verification failed" ));
+          transition_malformed( ctx, stem );
+          break;
         }
-      }
-
-      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-        FD_LOG_WARNING(( "slot deltas verification failed" ));
-        transition_malformed( ctx, stem );
-        break;
       }
 
       /* Publish any remaining funk txn */
@@ -678,17 +655,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-      if( ctx->use_vinyl ) fd_snapin_vinyl_shutdown( ctx );
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_ERROR:
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
-      if( ctx->use_vinyl ) {
-        fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_cancel( ctx );
-        }
-      }
       break;
 
     default:
@@ -744,7 +714,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   (void)topo;
   if( tile->snapin.use_vinyl ) {
-    return fd_snapin_vinyl_seccomp( out_cnt, out );
+    return 0;
   } else {
     populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
     return sock_filter_policy_fd_snapin_tile_instr_cnt;
@@ -797,13 +767,24 @@ unprivileged_init( fd_topo_t *      topo,
   void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots ) );
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                              );
   void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                              );
-  ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   ctx->blockhash_offsets  = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
-  void * _io_wd = NULL;
-  void * _io_mm = NULL;
-  if( tile->snapin.use_vinyl ) {
-    _io_wd = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_wd_align(), fd_vinyl_io_wd_footprint( tile->snapin.snapwr_depth ) );
-    _io_mm = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( FD_SNAPIN_IO_SPAD_MAX     ) );
+
+  if( !tile->snapin.use_vinyl ) {
+    ctx->txncache_entries = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+    ctx->txncache_entries_len_vinyl_ptr = NULL;
+  } else {
+    /* only the dcache of snapin_txn is of use here */
+    fd_snapin_out_link_t snapin_txn = out1( topo, tile, "snapin_txn" );
+    FD_TEST( !!snapin_txn.mem );
+    ulong depth = topo->links[ tile->out_link_id[ snapin_txn.idx ] ].depth;
+    FD_TEST( ( depth*snapin_txn.mtu )==( sizeof(fd_sstxncache_entry_t)*(FD_SNAPIN_TXNCACHE_MAX_ENTRIES+1UL) ) );
+    /* Although only the first 8 bytes are needed for txncache_entries_len,
+       it is easier to handle mtu in multiples of fd_sstxncache_entry_t. */
+    fd_sstxncache_entry_t * txncache_base = fd_chunk_to_laddr( snapin_txn.mem, snapin_txn.chunk0 );
+    ctx->txncache_entries_len_vinyl_ptr   = (ulong*)txncache_base;
+    FD_TEST( sizeof(ulong)<=sizeof(fd_sstxncache_entry_t) );
+    memset( ctx->txncache_entries_len_vinyl_ptr, 0, sizeof(ulong) );
+    ctx->txncache_entries                 = txncache_base + 1UL;
   }
 
   ctx->full = 1;
@@ -843,15 +824,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gui_out      = out1( topo, tile, "snapin_gui"   );
   ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ct", 0UL );
   if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ls", 0UL );
-  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
+  if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_wm", 0UL );
+  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls` or `snapin_wm`" ));
   fd_topo_link_t * snapin_out_link = &topo->links[ tile->out_link_id[ out_link_ct_idx ] ];
   ctx->out_ct_idx = out_link_ct_idx;
 
-  if( FD_UNLIKELY( ctx->out_ct_idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
+  if( FD_UNLIKELY( ctx->out_ct_idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls` or `snapin_wm`" ));
   if( FD_UNLIKELY( ctx->manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
 
-  if( 0==strcmp( snapin_out_link->name, "snapin_ls" ) ) {
-    ctx->hash_out = out1( topo, tile, "snapin_ls" );
+  if( ( 0==strcmp( snapin_out_link->name, "snapin_ls" ) ) ||
+      ( 0==strcmp( snapin_out_link->name, "snapin_wm" ) ) ) {
+    ctx->hash_out = out1( topo, tile, snapin_out_link->name );
   }
 
   fd_ssparse_reset( ctx->ssparse );
@@ -873,7 +856,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
 
   if( tile->snapin.use_vinyl ) {
-    fd_snapin_vinyl_unprivileged_init( ctx, topo, tile, _io_mm, _io_wd );
+    ctx->use_vinyl = 1;
+    fd_snapin_vinyl_unprivileged_init( ctx, topo, tile, NULL, NULL );
   }
 }
 

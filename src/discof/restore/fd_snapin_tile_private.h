@@ -80,7 +80,8 @@ struct fd_snapin_tile {
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
 
-  ulong txncache_entries_len;
+  ulong   txncache_entries_len;
+  ulong * txncache_entries_len_vinyl_ptr;
   fd_sstxncache_entry_t * txncache_entries;
 
   fd_txncache_fork_id_t txncache_root_fork_id;
@@ -103,22 +104,6 @@ struct fd_snapin_tile {
   fd_snapin_out_link_t manifest_out;
   fd_snapin_out_link_t gui_out;
   fd_snapin_out_link_t hash_out;
-
-  struct {
-    uchar * bstream_mem;
-    ulong   bstream_sz;
-
-    /* Vinyl in either io_wd or io_mm mode */
-    fd_vinyl_io_t * io;
-    fd_vinyl_io_t * io_wd;
-    fd_vinyl_io_t * io_mm;
-    ulong           io_seed;
-
-    fd_vinyl_meta_t map[1];
-
-    ulong txn_seq;  /* bstream seq of first txn record (in [seq_past,seq_present]) */
-    uint  txn_active : 1;
-  } vinyl;
 
   struct {
     uchar * pair;
@@ -235,9 +220,9 @@ fd_snapin_vinyl_shutdown( fd_snapin_tile_t * ctx );
 
 /* Internal APIs for inserting accounts */
 
-void fd_snapin_process_account_header_vinyl( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-void fd_snapin_process_account_data_vinyl  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-void fd_snapin_process_account_batch_vinyl ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+int fd_snapin_process_account_header_vinyl( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+int fd_snapin_process_account_data_vinyl  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+int fd_snapin_process_account_batch_vinyl ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
 
 void
 fd_snapin_read_account_vinyl( fd_snapin_tile_t *  ctx,
@@ -260,7 +245,7 @@ static inline int
 fd_snapin_process_account_header( fd_snapin_tile_t *            ctx,
                                   fd_ssparse_advance_result_t * result ) {
   if( ctx->use_vinyl ) {
-    fd_snapin_process_account_header_vinyl( ctx, result );
+    return fd_snapin_process_account_header_vinyl( ctx, result );
   } else {
     return fd_snapin_process_account_header_funk( ctx, result );
   }
@@ -271,7 +256,7 @@ static inline int
 fd_snapin_process_account_data( fd_snapin_tile_t *            ctx,
                                 fd_ssparse_advance_result_t * result ) {
   if( ctx->use_vinyl ) {
-    fd_snapin_process_account_data_vinyl( ctx, result );
+    return fd_snapin_process_account_data_vinyl( ctx, result );
   } else {
     return fd_snapin_process_account_data_funk( ctx, result );
   }
@@ -283,7 +268,7 @@ fd_snapin_process_account_batch( fd_snapin_tile_t *            ctx,
                                  fd_ssparse_advance_result_t * result,
                                  buffered_account_batch_t *    buffered_batch ) {
   if( ctx->use_vinyl ) {
-    fd_snapin_process_account_batch_vinyl( ctx, result );
+    return fd_snapin_process_account_batch_vinyl( ctx, result );
   } else {
     return fd_snapin_process_account_batch_funk( ctx, result, buffered_batch );
   }
