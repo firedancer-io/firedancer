@@ -47,7 +47,7 @@
    Solana's behavior. */
 #define NS_IN_S ((long)1e9)
 
-/* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamps.rs#L2110-L2117 */
+/* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2110-L2117 */
 static inline long
 unix_timestamp_from_genesis( fd_bank_t * bank ) {
   /* TODO: genesis_creation_time needs to be a long in the bank. */
