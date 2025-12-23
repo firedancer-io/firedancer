@@ -106,7 +106,10 @@ check_vote_account_length( fd_borrowed_account_t const * vote_account,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L855-L870 */
+/* The versioned parameter must point to a buffer that is aligned to
+   FD_VOTE_STATE_VERSIONED_ALIGN and is at least
+   FD_VOTE_STATE_VERSIONED_FOOTPRINT bytes in size.
+   https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L855-L870 */
 static int
 init_vote_account_state( fd_exec_instr_ctx_t *         ctx,
                          fd_borrowed_account_t *       vote_account,
@@ -114,13 +117,6 @@ init_vote_account_state( fd_exec_instr_ctx_t *         ctx,
                          int                           target_version,
                          fd_vote_init_t *              vote_init,
                          fd_sol_sysvar_clock_t const * clock ) {
-  /*
-   * N.B. Technically we should destroy() to release memory before
-   * newing, otherwise the pointers are wiped and memory is leaked.
-   * We are probably fine for now since we are bump allocating
-   * everything and the enclosing frame will free everything when
-   * popped.
-   */
   /* Reset the object */
   fd_vote_state_versioned_new( versioned );
 
