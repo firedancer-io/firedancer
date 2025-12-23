@@ -6,19 +6,19 @@
 
 FD_PROTOTYPES_BEGIN
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L104
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L104 */
 ulong
 fd_vote_lockout_get_lockout( fd_vote_lockout_t * self );
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L110
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L110 */
 ulong
 fd_vote_lockout_last_locked_out_slot( fd_vote_lockout_t * self );
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L114
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L114 */
 ulong
 fd_vote_lockout_is_locked_out_at_slot( fd_vote_lockout_t * self, ulong slot );
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L122
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L122 */
 void
 fd_vote_lockout_increase_confirmation_count( fd_vote_lockout_t * self, uint by );
 

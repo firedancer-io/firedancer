@@ -33,7 +33,7 @@ fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
                               uchar *                       authorized_voters_mem,
                               uchar *                       landed_votes_mem );
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L828
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L828 */
 int
 fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_v3_t * self,
                                                   ulong                current_epoch,
