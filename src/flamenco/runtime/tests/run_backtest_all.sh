@@ -94,3 +94,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842 -y 1 -m 20
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-r2 -y 1 -m 2000000 -e 376969900 -o 5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-simd-339 -y 1 -m 2000000 -e 376969900 -o H6iVbVaDZgDphcPbcZwc5LoznMPWQfnJ1AM7L1xzqvt5
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458 -y 1 -m 2000000 -e 385786458
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-deprecate-rent-exemption-threshold -y 1 -m 1000 -e 260

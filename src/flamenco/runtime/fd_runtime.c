@@ -1,5 +1,6 @@
 #include "fd_runtime.h"
 #include "../capture/fd_capture_ctx.h"
+#include "../types/fd_cast.h"
 #include "fd_acc_mgr.h"
 #include "fd_alut_interp.h"
 #include "fd_bank.h"
@@ -561,6 +562,29 @@ fd_features_activate( fd_bank_t *               bank,
   }
 }
 
+/* SIMD-0194: deprecate_rent_exemption_threshold
+   https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
+static void
+deprecate_rent_exemption_threshold( fd_bank_t *               bank,
+                                    fd_accdb_user_t *         accdb,
+                                    fd_funk_txn_xid_t const * xid,
+                                    fd_capture_ctx_t *        capture_ctx,
+                                    fd_funk_t *               funk ) {
+  fd_rent_t rent[1] = {0};
+  if( FD_UNLIKELY( !fd_sysvar_rent_read( funk, xid, rent ) ) ) {
+    FD_LOG_CRIT(( "fd_sysvar_rent_read failed" ));
+  }
+  rent->lamports_per_uint8_year = fd_rust_cast_double_to_ulong(
+    (double)rent->lamports_per_uint8_year * rent->exemption_threshold );
+  rent->exemption_threshold     = FD_SIMD_0194_NEW_RENT_EXEMPTION_THRESHOLD;
+
+  /* We don't refresh the sysvar cache here. The cache is refreshed in
+     fd_sysvar_cache_restore, which is called at the start of every block
+     in fd_runtime_block_execute_prepare, after this function. */
+  fd_sysvar_rent_write( bank, accdb, xid, capture_ctx, rent );
+  fd_bank_rent_set( bank, *rent );
+}
+
 /* Starting a new epoch.
   New epoch:        T
   Just ended epoch: T-1
@@ -604,6 +628,12 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_features_activate( bank, accdb, xid, capture_ctx );
   fd_features_restore( bank, funk, xid );
+
+  /* SIMD-0194: deprecate_rent_exemption_threshold
+     https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, deprecate_rent_exemption_threshold ) ) ) {
+    deprecate_rent_exemption_threshold( bank, accdb, xid, capture_ctx, funk );
+  }
 
   /* Apply builtin program feature transitions
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
