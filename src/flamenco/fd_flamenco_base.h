@@ -56,6 +56,9 @@ typedef struct fd_txn_out fd_txn_out_t;
 struct fd_log_collector;
 typedef struct fd_log_collector fd_log_collector_t;
 
+struct fd_genesis;
+typedef struct fd_genesis fd_genesis_t;
+
 struct fd_account_meta {
   uchar owner[32];
   ulong lamports;
