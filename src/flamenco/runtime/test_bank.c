@@ -266,17 +266,19 @@ main( int argc, char ** argv ) {
   fd_pubkey_t key_8 = { .ul[0] = 9 };
   fd_pubkey_t key_9 = { .ul[0] = 10 };
 
-  char *      _page_sz = "gigantic";
-  ulong       numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
-                                                4UL,
-                                                fd_shmem_cpu_idx( numa_idx ),
-                                                "wksp",
-                                                0UL );
-  FD_TEST( wksp );
+  ulong const mem_req       = 4UL<<30;
+  ulong       wksp_part_max = fd_wksp_part_max_est( mem_req, 1UL<<20 );
+  ulong       wksp_data_max = fd_wksp_data_max_est( mem_req, wksp_part_max );
+  void *      wksp_mem      = aligned_alloc( FD_SHMEM_NORMAL_PAGE_SZ, mem_req ); FD_TEST( wksp_mem );
+  fd_wksp_t * wksp          = fd_wksp_new( wksp_mem, "snapin", 1U, wksp_part_max, wksp_data_max ); FD_TEST( wksp );
+  fd_shmem_join_anonymous( "snapin", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, wksp_mem, FD_SHMEM_NORMAL_PAGE_SZ, mem_req>>FD_SHMEM_NORMAL_LG_PAGE_SZ );
 
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 2UL ), 1UL );
   FD_TEST( mem );
+# if !FD_HAS_MSAN
+  ulong fp = fd_banks_footprint( 16UL, 2UL );
+  for( ulong i=0UL; i<fp; i+=8 ) FD_STORE( ulong, mem+i, fd_ulong_hash( i ) );
+# endif
 
   mem = fd_banks_new( mem, 16UL, 2UL, 0, 8888UL );
   FD_TEST( mem );

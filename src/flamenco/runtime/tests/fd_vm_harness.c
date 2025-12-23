@@ -148,19 +148,19 @@ do{
   memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
 
   /* Setup input region */
-  ulong                    input_sz                                = 0UL;
-  ulong                    pre_lens[256]                           = {0};
-  fd_vm_input_region_t     input_mem_regions[1000]                 = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t  acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
-  uint                     input_mem_regions_cnt                   = 0UL;
-  int                      direct_mapping                          = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
-  int                      stricter_abi_and_runtime_constraints    = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
+  ulong                     input_sz                             = 0UL;
+  ulong                     pre_lens[256]                        = {0};
+  fd_vm_input_region_t      input_mem_regions[1000]              = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t   acc_region_metas[256]                = {0}; /* instr acc idx to idx */
+  uint                      input_mem_regions_cnt                = 0UL;
+  int                       direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
+  int                       stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
 
-  uchar *                  input_ptr      = NULL;
-  uchar                    program_id_idx = instr_ctx->instr->program_id;
-  fd_txn_account_t const * program_acc    = &instr_ctx->txn_out->accounts.accounts[program_id_idx];
-  uchar                    is_deprecated  = ( program_id_idx < instr_ctx->txn_out->accounts.accounts_cnt ) &&
-                                            ( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  uchar *                   input_ptr      = NULL;
+  uchar                     program_id_idx = instr_ctx->instr->program_id;
+  fd_account_meta_t const * program_acc    = instr_ctx->txn_out->accounts.metas[program_id_idx];
+  uchar                     is_deprecated  = ( program_id_idx < instr_ctx->txn_out->accounts.cnt ) &&
+                                            ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
   int stack_push_err = fd_instr_stack_push( instr_ctx->runtime, instr_ctx->txn_in, instr_ctx->txn_out, (fd_instr_info_t *)instr_ctx->instr );
@@ -469,11 +469,11 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   int                     direct_mapping                         = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
   int                     stricter_abi_and_runtime_constraints   = FD_FEATURE_ACTIVE_BANK( ctx->bank, stricter_abi_and_runtime_constraints );
 
-  uchar *            input_ptr      = NULL;
-  uchar              program_id_idx = ctx->instr->program_id;
-  fd_txn_account_t * program_acc    = &ctx->txn_out->accounts.accounts[program_id_idx];
-  uchar              is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.accounts_cnt ) &&
-                                      ( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  uchar *             input_ptr      = NULL;
+  uchar               program_id_idx = ctx->instr->program_id;
+  fd_account_meta_t * program_acc    = ctx->txn_out->accounts.metas[program_id_idx];
+  uchar               is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
+                                      ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
   int stack_push_err = fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr );

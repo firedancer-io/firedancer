@@ -313,7 +313,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     fd_memcpy( blockhash_pool[ i ].blockhash.uc, banks[ i ].blockhash, 32UL );
 
     if( FD_UNLIKELY( blockhash_map_ele_query_const( blockhash_map, &blockhash_pool[ i ].blockhash, NULL, blockhash_pool ) ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash %s in 151 most recent blockhashes", FD_BASE58_ENC_32_ALLOCA( banks[ i ].blockhash ) ));
+      FD_BASE58_ENCODE_32_BYTES( banks[ i ].blockhash, blockhash_b58 );
+      FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash %s in 151 most recent blockhashes", blockhash_b58 ));
       transition_malformed( ctx, ctx->stem );
       return 1;
     }
@@ -332,7 +333,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     ulong chain_idx = (ulong)(entry - blockhash_pool);
 
     if( FD_UNLIKELY( banks[ chain_idx ].txnhash_offset!=ULONG_MAX && banks[ chain_idx ].txnhash_offset!=ctx->blockhash_offsets[ i ].txnhash_offset ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: conflicting txnhash offsets for blockhash %s", FD_BASE58_ENC_32_ALLOCA( entry->blockhash.uc ) ));
+      FD_BASE58_ENCODE_32_BYTES( entry->blockhash.uc, blockhash_b58 );
+      FD_LOG_WARNING(( "corrupt snapshot: conflicting txnhash offsets for blockhash %s", blockhash_b58 ));
       transition_malformed( ctx, ctx->stem );
       return 1;
     }

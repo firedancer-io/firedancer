@@ -409,6 +409,8 @@ fd_progcache_push( fd_progcache_t * cache,
   return 1;
 }
 
+#if FD_HAS_ATOMIC
+
 static int
 fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
   for(;;) {
@@ -420,6 +422,19 @@ fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
     }
   }
 }
+
+#else
+
+static int
+fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
+  ushort * lock  = &txn->lock->value;
+  ushort   value = FD_VOLATILE_CONST( *lock );
+  if( FD_UNLIKELY( value>=0xFFFE ) ) return 0; /* txn is write-locked */
+  *lock = value + 1;
+  return 1; /* transaction now read-locked */
+}
+
+#endif
 
 static void
 fd_progcache_txn_unlock( fd_funk_txn_t * txn ) {

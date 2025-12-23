@@ -94,6 +94,7 @@ def codegen(policy_lines, filt):
 
     # track all of the expressions that will be appended after the syscall jump table
     syscall_to_expression = {}
+    seen_syscalls = set()
 
     for line_number, line in enumerate(policy_lines):
         lineparts = line.split(':', maxsplit=1)
@@ -109,6 +110,12 @@ def codegen(policy_lines, filt):
         else:
             print("malformed line @ %s" % (line_number+1), file=sys.stderr)
             sys.exit(1)
+
+        # reject duplicate syscall entries
+        if syscall in seen_syscalls:
+            print("duplicate syscall entry for %s @ line %s" % (syscall, line_number+1), file=sys.stderr)
+            sys.exit(1)
+        seen_syscalls.add(syscall)
 
     # append the last jump to the syscall jump table
     filt.append(ReloJump("RET_KILL_PROCESS", pre_comment="none of the syscalls matched"))
@@ -339,6 +346,9 @@ if __name__ == '__main__':
             policy_lines = resplit_lines(policy_lines)
             policy_lines = list(filter(lambda x: x.strip() != "", policy_lines))
             sigline = policy_lines[0].strip()
+            # sigline is either "noarg" or a C function argument signature
+            if not (sigline == "noarg" or (" " in sigline and not ":" in sigline)):
+                raise Exception("malformed signature line")
             codegen(policy_lines[1:], filter_body)
 
             line_to_labels = reverse_multi_mapping(relo_abs_mapping)

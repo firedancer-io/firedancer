@@ -161,22 +161,25 @@ verify_cluster_type( fd_genesis_t const * genesis,
   switch( genesis->cluster_type ) {
     case FD_GENESIS_TYPE_MAINNET: {
       if( FD_UNLIKELY( memcmp( genesis_hash, mainnet_hash, 32UL ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( genesis_hash, genesis_hash_b58 );
         FD_LOG_ERR(( "genesis file `%s` has cluster type MAINNET but unexpected genesis hash `%s`",
-                     genesis_path, FD_BASE58_ENC_32_ALLOCA( genesis_hash ) ));
+                     genesis_path, genesis_hash_b58 ));
       }
       break;
     }
     case FD_GENESIS_TYPE_TESTNET: {
       if( FD_UNLIKELY( memcmp( genesis_hash, testnet_hash, 32UL ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( genesis_hash, genesis_hash_b58 );
         FD_LOG_ERR(( "genesis file `%s` has cluster type TESTNET but unexpected genesis hash `%s`",
-                     genesis_path, FD_BASE58_ENC_32_ALLOCA( genesis_hash ) ));
+                     genesis_path, genesis_hash_b58 ));
       }
       break;
     }
     case FD_GENESIS_TYPE_DEVNET: {
       if( FD_UNLIKELY( memcmp( genesis_hash, devnet_hash, 32UL ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( genesis_hash, genesis_hash_b58 );
         FD_LOG_ERR(( "genesis file `%s` has cluster type DEVNET but unexpected genesis hash `%s`",
-                     genesis_path, FD_BASE58_ENC_32_ALLOCA( genesis_hash ) ));
+                     genesis_path, genesis_hash_b58 ));
       }
       break;
     }
@@ -264,9 +267,11 @@ after_credit( fd_genesi_tile_t *  ctx,
        combine them and do this verification. */
 
     if( FD_LIKELY( ctx->has_expected_genesis_hash && memcmp( hash, ctx->expected_genesis_hash, 32UL ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( ctx->expected_genesis_hash, expected_genesis_hash_b58 );
+      FD_BASE58_ENCODE_32_BYTES( hash, hash_b58 );
       FD_LOG_ERR(( "An expected genesis hash of `%s` has been set in your configuration file at [consensus.expected_genesis_hash] "
                    "but the genesis hash derived from the peer at `http://" FD_IP4_ADDR_FMT ":%hu` has unexpected hash `%s`",
-                   FD_BASE58_ENC_32_ALLOCA( ctx->expected_genesis_hash ), FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), FD_BASE58_ENC_32_ALLOCA( hash ) ));
+                   expected_genesis_hash_b58, FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), hash_b58 ));
     }
 
     FD_TEST( !ctx->bootstrap );
@@ -281,7 +286,8 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     fd_memcpy( dst, hash, sizeof(fd_hash_t) );
-    FD_LOG_WARNING(( "Genesis hash from peer: %s", FD_BASE58_ENC_32_ALLOCA( dst ) ));
+    FD_BASE58_ENCODE_32_BYTES( dst, dst_b58 );
+    FD_LOG_WARNING(( "Genesis hash from peer: %s", dst_b58 ));
     fd_stem_publish( stem, 0UL, GENESI_SIG_GENESIS_HASH, ctx->out_chunk, 32UL, 0UL, 0UL, 0UL );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_hash_t), ctx->out_chunk0, ctx->out_wmark );
 
@@ -366,8 +372,10 @@ process_local_genesis( fd_genesi_tile_t * ctx,
   }
 
   if( FD_LIKELY( ctx->has_expected_genesis_hash && memcmp( ctx->genesis_hash, ctx->expected_genesis_hash, 32UL ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ctx->expected_genesis_hash, expected_genesis_hash_b58 );
+    FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash,          genesis_hash_b58          );
     FD_LOG_ERR(( "An expected genesis hash of `%s` has been set in your configuration file at [consensus.expected_genesis_hash] "
-                 "but the genesis hash derived from the genesis file at `%s` has unexpected hash (expected `%s`)", FD_BASE58_ENC_32_ALLOCA( ctx->expected_genesis_hash ), genesis_path, FD_BASE58_ENC_32_ALLOCA( ctx->genesis_hash ) ));
+                 "but the genesis hash derived from the genesis file at `%s` has unexpected hash (expected `%s`)", expected_genesis_hash_b58, genesis_path, genesis_hash_b58 ));
   }
 }
 

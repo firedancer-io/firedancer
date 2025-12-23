@@ -102,7 +102,11 @@ state_log( fd_slot_delta_parser_t * parser ) {
     case STATE_SLOT_DELTA_SLOT:        FD_LOG_NOTICE(( "STATE_SLOT_DELTA_SLOT:        %lu", parser->entry->slot ));                                 break;
     case STATE_SLOT_DELTA_IS_ROOT:     FD_LOG_NOTICE(( "STATE_SLOT_DELTA_IS_ROOT:     %d",  parser->is_root ));                                     break;
     case STATE_SLOT_DELTA_STATUS_LEN:  FD_LOG_NOTICE(( "STATE_SLOT_DELTA_STATUS_LEN:  %lu", parser->slot_delta_status_len ));                       break;
-    case STATE_STATUS_BLOCKHASH:       FD_LOG_NOTICE(( "STATE_STATUS_BLOCKHASH:       %s",  FD_BASE58_ENC_32_ALLOCA( parser->entry->blockhash ) )); break;
+    case STATE_STATUS_BLOCKHASH: {
+      FD_BASE58_ENCODE_32_BYTES( parser->entry->blockhash, blockhash_b58 );
+      /*                             */FD_LOG_NOTICE(( "STATE_STATUS_BLOCKHASH:       %s",  blockhash_b58 ));
+      break;
+    }
     case STATE_CACHE_STATUS_LEN:       FD_LOG_NOTICE(( "STATE_CACHE_STATUS_LEN:       %lu", parser->cache_status_len ));                            break;
     default: break;
   }

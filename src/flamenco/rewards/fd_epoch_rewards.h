@@ -34,29 +34,37 @@ FD_PROTOTYPES_BEGIN
    the max number of stake accounts is FD_BANKS_MAX_STAKE_ACCOUNTS,
    then the max number of partiitions is
    (FD_BANKS_MAX_STAKE_ACCOUNTS / (STAKE_ACCOUNT_STORES_PER_BLOCK + (FD_BANKS_MAX_STAKE_ACCOUNTS % STAKE_ACCOUNT_STORES_PER_BLOCK)))
-   == 515UL partitions.
+   == 733UL partitions.
 */
 #define FD_REWARDS_MAX_PARTITIONS ((FD_RUNTIME_MAX_STAKE_ACCOUNTS / STAKE_ACCOUNT_STORES_PER_BLOCK) + (FD_RUNTIME_MAX_STAKE_ACCOUNTS % STAKE_ACCOUNT_STORES_PER_BLOCK != 0))
 FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS == 733, "incorrect FD_REWARDS_MAX_PARTITIONS" );
 FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH, "incorrect FD_REWARDS_MAX_PARTITIONS" );
 
-/* The max of footprint of fd_epoch_stakes is variable depending on the
+/* The max of footprint of fd_epoch_rewards is variable depending on the
    number of stake accounts that are supported. However, the size can be
    bounded out assuming worst case with 3M stake accounts. The total
    struct contains the top level header struct, the pool, and the dlists
 
-   fd_epoch_stake_reward_t: 4192 bytes + 64 bytes align       = 4224 bytes
+   fd_epoch_rewards_t                                         = 5984 bytes
 
    pool's private meta:     32 bytes   + 96 bytes align       = 128 bytes
-   each pool member:        72 bytes   + 56 bytes align       = 128 bytes
-   all pool members:        128 bytes  * 3M                   = 384 MB
+   all pool members:        64 bytes   * 3M                   = 192 MB
+   total pool footprint:                                      = 192,000,160 bytes
 
-   each dlist:              24 bytes for sizeof(DLIST_T)      = 24 bytes
-   all dlists:              24 bytes   * 733 max partitions   = 17592 bytes
+   map footprint:           sizeof(MAP_T) + chain_cnt*sizeof(MAP_IDX_T), alignof(MAP_T))
+   chain_cnt:               2097152 chains is the largest power of 2 less than 3M.
+   sizeof(MAP_T):           24 bytes
+   alignof(MAP_T):          8 bytes
+                            24 + 2097152 * sizeof(uint)      = 8,388,632 bytes
 
-   total footprint:         4224 bytes + 384 MB + 17592 bytes = 384021816 bytes
+
+   each dlist:              16 bytes for sizeof(DLIST_T)      = 16 bytes
+   all dlists:              16 bytes   * 733 max partitions   = 11,728 bytes
+
+   total footprint:         5,984 bytes + 192,000,160 bytes + 8,388,632 bytes + 11728 bytes = 200,406,504 bytes
+   total footprint + align: align up to 128 bytes = 200,406,528 bytes
 */
-#define FD_EPOCH_REWARDS_FOOTPRINT (384021816UL)
+#define FD_EPOCH_REWARDS_FOOTPRINT (200406528UL)
 
 #define FD_EPOCH_REWARDS_ALIGN (128UL)
 
@@ -67,10 +75,10 @@ struct fd_epoch_stake_reward {
   ulong       credits_observed;
   ulong       lamports;
   /* Internal pointers for pool, dlist, and map. */
-  ulong       prev;
-  ulong       next;
-  ulong       parent;
-  ulong       next_map;
+  uint        prev;
+  uint        next;
+  uint        parent;
+  uint        next_map;
 };
 typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 
@@ -79,6 +87,7 @@ typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 
 #define DLIST_NAME  fd_epoch_stake_reward_dlist
 #define DLIST_ELE_T fd_epoch_stake_reward_t
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct fd_epoch_rewards_iter {

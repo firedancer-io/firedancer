@@ -9,56 +9,6 @@
 #define FD_SLOT_NULL                 ( ULONG_MAX )
 #define FD_SHRED_IDX_NULL            ( UINT_MAX )
 
-#if FD_HAS_ALLOCA
-
-/* FD_BASE58_ENC_{32,64}_ALLOCA is a shorthand for fd_base58_encode_{32,64},
-   including defining a temp buffer.  With additional support for passing
-   NULL.  Useful for printf-like functions.
-   Example:
-
-    fd_pubkey_t pk = ... ;
-    printf("%s", FD_BASE58_ENC_32_ALLOCA( pk ) );
-
-   The temp buffer is allocated on the stack and therefore invalidated
-   when the function this is used in returns.  NULL will result in
-   "<NULL>".
-   Do NOT use this marco in a long loop or a recursive function.
-   */
-
-static inline char *
-fd_base58_enc_32_fmt( char *        out,
-                      uchar const * in ) {
-  if( FD_UNLIKELY( !in ) ) {
-    strcpy( out, "<NULL>");
-  } else {
-    fd_base58_encode_32( in, NULL, out );
-  }
-  return out;
-}
-
-#define FD_BASE58_ENC_32_ALLOCA( x ) __extension__({                   \
-  char * _out = fd_alloca_check( 1UL, FD_BASE58_ENCODED_32_SZ );       \
-  fd_base58_enc_32_fmt( _out, (uchar const *)(x) );                    \
-})
-
-static inline char *
-fd_base58_enc_64_fmt( char *        out,
-                      uchar const * in ) {
-  if( FD_UNLIKELY( !in ) ) {
-    strcpy( out, "<NULL>");
-  } else {
-    fd_base58_encode_64( in, NULL, out );
-  }
-  return out;
-}
-
-#define FD_BASE58_ENC_64_ALLOCA( x ) __extension__({                   \
-  char * _out = fd_alloca_check( 1UL, FD_BASE58_ENCODED_64_SZ );       \
-  fd_base58_enc_64_fmt( _out, (uchar const *)(x) );                    \
-})
-
-#endif /* FD_HAS_ALLOCA */
-
 /* Forward declarations */
 
 struct fd_bank;
@@ -118,6 +68,11 @@ struct fd_account_meta {
   uchar padding[3];
 };
 typedef struct fd_account_meta fd_account_meta_t;
+
+FD_FN_PURE static inline uchar *
+fd_account_data( fd_account_meta_t const * acc ) {
+  return (uchar *)( acc+1 );
+}
 
 FD_PROTOTYPES_BEGIN
 

@@ -8,14 +8,15 @@
 FD_PROTOTYPES_BEGIN
 
 void
-fd_sysvar_instructions_serialize_account( fd_bank_t *         bank,
+fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
+                                          fd_bank_t *         bank,
                                           fd_txn_in_t const * txn_in,
                                           fd_txn_out_t *      txn_out,
                                           ulong               txn_idx );
 
 void
-fd_sysvar_instructions_update_current_instr_idx( fd_txn_account_t * rec,
-                                                 ushort             current_instr_idx );
+fd_sysvar_instructions_update_current_instr_idx( fd_account_meta_t * meta,
+                                                 ushort              current_instr_idx );
 
 FD_PROTOTYPES_END
 

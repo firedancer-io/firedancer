@@ -33,10 +33,7 @@ fd_txn_account_new( void *              mem,
 
   fd_memcpy( txn_account->pubkey, pubkey, sizeof(fd_pubkey_t) );
 
-  txn_account->magic             = FD_TXN_ACCOUNT_MAGIC;
-
-  txn_account->starting_dlen     = meta->dlen;
-  txn_account->starting_lamports = meta->lamports;
+  txn_account->magic = FD_TXN_ACCOUNT_MAGIC;
 
   uchar * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
@@ -125,27 +122,26 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
                                         fd_pubkey_t const *       pubkey,
                                         fd_funk_t const *         funk,
                                         fd_funk_txn_xid_t const * xid ) {
+  fd_accdb_user_t accdb[1];
+  fd_accdb_user_v1_init( accdb, funk->shmem );
 
-  int err = FD_ACC_MGR_SUCCESS;
-  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      funk,
-      xid,
-      pubkey,
-      NULL,
-      &err,
-      NULL );
-
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    return err;
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) {
+    fd_accdb_user_fini( accdb );
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
+  /* HACKY: Convert accdb_rw writable reference into txn_account.
+     In the future, use fd_accdb_modify_publish instead */
+  accdb->base.ro_active--;
   if( FD_UNLIKELY( !fd_txn_account_new(
         acct,
         pubkey,
-        (fd_account_meta_t *)meta,
+        (fd_account_meta_t *)ro->meta,
         0 ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
+  fd_accdb_user_fini( accdb );
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -161,7 +157,8 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
   memset( prepare_out, 0, sizeof(fd_funk_rec_prepare_t) );
 
   fd_accdb_rw_t rw[1];
-  if( FD_UNLIKELY( !fd_accdb_open_rw( accdb, rw, xid, pubkey->uc, min_data_sz, do_create ) ) ) {
+  int flags = do_create ? FD_ACCDB_FLAG_CREATE : 0;
+  if( FD_UNLIKELY( !fd_accdb_open_rw( accdb, rw, xid, pubkey->uc, min_data_sz, flags ) ) ) {
     return NULL;
   }
 
@@ -222,46 +219,6 @@ fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
   }
 }
 
-/* read/write mutual exclusion */
-
-FD_FN_PURE int
-fd_txn_account_acquire_write_is_safe( fd_txn_account_t const * acct ) {
-  return !acct->refcnt_excl;
-}
-
-/* fd_txn_account_acquire_write acquires write/exclusive access.
-   Causes all other write or read acquire attempts will fail.  Returns 1
-   on success, 0 on failure.
-
-   Mirrors a try_borrow_mut() call in Agave. */
-int
-fd_txn_account_acquire_write( fd_txn_account_t * acct ) {
-  if( FD_UNLIKELY( !fd_txn_account_acquire_write_is_safe( acct ) ) ) {
-    return 0;
-  }
-  acct->refcnt_excl = (ushort)1;
-  return 1;
-}
-
-/* fd_txn_account_release_write{_private} releases a write/exclusive
-   access handle. The private version should only be used by fd_borrowed_account_drop
-   and fd_borrowed_account_destroy. */
-void
-fd_txn_account_release_write( fd_txn_account_t * acct ) {
-  if( FD_UNLIKELY( acct->refcnt_excl!=1 ) ) {
-    FD_LOG_CRIT(( "refcnt_excl is %d, expected 1", acct->refcnt_excl ));
-  }
-  acct->refcnt_excl = (ushort)0;
-}
-
-void
-fd_txn_account_release_write_private( fd_txn_account_t * acct ) {
-  /* Only release if it is not yet released */
-  if( !fd_txn_account_acquire_write_is_safe( acct ) ) {
-    fd_txn_account_release_write( acct );
-  }
-}
-
 fd_pubkey_t const *
 fd_txn_account_get_owner( fd_txn_account_t const * acct ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
@@ -307,12 +264,6 @@ fd_txn_account_get_lamports( fd_txn_account_t const * acct ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
   return acct->meta->lamports;
-}
-
-ulong
-fd_txn_account_get_rent_epoch( fd_txn_account_t const * acct ) {
-  (void)acct;
-  return ULONG_MAX;
 }
 
 void
@@ -452,11 +403,6 @@ fd_txn_account_resize( fd_txn_account_t * acct,
   acct->meta->dlen = (uint)dlen;
 }
 
-ushort
-fd_txn_account_is_borrowed( fd_txn_account_t const * acct ) {
-  return !!acct->refcnt_excl;
-}
-
 int
 fd_txn_account_is_mutable( fd_txn_account_t const * acct ) {
   /* A txn account is mutable if meta is non NULL */
@@ -467,16 +413,6 @@ int
 fd_txn_account_is_readonly( fd_txn_account_t const * acct ) {
   /* A txn account is readonly if only the meta_ field is non NULL */
   return !acct->is_mutable;
-}
-
-int
-fd_txn_account_try_borrow_mut( fd_txn_account_t * acct ) {
-  return fd_txn_account_acquire_write( acct );
-}
-
-void
-fd_txn_account_drop( fd_txn_account_t * acct ) {
-  fd_txn_account_release_write_private( acct );
 }
 
 void

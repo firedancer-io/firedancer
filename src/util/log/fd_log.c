@@ -1029,7 +1029,7 @@ fd_log_private_sig_abort( int         sig,
   /* Thread could have caught signal while holding a lock.
      Hack around this re-entrancy problem by pointing the log lock to
      a dummy buffer. */
-  int lock = 0;
+  static FD_TL int lock = 0;
   fd_log_private_shared_lock = &lock;
 
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)

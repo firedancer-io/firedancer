@@ -121,7 +121,7 @@ fd_bn254_g1_affine_add( fd_bn254_g1_t *       r,
 }
 
 /* fd_bn254_g1_dbl computes r = 2p.
-   https://hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-3.html#doubling-dbl-2007-bl */
+   https://hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#doubling-dbl-2009-l */
 fd_bn254_g1_t *
 fd_bn254_g1_dbl( fd_bn254_g1_t *       r,
                  fd_bn254_g1_t const * p ) {
@@ -130,44 +130,48 @@ fd_bn254_g1_dbl( fd_bn254_g1_t *       r,
     return fd_bn254_g1_set_zero( r );
   }
 
-  fd_bn254_fp_t xx[1], yy[1], zz[1];
-  fd_bn254_fp_t y4[1], s[1], m[1];
-  /* XX = X1^2 */
-  fd_bn254_fp_sqr( xx, &p->X );
-  /* YY = Y1^2 */
-  fd_bn254_fp_sqr( yy, &p->Y );
-  /* YYYY = YY^2 */
-  fd_bn254_fp_sqr( y4, yy );
-  /* ZZ = Z1^2 */
-  fd_bn254_fp_sqr( zz, &p->Z );
-  /* S = 2*((X1+YY)^2-XX-YYYY) */
-  fd_bn254_fp_add( s, &p->X, yy );
-  fd_bn254_fp_sqr( s, s );
-  fd_bn254_fp_sub( s, s, xx );
-  fd_bn254_fp_sub( s, s, y4 );
-  fd_bn254_fp_add( s, s, s );
-  /* M = 3*XX+a*ZZ^2, a=0 */
-  fd_bn254_fp_add( m, xx, xx );
-  fd_bn254_fp_add( m, m, xx );
-  /* T = M^2-2*S
-     X3 = T */
-  fd_bn254_fp_sqr( &r->X, m );
-  fd_bn254_fp_sub( &r->X, &r->X, s );
-  fd_bn254_fp_sub( &r->X, &r->X, s );
+  fd_bn254_fp_t a[1], b[1], c[1];
+  fd_bn254_fp_t d[1], e[1], f[1];
+
+  /* A = X1^2 */
+  fd_bn254_fp_sqr( a, &p->X );
+  /* B = Y1^2 */
+  fd_bn254_fp_sqr( b, &p->Y );
+  /* C = B^2 */
+  fd_bn254_fp_sqr( c, b );
+  /* D = 2*((X1+B)^2-A-C)
+     (X1+B)^2 = X1^2 + 2*X1*B + B^2
+     D = 2*(X1^2 + 2*X1*B + B^2 - A    - C)
+     D = 2*(X1^2 + 2*X1*B + B^2 - X1^2 - B^2)
+            ^               ^     ^      ^
+            |---------------|-----|      |
+                            |------------|
+     These terms cancel each other out, and we're left with:
+     D = 2*(2*X1*B) */
+  fd_bn254_fp_mul( d, &p->X, b );
+  fd_bn254_fp_add( d, d, d );
+  fd_bn254_fp_add( d, d, d );
+  /* E = 3*A */
+  fd_bn254_fp_add( e, a, a );
+  fd_bn254_fp_add( e, a, e );
+  /* F = E^2 */
+  fd_bn254_fp_sqr( f, e );
+  /* X3 = F-2*D */
+  fd_bn254_fp_add( &r->X, d, d );
+  fd_bn254_fp_sub( &r->X, f, &r->X );
   /* Z3 = (Y1+Z1)^2-YY-ZZ
      note: compute Z3 before Y3 because it depends on p->Y,
      that might be overwritten if r==p. */
-  fd_bn254_fp_add( &r->Z, &p->Z, &p->Y );
-  fd_bn254_fp_sqr( &r->Z, &r->Z );
-  fd_bn254_fp_sub( &r->Z, &r->Z, yy );
-  fd_bn254_fp_sub( &r->Z, &r->Z, zz );
-  /* Y3 = M*(S-T)-8*YYYY */
-  fd_bn254_fp_sub( &r->Y, s, &r->X );
-  fd_bn254_fp_mul( &r->Y, &r->Y, m );
-  fd_bn254_fp_add( y4, y4, y4 ); /* 2 y^4 */
-  fd_bn254_fp_add( y4, y4, y4 ); /* 4 y^4 */
-  fd_bn254_fp_add( y4, y4, y4 ); /* 8 y^4 */
-  fd_bn254_fp_sub( &r->Y, &r->Y, y4 );
+  /* Z3 = 2*Y1*Z1 */
+  fd_bn254_fp_mul( &r->Z, &p->Y, &p->Z );
+  fd_bn254_fp_add( &r->Z, &r->Z, &r->Z );
+  /* Y3 = E*(D-X3)-8*C */
+  fd_bn254_fp_sub( &r->Y, d, &r->X );
+  fd_bn254_fp_mul( &r->Y, e, &r->Y );
+  fd_bn254_fp_add( c, c, c ); /* 2*c */
+  fd_bn254_fp_add( c, c, c ); /* 4*y */
+  fd_bn254_fp_add( c, c, c ); /* 8*y */
+  fd_bn254_fp_sub( &r->Y, &r->Y, c );
   return r;
 }
 

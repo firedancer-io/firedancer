@@ -62,17 +62,17 @@ fd_loader_v4_get_state_mut( uchar * data,
 
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L32-L44 */
 fd_loader_v4_state_t const *
-fd_loader_v4_get_state( fd_txn_account_t const * program,
-                        int *                    err ) {
+fd_loader_v4_get_state( fd_account_meta_t const * meta,
+                        int *                     err ) {
   *err = FD_EXECUTOR_INSTR_SUCCESS;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L35-L36 */
-  if( FD_UNLIKELY( fd_txn_account_get_data_len( program )<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
+  if( FD_UNLIKELY( meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     return NULL;
   }
 
-  return fd_type_pun_const( fd_txn_account_get_data( program ) );
+  return fd_type_pun_const( fd_account_data( meta ) );
 }
 
 /* `check_program_account()` validates the program account's state from its data.
@@ -94,7 +94,7 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L70 */
-  fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program->acct, err );
+  fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program->meta, err );
   if( FD_UNLIKELY( *err ) ) {
     return NULL;
   }
@@ -528,7 +528,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
      invoked until the next slot anyways, doing this is okay.
 
      https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L309-L316 */
-  err = fd_deploy_program( instr_ctx, program.acct->pubkey, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET );
+  err = fd_deploy_program( instr_ctx, program.pubkey, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -752,7 +752,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L454 */
-  fd_loader_v4_state_t const * state_of_next_version = fd_loader_v4_get_state( next_version.acct, &err );
+  fd_loader_v4_state_t const * state_of_next_version = fd_loader_v4_get_state( next_version.meta, &err );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -770,7 +770,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L463 */
-  fd_pubkey_t * address_of_next_version = next_version.acct->pubkey;
+  fd_pubkey_t const * address_of_next_version = next_version.pubkey;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L464 */
   fd_borrowed_account_drop( &next_version );
@@ -890,7 +890,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
        Therefore, Firedancer recovers the DelayVisibility and Closed
        states on-the-fly before querying cahce. */
 
-    fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program.acct, &rc );
+    fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program.meta, &rc );
     if( FD_UNLIKELY( rc ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

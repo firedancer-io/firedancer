@@ -7,7 +7,7 @@
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
-#include "../runtime/context/fd_capture_ctx.h"
+#include "../capture/fd_capture_ctx.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_runtime.h"
 #include "fd_epoch_rewards.h"
@@ -537,7 +537,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                               fd_funk_t *                    funk,
                               fd_funk_txn_xid_t const *      xid,
                               fd_stake_delegations_t const * stake_delegations,
-                              fd_capture_ctx_t *             capture_ctx,
+                              fd_capture_ctx_t *             capture_ctx FD_PARAM_UNUSED,
                               fd_stake_history_t const *     stake_history,
                               ulong                          rewarded_epoch,
                               ulong                          total_rewards,
@@ -610,14 +610,15 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       continue;
     }
 
-    if( capture_ctx ) {
-      fd_solcap_write_stake_reward_event( capture_ctx->capture,
-          &stake_delegation->stake_account,
-          voter_acc,
-          vote_state_ele->commission,
-          (long)calculated_stake_rewards->voter_rewards,
-          (long)calculated_stake_rewards->staker_rewards,
-          (long)calculated_stake_rewards->new_credits_observed );
+    if ( capture_ctx && capture_ctx->capture ) {
+      fd_capture_link_write_stake_reward_event( capture_ctx,
+                                                fd_bank_slot_get( bank ),
+                                                stake_delegation->stake_account,
+                                                *voter_acc,
+                                                vote_state_ele->commission,
+                                                (long)calculated_stake_rewards->voter_rewards,
+                                                (long)calculated_stake_rewards->staker_rewards,
+                                                (long)calculated_stake_rewards->new_credits_observed );
     }
 
     runtime_stack->stakes.vote_rewards[ vote_state_ele->idx ] += calculated_stake_rewards->voter_rewards;
@@ -659,13 +660,15 @@ calculate_validator_rewards( fd_bank_t *                    bank,
   /* If there are no points, then we set the rewards to 0. */
   *rewards_out = points>0UL ? *rewards_out: 0UL;
 
-  if( capture_ctx ) {
-    ulong const epoch = fd_bank_epoch_get( bank );
-    fd_solcap_writer_stake_rewards_begin( capture_ctx->capture,
-        epoch,
-        epoch-1UL, /* FIXME: this is not strictly correct */
-        *rewards_out,
-        (fd_w_u128_t){ .ud=points } );
+  if( capture_ctx  && capture_ctx->capture ) {
+    ulong epoch = fd_bank_epoch_get( bank );
+    ulong slot  = fd_bank_slot_get( bank );
+    fd_capture_link_write_stake_rewards_begin( capture_ctx,
+                                               slot,
+                                               epoch,
+                                               epoch-1UL, /* FIXME: this is not strictly correct */
+                                               *rewards_out,
+                                               (ulong)points );
   }
 
   /* Calculate the stake and vote rewards for each account. We want to
@@ -739,7 +742,7 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   /* The agave client does not partition the stake rewards until the
      first distribution block.  We calculate the partitions during the
      boundary. */
-  result->validator_points.ud          = points;
+  result->validator_points             = points;
   result->validator_rewards            = total_rewards;
   result->validator_rate               = rewards.validator_rate;
   result->foundation_rate              = rewards.foundation_rate;
@@ -819,18 +822,10 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
 
-    fd_hashes_update_lthash( vote_rec, prev_hash,bank, capture_ctx );
+    fd_hashes_update_lthash( vote_rec->pubkey, vote_rec->meta, prev_hash,bank, capture_ctx );
     fd_txn_account_mutable_fini( vote_rec, accdb, &prepare );
 
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
-
-    if( capture_ctx ) {
-      fd_solcap_write_vote_account_payout( capture_ctx->capture,
-          vote_pubkey,
-          fd_bank_slot_get( bank ),
-          fd_txn_account_get_lamports( vote_rec ),
-          (long)rewards );
-    }
   }
 
   fd_bank_vote_states_end_locking_query( bank );
@@ -847,7 +842,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
   epoch_rewards->distributed_rewards = distributed_rewards;
   epoch_rewards->total_rewards       = rewards_calc_result->validator_rewards;
-  epoch_rewards->total_points        = rewards_calc_result->validator_points;
+  epoch_rewards->total_points.ud     = rewards_calc_result->validator_points;
   fd_bank_epoch_rewards_end_locking_modify( bank );
 }
 
@@ -882,8 +877,9 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
   fd_txn_account_set_slot( stake_acc_rec, fd_bank_slot_get( bank ) );
 
   fd_stake_state_v2_t stake_state[1] = {0};
-  if( fd_stake_get_state( stake_acc_rec, stake_state ) != 0 ) {
-    FD_LOG_DEBUG(( "failed to read stake state for %s", FD_BASE58_ENC_32_ALLOCA( stake_pubkey ) ));
+  if( fd_stake_get_state( stake_acc_rec->meta, stake_state ) != 0 ) {
+    FD_BASE58_ENCODE_32_BYTES( stake_pubkey->key, stake_pubkey_b58 );
+    FD_LOG_DEBUG(( "failed to read stake state for %s", stake_pubkey_b58 ));
     return 1;
   }
 
@@ -897,7 +893,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
     return 1;
   }
 
-  ulong old_credits_observed = stake_state->inner.stake.stake.credits_observed;
+  ulong old_credits_observed                      = stake_state->inner.stake.stake.credits_observed;
   stake_state->inner.stake.stake.credits_observed = new_credits_observed;
   stake_state->inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->inner.stake.stake.delegation.stake,
                                                                       reward_lamports );
@@ -916,23 +912,24 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
       stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
   fd_bank_stake_delegations_delta_end_locking_modify( bank );
 
-  if( capture_ctx ) {
-    fd_solcap_write_stake_account_payout( capture_ctx->capture,
-        stake_pubkey,
-        fd_bank_slot_get( bank ),
-        fd_txn_account_get_lamports( stake_acc_rec ),
-        (long)reward_lamports,
-        new_credits_observed,
-        (long)( new_credits_observed-old_credits_observed ),
-        stake_state->inner.stake.stake.delegation.stake,
-        (long)reward_lamports );
+  if ( capture_ctx && capture_ctx->capture ) {
+    fd_capture_link_write_stake_account_payout( capture_ctx,
+                                                    fd_bank_slot_get( bank ),
+                                                    *stake_pubkey,
+                                                    fd_bank_slot_get( bank ),
+                                                    fd_txn_account_get_lamports( stake_acc_rec ),
+                                                    (long)reward_lamports,
+                                                    new_credits_observed,
+                                                    (long)( new_credits_observed - old_credits_observed ),
+                                                    stake_state->inner.stake.stake.delegation.stake,
+                                                    (long)reward_lamports );
   }
 
   if( FD_UNLIKELY( write_stake_state( stake_acc_rec, stake_state ) != 0 ) ) {
     FD_LOG_ERR(( "write_stake_state failed" ));
   }
 
-  fd_hashes_update_lthash( stake_acc_rec, prev_hash, bank, capture_ctx );
+  fd_hashes_update_lthash( stake_acc_rec->pubkey, stake_acc_rec->meta, prev_hash, bank, capture_ctx );
   fd_txn_account_mutable_fini( stake_acc_rec, accdb, &prepare );
 
   return 0;

@@ -141,15 +141,15 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
     /* Check that the account is not read-only in the caller but writable in the callee */
     if( FD_UNLIKELY( instruction_account->is_writable && !fd_borrowed_account_is_writable( &borrowed_caller_acct ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
+      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
-    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.acct->pubkey, signers, signers_cnt) ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
+    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.pubkey, signers, signers_cnt) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
@@ -228,13 +228,32 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
    https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1011 */
 
 #define FD_CPI_MAX_ACCOUNT_INFOS           (128UL)
+#define FD_CPI_MAX_ACCOUNT_INFOS_SIMD_0339 (255UL)
+
 /* This is just encoding what Agave says in their code comments into a
    compile-time check, so if anyone ever inadvertently changes one of
    the limits, they will have to take a look. */
 FD_STATIC_ASSERT( FD_CPI_MAX_ACCOUNT_INFOS==MAX_TX_ACCOUNT_LOCKS, cpi_max_account_info );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L168-L180 */
 static inline ulong
 get_cpi_max_account_infos( fd_bank_t * bank ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( bank, increase_tx_account_lock_limit ), FD_CPI_MAX_ACCOUNT_INFOS, 64UL );
+  if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, increase_cpi_account_info_limit ) ) ) {
+    return FD_CPI_MAX_ACCOUNT_INFOS_SIMD_0339;
+  } else if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, increase_tx_account_lock_limit ) ) ) {
+    return FD_CPI_MAX_ACCOUNT_INFOS;
+  } else {
+    return 64UL;
+  }
+}
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/execution_budget.rs#L25-L31 */
+static inline ulong
+get_cpi_invoke_unit_cost( fd_bank_t * bank ) {
+  return fd_ulong_if(
+    FD_FEATURE_ACTIVE_BANK( bank, increase_cpi_account_info_limit ),
+    FD_VM_INVOKE_UNITS_SIMD_0339,
+    FD_VM_INVOKE_UNITS );
 }
 
 /* Maximum CPI instruction accounts. 255 was chosen to ensure that instruction
