@@ -16,21 +16,30 @@ fd_quic_dump_transport_param_desc( FILE * out ) {
 #undef __
 }
 
+/* Helper for bounds checking that avoids -Wtype-limits warnings, sigh */
+static inline int
+fd_quic_varint_bounds_check( ulong value, ulong min, ulong max ) {
+  // compiler should optimize out checks against min/max == VARINT_MIN/MAX
+  if( min != FD_QUIC_VARINT_MIN && value < min ) return -1; /* out of bounds */
+  if( max != FD_QUIC_VARINT_MAX && value > max ) return -1; /* out of bounds */
+  return 0; /* in bounds */
+}
 
-#define FD_QUIC_PARSE_TP_VARINT(NAME) \
-  do {                                                 \
-    if( FD_UNLIKELY( sz==0    ) ) return -2;           \
-    uint width = 1u << ( (unsigned)buf[0] >> 6u );     \
-    if( FD_UNLIKELY( sz<width ) ) return -3;           \
-    ulong value = (ulong)( buf[0] & 0x3f );            \
-    for( ulong j=1; j<width; ++j ) {                   \
-      value= ( value<<8u ) + (ulong)buf[j];            \
-    }                                                  \
-    params->NAME = value;                              \
-    params->NAME##_present = 1;                        \
+#define FD_QUIC_PARSE_TP_VARINT( NAME, MIN, MAX )                                  \
+  do {                                                                             \
+    if( FD_UNLIKELY( sz==0    ) ) return -2;                                       \
+    uint width = 1u << ( (unsigned)buf[0] >> 6u );                                 \
+    if( FD_UNLIKELY( sz<width ) ) return -3;                                       \
+    ulong value = (ulong)( buf[0] & 0x3f );                                        \
+    for( ulong j=1; j<width; ++j ) {                                               \
+      value= ( value<<8u ) + (ulong)buf[j];                                        \
+    }                                                                              \
+    if( FD_UNLIKELY( fd_quic_varint_bounds_check( value, MIN, MAX ) ) ) return -4; \
+    params->NAME = value;                                                          \
+    params->NAME##_present = 1;                                                    \
   } while(0)
 
-#define FD_QUIC_PARSE_TP_CONN_ID(NAME)                      \
+#define FD_QUIC_PARSE_TP_CONN_ID( NAME, ... )               \
   do {                                                      \
     if( FD_UNLIKELY( sz>sizeof(params->NAME) ) ) return -1; \
     fd_memcpy( params->NAME, buf, sz );                     \
@@ -38,10 +47,10 @@ fd_quic_dump_transport_param_desc( FILE * out ) {
     params->NAME##_present = 1;                             \
   } while(0)
 
-#define FD_QUIC_PARSE_TP_ZERO_LENGTH(NAME) \
+#define FD_QUIC_PARSE_TP_ZERO_LENGTH( NAME, ... ) \
   params->NAME##_present = 1;
 
-#define FD_QUIC_PARSE_TP_TOKEN(NAME)                        \
+#define FD_QUIC_PARSE_TP_TOKEN( NAME, ... )                 \
   do {                                                      \
     if( FD_UNLIKELY( sz>sizeof(params->NAME) ) ) return -1; \
     fd_memcpy( params->NAME, buf, sz );                     \
@@ -49,7 +58,7 @@ fd_quic_dump_transport_param_desc( FILE * out ) {
     params->NAME##_present = 1;                             \
   } while(0)
 
-#define FD_QUIC_PARSE_TP_PREFERRED_ADDRESS(NAME)            \
+#define FD_QUIC_PARSE_TP_PREFERRED_ADDRESS( NAME, ... )     \
   do {                                                      \
     if( FD_UNLIKELY( sz>sizeof(params->NAME) ) ) return -1; \
     fd_memcpy( params->NAME, buf, sz );                     \
@@ -65,9 +74,9 @@ fd_quic_decode_transport_param( fd_quic_transport_params_t * params,
                                 ulong                        sz ) {
   // This compiles into a jump table, which is reasonably fast
   switch( id ) {
-#define __( NAME, ID, TYPE, DFT, DESC, ... ) \
+#define __( NAME, ID, TYPE, DFT, DESC, MIN, MAX, ... ) \
   case ID: { \
-      FD_QUIC_PARSE_TP_##TYPE(NAME); \
+      FD_QUIC_PARSE_TP_##TYPE( NAME, MIN, MAX ); \
       return 0; \
     } \
 
