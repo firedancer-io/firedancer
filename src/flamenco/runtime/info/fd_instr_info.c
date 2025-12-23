@@ -34,18 +34,14 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
 
   /* Set the program id */
   instr->program_id = txn_instr->program_id;
-
-  /* See note in fd_instr_info.h.  TLDR: capping this value at 256
-     should have literally 0 effect on program execution, down to the
-     error codes.  This is purely for the sake of not increasing the
-     overall memory footprint of the transaction context.  If this
-     change causes issues, we may need to increase the array sizes in
-     the instr info. */
-  instr->acct_cnt = fd_ushort_min( txn_instr->acct_cnt, FD_INSTR_ACCT_MAX );
+  instr->acct_cnt   = txn_instr->acct_cnt;
+  if( FD_UNLIKELY( instr->acct_cnt > FD_INSTR_ACCT_MAX ) ) {
+    FD_LOG_CRIT(( "invariant violation: Instruction has too many accounts: %d > %lu", instr->acct_cnt, FD_INSTR_ACCT_MAX ));
+  }
   instr->data_sz  = txn_instr->data_sz;
   memcpy( instr->data, txn_in->txn->payload+txn_instr->data_off, instr->data_sz );
 
-  uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
+  uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
 
   for( ushort i=0; i<instr->acct_cnt; i++ ) {
     ushort acc_idx = instr_acc_idxs[i];

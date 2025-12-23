@@ -263,6 +263,17 @@ FD_PROTOTYPES_END
 
 #define FD_VM_MAX_CPI_INSTRUCTION_SIZE                  (            1280UL) /* IPv6 Min MTU size */
 
+/* FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS is the maximum number of accounts
+   that can be referenced by a single CPI instruction.
+
+   Agave's bound for this is the same as their bound for the bound
+   enforced by the bpf loader serializer.
+   https://github.com/anza-xyz/agave/blob/v3.1.1/transaction-context/src/lib.rs#L32
+
+   TODO: when SIMD-406 is activated, we can use FD_INSTR_ACCT_MAX instead. */
+
+#define FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS           (FD_BPF_INSTR_ACCT_MAX)
+
 /* FD_VM_CPI_BYTES_PER_UNIT is the number of account data bytes per
    compute unit charged during a cross-program invocation */
 
