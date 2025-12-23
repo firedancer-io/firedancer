@@ -672,7 +672,7 @@ test_chained_merkle_shreds( void ) {
 
   /* Initial and expected final merkle root */
   fd_hex_decode( chained_merkle_root, "0102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f00", 32 );
-  fd_hex_decode( expected_final_chained_merkle_root, "cb030876030cf4d3a1e5b667c08a8c35d3073ab3d1fb19679e29603d75fc2529", 32 );
+  fd_hex_decode( expected_final_chained_merkle_root, "518f1c2df4942da54894949de392575dddef3ca9f745d17834a16c0e0af30a11", 32 );
 
   /* Settings so that we get 32 data + 32 parity shreds */
   ulong data_sz = 30000;
@@ -724,6 +724,12 @@ test_chained_merkle_shreds( void ) {
 
     for( ulong setid=0UL; setid<MAX_SETS; setid++ ) {
       meta->block_complete = (setid==(MAX_SETS-1));
+      if( meta->block_complete ) {
+        /* modify the data sz so that we still get 32 data shreds */
+        data_sz = 28768;
+      } else {
+        data_sz = 30000;
+      }
 
       /* Create set like shred tile does.
          This should take care of numbering shreds correctly, updating chained_merkle_root,
@@ -804,6 +810,8 @@ test_chained_merkle_shreds( void ) {
   }
 
   /* Final checks */
+  FD_BASE58_ENCODE_32_BYTES( chained_merkle_root, s );
+  FD_LOG_NOTICE(( "chained_merkle_root %s", s ));
   FD_TEST( fd_memeq( chained_merkle_root, expected_final_chained_merkle_root, 32 ) );
 }
 
@@ -822,7 +830,7 @@ main( int     argc,
   test_shred_version();
   test_shred_reject();
   test_merkle_root();
-  //test_chained_merkle_shreds();
+  test_chained_merkle_shreds();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
