@@ -328,7 +328,7 @@ STEM_(run1)( ulong                        in_cnt,
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
 
-  ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
+  ulong cr_max = fd_ulong_if( !(out_cnt && cons_cnt), 128UL, ULONG_MAX );
 
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
 
