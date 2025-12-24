@@ -318,7 +318,7 @@ perf_test( void ) {
 
 }
 
-static void FD_FN_UNUSED
+static void
 test_new_formats( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
@@ -362,12 +362,14 @@ test_new_formats( void ) {
       fec_done = 1;
     } else if( retval==FD_FEC_RESOLVER_SHRED_IGNORED ) {
       FD_TEST( fec_done );
+    } else if( retval==FD_FEC_RESOLVER_SHRED_REJECTED ) {
+      FD_TEST( fd_shred_is_code( fd_shred_type( parsed->variant ) ) || parsed->fec_set_idx % FD_REEDSOL_DATA_SHREDS_MAX != 0UL );
     } else {
       FD_TEST( retval==FD_FEC_RESOLVER_SHRED_OKAY );
       fec_done = 0;
     }
   }
-  FD_TEST( fec_sets==4UL );
+  FD_TEST( fec_sets==0UL );
   FD_TEST( !fclose( file ) );
 
 
@@ -663,7 +665,7 @@ test_merkle_root( void ) {
 uchar fec_set_memory_1[ 2048UL * FD_REEDSOL_DATA_SHREDS_MAX   ];
 uchar fec_set_memory_2[ 2048UL * FD_REEDSOL_PARITY_SHREDS_MAX ];
 
-static void FD_FN_UNUSED
+static void
 test_chained_merkle_shreds( void ) {
   uchar expected_final_chained_merkle_root[ 32 ] = { 0 };
   uchar chained_merkle_root[ 32 ] = { 0 };
@@ -811,7 +813,6 @@ test_chained_merkle_shreds( void ) {
 
   /* Final checks */
   FD_BASE58_ENCODE_32_BYTES( chained_merkle_root, s );
-  FD_LOG_NOTICE(( "chained_merkle_root %s", s ));
   FD_TEST( fd_memeq( chained_merkle_root, expected_final_chained_merkle_root, 32 ) );
 }
 
@@ -826,7 +827,7 @@ main( int     argc,
   test_interleaved();
   test_one_batch();
   test_rolloff();
-  //test_new_formats();
+  test_new_formats();
   test_shred_version();
   test_shred_reject();
   test_merkle_root();

@@ -183,7 +183,6 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   ulong data_shred_cnt          = fd_shredder_count_data_shreds(   chunk_size, data_type );
   ulong parity_shred_cnt        = fd_shredder_count_parity_shreds( chunk_size, code_type );
 
-  FD_LOG_NOTICE(( "data_shred_cnt %lu, chunk size %lu, data_type %u", data_shred_cnt, chunk_size, data_type ));
   /* Our notion of tree depth counts the root, while the shred version
      doesn't. */
   ulong tree_depth              = fd_bmtree_depth( data_shred_cnt+parity_shred_cnt )-1UL;
