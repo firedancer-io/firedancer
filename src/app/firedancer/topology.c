@@ -1,7 +1,6 @@
 #include "topology.h"
 
 #include "../../ballet/lthash/fd_lthash.h"
-#include "../../choreo/fd_choreo_base.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/poh/fd_poh.h"
 #include "../../discof/replay/fd_exec.h"
@@ -23,6 +22,7 @@
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
+#include "../../flamenco/solcap/fd_solcap_writer.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 #include "../../vinyl/io/fd_vinyl_io.h" /* FD_VINYL_IO_TYPE_* */
 
@@ -343,6 +343,8 @@ fd_topo_initialize( config_t * config ) {
 
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
+
+  int solcap_enabled = !!config->firedancer.development.solcap.enabled;
 
   /*             topo, name */
   fd_topob_wksp( topo, "metric"       );
@@ -898,6 +900,15 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "rpc_replay", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
+  if( FD_UNLIKELY( solcap_enabled ) ) {
+    fd_topob_link( topo, "cap_repl", "solcap", 32UL, FD_SOLCAP_MTU, 1UL );
+    fd_topob_tile_out( topo, "replay", 0UL, "cap_repl", 0UL );
+    fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_repl", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(exec_tile_cnt) fd_topob_link( topo, "cap_exec", "solcap", 32UL, FD_SOLCAP_MTU, 1UL );
+    FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "cap_exec", i );
+    FOR(exec_tile_cnt) fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_exec", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
+
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
       FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
@@ -1255,8 +1266,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.ip_addr = config->net.ip_addr;
     strncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );
 
-    strncpy( tile->replay.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->replay.dump_proto_dir) );
-    tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
+    /* solfuzz_dump */
+    tile->replay.dump_block_to_pb = config->firedancer.development.solfuzz_dump.dump_blocks;
+    tile->replay.dump_start_slot  = config->firedancer.development.solfuzz_dump.start_slot;
+    fd_cstr_ncpy( tile->replay.dump_proto_dir, config->firedancer.development.solfuzz_dump.out_path, sizeof(tile->replay.dump_proto_dir) );
 
     FD_TEST( tile->replay.funk_obj_id == fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX ) );
 
@@ -1268,12 +1281,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->exec.max_live_slots = config->firedancer.runtime.max_live_slots;
 
-    tile->exec.capture_start_slot = config->capture.capture_start_slot;
-    strncpy( tile->exec.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->exec.dump_proto_dir) );
-    tile->exec.dump_instr_to_pb = config->capture.dump_instr_to_pb;
-    tile->exec.dump_txn_to_pb = config->capture.dump_txn_to_pb;
-    tile->exec.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;
-    tile->exec.dump_elf_to_pb = config->capture.dump_elf_to_pb;
+    /* solfuzz_dump */
+    tile->exec.dump_start_slot    = config->firedancer.development.solfuzz_dump.start_slot;
+    tile->exec.dump_instr_to_pb   = !!config->firedancer.development.solfuzz_dump.dump_instructions;
+    tile->exec.dump_txn_to_pb     = !!config->firedancer.development.solfuzz_dump.dump_transactions;
+    tile->exec.dump_syscall_to_pb = !!config->firedancer.development.solfuzz_dump.dump_syscalls;
+    tile->exec.dump_elf_to_pb     = !!config->firedancer.development.solfuzz_dump.dump_elfs;
+    fd_cstr_ncpy( tile->exec.dump_proto_dir, config->firedancer.development.solfuzz_dump.out_path, sizeof(tile->exec.dump_proto_dir) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
 
@@ -1476,6 +1490,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->vinyl.io_type = config->firedancer.vinyl.io_uring.enabled ?
         FD_VINYL_IO_TYPE_UR : FD_VINYL_IO_TYPE_BD;
     tile->vinyl.uring_depth = config->firedancer.vinyl.io_uring.queue_depth;
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "solcap" ) ) ) {
+
+    fd_cstr_ncpy( tile->solcap.out_path, config->firedancer.development.solcap.path, sizeof(tile->solcap.out_path) );
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

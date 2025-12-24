@@ -1,17 +1,18 @@
 #include "fd_rewards.h"
-#include <math.h>
-
 #include "../runtime/fd_acc_mgr.h"
+#include "../runtime/fd_hashes.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../capture/fd_capture_ctx.h"
+#include "../solcap/fd_solcap_writer.h"
 #include "../runtime/fd_runtime_stack.h"
-#include "../runtime/fd_runtime.h"
 #include "fd_epoch_rewards.h"
 #include "../accdb/fd_accdb_impl_v1.h"
+
+#include <math.h>
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
@@ -537,7 +538,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                               fd_funk_t *                    funk,
                               fd_funk_txn_xid_t const *      xid,
                               fd_stake_delegations_t const * stake_delegations,
-                              fd_capture_ctx_t *             capture_ctx FD_PARAM_UNUSED,
+                              fd_capture_ctx_t *             capture_ctx,
                               fd_stake_history_t const *     stake_history,
                               ulong                          rewarded_epoch,
                               ulong                          total_rewards,
@@ -610,6 +611,16 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       continue;
     }
 
+    fd_solcap_stake_reward_t stake_reward = {
+      .stake_account        = &stake_delegation->stake_account.uc,
+      .vote_account         = &voter_acc->uc,
+      .commission           = vote_state_ele->commission,
+      .stake_rewards        = calculated_stake_rewards->staker_rewards,
+      .vote_rewards         = calculated_stake_rewards->voter_rewards,
+      .new_credits_observed = calculated_stake_rewards->new_credits_observed
+    };
+    fd_solcap_stake_reward( capture_ctx->solcap, &stake_reward );
+
     runtime_stack->stakes.vote_rewards[ vote_state_ele->idx ] += calculated_stake_rewards->voter_rewards;
 
     fd_epoch_rewards_insert( epoch_rewards, &stake_delegation->stake_account, calculated_stake_rewards->new_credits_observed, calculated_stake_rewards->staker_rewards );
@@ -648,6 +659,13 @@ calculate_validator_rewards( fd_bank_t *                    bank,
 
   /* If there are no points, then we set the rewards to 0. */
   *rewards_out = points>0UL ? *rewards_out: 0UL;
+
+  fd_solcap_stake_inflation_t solcap_inflation = {
+    .payout_epoch       = fd_bank_epoch_get( bank ),
+    .inflation_lamports = *rewards_out
+  };
+  FD_STORE( uint128, solcap_inflation.total_points, points );
+  fd_solcap_stake_inflation( capture_ctx->solcap, &solcap_inflation );
 
   /* Calculate the stake and vote rewards for each account. We want to
      use the vote states from the end of the current_epoch. */
@@ -888,6 +906,18 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
       stake_state->inner.stake.stake.credits_observed,
       stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
   fd_bank_stake_delegations_delta_end_locking_modify( bank );
+
+  fd_solcap_stake_reward_payout_t solcap_payout = {
+    .stake_pubkey           = stake_pubkey->uc,
+    .slot                   = fd_bank_slot_get( bank ),
+    .lamports               = fd_txn_account_get_lamports( stake_acc_rec ),
+    .lamports_delta         = (long)reward_lamports,
+    .stake_lamports         = stake_state->inner.stake.stake.delegation.stake,
+    .stake_lamports_delta   = (long)reward_lamports,
+    .credits_observed       = new_credits_observed,
+    .credits_observed_delta = (long)( new_credits_observed - stake_state->inner.stake.stake.credits_observed )
+  };
+  fd_solcap_stake_reward_payout( capture_ctx->solcap, &solcap_payout );
 
   if( FD_UNLIKELY( write_stake_state( stake_acc_rec, stake_state ) != 0 ) ) {
     FD_LOG_ERR(( "write_stake_state failed" ));

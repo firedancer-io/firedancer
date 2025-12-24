@@ -1,3 +1,5 @@
+$(call add-hdrs,fd_solcap_writer.h)
+
 $(call add-hdrs,fd_pkt_writer.h)
 
 $(call add-hdrs,fd_pkt_w_tango.h)

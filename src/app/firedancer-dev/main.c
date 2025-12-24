@@ -108,6 +108,7 @@ extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_shredcap;
 extern fd_topo_run_tile_t fd_tile_vinyl;
+extern fd_topo_run_tile_t fd_tile_solcap;
 
 extern fd_topo_run_tile_t fd_tile_snapct;
 extern fd_topo_run_tile_t fd_tile_snapld;
@@ -170,6 +171,7 @@ fd_topo_run_tile_t * TILES[] = {
 # endif
   &fd_tile_ipecho,
   &fd_tile_vinyl,
+  &fd_tile_solcap,
   NULL,
 };
 

@@ -1,4 +1,3 @@
-#include <linux/limits.h>
 #define _GNU_SOURCE
 #include "fd_genesi_tile.h"
 #include "fd_genesis_client.h"
@@ -8,6 +7,7 @@
 #include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/types/fd_types.h"
 #include "../../util/archive/fd_tar.h"
 
 #include <stdio.h>
@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <linux/fs.h>
+#include <linux/limits.h>
 #if FD_HAS_BZIP2
 #include <bzlib.h>
 #endif

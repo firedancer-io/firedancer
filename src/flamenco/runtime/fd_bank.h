@@ -356,6 +356,7 @@ struct fd_bank {
   ulong child_idx;   /* index of the left-child in the node pool */
   ulong sibling_idx; /* index of the right-sibling in the node pool */
   ulong flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
+  ulong bank_seq;    /* app-wide bank sequence number */
 
   /* Define non-templatized types here. */
 
@@ -516,6 +517,7 @@ struct fd_banks {
   ulong       max_fork_width;  /* Maximum fork width executing through
                                   any given slot. */
   ulong       root_idx;        /* root idx */
+  ulong       bank_seq;        /* app-wide bank sequence number */
 
   /* This lock is only used to serialize banks fork tree reads with
      respect to fork tree writes.  In other words, tree traversals

@@ -1,11 +1,13 @@
 #ifndef HEADER_fd_src_flamenco_capture_fd_capture_ctx_h
 #define HEADER_fd_src_flamenco_capture_fd_capture_ctx_h
 
-#include "../../util/fd_util_base.h"
+#include "../solcap/fd_pkt_writer.h"
 
 /* Context needed to do solcap capture during execution of transactions */
 
 struct fd_capture_ctx {
+
+  fd_pkt_writer_t *        solcap;
 
   ulong                    current_txn_idx;
 
