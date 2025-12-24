@@ -187,10 +187,15 @@ fd_progcache_txn_cancel( fd_progcache_admin_t * cache,
                          fd_funk_txn_xid_t const * xid ) {
   fd_funk_t * funk = cache->funk;
 
-  fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
-  if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_cancel failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
+  /* Assume no concurrent access to txn_map */
+
+  fd_funk_txn_map_query_t query[1];
+  int query_err = fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 );
+  if( FD_UNLIKELY( query_err ) ) {
+    FD_LOG_CRIT(( "fd_progcache_txn_cancel failed: fd_funk_txn_map_query_try(xid=%lu:%lu) returned (%i-%s)",
+                   xid->ul[0], xid->ul[1], query_err, fd_map_strerror( query_err ) ));
   }
+  fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
 
   fd_progcache_txn_cancel_next_list( cache, txn );
   fd_progcache_txn_cancel_tree( cache, txn );
@@ -307,16 +312,13 @@ fd_progcache_publish_recs( fd_progcache_admin_t * cache,
    parent is the last published, into the parent. */
 
 static void
-fd_progcache_txn_publish_one( fd_progcache_admin_t *    cache,
-                              fd_funk_txn_xid_t const * xid ) {
+fd_progcache_txn_publish_one( fd_progcache_admin_t * cache,
+                              fd_funk_txn_t *        txn ) {
   fd_funk_t * funk = cache->funk;
 
   /* Phase 1: Mark transaction as "last published" */
 
-  fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
-  if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
-  }
+  fd_funk_txn_xid_t const * xid = fd_funk_txn_xid( txn );
   FD_LOG_INFO(( "progcache txn laddr=%p xid %lu:%lu: publish", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) ) {
     FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu is not a child of the last published txn", xid->ul[0], xid->ul[1] ));
@@ -374,10 +376,15 @@ fd_progcache_txn_advance_root( fd_progcache_admin_t *    cache,
                                fd_funk_txn_xid_t const * xid ) {
   fd_funk_t * funk = cache->funk;
 
-  fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
-  if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_advance_root failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
+  /* Assume no concurrent access to txn_map */
+
+  fd_funk_txn_map_query_t query[1];
+  int query_err = fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 );
+  if( FD_UNLIKELY( query_err ) ) {
+    FD_LOG_CRIT(( "fd_progcache_txn_publish_one failed: fd_funk_txn_map_query_try(xid=%lu:%lu) returned (%i-%s)",
+                   xid->ul[0], xid->ul[1], query_err, fd_map_strerror( query_err ) ));
   }
+  fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
 
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) ) {
     FD_LOG_CRIT(( "fd_progcache_txn_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));
@@ -392,7 +399,7 @@ fd_progcache_txn_advance_root( fd_progcache_admin_t *    cache,
   funk->shmem->child_head_cidx = txn->child_head_cidx;
   funk->shmem->child_tail_cidx = txn->child_tail_cidx;
 
-  fd_progcache_txn_publish_one( cache, fd_funk_txn_xid( txn ) );
+  fd_progcache_txn_publish_one( cache, txn );
 }
 
 /* reset_txn_list does a depth-first traversal of the txn tree.
