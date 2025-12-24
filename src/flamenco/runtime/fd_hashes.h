@@ -2,8 +2,9 @@
 #define HEADER_fd_src_flamenco_runtime_fd_hashes_h
 
 #include "../fd_flamenco_base.h"
-#include "../types/fd_types.h"
+#include "../types/fd_types_custom.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../solcap/fd_pkt_writer.h"
 
 /* fd_hashes.h provides functions for computing and updating the bank hash
    for a completed slot.  The bank hash is a cryptographic hash of the
@@ -80,30 +81,18 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
                                  fd_lthash_value_t * lthash_out );
 
 /* fd_hashes_update_lthash updates the bank's incremental lthash when an
-   account is modified during transaction execution.  The bank lthash is
+   account is modified after transaction execution.  The bank lthash is
    maintained incrementally by subtracting the old account hash and
    adding the new account hash.
 
    meta is a pointer to the modified account's metadata and data.
    prev_hash contains the lthash of the account before modification (or
    zero for newly created accounts).  bank is the bank whose lthash
-   should be updated.  capture_ctx is an optional capture context for
-   recording account changes (can be NULL).
+   should be updated.  solcap optionally logs lthash updates and account
+   revisions.
 
-   This function:
-   - Acquires a write lock on the bank's lthash
-   - Subtracts prev_hash from the bank lthash
-   - Computes the new account hash
-   - Adds the new hash to the bank lthash
-   - Releases the lock
-   - If capture_ctx is provided, writes the account state to the capture
-
-   On capture write failure, the function will FD_LOG_ERR and terminate.
-   The function assumes all non-optional pointers are valid.
-
-   IMPORTANT: fd_hashes_update_lthash, or fd_hashes_update_lthash_from_funk,
-   must be called whenever an account is modified during transaction
-   execution. This includes sysvar accounts. */
+   This function is thread-safe (each lthash update behaves atomically
+   when done from multiple threads). */
 
 void
 fd_hashes_update_lthash( fd_pubkey_t const *       pubkey,
@@ -125,8 +114,7 @@ fd_hashes_update_lthash( fd_pubkey_t const *       pubkey,
    - last_blockhash is the last proof-of-history blockhash
    - signature_count is the number of signatures processed in the slot
 
-   The resulting bank hash is written to hash_out.
-*/
+   The resulting bank hash is written to hash_out. */
 
 void
 fd_hashes_hash_bank( fd_lthash_value_t const * lthash,

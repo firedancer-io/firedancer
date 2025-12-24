@@ -13,9 +13,7 @@
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
-#include "../../stakes/fd_stakes.h"
 #include "../../types/fd_types.h"
-#include "../../../disco/pack/fd_pack.h"
 #include "generated/block.pb.h"
 #include "../../capture/fd_capture_ctx.h"
 

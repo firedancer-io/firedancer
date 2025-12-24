@@ -31,6 +31,7 @@
 #include "../../flamenco/runtime/fd_genesis_parse.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/solcap/fd_solcap_writer.h"
 
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 
@@ -814,7 +815,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 # if FD_HAS_FLATCC
   /* If enabled, dump the block to a file and reset the dumping
      context state */
-  if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
+  if( FD_UNLIKELY( ctx->capture_ctx->dump_block_to_pb ) ) {
     fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
     fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, funk, ctx->capture_ctx );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
@@ -855,6 +856,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: leader bank is NULL for slot %lu", slot ));
   }
 
+  fd_solcap_bank_create( ctx->capture_ctx->solcap, ctx->leader_bank->bank_seq, fd_bank_slot_get( ctx->leader_bank ) );
   if( FD_UNLIKELY( !fd_banks_clone_from_parent( ctx->banks, ctx->leader_bank->idx, parent_bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu", slot ));
   }
@@ -1537,7 +1539,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
       /* Add the transaction to the block dumper if necessary. This
          logic doesn't need to be fork-aware since it's only meant to
          be used in backtest. */
-      if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
+      if( FD_UNLIKELY( ctx->capture_ctx->dump_block_to_pb ) ) {
         fd_dump_block_to_protobuf_collect_tx( ctx->block_dump_ctx, txn_p );
       }
 #     endif
@@ -1705,7 +1707,10 @@ process_fec_set( fd_replay_tile_t *  ctx,
   } else if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
     /* If we are seeing a FEC with fec set idx 0, this means that we are
        starting a new slot, and we need a new bank index. */
-    reasm_fec->bank_idx = fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now )->idx;
+    fd_bank_t * bank = fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now );
+    fd_solcap_bank_create( ctx->capture_ctx->solcap, bank->bank_seq, fd_bank_slot_get( bank ) );
+    reasm_fec->bank_idx = bank->idx;
+
     /* At this point remove any stale entry in the block id map if it
        exists and set the block id as not having been seen yet.  This is
        safe because we know that the old entry for this bank index has

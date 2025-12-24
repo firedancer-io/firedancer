@@ -1225,3 +1225,13 @@
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;active</span> | gauge | Currently active hard forks |
 
 </div>
+
+## Solcap Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">solcap_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to disk |
+
+</div>

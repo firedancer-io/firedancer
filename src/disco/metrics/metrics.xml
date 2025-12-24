@@ -1189,4 +1189,8 @@ metric introduced.
     <counter name="BytesRead" summary="The total number of bytes read from all connections to the GUI service" />
 </tile>
 
+<tile name="solcap">
+    <counter name="BytesWritten" summary="The total number of bytes written to disk" />
+</tile>
+
 </metrics>

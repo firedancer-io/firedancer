@@ -4,6 +4,7 @@
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../solcap/fd_solcap_writer.h"
 
 void
 fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
@@ -78,7 +79,7 @@ fd_hashes_update_lthash( fd_pubkey_t const *       pubkey,
                          fd_lthash_value_t const * prev_account_hash,
                          fd_bank_t               * bank,
                          fd_capture_ctx_t        * capture_ctx ) {
-  (void)capture_ctx;
+  fd_pkt_writer_t * solcap = capture_ctx->solcap;
 
   /* Hash the new version of the account */
   fd_lthash_value_t new_hash[1];
@@ -87,9 +88,11 @@ fd_hashes_update_lthash( fd_pubkey_t const *       pubkey,
   /* Subtract the old hash of the account from the bank lthash */
   fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
   fd_lthash_sub( bank_lthash, prev_account_hash );
+  fd_solcap_lthash_sub( solcap, bank->bank_seq, prev_account_hash->bytes, pubkey->uc );
 
   /* Add the new hash of the account to the bank lthash */
   fd_lthash_add( bank_lthash, new_hash );
+  fd_solcap_lthash_add( solcap, bank->bank_seq, new_hash->bytes, pubkey->uc );
 
   fd_bank_lthash_end_locking_modify( bank );
 }

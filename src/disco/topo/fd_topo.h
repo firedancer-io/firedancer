@@ -390,6 +390,7 @@ struct fd_topo_tile {
       int   larger_max_cost_per_block;
 
       char  dump_proto_dir[ PATH_MAX ];
+      ulong dump_start_slot;
       int   dump_block_to_pb;
 
       struct {
@@ -411,6 +412,7 @@ struct fd_topo_tile {
 
       ulong capture_start_slot;
       char  dump_proto_dir[ PATH_MAX ];
+      ulong dump_start_slot;
       int   dump_instr_to_pb;
       int   dump_txn_to_pb;
       int   dump_syscall_to_pb;
@@ -627,6 +629,10 @@ struct fd_topo_tile {
       int  io_type; /* FD_VINYL_IO_TYPE_* */
       uint uring_depth;
     } vinyl;
+
+    struct {
+      char out_path[ PATH_MAX ];
+    } solcap;
   };
 };
 
