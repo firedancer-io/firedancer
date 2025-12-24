@@ -522,25 +522,26 @@ during_frag( fd_send_tile_ctx_t * ctx,
              ulong                  chunk,
              ulong                  sz,
              ulong                  ctl ) {
-
   fd_send_link_in_t * in_link = &ctx->in_links[ in_idx ];
-  if( FD_UNLIKELY( chunk<in_link->chunk0 || chunk>in_link->wmark ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] on link %lu", chunk, sz, in_link->chunk0, in_link->wmark, in_idx ));
-  }
-
-  uchar const * dcache_entry = fd_chunk_to_laddr_const( in_link->mem, chunk );
-  ulong         kind         = in_link->kind;
+  ulong               kind    = in_link->kind;
 
   if( FD_UNLIKELY( kind==IN_KIND_NET ) ) {
     void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
     fd_memcpy( ctx->quic_buf, src, sz );
+    return;
   }
 
+  if( FD_UNLIKELY( chunk<in_link->chunk0 || chunk>in_link->wmark || sz>in_link->mtu ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] on link %lu", chunk, sz, in_link->chunk0, in_link->wmark, in_idx ));
+
+  uchar const * dcache_entry = fd_chunk_to_laddr_const( in_link->mem, chunk );
+
   if( FD_UNLIKELY( kind==IN_KIND_STAKE ) ) {
-    if( sz>sizeof(fd_stake_weight_t)*(MAX_STAKED_LEADERS+1UL) ) {
-      FD_LOG_ERR(( "sz %lu >= max expected stake update size %lu", sz, sizeof(fd_stake_weight_t) * (MAX_STAKED_LEADERS+1UL) ));
-    }
-    fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( dcache_entry ) );
+    fd_stake_weight_msg_t const * msg = fd_type_pun_const( dcache_entry );
+    ulong staked_cnt = msg->staked_cnt;
+    if( FD_UNLIKELY( (staked_cnt<MAX_STAKED_LEADERS) & (sz==fd_stake_weight_msg_sz( staked_cnt ) ) ) )
+      FD_LOG_ERR(( "corrupt stake msg: staked_cnt=%lu, sz=%lu", staked_cnt, sz ));
+    fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, msg, staked_cnt );
   }
 
   if( FD_LIKELY( kind==IN_KIND_GOSSIP ) ) {
@@ -631,6 +632,7 @@ setup_input_link( fd_send_tile_ctx_t * ctx,
   in_link_desc->wmark  = fd_dcache_compact_wmark( in_link_desc->mem, in_link->dcache, in_link->mtu );
   in_link_desc->dcache = in_link->dcache;
   in_link_desc->kind   = kind;
+  in_link_desc->mtu    = in_link->mtu;
 
   return in_link_desc;
 }
