@@ -7,6 +7,7 @@
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "../accdb/fd_accdb_impl_v1.h"
+#include "../capture/fd_capture_ctx.h"
 #include <assert.h>
 
 static fd_pubkey_t

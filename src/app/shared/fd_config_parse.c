@@ -119,6 +119,17 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
 
+  CFG_POP      ( bool,   development.solcap.enabled                          );
+  CFG_POP      ( cstr,   development.solcap.path                             );
+  CFG_POP      ( bool,   development.solcap.overwrite                        );
+  CFG_POP      ( cstr,   development.solcap.verbosity                        );
+
+  CFG_POP      ( bool,   development.solfuzz_dump.dump_elfs                  );
+  CFG_POP      ( bool,   development.solfuzz_dump.dump_syscalls              );
+  CFG_POP      ( bool,   development.solfuzz_dump.dump_instructions          );
+  CFG_POP      ( bool,   development.solfuzz_dump.dump_transactions          );
+  CFG_POP      ( bool,   development.solfuzz_dump.dump_blocks                );
+
   return config;
 }
 
@@ -244,14 +255,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
   CFG_POP      ( ulong,  tiles.repair.slot_max                            );
-
-  CFG_POP      ( ulong,  capture.capture_start_slot                       );
-  CFG_POP      ( cstr,   capture.dump_proto_dir                           );
-  CFG_POP      ( bool,   capture.dump_elf_to_pb                           );
-  CFG_POP      ( bool,   capture.dump_syscall_to_pb                       );
-  CFG_POP      ( bool,   capture.dump_instr_to_pb                         );
-  CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
-  CFG_POP      ( bool,   capture.dump_block_to_pb                         );
 
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
 

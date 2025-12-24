@@ -14,6 +14,7 @@
 #include "../../accdb/fd_accdb_user.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../progcache/fd_progcache_user.h"
+#include "../../solcap/fd_pkt_w_pcapng.h"
 #if FD_HAS_FLATCC
 #include "flatcc/flatcc_builder.h"
 #endif
@@ -39,6 +40,9 @@ struct fd_solfuzz_runner {
 
   fd_accdb_user_t      accdb[1];
   fd_accdb_admin_t     accdb_admin[1];
+
+  fd_pkt_w_pcapng_t    solcap_mem[1];
+  fd_pkt_writer_t *    solcap; /* optional */
 
   fd_exec_accounts_t * exec_accounts;
   fd_runtime_stack_t * runtime_stack;

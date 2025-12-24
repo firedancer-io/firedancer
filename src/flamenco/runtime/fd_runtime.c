@@ -1,6 +1,6 @@
 #include "fd_runtime.h"
 #include "../capture/fd_capture_ctx.h"
-#include "../types/fd_cast.h"
+#include "../solcap/fd_solcap_writer.h"
 #include "fd_acc_mgr.h"
 #include "fd_alut_interp.h"
 #include "fd_bank.h"
@@ -874,6 +874,16 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
   /* Update the bank hash */
   fd_bank_bank_hash_set( bank, *new_bank_hash );
 
+  fd_solcap_bank_hash_t solcap_bank_hash = {
+    .bank_hash_post    = new_bank_hash->uc,
+    .bank_hash_pre     = prev_bank_hash->uc,
+    .block_hash        = poh->uc,
+    .slot              = slot,
+    .cum_signature_cnt = sig_cnt,
+    .lthash            = lthash->bytes
+  };
+  fd_solcap_bank_hash( capture_ctx->solcap, &solcap_bank_hash );
+
   fd_bank_lthash_end_locking_query( bank );
 }
 
@@ -1123,7 +1133,6 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
                        fd_txn_out_t *      txn_out ) {
-
   txn_out->details.commit_start_timestamp = fd_tickcount();
 
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
@@ -1617,6 +1626,16 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
     (fd_hash_t *)fd_bank_poh_query( bank )->hash,
     0UL,
     bank_hash );
+
+  fd_solcap_bank_hash_t solcap_bank_hash = {
+    .bank_hash_post    = bank_hash->uc,
+    .bank_hash_pre     = prev_bank_hash->uc,
+    .block_hash        = poh->uc,
+    .slot              = fd_bank_slot_get( bank ),
+    .cum_signature_cnt = 0UL,
+    .lthash            = lthash->bytes
+  };
+  fd_solcap_bank_hash( capture_ctx->solcap, &solcap_bank_hash );
 
   fd_bank_lthash_end_locking_query( bank );
 

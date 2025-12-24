@@ -35,11 +35,27 @@ sol_compat_setup_runner( fd_solfuzz_runner_options_t const * options ) {
     return NULL;
   }
 
+  char const * solcap_path = getenv( "FD_SOLCAP" );
+  if( solcap_path ) {
+    int fd = open( solcap_path, O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+    if( FD_UNLIKELY( fd == -1 ) ) {
+      FD_LOG_ERR(( "open($FD_SOLCAP=%s) failed (%i-%s)", solcap_path, errno, fd_io_strerror( errno ) ));
+    }
+
+    runner->solcap = fd_pkt_w_pcapng_new( runner->solcap_mem, fd, NULL, 0UL );
+    if( FD_UNLIKELY( !runner->solcap ) ) FD_LOG_ERR(( "Failed to initialize solcap writer" ));
+    FD_LOG_NOTICE(( "Logging to solcap file %s", solcap_path ));
+  }
+
   return runner;
 }
 
 static void
 sol_compat_cleanup_runner( fd_solfuzz_runner_t * runner ) {
+  if( runner->solcap ) {
+    fd_pkt_writer_fini( runner->solcap->base );
+    runner->solcap = NULL;
+  }
   fd_solfuzz_runner_delete( runner );
 }
 

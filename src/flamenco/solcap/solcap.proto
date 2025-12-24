@@ -1,0 +1,217 @@
+syntax = "proto3";
+package io.firedancer.solcap;
+
+/// Top-level solcap event
+message Event {
+  oneof event {
+    // Fork graph related events
+    BankCreate       bank_create        =  1;
+    BankClone        bank_clone         =  2;
+    BankDestroy      bank_destroy       =  3;
+    LeaderSlot       leader_slot        =  4;
+
+    // Runtime data events
+    TxnExecStart     txn_exec_start     =  5;
+    TxnExecPreflight txn_exec_preflight =  6;
+    TxnExecEnd       txn_exec_end       =  7;
+    InstrExecStart   instr_exec_start   =  8;
+    InstrExecEnd     instr_exec_end     =  9;
+    LthashUpdate     lthash_update      = 10;
+    BankHash         bank_hash          = 11;
+    StakeReward      stake_reward       = 12;
+  }
+}
+
+/// The BankCreate event marks the creation of a new bank.  This bank
+/// has finished replaying all previous slots and is now ready to
+/// execute a new block.
+///
+/// In solcap, the concept of a "bank" is lineage of microblocks onto
+/// which new runtime state transitions are replayed.  All runtime
+/// events specify which bank they occurred on, via an opaque "bank ID".
+message BankCreate {
+  /// The bank ID that is created or replaced by this event.
+  uint64 bank_id = 1;
+
+  /// The minimum slot number of the next block that can be executed on
+  /// this bank.
+  uint64 slot = 2;
+}
+
+/// Sometimes, the validator observes multiple forks (due to skips), or
+/// conflicting microblocks (equivocation).  Note that a bank can be
+/// cloned in the middle of a block (but between microblocks).
+message BankClone {
+  /// The bank ID that is created or replaced by this event.
+  uint64 bank_id = 1;
+
+  /// The bank ID that is cloned by this event.
+  uint64 source_bank_id = 2;
+}
+
+/// The validator abandons old banks (due to finalization or garbage
+/// collection).
+message BankDestroy {
+  /// The bank ID that is destroyed by this event.
+  uint64 bank_id = 1;
+}
+
+/// The validator started executing a transaction.
+message TxnExecStart {
+  uint64 bank_id = 1;
+
+  bytes serialized_txn = 2;
+}
+
+/// The validator finished performing "pre-flight" transaction checks,
+/// including fee calculation, address lookup table resultion, and fee
+/// payer checks.
+message TxnExecPreflight {
+  uint64 bank_id = 1;
+
+  bytes signature = 2;
+
+  bytes fee_payer = 3;
+
+  uint64 fee_lamports = 4;
+}
+
+/// The validator finished executing a transaction.
+message TxnExecEnd {
+  uint64 bank_id = 1;
+
+  bytes signature = 2;
+
+  int32 error_code = 3;
+
+  uint64 compute_units_consumed = 4;
+}
+
+/// The validator started executing a program invocation within a program.
+message InstrExecStart {
+  uint64 bank_id = 1;
+
+  bytes signature = 2;
+
+  uint32 instr_seq = 3;
+
+  uint32 depth = 4;
+
+  uint64 cu_rem = 5;
+}
+
+message InstrExecEnd {
+  uint64 bank_id = 1;
+
+  bytes signature = 2;
+
+  uint32 instr_seq = 3;
+
+  uint64 cu_rem = 4;
+
+  int32 error_code = 5;
+
+  uint64 return_code = 6;
+}
+
+enum LthashDeltaType {
+  /// Element inserted into the set
+  ADD = 0;
+
+  /// Element removed from the set
+  SUBTRACT = 1;
+
+  /// Lthash value replaced (e.g. during boot)
+  SET = 2;
+}
+
+message LthashUpdate {
+  uint64 bank_id = 1;
+
+  /// Reason for why the LtHash was updated
+  LthashDeltaType delta_type = 2;
+
+  /// Lthash value change (see update_type)
+  bytes delta = 3;
+
+  /// Account address that generated the update
+  /// Only set if the change resulted from exactly one account update
+  bytes account_address = 4;
+}
+
+message BankHash {
+  uint64 bank_id = 1;
+
+  /// Bank hash after block execution
+  bytes bank_hash_post = 2;
+
+  /// Bank hash before block execution
+  bytes bank_hash_pre = 3;
+
+  /// Block hash of last executed block
+  bytes block_hash = 4;
+
+  /// Slot number of last executed block
+  uint64 slot = 5;
+
+  /// Cumulative signature count for all transactions processed
+  uint64 cum_signature_count = 6;
+
+  /// Lthash account set hash at end of block
+  bytes lthash = 7;
+}
+
+message StakeInflation {
+  uint64 bank_id = 1;
+
+  /// Epoch in which payout occurs
+  uint64 payout_epoch = 2;
+
+  /// Staking inflation (lamports) that will occur in this epoch
+  uint64 inflation_lamports = 3;
+
+  /// Little endian uint128
+  bytes total_points = 4;
+}
+
+message StakeReward {
+  uint64 bank_id = 1;
+
+  /// Address of stake account
+  bytes stake_account = 2;
+
+  /// Address of vote account
+  bytes vote_account = 3;
+
+  /// Vote account commission in percent (in range [0,100])
+  uint32 commission = 4;
+
+  /// Lamports to credit to stake account
+  int64 stake_rewards = 5;
+
+  /// Lamports to credit to vote account
+  int64 vote_rewards = 6;
+
+  /// Vote account credits debited
+  int64 new_credits_observed = 7;
+}
+
+message StakeRewardPayout {
+  uint64 bank_id = 1;
+
+  bytes stake_account = 2;
+
+  uint64 slot = 3;
+
+  uint64 lamports = 4;
+
+  uint64 stake_lamports = 5;
+
+  uint64 credits_observed = 6;
+
+  int64 lamports_delta = 7;
+
+  int64 stake_lamports_delta = 8;
+
+  int64 credits_observed_delta = 9;
+}

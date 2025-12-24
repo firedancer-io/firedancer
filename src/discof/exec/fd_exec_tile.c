@@ -9,6 +9,7 @@
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector.h"
+#include "../../flamenco/solcap/fd_pkt_w_tango.h"
 #include "../../disco/metrics/fd_metrics.h"
 
 /* The exec tile is responsible for executing single transactions. The
@@ -39,6 +40,8 @@ typedef struct fd_exec_tile_ctx {
   fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
 
   fd_capture_ctx_t      capture_ctx[1];
+  fd_pkt_w_tango_t      solcap_writer_[1];
+  fd_pkt_writer_t *     solcap_writer;
 
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
@@ -344,7 +347,7 @@ unprivileged_init( fd_topo_t *      topo,
   memset( ctx->capture_ctx, 0, sizeof(fd_capture_ctx_t) );
     if( strlen( tile->exec.dump_proto_dir ) ) {
       ctx->capture_ctx->dump_proto_output_dir = tile->exec.dump_proto_dir;
-      ctx->capture_ctx->dump_proto_start_slot = tile->exec.capture_start_slot;
+      ctx->capture_ctx->dump_proto_start_slot = tile->exec.dump_start_slot;
       ctx->capture_ctx->dump_instr_to_pb      = tile->exec.dump_instr_to_pb;
       ctx->capture_ctx->dump_txn_to_pb        = tile->exec.dump_txn_to_pb;
       ctx->capture_ctx->dump_syscall_to_pb    = tile->exec.dump_syscall_to_pb;
