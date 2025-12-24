@@ -103,30 +103,6 @@ static inline int fd_funk_txn_idx_is_null( ulong idx ) { return idx==FD_FUNK_TXN
 
 /* Accessors */
 
-/* fd_funk_txn_query returns a pointer to an in-preparation transaction
-   whose id is pointed to by xid.  Returns NULL if xid is not an
-   in-preparation transaction.  Assumes funk is a current local join,
-   map==fd_funk_txn_map( funk, fd_funk_wksp( funk ) ), xid points to a
-   transaction id in the caller's address space and there are no
-   concurrent operations on funk or xid.  Retains no interest in xid.
-
-   The returned pointer is in the caller's address space and, if the
-   return is non-NULL, the lifetime of the returned pointer is the
-   lesser of the funk join or the transaction is published or canceled
-   (either directly or indirectly via publish of a descendant, publish
-   of a competing transaction history or cancel of an ancestor). */
-
-FD_FN_PURE static inline fd_funk_txn_t *
-fd_funk_txn_query( fd_funk_txn_xid_t const * xid,
-                   fd_funk_txn_map_t *       map ) {
-  do {
-    fd_funk_txn_map_query_t query[1];
-    if( FD_UNLIKELY( fd_funk_txn_map_query_try( map, xid, NULL, query, 0 ) ) ) return NULL;
-    fd_funk_txn_t * ele = fd_funk_txn_map_query_ele( query );
-    if( FD_LIKELY( !fd_funk_txn_map_query_test( query ) ) ) return ele;
-  } while( 1 );
-}
-
 /* fd_funk_txn_xid returns a pointer in the local address space of the
    ID of an in-preparation transaction.  Assumes txn points to an
    in-preparation transaction in the caller's address space.  The

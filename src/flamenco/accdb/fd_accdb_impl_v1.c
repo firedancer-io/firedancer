@@ -75,7 +75,8 @@ fd_accdb_search_chain( fd_accdb_user_v1_t const * accdb,
 void
 fd_accdb_load_fork_slow( fd_accdb_user_v1_t *      accdb,
                          fd_funk_txn_xid_t const * xid ) {
-  fd_funk_txn_xid_t next_xid = *xid;
+  fd_funk_txn_xid_t     next_xid = *xid;
+  fd_funk_txn_t const * tip      = NULL;
 
   /* Walk transaction graph, recovering from overruns on-the-fly */
   accdb->fork_depth = 0UL;
@@ -139,6 +140,7 @@ retry:
                     found_xid.ul[0], found_xid.ul[1] ));
     }
 
+    if( !tip ) tip = candidate;  /* remember head of fork */
     accdb->fork[ i ] = next_xid;
     if( fd_funk_txn_idx_is_null( parent_idx ) ) {
       /* Reached root */
@@ -159,11 +161,13 @@ done:
     fd_funk_txn_xid_set_root( &accdb->fork[ accdb->fork_depth++ ] );
   }
 
-  /* Remember tip fork */
-  fd_funk_txn_t * tip = fd_funk_txn_query( xid, accdb->funk->txn_map );
-  ulong tip_idx = tip ? (ulong)( tip-accdb->funk->txn_pool->ele ) : ULONG_MAX;
-  accdb->tip_txn_idx = tip_idx;
-  if( tip ) fd_funk_txn_state_assert( tip, FD_FUNK_TXN_STATE_ACTIVE );
+  /* Remember head of fork */
+  if( tip ) {
+    accdb->tip_txn_idx = (ulong)( tip - accdb->funk->txn_pool->ele );
+    fd_funk_txn_state_assert( tip, FD_FUNK_TXN_STATE_ACTIVE );
+  } else {
+    accdb->tip_txn_idx = ULONG_MAX;  /* XID is rooted */
+  }
 }
 
 static inline void
