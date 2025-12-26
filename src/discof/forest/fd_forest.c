@@ -660,7 +660,17 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
       if( fd_forest_requests_ele_query( requests, &ancestor, NULL, reqspool ) ) has_requests_anc = 1;
       ancestor = fd_forest_pool_ele( pool, ancestor )->parent;
     }
-    if( FD_UNLIKELY( !has_requests_anc ) ) requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, ele ) );
+    if( FD_UNLIKELY( !has_requests_anc ) ) {
+      requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, ele ) );
+      /* we want to remove any children than are in the requests list. This isn't necessary during any regular boot.
+         However if we are booting from very far behind (>30k slots), the requests list will be very large and in
+         nearly reverse order.  */
+      fd_forest_blk_t * child = fd_forest_pool_ele( pool, ele->child );
+      while( FD_LIKELY( child ) ) {
+        requests_remove( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), &forest->iter, fd_forest_pool_idx( pool, child ) );
+        child = fd_forest_pool_ele( pool, child->sibling );
+      }
+    }
     if( FD_UNLIKELY( !has_consumed_anc ) ) consumed_insert( forest, fd_forest_pool_idx( pool, ele ) );
   }
   return ele;
@@ -1169,7 +1179,7 @@ orphaned_print( fd_forest_t const * forest,
     return;
   }
 
-  char new_prefix[512]; /* FIXME size this correctly */
+  char new_prefix[1024]; /* FIXME size this correctly */
   new_prefix[0] = '\0'; /* first fork stays on the same line, no prefix */
   while( curr ) {
     if( fd_forest_pool_ele_const( pool, curr->sibling ) ) {
