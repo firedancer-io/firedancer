@@ -2,7 +2,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../flamenco/types/fd_types.h"
-#include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../../disco/fd_disco.h"
@@ -86,25 +85,14 @@ struct fd_capture_tile_ctx {
   ulong repair_buffer_sz;
   uchar repair_buffer[ FD_NET_MTU ];
 
-  out_link_t           stake_out[1];
-  out_link_t           snap_out[1];
-  int                  enable_publish_stake_weights;
-  ulong *              manifest_wmark;
-  uchar *              manifest_bank_mem;
-  fd_banks_t *         banks;
-  fd_bank_t *          bank;
-  char                 manifest_path[ PATH_MAX ];
-  int                  manifest_load_done;
-  uchar *              manifest_spad_mem;
-  fd_spad_t *          manifest_spad;
-  uchar *              shared_spad_mem;
-  fd_spad_t *          shared_spad;
-
-  fd_ip4_udp_hdrs_t intake_hdr[1];
-
-  ulong now;
-  ulong  last_packet_ns;
-  double tick_per_ns;
+  out_link_t             stake_out[1];
+  out_link_t             snap_out[1];
+  int                    enable_publish_stake_weights;
+  ulong *                manifest_wmark;
+  char                   manifest_path[ PATH_MAX ];
+  int                    manifest_load_done;
+  fd_snapshot_manifest_t manifest;
+  uchar                  manifest_buf[ 2UL<<30 ];  /* sufficient for mainnet as of 2025-Dec */
 
   fd_io_buffered_ostream_t shred_ostream;
   fd_io_buffered_ostream_t repair_ostream;
@@ -149,57 +137,13 @@ manifest_bank_footprint( void ) {
   return fd_banks_footprint( MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH );
 }
 
-FD_FN_CONST static inline ulong
-manifest_load_align( void ) {
-  return 128UL;
-}
-
-FD_FN_CONST static inline ulong
-manifest_load_footprint( void ) {
-  /* A manifest typically requires 1GB, but closer to 2GB
-     have been observed in mainnet.  The footprint is then
-     set to 2GB.  TODO a future adjustment may be needed. */
-  return 2UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
-}
-
-FD_FN_CONST static inline ulong
-manifest_spad_max_alloc_align( void ) {
-  return FD_SPAD_ALIGN;
-}
-
-FD_FN_CONST static inline ulong
-manifest_spad_max_alloc_footprint( void ) {
-  /* The amount of memory required in the manifest load
-     scratchpad to process it tends to be slightly larger
-     than the manifest load footprint. */
-  return manifest_load_footprint() + 128UL * FD_SHMEM_HUGE_PAGE_SZ;
-}
-
-FD_FN_CONST static inline ulong
-shared_spad_max_alloc_align( void ) {
-  return FD_SPAD_ALIGN;
-}
-
-FD_FN_CONST static inline ulong
-shared_spad_max_alloc_footprint( void ) {
-  /* The shared scratchpad is used by the manifest banks
-     and by the manifest load (but not at the same time).
-     The footprint for the banks needs to be equal to
-     banks footprint (at least for the current setup with
-     MANIFEST_MAX_TOTAL_BANKS==2). */
-  return fd_ulong_max( manifest_bank_footprint(), manifest_load_footprint() );
-}
-
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong footprint = sizeof(fd_capture_tile_ctx_t)
                     + manifest_bank_footprint()
-                    + fd_spad_footprint( manifest_spad_max_alloc_footprint() )
-                    + fd_spad_footprint( shared_spad_max_alloc_footprint() )
                     + fd_alloc_footprint();
   return fd_ulong_align_up( footprint, FD_SHMEM_GIGANTIC_PAGE_SZ );
 }
-
 
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
@@ -222,8 +166,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_capture_tile_ctx_t),  sizeof(fd_capture_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, manifest_bank_align(),           manifest_bank_footprint() );
-  l = FD_LAYOUT_APPEND( l, manifest_spad_max_alloc_align(), fd_spad_footprint( manifest_spad_max_alloc_footprint() ) );
-  l = FD_LAYOUT_APPEND( l, shared_spad_max_alloc_align(),   fd_spad_footprint( shared_spad_max_alloc_footprint() ) );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),                fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -448,11 +390,6 @@ after_credit( fd_capture_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( !ctx->manifest_load_done ) ) {
     if( FD_LIKELY( !!strcmp( ctx->manifest_path, "") ) ) {
-      /* ctx->manifest_spad will hold the processed manifest. */
-      fd_spad_reset( ctx->manifest_spad );
-      /* do not pop from ctx->manifest_spad, the manifest needs
-         to remain available until a new manifest is processed. */
-
       int fd = open( ctx->manifest_path, O_RDONLY );
       if( FD_UNLIKELY( fd < 0 ) ) {
         FD_LOG_WARNING(( "open(%s) failed (%d-%s)", ctx->manifest_path, errno, fd_io_strerror( errno ) ));
@@ -460,25 +397,24 @@ after_credit( fd_capture_tile_ctx_t * ctx,
       }
       FD_LOG_NOTICE(( "manifest %s.", ctx->manifest_path ));
 
-      fd_snapshot_manifest_t * manifest = NULL;
-      FD_SPAD_FRAME_BEGIN( ctx->manifest_spad ) {
-        manifest = fd_spad_alloc( ctx->manifest_spad, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
-      } FD_SPAD_FRAME_END;
-      FD_TEST( manifest );
+      fd_snapshot_manifest_t * manifest = &ctx->manifest;
 
-      FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
-        uchar * buf    = fd_spad_alloc( ctx->shared_spad, manifest_load_align(), manifest_load_footprint() );
-        ulong   buf_sz = 0;
-        FD_TEST( !fd_io_read( fd, buf/*dst*/, 0/*dst_min*/, manifest_load_footprint()-1UL /*dst_max*/, &buf_sz ) );
+      uchar * buf    = ctx->manifest_buf;
+      ulong   buf_sz = 0;
+      FD_TEST( !fd_io_read(
+          fd,
+          /* dst     */ buf,
+          /* dst_min */ 0,
+          /* dst_max */ sizeof(ctx->manifest_buf),
+          /*         */ &buf_sz ) );
 
-        fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( aligned_alloc(
-                fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
-        FD_TEST( parser );
-        fd_ssmanifest_parser_init( parser, manifest );
-        int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL );
-        FD_TEST( parser_err==1 );
-        // if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));
-      } FD_SPAD_FRAME_END;
+      fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( aligned_alloc(
+              fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
+      FD_TEST( parser );
+      fd_ssmanifest_parser_init( parser, manifest );
+      int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL );
+      FD_TEST( parser_err==1 );
+      // if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));
       FD_LOG_NOTICE(( "manifest bank slot %lu", manifest->slot ));
 
       fd_fseq_update( ctx->manifest_wmark, manifest->slot );
@@ -486,7 +422,7 @@ after_credit( fd_capture_tile_ctx_t * ctx,
       uchar * chunk = fd_chunk_to_laddr( ctx->snap_out->mem, ctx->snap_out->chunk );
       ulong   sz    = sizeof(fd_snapshot_manifest_t);
       ulong   sig   = fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
-      memcpy( chunk, manifest, sz );
+      memcpy( chunk, manifest, sz );  /* FIXME why not decode manifest directly into dcache? */
       fd_stem_publish( stem, ctx->snap_out->idx, sig, ctx->snap_out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->snap_out->chunk = fd_dcache_compact_next( ctx->snap_out->chunk, sz, ctx->snap_out->chunk0, ctx->snap_out->wmark );
 
@@ -754,10 +690,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_capture_tile_ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t),  sizeof(fd_capture_tile_ctx_t) );
-  void * manifest_bank_mem          = FD_SCRATCH_ALLOC_APPEND( l, manifest_bank_align(),           manifest_bank_footprint() );
-  void * manifest_spad_mem          = FD_SCRATCH_ALLOC_APPEND( l, manifest_spad_max_alloc_align(), fd_spad_footprint( manifest_spad_max_alloc_footprint() ) );
-  void * shared_spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, shared_spad_max_alloc_align(),   fd_spad_footprint( shared_spad_max_alloc_footprint() ) );
-  void * alloc_mem                  = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),                fd_alloc_footprint() );
+  void *                  alloc_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),                fd_alloc_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /* Input links */
@@ -833,21 +766,8 @@ unprivileged_init( fd_topo_t *      topo,
     FD_TEST( ULONG_MAX==fd_fseq_query( ctx->manifest_wmark ) );
   }
 
-  ctx->manifest_bank_mem    = manifest_bank_mem;
-
-  // TODO: ???? Why is this calling fd_banks_new ... does not seem right
-  ctx->banks = fd_banks_join( fd_banks_new( ctx->manifest_bank_mem, MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH, 0 /* TODO? */, 8888UL /* TODO? */ ) );
-  FD_TEST( ctx->banks );
-  ctx->bank  = fd_banks_init_bank( ctx->banks );
-  fd_bank_slot_set( ctx->bank, 0UL );
-  FD_TEST( ctx->bank );
-
   strncpy( ctx->manifest_path, tile->shredcap.manifest_path, PATH_MAX );
   ctx->manifest_load_done = 0;
-  ctx->manifest_spad_mem  = manifest_spad_mem;
-  ctx->manifest_spad      = fd_spad_join( fd_spad_new( ctx->manifest_spad_mem, manifest_spad_max_alloc_footprint() ) );
-  ctx->shared_spad_mem    = shared_spad_mem;
-  ctx->shared_spad        = fd_spad_join( fd_spad_new( ctx->shared_spad_mem, shared_spad_max_alloc_footprint() ) );
 
   /* Allocate the write buffers */
   ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_mem, FD_SHREDCAP_ALLOC_TAG ), fd_tile_idx() );
