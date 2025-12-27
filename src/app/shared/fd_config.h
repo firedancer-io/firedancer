@@ -162,15 +162,29 @@ struct fd_configf {
 
   struct {
     int hard_fork_fatal;
+
+    struct {
+      int  enabled;
+      char path[ PATH_MAX ];
+      int  overwrite;
+      char verbosity[ 32 ];
+    } solcap;
+
+    struct {
+      char  out_path[ PATH_MAX ];
+      ulong start_slot;
+
+      int dump_elfs;
+      int dump_syscalls;
+      int dump_instructions;
+      int dump_transactions;
+      int dump_blocks;
+    } solfuzz_dump;
   } development;
 
   struct {
     ulong max_completed_shred_sets;
   } store;
-
-  struct {
-    char path[ PATH_MAX ];
-  } capctx;
 };
 
 typedef struct fd_configf fd_configf_t;
@@ -496,18 +510,6 @@ struct fd_config {
     } tower;
 
   } tiles;
-  struct {
-    ulong capture_start_slot;
-    char  dump_proto_dir[ PATH_MAX ];
-    char  solcap_capture[ PATH_MAX ];
-    int   recent_only;
-    ulong recent_slots_per_file;
-    int   dump_elf_to_pb;
-    int   dump_syscall_to_pb;
-    int   dump_instr_to_pb;
-    int   dump_txn_to_pb;
-    int   dump_block_to_pb;
-  } capture;
 };
 
 typedef struct fd_config fd_config_t;
