@@ -314,6 +314,7 @@ fd_banks_new( void * shmem,
   banks->max_total_banks = max_total_banks;
   banks->max_fork_width  = max_fork_width;
   banks->root_idx        = ULONG_MAX;
+  banks->bank_seq        = 0UL;  /* FIXME randomize across runs? */
 
   if( FD_UNLIKELY( !fd_stake_delegations_new( banks->stake_delegations_root, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) ) ) {
     FD_LOG_WARNING(( "Unable to create stake delegations root" ));
@@ -466,6 +467,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
     return NULL;
   }
   fd_bank_t * bank = fd_banks_pool_ele_acquire( bank_pool );
+  bank->bank_seq = FD_ATOMIC_FETCH_AND_ADD( &banks->bank_seq, 1UL );
 
   #define HAS_COW_1(type, name, footprint) \
     bank->name##_dirty    = 0;             \
@@ -1067,6 +1069,7 @@ fd_banks_new_bank( fd_banks_t * banks,
 
   ulong null_idx = fd_banks_pool_idx_null( bank_pool );
 
+  child_bank->bank_seq    = FD_ATOMIC_FETCH_AND_ADD( &banks->bank_seq, 1UL );
   child_bank->idx         = child_bank_idx;
   child_bank->parent_idx  = null_idx;
   child_bank->child_idx   = null_idx;
