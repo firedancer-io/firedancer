@@ -119,7 +119,7 @@ typedef struct fd_replay_out_link fd_replay_out_link_t;
 struct fd_block_id_ele {
   fd_hash_t block_id;
   int       block_id_seen;
-  ulong     slot; /* = FD_SLOT_NULL if not initialized */
+  ulong     slot;
   ulong     next_;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
@@ -1710,10 +1710,11 @@ process_fec_set( fd_replay_tile_t *  ctx,
        safe because we know that the old entry for this bank index has
        already been pruned away. */
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
-    block_id_ele->block_id_seen = 0;
     if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) ) ) {
       FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
     }
+    block_id_ele->block_id_seen = 0;
+    block_id_ele->slot          = reasm_fec->slot;
 
   } else {
     /* We are continuing to execute through a slot that we already have
@@ -1729,7 +1730,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
     block_id_ele->block_id_seen = 1;
     block_id_ele->block_id      = reasm_fec->key;
-    block_id_ele->slot          = reasm_fec->slot;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
     if( FD_UNLIKELY( reasm_fec->leader ) ) {
@@ -1797,6 +1797,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( reasm_fec->slot_complete && bank->flags&FD_BANK_FLAGS_DEAD ) ) {
+    FD_LOG_WARNING(( "slot %lu is dead", reasm_fec->slot ));
     publish_slot_dead( ctx, stem, bank );
   }
 }
@@ -2007,6 +2008,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* We can only publish the slot as dead if we have seen the
            block id for this slot. */
         if( ctx->block_id_arr[ bank->idx ].block_id_seen ) {
+          FD_LOG_WARNING(( "slot %lu is dead", fd_bank_slot_get( bank ) ));
           publish_slot_dead( ctx, stem, bank );
         }
       }
@@ -2027,6 +2029,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* We can only publish the slot as dead if we have seen the
            block id for this slot. */
         if( ctx->block_id_arr[ bank->idx ].block_id_seen ) {
+          FD_LOG_WARNING(( "slot %lu is dead", fd_bank_slot_get( bank ) ));
           publish_slot_dead( ctx, stem, bank );
         }
       }
@@ -2542,10 +2545,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->block_id_arr = (fd_block_id_ele_t *)block_id_arr_mem;
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, ctx->block_id_map_seed ) );
   FD_TEST( ctx->block_id_map );
-
-  for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) {
-    ctx->block_id_arr[ i ].slot = FD_SLOT_NULL;
-  }
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
 
