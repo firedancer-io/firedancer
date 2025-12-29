@@ -1797,7 +1797,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( reasm_fec->slot_complete && bank->flags&FD_BANK_FLAGS_DEAD ) ) {
-    FD_LOG_WARNING(( "slot %lu is dead", reasm_fec->slot ));
     publish_slot_dead( ctx, stem, bank );
   }
 }
@@ -2008,7 +2007,6 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* We can only publish the slot as dead if we have seen the
            block id for this slot. */
         if( ctx->block_id_arr[ bank->idx ].block_id_seen ) {
-          FD_LOG_WARNING(( "slot %lu is dead", fd_bank_slot_get( bank ) ));
           publish_slot_dead( ctx, stem, bank );
         }
       }
@@ -2029,7 +2027,6 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* We can only publish the slot as dead if we have seen the
            block id for this slot. */
         if( ctx->block_id_arr[ bank->idx ].block_id_seen ) {
-          FD_LOG_WARNING(( "slot %lu is dead", fd_bank_slot_get( bank ) ));
           publish_slot_dead( ctx, stem, bank );
         }
       }
