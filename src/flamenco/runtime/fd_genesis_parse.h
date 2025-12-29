@@ -23,6 +23,13 @@ struct fd_genesis_account {
 };
 typedef struct fd_genesis_account fd_genesis_account_t;
 
+struct fd_genesis_builtin {
+  uchar             pubkey[32];
+  ulong             data_len;
+  uchar             data[];
+};
+typedef struct fd_genesis_builtin fd_genesis_builtin_t;
+
 struct fd_genesis {
   /* total_sz represents the total memory footprint taken up by
      fd_genesis_t and the variable length data that follows. */
