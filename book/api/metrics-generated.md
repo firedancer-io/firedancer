@@ -1223,5 +1223,6 @@
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;seen</span> | counter | Number of hard forks we've seen (block ids with multiple candidate bank hashes) |
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;pruned</span> | counter | Number of hard forks (candidate bank hashes) we've pruned |
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;active</span> | gauge | Currently active hard forks |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored</span> | counter | Number of times we ignored a slot likely due to minority fork publish |
 
 </div>
