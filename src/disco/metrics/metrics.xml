@@ -1176,6 +1176,8 @@ metric introduced.
     <counter name="HardForksSeen" summary="Number of hard forks we've seen (block ids with multiple candidate bank hashes)" />
     <counter name="HardForksPruned" summary="Number of hard forks (candidate bank hashes) we've pruned" />
     <gauge name="HardForksActive" summary="Currently active hard forks" />
+
+    <counter name="SlotIgnored" summary="Number of times we ignored a slot likely due to minority fork publish" />
 </tile>
 
 <tile name="gui">

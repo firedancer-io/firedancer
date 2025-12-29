@@ -90,7 +90,13 @@
 #define FD_METRICS_GAUGE_TOWER_HARD_FORKS_ACTIVE_DESC "Currently active hard forks"
 #define FD_METRICS_GAUGE_TOWER_HARD_FORKS_ACTIVE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_TOWER_TOTAL (14UL)
+#define FD_METRICS_COUNTER_TOWER_SLOT_IGNORED_OFF  (30UL)
+#define FD_METRICS_COUNTER_TOWER_SLOT_IGNORED_NAME "tower_slot_ignored"
+#define FD_METRICS_COUNTER_TOWER_SLOT_IGNORED_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_TOWER_SLOT_IGNORED_DESC "Number of times we ignored a slot likely due to minority fork publish"
+#define FD_METRICS_COUNTER_TOWER_SLOT_IGNORED_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_TOWER_TOTAL (15UL)
 extern const fd_metrics_meta_t FD_METRICS_TOWER[FD_METRICS_TOWER_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_tower_h */
