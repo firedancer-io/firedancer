@@ -45,10 +45,10 @@ genesis_accounts_check( uchar genesis_buf[ static FD_GENESIS_MAX_MESSAGE_SIZE ] 
     if( FD_UNLIKELY( builtin_off>genesis_sz ) )             return 0;
     if( FD_UNLIKELY( builtin_off<lowest_expected_offset ) ) return 0;
 
-    fd_genesis_account_t * builtin = fd_type_pun( genesis_buf+builtin_off );
-    if( FD_UNLIKELY( builtin->meta.dlen>FD_RUNTIME_ACC_SZ_MAX ) ) return 0;
+    fd_genesis_builtin_t * builtin = fd_type_pun( genesis_buf+builtin_off );
+    if( FD_UNLIKELY( builtin->data_len>FD_RUNTIME_ACC_SZ_MAX ) ) return 0;
 
-    ulong next_offset = builtin_off+sizeof(fd_genesis_account_t)+builtin->meta.dlen;
+    ulong next_offset = builtin_off+sizeof(fd_genesis_builtin_t)+builtin->data_len;
     if( FD_UNLIKELY( next_offset<lowest_expected_offset ) ) return 0;
     lowest_expected_offset = next_offset;
   }
