@@ -118,6 +118,7 @@ typedef struct fd_replay_out_link fd_replay_out_link_t;
 
 struct fd_block_id_ele {
   fd_hash_t block_id;
+  int       block_id_seen;
   ulong     slot; /* = FD_SLOT_NULL if not initialized */
   ulong     next_;
 };
@@ -1702,6 +1703,17 @@ process_fec_set( fd_replay_tile_t *  ctx,
     /* If we are seeing a FEC with fec set idx 0, this means that we are
        starting a new slot, and we need a new bank index. */
     reasm_fec->bank_idx = fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now )->idx;
+
+    /* At this point remove any stale entry in the block id map if it
+       exists and set the block id as not having been seen yet.  This is
+       safe because we know that the old entry for this bank index has
+       already been pruned away. */
+    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+    block_id_ele->block_id_seen = 0;
+    if( FD_LIKELY( block_id_ele->slot!=FD_SLOT_NULL && fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) ) ) {
+      FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
+    }
+
   } else {
     /* We are continuing to execute through a slot that we already have
        a bank index for. */
@@ -1718,13 +1730,9 @@ process_fec_set( fd_replay_tile_t *  ctx,
        map, we can safely remove it and replace it with the new entry.
        This is safe because we know that the old entry for this fork
        index has already been pruned away. */
-    if( FD_LIKELY( block_id_ele->slot!=FD_SLOT_NULL && fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) ) ) {
-      FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
-    }
-
-    block_id_ele->block_id = reasm_fec->key;
-    block_id_ele->slot     = reasm_fec->slot;
-
+    block_id_ele->block_id_seen = 1;
+    block_id_ele->block_id      = reasm_fec->key;
+    block_id_ele->slot          = reasm_fec->slot;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
     if( FD_UNLIKELY( reasm_fec->leader ) ) {
@@ -1785,10 +1793,15 @@ process_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->alut_ctx->accdb[0]     = ctx->accdb[0];
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
 
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
+
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
-    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
-    publish_slot_dead( ctx, stem, bank );
     fd_banks_mark_bank_dead( ctx->banks, bank );
+  }
+
+  if( FD_UNLIKELY( reasm_fec->slot_complete && bank->flags&FD_BANK_FLAGS_DEAD ) ) {
+    FD_LOG_WARNING(( "slot %lu is dead", reasm_fec->slot ));
+    publish_slot_dead( ctx, stem, bank );
   }
 }
 
@@ -1992,9 +2005,15 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* Every transaction in a valid block has to execute.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
-        publish_slot_dead( ctx, stem, bank );
         fd_banks_mark_bank_dead( ctx->banks, bank );
         fd_sched_block_abandon( ctx->sched, bank->idx );
+
+        /* We can only publish the slot as dead if we have seen the
+           block id for this slot. */
+        if( ctx->block_id_arr[ bank->idx ].block_id_seen ) {
+          FD_LOG_WARNING(( "slot %lu is dead", fd_bank_slot_get( bank ) ));
+          publish_slot_dead( ctx, stem, bank );
+        }
       }
       if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
@@ -2007,9 +2026,15 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* Every transaction in a valid block has to sigverify.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
-        publish_slot_dead( ctx, stem, bank );
         fd_banks_mark_bank_dead( ctx->banks, bank );
         fd_sched_block_abandon( ctx->sched, bank->idx );
+
+        /* We can only publish the slot as dead if we have seen the
+           block id for this slot. */
+        if( ctx->block_id_arr[ bank->idx ].block_id_seen ) {
+          FD_LOG_WARNING(( "slot %lu is dead", fd_bank_slot_get( bank ) ));
+          publish_slot_dead( ctx, stem, bank );
+        }
       }
       if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
