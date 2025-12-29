@@ -143,6 +143,8 @@ typedef struct {
     ulong threshold_fail;
     ulong propagated_fail;
 
+    ulong slot_ignored;
+
     fd_hfork_metrics_t hard_forks;
   } metrics;
 } ctx_t;
@@ -185,6 +187,7 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( TOWER, THRESHOLD_FAIL,    ctx->metrics.threshold_fail    );
   FD_MCNT_SET( TOWER, PROPAGATED_FAIL,   ctx->metrics.propagated_fail   );
 
+  FD_MCNT_SET( TOWER, SLOT_IGNORED,        ctx->metrics.slot_ignored      );
   FD_MCNT_SET( TOWER, HARD_FORKS_SEEN,     ctx->metrics.hard_forks.seen   );
   FD_MCNT_SET( TOWER, HARD_FORKS_PRUNED,   ctx->metrics.hard_forks.pruned );
 
@@ -512,6 +515,27 @@ replay_slot_completed( ctx_t *                      ctx,
   fd_hash_t const * parent_block_id = &slot_completed->parent_block_id;
   if( FD_UNLIKELY( slot_completed->parent_slot==ctx->init_slot ) ) parent_block_id = &manifest_block_id;
   if( FD_UNLIKELY( slot_completed->slot       ==ctx->init_slot ) ) parent_block_id = NULL;
+
+  if( FD_UNLIKELY( parent_block_id && !fd_ghost_query( ctx->ghost, parent_block_id ) ) ) {
+    /* Rare occurrence where replay executes a block down a minority fork
+       that we have pruned.  Due to a race in reading frags, replay may
+       believe the minority fork exists and is still executable,  and
+       executes the block and delivers it to tower.  Tower should ignore
+       this block as it's parent no longer exists. */
+    FD_BASE58_ENCODE_32_BYTES( parent_block_id->uc, parent_block_id_cstr );
+    FD_LOG_WARNING(( "replay likely lagging tower publish, executed slot %lu is missing parent block id %s, excluding from ghost", slot_completed->slot, parent_block_id_cstr ));
+    ctx->metrics.slot_ignored++;
+
+    /* Still need to return a message to replay so the refcnt on the bank is decremented. */
+    fd_tower_slot_ignored_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    msg->slot     = slot_completed->slot;
+    msg->bank_idx = slot_completed->bank_idx;
+
+    fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_IGNORED, ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), ctx->out_chunk0, ctx->out_wmark );
+    return;
+  }
+
   fd_ghost_blk_t * ghost_blk = fd_ghost_insert( ctx->ghost, &slot_completed->block_id, parent_block_id, slot_completed->slot );
   ghost_blk->total_stake     = total_stake;
 

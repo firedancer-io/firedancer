@@ -2320,7 +2320,19 @@ returnable_frag( fd_replay_tile_t *  ctx,
         case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: break;
         case FD_TOWER_SLOT_CONFIRMED_ROOTED:     break;
         }
-      };
+      }
+      else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED   ) ) {
+        fd_tower_slot_ignored_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        fd_tower_slot_done_t ignored = {
+          .replay_slot     = msg->slot,
+          .replay_bank_idx = msg->bank_idx,
+          .vote_slot       = ULONG_MAX,
+          .reset_slot      = ctx->reset_slot,     /* Use most recent reset slot */
+          .reset_block_id  = ctx->reset_block_id,
+          .root_slot       = ULONG_MAX
+        };
+        process_tower_slot_done( ctx, stem, &ignored );
+      }
       break;
     }
     case IN_KIND_SHRED: {

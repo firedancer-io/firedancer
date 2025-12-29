@@ -5,6 +5,7 @@
 
 #define FD_TOWER_SIG_SLOT_DONE      (0)
 #define FD_TOWER_SIG_SLOT_CONFIRMED (1)
+#define FD_TOWER_SIG_SLOT_IGNORED   (2)
 
 /* In response to finishing replay of a slot, the tower tile will
    produce both a block to vote for and block to reset to, and
@@ -119,9 +120,16 @@ struct fd_tower_slot_confirmed {
 };
 typedef struct fd_tower_slot_confirmed fd_tower_slot_confirmed_t;
 
+struct fd_tower_slot_ignored {
+  ulong     slot;
+  ulong     bank_idx;
+};
+typedef struct fd_tower_slot_ignored fd_tower_slot_ignored_t;
+
 union fd_tower_msg {
   fd_tower_slot_done_t      slot_done;
   fd_tower_slot_confirmed_t slot_confirmed;
+  fd_tower_slot_ignored_t   slot_ignored;
 };
 typedef union fd_tower_msg fd_tower_msg_t;
 
