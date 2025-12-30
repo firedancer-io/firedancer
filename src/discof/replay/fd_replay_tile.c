@@ -347,7 +347,8 @@ struct fd_replay_tile {
   fd_multi_epoch_leaders_t * mleaders;
 
   int larger_max_cost_per_block;
-ubkey_t identity_pubkey[1]; /* TODO: Keyswitch */
+
+  fd_pubkey_t identity_pubkey[1]; /* TODO: Keyswitch */
 
   /* When we transition to becoming leader, we can only unbecome the
      leader if we have received a block id from the FEC reassembler, and
