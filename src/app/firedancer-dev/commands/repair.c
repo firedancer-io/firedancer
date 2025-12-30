@@ -491,7 +491,8 @@ print_peer_location_latency( fd_wksp_t * repair_tile_wksp, ctx_t * tile_ctx ) {
       char * geolocation = info ? info->location : "Unknown";
       double peer_bps    = (double)(active->res_cnt * FD_SHRED_MIN_SZ) / ((double)(active->last_resp_ts - active->first_resp_ts) / 1e9);
       double req_bps     = (double)active->req_cnt * 202 / ((double)(active->last_req_ts - active->first_req_ts) / 1e9);
-      printf( "%-5u | %-46s | %-7lu | %-8.2f | %-8.2f | %-7.2f | %10.3fms | %s\n", i, FD_BASE58_ENC_32_ALLOCA( &active->key ), active->req_cnt, req_bps, peer_bps, (double)active->res_cnt / (double)active->req_cnt, ((double)active->total_lat / (double)active->res_cnt) / 1e6, geolocation );
+      FD_BASE58_ENCODE_32_BYTES( active->key.key, key_b58 );
+      printf( "%-5u | %-46s | %-7lu | %-8.2f | %-8.2f | %-7.2f | %10.3fms | %s\n", i, key_b58, active->req_cnt, req_bps, peer_bps, (double)active->res_cnt / (double)active->req_cnt, ((double)active->total_lat / (double)active->res_cnt) / 1e6, geolocation );
     }
   }
   printf("\n");
@@ -939,7 +940,8 @@ repair_cmd_fn_peers( args_t *   args,
   fd_policy_peer_t * peer = fd_policy_peer_map_query( peers_map, key, NULL );
   if( FD_LIKELY( peer ) ) {
     printf("Peer info:\n");
-    printf("  Key: %s\n", FD_BASE58_ENC_32_ALLOCA( &peer->key ));
+    FD_BASE58_ENCODE_32_BYTES( peer->key.key, key_b58 );
+    printf("  Key: %s\n", key_b58 );
     printf("  Req Cnt: %lu\n", peer->req_cnt );
     printf("  Res Cnt: %lu\n", peer->res_cnt );
     printf("  First Req Ts: %ld\n", peer->first_req_ts );

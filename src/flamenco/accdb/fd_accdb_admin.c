@@ -110,6 +110,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_t * admin,
     rec_idx = next_idx;
     rec_cnt++;
   }
+  admin->metrics.revert_cnt += rec_cnt;
   FD_LOG_INFO(( "accdb freed %lu records while cancelling txn %lu:%lu",
                 rec_cnt, txn->xid.ul[0], txn->xid.ul[1] ));
 
@@ -199,10 +200,15 @@ fd_accdb_cancel( fd_accdb_admin_t *        accdb,
                  fd_funk_txn_xid_t const * xid ) {
   fd_funk_t * funk = accdb->funk;
 
-  fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
-  if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_accdb_txn_cancel failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
+  /* Assume no concurrent access to txn_map */
+
+  fd_funk_txn_map_query_t query[1];
+  int query_err = fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 );
+  if( FD_UNLIKELY( query_err ) ) {
+    FD_LOG_CRIT(( "fd_accdb_cancel failed: fd_funk_txn_map_query_try(xid=%lu:%lu) returned (%i-%s)",
+                   xid->ul[0], xid->ul[1], query_err, fd_map_strerror( query_err ) ));
   }
+  fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
 
   fd_accdb_txn_cancel_next_list( accdb, txn );
   fd_accdb_txn_cancel_tree( accdb, txn );
@@ -340,10 +346,15 @@ fd_accdb_advance_root( fd_accdb_admin_t *        accdb,
                        fd_funk_txn_xid_t const * xid ) {
   fd_funk_t * funk = accdb->funk;
 
-  fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
-  if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_accdb_txn_advance_root failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
+  /* Assume no concurrent access to txn_map */
+
+  fd_funk_txn_map_query_t query[1];
+  int query_err = fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 );
+  if( FD_UNLIKELY( query_err ) ) {
+    FD_LOG_CRIT(( "fd_accdb_advance_root failed: fd_funk_txn_map_query_try(xid=%lu:%lu) returned (%i-%s)",
+                   xid->ul[0], xid->ul[1], query_err, fd_map_strerror( query_err ) ));
   }
+  fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
 
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) ) {
     FD_LOG_CRIT(( "fd_accdb_txn_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));

@@ -192,7 +192,9 @@ overwrite_invalid_cmr( fd_reasm_t * reasm, fd_reasm_fec_t * child ) {
     if( FD_LIKELY( slot_mr_parent ) ) {
       fd_reasm_fec_t * parent = fd_reasm_query( reasm, &slot_mr_parent->block_id );
       if( FD_LIKELY( parent ) ) {
-        FD_LOG_INFO(( "overwriting invalid cmr for FEC slot: %lu fec_set_idx: %u from %s (CMR) to %s (parent's block id)", child->slot, child->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &child->cmr ), FD_BASE58_ENC_32_ALLOCA( &parent->key ) ));
+        FD_BASE58_ENCODE_32_BYTES( child->cmr.key,  cmr_b58        );
+        FD_BASE58_ENCODE_32_BYTES( parent->key.key, parent_key_b58 );
+        FD_LOG_INFO(( "overwriting invalid cmr for FEC slot: %lu fec_set_idx: %u from %s (CMR) to %s (parent's block id)", child->slot, child->fec_set_idx, cmr_b58, parent_key_b58 ));
         child->cmr = parent->key; /* use the parent's merkle root */
       }
     }
@@ -229,7 +231,9 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               leader ) {
 
 # if LOGGING
-  FD_LOG_NOTICE(( "inserting (%lu %u) %s %s. %u %d %d", slot, fec_set_idx, FD_BASE58_ENC_32_ALLOCA( merkle_root ), FD_BASE58_ENC_32_ALLOCA( chained_merkle_root ), data_cnt, data_complete, slot_complete ));
+  FD_BASE58_ENCODE_32_BYTES( merkle_root->key,         merkle_root_b58         );
+  FD_BASE58_ENCODE_32_BYTES( chained_merkle_root->key, chained_merkle_root_b58 );
+  FD_LOG_NOTICE(( "inserting (%lu %u) %s %s. %u %d %d", slot, fec_set_idx, merkle_root_b58, chained_merkle_root_b58, data_cnt, data_complete, slot_complete ));
 # endif
 
 # if FD_REASM_USE_HANDHOLDING
@@ -294,7 +298,9 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   if( FD_UNLIKELY( slot_complete ) ) {
     slot_mr_t * slot_mr = slot_mr_query( reasm->slot_mr, slot, NULL );
     if( FD_UNLIKELY( slot_mr ) ) {
-      FD_LOG_WARNING(( "equivocating block_id for FEC slot: %lu fec_set_idx: %u prev: %s curr: %s", fec->slot, fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &slot_mr->block_id ), FD_BASE58_ENC_32_ALLOCA( &fec->key ) )); /* it's possible there's equivocation... */
+      FD_BASE58_ENCODE_32_BYTES( slot_mr->block_id.key, prev_block_id_b58 );
+      FD_BASE58_ENCODE_32_BYTES( fec->key.key,          curr_block_id_b58 );
+      FD_LOG_WARNING(( "equivocating block_id for FEC slot: %lu fec_set_idx: %u prev: %s curr: %s", fec->slot, fec->fec_set_idx, prev_block_id_b58, curr_block_id_b58 )); /* it's possible there's equivocation... */
     } else {
       slot_mr           = slot_mr_insert( reasm->slot_mr, slot );
       slot_mr->block_id = fec->key;
@@ -398,7 +404,11 @@ fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
 # if FD_REASM_USE_HANDHOLDING
   if( FD_UNLIKELY( !pool_ele( reasm->pool, reasm->root ) ) ) { FD_LOG_WARNING(( "missing root"                                                     )); return NULL; }
-  if( FD_UNLIKELY( !fd_reasm_query( reasm, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
+  if( FD_UNLIKELY( !fd_reasm_query( reasm, merkle_root ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( merkle_root->key, merkle_root_b58 );
+    FD_LOG_WARNING(( "merkle root %s not found", merkle_root_b58 ));
+    return NULL;
+  }
 # endif
 
   fd_reasm_fec_t *  pool = reasm->pool;
@@ -457,7 +467,8 @@ print( fd_reasm_t const * reasm, fd_reasm_fec_t const * fec, int space, const ch
 
   if( space > 0 ) printf( "\n" );
   for( int i = 0; i < space; i++ ) printf( " " );
-  printf( "%s%s", prefix, FD_BASE58_ENC_32_ALLOCA( &fec->key ) );
+  FD_BASE58_ENCODE_32_BYTES( fec->key.key, key_b58 );
+  printf( "%s%s", prefix, key_b58 );
 
   fd_reasm_fec_t const * curr = pool_ele_const( pool, fec->child );
   char new_prefix[1024]; /* FIXME size this correctly */
@@ -484,7 +495,8 @@ fd_reasm_print( fd_reasm_t const * reasm ) {
                              !frontier_iter_done( iter, frontier, pool );
                        iter = frontier_iter_next( iter, frontier, pool ) ) {
     fd_reasm_fec_t const * fec = pool_ele_const( reasm->pool, iter.ele_idx );
-    printf( "(%lu, %u) %s\n", fec->slot, fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &fec->key ) );
+    FD_BASE58_ENCODE_32_BYTES( fec->key.key, key_b58 );
+    printf( "(%lu, %u) %s\n", fec->slot, fec->fec_set_idx, key_b58 );
   }
 
   printf(("\n\n[Subtrees]\n" ) );
@@ -493,7 +505,8 @@ fd_reasm_print( fd_reasm_t const * reasm ) {
                              !subtrees_iter_done( iter, subtrees, pool );
                        iter = subtrees_iter_next( iter, subtrees, pool ) ) {
     fd_reasm_fec_t const * fec = pool_ele_const( reasm->pool, iter.ele_idx );
-    printf( "(%lu, %u) %s\n", fec->slot, fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &fec->key ) );
+    FD_BASE58_ENCODE_32_BYTES( fec->key.key, key_b58 );
+    printf( "(%lu, %u) %s\n", fec->slot, fec->fec_set_idx, key_b58 );
   }
 
   // print( reasm, pool_ele_const( reasm->pool, reasm->root ), 0, "" );

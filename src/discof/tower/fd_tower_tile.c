@@ -552,7 +552,10 @@ replay_slot_completed( ctx_t *                      ctx,
        know these towers must contain slots we know about (as long as
        they are >= root, which we checked above). */
 
-    if( FD_UNLIKELY( !ancestor_blk ) ) FD_LOG_CRIT(( "missing ancestor. replay slot %lu vote slot %lu voter %s", slot_completed->slot, vote_slot, FD_BASE58_ENC_32_ALLOCA( &acct->addr ) ));
+    if( FD_UNLIKELY( !ancestor_blk ) ) {
+      FD_BASE58_ENCODE_32_BYTES( acct->addr.key, pubkey_b58 );
+      FD_LOG_CRIT(( "missing ancestor. replay slot %lu vote slot %lu voter %s", slot_completed->slot, vote_slot, pubkey_b58 ));
+    }
 
     fd_ghost_count_vote( ctx->ghost, ancestor_blk, &acct->addr, acct->stake, vote_slot );
   }
@@ -587,7 +590,9 @@ replay_slot_completed( ctx_t *                      ctx,
      will implement eviction and repair of the correct one. */
 
   if( FD_UNLIKELY( fork->confirmed && 0!=memcmp( &fork->confirmed_block_id, &fork->replayed_block_id, sizeof(fd_hash_t) ) ) ) {
-    FD_LOG_WARNING(( "replayed an unconfirmed duplicate %lu. ours %s. confirmed %s.", slot_completed->slot, FD_BASE58_ENC_32_ALLOCA( &slot_completed->block_id ), FD_BASE58_ENC_32_ALLOCA( &fork->confirmed_block_id ) ));
+    FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.key, block_id_b58 );
+    FD_BASE58_ENCODE_32_BYTES( fork->confirmed_block_id.key, confirmed_block_id_b58 );
+    FD_LOG_WARNING(( "replayed an unconfirmed duplicate %lu. ours %s. confirmed %s.", slot_completed->slot, block_id_b58, confirmed_block_id_b58 ));
   }
 
   /* Determine reset, vote, and root slots.  There may not be a vote or
@@ -775,11 +780,12 @@ privileged_init( fd_topo_t *      topo,
      local tower. */
 
   char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin.new", tile->tower.base_path, FD_BASE58_ENC_32_ALLOCA( ctx->identity_key->uc ) ) );
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin.new", tile->tower.base_path, identity_key_b58 ) );
   ctx->checkpt_fd = open( path, O_WRONLY|O_CREAT|O_TRUNC, 0600 );
   if( FD_UNLIKELY( -1==ctx->checkpt_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", tile->tower.base_path, FD_BASE58_ENC_32_ALLOCA( ctx->identity_key->uc ) ) );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", tile->tower.base_path, identity_key_b58 ) );
   ctx->restore_fd = open( path, O_RDONLY );
   if( FD_UNLIKELY( -1==ctx->restore_fd && errno!=ENOENT ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 }

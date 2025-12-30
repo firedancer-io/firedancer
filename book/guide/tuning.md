@@ -102,7 +102,7 @@ The benchmark runs on a single machine and performs the following:
  2. A set of CPU cores is assigned to generating and signing simple
 transactions using these accounts as fast as possible
  3. Another set of CPU cores is assigned to sending these transfers
-via. QUIC over loopback to the locally running validator
+via QUIC over loopback to the locally running validator
  4. Around once a second, an RPC call is made to get the total count of
 transactions that have executed on the chain, and this information is
 printed to the console

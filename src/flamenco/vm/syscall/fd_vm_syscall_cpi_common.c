@@ -675,10 +675,12 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
                            ulong   signers_seeds_va,
                            ulong   signers_seeds_cnt,
                            ulong * _ret ) {
+  long const regime0 = fd_tickcount();
 
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  FD_VM_CU_UPDATE( vm, FD_VM_INVOKE_UNITS );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L815-L818 */
+  FD_VM_CU_UPDATE( vm, get_cpi_invoke_unit_cost( vm->instr_ctx->bank ) );
 
   /* Translate instruction ********************************************/
   /* translate_instruction is the first thing that agave does
@@ -719,7 +721,20 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Agave consumes CU in translate_instruction
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
   if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
-    FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
+    ulong total_cu_translation_cost = VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT;
+
+    /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L686-L699 */
+    if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, increase_cpi_account_info_limit ) ) {
+      /* Agave bills the same regardless of ABI */
+      ulong account_meta_translation_cost =
+        fd_ulong_sat_mul(
+          VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ),
+          FD_VM_RUST_ACCOUNT_META_SIZE ) /
+        FD_VM_CPI_BYTES_PER_UNIT;
+      total_cu_translation_cost = fd_ulong_sat_add( total_cu_translation_cost, account_meta_translation_cost );
+    }
+
+    FD_VM_CU_UPDATE( vm, total_cu_translation_cost );
   }
 
   /* Final checks for translate_instruction
@@ -792,7 +807,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Authorized program check *************************************************/
 
-  if( FD_UNLIKELY( fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->bank, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) ) {
+  if( FD_UNLIKELY( !fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->bank, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) ) {
     /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1054 */
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED );
     return FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED;
@@ -834,7 +849,15 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;
   }
 
-  fd_pubkey_t const * acct_info_keys[ FD_CPI_MAX_ACCOUNT_INFOS ];
+  /* Consume compute units proportional to the number of account infos, if
+     increase_cpi_account_info_limit is active.
+     https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L968-L980 */
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, increase_cpi_account_info_limit ) ) {
+    ulong account_infos_bytes = fd_ulong_sat_mul( acct_info_cnt, FD_VM_ACCOUNT_INFO_BYTE_SIZE );
+    FD_VM_CU_UPDATE( vm, account_infos_bytes / FD_VM_CPI_BYTES_PER_UNIT );
+  }
+
+  fd_pubkey_t const * acct_info_keys[ FD_CPI_MAX_ACCOUNT_INFOS_SIMD_0339 ];
   for( ulong acct_idx = 0UL; acct_idx < acct_info_cnt; acct_idx++ ) {
     /* Translate each pubkey address specified in account_infos.
        Failed translation should lead to an access violation and
@@ -885,9 +908,14 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      so that the callee cannot use compute units that the caller has already used. */
   vm->instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
 
+  long const regime1 = fd_tickcount();
+
   /* Execute the CPI instruction in the runtime */
   int err_exec = fd_execute_instr( vm->instr_ctx->runtime, vm->instr_ctx->bank, vm->instr_ctx->txn_in, vm->instr_ctx->txn_out, instruction_to_execute );
   ulong instr_exec_res = (ulong)err_exec;
+
+  long const regime2 = fd_tickcount();
+  vm->instr_ctx->runtime->metrics.cpi_setup_cum_ticks += (ulong)( regime1-regime0 );
 
   /* Set the CU meter to the instruction context's transaction context's compute meter,
      so that the caller can't use compute units that the callee has already used. */
@@ -935,6 +963,9 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
       }
     }
   }
+
+  long const regime3 = fd_tickcount();
+  vm->instr_ctx->runtime->metrics.cpi_commit_cum_ticks += (ulong)( regime3-regime2 );
 
   return FD_VM_SUCCESS;
 }

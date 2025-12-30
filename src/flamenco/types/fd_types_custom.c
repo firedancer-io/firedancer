@@ -1,7 +1,6 @@
 #include "fd_types_custom.h"
 #include "fd_bincode.h"
 #include "fd_types.h"
-#include "fd_types_meta.h"
 #ifndef SOURCE_fd_src_flamenco_types_fd_types_c
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
 #endif /* !SOURCE_fd_src_flamenco_types_fd_types_c */
@@ -135,10 +134,6 @@ void * fd_tower_sync_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   void * * alloc_mem = &alloc_region;
   fd_tower_sync_decode_inner( mem, alloc_mem, ctx );
   return self;
-}
-
-void fd_tower_sync_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  FD_LOG_ERR(("TODO: Implement"));
 }
 
 // https://github.com/serde-rs/serde/blob/49d098debdf8b5c38bfb6868f455c6ce542c422c/serde/src/de/impls.rs#L2374

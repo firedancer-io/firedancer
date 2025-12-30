@@ -369,7 +369,8 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
       } else { /* This is a record from an in-prep transaction */
 
-        TEST( fd_funk_txn_query( xid, funk->txn_map ) );
+        fd_funk_txn_map_query_t query[1];
+        TEST( fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 )==FD_MAP_SUCCESS );
 
       }
     }

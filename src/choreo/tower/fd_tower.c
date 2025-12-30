@@ -275,7 +275,10 @@ switch_check( fd_tower_t const  * tower,
                             vote_slot > root_slot ) ) {
             fd_voter_stake_key_t key = { .vote_account = *vote_acc, .slot = switch_slot };
             fd_voter_stake_t const * voter_stake = fd_voter_stake_map_ele_query_const( epoch_stakes->voter_stake_map, &key, NULL, epoch_stakes->voter_stake_pool );
-            if( FD_UNLIKELY( !voter_stake ) ) FD_LOG_CRIT(( "missing voter stake for vote account %s on slot %lu. Is this an error?", FD_BASE58_ENC_32_ALLOCA( vote_acc ), switch_slot ));
+            if( FD_UNLIKELY( !voter_stake ) ) {
+              FD_BASE58_ENCODE_32_BYTES( vote_acc->key, vote_acc_b58 );
+              FD_LOG_CRIT(( "missing voter stake for vote account %s on slot %lu. Is this an error?", vote_acc_b58, switch_slot ));
+            }
             ulong voter_idx = fd_voter_stake_pool_idx( epoch_stakes->voter_stake_pool, voter_stake );
 
             /* Don't count this vote account towards the switch cqheck if it has already been used. */

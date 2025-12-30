@@ -22,6 +22,8 @@ $(call make-unit-test,test_pack,test_pack,fd_disco fd_ballet fd_util)
 $(call run-unit-test,test_pack)
 endif
 ifdef FD_ARCH_SUPPORTS_SANDBOX
+ifdef FD_HAS_SECP256K1 # FIXME silly
 $(call make-unit-test,test_pack_tile,test_pack_tile,fdctl_shared fdctl_platform fd_disco fd_flamenco fd_ballet fd_tango fd_waltz fd_reedsol fd_funk fd_util)
+endif
 endif
 endif

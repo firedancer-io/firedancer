@@ -346,15 +346,20 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
 
   blockcache_t * parent_fork = &tc->blockcache_pool[ fork->shmem->parent_id.val ];
   if( FD_UNLIKELY( root_slist_ele_peek_tail( tc->shmem->root_ll, tc->blockcache_shmem_pool )!=parent_fork->shmem ) ) {
+    FD_BASE58_ENCODE_32_BYTES( parent_fork->shmem->blockhash.uc, parent_blockhash_b58 );
+    FD_BASE58_ENCODE_32_BYTES( fork->shmem->blockhash.uc, fork_blockhash_b58 );
+    FD_BASE58_ENCODE_32_BYTES( root_slist_ele_peek_tail( tc->shmem->root_ll, tc->blockcache_shmem_pool )->blockhash.uc, root_blockhash_b58 );
     FD_LOG_CRIT(( "advancing root from %s to %s but that is not valid, last root is %s",
-                  FD_BASE58_ENC_32_ALLOCA( parent_fork->shmem->blockhash.uc ),
-                  FD_BASE58_ENC_32_ALLOCA( fork->shmem->blockhash.uc ),
-                  FD_BASE58_ENC_32_ALLOCA( root_slist_ele_peek_tail( tc->shmem->root_ll, tc->blockcache_shmem_pool )->blockhash.uc ) ));
+                  parent_blockhash_b58,
+                  fork_blockhash_b58,
+                  root_blockhash_b58 ));
   }
 
+  FD_BASE58_ENCODE_32_BYTES( parent_fork->shmem->blockhash.uc, parent_blockhash_b58 );
+  FD_BASE58_ENCODE_32_BYTES( fork->shmem->blockhash.uc, fork_blockhash_b58 );
   FD_LOG_DEBUG(( "advancing root from %s to %s",
-                 FD_BASE58_ENC_32_ALLOCA( parent_fork->shmem->blockhash.uc ),
-                 FD_BASE58_ENC_32_ALLOCA( fork->shmem->blockhash.uc ) ));
+                 parent_blockhash_b58,
+                 fork_blockhash_b58 ));
 
   /* When a fork is rooted, any competing forks can be immediately
      removed as they will not be needed again.  This includes child

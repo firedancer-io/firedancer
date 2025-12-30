@@ -2717,10 +2717,6 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
     fd_http_server_ws_broadcast( gui->http );
   }
 
-  /* handle new root */
-  if( FD_LIKELY( tower->root_slot!=ULONG_MAX && gui->summary.slot_rooted!=tower->root_slot ) ) {
-    fd_gui_handle_rooted_slot( gui, tower->root_slot );
-  }
   fd_gui_slot_t * slot = fd_gui_get_slot( gui, tower->replay_slot );
   if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, tower->replay_slot, ULONG_MAX );
   slot->reset_slot = tower->reset_slot;
@@ -2740,9 +2736,14 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_hash_t const *         block_hash,
                              ulong                     vote_slot,
                              ulong                     storage_slot,
+                             ulong                     rooted_slot,
                              ulong                     identity_balance,
                              long                      now ) {
   (void)now;
+
+  if( FD_LIKELY( rooted_slot!=ULONG_MAX && gui->summary.slot_rooted!=rooted_slot ) ) {
+    fd_gui_handle_rooted_slot( gui, rooted_slot );
+  }
 
   if( FD_LIKELY( gui->summary.slot_storage!=storage_slot ) ) {
     gui->summary.slot_storage = storage_slot;

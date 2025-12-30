@@ -10,24 +10,15 @@
     {
       "name": "hash",
       "type": "opaque",
-      "walktype": "FD_FLAMENCO_TYPE_HASH256",
       "size": "32",
       "agave": "solana_hash::Hash"
     },
     {
       "name": "pubkey",
       "type": "opaque",
-      "walktype": "FD_FLAMENCO_TYPE_HASH256",
       "size": "32",
       "emitprotos": false,
       "agave": "solana_pubkey::Pubkey"
-    },
-    {
-      "name": "signature",
-      "type": "opaque",
-      "walktype": "FD_FLAMENCO_TYPE_SIG512",
-      "size": "64",
-      "agave": "solana_signature::Signature"
     },
     {
       "name": "feature",
@@ -265,10 +256,10 @@
       "fields": [
           { "name": "epoch", "type": "ulong" },
           { "name": "pubkey", "type": "pubkey" },
-          { "name": "parent", "type": "ulong", "decode": false, "encode": false, "walk": false },
-          { "name": "left", "type": "ulong", "decode": false, "encode": false, "walk": false },
-          { "name": "right", "type": "ulong", "decode": false, "encode": false, "walk": false },
-          { "name": "prio", "type": "ulong", "decode": false, "encode": false, "walk": false }
+          { "name": "parent", "type": "ulong", "decode": false, "encode": false },
+          { "name": "left", "type": "ulong", "decode": false, "encode": false },
+          { "name": "right", "type": "ulong", "decode": false, "encode": false },
+          { "name": "prio", "type": "ulong", "decode": false, "encode": false }
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/authorized_voters.rs#L9"
     },
@@ -592,44 +583,6 @@
         { "name": "major", "type": "uint" },
         { "name": "minor", "type": "uint" },
         { "name": "patch", "type": "uint" }
-      ]
-    },
-    {
-      "name": "stake_reward",
-      "type": "struct",
-      "fields": [
-        { "name": "prev",             "type": "ulong", "decode": false, "encode": false, "walk": false  },
-        { "name": "next",             "type": "ulong", "decode": false, "encode": false, "walk": false  },
-        { "name": "parent",           "type": "ulong", "decode": false, "encode": false, "walk": false  },
-        { "name": "stake_pubkey",     "type": "pubkey"},
-        { "name": "credits_observed", "type": "ulong" },
-        { "name": "lamports",         "type": "ulong" },
-        { "name": "valid",            "type": "uchar" }
-
-      ]
-    },
-    {
-      "name": "partitioned_rewards_calculation",
-      "type": "struct",
-      "fields": [
-        { "name": "validator_points",             "type": "uint128" },
-        { "name": "old_vote_balance_and_staked",  "type": "ulong" },
-        { "name": "validator_rewards",            "type": "ulong" },
-        { "name": "validator_rate",               "type": "double" },
-        { "name": "foundation_rate",              "type": "double" },
-        { "name": "prev_epoch_duration_in_years", "type": "double" },
-        { "name": "capitalization",               "type": "ulong" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L118"
-    },
-    {
-      "name": "prev_epoch_inflation_rewards",
-      "type": "struct",
-      "fields": [
-        { "name": "validator_rewards", "type": "ulong" },
-        { "name": "prev_epoch_duration_in_years", "type": "double" },
-        { "name": "validator_rate", "type": "double" },
-        { "name": "foundation_rate", "type": "double" }
       ]
     },
     {

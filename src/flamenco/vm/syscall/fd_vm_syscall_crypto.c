@@ -334,6 +334,8 @@ soft_error:
   return FD_VM_SUCCESS; /* Ok(1) == error */
 }
 
+#if FD_HAS_SECP256K1
+
 int
 fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
                                      /**/            ulong   hash_vaddr,
@@ -418,3 +420,5 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
   *_ret = 0UL;
   return FD_VM_SUCCESS;
 }
+
+#endif /* FD_HAS_SECP256K1 */

@@ -41,6 +41,9 @@ $(call add-objs,fd_borrowed_account,fd_flamenco)
 $(call add-hdrs,fd_acc_pool.h)
 $(call add-objs,fd_acc_pool,fd_flamenco)
 
+$(call add-hdrs,fd_genesis_parse.h)
+$(call add-objs,fd_genesis_parse,fd_flamenco)
+
 $(call add-hdrs,fd_txn_account.h)
 $(call add-objs,fd_txn_account,fd_flamenco)
 ifdef FD_HAS_INT128
@@ -58,6 +61,8 @@ ifdef FD_HAS_HOSTED
 ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_bank,test_bank,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_bank,)
+$(call make-unit-test,test_static_instruction_limit,test_static_instruction_limit,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_static_instruction_limit,)
 endif
 endif
 
@@ -69,6 +74,12 @@ ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
 $(call add-hdrs,fd_runtime.h fd_runtime_err.h fd_runtime_const.h fd_runtime_stack.h fd_runtime_helpers.h)
 $(call add-objs,fd_runtime,fd_flamenco)
+ifdef FD_HAS_HOSTED
+ifdef FD_HAS_SECP256K1
+$(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_rent_exemption_threshold,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_deprecate_rent_exemption_threshold,)
+endif
+endif
 endif
 endif
 
@@ -88,5 +99,6 @@ ifdef FD_HAS_HOSTED
 #$(call make-unit-test,test_archive_block,test_archive_block, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
 # TODO: Flakes
 # $(call run-unit-test,test_txncache,)
+$(call make-fuzz-test,fuzz_genesis_parse,fuzz_genesis_parse,fd_flamenco fd_ballet fd_util)
 endif
 endif

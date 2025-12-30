@@ -25,7 +25,6 @@
 #include "tests/fd_dump_pb.h"
 
 #include "../log_collector/fd_log_collector.h"
-#include "../types/fd_types_yaml.h"
 
 #include "../../ballet/base58/fd_base58.h"
 
@@ -268,7 +267,8 @@ fd_validate_fee_payer( fd_pubkey_t const * pubkey,
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L301-L304 */
   if( FD_UNLIKELY( meta->lamports==0UL ) ) {
-    FD_LOG_DEBUG(( "Fee payer doesn't exist %s", FD_BASE58_ENC_32_ALLOCA( pubkey ) ));
+    FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+    FD_LOG_DEBUG(( "Fee payer doesn't exist %s", pubkey_b58 ));
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 
@@ -402,10 +402,17 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L5725-L5753 */
 int
-fd_executor_verify_transaction( fd_bank_t *         bank,
+fd_executor_verify_transaction( fd_bank_t const *   bank,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out ) {
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
+
+  /* SIMD-0160: enforce static limit on number of instructions.
+     https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L4710-L4716 */
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, static_instruction_limit ) &&
+                   TXN( txn_in->txn )->instr_cnt > FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+    return FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L566-L569 */
   err = fd_executor_compute_budget_program_execute_instructions( bank, txn_in, txn_out );
@@ -1003,7 +1010,8 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
                                              FD_FEE_PAYER_TXN_IDX,
                                              fd_runtime_account_check_fee_payer_writable );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_DEBUG(( "Fee payer isn't writable %s", FD_BASE58_ENC_32_ALLOCA( &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX] ) ));
+    FD_BASE58_ENCODE_32_BYTES( txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX].uc, pubkey_b58 );
+    FD_LOG_DEBUG(( "Fee payer isn't writable %s", pubkey_b58 ));
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 
@@ -1817,11 +1825,4 @@ fd_executor_instr_strerror( int err ) {
   }
 
   return "";
-}
-
-// This is purely linker magic to force the inclusion of the yaml type walker so that it is
-// available for debuggers
-void
-fd_debug_symbology(void) {
-  (void)fd_get_types_yaml();
 }

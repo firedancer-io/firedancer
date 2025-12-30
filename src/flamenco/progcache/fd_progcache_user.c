@@ -409,6 +409,8 @@ fd_progcache_push( fd_progcache_t * cache,
   return 1;
 }
 
+#if FD_HAS_ATOMIC
+
 static int
 fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
   for(;;) {
@@ -420,6 +422,19 @@ fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
     }
   }
 }
+
+#else
+
+static int
+fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
+  ushort * lock  = &txn->lock->value;
+  ushort   value = FD_VOLATILE_CONST( *lock );
+  if( FD_UNLIKELY( value>=0xFFFE ) ) return 0; /* txn is write-locked */
+  *lock = value + 1;
+  return 1; /* transaction now read-locked */
+}
+
+#endif
 
 static void
 fd_progcache_txn_unlock( fd_funk_txn_t * txn ) {
@@ -461,16 +476,42 @@ fd_progcache_lock_best_txn( fd_progcache_t * cache,
 
   /* Backtrack up to newer fork graph nodes (>= access slot)
      Very old slots could have been rooted at this point */
-  fd_funk_txn_t * txn;
   do {
     /* Locate fork */
     fd_funk_txn_xid_t const * xid = &cache->fork[ target_xid_idx ];
-    txn = fd_funk_txn_query( xid, cache->funk->txn_map );
-    if( FD_LIKELY( txn ) ) {
-      /* Attempt to read-lock transaction */
-      if( FD_LIKELY( fd_progcache_txn_try_lock( txn ) ) ) return txn;
+
+    /* Speculatively query txn_map (recovering from ongoing rooting),
+       and lock target transaction */
+    for(;;) {
+      fd_funk_txn_map_query_t query[1];
+      int query_err = fd_funk_txn_map_query_try( cache->funk->txn_map, xid, NULL, query, 0 );
+      if( FD_UNLIKELY( query_err==FD_MAP_ERR_AGAIN ) ) {
+        /* FIXME random backoff */
+        FD_SPIN_PAUSE();
+        continue;
+      }
+      if( FD_LIKELY( query_err==FD_MAP_SUCCESS ) ) {
+        /* Attempt to read-lock transaction */
+        fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
+        if( FD_LIKELY( fd_progcache_txn_try_lock( txn ) ) ) {
+          /* Check for unlikely case we acquired a read-lock _after_ the
+             transaction object was destroyed (ABA problem) */
+          fd_funk_txn_xid_t found_xid[1];
+          if( FD_UNLIKELY( !fd_funk_txn_xid_eq( fd_funk_txn_xid_ld_atomic( found_xid, &txn->xid ), xid ) ) ) {
+            fd_progcache_txn_unlock( txn );
+            break;
+          }
+          return txn;
+        }
+        /* currently being rooted */
+      } else if( FD_UNLIKELY( query_err!=FD_MAP_ERR_KEY ) ) {
+        FD_LOG_CRIT(( "fd_funk_txn_map_query_try failed (%i-%s)", query_err, fd_map_strerror( query_err ) ));
+      }
+      break;
     }
-    /* Cannot insert at this fork graph node, try one newer */
+
+    /* Cannot insert at this fork graph node (already rooted, or
+       currently being rooted), try one newer */
     target_xid_idx--;
   } while( target_xid_idx!=ULONG_MAX );
 
@@ -642,12 +683,29 @@ fd_progcache_invalidate( fd_progcache_t *          cache,
 
   if( FD_UNLIKELY( !cache || !funk->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
 
+  /* Resolve the fork graph node at xid.  Due to (unrelated) ongoing
+     root operations, recover from temporary lock issues. */
+
+  fd_funk_txn_t * txn = NULL;
+  for(;;) {
+    fd_funk_txn_map_query_t query[1];
+    int query_err = fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 );
+    if( FD_UNLIKELY( query_err==FD_MAP_ERR_AGAIN ) ) {
+      /* FIXME random backoff */
+      FD_SPIN_PAUSE();
+      continue;
+    }
+    if( FD_UNLIKELY( query_err ) ) {
+      FD_LOG_CRIT(( "fd_progcache_invalidate(xid=%lu:%lu) failed: fd_funk_txn_map_query_try returned (%i-%s)",
+                    xid->ul[0], xid->ul[1], query_err, fd_map_strerror( query_err ) ));
+    }
+    txn = fd_funk_txn_map_query_ele( query );
+    break;
+  }
+
   /* Select a fork node to create invalidate record in
      Do not create invalidation records at the funk root */
 
-  if( fd_funk_txn_xid_eq( xid, cache->funk->shmem->last_publish ) ) return NULL;
-
-  fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
   if( FD_UNLIKELY( !fd_progcache_txn_try_lock( txn ) ) ) {
     FD_LOG_CRIT(( "fd_progcache_invalidate(xid=%lu,...) failed: txn is write-locked", xid->ul[0] ));
   }

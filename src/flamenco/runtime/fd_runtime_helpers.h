@@ -74,15 +74,15 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
                                           ulong       latest_signatures_per_slot );
 
 void
-fd_runtime_read_genesis( fd_banks_t *                       banks,
-                         fd_bank_t *                        bank,
-                         fd_accdb_user_t *                  accdb,
-                         fd_funk_txn_xid_t const *          xid,
-                         fd_capture_ctx_t *                 capture_ctx,
-                         fd_hash_t const *                  genesis_hash,
-                         fd_lthash_value_t const *          genesis_lthash,
-                         fd_genesis_solana_global_t const * genesis_block,
-                         fd_runtime_stack_t *               runtime_stack );
+fd_runtime_read_genesis( fd_banks_t *              banks,
+                         fd_bank_t *               bank,
+                         fd_accdb_user_t *         accdb,
+                         fd_funk_txn_xid_t const * xid,
+                         fd_capture_ctx_t *        capture_ctx,
+                         fd_hash_t const *         genesis_hash,
+                         fd_lthash_value_t const * genesis_lthash,
+                         fd_genesis_t const *      genesis_block,
+                         fd_runtime_stack_t *      runtime_stack );
 
 /* Error logging handholding assertions */
 
@@ -208,9 +208,15 @@ int
 fd_account_meta_checked_sub_lamports( fd_account_meta_t * meta,
                                       ulong               lamports );
 
-void
+FD_FN_UNUSED static void
 fd_account_meta_resize( fd_account_meta_t * meta,
-                        ulong               dlen );
+                        ulong               dlen ) {
+  ulong old_sz    = meta->dlen;
+  ulong new_sz    = dlen;
+  ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
+  fd_memset( fd_account_data( meta ) + old_sz, 0, memset_sz );
+  meta->dlen = (uint)dlen;
+}
 
 FD_PROTOTYPES_END
 

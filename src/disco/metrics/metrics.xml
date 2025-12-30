@@ -794,12 +794,23 @@ metric introduced.
   <gauge name="MaxLiveBanks" summary="The maximum number of banks we can have alive" />
   <gauge name="LiveBanks" summary="The number of banks we currently have alive" />
 
+  <gauge name="ReasmFree" summary="The number of free FEC sets in the reassembly queue" />
+  <gauge name="ReasmLatestSlot" summary="Slot of the latest FEC set in the reassembly queue that can be replayed" />
+  <gauge name="ReasmLatestFecIdx" summary="FEC set index of the latest FEC set in the reassembly queue that can be replayed" />
+
   <counter name="SlotsTotal" summary="Count of slots replayed successfully" />
   <counter name="TransactionsTotal" summary="Count of transactions processed overall on the current fork" />
+
+  <counter name="SchedFull" summary="Times where sched is full and a FEC set can't be processed" />
+  <counter name="ReasmEmpty" summary="Times where reasm is empty and a FEC set can't be processed" />
+  <counter name="LeaderBidWait" summary="Times where replay is blocked by the PoH tile not sending an end of leader message" />
+  <counter name="BanksFull" summary="Times where banks are full and a FEC set can't be processed" />
 
   <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
   <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
 
+  <counter name="AccdbCreated" summary="Number of account database records created" />
+  <counter name="AccdbReverted" summary="Number of account database records reverted" />
   <counter name="AccdbRooted" summary="Number of account database entries rooted" />
   <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
 </tile>
@@ -1108,6 +1119,20 @@ metric introduced.
     <gauge name="StartSlot" summary="The slot at which the backtest started" />
 </tile>
 
+<enum name="TxnRegime">
+    <int value="0" name="Setup" label="Transaction setup" />
+    <int value="1" name="Exec" label="Transaction execution (includes VM setup/execution)" />
+    <int value="2" name="Commit" label="Transaction result commit" />
+</enum>
+
+<enum name="VmRegime">
+    <int value="0" name="Setup" label="VM setup" />
+    <int value="1" name="Commit" label="VM commit" />
+    <int value="2" name="SetupCpi" label="VM setup (CPI)" />
+    <int value="3" name="CommitCpi" label="VM commit (CPI)" />
+    <int value="4" name="Interpreter" label="VM interpreter execution" />
+</enum>
+
 <tile name="exec">
     <counter name="ProgcacheMisses" summary="Number of program cache misses" />
     <counter name="ProgcacheHits" summary="Number of program cache hits" />
@@ -1116,6 +1141,10 @@ metric introduced.
     <counter name="ProgcacheFillFails" summary="Number of program cache load fails (tombstones inserted)" />
     <counter name="ProgcacheDupInserts" summary="Number of time two tiles raced to insert the same cache entry" />
     <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
+    <counter name="AccdbCreated" summary="Number of account database records created" />
+
+    <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes." />
+    <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes." />
 </tile>
 
 <tile name="benchs">

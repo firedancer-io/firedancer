@@ -526,10 +526,19 @@
 | <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | The slot at which we last reset the replay stage, or 0 if unknown |
 | <span class="metrics-name">replay_&#8203;max_&#8203;live_&#8203;banks</span> | gauge | The maximum number of banks we can have alive |
 | <span class="metrics-name">replay_&#8203;live_&#8203;banks</span> | gauge | The number of banks we currently have alive |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;free</span> | gauge | The number of free FEC sets in the reassembly queue |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;slot</span> | gauge | Slot of the latest FEC set in the reassembly queue that can be replayed |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;fec_&#8203;idx</span> | gauge | FEC set index of the latest FEC set in the reassembly queue that can be replayed |
 | <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully |
 | <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall on the current fork |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;full</span> | counter | Times where sched is full and a FEC set can't be processed |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;empty</span> | counter | Times where reasm is empty and a FEC set can't be processed |
+| <span class="metrics-name">replay_&#8203;leader_&#8203;bid_&#8203;wait</span> | counter | Times where replay is blocked by the PoH tile not sending an end of leader message |
+| <span class="metrics-name">replay_&#8203;banks_&#8203;full</span> | counter | Times where banks are full and a FEC set can't be processed |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;reverted</span> | counter | Number of account database records reverted |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;gc_&#8203;root</span> | counter | Number of account database entries garbage collected |
 
@@ -1126,6 +1135,15 @@
 | <span class="metrics-name">exec_&#8203;progcache_&#8203;fill_&#8203;fails</span> | counter | Number of program cache load fails (tombstones inserted) |
 | <span class="metrics-name">exec_&#8203;progcache_&#8203;dup_&#8203;inserts</span> | counter | Number of time two tiles raced to insert the same cache entry |
 | <span class="metrics-name">exec_&#8203;progcache_&#8203;invalidations</span> | counter | Number of program cache invalidations |
+| <span class="metrics-name">exec_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
+| <span class="metrics-name">exec_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes. (Transaction setup) |
+| <span class="metrics-name">exec_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes. (Transaction execution (includes VM setup/execution)) |
+| <span class="metrics-name">exec_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes. (Transaction result commit) |
+| <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM setup) |
+| <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM commit) |
+| <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM setup (CPI)) |
+| <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM commit (CPI)) |
+| <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM interpreter execution) |
 
 </div>
 

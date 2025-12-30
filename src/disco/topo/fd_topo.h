@@ -636,7 +636,7 @@ struct fd_topo_tile {
       char  solcap_capture[ PATH_MAX ];
       int   recent_only;
       ulong recent_slots_per_file;
-    } capctx;
+    } solcap;
   };
 };
 

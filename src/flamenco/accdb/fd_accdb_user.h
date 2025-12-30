@@ -8,6 +8,9 @@
 
 #define FD_ACCDB_DEPTH_MAX (128UL)
 
+#define FD_ACCDB_FLAG_CREATE   (1)
+#define FD_ACCDB_FLAG_TRUNCATE (2)
+
 /* fd_accdb_user_vt_t specifies the interface (vtable) for the account
    DB client. */
 
@@ -38,7 +41,7 @@ struct fd_accdb_user_vt {
                fd_funk_txn_xid_t const * xid,
                void const *              address,
                ulong                     data_max,
-               int                       do_create );
+               int                       flags );
 
   void
   (* close_rw)( fd_accdb_user_t * accdb,
@@ -54,6 +57,7 @@ struct fd_accdb_user_base {
 
   ulong rw_active;
   ulong ro_active;
+  ulong created_cnt;
 };
 
 typedef struct fd_accdb_user_base fd_accdb_user_base_t;

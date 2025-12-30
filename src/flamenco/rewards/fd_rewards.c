@@ -742,7 +742,7 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   /* The agave client does not partition the stake rewards until the
      first distribution block.  We calculate the partitions during the
      boundary. */
-  result->validator_points.ud          = points;
+  result->validator_points             = points;
   result->validator_rewards            = total_rewards;
   result->validator_rate               = rewards.validator_rate;
   result->foundation_rate              = rewards.foundation_rate;
@@ -842,7 +842,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
   epoch_rewards->distributed_rewards = distributed_rewards;
   epoch_rewards->total_rewards       = rewards_calc_result->validator_rewards;
-  epoch_rewards->total_points        = rewards_calc_result->validator_points;
+  epoch_rewards->total_points.ud     = rewards_calc_result->validator_points;
   fd_bank_epoch_rewards_end_locking_modify( bank );
 }
 
@@ -878,7 +878,8 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
 
   fd_stake_state_v2_t stake_state[1] = {0};
   if( fd_stake_get_state( stake_acc_rec->meta, stake_state ) != 0 ) {
-    FD_LOG_DEBUG(( "failed to read stake state for %s", FD_BASE58_ENC_32_ALLOCA( stake_pubkey ) ));
+    FD_BASE58_ENCODE_32_BYTES( stake_pubkey->key, stake_pubkey_b58 );
+    FD_LOG_DEBUG(( "failed to read stake state for %s", stake_pubkey_b58 ));
     return 1;
   }
 
@@ -892,6 +893,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
     return 1;
   }
 
+  ulong old_credits_observed                      = stake_state->inner.stake.stake.credits_observed;
   stake_state->inner.stake.stake.credits_observed = new_credits_observed;
   stake_state->inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->inner.stake.stake.delegation.stake,
                                                                       reward_lamports );
@@ -918,7 +920,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
                                                     fd_txn_account_get_lamports( stake_acc_rec ),
                                                     (long)reward_lamports,
                                                     new_credits_observed,
-                                                    (long)( new_credits_observed - stake_state->inner.stake.stake.credits_observed ),
+                                                    (long)( new_credits_observed - old_credits_observed ),
                                                     stake_state->inner.stake.stake.delegation.stake,
                                                     (long)reward_lamports );
   }

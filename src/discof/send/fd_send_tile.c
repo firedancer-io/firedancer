@@ -85,7 +85,10 @@ quic_hs_complete( fd_quic_conn_t * conn,
   for( ulong i=0; i<FD_SEND_PORT_QUIC_CNT; i++ ) {
     if( entry->conn[i] == conn ) { ctx->metrics.quic_hs_complete[i]++; break; }
   }
-  FD_DEBUG( FD_LOG_DEBUG(("QUIC handshake complete for leader %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key ))); )
+  FD_DEBUG(
+    FD_BASE58_ENCODE_32_BYTES( entry->pubkey.key, pubkey_b58 );
+    FD_LOG_DEBUG(( "QUIC handshake complete for leader %s", pubkey_b58 ));
+  )
 }
 
 inline static int
@@ -107,16 +110,20 @@ quic_conn_final( fd_quic_conn_t * conn,
   for( ulong i=0UL; i<FD_SEND_PORT_QUIC_CNT; i++ ) {
     if( entry->conn[i] == conn ) {
       entry->conn[i] = NULL;
-      FD_DEBUG( FD_LOG_DEBUG(("Quic final for conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
-                              (void*)conn, FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i], (void*)entry,
-                              FD_BASE58_ENC_32_ALLOCA(entry->pubkey.key))); )
+      FD_DEBUG(
+        FD_BASE58_ENCODE_32_BYTES( entry->pubkey.key, pubkey_b58 );
+        FD_LOG_DEBUG(("Quic final for conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
+                      (void*)conn, FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i], (void*)entry,
+                      pubkey_b58));
+      )
       ctx->metrics.quic_conn_final[i]++;
       if( i==FD_SEND_PORT_QUIC_VOTE_IDX ) entry->last_quic_vote_close = ctx->now;
       return;
     }
   }
 
-  FD_LOG_CRIT(( "conn not found in entry for peer %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
+  FD_BASE58_ENCODE_32_BYTES( entry->pubkey.key, pubkey_b58 );
+  FD_LOG_CRIT(( "conn not found in entry for peer %s", pubkey_b58 ));
 }
 
 /* send_to_net sends a packet to the net tile.
@@ -206,9 +213,12 @@ quic_connect( fd_send_tile_ctx_t   * ctx,
     return NULL;
   }
 
-  FD_DEBUG( FD_LOG_DEBUG(("Quic created conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
-                          (void*)conn, FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port, (void*)entry,
-                          FD_BASE58_ENC_32_ALLOCA(entry->pubkey.key))); )
+  FD_DEBUG(
+    FD_BASE58_ENCODE_32_BYTES(entry->pubkey.key, pubkey_b58);
+    FD_LOG_DEBUG(("Quic created conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
+                  (void*)conn, FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port, (void*)entry,
+                  pubkey_b58));
+  )
 
   entry->conn[conn_idx] = conn;
   fd_quic_conn_set_context( conn, entry );
@@ -286,14 +296,16 @@ leader_send( fd_send_tile_ctx_t * ctx,
     if( port_idx_is_quic( i ) ) {
       fd_quic_conn_t * conn = entry->conn[i];
       if( FD_UNLIKELY( !conn ) ) {
-        FD_LOG_DEBUG(("no conn for %s at " FD_IP4_ADDR_FMT ":%u", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i] ));
+        FD_BASE58_ENCODE_32_BYTES( pubkey->key, pubkey_b58 );
+        FD_LOG_DEBUG(("no conn for %s at " FD_IP4_ADDR_FMT ":%u", pubkey_b58, FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i] ));
         ctx->metrics.send_result_cnt[i][FD_METRICS_ENUM_TXN_SEND_RESULT_V_NO_CONN_IDX]++;
         continue;
       }
 
       fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
       if( FD_UNLIKELY( !stream ) ) {
-        FD_LOG_DEBUG(("new_stream failed for %s at " FD_IP4_ADDR_FMT ":%u bc conn state was %u", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i], conn->state ));
+        FD_BASE58_ENCODE_32_BYTES( pubkey->key, pubkey_b58 );
+        FD_LOG_DEBUG(("new_stream failed for %s at " FD_IP4_ADDR_FMT ":%u bc conn state was %u", pubkey_b58, FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i], conn->state ));
         ctx->metrics.send_result_cnt[i][FD_METRICS_ENUM_TXN_SEND_RESULT_V_NO_STREAM_IDX]++;
         continue;
       }
@@ -350,7 +362,8 @@ handle_contact_info_update( fd_send_tile_ctx_t *               ctx,
     ushort                old_port = entry->ports[i];
 
     if( FD_UNLIKELY( !new_ip || !new_port ) ) {
-      FD_LOG_DEBUG(( "Unroutable contact info for pubkey %s", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey )));
+      FD_BASE58_ENCODE_32_BYTES( msg->origin_pubkey, origin_pubkey_b58 );
+      FD_LOG_DEBUG(( "Unroutable contact info for pubkey %s", origin_pubkey_b58 ));
       ctx->metrics.new_contact_info[i][FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_UNROUTABLE_IDX]++;
       continue;
     }

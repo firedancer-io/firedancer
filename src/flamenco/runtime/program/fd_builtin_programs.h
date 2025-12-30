@@ -95,7 +95,7 @@ fd_num_stateless_builtins( void );
     |      1       |        1          | Program is a migrating builtin program id, AND has been migrated to BPF  |
 */
 uchar
-fd_is_migrating_builtin_program( fd_bank_t *         bank,
+fd_is_migrating_builtin_program( fd_bank_t const *   bank,
                                  fd_pubkey_t const * pubkey,
                                  uchar *             migrated_yet );
 

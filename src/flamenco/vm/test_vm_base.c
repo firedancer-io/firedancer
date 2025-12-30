@@ -1,4 +1,7 @@
-#include "fd_vm_private.h"
+#include "fd_vm.h"
+#include "../../ballet/sbpf/fd_sbpf_instr.h"
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/murmur3/fd_murmur3.h"
 #include <stddef.h>
 #include <assert.h>
 
@@ -51,6 +54,7 @@ FD_STATIC_ASSERT( FD_VM_COMPUTE_UNIT_LIMIT                       ==         1400
 FD_STATIC_ASSERT( FD_VM_LOG_64_UNITS                             ==             100UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_CREATE_PROGRAM_ADDRESS_UNITS             ==            1500UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_INVOKE_UNITS                             ==            1000UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_INVOKE_UNITS_SIMD_0339                   ==             946UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_MAX_INVOKE_STACK_HEIGHT                  ==               5UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_MAX_INSTRUCTION_TRACE_LENGTH             ==              64UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SHA256_BASE_COST                         ==              85UL, vm_cu );
@@ -60,6 +64,7 @@ FD_STATIC_ASSERT( FD_VM_MAX_CALL_DEPTH                           ==             
 FD_STATIC_ASSERT( FD_VM_STACK_FRAME_SIZE                         ==            4096UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_LOG_PUBKEY_UNITS                         ==             100UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_MAX_CPI_INSTRUCTION_SIZE                 ==            1280UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ACCOUNT_INFO_BYTE_SIZE                   ==              80UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_CPI_BYTES_PER_UNIT                       ==             250UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SYSVAR_BASE_COST                         ==             100UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SECP256K1_RECOVER_COST                   ==           25000UL, vm_cu );
