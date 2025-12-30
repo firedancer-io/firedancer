@@ -494,7 +494,13 @@ fd_progcache_lock_best_txn( fd_progcache_t * cache,
         /* Attempt to read-lock transaction */
         fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
         if( FD_LIKELY( fd_progcache_txn_try_lock( txn ) ) ) {
-          FD_TEST( fd_funk_txn_map_query_test( query )==FD_MAP_SUCCESS );
+          /* Check for unlikely case we acquired a read-lock _after_ the
+             transaction object was destroyed (ABA problem) */
+          fd_funk_txn_xid_t found_xid[1];
+          if( FD_UNLIKELY( !fd_funk_txn_xid_eq( fd_funk_txn_xid_ld_atomic( found_xid, &txn->xid ), xid ) ) ) {
+            fd_progcache_txn_unlock( txn );
+            break;
+          }
           return txn;
         }
         /* currently being rooted */
