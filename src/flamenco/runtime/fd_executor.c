@@ -1714,6 +1714,17 @@ fd_execute_txn( fd_runtime_t *      runtime,
     }
   }
 
+  /* If the transaction has more than FD_TXN_INSTR_MAX instructions,
+     we know that the transaction has to fail.  Firedancer's txn parsing
+     logic ignores any instructions past the 64th one.  If the txn has
+     yet to fail at this point and we know that there were unparsed
+     transactions, we want to fail the transaction with an instruction
+     error. */
+  if( FD_UNLIKELY( txn->has_unparsed_instrs ) ) {
+    txn_out->err.exec_err = FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
+    return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+  }
+
   /* TODO: This function needs to be split out of fd_execute_txn and be placed
       into the replay tile once it is implemented. */
   return fd_executor_txn_check( runtime, bank, txn_out );

@@ -286,13 +286,22 @@ struct fd_txn {
       */
 
   /* instr_cnt: The number of instructions in this transaction.
-     instr_cnt in [0, FD_TXN_INSTR_MAX]. */
+     instr_cnt in [0, FD_TXN_INSTR_MAX].  There can be more than
+     FD_TXN_INSTR_MAX instructions in a transaction, but they will
+     not be parsed or counted here. */
   ushort      instr_cnt;
+
+  /* has_unparsed_instrs: 1 if the transaction has more than
+     FD_TXN_INSTR_MAX instructions, 0 otherwise.  */
+  uchar       has_unparsed_instrs;
 
   /* instr: The array of instructions in this transaction. It's a "flexible array
      member" since C does not allow the pretty typical 0-len array at the end
      of the struct trick.
-     Indexed [0, instr_cnt). */
+     Indexed [0, min(instr_cnt, FD_TXN_INSTR_MAX)).  All transactions
+     past the 64th instruction are not parsed because they will
+     automatically fail to execute in the runtime due to protocol
+     limits. */
   fd_txn_instr_t instr[ ];
 
   /* Logically, there's another field here:
