@@ -311,21 +311,15 @@ fd_banks_new( void * shmem,
     /* The cost tracker is not templatized and must be set manually. */
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
     fd_bank_set_cost_tracker_pool( bank, cost_tracker_pool );
-  }
 
-  for( ulong i=0UL; i<max_fork_width; i++ ) {
-    fd_epoch_rewards_join( fd_epoch_rewards_new( fd_bank_epoch_rewards_pool_ele( fd_banks_get_epoch_rewards_pool( banks ), i )->data, FD_RUNTIME_MAX_STAKE_ACCOUNTS, seed ) );
-  }
-
-  for( ulong i=0UL; i<max_total_banks; i++ ) {
     fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_pool_ele( fd_banks_get_vote_states_pool( banks ), i )->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) );
   }
 
   for( ulong i=0UL; i<max_fork_width; i++ ) {
-    fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_pool_ele( fd_banks_get_vote_states_prev_pool( banks ), i )->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) );
-  }
+    fd_epoch_rewards_join( fd_epoch_rewards_new( fd_bank_epoch_rewards_pool_ele( fd_banks_get_epoch_rewards_pool( banks ), i )->data, FD_RUNTIME_MAX_STAKE_ACCOUNTS, seed ) );
 
-  for( ulong i=0UL; i<max_fork_width; i++ ) {
+    fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_pool_ele( fd_banks_get_vote_states_prev_pool( banks ), i )->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) );
+
     fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_pool_ele( fd_banks_get_vote_states_prev_prev_pool( banks ), i )->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) );
   }
 
