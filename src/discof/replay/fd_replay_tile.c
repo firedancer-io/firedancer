@@ -1695,6 +1695,9 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
 
+  /* First set the bank index that corresponds to the FEC set and
+     provision a new bank index if needed. */
+
   if( FD_UNLIKELY( reasm_fec->leader ) ) {
     /* If we are the leader we just need to copy in the bank index that
        the leader slot is using. */
@@ -1704,7 +1707,18 @@ process_fec_set( fd_replay_tile_t *  ctx,
     /* If we are seeing a FEC with fec set idx 0, this means that we are
        starting a new slot, and we need a new bank index. */
     reasm_fec->bank_idx = fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now )->idx;
+  } else {
+    /* We are continuing to execute through a slot that we already have
+       a bank index for. */
+    reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
+  }
 
+  /* Handle block id map ele logic.  When we see the first fec for a
+     slot, remove a stale entry if it exists and set the block id as not
+     having been seen yet.  After the block id is observed on the slot
+     complete fec, add a new map entry. */
+
+  if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
     /* At this point remove any stale entry in the block id map if it
        exists and set the block id as not having been seen yet.  This is
        safe because we know that the old entry for this bank index has
@@ -1715,11 +1729,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
     }
     block_id_ele->block_id_seen = 0;
     block_id_ele->slot          = reasm_fec->slot;
-
-  } else {
-    /* We are continuing to execute through a slot that we already have
-       a bank index for. */
-    reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
   }
 
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
