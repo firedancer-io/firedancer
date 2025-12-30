@@ -97,7 +97,7 @@
    addresses (a program and a fee payer), and tons of empty instructions (no
    accounts, no data) and as many address table lookups loading a single
    account as possible. */
-#define FD_TXN_MAX_SZ                (852UL)
+#define FD_TXN_MAX_SZ                (854UL)
 
 
 /* FD_TXN_MTU: The maximum size (in bytes, inclusive) of a serialized
