@@ -499,25 +499,29 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->sibling_idx = null_idx;
 
   /* Set all CoW fields to null. */
-  #define HAS_COW_1(name)                                                             \
-    fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );           \
-    bank->name##_pool_idx            = fd_bank_##name##_pool_idx_null( name##_pool ); \
-    bank->name##_dirty               = 0;
-
-  /* Do nothing for these. */
-  #define HAS_COW_0(name)
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_banks_get_epoch_rewards_pool( banks );
+  bank->epoch_rewards_pool_idx = fd_bank_epoch_rewards_pool_idx_null( epoch_rewards_pool );
+  bank->epoch_rewards_dirty = 0;
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_banks_get_epoch_leaders_pool( banks );
+  bank->epoch_leaders_pool_idx = fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool );
+  bank->epoch_leaders_dirty = 0;
+  fd_bank_vote_states_t * vote_states_pool = fd_banks_get_vote_states_pool( banks );
+  bank->vote_states_pool_idx = fd_bank_vote_states_pool_idx_null( vote_states_pool );
+  bank->vote_states_dirty = 0;
+  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_banks_get_vote_states_prev_pool( banks );
+  bank->vote_states_prev_pool_idx = fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool );
+  bank->vote_states_prev_dirty = 0;
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_banks_get_vote_states_prev_prev_pool( banks );
+  bank->vote_states_prev_prev_pool_idx = fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool );
+  bank->vote_states_prev_prev_dirty = 0;
 
   #define HAS_LOCK_1(name) \
     fd_rwlock_new( &bank->name##_lock );
   #define HAS_LOCK_0(name)
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(name);                                                   \
-    HAS_LOCK_##has_lock(name)
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) HAS_LOCK_##has_lock(name)
   FD_BANKS_ITER(X)
   #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
 
@@ -585,18 +589,20 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   child_bank->non_cow = parent_bank->non_cow;
 
-  #define HAS_COW_1(type, name, footprint) \
-    child_bank->name##_dirty    = 0;       \
-    child_bank->name##_pool_idx = parent_bank->name##_pool_idx;
+  child_bank->epoch_rewards_dirty = 0;
+  child_bank->epoch_rewards_pool_idx = parent_bank->epoch_rewards_pool_idx;
 
-  #define HAS_COW_0(type, name, footprint)
+  child_bank->epoch_leaders_dirty = 0;
+  child_bank->epoch_leaders_pool_idx = parent_bank->epoch_leaders_pool_idx;
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  child_bank->vote_states_dirty = 0;
+  child_bank->vote_states_pool_idx = parent_bank->vote_states_pool_idx;
+
+  child_bank->vote_states_prev_dirty = 0;
+  child_bank->vote_states_prev_pool_idx = parent_bank->vote_states_prev_pool_idx;
+
+  child_bank->vote_states_prev_prev_dirty = 0;
+  child_bank->vote_states_prev_prev_pool_idx = parent_bank->vote_states_prev_prev_pool_idx;
 
   /* Initialization for the non-templatized fields. */
 
@@ -865,25 +871,40 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
 
   fd_memset( &bank->non_cow, 0, sizeof(bank->non_cow) );
 
-  #define HAS_COW_1(type, name, footprint)                                                                                  \
-    fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                                   \
-    if( bank->name##_dirty ) {                                                                                              \
-      /* If the dirty flag is set, then we have a pool allocated for */                                                     \
-      /* this specific bank. We need to release the pool index and   */                                                     \
-      /* assign the bank to the idx corresponding to the parent.     */                                                     \
-      fd_bank_##name##_pool_idx_release( name##_pool, bank->name##_pool_idx );                                              \
-      bank->name##_dirty    = 0;                                                                                            \
-      bank->name##_pool_idx = parent_bank ? parent_bank->name##_pool_idx : fd_bank_##name##_pool_idx_null( name##_pool );   \
-    }
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( bank );
+  if( bank->epoch_rewards_dirty ) {
+    fd_bank_epoch_rewards_pool_idx_release( epoch_rewards_pool, bank->epoch_rewards_pool_idx );
+    bank->epoch_rewards_dirty = 0;
+    bank->epoch_rewards_pool_idx = parent_bank ? parent_bank->epoch_rewards_pool_idx : fd_bank_epoch_rewards_pool_idx_null( epoch_rewards_pool );
+  }
 
-  #define HAS_COW_0(type, name, footprint)
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank );
+  if( bank->epoch_leaders_dirty ) {
+    fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
+    bank->epoch_leaders_dirty = 0;
+    bank->epoch_leaders_pool_idx = parent_bank ? parent_bank->epoch_leaders_pool_idx : fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool );
+  }
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( bank );
+  if( bank->vote_states_dirty ) {
+    fd_bank_vote_states_pool_idx_release( vote_states_pool, bank->vote_states_pool_idx );
+    bank->vote_states_dirty = 0;
+    bank->vote_states_pool_idx = parent_bank ? parent_bank->vote_states_pool_idx : fd_bank_vote_states_pool_idx_null( vote_states_pool );
+  }
+
+  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( bank );
+  if( bank->vote_states_prev_dirty ) {
+    fd_bank_vote_states_prev_pool_idx_release( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
+    bank->vote_states_prev_dirty = 0;
+    bank->vote_states_prev_pool_idx = parent_bank ? parent_bank->vote_states_prev_pool_idx : fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool );
+  }
+
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
+  if( bank->vote_states_prev_prev_dirty ) {
+    fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+    bank->vote_states_prev_prev_dirty = 0;
+    bank->vote_states_prev_prev_pool_idx = parent_bank ? parent_bank->vote_states_prev_prev_pool_idx : fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool );
+  }
 
   /* We need to acquire a cost tracker element. */
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
