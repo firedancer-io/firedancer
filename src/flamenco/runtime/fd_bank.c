@@ -182,29 +182,16 @@ fd_banks_new( void * shmem,
 
   /* First, layout the banks and the pool used by fd_banks_t. */
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_banks_t * banks           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
-  void * pool_mem              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
-  void * cost_tracker_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  fd_banks_t * banks                          = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
+  void *       pool_mem                       = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
+  void *       cost_tracker_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  void *       epoch_rewards_pool_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_rewards_pool_align(), fd_bank_epoch_rewards_pool_footprint( max_fork_width ) );
+  void *       epoch_leaders_pool_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
+  void *       vote_states_pool_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
+  void *       vote_states_prev_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_prev_pool_align(), fd_bank_vote_states_prev_pool_footprint( max_fork_width ) );
+  void *       vote_states_prev_prev_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_prev_prev_pool_align(), fd_bank_vote_states_prev_prev_pool_footprint( max_fork_width ) );
 
   fd_rwlock_new( &banks->rwlock );
-
-  /* Need to layout all of the CoW pools. */
-  #define HAS_COW_1_LIMIT_1(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_fork_width ) );
-
-  #define HAS_COW_1_LIMIT_0(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_total_banks ) );
-
-  /* Do nothing for these. */
-  #define HAS_COW_0_LIMIT_0(name)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0_LIMIT_0
-  #undef HAS_COW_1_LIMIT_0
-  #undef HAS_COW_1_LIMIT_1
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks + fd_banks_footprint( max_total_banks, max_fork_width ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -360,27 +347,14 @@ fd_banks_join( void * mem ) {
   }
 
   FD_SCRATCH_ALLOC_INIT( l, banks );
-  banks                         = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
-  void * pool_mem               = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( banks->max_total_banks ) );
-  void * cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( banks->max_fork_width ) );
-
-  /* Need to layout all of the CoW pools. */
-  #define HAS_COW_1_LIMIT_1(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( banks->max_fork_width ) );
-
-  #define HAS_COW_1_LIMIT_0(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( banks->max_total_banks ) );
-
-  /* Don't need to layout if not CoW. */
-  #define HAS_COW_0_LIMIT_0(name)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0_LIMIT_0
-  #undef HAS_COW_1_LIMIT_0
-  #undef HAS_COW_1_LIMIT_1
+  banks                                 = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                           sizeof(fd_banks_t) );
+  void * pool_mem                       = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),                      fd_banks_pool_footprint( banks->max_total_banks ) );
+  void * cost_tracker_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),          fd_bank_cost_tracker_pool_footprint( banks->max_fork_width ) );
+  void * epoch_rewards_pool_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_rewards_pool_align(),         fd_bank_epoch_rewards_pool_footprint( banks->max_fork_width ) );
+  void * epoch_leaders_pool_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(),         fd_bank_epoch_leaders_pool_footprint( banks->max_fork_width ) );
+  void * vote_states_pool_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),           fd_bank_vote_states_pool_footprint( banks->max_total_banks ) );
+  void * vote_states_prev_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_prev_pool_align(),      fd_bank_vote_states_prev_pool_footprint( banks->max_fork_width ) );
+  void * vote_states_prev_prev_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_prev_prev_pool_align(), fd_bank_vote_states_prev_prev_pool_footprint( banks->max_fork_width ) );
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
 
@@ -406,27 +380,60 @@ fd_banks_join( void * mem ) {
     return NULL;
   }
 
-  /* Now, call _join() for all of the CoW pools. */
-  #define HAS_COW_1(name)                                                             \
-    fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );           \
-    if( FD_UNLIKELY( !name##_pool ) ) {                                               \
-      FD_LOG_WARNING(( "Failed to join " #name " pool" ));                            \
-      return NULL;                                                                    \
-    }                                                                                 \
-    if( FD_UNLIKELY( name##_pool!=fd_bank_##name##_pool_join( name##_pool_mem ) ) ) { \
-      FD_LOG_WARNING(( "Failed to join " #name " pool" ));                            \
-      return NULL;                                                                    \
-    }
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_banks_get_epoch_rewards_pool( banks );
+  if( FD_UNLIKELY( !epoch_rewards_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch rewards pool" ));
+    return NULL;
+  }
 
-  /* Do nothing when the field is not CoW. */
-  #define HAS_COW_0(name)
+  if( FD_UNLIKELY( epoch_rewards_pool!=fd_bank_epoch_rewards_pool_join( epoch_rewards_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch rewards pool" ));
+    return NULL;
+  }
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_banks_get_epoch_leaders_pool( banks );
+  if( FD_UNLIKELY( !epoch_leaders_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch leaders pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( epoch_leaders_pool!=fd_bank_epoch_leaders_pool_join( epoch_leaders_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch leaders pool" ));
+    return NULL;
+  }
+
+  fd_bank_vote_states_t * vote_states_pool = fd_banks_get_vote_states_pool( banks );
+  if( FD_UNLIKELY( !vote_states_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( vote_states_pool!=fd_bank_vote_states_pool_join( vote_states_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states pool" ));
+    return NULL;
+  }
+
+  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_banks_get_vote_states_prev_pool( banks );
+  if( FD_UNLIKELY( !vote_states_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( vote_states_prev_pool!=fd_bank_vote_states_prev_pool_join( vote_states_prev_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev pool" ));
+    return NULL;
+  }
+
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_banks_get_vote_states_prev_prev_pool( banks );
+  if( FD_UNLIKELY( !vote_states_prev_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev prev pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( vote_states_prev_prev_pool!=fd_bank_vote_states_prev_prev_pool_join( vote_states_prev_prev_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev prev pool" ));
+    return NULL;
+  }
 
   return banks;
 }
