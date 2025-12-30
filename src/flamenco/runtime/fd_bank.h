@@ -275,23 +275,45 @@ FD_PROTOTYPES_BEGIN
    which is defined here. If a type if not a CoW then it does not need
    to be in a pool and is laid out contigiously in the bank struct. */
 
-/* Declare a pool object wrapper for all CoW fields. */
-#define HAS_COW_1(name, footprint, align)                    \
-  static const ulong fd_bank_##name##_align     = align;     \
-  static const ulong fd_bank_##name##_footprint = footprint; \
-                                                             \
-  struct fd_bank_##name {                                    \
-    ulong next;                                              \
-    uchar data[footprint]__attribute__((aligned(align)));    \
-  };                                                         \
-  typedef struct fd_bank_##name fd_bank_##name##_t;
+static const ulong fd_bank_epoch_rewards_align     = FD_EPOCH_REWARDS_ALIGN;
+static const ulong fd_bank_epoch_rewards_footprint = FD_EPOCH_REWARDS_FOOTPRINT;
+struct fd_bank_epoch_rewards {
+  ulong next;
+  uchar data[FD_EPOCH_REWARDS_FOOTPRINT] __attribute__((aligned(FD_EPOCH_REWARDS_ALIGN)));
+};
+typedef struct fd_bank_epoch_rewards fd_bank_epoch_rewards_t;
 
-/* Do nothing if CoW is not enabled. */
-#define HAS_COW_0(name, footprint, align)
+static const ulong fd_bank_epoch_leaders_align     = FD_EPOCH_LEADERS_ALIGN;
+static const ulong fd_bank_epoch_leaders_footprint = FD_EPOCH_LEADERS_MAX_FOOTPRINT;
+struct fd_bank_epoch_leaders {
+  ulong next;
+  uchar data[FD_EPOCH_LEADERS_MAX_FOOTPRINT] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
+};
+typedef struct fd_bank_epoch_leaders fd_bank_epoch_leaders_t;
 
-#define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-  HAS_COW_##cow(name, footprint, align)
-  FD_BANKS_ITER(X)
+static const ulong fd_bank_vote_states_align     = FD_VOTE_STATES_ALIGN;
+static const ulong fd_bank_vote_states_footprint = FD_VOTE_STATES_FOOTPRINT;
+struct fd_bank_vote_states {
+  ulong next;
+  uchar data[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
+};
+typedef struct fd_bank_vote_states fd_bank_vote_states_t;
+
+static const ulong fd_bank_vote_states_prev_align     = FD_VOTE_STATES_ALIGN;
+static const ulong fd_bank_vote_states_prev_footprint = FD_VOTE_STATES_FOOTPRINT;
+struct fd_bank_vote_states_prev {
+  ulong next;
+  uchar data[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
+};
+typedef struct fd_bank_vote_states_prev fd_bank_vote_states_prev_t;
+
+static const ulong fd_bank_vote_states_prev_prev_align     = FD_VOTE_STATES_ALIGN;
+static const ulong fd_bank_vote_states_prev_prev_footprint = FD_VOTE_STATES_FOOTPRINT;
+struct fd_bank_vote_states_prev_prev {
+  ulong next;
+  uchar data[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
+};
+typedef struct fd_bank_vote_states_prev_prev fd_bank_vote_states_prev_prev_t;
 
 struct fd_bank_cost_tracker {
   ulong next;
