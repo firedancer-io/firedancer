@@ -101,7 +101,7 @@ init_vote_states( test_env_t * env ) {
 static void
 init_stake_delegations( test_env_t * env ) {
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( env->banks );
-  fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 1UL, 0 ) );
+  fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 999UL, 1UL, 0 ) );
 }
 
 static void
