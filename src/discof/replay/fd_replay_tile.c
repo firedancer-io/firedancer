@@ -347,8 +347,7 @@ struct fd_replay_tile {
   fd_multi_epoch_leaders_t * mleaders;
 
   int larger_max_cost_per_block;
-
-  fd_pubkey_t identity_pubkey[1]; /* TODO: Keyswitch */
+ubkey_t identity_pubkey[1]; /* TODO: Keyswitch */
 
   /* When we transition to becoming leader, we can only unbecome the
      leader if we have received a block id from the FEC reassembler, and
@@ -577,8 +576,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
                     ulong               parent_bank_idx,
                     ulong               slot ) {
   long before = fd_log_wallclock();
-
-  /* Switch to a new block that we don't have a bank for. */
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) {
@@ -1701,9 +1698,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
 
-  /* First set the bank index that corresponds to the FEC set and
-     provision a new bank index if needed. */
-
   if( FD_UNLIKELY( reasm_fec->leader ) ) {
     /* If we are the leader we just need to copy in the bank index that
        the leader slot is using. */
@@ -1730,8 +1724,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
-    /* Once the block id for a block is known it must be added to the
-       leader block mapping. */
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
     FD_TEST( block_id_ele );
 
@@ -1741,6 +1733,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( reasm_fec->leader ) ) {
+    /* If we are the leader, we don't need to process the FEC set any
+       further. */
     return;
   }
 
