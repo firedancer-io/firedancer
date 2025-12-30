@@ -324,7 +324,7 @@ fd_banks_new( void * shmem,
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
     fd_bank_set_cost_tracker_pool( bank, cost_tracker_pool );
 
-    if( FD_UNLIKELY( fd_stake_delegations_join( fd_stake_delegations_new( bank->stake_delegations_delta, seed, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 ) ) ) ) {
+    if( FD_UNLIKELY( !fd_stake_delegations_join( fd_stake_delegations_new( bank->stake_delegations_delta, seed, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 ) ) ) ) {
       FD_LOG_WARNING(( "Failed to create stake delegations" ));
       return NULL;
     }
@@ -583,6 +583,9 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   fd_rwlock_unwrite( &banks->rwlock );
   return bank;
 }
+
+/* TODO:FIXME: clone from parent can just take in a child bank index
+   because it is already linked to the parent. */
 
 fd_bank_t *
 fd_banks_clone_from_parent( fd_banks_t * banks,
@@ -854,7 +857,7 @@ fd_banks_advance_root( fd_banks_t * banks,
        this pool index to the new root. */
     fd_rwlock_write( &new_root->epoch_rewards_lock );
     fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( new_root );
-    if( head->epoch_rewards_dirty && head->epoch_rewards_pool_idx!=new_root->epoch_rewards_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+    if( head->epoch_rewards_dirty && head->epoch_rewards_pool_idx!=new_root->epoch_rewards_pool_idx ) {
       fd_rwlock_write( &banks->epoch_rewards_pool_lock );
       fd_bank_epoch_rewards_pool_idx_release( epoch_rewards_pool, head->epoch_rewards_pool_idx );
       fd_rwlock_unwrite( &banks->epoch_rewards_pool_lock );
@@ -865,7 +868,7 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     fd_rwlock_write( &new_root->epoch_leaders_lock );
     fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( new_root );
-    if( head->epoch_leaders_dirty && head->epoch_leaders_pool_idx!=new_root->epoch_leaders_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+    if( head->epoch_leaders_dirty && head->epoch_leaders_pool_idx!=new_root->epoch_leaders_pool_idx ) {
       fd_rwlock_write( &banks->epoch_leaders_pool_lock );
       fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, head->epoch_leaders_pool_idx );
       fd_rwlock_unwrite( &banks->epoch_leaders_pool_lock );
@@ -876,7 +879,7 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     fd_rwlock_write( &new_root->vote_states_lock );
     fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( new_root );
-    if( head->vote_states_dirty && head->vote_states_pool_idx!=new_root->vote_states_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+    if( head->vote_states_dirty && head->vote_states_pool_idx!=new_root->vote_states_pool_idx ) {
       fd_rwlock_write( &banks->vote_states_pool_lock );
       fd_bank_vote_states_pool_idx_release( vote_states_pool, head->vote_states_pool_idx );
       fd_rwlock_unwrite( &banks->vote_states_pool_lock );
@@ -887,7 +890,7 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     fd_rwlock_write( &new_root->vote_states_prev_lock );
     fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( new_root );
-    if( head->vote_states_prev_dirty && head->vote_states_prev_pool_idx!=new_root->vote_states_prev_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+    if( head->vote_states_prev_dirty && head->vote_states_prev_pool_idx!=new_root->vote_states_prev_pool_idx ) {
       fd_rwlock_write( &banks->vote_states_prev_pool_lock );
       fd_bank_vote_states_prev_pool_idx_release( vote_states_prev_pool, head->vote_states_prev_pool_idx );
       fd_rwlock_unwrite( &banks->vote_states_prev_pool_lock );
@@ -898,7 +901,7 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     fd_rwlock_write( &new_root->vote_states_prev_prev_lock );
     fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( new_root );
-    if( head->vote_states_prev_prev_dirty && head->vote_states_prev_prev_pool_idx!=new_root->vote_states_prev_prev_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+    if( head->vote_states_prev_prev_dirty && head->vote_states_prev_prev_pool_idx!=new_root->vote_states_prev_prev_pool_idx ) {
       fd_rwlock_write( &banks->vote_states_prev_prev_pool_lock );
       fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, head->vote_states_prev_prev_pool_idx );
       fd_rwlock_unwrite( &banks->vote_states_prev_prev_pool_lock );
@@ -1210,6 +1213,13 @@ fd_banks_new_bank( fd_banks_t * banks,
 
     curr_bank->sibling_idx = child_bank_idx;
   }
+
+  child_bank->epoch_rewards_dirty           = 0;
+  child_bank->epoch_leaders_dirty           = 0;
+  child_bank->vote_states_dirty             = 0;
+  child_bank->vote_states_prev_dirty        = 0;
+  child_bank->vote_states_prev_prev_dirty   = 0;
+  child_bank->stake_delegations_delta_dirty = 0;
 
   child_bank->first_fec_set_received_nanos      = now;
   child_bank->first_transaction_scheduled_nanos = 0L;
