@@ -486,7 +486,6 @@ fd_banks_delete( void * shmem ) {
 
   fd_banks_t * banks = (fd_banks_t *)shmem;
   banks->magic = 0UL;
-
   return shmem;
 }
 
@@ -849,12 +848,10 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     fd_bank_t * next = fd_banks_pool_ele( bank_pool, head->next );
 
-    /* Decide if we need to free any CoW fields. We free a CoW member
-       from its pool if the dirty flag is set unless it is the same
-       pool that the new root uses.
-
-       If the new root did not have the dirty bit set, that means the node
-       didn't own the pool index. Change the ownership to the new root. */
+    /* For the non-inlined CoW fields, we free a CoW member from its
+       pool if the dirty flag is set unless it is the same pool index
+       that the new root uses.  In this case, we transfer ownership of
+       this pool index to the new root. */
     fd_rwlock_write( &new_root->epoch_rewards_lock );
     fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( new_root );
     if( head->epoch_rewards_dirty && head->epoch_rewards_pool_idx!=new_root->epoch_rewards_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
@@ -1214,9 +1211,9 @@ fd_banks_new_bank( fd_banks_t * banks,
     curr_bank->sibling_idx = child_bank_idx;
   }
 
-  child_bank->first_fec_set_received_nanos = now;
+  child_bank->first_fec_set_received_nanos      = now;
   child_bank->first_transaction_scheduled_nanos = 0L;
-  child_bank->last_transaction_finished_nanos = 0L;
+  child_bank->last_transaction_finished_nanos   = 0L;
 
   fd_rwlock_unwrite( &banks->rwlock );
   return child_bank;
