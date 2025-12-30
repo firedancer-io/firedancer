@@ -1463,8 +1463,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
                                     fd_ulong_min( FD_TXN_MTU, block->fec_buf_sz-block->fec_buf_soff ),
                                     txn,
                                     NULL,
-                                    &pay_sz,
-                                    FD_TXN_INSTR_MAX*2UL );
+                                    &pay_sz );
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */

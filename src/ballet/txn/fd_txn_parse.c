@@ -8,8 +8,7 @@ fd_txn_parse_core( uchar const             * payload,
                    ulong                     payload_sz,
                    void                    * out_buf,
                    fd_txn_parse_counters_t * counters_opt,
-                   ulong *                   payload_sz_opt,
-                   ulong                     instr_max ) {
+                   ulong *                   payload_sz_opt ) {
   ulong i = 0UL;
   /* This code does non-trivial parsing of untrusted user input, which
      is a potentially dangerous thing.  The main invariants we need to
@@ -122,10 +121,7 @@ fd_txn_parse_core( uchar const             * payload,
   ushort instr_cnt = (ushort)0;
   READ_CHECKED_COMPACT_U16( bytes_consumed,                instr_cnt,                i );     i+=bytes_consumed;
 
-  /* FIXME: compile-time max after static_instruction_limit. */
-  CHECK( (ulong)instr_cnt<=instr_max            );
-
-  CHECK_LEFT( MIN_INSTR_SZ*instr_cnt            );
+  CHECK_LEFT( MIN_INSTR_SZ*instr_cnt );
   /* If it has >0 instructions, it must have at least one other account
      address (the program id) that can't be the fee payer */
   CHECK( (ulong)acct_addr_cnt>(!!instr_cnt) );
@@ -145,7 +141,7 @@ fd_txn_parse_core( uchar const             * payload,
     /* Need to assign addr_table_lookup_cnt,
        addr_table_adtl_writable_cnt, addr_table_adtl_cnt,
        _padding_reserved_1 later */
-    parsed->instr_cnt                     = instr_cnt;
+    parsed->instr_cnt                     = fd_ushort_min( instr_cnt, FD_TXN_INSTR_MAX );
   }
 
   uchar max_acct = 0UL;
@@ -169,7 +165,11 @@ fd_txn_parse_core( uchar const             * payload,
        program ID can't come from a table. */
     CHECK( (0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) );
 
-    if( parsed ){
+    /* We only care to parse the first FD_TXN_INSTR_MAX (64)
+       instructions because will never execute more than that many
+       instructions in a single transaction since it will lead to an
+       execution failure.  We ignore the rest of the instructions. */
+    if( parsed && j<FD_TXN_INSTR_MAX ) {
       parsed->instr[ j ].program_id          = program_id;
       parsed->instr[ j ]._padding_reserved_1 = (uchar)0;
       parsed->instr[ j ].acct_cnt            = acct_cnt;
@@ -240,12 +240,6 @@ fd_txn_parse_core( uchar const             * payload,
   if( FD_LIKELY( payload_sz_opt ) ) *payload_sz_opt = i;
 
   ulong footprint = fd_txn_footprint( instr_cnt, addr_table_cnt );
-  /* FIXME remove this check when static_instruction_limit is activated on all networks. */
-  if( FD_UNLIKELY( instr_cnt>FD_TXN_INSTR_MAX && footprint>FD_TXN_MAX_SZ ) ) {
-    uchar const * sig = payload+parsed->signature_off;
-    FD_LOG_HEXDUMP_WARNING(( "txnsig", sig, FD_TXN_SIGNATURE_SZ ));
-    FD_LOG_CRIT(( "instr_cnt %u footprint %lu", instr_cnt, footprint ));
-  }
   return footprint;
 
   #undef CHECK

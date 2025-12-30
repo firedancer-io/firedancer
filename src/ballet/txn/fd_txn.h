@@ -85,10 +85,11 @@
    to 33. FIXME: We should petition to limit this to approx 8. */
 #define FD_TXN_ADDR_TABLE_LOOKUP_MAX (127UL)
 
-/* FD_TXN_INSTR_MAX: The (inclusive) maximum number of instructions a transaction
-   can have.  As of Solana 1.15.0, this is limited to 64. */
+/* FD_TXN_INSTR_MAX: The (inclusive) maximum number of instructions a
+   transaction can have.  As of Solana 1.15.0, this is limited to 64.
+   A transaction can have more than 64 instructions, but if more than
+   that many instructions are executed, a transaction will fail. */
 #define FD_TXN_INSTR_MAX             (64UL)
-
 
 /* FD_TXN_MAX_SZ: The maximum amount of memory (in bytes) that a fd_txn can
    take up, including the instruction array and any address tables.  The
@@ -705,14 +706,13 @@ fd_txn_parse_core( uchar const             * payload,
                    ulong                     payload_sz,
                    void                    * out_buf,
                    fd_txn_parse_counters_t * counters_opt,
-                   ulong *                   payload_sz_opt,
-                   ulong                     instr_max );
+                   ulong *                   payload_sz_opt );
 
 
 /* fd_txn_parse: Convenient wrapper around fd_txn_parse_core that eliminates some optional arguments */
 static inline ulong
 fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt ) {
-  return fd_txn_parse_core( payload, payload_sz, out_buf, counters_opt, NULL, FD_TXN_INSTR_MAX );
+  return fd_txn_parse_core( payload, payload_sz, out_buf, counters_opt, NULL );
 }
 
 /* fd_txn_is_writable: Is the account at the supplied index writable
