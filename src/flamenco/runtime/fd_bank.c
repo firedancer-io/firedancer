@@ -113,45 +113,201 @@ fd_bank_vote_states_prev_prev_end_locking_query( fd_bank_t * bank ) {
   fd_rwlock_unread( &bank->vote_states_prev_prev_lock );
 }
 
+fd_epoch_rewards_t *
+fd_bank_epoch_rewards_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->epoch_rewards_lock );
+  /* If the dirty flag is set, then we already have a pool element */
+  /* that was copied over for the current bank. We can simply just */
+  /* query the pool element and return it. */
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( bank );
+  if( FD_UNLIKELY( epoch_rewards_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL epoch rewards pool" ));
+  }
+  if( bank->epoch_rewards_dirty ) {
+    fd_bank_epoch_rewards_t * bank_epoch_rewards = fd_bank_epoch_rewards_pool_ele( epoch_rewards_pool, bank->epoch_rewards_pool_idx );
+    return (fd_epoch_rewards_t *)bank_epoch_rewards->data;
+  }
+  fd_rwlock_write( fd_bank_get_epoch_rewards_pool_lock( bank ) );
+  if( FD_UNLIKELY( !fd_bank_epoch_rewards_pool_free( epoch_rewards_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire epoch rewards pool element: pool is full" ));
+  }
+  fd_bank_epoch_rewards_t * child_epoch_rewards = fd_bank_epoch_rewards_pool_ele_acquire( epoch_rewards_pool );
+  fd_rwlock_unwrite( fd_bank_get_epoch_rewards_pool_lock( bank ) );
+  /* If the dirty flag has not been set yet, we need to allocated a */
+  /* new pool element and copy over the data from the parent idx.   */
+  /* We also need to mark the dirty flag. */
+  ulong child_idx = fd_bank_epoch_rewards_pool_idx( epoch_rewards_pool, child_epoch_rewards );
+  if( bank->epoch_rewards_pool_idx!=fd_bank_epoch_rewards_pool_idx_null( epoch_rewards_pool ) ) {
+    fd_bank_epoch_rewards_t * parent_epoch_rewards = fd_bank_epoch_rewards_pool_ele( epoch_rewards_pool, bank->epoch_rewards_pool_idx );
+    fd_memcpy( child_epoch_rewards->data, parent_epoch_rewards->data, fd_bank_epoch_rewards_footprint );
+  }
+  bank->epoch_rewards_pool_idx = child_idx;
+  bank->epoch_rewards_dirty    = 1;
+  return (fd_epoch_rewards_t *)child_epoch_rewards->data;
+}
+
+void
+fd_bank_epoch_rewards_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->epoch_rewards_lock );
+}
+
+fd_epoch_leaders_t *
+fd_bank_epoch_leaders_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->epoch_leaders_lock );
+  /* If the dirty flag is set, then we already have a pool element */
+  /* that was copied over for the current bank. We can simply just */
+  /* query the pool element and return it. */
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank );
+  if( FD_UNLIKELY( epoch_leaders_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL epoch rewards pool" ));
+  }
+  if( bank->epoch_leaders_dirty ) {
+    fd_bank_epoch_leaders_t * bank_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
+    return (fd_epoch_leaders_t *)bank_epoch_leaders->data;
+  }
+  fd_rwlock_write( fd_bank_get_epoch_leaders_pool_lock( bank ) );
+  if( FD_UNLIKELY( !fd_bank_epoch_leaders_pool_free( epoch_leaders_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire epoch rewards pool element: pool is full" ));
+  }
+  fd_bank_epoch_leaders_t * child_epoch_leaders = fd_bank_epoch_leaders_pool_ele_acquire( epoch_leaders_pool );
+  fd_rwlock_unwrite( fd_bank_get_epoch_leaders_pool_lock( bank ) );
+  /* If the dirty flag has not been set yet, we need to allocated a */
+  /* new pool element and copy over the data from the parent idx.   */
+  /* We also need to mark the dirty flag. */
+  ulong child_idx = fd_bank_epoch_leaders_pool_idx( epoch_leaders_pool, child_epoch_leaders );
+  if( bank->epoch_leaders_pool_idx!=fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool ) ) {
+    fd_bank_epoch_leaders_t * parent_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
+    fd_memcpy( child_epoch_leaders->data, parent_epoch_leaders->data, fd_bank_epoch_leaders_footprint );
+  }
+  bank->epoch_leaders_pool_idx = child_idx;
+  bank->epoch_leaders_dirty    = 1;
+  return (fd_epoch_leaders_t *)child_epoch_leaders->data;
+}
+
+
+void
+fd_bank_epoch_leaders_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->epoch_leaders_lock );
+}
+
+fd_vote_states_t *
+fd_bank_vote_states_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->vote_states_lock );
+  /* If the dirty flag is set, then we already have a pool element */
+  /* that was copied over for the current bank. We can simply just */
+  /* query the pool element and return it. */
+  fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( bank );
+  if( FD_UNLIKELY( vote_states_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL epoch rewards pool" ));
+  }
+  if( bank->vote_states_dirty ) {
+    fd_bank_vote_states_t * bank_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->vote_states_pool_idx );
+    return (fd_vote_states_t *)bank_vote_states->data;
+  }
+  fd_rwlock_write( fd_bank_get_vote_states_pool_lock( bank ) );
+  if( FD_UNLIKELY( !fd_bank_vote_states_pool_free( vote_states_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire epoch rewards pool element: pool is full" ));
+  }
+  fd_bank_vote_states_t * child_vote_states = fd_bank_vote_states_pool_ele_acquire( vote_states_pool );
+  fd_rwlock_unwrite( fd_bank_get_vote_states_pool_lock( bank ) );
+  /* If the dirty flag has not been set yet, we need to allocated a */
+  /* new pool element and copy over the data from the parent idx.   */
+  /* We also need to mark the dirty flag. */
+  ulong child_idx = fd_bank_vote_states_pool_idx( vote_states_pool, child_vote_states );
+  if( bank->vote_states_pool_idx!=fd_bank_vote_states_pool_idx_null( vote_states_pool ) ) {
+    fd_bank_vote_states_t * parent_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->vote_states_pool_idx );
+    fd_memcpy( child_vote_states->data, parent_vote_states->data, fd_bank_vote_states_footprint );
+  }
+  bank->vote_states_pool_idx = child_idx;
+  bank->vote_states_dirty    = 1;
+  return (fd_vote_states_t *)child_vote_states->data;
+}
+
+
+void
+fd_bank_vote_states_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->vote_states_lock );
+}
+
+fd_vote_states_t *
+fd_bank_vote_states_prev_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->vote_states_prev_lock );
+  /* If the dirty flag is set, then we already have a pool element */
+  /* that was copied over for the current bank. We can simply just */
+  /* query the pool element and return it. */
+  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( bank );
+  if( FD_UNLIKELY( vote_states_prev_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL epoch rewards pool" ));
+  }
+  if( bank->vote_states_prev_dirty ) {
+    fd_bank_vote_states_prev_t * bank_vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
+    return (fd_vote_states_t *)bank_vote_states_prev->data;
+  }
+  fd_rwlock_write( fd_bank_get_vote_states_prev_pool_lock( bank ) );
+  if( FD_UNLIKELY( !fd_bank_vote_states_prev_pool_free( vote_states_prev_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire epoch rewards pool element: pool is full" ));
+  }
+  fd_bank_vote_states_prev_t * child_vote_states_prev = fd_bank_vote_states_prev_pool_ele_acquire( vote_states_prev_pool );
+  fd_rwlock_unwrite( fd_bank_get_vote_states_prev_pool_lock( bank ) );
+  /* If the dirty flag has not been set yet, we need to allocated a */
+  /* new pool element and copy over the data from the parent idx.   */
+  /* We also need to mark the dirty flag. */
+  ulong child_idx = fd_bank_vote_states_prev_pool_idx( vote_states_prev_pool, child_vote_states_prev );
+  if( bank->vote_states_prev_pool_idx!=fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool ) ) {
+    fd_bank_vote_states_prev_t * parent_vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
+    fd_memcpy( child_vote_states_prev->data, parent_vote_states_prev->data, fd_bank_vote_states_prev_footprint );
+  }
+  bank->vote_states_prev_pool_idx = child_idx;
+  bank->vote_states_prev_dirty    = 1;
+  return (fd_vote_states_t *)child_vote_states_prev->data;
+}
+
+
+void
+fd_bank_vote_states_prev_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->vote_states_prev_lock );
+}
+
+fd_vote_states_t *
+fd_bank_vote_states_prev_prev_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->vote_states_prev_prev_lock );
+  /* If the dirty flag is set, then we already have a pool element */
+  /* that was copied over for the current bank. We can simply just */
+  /* query the pool element and return it. */
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
+  if( FD_UNLIKELY( vote_states_prev_prev_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL epoch rewards pool" ));
+  }
+  if( bank->vote_states_prev_prev_dirty ) {
+    fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+    return (fd_vote_states_t *)bank_vote_states_prev_prev->data;
+  }
+  fd_rwlock_write( fd_bank_get_vote_states_prev_prev_pool_lock( bank ) );
+  if( FD_UNLIKELY( !fd_bank_vote_states_prev_prev_pool_free( vote_states_prev_prev_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire epoch rewards pool element: pool is full" ));
+  }
+  fd_bank_vote_states_prev_prev_t * child_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele_acquire( vote_states_prev_prev_pool );
+  fd_rwlock_unwrite( fd_bank_get_vote_states_prev_prev_pool_lock( bank ) );
+  /* If the dirty flag has not been set yet, we need to allocated a */
+  /* new pool element and copy over the data from the parent idx.   */
+  /* We also need to mark the dirty flag. */
+  ulong child_idx = fd_bank_vote_states_prev_prev_pool_idx( vote_states_prev_prev_pool, child_vote_states_prev_prev );
+  if( bank->vote_states_prev_prev_pool_idx!=fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool ) ) {
+    fd_bank_vote_states_prev_prev_t * parent_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+    fd_memcpy( child_vote_states_prev_prev->data, parent_vote_states_prev_prev->data, fd_bank_vote_states_footprint );
+  }
+  bank->vote_states_prev_prev_pool_idx = child_idx;
+  bank->vote_states_prev_prev_dirty    = 1;
+  return (fd_vote_states_t *)child_vote_states_prev_prev->data;
+}
+
+void
+fd_bank_vote_states_prev_prev_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->vote_states_prev_prev_lock );
+}
 /* Bank accesssors */
 
-#define HAS_COW_1(type, name, footprint, align, has_lock)                                                          \
-  type *                                                                                                           \
-  fd_bank_##name##_locking_modify( fd_bank_t * bank ) {                                                            \
-    fd_rwlock_write( &bank->name##_lock );                                                                         \
-    /* If the dirty flag is set, then we already have a pool element */                                            \
-    /* that was copied over for the current bank. We can simply just */                                            \
-    /* query the pool element and return it. */                                                                    \
-    fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                          \
-    if( FD_UNLIKELY( name##_pool==NULL ) ) {                                                                       \
-      FD_LOG_CRIT(( "NULL " #name " pool" ));                                                                      \
-    }                                                                                                              \
-    if( bank->name##_dirty ) {                                                                                     \
-      fd_bank_##name##_t * bank_##name = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx );          \
-      return (type *)bank_##name->data;                                                                            \
-    }                                                                                                              \
-    fd_rwlock_write( fd_bank_get_##name##_pool_lock( bank ) );                                                     \
-    if( FD_UNLIKELY( !fd_bank_##name##_pool_free( name##_pool ) ) ) {                                              \
-      FD_LOG_CRIT(( "Failed to acquire " #name " pool element: pool is full" ));                                   \
-    }                                                                                                              \
-    fd_bank_##name##_t * child_##name = fd_bank_##name##_pool_ele_acquire( name##_pool );                          \
-    fd_rwlock_unwrite( fd_bank_get_##name##_pool_lock( bank ) );                                                   \
-    /* If the dirty flag has not been set yet, we need to allocated a */                                           \
-    /* new pool element and copy over the data from the parent idx.   */                                           \
-    /* We also need to mark the dirty flag. */                                                                     \
-    ulong child_idx = fd_bank_##name##_pool_idx( name##_pool, child_##name );                                      \
-    if( bank->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) {                                   \
-      fd_bank_##name##_t * parent_##name = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx );        \
-      fd_memcpy( child_##name->data, parent_##name->data, fd_bank_##name##_footprint );                            \
-    }                                                                                                              \
-    bank->name##_pool_idx = child_idx;                                                                             \
-    bank->name##_dirty    = 1;                                                                                     \
-    return (type *)child_##name->data;                                                                             \
-  }                                                                                                                \
-  void                                                                                                             \
-  fd_bank_##name##_end_locking_modify( fd_bank_t * bank ) {                                                        \
-    fd_rwlock_unwrite( &bank->name##_lock );                                                                       \
-  }
+#define HAS_COW_1(type, name, footprint, align, has_lock)
 
 #define HAS_LOCK_0(type, name)                                    \
   type const *                                                    \
