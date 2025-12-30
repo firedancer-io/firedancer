@@ -144,22 +144,11 @@ fd_banks_footprint( ulong max_total_banks,
   /* Need to count the footprint for all of the CoW pools. The footprint
      on each CoW pool depends on if the field limits the fork width. */
 
-  #define HAS_COW_1_LIMIT_1(name) \
-    l = FD_LAYOUT_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_fork_width ) );
-
-  #define HAS_COW_1_LIMIT_0(name) \
-    l = FD_LAYOUT_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_total_banks ) );
-
-  /* Do nothing for these. */
-  #define HAS_COW_0_LIMIT_0(name)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock)  \
-    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0_LIMIT_0
-  #undef HAS_COW_1_LIMIT_0
-  #undef HAS_COW_1_LIMIT_1
+  l = FD_LAYOUT_APPEND( l, fd_bank_epoch_rewards_pool_align(), fd_bank_epoch_rewards_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_prev_pool_align(), fd_bank_vote_states_prev_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_prev_prev_pool_align(), fd_bank_vote_states_prev_prev_pool_footprint( max_fork_width ) );
 
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
