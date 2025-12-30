@@ -7,6 +7,15 @@
 #include "../../util/bits/fd_bits.h"
 #include "../../util/log/fd_log.h"
 
+/* Select a varint coding strategy */
+
+#if defined(__BMI2__) && __LZCNT__
+#include <immintrin.h>
+#define FD_PB_VARINT_CORE 1 /* x86 PDEP and LZCNT */
+#else
+#define FD_PB_VARINT_CORE 0 /* portable */
+#endif
+
 /* Message structure */
 
 #define FD_PB_WIRE_TYPE_VARINT (0U)
@@ -53,11 +62,11 @@ fd_pb_append_bool( uchar buf[ fd_pb_bool_max_sz ],
   return buf+1;
 }
 
+#if FD_PB_VARINT_CORE==0 /* portable */
+
 static inline uchar *
 fd_pb_append_varint32( uchar buf[ fd_pb_varint32_sz_max ],
                        uint  value ) {
-  /* FIXME could do this much more efficiently with x86 bit-packing
-           instructions and mask tricks */
   int msb = fd_uint_find_msb( value|1U )+1;
   buf[ 0 ] = (uchar)( ( msb> 7 ? 0x80 : 0 ) | ( (value>> 0) & 0x7f ) );
   buf[ 1 ] = (uchar)( ( msb>14 ? 0x80 : 0 ) | ( (value>> 7) & 0x7f ) );
@@ -70,7 +79,6 @@ fd_pb_append_varint32( uchar buf[ fd_pb_varint32_sz_max ],
 static inline uchar *
 fd_pb_append_varint32_sz5( uchar buf[ fd_pb_varint32_sz_max ],
                            uint  value ) {
-  /* FIXME could do this more efficiently with x86 bit-packing */
   buf[ 0 ] = (uchar)( 0x80 | ( (value>> 0) & 0x7f ) );
   buf[ 1 ] = (uchar)( 0x80 | ( (value>> 7) & 0x7f ) );
   buf[ 2 ] = (uchar)( 0x80 | ( (value>>14) & 0x7f ) );
@@ -82,8 +90,6 @@ fd_pb_append_varint32_sz5( uchar buf[ fd_pb_varint32_sz_max ],
 static inline uchar *
 fd_pb_append_varint64( uchar buf[ fd_pb_varint64_sz_max ],
                        ulong value ) {
-  /* FIXME could do this much more efficiently with x86 bit-packing
-           instructions and mask tricks */
   int msb = fd_ulong_find_msb( value|1U )+1;
   buf[ 0 ] = (uchar)( ( msb> 7 ? 0x80 : 0 ) | ( (value>> 0) & 0x7f ) );
   buf[ 1 ] = (uchar)( ( msb>14 ? 0x80 : 0 ) | ( (value>> 7) & 0x7f ) );
@@ -97,6 +103,53 @@ fd_pb_append_varint64( uchar buf[ fd_pb_varint64_sz_max ],
   buf[ 9 ] = (uchar)(                         ( (value>>63) & 0x7f ) );
   return buf+((msb+6)/7);
 }
+
+#elif FD_PB_VARINT_CORE==1 /* x86 PDEP and LZCNT */
+
+static inline uchar *
+fd_pb_append_varint32( uchar buf[ fd_pb_varint32_sz_max ],
+                       uint  value ) {
+  /* Scatter bits */
+  ulong enc  = _pdep_u64( value, 0x7f7f7f7f7f7f7f7fUL );
+  /* Count leading zeros */
+  uint  lzc  = (uint)_lzcnt_u64( enc|1 );
+  /* Generate continuation bits */
+  ulong cont = 0x80808080808080UL >> (lzc&0x38);
+  /* Store result */
+  ulong res  = enc|cont;
+  FD_STORE( uint, buf, (uint)res );
+  buf[4] = (uchar)( res>>32 );
+  return buf+( 8-(lzc>>3) );
+}
+
+static inline uchar *
+fd_pb_append_varint32_sz5( uchar buf[ fd_pb_varint32_sz_max ],
+                           uint  value ) {
+  FD_STORE( uint, buf, 0x80808080 | _pdep_u32( value, 0x7f7f7f7f ) );
+  buf[ 4 ] = (uchar)( (value>>28) & 0x7f );
+  return buf+5;
+}
+
+static inline uchar *
+fd_pb_append_varint64( uchar buf[ fd_pb_varint64_sz_max ],
+                       ulong value ) {
+  /* Number of continuation bytes */
+  int  len    = fd_ulong_find_msb( value|1U )/7;
+  /* Scatter bits */
+  ulong const scatter = 0x7f7f7f7f7f7f7f7fUL;
+  ulong enc0  = _pdep_u64( value,     scatter );
+  ulong enc1  = _pdep_u64( value>>56, scatter );
+  /* Generate continuation bits */
+  ulong const pattern = 0x8080808080808080UL;
+  ulong cont0 = _bzhi_u64( pattern, (uint)fd_uint_min( (uint)(  len   <<3 ), 64 ) );
+  ulong cont1 = _bzhi_u64( pattern,                    (uint)( (len-8)<<3 )       );
+  /* Store result */
+  FD_STORE( ulong,  buf,             enc0|cont0   );
+  FD_STORE( ushort, buf+8, (ushort)( enc1|cont1 ) );
+  return buf+len+1;
+}
+
+#endif /* varint cores */
 
 static inline uchar *
 fd_pb_append_tag( uchar buf[ fd_pb_int32_sz_max ],
