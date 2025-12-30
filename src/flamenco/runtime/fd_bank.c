@@ -849,27 +849,60 @@ fd_banks_advance_root( fd_banks_t * banks,
 
        If the new root did not have the dirty bit set, that means the node
        didn't own the pool index. Change the ownership to the new root. */
-    #define HAS_COW_1(name)                                                                                                  \
-      fd_rwlock_write( &new_root->name##_lock );                                                                             \
-      fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );                                                \
-      if( head->name##_dirty && head->name##_pool_idx!=new_root->name##_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) { \
-        fd_rwlock_write( &banks->name##_pool_lock );                                                                         \
-        fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );                                             \
-        fd_rwlock_unwrite( &banks->name##_pool_lock );                                                                       \
-      } else if( new_root->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) {                                \
-        new_root->name##_dirty = 1;                                                                                          \
-      }                                                                                                                      \
-      fd_rwlock_unwrite( &new_root->name##_lock );
+       fd_rwlock_write( &new_root->epoch_rewards_lock );
+       fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( new_root );
+       if( head->epoch_rewards_dirty && head->epoch_rewards_pool_idx!=new_root->epoch_rewards_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+         fd_rwlock_write( &banks->epoch_rewards_pool_lock );
+         fd_bank_epoch_rewards_pool_idx_release( epoch_rewards_pool, head->epoch_rewards_pool_idx );
+         fd_rwlock_unwrite( &banks->epoch_rewards_pool_lock );
+       } else if( new_root->epoch_rewards_pool_idx!=fd_bank_epoch_rewards_pool_idx_null( epoch_rewards_pool ) ) {
+         new_root->epoch_rewards_dirty = 1;
+       }
+       fd_rwlock_unwrite( &new_root->epoch_rewards_lock );
 
-    /* Do nothing for these. */
-    #define HAS_COW_0(name)
+       fd_rwlock_write( &new_root->epoch_leaders_lock );
+       fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( new_root );
+       if( head->epoch_leaders_dirty && head->epoch_leaders_pool_idx!=new_root->epoch_leaders_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+         fd_rwlock_write( &banks->epoch_leaders_pool_lock );
+         fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, head->epoch_leaders_pool_idx );
+         fd_rwlock_unwrite( &banks->epoch_leaders_pool_lock );
+       } else if( new_root->epoch_leaders_pool_idx!=fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool ) ) {
+         new_root->epoch_leaders_dirty = 1;
+       }
+       fd_rwlock_unwrite( &new_root->epoch_leaders_lock );
 
-    #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-      HAS_COW_##cow(name)
-    FD_BANKS_ITER(X)
-    #undef X
-    #undef HAS_COW_0
-    #undef HAS_COW_1
+       fd_rwlock_write( &new_root->vote_states_lock );
+       fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( new_root );
+       if( head->vote_states_dirty && head->vote_states_pool_idx!=new_root->vote_states_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+         fd_rwlock_write( &banks->vote_states_pool_lock );
+         fd_bank_vote_states_pool_idx_release( vote_states_pool, head->vote_states_pool_idx );
+         fd_rwlock_unwrite( &banks->vote_states_pool_lock );
+       } else if( new_root->vote_states_pool_idx!=fd_bank_vote_states_pool_idx_null( vote_states_pool ) ) {
+         new_root->vote_states_dirty = 1;
+       }
+       fd_rwlock_unwrite( &new_root->vote_states_lock );
+
+       fd_rwlock_write( &new_root->vote_states_prev_lock );
+       fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( new_root );
+       if( head->vote_states_prev_dirty && head->vote_states_prev_pool_idx!=new_root->vote_states_prev_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+         fd_rwlock_write( &banks->vote_states_prev_pool_lock );
+         fd_bank_vote_states_prev_pool_idx_release( vote_states_prev_pool, head->vote_states_prev_pool_idx );
+         fd_rwlock_unwrite( &banks->vote_states_prev_pool_lock );
+       } else if( new_root->vote_states_prev_pool_idx!=fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool ) ) {
+         new_root->vote_states_prev_dirty = 1;
+       }
+       fd_rwlock_unwrite( &new_root->vote_states_prev_lock );
+
+       fd_rwlock_write( &new_root->vote_states_prev_prev_lock );
+       fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( new_root );
+       if( head->vote_states_prev_prev_dirty && head->vote_states_prev_prev_pool_idx!=new_root->vote_states_prev_prev_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+         fd_rwlock_write( &banks->vote_states_prev_prev_pool_lock );
+         fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, head->vote_states_prev_prev_pool_idx );
+         fd_rwlock_unwrite( &banks->vote_states_prev_prev_pool_lock );
+       } else if( new_root->vote_states_prev_prev_pool_idx!=fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool ) ) {
+         new_root->vote_states_prev_prev_dirty = 1;
+       }
+       fd_rwlock_unwrite( &new_root->vote_states_prev_prev_lock );
 
     /* It is possible for a bank that never finished replaying to be
        pruned away.  If the bank was never frozen, then it's possible
