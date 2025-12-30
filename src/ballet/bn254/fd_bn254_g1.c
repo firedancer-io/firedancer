@@ -45,7 +45,8 @@ fd_bn254_g1_to_affine( fd_bn254_g1_t *       r,
 
 uchar *
 fd_bn254_g1_tobytes( uchar                 out[64],
-                     fd_bn254_g1_t const * p ) {
+                     fd_bn254_g1_t const * p,
+                     int                   big_endian ) {
   if( FD_UNLIKELY( fd_bn254_g1_is_zero( p ) ) ) {
     fd_memset( out, 0, 64UL );
     /* no flags */
@@ -58,8 +59,8 @@ fd_bn254_g1_tobytes( uchar                 out[64],
   fd_bn254_fp_from_mont( &r->X, &r->X );
   fd_bn254_fp_from_mont( &r->Y, &r->Y );
 
-  fd_bn254_fp_tobytes_be_nm( &out[ 0], &r->X );
-  fd_bn254_fp_tobytes_be_nm( &out[32], &r->Y );
+  fd_bn254_fp_tobytes_nm( &out[ 0], &r->X, big_endian );
+  fd_bn254_fp_tobytes_nm( &out[32], &r->Y, big_endian );
   /* no flags */
   return out;
 }
@@ -264,7 +265,8 @@ fd_bn254_g1_scalar_mul( fd_bn254_g1_t *           r,
    https://github.com/arkworks-rs/algebra/blob/v0.4.2/ec/src/models/short_weierstrass/mod.rs#L173-L178 */
 static inline fd_bn254_g1_t *
 fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
-                                uchar const     in[64] ) {
+                                uchar const     in[64],
+                                int             big_endian ) {
   /* Special case: all zeros => point at infinity */
   const uchar zero[64] = { 0 };
   if( FD_UNLIKELY( fd_memeq( in, zero, 64 ) ) ) {
@@ -272,13 +274,13 @@ fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
   }
 
   /* Check x < p */
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->X, &in[0], NULL, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_nm( &p->X, &in[0], big_endian, NULL, NULL ) ) ) {
     return NULL;
   }
 
   /* Check flags and y < p */
   int is_inf, is_neg;
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->Y, &in[32], &is_inf, &is_neg ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_nm( &p->Y, &in[32], big_endian, &is_inf, &is_neg ) ) ) {
     return NULL;
   }
 
@@ -293,8 +295,9 @@ fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
 /* fd_bn254_g1_frombytes_check_subgroup performs frombytes AND checks subgroup membership. */
 static inline fd_bn254_g1_t *
 fd_bn254_g1_frombytes_check_subgroup( fd_bn254_g1_t * p,
-                                      uchar const     in[64] ) {
-  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_internal( p, in ) ) ) {
+                                      uchar const     in[64],
+                                      int             big_endian ) {
+  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_internal( p, in, big_endian ) ) ) {
     return NULL;
   }
   if( FD_UNLIKELY( fd_bn254_g1_is_zero( p ) ) ) {
