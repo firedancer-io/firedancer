@@ -224,44 +224,71 @@ fd_banks_new( void * shmem,
   }
 
   /* Now, call _new() and _join() for all of the CoW pools. */
-  #define HAS_COW_1_LIMIT_1(name)                                                     \
-    fd_rwlock_unwrite( &banks->name##_pool_lock );                                    \
-    void * name##_mem = fd_bank_##name##_pool_new( name##_pool_mem, max_fork_width ); \
-    if( FD_UNLIKELY( !name##_mem ) ) {                                                \
-      FD_LOG_WARNING(( "Failed to create " #name " pool" ));                          \
-      return NULL;                                                                    \
-    }                                                                                 \
-    fd_bank_##name##_t * name##_pool = fd_bank_##name##_pool_join( name##_pool_mem ); \
-    if( FD_UNLIKELY( !name##_pool ) ) {                                               \
-      FD_LOG_WARNING(( "Failed to join " #name " pool" ));                            \
-      return NULL;                                                                    \
-    }                                                                                 \
-    fd_banks_set_##name##_pool( banks, name##_pool );
 
-  #define HAS_COW_1_LIMIT_0(name)                                                      \
-    fd_rwlock_unwrite( &banks->name##_pool_lock );                                     \
-    void * name##_mem = fd_bank_##name##_pool_new( name##_pool_mem, max_total_banks ); \
-    if( FD_UNLIKELY( !name##_mem ) ) {                                                 \
-      FD_LOG_WARNING(( "Failed to create " #name " pool" ));                           \
-      return NULL;                                                                     \
-    }                                                                                  \
-    fd_bank_##name##_t * name##_pool = fd_bank_##name##_pool_join( name##_pool_mem );  \
-    if( FD_UNLIKELY( !name##_pool ) ) {                                                \
-      FD_LOG_WARNING(( "Failed to join " #name " pool" ));                             \
-      return NULL;                                                                     \
-    }                                                                                  \
-    fd_banks_set_##name##_pool( banks, name##_pool );
+  fd_rwlock_unwrite( &banks->epoch_rewards_pool_lock );
+  void * epoch_rewards_mem = fd_bank_epoch_rewards_pool_new( epoch_rewards_pool_mem, max_fork_width );
+  if( FD_UNLIKELY( !epoch_rewards_mem ) ) {
+    FD_LOG_WARNING(( "Failed to create epoch rewards pool" ));
+    return NULL;
+  }
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_epoch_rewards_pool_join( epoch_rewards_mem );
+  if( FD_UNLIKELY( !epoch_rewards_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch rewards pool" ));
+    return NULL;
+  }
+  fd_banks_set_epoch_rewards_pool( banks, epoch_rewards_pool );
 
-  /* Do nothing for these. */
-  #define HAS_COW_0_LIMIT_0(name)
+  fd_rwlock_unwrite( &banks->epoch_leaders_pool_lock );
+  void * epoch_leaders_mem = fd_bank_epoch_leaders_pool_new( epoch_leaders_pool_mem, max_fork_width );
+  if( FD_UNLIKELY( !epoch_leaders_mem ) ) {
+    FD_LOG_WARNING(( "Failed to create epoch leaders pool" ));
+    return NULL;
+  }
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_epoch_leaders_pool_join( epoch_leaders_mem );
+  if( FD_UNLIKELY( !epoch_leaders_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch leaders pool" ));
+    return NULL;
+  }
+  fd_banks_set_epoch_leaders_pool( banks, epoch_leaders_pool );
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0_LIMIT_0
-  #undef HAS_COW_1_LIMIT_1
-  #undef HAS_COW_1_LIMIT_0
+  fd_rwlock_unwrite( &banks->vote_states_pool_lock );
+  void * vote_states_mem = fd_bank_vote_states_pool_new( vote_states_pool_mem, max_total_banks );
+  if( FD_UNLIKELY( !vote_states_mem ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states pool" ));
+    return NULL;
+  }
+  fd_bank_vote_states_t * vote_states_pool = fd_bank_vote_states_pool_join( vote_states_mem );
+  if( FD_UNLIKELY( !vote_states_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states pool" ));
+    return NULL;
+  }
+  fd_banks_set_vote_states_pool( banks, vote_states_pool );
+
+  fd_rwlock_unwrite( &banks->vote_states_prev_pool_lock );
+  void * vote_states_prev_mem = fd_bank_vote_states_prev_pool_new( vote_states_prev_pool_mem, max_fork_width );
+  if( FD_UNLIKELY( !vote_states_prev_mem ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states prev pool" ));
+    return NULL;
+  }
+  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_vote_states_prev_pool_join( vote_states_prev_mem );
+  if( FD_UNLIKELY( !vote_states_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev pool" ));
+    return NULL;
+  }
+  fd_banks_set_vote_states_prev_pool( banks, vote_states_prev_pool );
+
+  fd_rwlock_unwrite( &banks->vote_states_prev_prev_pool_lock );
+  void * vote_states_prev_prev_mem = fd_bank_vote_states_prev_prev_pool_new( vote_states_prev_prev_pool_mem, max_fork_width );
+  if( FD_UNLIKELY( !vote_states_prev_prev_mem ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states prev prev pool" ));
+    return NULL;
+  }
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_vote_states_prev_prev_pool_join( vote_states_prev_prev_mem );
+  if( FD_UNLIKELY( !vote_states_prev_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev prev pool" ));
+    return NULL;
+  }
+  fd_banks_set_vote_states_prev_prev_pool( banks, vote_states_prev_prev_pool );
 
   /* Now we need to assign offsets for all of the pools for each
      fd_bank_t. */
@@ -269,18 +296,26 @@ fd_banks_new( void * shmem,
   for( ulong i=0UL; i<max_total_banks; i++ ) {
 
     fd_bank_t * bank = fd_banks_pool_ele( bank_pool, i );
-    #define HAS_COW_1(name)                                                   \
-      fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks ); \
-      fd_bank_set_##name##_pool( bank, name##_pool );                         \
-      fd_bank_set_##name##_pool_lock( bank, &banks->name##_pool_lock );
-    #define HAS_COW_0(name)
 
-    #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(name)
-    FD_BANKS_ITER(X)
-    #undef X
-    #undef HAS_COW_0
-    #undef HAS_COW_1
+    fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_banks_get_epoch_rewards_pool( banks );
+    fd_bank_set_epoch_rewards_pool( bank, epoch_rewards_pool );
+    fd_bank_set_epoch_rewards_pool_lock( bank, &banks->epoch_rewards_pool_lock );
+
+    fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_banks_get_epoch_leaders_pool( banks );
+    fd_bank_set_epoch_leaders_pool( bank, epoch_leaders_pool );
+    fd_bank_set_epoch_leaders_pool_lock( bank, &banks->epoch_leaders_pool_lock );
+
+    fd_bank_vote_states_t * vote_states_pool = fd_banks_get_vote_states_pool( banks );
+    fd_bank_set_vote_states_pool( bank, vote_states_pool );
+    fd_bank_set_vote_states_pool_lock( bank, &banks->vote_states_pool_lock );
+
+    fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_banks_get_vote_states_prev_pool( banks );
+    fd_bank_set_vote_states_prev_pool( bank, vote_states_prev_pool );
+    fd_bank_set_vote_states_prev_pool_lock( bank, &banks->vote_states_prev_pool_lock );
+
+    fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_banks_get_vote_states_prev_prev_pool( banks );
+    fd_bank_set_vote_states_prev_prev_pool( bank, vote_states_prev_prev_pool );
+    fd_bank_set_vote_states_prev_prev_pool_lock( bank, &banks->vote_states_prev_prev_pool_lock );
 
     fd_stake_delegations_join( fd_stake_delegations_new( bank->stake_delegations_delta, seed, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 ) );
 
@@ -477,9 +512,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   fd_bank_t * bank = fd_banks_pool_ele_acquire( bank_pool );
   bank->bank_seq = FD_ATOMIC_FETCH_AND_ADD( &banks->bank_seq, 1UL );
 
-  #define HAS_COW_1(type, name, footprint) \
-    bank->name##_dirty    = 0;             \
-    bank->name##_pool_idx = fd_bank_##name##_pool_idx_null( fd_bank_get_##name##_pool( bank ) );
+  #define HAS_COW_1(type, name, footprint)
 
   #define HAS_COW_0(type, name, footprint) \
     fd_memset( bank->non_cow.name, 0, footprint );
