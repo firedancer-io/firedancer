@@ -54,6 +54,7 @@ void
 fd_inflights_request_insert( fd_inflights_t * table, ulong nonce, fd_pubkey_t const * pubkey, ulong slot, ulong shred_idx ) {
   if( FD_UNLIKELY( !fd_inflight_pool_free( table->pool ) ) ) {
     fd_inflight_t * evict = fd_inflight_dlist_ele_pop_head( table->dlist, table->pool );
+    FD_LOG_WARNING(( "ITS JOVER. evicting inflight request: %lu, slot: %lu, shred_idx: %lu", evict->nonce, evict->slot, evict->shred_idx ));
     fd_inflight_map_ele_remove( table->map, &evict->nonce, NULL, table->pool );
     fd_inflight_pool_ele_release( table->pool, evict );
   }
@@ -104,23 +105,26 @@ fd_inflights_request_query( fd_inflights_t * table, ulong nonce ) {
 #include <stdio.h>
 
 void
-fd_inflights_print( fd_inflight_map_t * map, fd_inflight_t * pool ) {
+fd_inflights_print( fd_inflight_dlist_t * dlist, fd_inflight_t * pool ) {
+
   printf("%-15s %-8s %-15s %-44s\n", "Slot", "Idx", "Timestamp", "Peer");
   printf("%-15s %-8s %-15s %-44s\n",
           "---------------", "--------", "------------",
           "--------------------------------------------");
-
-  for( fd_inflight_map_iter_t iter = fd_inflight_map_iter_init( map, pool );
-       !fd_inflight_map_iter_done( iter, map, pool );
-       iter = fd_inflight_map_iter_next( iter, map, pool ) ) {
-    fd_inflight_t * inflight_req = fd_inflight_map_iter_ele( iter, map, pool );
+  ulong count = 0;
+  for( fd_inflight_dlist_iter_t iter = fd_inflight_dlist_iter_fwd_init( dlist, pool );
+       !fd_inflight_dlist_iter_done( iter, dlist, pool );
+       iter = fd_inflight_dlist_iter_fwd_next( iter, dlist, pool ) ) {
+    fd_inflight_t * inflight_req = fd_inflight_dlist_iter_ele( iter, dlist, pool );
     FD_BASE58_ENCODE_32_BYTES( inflight_req->pubkey.uc, peer );
 
-    printf("%-15lu %-8lu %-15lu %-44.44s\n",
+    printf(" %2lu. %-15lu %-8lu %-15lu %-44.44s\n",
+            count,
             inflight_req->slot,
             inflight_req->shred_idx,
             (ulong)inflight_req->timestamp_ns / (ulong)1e6,
             peer);
+    count++;
   }
   printf("\n");
 }
