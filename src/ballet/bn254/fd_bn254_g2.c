@@ -304,7 +304,8 @@ fd_bn254_g2_scalar_mul( fd_bn254_g2_t *           r,
    This is used by fd_bn254_g2_compress() and fd_bn254_g2_frombytes_check_subgroup(). */
 static inline fd_bn254_g2_t *
 fd_bn254_g2_frombytes_internal( fd_bn254_g2_t * p,
-                                uchar const     in[128] ) {
+                                uchar const     in[128],
+                                int             big_endian ) {
   /* Special case: all zeros => point at infinity */
   const uchar zero[128] = { 0 };
   if( FD_UNLIKELY( fd_memeq( in, zero, 128 ) ) ) {
@@ -312,13 +313,13 @@ fd_bn254_g2_frombytes_internal( fd_bn254_g2_t * p,
   }
 
   /* Check x < p */
-  if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_be_nm( &p->X, &in[0], NULL, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_nm( &p->X, &in[0], big_endian, NULL, NULL ) ) ) {
     return NULL;
   }
 
   /* Check flags and y < p */
   int is_inf, is_neg;
-  if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_be_nm( &p->Y, &in[64], &is_inf, &is_neg ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_nm( &p->Y, &in[64], big_endian, &is_inf, &is_neg ) ) ) {
     return NULL;
   }
 
@@ -333,8 +334,9 @@ fd_bn254_g2_frombytes_internal( fd_bn254_g2_t * p,
 /* fd_bn254_g2_frombytes_check_subgroup performs frombytes AND checks subgroup membership. */
 static inline fd_bn254_g2_t *
 fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
-                                      uchar const     in[128] ) {
-  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_internal( p, in ) ) ) {
+                                      uchar const     in[128],
+                                      int             big_endian ) {
+  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_internal( p, in, big_endian ) ) ) {
     return NULL;
   }
   if( FD_UNLIKELY( fd_bn254_g2_is_zero( p ) ) ) {
