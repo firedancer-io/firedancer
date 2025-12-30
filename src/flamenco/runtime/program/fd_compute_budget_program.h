@@ -30,7 +30,7 @@ int
 fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out );
 
 int
-fd_executor_compute_budget_program_execute_instructions( fd_bank_t *         bank,
+fd_executor_compute_budget_program_execute_instructions( fd_bank_t const *   bank,
                                                          fd_txn_in_t const * txn_in,
                                                          fd_txn_out_t *      txn_out );
 

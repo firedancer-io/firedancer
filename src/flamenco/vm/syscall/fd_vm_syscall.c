@@ -1,4 +1,5 @@
 #include "fd_vm_syscall.h"
+#include "../../../ballet/murmur3/fd_murmur3.h"
 
 int
 fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
@@ -14,6 +15,8 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
 
   return FD_VM_SUCCESS;
 }
+
+#if FD_HAS_SECP256K1
 
 int
 fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
@@ -150,3 +153,5 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 
   return FD_VM_SUCCESS;
 }
+
+#endif /* FD_HAS_SECP256K1 */

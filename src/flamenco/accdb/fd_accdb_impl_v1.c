@@ -75,7 +75,8 @@ fd_accdb_search_chain( fd_accdb_user_v1_t const * accdb,
 void
 fd_accdb_load_fork_slow( fd_accdb_user_v1_t *      accdb,
                          fd_funk_txn_xid_t const * xid ) {
-  fd_funk_txn_xid_t next_xid = *xid;
+  fd_funk_txn_xid_t     next_xid = *xid;
+  fd_funk_txn_t const * tip      = NULL;
 
   /* Walk transaction graph, recovering from overruns on-the-fly */
   accdb->fork_depth = 0UL;
@@ -139,6 +140,7 @@ retry:
                     found_xid.ul[0], found_xid.ul[1] ));
     }
 
+    if( !tip ) tip = candidate;  /* remember head of fork */
     accdb->fork[ i ] = next_xid;
     if( fd_funk_txn_idx_is_null( parent_idx ) ) {
       /* Reached root */
@@ -159,11 +161,13 @@ done:
     fd_funk_txn_xid_set_root( &accdb->fork[ accdb->fork_depth++ ] );
   }
 
-  /* Remember tip fork */
-  fd_funk_txn_t * tip = fd_funk_txn_query( xid, accdb->funk->txn_map );
-  ulong tip_idx = tip ? (ulong)( tip-accdb->funk->txn_pool->ele ) : ULONG_MAX;
-  accdb->tip_txn_idx = tip_idx;
-  if( tip ) fd_funk_txn_state_assert( tip, FD_FUNK_TXN_STATE_ACTIVE );
+  /* Remember head of fork */
+  if( tip ) {
+    accdb->tip_txn_idx = (ulong)( tip - accdb->funk->txn_pool->ele );
+    fd_funk_txn_state_assert( tip, FD_FUNK_TXN_STATE_ACTIVE );
+  } else {
+    accdb->tip_txn_idx = ULONG_MAX;  /* XID is rooted */
+  }
 }
 
 static inline void
@@ -246,6 +250,18 @@ fd_accdb_copy_account( fd_account_meta_t *   out_meta,
   }
 }
 
+static void
+fd_accdb_copy_truncated( fd_account_meta_t *   out_meta,
+                         fd_accdb_ro_t const * acc ) {
+  memset( out_meta, 0, sizeof(fd_account_meta_t) );
+  out_meta->lamports = fd_accdb_ref_lamports( acc );
+  if( FD_LIKELY( out_meta->lamports ) ) {
+    memcpy( out_meta->owner, fd_accdb_ref_owner( acc ), 32UL );
+    out_meta->executable = !!fd_accdb_ref_exec_bit( acc );
+    out_meta->dlen       = 0;
+  }
+}
+
 /* fd_accdb_prep_create preps a writable handle for a newly created
    account. */
 
@@ -257,8 +273,13 @@ fd_accdb_prep_create( fd_accdb_rw_t *           rw,
                       void *                    val,
                       ulong                     val_sz,
                       ulong                     val_max ) {
+  FD_CRIT( val_sz >=sizeof(fd_account_meta_t), "invalid val_sz"  );
+  FD_CRIT( val_max>=sizeof(fd_account_meta_t), "invalid val_max" );
+  FD_CRIT( val_sz<=val_max, "invalid val_max" );
+
   fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( accdb->funk->rec_pool, NULL, 1, NULL );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_CRIT(( "Failed to modify account: DB record pool is out of memory" ));
+  accdb->base.created_cnt++;
 
   memset( rec, 0, sizeof(fd_funk_rec_t) );
   rec->val_gaddr = fd_wksp_gaddr_fast( accdb->funk->wksp, val );
@@ -344,8 +365,14 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
                           fd_funk_txn_xid_t const * xid,
                           void const *              address,
                           ulong                     data_max,
-                          int                       do_create ) {
+                          int                       flags ) {
   fd_accdb_user_v1_t * v1 = (fd_accdb_user_v1_t *)accdb;
+
+  int const flag_create   = !!( flags & FD_ACCDB_FLAG_CREATE   );
+  int const flag_truncate = !!( flags & FD_ACCDB_FLAG_TRUNCATE );
+  if( FD_UNLIKELY( flags & ~(FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE) ) ) {
+    FD_LOG_CRIT(( "invalid flags for open_rw: %#02x", (uint)flags ));
+  }
 
   /* Pivot to different fork */
   fd_accdb_load_fork( v1, xid );
@@ -373,15 +400,15 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
   if( FD_UNLIKELY( !fd_accdb_peek_funk( v1, peek, xid, address ) ) ) {
 
     /* Record not found */
-    if( !do_create ) return NULL;
+    if( !flag_create ) return NULL;
     ulong  val_sz_min = sizeof(fd_account_meta_t)+data_max;
-    ulong  val_max = 0UL;
-    void * val     = fd_alloc_malloc_at_least( v1->funk->alloc, 16UL, val_sz_min, &val_max );
+    ulong  val_max    = 0UL;
+    void * val        = fd_alloc_malloc_at_least( v1->funk->alloc, 16UL, val_sz_min, &val_max );
     if( FD_UNLIKELY( !val ) ) {
       FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", data_max ));
     }
-    fd_memset( val, 0, val_sz_min );
-    return fd_accdb_prep_create( rw, v1, xid, address, val, val_sz_min, val_max );
+    memset( val, 0, sizeof(fd_account_meta_t) );
+    return fd_accdb_prep_create( rw, v1, xid, address, val, sizeof(fd_account_meta_t), val_max );
 
   } else if( fd_funk_txn_xid_eq( peek->acc->rec->pair.xid, xid ) ) {
 
@@ -393,14 +420,19 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
     if( FD_UNLIKELY( !val ) ) {
       FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", acc_orig_sz ));
     }
-    return fd_accdb_prep_inplace( rw, v1, rec );
+    fd_accdb_prep_inplace( rw, v1, rec );
+    if( flag_truncate ) {
+      rw->rec->val_sz = sizeof(fd_account_meta_t);
+      rw->meta->dlen  = 0;
+    }
+    return rw;
 
   } else {
 
     /* Frozen record found, copy out to new object */
     ulong  acc_orig_sz = fd_accdb_ref_data_sz( peek->acc );
     ulong  val_sz_min  = sizeof(fd_account_meta_t)+fd_ulong_max( data_max, acc_orig_sz );
-    ulong  val_sz      = peek->acc->rec->val_sz;
+    ulong  val_sz      = flag_truncate ? sizeof(fd_account_meta_t) : peek->acc->rec->val_sz;
     ulong  val_max     = 0UL;
     void * val         = fd_alloc_malloc_at_least( v1->funk->alloc, 16UL, val_sz_min, &val_max );
     if( FD_UNLIKELY( !val ) ) {
@@ -410,7 +442,8 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
     fd_account_meta_t * meta            = val;
     uchar *             data            = (uchar *)( meta+1 );
     ulong               data_max_actual = val_max - sizeof(fd_account_meta_t);
-    fd_accdb_copy_account( meta, data, peek->acc );
+    if( flag_truncate ) fd_accdb_copy_truncated( meta,       peek->acc );
+    else                fd_accdb_copy_account  ( meta, data, peek->acc );
     if( acc_orig_sz<data_max_actual ) {
       /* Zero out trailing data */
       uchar * tail    = data           +acc_orig_sz;

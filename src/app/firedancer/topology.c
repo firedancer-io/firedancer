@@ -22,6 +22,7 @@
 #include "../../util/tile/fd_tile_private.h"
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 #include "../../vinyl/io/fd_vinyl_io.h" /* FD_VINYL_IO_TYPE_* */
@@ -344,6 +345,8 @@ fd_topo_initialize( config_t * config ) {
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
+  int solcap_enabled = strlen( config->capture.solcap_capture ) > 0;
+
   /*             topo, name */
   fd_topob_wksp( topo, "metric"       );
   fd_topob_wksp( topo, "genesi"       );
@@ -618,6 +621,11 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   strncpy( topo->tiles[ topo->tile_cnt-1UL-i ].metrics_name, "bankf", 6UL );
   /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
   FOR(sign_tile_cnt)   fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
+
+  if( FD_UNLIKELY( solcap_enabled ) ) {
+    fd_topob_wksp( topo, "solcap" );
+    fd_topob_tile( topo, "solcap", "solcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  }
 
   /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
   FOR(gossvf_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
@@ -896,6 +904,15 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_in( topo, "rpc",  0UL, "metric_in", "replay_out",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "rpc",  0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "rpc_replay", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
+
+  if( FD_UNLIKELY( solcap_enabled ) ) {
+    fd_topob_link( topo, "cap_repl", "solcap", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
+    fd_topob_tile_out( topo, "replay", 0UL, "cap_repl", 0UL );
+    fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_repl", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(exec_tile_cnt) fd_topob_link( topo, "cap_exec", "solcap", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
+    FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "cap_exec", i );
+    FOR(exec_tile_cnt) fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_exec", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   if( FD_LIKELY( !is_auto_affinity ) ) {
@@ -1479,6 +1496,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->vinyl.io_type = config->firedancer.vinyl.io_uring.enabled ?
         FD_VINYL_IO_TYPE_UR : FD_VINYL_IO_TYPE_BD;
     tile->vinyl.uring_depth = config->firedancer.vinyl.io_uring.queue_depth;
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "solcap" ) ) ) {
+
+    tile->solcap.capture_start_slot = config->capture.capture_start_slot;
+    strncpy( tile->solcap.solcap_capture, config->capture.solcap_capture, sizeof(tile->solcap.solcap_capture) );
+    tile->solcap.recent_only = config->capture.recent_only;
+    tile->solcap.recent_slots_per_file = config->capture.recent_slots_per_file;
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

@@ -137,11 +137,16 @@ struct fd_crds_entry_private {
     ulong next;
   } expire;
 
-  /* Finally, a core operation on the CRDS is to to query for values by
-     hash, to respond to pull requests.  This is done with a treap
-     sorted by hash, which is just the first 8 bytes value_hash. */
+  /* In order to load balance pull request messages across peers, each
+     message has a mask value that is mask_bits long.  The pull request
+     is only concerned with CRDS entires with a hash where the first
+     mask_bits of the hash match the mask value.
+
+     We need to be able to quickly iterate over all CRDS table entries
+     matching a given mask.  To do this, we store the first 8 bytes of
+     the value_hash in a sorted treap. */
   struct {
-    ulong hash;
+    ulong hash_prefix;
     ulong parent;
     ulong left;
     ulong right;
@@ -204,18 +209,16 @@ struct fd_crds_entry_private {
 #define TREAP_NAME      hash_treap
 #define TREAP_T         fd_crds_entry_t
 #define TREAP_QUERY_T   ulong
-#define TREAP_CMP(q,e)  ((q>e->hash.hash)-(q<e->hash.hash))
+#define TREAP_CMP(q,e)  ((q>e->hash.hash_prefix)-(q<e->hash.hash_prefix))
 #define TREAP_IDX_T     ulong
 #define TREAP_OPTIMIZE_ITERATION 1
 #define TREAP_NEXT      hash.next
 #define TREAP_PREV      hash.prev
-#define TREAP_LT(e0,e1) ((e0)->hash.hash<(e1)->hash.hash)
-
+#define TREAP_LT(e0,e1) ((e0)->hash.hash_prefix<(e1)->hash.hash_prefix)
 #define TREAP_PARENT    hash.parent
 #define TREAP_LEFT      hash.left
 #define TREAP_RIGHT     hash.right
 #define TREAP_PRIO      hash.prio
-
 #include "../../../util/tmpl/fd_treap.c"
 
 static inline ulong
@@ -280,6 +283,7 @@ struct fd_crds_purged {
   /* Similar to fd_crds_entry, we want the ability to query and iterate
      through value by hash[:8] to generate pull requests. */
   struct {
+    ulong hash_prefix;
     ulong parent;
     ulong left;
     ulong right;
@@ -311,17 +315,16 @@ typedef struct fd_crds_purged fd_crds_purged_t;
 #define TREAP_NAME      purged_treap
 #define TREAP_T         fd_crds_purged_t
 #define TREAP_QUERY_T   ulong
-#define TREAP_CMP(q,e)  ((q>*(ulong *)(e->hash))-(q<*(ulong *)(e->hash)))
+#define TREAP_CMP(q,e)  ((q>e->treap.hash_prefix)-(q<e->treap.hash_prefix))
+#define TREAP_IDX_T     ulong
 #define TREAP_OPTIMIZE_ITERATION 1
 #define TREAP_NEXT      treap.next
 #define TREAP_PREV      treap.prev
-#define TREAP_LT(e0,e1) (*(ulong *)((e0)->hash)<*(ulong *)((e1)->hash))
-
-#define TREAP_PARENT treap.parent
-#define TREAP_LEFT   treap.left
-#define TREAP_RIGHT  treap.right
-#define TREAP_PRIO   treap.prio
-
+#define TREAP_LT(e0,e1) ((e0)->treap.hash_prefix<(e1)->treap.hash_prefix)
+#define TREAP_PARENT    treap.parent
+#define TREAP_LEFT      treap.left
+#define TREAP_RIGHT     treap.right
+#define TREAP_PRIO      treap.prio
 #include "../../../util/tmpl/fd_treap.c"
 
 #define DLIST_NAME  failed_inserts_dlist
@@ -756,7 +759,7 @@ crds_entry_init( fd_gossip_view_crds_value_t const * view,
   out_value->stake           = stake;
 
   fd_crds_generate_hash( sha, payload+view->value_off, view->length, out_value->value_hash );
-  out_value->hash.hash = fd_ulong_load_8( out_value->value_hash );
+  out_value->hash.hash_prefix = fd_ulong_bswap( fd_ulong_load_8( out_value->value_hash ) );
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_VALUE_NODE_INSTANCE ) ) {
     out_value->node_instance.token = view->node_instance->token;
@@ -770,8 +773,10 @@ crds_entry_init( fd_gossip_view_crds_value_t const * view,
 static inline void
 purged_init( fd_crds_purged_t * purged,
              uchar const * hash,
+             ulong         hash_prefix,
              long          now ) {
   fd_memcpy( purged->hash, hash, 32UL );
+  purged->treap.hash_prefix = hash_prefix;
   purged->expire.wallclock_nanos = now;
 }
 
@@ -779,7 +784,8 @@ void
 insert_purged( fd_crds_t *   crds,
                uchar const * hash,
                long          now ) {
-  if( purged_treap_ele_query( crds->purged.treap, *(ulong *)hash, crds->purged.pool ) ) {
+  ulong hash_prefix = fd_ulong_bswap( fd_ulong_load_8( hash ) );
+  if( purged_treap_ele_query( crds->purged.treap, hash_prefix, crds->purged.pool ) ) {
     return;
   }
   fd_crds_purged_t * purged;
@@ -795,7 +801,7 @@ insert_purged( fd_crds_t *   crds,
       crds->metrics->purged_cnt++;
     }
   }
-  purged_init( purged, hash, now );
+  purged_init( purged, hash, hash_prefix, now );
   purged_treap_ele_insert( crds->purged.treap, purged, crds->purged.pool );
   purged_dlist_ele_push_tail( crds->purged.purged_dlist, purged, crds->purged.pool );
 }
@@ -841,7 +847,8 @@ void
 fd_crds_insert_failed_insert( fd_crds_t *   crds,
                               uchar const * hash,
                               long          now ) {
-  if( purged_treap_ele_query( crds->purged.treap, *(ulong *)hash, crds->purged.pool ) ) {
+  ulong hash_prefix = fd_ulong_bswap( fd_ulong_load_8( hash ) );
+  if( purged_treap_ele_query( crds->purged.treap, hash_prefix, crds->purged.pool ) ) {
     return;
   }
   fd_crds_purged_t * failed;
@@ -857,7 +864,7 @@ fd_crds_insert_failed_insert( fd_crds_t *   crds,
       crds->metrics->purged_cnt++;
     }
   }
-  purged_init( failed, hash, now );
+  purged_init( failed, hash, hash_prefix, now );
   purged_treap_ele_insert( crds->purged.treap, failed, crds->purged.pool );
   failed_inserts_dlist_ele_push_tail( crds->purged.failed_inserts_dlist, failed, crds->purged.pool );
 }
@@ -873,7 +880,7 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
 
   if( FD_UNLIKELY( !incumbent ) ) return FD_CRDS_UPSERT_CHECK_UPSERTS;
 
-  if( FD_UNLIKELY( *(ulong *)incumbent->value_bytes==(*(ulong *)(payload+candidate->value_off)) ) ) {
+  if( FD_UNLIKELY( fd_ulong_load_8( incumbent->value_bytes )==fd_ulong_load_8( payload+candidate->value_off ) ) ) {
     /* We have a duplicate, so we return the number of duplicates */
     return (int)(++incumbent->num_duplicates);
   }
@@ -1245,6 +1252,19 @@ fd_crds_bucket_add( fd_crds_t *   crds,
                      crds->samplers->ele_cnt );
 }
 
+static void
+generate_masks( ulong   mask,
+                uint    mask_bits,
+                ulong * start_mask,
+                ulong * end_mask ) {
+  /* agave defines the mask as a ulong with the top mask_bits bits
+     set to the desired prefix and all other bits set to 1. */
+  FD_TEST( mask_bits<64U );
+  ulong range = fd_ulong_mask( 0U, (int)(63U-mask_bits) );
+  *start_mask = mask & ~range;
+  *end_mask   = mask | range;
+}
+
 struct fd_crds_mask_iter_private {
   ulong idx;
   ulong end_hash;
@@ -1255,12 +1275,11 @@ fd_crds_mask_iter_init( fd_crds_t const * crds,
                         ulong             mask,
                         uint              mask_bits,
                         uchar             iter_mem[ static 16UL ] ) {
+  ulong start_hash, end_hash;
+  generate_masks( mask, mask_bits, &start_hash, &end_hash );
+
   fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
-  ulong start_hash         = 0 ;
-  if( FD_LIKELY( mask_bits > 0) ) start_hash = (mask&(~0UL<<(64UL-mask_bits)));
-
-  it->end_hash             = mask;
-
+  it->end_hash             = end_hash;
   it->idx                  = hash_treap_idx_ge( crds->hash_treap, start_hash, crds->pool );
   return it;
 }
@@ -1276,7 +1295,7 @@ int
 fd_crds_mask_iter_done( fd_crds_mask_iter_t * it, fd_crds_t const * crds ) {
   fd_crds_entry_t const * val = hash_treap_ele_fast_const( it->idx, crds->pool );
   return hash_treap_idx_is_null( it->idx ) ||
-         (it->end_hash < val->hash.hash);
+         (it->end_hash < val->hash.hash_prefix);
 }
 
 fd_crds_entry_t const *
@@ -1289,11 +1308,11 @@ fd_crds_purged_mask_iter_init( fd_crds_t const * crds,
                                ulong             mask,
                                uint              mask_bits,
                                uchar             iter_mem[ static 16UL ] ){
-  fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
-  ulong start_hash         = 0;
-  if( FD_LIKELY( mask_bits > 0 ) ) start_hash = (mask&(~0UL<<(64UL-mask_bits)));
-  it->end_hash             = mask;
+  ulong start_hash, end_hash;
+  generate_masks( mask, mask_bits, &start_hash, &end_hash );
 
+  fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
+  it->end_hash             = end_hash;
   it->idx                  = purged_treap_idx_ge( crds->purged.treap, start_hash, crds->purged.pool );
   return it;
 }
@@ -1311,7 +1330,7 @@ fd_crds_purged_mask_iter_done( fd_crds_mask_iter_t * it,
                                fd_crds_t const *     crds ){
   fd_crds_purged_t const * val = purged_treap_ele_fast_const( it->idx, crds->purged.pool );
   return purged_treap_idx_is_null( it->idx ) ||
-         (it->end_hash < fd_ulong_load_8( val->hash ));
+         (it->end_hash < val->treap.hash_prefix);
 }
 
 /* fd_crds_purged_mask_iter_hash returns the hash of the current

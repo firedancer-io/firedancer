@@ -140,8 +140,6 @@ create_test_account( test_env_t * env,
     fd_txn_account_set_data( acc, data, data_len );
   }
 
-  acc->starting_lamports = 1UL;
-  acc->starting_dlen     = data_len;
   fd_txn_account_set_lamports( acc, 1UL );
   fd_txn_account_set_executable( acc, executable );
   fd_txn_account_set_owner( acc, &owner );

@@ -16,12 +16,15 @@
 
 struct fd_borrowed_account {
   ulong                       magic;
-  fd_txn_account_t *          acct;
+  fd_pubkey_t const *         pubkey;
+  fd_account_meta_t *         meta;
   fd_exec_instr_ctx_t const * instr_ctx;
 
   /* index_in_instruction will be USHORT_MAX for borrowed program accounts because
      they are not stored in the list of instruction accounts in the instruction context */
   ushort                      index_in_instruction;
+
+  ulong *                     refcnt;
 };
 typedef struct fd_borrowed_account fd_borrowed_account_t;
 
@@ -35,12 +38,16 @@ FD_PROTOTYPES_BEGIN
 
 static inline void
 fd_borrowed_account_init( fd_borrowed_account_t *     borrowed_acct,
-                          fd_txn_account_t *          acct,
+                          fd_pubkey_t const *         pubkey,
+                          fd_account_meta_t *         meta,
                           fd_exec_instr_ctx_t const * instr_ctx,
-                          ushort                      index_in_instruction ) {
-  borrowed_acct->acct                 = acct;
+                          ushort                      index_in_instruction,
+                          ulong *                     refcnt ) {
+  borrowed_acct->pubkey               = pubkey;
+  borrowed_acct->meta                 = meta;
   borrowed_acct->instr_ctx            = instr_ctx;
   borrowed_acct->index_in_instruction = index_in_instruction;
+  borrowed_acct->refcnt               = refcnt;
 
   FD_COMPILER_MFENCE();
   borrowed_acct->magic = FD_BORROWED_ACCOUNT_MAGIC;
@@ -52,7 +59,7 @@ fd_borrowed_account_init( fd_borrowed_account_t *     borrowed_acct,
 
 static inline void
 fd_borrowed_account_drop( fd_borrowed_account_t * borrowed_acct ) {
-  fd_txn_account_drop( borrowed_acct->acct );
+  (*borrowed_acct->refcnt) = 0;
 }
 
 /* Destructor  */
@@ -79,12 +86,12 @@ fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_acct ) {
 
 static inline uchar const *
 fd_borrowed_account_get_data( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_get_data( borrowed_acct->acct );
+  return fd_account_data( borrowed_acct->meta );
 }
 
 static inline ulong
 fd_borrowed_account_get_data_len( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_get_data_len( borrowed_acct->acct );
+  return borrowed_acct->meta->dlen;
 }
 
 /* fd_borrowed_account_get_data_mut mirrors Agave function
@@ -103,7 +110,7 @@ fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
 
 static inline fd_pubkey_t const *
 fd_borrowed_account_get_owner( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_get_owner( borrowed_acct->acct );
+  return (fd_pubkey_t const *)borrowed_acct->meta->owner;
 }
 
 /* fd_borrowed_account_get_lamports mirrors Agave function
@@ -116,22 +123,12 @@ fd_borrowed_account_get_owner( fd_borrowed_account_t const * borrowed_acct ) {
 
 static inline ulong
 fd_borrowed_account_get_lamports( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_get_lamports( borrowed_acct->acct );
-}
-
-/* fd_borrowed_account_get_rent_epoch mirrors Agave function
-   solana_sdk::transaction_context::BorrowedAccount::get_rent_epoch.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1034 */
-
-static inline ulong
-fd_borrowed_account_get_rent_epoch( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_get_rent_epoch( borrowed_acct->acct );
+  return borrowed_acct->meta->lamports;
 }
 
 static inline fd_account_meta_t const *
 fd_borrowed_account_get_acc_meta( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_get_meta( borrowed_acct->acct );
+  return borrowed_acct->meta;
 }
 
 /* Setters */
@@ -210,7 +207,7 @@ static inline int
 fd_borrowed_account_checked_add_lamports( fd_borrowed_account_t * borrowed_acct,
                                           ulong                   lamports ) {
   ulong balance_post = 0UL;
-  int err = fd_ulong_checked_add( fd_txn_account_get_lamports( borrowed_acct->acct ),
+  int err = fd_ulong_checked_add( borrowed_acct->meta->lamports,
                                   lamports,
                                   &balance_post );
   if( FD_UNLIKELY( err ) ) {
@@ -233,7 +230,7 @@ static inline int
 fd_borrowed_account_checked_sub_lamports( fd_borrowed_account_t * borrowed_acct,
                                           ulong                   lamports ) {
   ulong balance_post = 0UL;
-  int err = fd_ulong_checked_sub( fd_txn_account_get_lamports( borrowed_acct->acct ),
+  int err = fd_ulong_checked_sub( borrowed_acct->meta->lamports,
                                   lamports,
                                   &balance_post );
   if( FD_UNLIKELY( err ) ) {
@@ -250,8 +247,8 @@ fd_borrowed_account_checked_sub_lamports( fd_borrowed_account_t * borrowed_acct,
 
 int
 fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrowed_acct,
-                                                  ulong                         new_len,
-                                                  int *                         err );
+                                                  ulong                   new_len,
+                                                  int *                   err );
 
 /* Accessors */
 
@@ -264,14 +261,13 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
 
 static inline int
 fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const * borrowed_acct ) {
-  fd_txn_account_t * acct = borrowed_acct->acct;
-  if( FD_UNLIKELY( !fd_txn_account_get_meta( acct ) ) ) FD_LOG_ERR(( "account is not setup" ));
+  if( FD_UNLIKELY( !borrowed_acct->meta ) ) FD_LOG_ERR(( "account is not setup" ));
 
   /* TODO: Add an is_exempt rent API to better match Agave and clean up code
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L990 */
   fd_rent_t const * rent        = fd_bank_rent_query( borrowed_acct->instr_ctx->bank );
-  ulong             min_balance = fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( acct ) );
-  return fd_txn_account_get_lamports( acct )>=min_balance;
+  ulong             min_balance = fd_rent_exempt_minimum_balance( rent, borrowed_acct->meta->dlen );
+  return borrowed_acct->meta->lamports>=min_balance;
 }
 
 /* fd_borrowed_account_is_executable mirrors Agave function
@@ -284,12 +280,7 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_executable( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_is_executable( borrowed_acct->acct );
-}
-
-FD_FN_PURE static inline int
-fd_borrowed_account_is_mutable( fd_borrowed_account_t const * borrowed_acct ) {
-  return fd_txn_account_is_mutable( borrowed_acct->acct );
+  return borrowed_acct->meta->executable;
 }
 
 /* fd_borrowed_account_is_signer mirrors the Agave function
@@ -345,8 +336,7 @@ fd_borrowed_account_is_owned_by_current_program( fd_borrowed_account_t const * b
     return 0;
   }
 
-  return !memcmp( program_id_pubkey->key,
-                 fd_txn_account_get_owner( borrowed_acct->acct ), sizeof(fd_pubkey_t) );
+  return !memcmp( program_id_pubkey->key, borrowed_acct->meta->owner, sizeof(fd_pubkey_t) );
 }
 
 /* fd_borrowed_account_can_data_be changed mirrors Agave function
@@ -387,10 +377,9 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {
-  fd_txn_account_t * acct = borrowed_acct->acct;
   /* TODO: optimize this */
-  uchar const * data = fd_txn_account_get_data( acct );
-  for( ulong i=0UL; i<fd_txn_account_get_data_len( acct ); i++ ) {
+  uchar const * data = fd_account_data( borrowed_acct->meta );
+  for( ulong i=0UL; i<borrowed_acct->meta->dlen; i++ ) {
     if( data[i] != 0 ) {
       return 0;
     }

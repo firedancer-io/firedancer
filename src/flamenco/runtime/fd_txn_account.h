@@ -34,14 +34,6 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
 
   int                             is_mutable;
   long                            meta_soff;
-
-  ulong                           starting_dlen;
-  ulong                           starting_lamports;
-
-  /* Provide borrowing semantics. Used for single-threaded logic only,
-     thus not comparable to a data synchronization lock. */
-  ushort                          refcnt_excl;
-
 };
 typedef struct fd_txn_account fd_txn_account_t;
 #define FD_TXN_ACCOUNT_FOOTPRINT (sizeof(fd_txn_account_t))
@@ -160,9 +152,6 @@ fd_txn_account_is_executable( fd_txn_account_t const * acct );
 ulong
 fd_txn_account_get_lamports( fd_txn_account_t const * acct );
 
-ulong
-fd_txn_account_get_rent_epoch( fd_txn_account_t const * acct );
-
 void
 fd_txn_account_set_meta( fd_txn_account_t * acct, fd_account_meta_t * meta );
 
@@ -199,20 +188,11 @@ fd_txn_account_clear_owner( fd_txn_account_t * acct );
 void
 fd_txn_account_resize( fd_txn_account_t * acct, ulong dlen );
 
-ushort
-fd_txn_account_is_borrowed( fd_txn_account_t const * acct );
-
 int
 fd_txn_account_is_mutable( fd_txn_account_t const * acct );
 
 int
 fd_txn_account_is_readonly( fd_txn_account_t const * acct );
-
-int
-fd_txn_account_try_borrow_mut( fd_txn_account_t * acct );
-
-void
-fd_txn_account_drop( fd_txn_account_t * acct );
 
 void
 fd_txn_account_set_readonly( fd_txn_account_t * acct );

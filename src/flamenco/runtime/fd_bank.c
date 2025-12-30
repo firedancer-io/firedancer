@@ -516,7 +516,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   #define HAS_COW_0(name)
 
   #define HAS_LOCK_1(name) \
-    fd_rwlock_unwrite(&bank->name##_lock);
+    fd_rwlock_new( &bank->name##_lock );
   #define HAS_LOCK_0(name)
 
   #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
@@ -531,12 +531,16 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   fd_bank_set_cost_tracker_pool( bank, fd_banks_get_cost_tracker_pool( banks ) );
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
-  fd_rwlock_unwrite( &bank->cost_tracker_lock );
+  fd_rwlock_new( &bank->cost_tracker_lock );
+
+  bank->stake_delegations_delta_dirty = 0;
+  fd_rwlock_new( &bank->stake_delegations_delta_lock );
 
   bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_REPLAYABLE | FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
 
   bank->first_fec_set_received_nanos      = fd_log_wallclock();
+  bank->preparation_begin_nanos           = 0L;
   bank->first_transaction_scheduled_nanos = 0L;
   bank->last_transaction_finished_nanos   = 0L;
 

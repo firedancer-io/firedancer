@@ -63,7 +63,7 @@ $ git checkout __FD_LATEST_VERSION__ # Or the latest Frankendancer release
 ```
 
 Then you can run the `deps.sh` script to install system packages and
-compile library dependencies. System packages will be installed via. the
+compile library dependencies. System packages will be installed via the
 package manager on your system, while library dependencies will be
 compiled and output placed under `./opt`.
 

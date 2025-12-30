@@ -358,7 +358,7 @@ FD_FN_CONST static inline uchar fd_shred_is_data( ulong type ) { return (type & 
 FD_FN_CONST static inline uchar fd_shred_is_code( ulong type ) { return (type & 0xC0UL)==0x40UL; }
 
 /* fd_shred_swap_type: changes data into code or vice versa without
-   affecting leagacy, merkle, chained, or resigned status.  For example,
+   affecting legacy, merkle, chained, or resigned status.  For example,
    fd_shred_swap_type( chained resigned data ) == chained resigned code.
    fd_shred_swap_type( merkle code ) == merkle data. */
 FD_FN_CONST static inline uchar

@@ -3,13 +3,8 @@
 
 #include "fd_vm.h"
 
-#include "../../ballet/sbpf/fd_sbpf_instr.h"
-#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/fd_runtime_const.h"
 #include "../runtime/fd_runtime.h"
-#include "../features/fd_features.h"
-#include "../runtime/context/fd_exec_instr_ctx.h"
 #include "fd_vm_base.h"
 
 /* FD_VM_ALIGN_RUST_{} define the alignments for relevant rust types.
@@ -370,7 +365,7 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
         fd_ulong_sat_add( vm->instr_ctx->txn_out->details.accounts_resize_delta, new_region_sz ),
         region->region_sz );
 
-      fd_txn_account_resize( vm->acc_region_metas[ region->acc_region_meta_idx ].acct, new_region_sz );
+      fd_account_meta_resize( vm->acc_region_metas[ region->acc_region_meta_idx ].meta, new_region_sz );
       region->region_sz = (uint)new_region_sz;
     }
   }

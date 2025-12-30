@@ -8,6 +8,22 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24 */
+struct fd_calculated_stake_rewards {
+  ulong staker_rewards;
+  ulong voter_rewards;
+  ulong new_credits_observed;
+};
+typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
+
+/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
+struct fd_calculated_stake_points {
+  fd_w_u128_t points;
+  ulong       new_credits_observed;
+  uchar       force_credits_update_with_skipped_reward;
+};
+typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
+
 /* fd_stake_weights_by_node converts Stakes (unordered list of (vote
    acc, active stake) tuples) to an ordered list of (stake, vote pubkey, node
    identity) sorted by (stake descending, vote pubkey descending).
@@ -62,8 +78,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
    the stake account. */
 
 void
-fd_stakes_update_stake_delegation( fd_txn_account_t * stake_account,
-                                   fd_bank_t *        bank );
+fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
+                                   fd_account_meta_t const * meta,
+                                   fd_bank_t *               bank );
 
 /* fd_stakes_update_vote_state is used to maintain the in-memory cache
    of the vote states that is used at the epoch boundary.  Entries in
@@ -71,8 +88,9 @@ fd_stakes_update_stake_delegation( fd_txn_account_t * stake_account,
    the vote account. */
 
 void
-fd_stakes_update_vote_state( fd_txn_account_t * vote_account,
-                             fd_bank_t *        bank );
+fd_stakes_update_vote_state( fd_pubkey_t const *       pubkey,
+                             fd_account_meta_t const * meta,
+                             fd_bank_t *               bank );
 
 FD_PROTOTYPES_END
 

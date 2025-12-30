@@ -154,7 +154,7 @@ $ fdctl shred-version
 
 ## `metrics`
 Prints the current validator metrics to stdout.  Metrics can typically
-be accessed via. HTTP when the `metric` tile is enabled,  but the
+be accessed via HTTP when the `metric` tile is enabled, but the
 command can be used even if the metrics server is not enabled, or the
 validator has crashed.
 

@@ -662,6 +662,7 @@ fd_gossip_pull_req_parse( fd_gossip_view_t * view,
   CHECK_LEFT( 8U ); pr->bloom_num_bits_set = FD_LOAD( ulong, CURSOR ); INC( 8U );
   CHECK_LEFT( 8U ); pr->mask               = FD_LOAD( ulong, CURSOR ); INC( 8U );
   CHECK_LEFT( 4U ); pr->mask_bits          = FD_LOAD( uint, CURSOR ) ; INC( 4U );
+  CHECK( pr->mask_bits<64U );
 
   TRY_INC( fd_gossip_msg_crds_vals_parse( pr->pr_ci,
                                           1U, /* pull request holds only one contact info */

@@ -188,8 +188,8 @@ fd_accdb_user_v2_open_rw( fd_accdb_user_t *         accdb,
                           fd_funk_txn_xid_t const * xid,
                           void const *              address,
                           ulong                     data_max,
-                          int                       do_create ) {
-  return fd_accdb_user_v1_open_rw( accdb, rw, xid, address, data_max, do_create );
+                          int                       flags ) {
+  return fd_accdb_user_v1_open_rw( accdb, rw, xid, address, data_max, flags );
 }
 
 void

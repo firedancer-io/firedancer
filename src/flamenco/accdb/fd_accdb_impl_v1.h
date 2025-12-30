@@ -61,7 +61,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
                           fd_funk_txn_xid_t const * xid,
                           void const *              address,
                           ulong                     data_max,
-                          int                       do_create );
+                          int                       flags );
 void
 fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
                            fd_accdb_rw_t *   write );

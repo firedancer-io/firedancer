@@ -1037,6 +1037,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
   leader->total_skipped_ticks     = ctx->ticks_per_slot*(slot-ctx->reset_slot);
   leader->epoch                   = epoch;
   leader->bundle->config[0]       = config[0];
+  leader->slot                    = slot;
 
   leader->limits.slot_max_cost                = ctx->limits.slot_max_cost;
   leader->limits.slot_max_vote_cost           = ctx->limits.slot_max_vote_cost;

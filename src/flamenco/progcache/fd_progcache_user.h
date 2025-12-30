@@ -177,7 +177,10 @@ fd_progcache_pull( fd_progcache_t *           cache,
 
    After a program has been invalidated at xid, it is forbidden to pull
    the same entry at the same xid.  (Invalidations should happen after
-   replaying transactions). */
+   replaying transactions).
+
+   Assumes that xid is a valid fork graph node (not rooted) until
+   invalidate returns. */
 
 fd_progcache_rec_t const *
 fd_progcache_invalidate( fd_progcache_t *          cache,

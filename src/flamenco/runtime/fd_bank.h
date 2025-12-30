@@ -628,7 +628,7 @@ fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
 
 /* Each bank has a fd_stake_delegations_t object which is delta-based.
    The usage pattern is the same as other bank fields:
-   1. fd_bank_stake_dleegations_delta_locking_modify( bank ) will return
+   1. fd_bank_stake_delegations_delta_locking_modify( bank ) will return
       a mutable pointer to the stake delegations delta object. If the
       caller has not yet initialized the delta object, then it will
       be initialized. Because it is a delta it is not copied over from

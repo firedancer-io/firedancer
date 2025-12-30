@@ -3,6 +3,9 @@
 #include "fd_vm_private.h"
 #include "test_vm_util.h"
 #include "../runtime/fd_bank.h"
+#include "../../ballet/sbpf/fd_sbpf_instr.h"
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/murmur3/fd_murmur3.h"
 #include <stdlib.h>  /* malloc */
 
 static int

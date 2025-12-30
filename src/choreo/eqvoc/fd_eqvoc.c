@@ -173,7 +173,10 @@ fd_eqvoc_proof_insert( fd_eqvoc_t * eqvoc, ulong slot, fd_pubkey_t const * from 
   fd_slot_pubkey_t key = { slot, *from };
 
   #if FD_EQVOC_USE_HANDHOLDING
-  if( FD_UNLIKELY( fd_eqvoc_proof_map_ele_query( eqvoc->proof_map, &key, NULL, eqvoc->proof_pool ) ) ) FD_LOG_ERR(( "[%s] key (%lu, %s) already in map.", __func__, slot, FD_BASE58_ENC_32_ALLOCA( from->uc ) ));
+  if( FD_UNLIKELY( fd_eqvoc_proof_map_ele_query( eqvoc->proof_map, &key, NULL, eqvoc->proof_pool ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( from->key, from_b58 );
+    FD_LOG_ERR(( "[%s] key (%lu, %s) already in map.", __func__, slot, from_b58 ));
+  }
   #endif
 
   /* FIXME eviction */
@@ -189,7 +192,8 @@ fd_eqvoc_proof_insert( fd_eqvoc_t * eqvoc, ulong slot, fd_pubkey_t const * from 
 void
 fd_eqvoc_proof_chunk_insert( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred_t const * chunk ) {
   if( FD_UNLIKELY( chunk->wallclock > proof->wallclock ) ) {
-    FD_LOG_WARNING(( "[%s] received newer chunk (slot: %lu from: %s). overwriting.", __func__, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
+    FD_BASE58_ENCODE_32_BYTES( proof->key.hash.key, hash_b58 );
+    FD_LOG_WARNING(( "[%s] received newer chunk (slot: %lu from: %s). overwriting.", __func__, proof->key.slot, hash_b58 ));
     proof->wallclock = chunk->wallclock;
     proof->chunk_cnt = chunk->num_chunks;
     memset( proof->set, 0, 4 * sizeof(ulong) );
@@ -197,18 +201,21 @@ fd_eqvoc_proof_chunk_insert( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred
   }
 
   if ( FD_UNLIKELY( chunk->wallclock < proof->wallclock ) ) {
-    FD_LOG_WARNING(( "[%s] received older chunk (slot: %lu from: %s). ignoring.", __func__, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
+    FD_BASE58_ENCODE_32_BYTES( proof->key.hash.key, hash_b58 );
+    FD_LOG_WARNING(( "[%s] received older chunk (slot: %lu from: %s). ignoring.", __func__, proof->key.slot, hash_b58 ));
     return;
   }
 
   if( FD_UNLIKELY( proof->chunk_cnt != chunk->num_chunks ) ) {
-    FD_LOG_WARNING(( "[%s] received incompatible chunk (slot: %lu from: %s). ignoring.", __func__, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
+    FD_BASE58_ENCODE_32_BYTES( proof->key.hash.key, hash_b58 );
+    FD_LOG_WARNING(( "[%s] received incompatible chunk (slot: %lu from: %s). ignoring.", __func__, proof->key.slot, hash_b58 ));
     return;
   }
 
 
   if( FD_UNLIKELY( fd_eqvoc_proof_set_test( proof->set, chunk->chunk_index ) ) ) {
-    FD_LOG_WARNING(( "[%s] already received chunk %u. slot: %lu from: %s. ignoring.", __func__, chunk->chunk_index, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
+    FD_BASE58_ENCODE_32_BYTES( proof->key.hash.key, hash_b58 );
+    FD_LOG_WARNING(( "[%s] already received chunk %u. slot: %lu from: %s. ignoring.", __func__, chunk->chunk_index, proof->key.slot, hash_b58 ));
     return;
   }
 
@@ -234,7 +241,8 @@ void
 fd_eqvoc_proof_remove( fd_eqvoc_t * eqvoc, fd_slot_pubkey_t const * key ) {
   fd_eqvoc_proof_t * proof = fd_eqvoc_proof_map_ele_remove( eqvoc->proof_map, key, NULL, eqvoc->proof_pool );
   if( FD_UNLIKELY( !proof ) ) {
-    FD_LOG_WARNING(( "[%s] key (%lu, %s) not in map.", __func__, key->slot, FD_BASE58_ENC_32_ALLOCA( key->hash.uc ) ));
+    FD_BASE58_ENCODE_32_BYTES( key->hash.key, hash_b58 );
+    FD_LOG_WARNING(( "[%s] key (%lu, %s) not in map.", __func__, key->slot, hash_b58 ));
     return;
   }
   fd_eqvoc_proof_pool_ele_release( eqvoc->proof_pool, proof );

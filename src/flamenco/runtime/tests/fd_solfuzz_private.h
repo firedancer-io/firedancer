@@ -27,11 +27,13 @@ FD_PROTOTYPES_BEGIN
    On success, loads the account into acc.  Optionally, reject any
    zero-lamport accounts from being loaded in. */
 int
-fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
+fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
                             fd_accdb_user_t *                 accdb,
                             fd_funk_txn_xid_t const *         xid,
                             fd_exec_test_acct_state_t const * state,
-                            uchar                             reject_zero_lamports );
+                            uchar                             reject_zero_lamports,
+                            ulong                             acc_idx,
+                            fd_account_meta_t * *             meta_out );
 
 /* Activates features in the runtime given an input feature set.  Fails
    if a passed-in feature is unknown / not supported. */
