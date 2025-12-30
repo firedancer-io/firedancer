@@ -55,17 +55,66 @@ int main( int     argc,
     };
 
     uchar FD_ALIGNED res[64];
-    uchar in[128];
-    uchar exp[64];
+    uchar FD_ALIGNED in[128];
+    uchar FD_ALIGNED exp[64];
 
     for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
       ulong in_sz = strlen( tests[2*i] ) / 2;
 
       fd_hex_decode( in, tests[2*i], in_sz );
 
-      FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz )==0 );
+      FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz, 1 /*BE*/ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 64 );
+      if( !fd_memeq( res, exp, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* ADD little endian */
+    for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      if( in_sz==128UL ) {
+        fd_uint256_bswap( fd_type_pun( in+00 ), fd_type_pun_const( in+00 ) );
+        fd_uint256_bswap( fd_type_pun( in+32 ), fd_type_pun_const( in+32 ) );
+        fd_uint256_bswap( fd_type_pun( in+64 ), fd_type_pun_const( in+64 ) );
+        fd_uint256_bswap( fd_type_pun( in+96 ), fd_type_pun_const( in+96 ) );
+        FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+      } else {
+        FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz, 0 /*LE*/ )!=0 );
+        continue;
+      }
+
+      fd_hex_decode( exp, tests[2*i+1], 64 );
+      fd_uint256_bswap( fd_type_pun( exp+00 ), fd_type_pun_const( exp+00 ) );
+      fd_uint256_bswap( fd_type_pun( exp+32 ), fd_type_pun_const( exp+32 ) );
+      if( !fd_memeq( res, exp, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* https://github.com/anza-xyz/agave/pull/8771/files */
+    const char * tests_le[] = {
+      // test 0
+      "c93d094e03743b5d0c61914612dd11b385718e361154db7602c3c2b4cf8ab1186672f39881280dfc2ed358968196577549a79ff5b94c13b50c8420479c903c06ed4e016a7c9e01883a96922cff207f181abbc02b9c0cf04561bd848af5b7c207d717fa788478d62b745c48a4061736df179a4cf7a30dd7f240e947c1204e6106",
+      "03978302e2aeeea15fb6e64c0a835ed84dfea30cac453c3d9c4bfd5e5c52432215c995f1487d5eaeb97d533275ed0e1823479635cc21df09e5a86dbe331d1d30",
+    };
+
+    for( ulong i=0; i<sizeof(tests_le)/8/2; i++ ) {
+      ulong in_sz = strlen( tests_le[2*i] ) / 2;
+
+      fd_hex_decode( in, tests_le[2*i], in_sz );
+
+      FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+
+      fd_hex_decode( exp, tests_le[2*i+1], 64 );
       if( !fd_memeq( res, exp, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
@@ -77,7 +126,7 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_add_syscall( res, in, 64 );
+        fd_bn254_g1_add_syscall( res, in, 64, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_add_syscall", iter, dt );
@@ -147,21 +196,70 @@ int main( int     argc,
       // test 19 - ec1
       "039730ea8dff1254c0fee9c0ea777d29a9c710b7e616683f194f18c43b43b869073a5ffcc6fc7a28c30723d6e58ce577356982d65b833a5a5c15bf9024b43d9800000000000000000000000000000001",
       "1071b63011e8c222c5a771dfa03c2e11aac9666dd097f2c620852c3951a4376a2f46fe2f73e1cf310a168d56baa5575a8319389d7bfa6b29ee2d908305791434",
+      // test 20 - ec2
+      "025a6f4181d2b4ea8b724290ffb40156eb0adb514c688556eb79cdea0752c2bb2eff3f31dea215f1eb86023a133a996eb6300b44da664d64251d05381bb8a02e183227397098d014dc2822db40c0ac2ecbc0b548b438e5469e10460b6c3e7ea3",
+      "14789d0d4a730b354403b5fac948113739e276c23e0258d8596ee72f9cd9d3230af18a63153e0ec25ff9f2951dd3fa90ed0197bfef6e2a1a62b5095b9d2b4a27",
     };
 
     uchar FD_ALIGNED res[64];
-    uchar in[96];
-    uchar exp[64];
+    uchar FD_ALIGNED in[96];
+    uchar FD_ALIGNED exp[64];
 
     ulong len=sizeof(tests)/8/2;
     for( ulong i=0; i<len; i++ ) {
       ulong in_sz = strlen( tests[2*i] ) / 2;
       fd_hex_decode( in, tests[2*i], in_sz );
 
-      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 )==0 );
-      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 1 )==0 );
+      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 1 /*BE*/ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 64 );
+      if( !fd_memeq( res, exp, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* MUL little endian */
+    for( ulong i=0; i<len; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      if( in_sz==96UL ) {
+        fd_uint256_bswap( fd_type_pun( in+00 ), fd_type_pun_const( in+00 ) );
+        fd_uint256_bswap( fd_type_pun( in+32 ), fd_type_pun_const( in+32 ) );
+        fd_uint256_bswap( fd_type_pun( in+64 ), fd_type_pun_const( in+64 ) );
+        FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+      } else {
+        FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )!=0 );
+        continue;
+      }
+
+      fd_hex_decode( exp, tests[2*i+1], 64 );
+      fd_uint256_bswap( fd_type_pun( exp+00 ), fd_type_pun_const( exp+00 ) );
+      fd_uint256_bswap( fd_type_pun( exp+32 ), fd_type_pun_const( exp+32 ) );
+      if( !fd_memeq( res, exp, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* https://github.com/anza-xyz/agave/pull/8771/files */
+    const char * tests_le[] = {
+      // test 0
+      "b79f0a1a8b26021de64856aed703474cd5b9e59cb4a75c4f9242b1f3d0e6d32b04b2fdce66ae0c39c819464aaddf492ece090930701d2f5e9185afa6e01c6121c215fa50e78c1311000000000000000000000000000000000000000000000000",
+      "5c1ec3139c6c2aeea4f553a074b2478aeffae834d429bee4ca5321986a8d0a07fc1a98c6cec30e6915f3f0f44b074319f0b0d5cdf989b9ffa9a3eb14e98c1b03",
+    };
+
+    len=sizeof(tests_le)/8/2;
+    for( ulong i=0; i<len; i++ ) {
+      ulong in_sz = strlen( tests_le[2*i] ) / 2;
+      fd_hex_decode( in, tests_le[2*i], in_sz );
+
+      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+
+      fd_hex_decode( exp, tests_le[2*i+1], 64 );
       if( !fd_memeq( res, exp, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
@@ -173,7 +271,7 @@ int main( int     argc,
       ulong iter = 1000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_scalar_mul_syscall( res, in, 96, 1 );
+        fd_bn254_g1_scalar_mul_syscall( res, in, 96, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_scalar_mul_syscall", iter, dt );
@@ -308,7 +406,7 @@ int main( int     argc,
     uchar FD_ALIGNED g1d[64];
     uchar FD_ALIGNED g2c[64];
     uchar FD_ALIGNED g2d[128];
-    uchar exp[32];
+    uchar FD_ALIGNED exp[32];
     ulong in_sz;
 
     for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
@@ -323,8 +421,8 @@ int main( int     argc,
       fd_hex_decode( in, tests[2*i], in_sz );
 
       /* test G1 compress > decompress */
-      FD_TEST( fd_bn254_g1_compress( g1c, &in[0] ) );
-      FD_TEST( fd_bn254_g1_decompress( g1d, g1c ) );
+      FD_TEST( fd_bn254_g1_compress( g1c, &in[0], 1 /*BE*/ ) );
+      FD_TEST( fd_bn254_g1_decompress( g1d, g1c, 1 /*BE*/ ) );
       if( !fd_memeq( &in[0], g1d, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g1d, 64 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 64 ));
@@ -332,16 +430,102 @@ int main( int     argc,
       }
 
       /* test G2 compress > decompress */
-      FD_TEST( fd_bn254_g2_compress( g2c, &in[64] ) );
-      FD_TEST( fd_bn254_g2_decompress( g2d, g2c ) );
+      FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 1 /*BE*/ ) );
+      FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 1 /*BE*/ ) );
       if( !fd_memeq( &in[64], g2d, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
       }
-      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /* no length check */ )==0 );
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 1 /*BE*/, 0 /* no length check */ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 32 );
+      if( !fd_memeq( res, exp, 32 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 32 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 32 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* little endian */
+    for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
+      in_sz = 384;
+      if( i==3 ) in_sz = 576;
+      if( i==4 ) in_sz = 576;
+      if( i==6 ) in_sz = 192;
+      if( i==10 ) in_sz = 1920;
+      if( i==11 ) in_sz = 1920;
+
+      fd_hex_decode( in, tests[2*i], in_sz );
+      for( ulong j=0; j<in_sz/32; j++ ) {
+        fd_uint256_bswap( fd_type_pun( in+j*32 ), fd_type_pun_const( in+j*32 ) );
+        if( j%6==3 || j%6==5 ) { /* coordinates in Fp2 are swapped */
+          uchar tmp[32];
+          memcpy( tmp, in+(j-1)*32, 32 );
+          memcpy( in+(j-1)*32, in+j*32, 32 );
+          memcpy( in+j*32, tmp, 32 );
+        }
+      }
+
+      /* test G1 compress > decompress */
+      FD_TEST( fd_bn254_g1_compress( g1c, &in[0], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g1_decompress( g1d, g1c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[0], g1d, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g1d, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 64 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+
+      /* test G2 compress > decompress */
+      FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[64], g2d, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
+        FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
+      }
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ )==0 );
+
+      fd_hex_decode( exp, tests[2*i+1], 32 );
+      fd_uint256_bswap( fd_type_pun( exp+00 ), fd_type_pun_const( exp+00 ) );
+      if( !fd_memeq( res, exp, 32 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 32 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 32 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* https://github.com/anza-xyz/agave/pull/8771/files */
+    const char * tests_le[] = {
+      // test 0
+      "593fc42460c131dd64a6ad76aaa7ff813319a1bb7ed54145b94bef4d6f47761c41ef6aa7039b5ce494d2e9d3559b81fc4587671c81e2fe04e273f62029dd34307816a415634baf4940c08a4c11605990288d846135b4348bfa3b4801ca11bf04f75ba30320454a6b391435c6369632a799cf931ae588d84b6cd4f5bf5ed19d20507587dee4e55f1648b09b0c1fe6cca27ee039fec6205f84f91b0cf34c2a0a124d34be512a3c93bfad1fc47acd1aa7a20cfd5c441aada23735c9cff64a32b82b7cdfb6d149de22c3eacbf16f3c02a25bfacd0fc74a1cd4107709f11c9f121e1111f46b6acefa5338a77038b9853588a2fc42f22b46e96d28173c0e831ac63220edf692d95cbdde46ddda5ef7d422436779445c5e66006a42761e1f12efde0018c212f3aeb785e49712e7a9353349aaf1255dfb31b7bf60723a480d9293938e19aa7dfa6601cce64c7bd3430c69e7d1e38f40cb8d8071ab4aeb6d8cdba55ec8125b9722d1dcdaac55f38eb37033314bbc95330c69ad999eec75f05f58d0890609",
+      "0100000000000000000000000000000000000000000000000000000000000000",
+    };
+
+    for( ulong i=0; i<sizeof(tests_le)/8/2; i++ ) {
+      in_sz = 384;
+      fd_hex_decode( in, tests_le[2*i], in_sz );
+
+      /* test G1 compress > decompress */
+      FD_TEST( fd_bn254_g1_compress( g1c, &in[0], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g1_decompress( g1d, g1c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[0], g1d, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g1d, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 64 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+
+      /* test G2 compress > decompress */
+      FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[64], g2d, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
+        FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
+      }
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ )==0 );
+
+      fd_hex_decode( exp, tests_le[2*i+1], 32 );
       if( !fd_memeq( res, exp, 32 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 32 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 32 ));
@@ -353,7 +537,7 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_compress( g1c, &in[0] );
+        fd_bn254_g1_compress( g1c, &in[0], 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_compress", iter, dt );
@@ -362,7 +546,7 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_decompress( g1d, g1c );
+        fd_bn254_g1_decompress( g1d, g1c, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_decompress", iter, dt );
@@ -371,7 +555,7 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g2_compress( g2c, &in[64] );
+        fd_bn254_g2_compress( g2c, &in[64], 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g2_compress", iter, dt );
@@ -380,7 +564,7 @@ int main( int     argc,
       ulong iter = 1000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g2_decompress( g2d, g2c );
+        fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g2_decompress", iter, dt );
@@ -389,10 +573,88 @@ int main( int     argc,
       ulong iter = 100UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /* no length check */ );
+        fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_pairing_is_one_syscall", iter, dt );
+    }
+  }
+
+  {
+    /* https://github.com/anza-xyz/agave/pull/8771/files */
+    const char * tests_le[] = {
+      // test 0
+      "aca862af2c0ccdb878852ca29544d9eaea784a19a491d94f8a803798a6ffce2d54c1512a7adabff3fe20089468dacad197f5db7b655aec934b6aafd10fd81814",
+      "aca862af2c0ccdb878852ca29544d9eaea784a19a491d94f8a803798a6ffce2d",
+      // test 1
+      "aca862af2c0ccdb878852ca29544d9eaea784a19a491d94f8a803798a6ffce2df33b2bae9cb160488ea969d42890b6c5c562a50551eb6324de35820f63764b1c",
+      "aca862af2c0ccdb878852ca29544d9eaea784a19a491d94f8a803798a6ffcead",
+      // test 2
+      "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "0000000000000000000000000000000000000000000000000000000000000000",
+    };
+
+    uchar FD_ALIGNED in[64];
+    uchar FD_ALIGNED g1c[32];
+    uchar FD_ALIGNED g1d[64];
+    uchar FD_ALIGNED exp[32];
+
+    for( ulong i=0; i<sizeof(tests_le)/8/2; i++ ) {
+      fd_hex_decode( in, tests_le[2*i], 64UL );
+      fd_hex_decode( exp, tests_le[2*i+1], 32UL );
+
+      /* test G1 compress > decompress */
+      FD_TEST( fd_bn254_g1_compress( g1c, &in[0], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g1_decompress( g1d, g1c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[0], g1d, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g1d, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 64 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+      if( !fd_memeq( exp, g1c, 32 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g1c, 32 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 32 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+    }
+  }
+
+  {
+    /* https://github.com/anza-xyz/agave/pull/8771/files */
+    const char * tests_le[] = {
+      // test 0
+      "38b05612a851ae4b9f5cc4a8b7cd8911d185bdec97eeb442d497226eb07ccb0019f2348d679250b8bd6a822f93f72e07e176470c5d1705d76f232eb4cde939281298933ebd13115aae93903c5bb1c816f503d3f7315e83da64fef65006a8810e16046cae9358b74f1fe46d210fb68232fd158d62a9fb3e688e7a511214d21a10",
+      "38b05612a851ae4b9f5cc4a8b7cd8911d185bdec97eeb442d497226eb07ccb0019f2348d679250b8bd6a822f93f72e07e176470c5d1705d76f232eb4cde93928",
+      // test 1
+      "38b05612a851ae4b9f5cc4a8b7cd8911d185bdec97eeb442d497226eb07ccb0019f2348d679250b8bd6a822f93f72e07e176470c5d1705d76f232eb4cde939283565e99959780fe2de36e12b36b9b8806854ae8984e7ccddc4a13a906ca6e22131f9102a833369ec6de6034782b4fe646042f41e0d4a11509b25e0ce5e7c4920",
+      "38b05612a851ae4b9f5cc4a8b7cd8911d185bdec97eeb442d497226eb07ccb0019f2348d679250b8bd6a822f93f72e07e176470c5d1705d76f232eb4cde939a8",
+      // test 2
+      "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    };
+
+    uchar FD_ALIGNED in[128];
+    uchar FD_ALIGNED g2c[64];
+    uchar FD_ALIGNED g2d[128];
+    uchar FD_ALIGNED exp[64];
+
+    for( ulong i=0; i<sizeof(tests_le)/8/2; i++ ) {
+      fd_hex_decode( in, tests_le[2*i], 128UL );
+      fd_hex_decode( exp, tests_le[2*i+1], 64UL );
+
+      /* test G2 compress > decompress */
+      FD_TEST( fd_bn254_g2_compress( g2c, &in[0], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[0], g2d, 128 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 128 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+      if( !fd_memeq( exp, g2c, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g2c, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
     }
   }
 
