@@ -849,70 +849,71 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     fd_bank_t * next = fd_banks_pool_ele( bank_pool, head->next );
 
-    /* For the non-inlined CoW fields, we free a CoW member from its
-       pool if the dirty flag is set unless it is the same pool index
-       that the new root uses.  In this case, we transfer ownership of
-       this pool index to the new root. */
-    fd_rwlock_write( &new_root->epoch_rewards_lock );
+    /* For the non-inlined CoW fields, if we are pruning a bank away and
+       it holds ownership of a pool element, we need to release it if
+       the new root isn't using the same pool element. If it is, we
+       transfer ownership of this pool index to the new root. */
+
     fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( new_root );
-    if( head->epoch_rewards_dirty && head->epoch_rewards_pool_idx!=new_root->epoch_rewards_pool_idx ) {
-      fd_rwlock_write( &banks->epoch_rewards_pool_lock );
-      fd_bank_epoch_rewards_pool_idx_release( epoch_rewards_pool, head->epoch_rewards_pool_idx );
-      fd_rwlock_unwrite( &banks->epoch_rewards_pool_lock );
-    } else if( new_root->epoch_rewards_pool_idx!=fd_bank_epoch_rewards_pool_idx_null( epoch_rewards_pool ) ) {
-      new_root->epoch_rewards_dirty = 1;
+    if( head->epoch_rewards_dirty ) {
+      if( head->epoch_rewards_pool_idx!=new_root->epoch_rewards_pool_idx ) {
+        fd_rwlock_write( &banks->epoch_rewards_pool_lock );
+        fd_bank_epoch_rewards_pool_idx_release( epoch_rewards_pool, head->epoch_rewards_pool_idx );
+        fd_rwlock_unwrite( &banks->epoch_rewards_pool_lock );
+      } else {
+        new_root->epoch_rewards_dirty = 1;
+      }
     }
-    fd_rwlock_unwrite( &new_root->epoch_rewards_lock );
 
-    fd_rwlock_write( &new_root->epoch_leaders_lock );
     fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( new_root );
-    if( head->epoch_leaders_dirty && head->epoch_leaders_pool_idx!=new_root->epoch_leaders_pool_idx ) {
-      fd_rwlock_write( &banks->epoch_leaders_pool_lock );
-      fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, head->epoch_leaders_pool_idx );
-      fd_rwlock_unwrite( &banks->epoch_leaders_pool_lock );
-    } else if( new_root->epoch_leaders_pool_idx!=fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool ) ) {
-      new_root->epoch_leaders_dirty = 1;
+    if( head->epoch_leaders_dirty ) {
+      if( head->epoch_leaders_pool_idx!=new_root->epoch_leaders_pool_idx ) {
+        fd_rwlock_write( &banks->epoch_leaders_pool_lock );
+        fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, head->epoch_leaders_pool_idx );
+        fd_rwlock_unwrite( &banks->epoch_leaders_pool_lock );
+      } else {
+        new_root->epoch_leaders_dirty = 1;
+      }
     }
-    fd_rwlock_unwrite( &new_root->epoch_leaders_lock );
 
-    fd_rwlock_write( &new_root->vote_states_lock );
     fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( new_root );
-    if( head->vote_states_dirty && head->vote_states_pool_idx!=new_root->vote_states_pool_idx ) {
-      fd_rwlock_write( &banks->vote_states_pool_lock );
-      fd_bank_vote_states_pool_idx_release( vote_states_pool, head->vote_states_pool_idx );
-      fd_rwlock_unwrite( &banks->vote_states_pool_lock );
-    } else if( new_root->vote_states_pool_idx!=fd_bank_vote_states_pool_idx_null( vote_states_pool ) ) {
-      new_root->vote_states_dirty = 1;
+    if( head->vote_states_dirty ) {
+      if( head->vote_states_pool_idx!=new_root->vote_states_pool_idx ) {
+        fd_rwlock_write( &banks->vote_states_pool_lock );
+        fd_bank_vote_states_pool_idx_release( vote_states_pool, head->vote_states_pool_idx );
+        fd_rwlock_unwrite( &banks->vote_states_pool_lock );
+      } else {
+        new_root->vote_states_dirty = 1;
+      }
     }
-    fd_rwlock_unwrite( &new_root->vote_states_lock );
 
-    fd_rwlock_write( &new_root->vote_states_prev_lock );
     fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( new_root );
-    if( head->vote_states_prev_dirty && head->vote_states_prev_pool_idx!=new_root->vote_states_prev_pool_idx ) {
-      fd_rwlock_write( &banks->vote_states_prev_pool_lock );
-      fd_bank_vote_states_prev_pool_idx_release( vote_states_prev_pool, head->vote_states_prev_pool_idx );
-      fd_rwlock_unwrite( &banks->vote_states_prev_pool_lock );
-    } else if( new_root->vote_states_prev_pool_idx!=fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool ) ) {
-      new_root->vote_states_prev_dirty = 1;
+    if( head->vote_states_prev_dirty ) {
+      if( head->vote_states_prev_pool_idx!=new_root->vote_states_prev_pool_idx ) {
+        fd_rwlock_write( &banks->vote_states_prev_pool_lock );
+        fd_bank_vote_states_prev_pool_idx_release( vote_states_prev_pool, head->vote_states_prev_pool_idx );
+        fd_rwlock_unwrite( &banks->vote_states_prev_pool_lock );
+      } else {
+        new_root->vote_states_prev_dirty = 1;
+      }
     }
-    fd_rwlock_unwrite( &new_root->vote_states_prev_lock );
 
-    fd_rwlock_write( &new_root->vote_states_prev_prev_lock );
     fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( new_root );
-    if( head->vote_states_prev_prev_dirty && head->vote_states_prev_prev_pool_idx!=new_root->vote_states_prev_prev_pool_idx ) {
-      fd_rwlock_write( &banks->vote_states_prev_prev_pool_lock );
-      fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, head->vote_states_prev_prev_pool_idx );
-      fd_rwlock_unwrite( &banks->vote_states_prev_prev_pool_lock );
-    } else if( new_root->vote_states_prev_prev_pool_idx!=fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool ) ) {
-      new_root->vote_states_prev_prev_dirty = 1;
+    if( head->vote_states_prev_prev_dirty ) {
+      if( head->vote_states_prev_prev_pool_idx!=new_root->vote_states_prev_prev_pool_idx ) {
+        fd_rwlock_write( &banks->vote_states_prev_prev_pool_lock );
+        fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, head->vote_states_prev_prev_pool_idx );
+        fd_rwlock_unwrite( &banks->vote_states_prev_prev_pool_lock );
+      } else {
+        new_root->vote_states_prev_prev_dirty = 1;
+      }
     }
-    fd_rwlock_unwrite( &new_root->vote_states_prev_prev_lock );
 
     /* It is possible for a bank that never finished replaying to be
        pruned away.  If the bank was never frozen, then it's possible
        that the bank still owns a cost tracker pool element.  If this
        is the case, we need to release the pool element. */
-    if( head->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( head )) ) {
+    if( head->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( head ) ) ) {
       FD_TEST( !(head->flags&FD_BANK_FLAGS_FROZEN) && head->flags&FD_BANK_FLAGS_REPLAYABLE );
       FD_LOG_DEBUG(( "releasing cost tracker pool element for bank at index %lu at slot %lu", head->idx, fd_bank_slot_get( head ) ));
       fd_bank_cost_tracker_pool_idx_release( fd_bank_get_cost_tracker_pool( head ), head->cost_tracker_pool_idx );
@@ -930,64 +931,6 @@ fd_banks_advance_root( fd_banks_t * banks,
   fd_rwlock_unwrite( &banks->rwlock );
 
   return new_root;
-}
-
-void
-fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
-
-  fd_rwlock_read( &banks->rwlock );
-  /* Get the parent bank. */
-  fd_bank_t * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
-
-  fd_memset( &bank->non_cow, 0, sizeof(bank->non_cow) );
-
-  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( bank );
-  if( bank->epoch_rewards_dirty ) {
-    fd_bank_epoch_rewards_pool_idx_release( epoch_rewards_pool, bank->epoch_rewards_pool_idx );
-    bank->epoch_rewards_dirty = 0;
-    bank->epoch_rewards_pool_idx = parent_bank ? parent_bank->epoch_rewards_pool_idx : fd_bank_epoch_rewards_pool_idx_null( epoch_rewards_pool );
-  }
-
-  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank );
-  if( bank->epoch_leaders_dirty ) {
-    fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
-    bank->epoch_leaders_dirty = 0;
-    bank->epoch_leaders_pool_idx = parent_bank ? parent_bank->epoch_leaders_pool_idx : fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool );
-  }
-
-  fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( bank );
-  if( bank->vote_states_dirty ) {
-    fd_bank_vote_states_pool_idx_release( vote_states_pool, bank->vote_states_pool_idx );
-    bank->vote_states_dirty = 0;
-    bank->vote_states_pool_idx = parent_bank ? parent_bank->vote_states_pool_idx : fd_bank_vote_states_pool_idx_null( vote_states_pool );
-  }
-
-  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( bank );
-  if( bank->vote_states_prev_dirty ) {
-    fd_bank_vote_states_prev_pool_idx_release( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
-    bank->vote_states_prev_dirty = 0;
-    bank->vote_states_prev_pool_idx = parent_bank ? parent_bank->vote_states_prev_pool_idx : fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool );
-  }
-
-  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
-  if( bank->vote_states_prev_prev_dirty ) {
-    fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
-    bank->vote_states_prev_prev_dirty = 0;
-    bank->vote_states_prev_prev_pool_idx = parent_bank ? parent_bank->vote_states_prev_prev_pool_idx : fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool );
-  }
-
-  /* We need to acquire a cost tracker element. */
-  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
-  if( FD_UNLIKELY( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) ) {
-    fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, bank->cost_tracker_pool_idx );
-  }
-  bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-  fd_rwlock_unwrite( &bank->cost_tracker_lock );
-
-  bank->stake_delegations_delta_dirty = 0;
-  fd_rwlock_unwrite( &bank->stake_delegations_delta_lock );
-
-  fd_rwlock_unread( &banks->rwlock );
 }
 
 /* Is the fork tree starting at the given bank entirely eligible for
@@ -1252,4 +1195,63 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
   fd_bank_cost_tracker_pool_idx_release( fd_bank_get_cost_tracker_pool( bank ), bank->cost_tracker_pool_idx );
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_unwrite( &banks->rwlock );
+}
+
+
+void
+fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
+
+  fd_rwlock_read( &banks->rwlock );
+  /* Get the parent bank. */
+  fd_bank_t * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
+
+  fd_memset( &bank->non_cow, 0, sizeof(bank->non_cow) );
+
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( bank );
+  if( bank->epoch_rewards_dirty ) {
+    fd_bank_epoch_rewards_pool_idx_release( epoch_rewards_pool, bank->epoch_rewards_pool_idx );
+    bank->epoch_rewards_dirty = 0;
+    bank->epoch_rewards_pool_idx = parent_bank ? parent_bank->epoch_rewards_pool_idx : fd_bank_epoch_rewards_pool_idx_null( epoch_rewards_pool );
+  }
+
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank );
+  if( bank->epoch_leaders_dirty ) {
+    fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
+    bank->epoch_leaders_dirty = 0;
+    bank->epoch_leaders_pool_idx = parent_bank ? parent_bank->epoch_leaders_pool_idx : fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool );
+  }
+
+  fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( bank );
+  if( bank->vote_states_dirty ) {
+    fd_bank_vote_states_pool_idx_release( vote_states_pool, bank->vote_states_pool_idx );
+    bank->vote_states_dirty = 0;
+    bank->vote_states_pool_idx = parent_bank ? parent_bank->vote_states_pool_idx : fd_bank_vote_states_pool_idx_null( vote_states_pool );
+  }
+
+  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( bank );
+  if( bank->vote_states_prev_dirty ) {
+    fd_bank_vote_states_prev_pool_idx_release( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
+    bank->vote_states_prev_dirty = 0;
+    bank->vote_states_prev_pool_idx = parent_bank ? parent_bank->vote_states_prev_pool_idx : fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool );
+  }
+
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
+  if( bank->vote_states_prev_prev_dirty ) {
+    fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+    bank->vote_states_prev_prev_dirty = 0;
+    bank->vote_states_prev_prev_pool_idx = parent_bank ? parent_bank->vote_states_prev_prev_pool_idx : fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool );
+  }
+
+  /* We need to acquire a cost tracker element. */
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
+  if( FD_UNLIKELY( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) ) {
+    fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, bank->cost_tracker_pool_idx );
+  }
+  bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
+  fd_rwlock_unwrite( &bank->cost_tracker_lock );
+
+  bank->stake_delegations_delta_dirty = 0;
+  fd_rwlock_unwrite( &bank->stake_delegations_delta_lock );
+
+  fd_rwlock_unread( &banks->rwlock );
 }
