@@ -294,6 +294,8 @@ struct fd_txn {
   /* has_unparsed_instrs: 1 if the transaction has more than
      FD_TXN_INSTR_MAX instructions, 0 otherwise.  */
   uchar       has_unparsed_instrs;
+  uchar       _padding_reserved_2; /* explicitly declare what the compiler would
+                                     insert anyways */
 
   /* instr: The array of instructions in this transaction. It's a "flexible array
      member" since C does not allow the pretty typical 0-len array at the end

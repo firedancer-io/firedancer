@@ -142,7 +142,7 @@ fd_txn_parse_core( uchar const             * payload,
        addr_table_adtl_writable_cnt, addr_table_adtl_cnt,
        _padding_reserved_1 later */
     parsed->instr_cnt                     = fd_ushort_min( instr_cnt, FD_TXN_INSTR_MAX );
-    parsed->has_unparsed_instrs          = (instr_cnt>FD_TXN_INSTR_MAX) ? 1 : 0;
+    parsed->has_unparsed_instrs           = (instr_cnt>FD_TXN_INSTR_MAX) ? 1 : 0;
   }
 
   uchar max_acct = 0UL;
@@ -235,6 +235,7 @@ fd_txn_parse_core( uchar const             * payload,
     parsed->addr_table_adtl_writable_cnt  = (uchar)addr_table_adtl_writable_cnt;
     parsed->addr_table_adtl_cnt           = (uchar)addr_table_adtl_cnt;
     parsed->_padding_reserved_1           = (uchar)0;
+    parsed->_padding_reserved_2           = (uchar)0;
   }
 
   if( FD_LIKELY( counters_opt   ) ) counters_opt->success_cnt++;
