@@ -474,6 +474,14 @@ replay_slot_completed( ctx_t *                      ctx,
   if( FD_UNLIKELY( fd_forks_query( ctx->forks, slot_completed->slot ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, block_id );
     FD_LOG_WARNING(( "tower ignoring replay of equivocating slot %lu %s", slot_completed->slot, block_id ));
+
+    /* Still need to return a message to replay so the refcnt on the bank is decremented. */
+    fd_tower_slot_ignored_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    msg->slot     = slot_completed->slot;
+    msg->bank_idx = slot_completed->bank_idx;
+
+    fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_IGNORED, ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), ctx->out_chunk0, ctx->out_wmark );
     return;
   }
 
