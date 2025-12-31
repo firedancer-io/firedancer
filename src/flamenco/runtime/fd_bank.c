@@ -322,7 +322,7 @@ fd_bank_vote_states_prev_prev_end_locking_modify( fd_bank_t * bank ) {
     fd_rwlock_unwrite( &bank->name##_lock );                      \
   }
 
-#define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
+#define X(type, name, footprint, align, has_lock) \
   HAS_LOCK_##has_lock(type, name)                                        \
   void                                                                   \
   fd_bank_##name##_set( fd_bank_t * bank, type value ) {                 \
@@ -725,7 +725,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
 
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
+  #define X(type, name, footprint, align, has_lock) \
     fd_memset( bank->non_cow.name, 0, footprint );
   FD_BANKS_ITER(X)
   #undef X
@@ -770,7 +770,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
     fd_rwlock_new( &bank->name##_lock );
   #define HAS_LOCK_0(name)
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) HAS_LOCK_##has_lock(name)
+  #define X(type, name, footprint, align, has_lock) HAS_LOCK_##has_lock(name)
   FD_BANKS_ITER(X)
   #undef X
   #undef HAS_LOCK_0
@@ -873,7 +873,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
     fd_rwlock_unwrite(&child_bank->name##_lock);
   #define HAS_LOCK_0(name)
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
+  #define X(type, name, footprint, align, has_lock) \
     HAS_LOCK_##has_lock(name)
   FD_BANKS_ITER(X)
   #undef X
