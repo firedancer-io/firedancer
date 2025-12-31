@@ -357,7 +357,6 @@ struct fd_replay_tile {
   */
   int         is_leader;
   int         recv_poh;
-  int         recv_block_id;
   ulong       next_leader_slot;
   long        next_leader_tickcount;
   ulong       highwater_leader_slot;
@@ -578,8 +577,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
                     ulong               parent_bank_idx,
                     ulong               slot ) {
   long before = fd_log_wallclock();
-
-  /* Switch to a new block that we don't have a bank for. */
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) {
@@ -864,6 +861,15 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu", slot ));
   }
 
+  /* At this point we want to remove any stale block id map entry that
+     corresponds to this bank. */
+  fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ ctx->leader_bank->idx ];
+  if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr )==block_id_ele ) ) {
+    FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
+  }
+  block_id_ele->block_id_seen = 0;
+  block_id_ele->slot          = slot;
+
   ctx->leader_bank->preparation_begin_nanos = before;
 
   fd_bank_slot_set( ctx->leader_bank, slot );
@@ -909,7 +915,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   FD_TEST( ctx->leader_bank!=NULL );
   FD_TEST( ctx->is_leader );
-  FD_TEST( ctx->recv_block_id );
+  FD_TEST( ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen );
   FD_TEST( ctx->recv_poh );
 
   ctx->leader_bank->last_transaction_finished_nanos = fd_log_wallclock();
@@ -944,10 +950,9 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   /* We are no longer leader so we can clear the bank index we use for
      being the leader. */
-  ctx->leader_bank   = NULL;
-  ctx->recv_block_id = 0;
-  ctx->recv_poh      = 0;
-  ctx->is_leader     = 0;
+  ctx->leader_bank = NULL;
+  ctx->recv_poh    = 0;
+  ctx->is_leader   = 0;
 }
 
 static void
@@ -1128,9 +1133,8 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
   long now_nanos = fd_log_wallclock();
 
-  ctx->is_leader     = 1;
-  ctx->recv_poh      = 0;
-  ctx->recv_block_id = 0;
+  ctx->is_leader = 1;
+  ctx->recv_poh  = 0;
 
   FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || ctx->highwater_leader_slot<ctx->next_leader_slot );
   ctx->highwater_leader_slot = ctx->next_leader_slot;
@@ -1648,7 +1652,7 @@ can_process_fec( fd_replay_tile_t * ctx ) {
        we must block on ingesting the FEC set for the ensuing slot
        before the leader bank freezes, because that would violate
        ordering invariants in banks and sched. */
-    FD_TEST( ctx->recv_block_id );
+    FD_TEST( ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen );
     FD_TEST( !ctx->recv_poh );
     ctx->metrics.leader_bid_wait++;
     return 0;
@@ -1704,7 +1708,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
     /* If we are seeing a FEC with fec set idx 0, this means that we are
        starting a new slot, and we need a new bank index. */
     reasm_fec->bank_idx = fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now )->idx;
-
     /* At this point remove any stale entry in the block id map if it
        exists and set the block id as not having been seen yet.  This is
        safe because we know that the old entry for this bank index has
@@ -1715,7 +1718,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
     }
     block_id_ele->block_id_seen = 0;
     block_id_ele->slot          = reasm_fec->slot;
-
   } else {
     /* We are continuing to execute through a slot that we already have
        a bank index for. */
@@ -1723,21 +1725,17 @@ process_fec_set( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
-    /* Once the block id for a block is known it must be added to the
-       leader block mapping. */
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
     FD_TEST( block_id_ele );
 
     block_id_ele->block_id_seen = 1;
     block_id_ele->block_id      = reasm_fec->key;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
-
-    if( FD_UNLIKELY( reasm_fec->leader ) ) {
-      ctx->recv_block_id = 1;
-    }
   }
 
   if( FD_UNLIKELY( reasm_fec->leader ) ) {
+    /* If we are the leader, we don't need to process the FEC set any
+       further. */
     return;
   }
 
@@ -1883,7 +1881,7 @@ after_credit( fd_replay_tile_t *  ctx,
 
   /* If we are leader, we can only unbecome the leader iff we have
      received the poh hash from the poh tile and block id from reasm. */
-  if( FD_UNLIKELY( ctx->is_leader && ctx->recv_block_id && ctx->recv_poh ) ) {
+  if( FD_UNLIKELY( ctx->is_leader && ctx->recv_poh && ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen ) ) {
     fini_leader_bank( ctx, stem );
     *charge_busy = 1;
     *opt_poll_in = 0;
