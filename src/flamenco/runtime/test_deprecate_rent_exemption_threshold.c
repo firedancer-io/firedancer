@@ -93,9 +93,8 @@ init_vote_states( test_env_t * env ) {
   vote_states_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev, 1UL, 999UL ) );
   fd_bank_vote_states_prev_end_locking_modify( env->bank );
 
-  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( env->bank );
+  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( env->bank );
   vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev, 1UL, 999UL ) );
-  fd_bank_vote_states_prev_prev_end_locking_modify( env->bank );
 }
 
 static void

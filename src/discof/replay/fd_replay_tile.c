@@ -552,7 +552,7 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
 
   fd_vote_states_t const * vote_states_prev;
   if( FD_LIKELY( current_epoch ) ) vote_states_prev = fd_bank_vote_states_prev_locking_query( bank );
-  else                             vote_states_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+  else                             vote_states_prev = fd_bank_vote_states_prev_prev_query( bank );
 
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
   ulong stake_weights_sz = generate_stake_weight_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states_prev, stake_weights_msg );
@@ -561,7 +561,6 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
 
   if( FD_LIKELY( current_epoch ) ) fd_bank_vote_states_prev_end_locking_query( bank );
-  else                             fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( stake_weights_msg ) );
   fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
