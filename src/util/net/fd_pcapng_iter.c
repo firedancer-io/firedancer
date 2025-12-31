@@ -103,9 +103,10 @@ fd_pcapng_read_option( fd_pcapng_iter_t *   iter,
                        fd_pcapng_option_t * opt ) {
 
   if( FD_UNLIKELY( iter->block_buf_pos + 4UL > iter->block_buf_sz ) ) {
-    iter->error = EPROTO;
-    FD_LOG_WARNING(( "expected option, found end of block" ));
-    return EPROTO;
+    opt->type  = 0;
+    opt->sz    = 0;
+    opt->value = NULL;
+    return 0;
   }
 
   struct __attribute__((packed)) {
@@ -329,7 +330,7 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
       fd_pcapng_epb_t epb = FD_LOAD( fd_pcapng_epb_t, iter->block_buf );
       iter->block_buf_pos = sizeof(fd_pcapng_epb_t);
 
-    if( FD_UNLIKELY( epb.cap_len > (iter->block_buf_sz - iter->block_buf_pos) ) ) {
+      if( FD_UNLIKELY( epb.cap_len > (iter->block_buf_sz - iter->block_buf_pos) ) ) {
         iter->error = EPROTO;
         FD_LOG_WARNING(( "pcapng: invalid EPB block size (%#x)", hdr.block_sz ));
         return NULL;
