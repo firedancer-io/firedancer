@@ -260,40 +260,30 @@ FD_PROTOTYPES_BEGIN
    which is defined here. If a type if not a CoW then it does not need
    to be in a pool and is laid out contigiously in the bank struct. */
 
-static const ulong fd_bank_epoch_rewards_align     = FD_EPOCH_REWARDS_ALIGN;
-static const ulong fd_bank_epoch_rewards_footprint = FD_EPOCH_REWARDS_FOOTPRINT;
 struct fd_bank_epoch_rewards {
   ulong next;
   uchar data[FD_EPOCH_REWARDS_FOOTPRINT] __attribute__((aligned(FD_EPOCH_REWARDS_ALIGN)));
 };
 typedef struct fd_bank_epoch_rewards fd_bank_epoch_rewards_t;
 
-static const ulong fd_bank_epoch_leaders_align     = FD_EPOCH_LEADERS_ALIGN;
-static const ulong fd_bank_epoch_leaders_footprint = FD_EPOCH_LEADERS_MAX_FOOTPRINT;
 struct fd_bank_epoch_leaders {
   ulong next;
   uchar data[FD_EPOCH_LEADERS_MAX_FOOTPRINT] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
 };
 typedef struct fd_bank_epoch_leaders fd_bank_epoch_leaders_t;
 
-static const ulong fd_bank_vote_states_align     = FD_VOTE_STATES_ALIGN;
-static const ulong fd_bank_vote_states_footprint = FD_VOTE_STATES_FOOTPRINT;
 struct fd_bank_vote_states {
   ulong next;
   uchar data[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
 };
 typedef struct fd_bank_vote_states fd_bank_vote_states_t;
 
-static const ulong fd_bank_vote_states_prev_align     = FD_VOTE_STATES_ALIGN;
-static const ulong fd_bank_vote_states_prev_footprint = FD_VOTE_STATES_FOOTPRINT;
 struct fd_bank_vote_states_prev {
   ulong next;
   uchar data[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
 };
 typedef struct fd_bank_vote_states_prev fd_bank_vote_states_prev_t;
 
-static const ulong fd_bank_vote_states_prev_prev_align     = FD_VOTE_STATES_ALIGN;
-static const ulong fd_bank_vote_states_prev_prev_footprint = FD_VOTE_STATES_FOOTPRINT;
 struct fd_bank_vote_states_prev_prev {
   ulong next;
   uchar data[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
@@ -427,7 +417,6 @@ struct fd_bank {
   ulong vote_states_prev_pool_offset;
   ulong vote_states_prev_pool_lock_offset;
 
-  fd_rwlock_t vote_states_prev_prev_lock;
   int vote_states_prev_prev_dirty;
   ulong vote_states_prev_prev_pool_idx;
   ulong vote_states_prev_prev_pool_offset;
@@ -694,10 +683,8 @@ void fd_bank_vote_states_prev_end_locking_query( fd_bank_t * bank );
 fd_vote_states_t * fd_bank_vote_states_prev_locking_modify( fd_bank_t * bank );
 void fd_bank_vote_states_prev_end_locking_modify( fd_bank_t * bank );
 
-fd_vote_states_t const * fd_bank_vote_states_prev_prev_locking_query( fd_bank_t * bank );
-void fd_bank_vote_states_prev_prev_end_locking_query( fd_bank_t * bank );
-fd_vote_states_t * fd_bank_vote_states_prev_prev_locking_modify( fd_bank_t * bank );
-void fd_bank_vote_states_prev_prev_end_locking_modify( fd_bank_t * bank );
+fd_vote_states_t const * fd_bank_vote_states_prev_prev_query( fd_bank_t * bank );
+fd_vote_states_t * fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank );
 
 #define HAS_LOCK_1(type, name)                                     \
   type const * fd_bank_##name##_locking_query( fd_bank_t * bank ); \

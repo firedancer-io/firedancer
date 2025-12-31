@@ -342,9 +342,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   vote_states_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   fd_bank_vote_states_prev_end_locking_modify( bank );
 
-  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( bank );
+  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
   vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  fd_bank_vote_states_prev_prev_end_locking_modify( bank );
 
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 0UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
@@ -396,7 +395,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_vote_states_prev_end_locking_modify( bank );
 
   /* Update vote cache for epoch T-2 */
-  vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( bank );
+  vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
   fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
       vote_states_prev_prev,
       test_ctx->epoch_ctx.vote_accounts_t_2,
@@ -413,8 +412,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     stake_delegations,
     fd_bank_epoch_get( bank ) );
   fd_bank_vote_states_end_locking_modify( bank );
-
-  fd_bank_vote_states_prev_prev_end_locking_modify( bank );
 
   /* Update leader schedule */
   fd_runtime_update_leaders( bank, runtime_stack );
