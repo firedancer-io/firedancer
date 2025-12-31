@@ -2331,7 +2331,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
           .reset_block_id  = ctx->reset_block_id,
           .root_slot       = ULONG_MAX
         };
-        process_tower_slot_done( ctx, stem, &ignored );
+        process_tower_slot_done( ctx, stem, &ignored, seq );
       }
       break;
     }
