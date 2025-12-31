@@ -667,7 +667,7 @@ fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *          runn
   ulong ls_slot0       = fd_epoch_slot0( sched, epoch );
   ulong slots_in_epoch = fd_epoch_slot_cnt( sched, epoch );
 
-  fd_epoch_leaders_t const * effects_leaders = fd_bank_epoch_leaders_locking_query( runner->bank );
+  fd_epoch_leaders_t const * effects_leaders = fd_bank_epoch_leaders_query( runner->bank );
 
   /* Fill out effects struct from the Agave epoch info */
   effects->has_leader_schedule               = 1;
@@ -680,7 +680,6 @@ fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *          runn
       LEADER_SCHEDULE_HASH_SEED,
       effects->leader_schedule.leader_schedule_hash
   );
-  fd_bank_epoch_leaders_end_locking_query( runner->bank );
 }
 
 ulong
