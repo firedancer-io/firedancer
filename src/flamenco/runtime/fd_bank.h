@@ -254,15 +254,7 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             slots_per_epoch,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Slots per epoch */                                        \
   X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Shred count */                                            \
   X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */                                                  \
-  X(int,                               has_identity_vote,           sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Has identity vote */                                      \
-  X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1,                1    )  /* Epoch rewards */                                          \
-  X(fd_epoch_leaders_t,                epoch_leaders,               FD_EPOCH_LEADERS_MAX_FOOTPRINT,            FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
-  X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of epoch E if */     \
-                                                                                                                                                                                          /* epoch E is the one that is currently being executed */    \
-  X(fd_vote_states_t,                  vote_states_prev,            FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of of the end of */  \
-                                                                                                                                                                                          /* epoch E-1 if epoch E is currently being executed */       \
-  X(fd_vote_states_t,                  vote_states_prev_prev,       FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of the end of */     \
-                                                                                                                                                                                          /* epoch E-2 if epoch E is currently being executed */
+  X(int,                               has_identity_vote,           sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Has identity vote */
 
 /* Invariant Every CoW field must have a rw-lock */
 #define X(type, name, footprint, align, cow, limit_fork_width, has_lock)                                              \
@@ -407,45 +399,43 @@ struct fd_bank {
 
   struct {
 
-  #define HAS_COW_1(type, name, footprint, align)
-
-  #define HAS_COW_0(type, name, footprint, align) \
-    uchar name[footprint] __attribute__((aligned(align)));
-
   #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint, align)
+    uchar name[footprint] __attribute__((aligned(align)));
   FD_BANKS_ITER(X)
   #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
 
   } non_cow;
 
   /* Now, layout all information needed for CoW fields. These are only
      copied when explicitly requested by the caller. The field's data
-     is located at teh pool idx in the pool. If the dirty flag has been
+     is located at the pool idx in the pool. If the dirty flag has been
      set, then the element has been copied over for this bank. */
 
+  fd_rwlock_t epoch_rewards_lock;
   int epoch_rewards_dirty;
   ulong epoch_rewards_pool_idx;
   ulong epoch_rewards_pool_offset;
   ulong epoch_rewards_pool_lock_offset;
 
+  fd_rwlock_t epoch_leaders_lock;
   int epoch_leaders_dirty;
   ulong epoch_leaders_pool_idx;
   ulong epoch_leaders_pool_offset;
   ulong epoch_leaders_pool_lock_offset;
 
+  fd_rwlock_t vote_states_lock;
   int vote_states_dirty;
   ulong vote_states_pool_idx;
   ulong vote_states_pool_offset;
   ulong vote_states_pool_lock_offset;
 
+  fd_rwlock_t vote_states_prev_lock;
   int vote_states_prev_dirty;
   ulong vote_states_prev_pool_idx;
   ulong vote_states_prev_pool_offset;
   ulong vote_states_prev_pool_lock_offset;
 
+  fd_rwlock_t vote_states_prev_prev_lock;
   int vote_states_prev_prev_dirty;
   ulong vote_states_prev_prev_pool_idx;
   ulong vote_states_prev_prev_pool_offset;
@@ -455,7 +445,6 @@ struct fd_bank {
 
   #define HAS_LOCK_1(type, name, footprint, align) \
     fd_rwlock_t name##_lock;
-
   #define HAS_LOCK_0(type, name, footprint, align) /* Do nothing for these. */
 
   #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
@@ -694,6 +683,31 @@ typedef struct fd_banks fd_banks_t;
 
 /* Bank accesssors. Different accessors are emitted for different types
    depending on if the field has a lock or not. */
+
+fd_epoch_rewards_t const * fd_bank_epoch_rewards_locking_query( fd_bank_t * bank );
+void fd_bank_epoch_rewards_end_locking_query( fd_bank_t * bank );
+fd_epoch_rewards_t * fd_bank_epoch_rewards_locking_modify( fd_bank_t * bank );
+void fd_bank_epoch_rewards_end_locking_modify( fd_bank_t * bank );
+
+fd_epoch_leaders_t const * fd_bank_epoch_leaders_locking_query( fd_bank_t * bank );
+void fd_bank_epoch_leaders_end_locking_query( fd_bank_t * bank );
+fd_epoch_leaders_t * fd_bank_epoch_leaders_locking_modify( fd_bank_t * bank );
+void fd_bank_epoch_leaders_end_locking_modify( fd_bank_t * bank );
+
+fd_vote_states_t const * fd_bank_vote_states_locking_query( fd_bank_t * bank );
+void fd_bank_vote_states_end_locking_query( fd_bank_t * bank );
+fd_vote_states_t * fd_bank_vote_states_locking_modify( fd_bank_t * bank );
+void fd_bank_vote_states_end_locking_modify( fd_bank_t * bank );
+
+fd_vote_states_t const * fd_bank_vote_states_prev_locking_query( fd_bank_t * bank );
+void fd_bank_vote_states_prev_end_locking_query( fd_bank_t * bank );
+fd_vote_states_t * fd_bank_vote_states_prev_locking_modify( fd_bank_t * bank );
+void fd_bank_vote_states_prev_end_locking_modify( fd_bank_t * bank );
+
+fd_vote_states_t const * fd_bank_vote_states_prev_prev_locking_query( fd_bank_t * bank );
+void fd_bank_vote_states_prev_prev_end_locking_query( fd_bank_t * bank );
+fd_vote_states_t * fd_bank_vote_states_prev_prev_locking_modify( fd_bank_t * bank );
+void fd_bank_vote_states_prev_prev_end_locking_modify( fd_bank_t * bank );
 
 #define HAS_LOCK_1(type, name)                                     \
   type const * fd_bank_##name##_locking_query( fd_bank_t * bank ); \

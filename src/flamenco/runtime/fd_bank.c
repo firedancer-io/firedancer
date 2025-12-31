@@ -184,7 +184,6 @@ fd_bank_epoch_leaders_locking_modify( fd_bank_t * bank ) {
   return (fd_epoch_leaders_t *)child_epoch_leaders->data;
 }
 
-
 void
 fd_bank_epoch_leaders_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->epoch_leaders_lock );
@@ -223,7 +222,6 @@ fd_bank_vote_states_locking_modify( fd_bank_t * bank ) {
   return (fd_vote_states_t *)child_vote_states->data;
 }
 
-
 void
 fd_bank_vote_states_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->vote_states_lock );
@@ -261,7 +259,6 @@ fd_bank_vote_states_prev_locking_modify( fd_bank_t * bank ) {
   bank->vote_states_prev_dirty    = 1;
   return (fd_vote_states_t *)child_vote_states_prev->data;
 }
-
 
 void
 fd_bank_vote_states_prev_end_locking_modify( fd_bank_t * bank ) {
@@ -307,8 +304,6 @@ fd_bank_vote_states_prev_prev_end_locking_modify( fd_bank_t * bank ) {
 }
 /* Bank accesssors */
 
-#define HAS_COW_1(type, name, footprint, align, has_lock)
-
 #define HAS_LOCK_0(type, name)                                    \
   type const *                                                    \
   fd_bank_##name##_query( fd_bank_t const * bank ) {              \
@@ -339,24 +334,19 @@ fd_bank_vote_states_prev_prev_end_locking_modify( fd_bank_t * bank ) {
     fd_rwlock_unwrite( &bank->name##_lock );                      \
   }
 
-#define HAS_COW_0(type, name, footprint, align, has_lock) \
-  HAS_LOCK_##has_lock(type, name)                         \
-  void                                                    \
-  fd_bank_##name##_set( fd_bank_t * bank, type value ) {  \
-    FD_STORE( type, bank->non_cow.name, value );          \
-  }                                                       \
-  type                                                    \
-  fd_bank_##name##_get( fd_bank_t const * bank ) {        \
-    type val = FD_LOAD( type, bank->non_cow.name );       \
-    return val;                                           \
-  }
-
 #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-  HAS_COW_##cow(type, name, footprint, align, has_lock)
+  HAS_LOCK_##has_lock(type, name)                                        \
+  void                                                                   \
+  fd_bank_##name##_set( fd_bank_t * bank, type value ) {                 \
+    FD_STORE( type, bank->non_cow.name, value );                         \
+  }                                                                      \
+  type                                                                   \
+  fd_bank_##name##_get( fd_bank_t const * bank ) {                       \
+    type val = FD_LOAD( type, bank->non_cow.name );                      \
+    return val;                                                          \
+  }
 FD_BANKS_ITER(X)
 #undef X
-#undef HAS_COW_0
-#undef HAS_COW_1
 #undef HAS_LOCK_0
 #undef HAS_LOCK_1
 
@@ -443,8 +433,8 @@ fd_banks_new( void * shmem,
   }
 
   /* Assign offset of the bank pool to the banks object. */
-  fd_banks_set_bank_pool( banks, bank_pool );
 
+  fd_banks_set_bank_pool( banks, bank_pool );
 
   /* Create the pools for the non-inlined fields.  Also new() and join()
      each of the elements in the pool as well as set up the lock for
@@ -747,17 +737,12 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   fd_bank_t * bank = fd_banks_pool_ele_acquire( bank_pool );
   bank->bank_seq = FD_ATOMIC_FETCH_AND_ADD( &banks->bank_seq, 1UL );
 
-  #define HAS_COW_1(type, name, footprint)
 
-  #define HAS_COW_0(type, name, footprint) \
-    fd_memset( bank->non_cow.name, 0, footprint );
 
   #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint)
+    fd_memset( bank->non_cow.name, 0, footprint );
   FD_BANKS_ITER(X)
   #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
 
   ulong null_idx    = fd_banks_pool_idx_null( bank_pool );
   bank->idx         = fd_banks_pool_idx( bank_pool, bank );
