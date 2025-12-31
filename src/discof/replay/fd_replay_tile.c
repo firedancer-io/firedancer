@@ -415,6 +415,7 @@ struct fd_replay_tile {
     ulong reasm_empty;
     ulong leader_bid_wait;
     ulong banks_full;
+    ulong storage_root_behind;
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
@@ -488,10 +489,11 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, REASM_LATEST_SLOT,    ctx->metrics.reasm_latest_slot );
   FD_MGAUGE_SET( REPLAY, REASM_LATEST_FEC_IDX, ctx->metrics.reasm_latest_fec_idx );
 
-  FD_MCNT_SET( REPLAY, SCHED_FULL,      ctx->metrics.sched_full );
-  FD_MCNT_SET( REPLAY, REASM_EMPTY,     ctx->metrics.reasm_empty );
-  FD_MCNT_SET( REPLAY, LEADER_BID_WAIT, ctx->metrics.leader_bid_wait );
-  FD_MCNT_SET( REPLAY, BANKS_FULL,      ctx->metrics.banks_full );
+  FD_MCNT_SET( REPLAY, SCHED_FULL,          ctx->metrics.sched_full );
+  FD_MCNT_SET( REPLAY, REASM_EMPTY,         ctx->metrics.reasm_empty );
+  FD_MCNT_SET( REPLAY, LEADER_BID_WAIT,     ctx->metrics.leader_bid_wait );
+  FD_MCNT_SET( REPLAY, BANKS_FULL,          ctx->metrics.banks_full );
+  FD_MCNT_SET( REPLAY, STORAGE_ROOT_BEHIND, ctx->metrics.storage_root_behind );
 
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  ctx->progcache_admin->metrics.root_cnt );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, ctx->progcache_admin->metrics.gc_root_cnt );
@@ -741,7 +743,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
-     they are done usin the bank. */
+     they are done using the bank. */
   bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->gui_enabled ) ) bank->refcnt++; /* gui tile */
   slot_info->bank_idx = bank->idx;
@@ -1834,7 +1836,10 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
-  if( FD_UNLIKELY( !fd_banks_advance_root_prepare( ctx->banks, target_bank_idx, &advanceable_root_idx ) ) ) return 0;
+  if( FD_UNLIKELY( !fd_banks_advance_root_prepare( ctx->banks, target_bank_idx, &advanceable_root_idx ) ) ) {
+    ctx->metrics.storage_root_behind++;
+    return 0;
+  }
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, advanceable_root_idx );
   FD_TEST( bank );
@@ -2051,7 +2056,8 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
 static void
 process_tower_slot_done( fd_replay_tile_t *           ctx,
                          fd_stem_context_t *          stem,
-                         fd_tower_slot_done_t const * msg ) {
+                         fd_tower_slot_done_t const * msg,
+                         ulong                        seq ) {
   fd_bank_t * replay_bank = fd_banks_bank_query( ctx->banks, msg->replay_bank_idx );
   if( FD_UNLIKELY( !replay_bank ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", msg->replay_bank_idx ));
   replay_bank->refcnt--;
@@ -2115,7 +2121,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   }
 
-  FD_LOG_INFO(( "tower_slot_done(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot ));
+  FD_LOG_INFO(( "tower_slot_done(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, seqno=%lu)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, seq ));
   maybe_become_leader( ctx, stem );
 
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
@@ -2304,7 +2310,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      if     ( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE      ) ) process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      if     ( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE      ) ) process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
       else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
         fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
