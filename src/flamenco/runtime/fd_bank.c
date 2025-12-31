@@ -34,8 +34,7 @@ fd_bank_epoch_rewards_end_locking_query( fd_bank_t * bank ) {
 }
 
 fd_epoch_leaders_t const *
-fd_bank_epoch_leaders_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->epoch_leaders_lock );
+fd_bank_epoch_leaders_query( fd_bank_t * bank ) {
   /* If the pool element hasn't been setup yet, then return NULL */
   fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank );
   if( FD_UNLIKELY( epoch_leaders_pool==NULL ) ) {
@@ -46,11 +45,6 @@ fd_bank_epoch_leaders_locking_query( fd_bank_t * bank ) {
   }
   fd_bank_epoch_leaders_t * bank_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
   return (fd_epoch_leaders_t *)bank_epoch_leaders->data;
-}
-
-void
-fd_bank_epoch_leaders_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->epoch_leaders_lock );
 }
 
 fd_vote_states_t const *
@@ -152,8 +146,7 @@ fd_bank_epoch_rewards_end_locking_modify( fd_bank_t * bank ) {
 }
 
 fd_epoch_leaders_t *
-fd_bank_epoch_leaders_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->epoch_leaders_lock );
+fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
   /* If the dirty flag is set, then we already have a pool element */
   /* that was copied over for the current bank. We can simply just */
   /* query the pool element and return it. */
@@ -182,11 +175,6 @@ fd_bank_epoch_leaders_locking_modify( fd_bank_t * bank ) {
   bank->epoch_leaders_pool_idx = child_idx;
   bank->epoch_leaders_dirty    = 1;
   return (fd_epoch_leaders_t *)child_epoch_leaders->data;
-}
-
-void
-fd_bank_epoch_leaders_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->epoch_leaders_lock );
 }
 
 fd_vote_states_t *
@@ -758,7 +746,6 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   bank->epoch_leaders_pool_idx         = fd_bank_epoch_leaders_pool_idx_null( fd_banks_get_epoch_leaders_pool( banks ) );
   bank->epoch_leaders_dirty            = 0;
-  fd_rwlock_new( &bank->epoch_leaders_lock );
 
   bank->vote_states_pool_idx           = fd_bank_vote_states_pool_idx_null( fd_banks_get_vote_states_pool( banks ) );
   bank->vote_states_dirty              = 0;
@@ -855,7 +842,6 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   child_bank->epoch_leaders_dirty    = 0;
   child_bank->epoch_leaders_pool_idx = parent_bank->epoch_leaders_pool_idx;
-  fd_rwlock_new( &child_bank->epoch_leaders_lock );
 
   child_bank->vote_states_dirty    = 0;
   child_bank->vote_states_pool_idx = parent_bank->vote_states_pool_idx;

@@ -140,7 +140,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     }
 
     ulong vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( bank );
-    void * epoch_leaders_mem = fd_bank_epoch_leaders_locking_modify( bank );
+    void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
     fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
         epoch_leaders_mem,
         epoch,
@@ -153,7 +153,6 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     if( FD_UNLIKELY( !leaders ) ) {
       FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
     }
-    fd_bank_epoch_leaders_end_locking_modify( bank );
   }
 }
 
@@ -272,17 +271,15 @@ fd_runtime_freeze( fd_bank_t *         bank,
       /* do_create=1 because we might wanna pay fees to a leader
          account that we've purged due to 0 balance. */
 
-      fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( bank );
+      fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank );
       if( FD_UNLIKELY( !leaders ) ) {
         FD_LOG_CRIT(( "fd_runtime_freeze: leaders not found" ));
-        fd_bank_epoch_leaders_end_locking_query( bank );
         break;
       }
 
       fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, fd_bank_slot_get( bank ) );
       if( FD_UNLIKELY( !leader ) ) {
         FD_LOG_CRIT(( "fd_runtime_freeze: leader not found" ));
-        fd_bank_epoch_leaders_end_locking_query( bank );
         break;
       }
 
@@ -299,14 +296,11 @@ fd_runtime_freeze( fd_bank_t *         bank,
         FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
         FD_LOG_WARNING(( "fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for leader (%s) failed", leader_b58 ));
         burn = fd_ulong_sat_add( burn, fees );
-        fd_bank_epoch_leaders_end_locking_query( bank );
         break;
       }
 
       fd_lthash_value_t prev_hash[1];
       fd_hashes_account_lthash( leader, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
-
-      fd_bank_epoch_leaders_end_locking_query( bank );
 
       if ( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, validate_fee_collector_account ) ) ) {
         ulong _burn;

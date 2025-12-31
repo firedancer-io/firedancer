@@ -336,9 +336,8 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_bank_capitalization_get( bank2 ) == 1000UL );
   /* At this point, the first epoch leaders has been allocated from the
      pool that is limited to 2 instances. */
-  fd_epoch_leaders_t * epoch_leaders = fd_bank_epoch_leaders_locking_modify( bank2 );
+  fd_epoch_leaders_t * epoch_leaders = fd_bank_epoch_leaders_modify( bank2 );
   FD_TEST( epoch_leaders );
-  fd_bank_epoch_leaders_end_locking_modify( bank2 );
 
   /* Make sure that the contents of the stake delegations is the same
      after a new bank has been created. */
@@ -405,9 +404,8 @@ main( int argc, char ** argv ) {
   /* At this point, the second epoch leaders has been allocated from the
      pool that is limited to 2 instances. */
 
-  fd_epoch_leaders_t * epoch_leaders2 = fd_bank_epoch_leaders_locking_modify( bank3 );
+  fd_epoch_leaders_t * epoch_leaders2 = fd_bank_epoch_leaders_modify( bank3 );
   FD_TEST( epoch_leaders2 );
-  fd_bank_epoch_leaders_end_locking_modify( bank3 );
 
   fd_banks_mark_bank_frozen( banks, bank3 );
 
@@ -577,9 +575,8 @@ main( int argc, char ** argv ) {
   /* At this point, there should be an epoch leader pool element that is
      freed up. */
   FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank10 ) ) == 1UL );
-  fd_epoch_leaders_t * epoch_leaders3 = fd_bank_epoch_leaders_locking_modify( bank10 );
+  fd_epoch_leaders_t * epoch_leaders3 = fd_bank_epoch_leaders_modify( bank10 );
   FD_TEST( epoch_leaders3 );
-  fd_bank_epoch_leaders_end_locking_modify( bank10 );
 
   fd_banks_mark_bank_frozen( banks, bank10 );
 

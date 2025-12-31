@@ -416,7 +416,6 @@ struct fd_bank {
   ulong epoch_rewards_pool_offset;
   ulong epoch_rewards_pool_lock_offset;
 
-  fd_rwlock_t epoch_leaders_lock;
   int epoch_leaders_dirty;
   ulong epoch_leaders_pool_idx;
   ulong epoch_leaders_pool_offset;
@@ -687,10 +686,8 @@ void fd_bank_epoch_rewards_end_locking_query( fd_bank_t * bank );
 fd_epoch_rewards_t * fd_bank_epoch_rewards_locking_modify( fd_bank_t * bank );
 void fd_bank_epoch_rewards_end_locking_modify( fd_bank_t * bank );
 
-fd_epoch_leaders_t const * fd_bank_epoch_leaders_locking_query( fd_bank_t * bank );
-void fd_bank_epoch_leaders_end_locking_query( fd_bank_t * bank );
-fd_epoch_leaders_t * fd_bank_epoch_leaders_locking_modify( fd_bank_t * bank );
-void fd_bank_epoch_leaders_end_locking_modify( fd_bank_t * bank );
+fd_epoch_leaders_t const * fd_bank_epoch_leaders_query( fd_bank_t * bank );
+fd_epoch_leaders_t * fd_bank_epoch_leaders_modify( fd_bank_t * bank );
 
 fd_vote_states_t const * fd_bank_vote_states_locking_query( fd_bank_t * bank );
 void fd_bank_vote_states_end_locking_query( fd_bank_t * bank );
