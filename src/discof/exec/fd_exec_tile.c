@@ -2,6 +2,7 @@
 #include "generated/fd_exec_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../ballet/sha256/fd_sha256.h" /* fd_sha256_hash_32_repeated */
 #include "../../discof/replay/fd_exec.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -174,7 +175,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
-        ctx->txn_in.txn           = &msg->txn;
+        ctx->txn_in.txn           = msg->txn;
         ctx->txn_in.exec_accounts = &ctx->exec_accounts;
 
         /* Set the capture txn index from the message so account updates
@@ -228,12 +229,23 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
       }
       case FD_EXEC_TT_TXN_SIGVERIFY: {
         fd_exec_txn_sigverify_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        int res = fd_executor_txn_verify( &msg->txn, ctx->sha_lj );
+        int res = fd_executor_txn_verify( msg->txn, ctx->sha_lj );
         fd_exec_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
         out_msg->bank_idx               = msg->bank_idx;
         out_msg->txn_sigverify->txn_idx = msg->txn_idx;
         out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
         fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->exec_replay_out->chunk = fd_dcache_compact_next( ctx->exec_replay_out->chunk, sizeof(*out_msg), ctx->exec_replay_out->chunk0, ctx->exec_replay_out->wmark );
+        break;
+      }
+      case FD_EXEC_TT_POH_HASH: {
+        fd_exec_poh_hash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        fd_exec_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
+        out_msg->bank_idx           = msg->bank_idx;
+        out_msg->poh_hash->mblk_idx = msg->mblk_idx;
+        out_msg->poh_hash->hashcnt  = msg->hashcnt;
+        fd_sha256_hash_32_repeated( msg->hash, out_msg->poh_hash->hash, msg->hashcnt );
+        fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_POH_HASH<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->exec_replay_out->chunk = fd_dcache_compact_next( ctx->exec_replay_out->chunk, sizeof(*out_msg), ctx->exec_replay_out->chunk0, ctx->exec_replay_out->wmark );
         break;
       }

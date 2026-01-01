@@ -93,7 +93,8 @@ typedef struct fd_sched_fec fd_sched_fec_t;
 #define FD_SCHED_TT_TXN_EXEC      (3UL) /* (e) Transaction execution. */
 #define FD_SCHED_TT_TXN_SIGVERIFY (4UL) /* (e) Transaction sigverify. */
 #define FD_SCHED_TT_LTHASH        (5UL) /* (e) Account lthash. */
-#define FD_SCHED_TT_POH_VERIFY    (6UL) /* (e) PoH hash verification. */
+#define FD_SCHED_TT_POH_HASH      (6UL) /* (e) PoH hashing. */
+#define FD_SCHED_TT_MARK_DEAD     (7UL) /* (i) Mark the block dead. */
 
 struct fd_sched_block_start {
   ulong bank_idx;        /* Same as in fd_sched_fec_t. */
@@ -122,6 +123,20 @@ struct fd_sched_txn_sigverify {
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
 
+struct fd_sched_poh_hash {
+  ulong     bank_idx;
+  ulong     mblk_idx;
+  ulong     exec_idx;
+  ulong     hashcnt;
+  fd_hash_t hash[ 1 ];
+};
+typedef struct fd_sched_poh_hash fd_sched_poh_hash_t;
+
+struct fd_sched_mark_dead {
+  ulong     bank_idx;
+};
+typedef struct fd_sched_mark_dead fd_sched_mark_dead_t;
+
 struct fd_sched_task {
   ulong task_type; /* Set to one of the task types defined above. */
   union {
@@ -129,6 +144,8 @@ struct fd_sched_task {
     fd_sched_block_end_t     block_end[ 1 ];
     fd_sched_txn_exec_t      txn_exec[ 1 ];
     fd_sched_txn_sigverify_t txn_sigverify[ 1 ];
+    fd_sched_poh_hash_t      poh_hash[ 1 ];
+    fd_sched_mark_dead_t     mark_dead[ 1 ];
   };
 };
 typedef struct fd_sched_task fd_sched_task_t;
@@ -209,15 +226,23 @@ fd_sched_can_ingest( fd_sched_t * sched, ulong fec_cnt );
    transactions over sigverify, and in general sigverify tasks are only
    returned when no real transaction can be dispatched.  In other words,
    the scheduler tries to exploit idle cycles in the exec tiles during
-   times of low parallelism critical path progression. */
+   times of low parallelism critical path progression.
+
+   This function may also return a PoH hashing task.  These tasks are
+   lower priority than transaction execution, but higher priority than
+   sigverify.  This is because sigverify tasks are generally bite-sized,
+   whereas PoH hashing can be longer, so we would like to get started on
+   hashing sooner rather than later. */
 ulong
 fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
 
 /* Mark a task as complete.  For transaction execution, this means that
    the effects of the execution are now visible on any core that could
-   execute a subsequent transaction. */
-void
-fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx );
+   execute a subsequent transaction.  Returns 0 on success, -1 if given
+   the result of the task, the block turns out to be bad.  -1 is only
+   returned from PoH tasks. */
+int
+fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data );
 
 /* Abandon a block.  This means that we are no longer interested in
    executing the block.  This also implies that any block which chains
@@ -253,6 +278,9 @@ fd_sched_advance_root( fd_sched_t * sched, ulong root_idx );
    pipeline, and the new root will be safe for pruning. */
 void
 fd_sched_root_notify( fd_sched_t * sched, ulong root_idx );
+
+void
+fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh );
 
 fd_txn_p_t *
 fd_sched_get_txn( fd_sched_t * sched, ulong txn_idx );
