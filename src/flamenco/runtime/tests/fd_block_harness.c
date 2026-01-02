@@ -545,20 +545,22 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
-      fd_txn_in_t  txn_in = { .txn = txn, .exec_accounts = runner->exec_accounts, .bundle.is_bundle = 0 };
+      fd_txn_in_t  txn_in = { .txn = txn, .bundle.is_bundle = 0 };
       fd_txn_out_t txn_out;
       fd_runtime_t * runtime = runner->runtime;
       fd_log_collector_t log[1];
       runtime->log.log_collector = log;
+      runtime->acc_pool = runner->acc_pool;
       fd_solfuzz_txn_ctx_exec( runner, runtime, &txn_in, &res, &txn_out );
       txn_out.err.exec_err = res;
 
       if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
+        fd_runtime_cancel_txn( runtime, &txn_out );
         return 0;
       }
 
       /* Finalize the transaction */
-      fd_runtime_commit_txn( runtime, runner->bank, &txn_in, &txn_out );
+      fd_runtime_commit_txn( runtime, runner->bank, &txn_out );
 
       if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
         return 0;

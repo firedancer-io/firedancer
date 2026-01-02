@@ -41,6 +41,10 @@ setup_topo_store( fd_topo_t *  topo,
                   uint         part_cnt );
 
 fd_topo_obj_t *
+setup_topo_acc_pool( fd_topo_t * topo,
+                     ulong       account_cnt );
+
+fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_live_slots,

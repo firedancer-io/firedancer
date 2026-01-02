@@ -6,6 +6,7 @@
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector.h"
@@ -55,10 +56,11 @@ typedef struct fd_exec_tile_ctx {
   ulong                 slot;
   ulong                 dispatch_time_comp;
 
-  fd_exec_accounts_t    exec_accounts;
   fd_log_collector_t    log_collector;
 
   fd_bank_t *           bank;
+
+  fd_acc_pool_t *       acc_pool;
 
   fd_txn_in_t           txn_in;
   fd_txn_out_t          txn_out;
@@ -174,8 +176,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
-        ctx->txn_in.txn           = &msg->txn;
-        ctx->txn_in.exec_accounts = &ctx->exec_accounts;
+        ctx->txn_in.txn = &msg->txn;
 
         /* Set the capture txn index from the message so account updates
            during commit are recorded with the correct transaction index. */
@@ -185,9 +186,10 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
-        /* Commit. */
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_out );
+        } else {
+          fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out );
         }
 
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
@@ -342,6 +344,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_in.bundle.is_bundle = 0;
 
   /********************************************************************/
+  /* Accounts pool                                                     */
+  /********************************************************************/
+
+  ctx->acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->exec.acc_pool_obj_id ) );
+  if( FD_UNLIKELY( !ctx->acc_pool ) ) {
+    FD_LOG_CRIT(( "Failed to join acc pool" ));
+  }
+
+  /********************************************************************/
   /* Capture context                                                 */
   /********************************************************************/
 
@@ -398,6 +409,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->funk                     = fd_accdb_user_v1_funk( ctx->accdb );
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;
+  ctx->runtime->acc_pool                 = ctx->acc_pool;
   ctx->runtime->log.log_collector        = &ctx->log_collector;
   ctx->runtime->log.enable_log_collector = 0;
   ctx->runtime->log.dumping_mem          = ctx->dumping_mem;

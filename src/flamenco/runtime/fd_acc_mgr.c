@@ -26,7 +26,7 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
     if( NULL != orec )
       *orec = rec;
 
-    void const * raw = fd_funk_val( rec, fd_funk_wksp(funk) );
+    void const * raw = fd_funk_val( rec, fd_funk_wksp( funk ) );
 
     fd_account_meta_t const * metadata = fd_type_pun_const( raw );
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_SUCCESS );

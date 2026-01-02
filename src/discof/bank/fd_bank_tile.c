@@ -13,6 +13,7 @@
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector.h"
@@ -62,9 +63,8 @@ struct fd_bank_ctx {
      a separate transaction context and a set of accounts, but the exec
      stack can be reused.  We will also use these same memory regions
      for non-bundle execution. */
-  fd_exec_accounts_t exec_accounts[ FD_PACK_MAX_TXN_PER_BUNDLE ];
-  fd_txn_in_t        txn_in[ FD_PACK_MAX_TXN_PER_BUNDLE ];
-  fd_txn_out_t       txn_out[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  fd_txn_in_t  txn_in[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  fd_txn_out_t txn_out[ FD_PACK_MAX_TXN_PER_BUNDLE ];
 
   fd_log_collector_t log_collector[ 1 ];
 
@@ -178,8 +178,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ 0 ];
-    ctx->txn_in->bundle.is_bundle = 0;
-
     fd_txn_out_t * txn_out = &ctx->txn_out[ 0 ];
 
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
@@ -192,8 +190,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
-    txn_in->txn           = txn;
-    txn_in->exec_accounts = &ctx->exec_accounts[ 0 ];
+    txn_in->bundle.is_bundle = 0;
+    txn_in->txn              = txn;
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
@@ -204,6 +202,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
+      fd_runtime_cancel_txn( ctx->runtime, txn_out );
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
       ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_out->err.txn_err ) ]++;
@@ -232,7 +231,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
+    fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       /* If the transaction failed to fit into the block, we need to
@@ -240,20 +239,20 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
       fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
       uchar * signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
-      int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, bank, txn_in, txn_out );
+      int err = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
       FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
                     "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
                     "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
-                    signature_b58, res, cost_tracker->block_cost, cost_tracker->vote_cost,
+                    signature_b58, err, cost_tracker->block_cost, cost_tracker->vote_cost,
                     cost_tracker->allocated_accounts_data_size,
                     cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
                     cost_tracker->account_cost_limit ));
     }
 
     uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
-    uint actual_acct_data_cus = (uint)(txn_out->details.loaded_accounts_data_size_cost);
+    uint actual_acct_data_cus = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
 
     int is_simple_vote = 0;
     if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
@@ -378,12 +377,11 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       continue;
     }
 
-    txn_in->txn           = txn;
-    txn_in->exec_accounts = &ctx->exec_accounts[ i ];
+    txn_in->txn              = txn;
+    txn_in->bundle.is_bundle = 1;
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
     FD_TEST( bank );
-    txn_in->bundle.is_bundle = 1;
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -406,24 +404,24 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
-      fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
+      fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-        int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, bank, txn_in, txn_out );
+        int err = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
         FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
                       "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
                       "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
-                      signature_b58, res, cost_tracker->block_cost, cost_tracker->vote_cost,
+                      signature_b58, err, cost_tracker->block_cost, cost_tracker->vote_cost,
                       cost_tracker->allocated_accounts_data_size,
                       cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
                       cost_tracker->account_cost_limit ));
       }
 
       uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
-      uint actual_acct_data_cus = (uint)(txn_out->details.loaded_accounts_data_size_cost);
+      uint actual_acct_data_cus = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
       if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload ) ) ) {
         actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
         actual_acct_data_cus = 0U;
@@ -438,6 +436,14 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     }
   } else {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
+
+      /* If the bundle peer flag is not set, that means the transaction
+         was at least partially sanitized/setup.  We have to cancel
+         these txns as they will not be included in the block. */
+      if( !(txns[ i ].flags % ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24)) ) {
+        fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
+      }
+
       uint requested_exec_plus_acct_data_cus = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
       uint non_execution_cus                 = txns[ i ].pack_cu.non_execution_cus;
       txns[ i ].bank_cu.actual_consumed_cus  = 0U;
@@ -591,18 +597,21 @@ unprivileged_init( fd_topo_t *      topo,
   fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( txncache );
 
+
+  fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->bank.acc_pool_obj_id ) );
+  FD_TEST( acc_pool );
+
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
-    for( ulong j=0UL; j<i; j++ ) {
-      ctx->txn_in[ i ].bundle.prev_txn_ins[ j ]  = &ctx->txn_in[ j ];
-      ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
-    }
+    for( ulong j=0UL; j<i; j++ ) ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
   }
 
   ctx->runtime->accdb                    = accdb;
   ctx->runtime->funk                     = fd_accdb_user_v1_funk( accdb );
   ctx->runtime->progcache                = progcache;
   ctx->runtime->status_cache             = txncache;
+  ctx->runtime->acc_pool                 = acc_pool;
+
   ctx->runtime->log.log_collector        = ctx->log_collector;
   ctx->runtime->log.enable_log_collector = 0;
   ctx->runtime->log.capture_ctx          = NULL;

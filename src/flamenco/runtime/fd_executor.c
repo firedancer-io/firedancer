@@ -3,6 +3,7 @@
 #include "fd_bank.h"
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
+#include "fd_acc_pool.h"
 
 #include "fd_system_ids.h"
 #include "program/fd_address_lookup_table_program.h"
@@ -962,11 +963,9 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
       int is_found = 0;
       for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {;
-        fd_txn_in_t const *  prev_txn_in  = txn_in->bundle.prev_txn_ins[ i-1 ];
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-          if( !memcmp( &prev_txn_out->accounts.keys[ j ], fee_payer_key, sizeof(fd_pubkey_t) ) &&
-            fd_runtime_account_is_writable_idx( prev_txn_in, prev_txn_out, bank, j ) ) {
+          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], fee_payer_key ) && prev_txn_out->accounts.is_writable[j] ) {
             /* Found the account in a previous transaction */
             meta = prev_txn_out->accounts.metas[ j ];
             is_found = 1;
@@ -988,7 +987,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
           NULL );
     }
 
-    uchar * fee_payer_data = txn_in->exec_accounts->rollback_fee_payer_mem;
+    uchar * fee_payer_data = txn_out->accounts.rollback_fee_payer_mem;
     fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
     txn_out->accounts.rollback_fee_payer = fd_type_pun( fee_payer_data );
   }
@@ -1408,12 +1407,13 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
                                fd_bank_t *         bank,
                                fd_txn_in_t const * txn_in,
                                fd_txn_out_t *      txn_out,
-                               ushort              idx ) {
+                               ushort              idx,
+                               uchar * *           writable_accs_mem,
+                               ulong *             writable_accs_idx_out ) {
   /* To setup a transaction account, we need to first retrieve a
      read-only handle to the account from the database. */
 
   fd_pubkey_t * acc = &txn_out->accounts.keys[ idx ];
-
 
   fd_account_meta_t const * meta = NULL;
   if( txn_in->bundle.is_bundle ) {
@@ -1431,10 +1431,9 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
     int is_found = 0;
     for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
-      fd_txn_in_t const *  prev_txn_in  = txn_in->bundle.prev_txn_ins[ i-1 ];
       fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
       for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-        if( !memcmp( &prev_txn_out->accounts.keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_runtime_account_is_writable_idx( prev_txn_in, prev_txn_out, bank, j ) ) {
+        if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], acc ) && prev_txn_out->accounts.is_writable[j] ) {
           /* Found the account in a previous transaction */
           meta = prev_txn_out->accounts.metas[ j ];
           is_found = 1;
@@ -1461,17 +1460,16 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
   }
 
-  int                 is_writable  = fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
   fd_account_meta_t * account_meta = NULL;
 
-  if( is_writable ) {
+  if( txn_out->accounts.is_writable[ idx ] ) {
     /* If the account is writable or a fee payer, then we need to create
        staging regions for the account. If the account exists, we need to
        copy the account data into the staging area; otherwise, we need to
        initialize a new metadata. */
-
-    uchar * new_raw_data = txn_in->exec_accounts->accounts_mem[idx];
+    uchar * new_raw_data = writable_accs_mem[ *writable_accs_idx_out ];
     ulong   dlen         = !!meta ? meta->dlen : 0UL;
+    (*writable_accs_idx_out)++;
 
     if( FD_LIKELY( meta ) ) {
       /* Account exists, copy the data into the staging area */
@@ -1491,10 +1489,11 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
     if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
       account_meta = (fd_account_meta_t *)meta;
-    } else {
-      uchar * mem = txn_in->exec_accounts->accounts_mem[idx];
-      account_meta = (fd_account_meta_t *)mem;
+    } else if( fd_pubkey_eq( acc, &fd_sysvar_instructions_id ) ) {
+      account_meta = fd_type_pun( runtime->accounts.sysvar_instructions_mem );
       fd_account_meta_init( account_meta );
+    } else {
+      account_meta = (fd_account_meta_t *)&FD_ACCOUNT_META_DEFAULT;
     }
   }
 
@@ -1546,16 +1545,46 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out ) {
 
-  ushort executable_idx = 0U;
+  /* At this point, the total number of writable accounts in the
+     transaction is known.  We can now attempt to get the required
+     amount of memory from the account memory pool. */
 
+  ushort writable_account_cnt = 0U;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i );
+    if( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) ) {
+      txn_out->accounts.is_writable[ i ] = 1;
+      writable_account_cnt++;
+    } else {
+      txn_out->accounts.is_writable[ i ] = 0;
+    }
+  }
+
+  /* At this point we know which accounts are writable, but we don't
+     know if we will need to create an account for the rollback fee
+     payer or nonce account.  To avoid a potential deadlock, we want to
+     request the worst-case number of accounts (# writable accounts + 2
+     rollback accounts) for the transaction in one call to
+     fd_acc_pool_acquire. */
+
+  ulong   writable_accs_idx = 0UL;
+  uchar * writable_accs_mem[ MAX_TX_ACCOUNT_LOCKS + 2UL ];
+  fd_acc_pool_acquire( runtime->acc_pool, writable_account_cnt + 2UL, writable_accs_mem );
+  txn_out->accounts.rollback_fee_payer_mem = writable_accs_mem[ writable_account_cnt ];
+  txn_out->accounts.rollback_nonce_mem     = writable_accs_mem[ writable_account_cnt+1UL ];
+
+  ushort executable_idx = 0U;
+  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+    fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i, writable_accs_mem, &writable_accs_idx );
     fd_account_meta_t * meta = txn_out->accounts.metas[ i ];
 
     if( FD_UNLIKELY( meta && memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
       fd_executor_setup_executable_account( runtime, bank, meta, &executable_idx );
     }
   }
+
+  txn_out->accounts.is_setup         = 1;
+  txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
+  runtime->accounts.executable_cnt   = executable_idx;
 
 # if FD_HAS_FLATCC
   /* Dumping ELF files to protobuf, if applicable */
@@ -1571,9 +1600,6 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     }
   }
 # endif
-
-  txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
-  runtime->accounts.executable_cnt   = executable_idx;
 }
 
 int
