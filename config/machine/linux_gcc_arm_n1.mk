@@ -5,6 +5,7 @@ BUILDDIR?=linux/gcc/arm_n1
 
 # Experimental! Firedancer does not yet support Arm CPU, expect bugs.
 
+include config/extra/with-gcc-pre.mk
 include config/base.mk
 include config/extra/with-gcc.mk
 include config/extra/with-arm.mk

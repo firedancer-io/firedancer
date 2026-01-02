@@ -1,5 +1,6 @@
 BUILDDIR:=macos/clang/m1
 
+include config/extra/with-clang-pre.mk
 include config/base.mk
 include config/extra/with-clang.mk
 include config/extra/with-debug.mk

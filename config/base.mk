@@ -4,11 +4,8 @@ OPT?=opt
 SHELL:=bash
 CPPFLAGS:=-isystem ./$(OPT)/include
 RUSTFLAGS:=-C force-frame-pointers=yes
-CC:=gcc
 CFLAGS=-std=c17 -fwrapv
-CXX:=g++
 CXXFLAGS=-std=c++17
-LD:=g++
 LDFLAGS:=-lm -ldl -L./$(OPT)/lib
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared
@@ -28,6 +25,11 @@ FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)
 DATE:=date
 CAT:=cat
+
+# Default compiler configuration, if not already set
+CC?=gcc
+CXX?=g++
+LD?=$(CXX)
 
 # LLVM toolchain
 LLVM_COV?=llvm-cov
