@@ -965,7 +965,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
       for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {;
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-          if( !memcmp( &prev_txn_out->accounts.keys[ j ], fee_payer_key, sizeof(fd_pubkey_t) ) && prev_txn_out->accounts.is_writable[j] ) {
+          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], fee_payer_key ) && prev_txn_out->accounts.is_writable[j] ) {
             /* Found the account in a previous transaction */
             meta = prev_txn_out->accounts.metas[ j ];
             is_found = 1;
@@ -1489,7 +1489,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
     if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
       account_meta = (fd_account_meta_t *)meta;
-    } else if( !memcmp( acc, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) ) {
+    } else if( fd_pubkey_eq( acc, &fd_sysvar_instructions_id ) ) {
       account_meta = fd_type_pun( runtime->accounts.sysvar_instructions_mem );
       fd_account_meta_init( account_meta );
     } else {

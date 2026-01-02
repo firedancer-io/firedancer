@@ -3,10 +3,9 @@
 
 #include "fd_runtime_helpers.h"
 
-/* The general structure for executing transactions in Firedancer is as
-   follows if we think about transaction execution as part of a state
-   machine where transactions are deterministic state transitions over
-   various data structures.
+/* The general structure for executing transactions in Firedancer can
+   be thought as a state maching where transaction execution is a
+   deterministic state transition over various data structures.
 
    The starting and ending state before a transaction is executed is
    represented by the bank, accounts database, and status cache.  The
@@ -14,11 +13,12 @@
    for more details) and each bank is per-slot.  The latter two data
    structures are contained by the runtime.
 
-   The runtime also owns valid join to important data structures which
-   are not directly transition such as the program cache which is a
-   pure cache on top of the accounts database.  The runtime also owns
-   bounded out temporary memory regions used for transaction execution
-   and valid joins to other scratch memory regions (e.g. acc_pool).
+   The runtime also owns valid joins to important data structures which
+   are non-deterministically transitioned through execution such as the
+   program cache which is a pure cache on top of the accounts database.
+   The runtime also owns bounded out temporary memory regions used for
+   transaction execution and valid joins to other scratch memory regions
+   (e.g. acc_pool).
 
    So we expect the state of the runtime and the bank to change as a
    result of execution.
@@ -266,11 +266,14 @@ struct fd_txn_out {
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
      That is the limit we are going to use here. */
   struct {
+    /* is_setup is set to 1 if account data buffer resources have been
+       acquired for the transaction and 0 if they have not.  If the flag
+       has been set, memory resources must be released. */
     int                 is_setup;
     ulong               cnt;
     fd_pubkey_t         keys       [ MAX_TX_ACCOUNT_LOCKS ];
     fd_account_meta_t * metas      [ MAX_TX_ACCOUNT_LOCKS ];
-    ushort              is_writable[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar               is_writable[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* The fee payer and nonce accounts are treated differently than
        other accounts: if an on-transaction fails they are still
