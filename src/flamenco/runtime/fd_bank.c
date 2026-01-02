@@ -69,7 +69,6 @@ fd_bank_vote_states_end_locking_query( fd_bank_t * bank ) {
 
 fd_vote_states_t const *
 fd_bank_vote_states_prev_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->vote_states_prev_lock );
   /* If the pool element hasn't been setup yet, then return NULL */
   fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( bank );
   if( FD_UNLIKELY( vote_states_prev_pool==NULL ) ) {
@@ -733,7 +732,6 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   bank->vote_states_prev_pool_idx      = fd_bank_vote_states_prev_pool_idx_null( fd_banks_get_vote_states_prev_pool( banks ) );
   bank->vote_states_prev_dirty         = 0;
-  fd_rwlock_new( &bank->vote_states_prev_lock );
 
   bank->vote_states_prev_prev_pool_idx = fd_bank_vote_states_prev_prev_pool_idx_null( fd_banks_get_vote_states_prev_prev_pool( banks ) );
   bank->vote_states_prev_prev_dirty    = 0;
@@ -828,7 +826,6 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   child_bank->vote_states_prev_dirty    = 0;
   child_bank->vote_states_prev_pool_idx = parent_bank->vote_states_prev_pool_idx;
-  fd_rwlock_new( &child_bank->vote_states_prev_lock );
 
   child_bank->vote_states_prev_prev_dirty    = 0;
   child_bank->vote_states_prev_prev_pool_idx = parent_bank->vote_states_prev_prev_pool_idx;

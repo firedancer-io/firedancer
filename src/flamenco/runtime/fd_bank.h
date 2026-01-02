@@ -411,7 +411,6 @@ struct fd_bank {
   ulong vote_states_pool_offset;
   ulong vote_states_pool_lock_offset;
 
-  fd_rwlock_t vote_states_prev_lock;
   int vote_states_prev_dirty;
   ulong vote_states_prev_pool_idx;
   ulong vote_states_prev_pool_offset;
