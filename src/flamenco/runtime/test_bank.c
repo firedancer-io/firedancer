@@ -534,7 +534,6 @@ main( int argc, char ** argv ) {
 
   fd_vote_states_t * keys = fd_bank_vote_states_prev_locking_modify( bank9 );
   keys->magic = 101UL;
-  fd_bank_vote_states_prev_end_locking_modify( bank9 );
 
   /* Check that is now 1 free pool elements. */
 
@@ -542,7 +541,6 @@ main( int argc, char ** argv ) {
 
   fd_vote_states_t * keys2 = fd_bank_vote_states_prev_locking_modify( bank9 );
   keys2->magic = 101UL;
-  fd_bank_vote_states_prev_end_locking_modify( bank9 );
 
   fd_banks_mark_bank_frozen( banks, bank9 );
 
@@ -615,15 +613,12 @@ main( int argc, char ** argv ) {
 
   fd_vote_states_t const * keys3 = fd_bank_vote_states_prev_locking_query( bank11 );
   FD_TEST( keys3->magic == 101UL );
-  fd_bank_vote_states_prev_end_locking_query( bank11 );
 
   fd_vote_states_t const * keys4 = fd_bank_vote_states_prev_locking_query( bank11 );
   FD_TEST( keys4->magic == 101UL );
-  fd_bank_vote_states_prev_end_locking_query( bank11 );
 
   keys = fd_bank_vote_states_prev_locking_modify( bank11 );
   keys->magic = 101UL;
-  fd_bank_vote_states_prev_end_locking_modify( bank11 );
 
   fd_vote_states_t const * votes_const = fd_bank_vote_states_locking_query( bank11 );
   FD_TEST( !votes_const );
@@ -652,11 +647,9 @@ main( int argc, char ** argv ) {
 
   keys3 = fd_bank_vote_states_prev_locking_query( bank11 );
   FD_TEST( keys3->magic == 101UL );
-  fd_bank_vote_states_prev_end_locking_query( bank11 );
 
   keys4 = fd_bank_vote_states_prev_locking_query( bank11 );
   FD_TEST( keys4->magic == 101UL );
-  fd_bank_vote_states_prev_end_locking_query( bank11 );
 
   votes_const = fd_bank_vote_states_locking_query( bank11 );
   FD_TEST( votes->magic == 102UL );
@@ -680,11 +673,9 @@ main( int argc, char ** argv ) {
 
   keys3 = fd_bank_vote_states_prev_locking_query( bank11 );
   FD_TEST( keys3->magic == 101UL );
-  fd_bank_vote_states_prev_end_locking_query( bank11 );
 
   keys4 = fd_bank_vote_states_prev_locking_query( bank11 );
   FD_TEST( keys4->magic == 101UL );
-  fd_bank_vote_states_prev_end_locking_query( bank11 );
 
   votes_const = fd_bank_vote_states_locking_query( bank11 );
   FD_TEST( !votes_const );

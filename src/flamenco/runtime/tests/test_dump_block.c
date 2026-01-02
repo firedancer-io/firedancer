@@ -119,7 +119,6 @@ test_ctx_setup( void ) {
   parent_vote_states_prev                    = fd_vote_states_join( fd_vote_states_new( parent_vote_states_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   FD_TEST( parent_vote_states_prev );
 
-  fd_bank_vote_states_prev_end_locking_modify( test_ctx->parent_bank );
   fd_vote_states_t * parent_vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( test_ctx->parent_bank );
   parent_vote_states_prev_prev                    = fd_vote_states_join( fd_vote_states_new( parent_vote_states_prev_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   FD_TEST( parent_vote_states_prev_prev );
@@ -419,8 +418,6 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
                                                                                  vote_acct->vote_account.data->size );
       vote_state_ele->stake = vote_acct->stake;
     }
-
-    fd_bank_vote_states_prev_end_locking_modify( test_ctx->parent_bank );
   }
 
   /* Populate previous-to-previous epoch vote accounts */
@@ -440,7 +437,6 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
                                                                                  vote_acct->vote_account.data->size );
       vote_state_ele->stake = vote_acct->stake;
     }
-
   }
 
   /* Initialize and populate blockhash queue from input context */

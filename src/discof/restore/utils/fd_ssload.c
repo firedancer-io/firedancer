@@ -222,8 +222,6 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->stake               = elem->stake;
   }
 
-  fd_bank_vote_states_prev_end_locking_modify( bank );
-
   /* We also want to set the total stake to be the total amout of stake
      at the end of the previous epoch. This value is used for the
      get_epoch_stake syscall.

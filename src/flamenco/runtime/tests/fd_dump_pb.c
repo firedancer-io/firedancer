@@ -657,7 +657,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
       block_context->epoch_ctx.vote_accounts_t_1,
       &block_context->epoch_ctx.vote_accounts_t_1_count,
       spad );
-  fd_bank_vote_states_prev_end_locking_query( parent_bank );
 
   // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
   fd_vote_states_t const * vote_states_prev_prev   = fd_bank_vote_states_prev_prev_query( parent_bank );

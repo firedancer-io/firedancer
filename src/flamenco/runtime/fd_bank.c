@@ -82,11 +82,6 @@ fd_bank_vote_states_prev_locking_query( fd_bank_t * bank ) {
   return (fd_vote_states_t *)bank_vote_states_prev->data;
 }
 
-void
-fd_bank_vote_states_prev_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->vote_states_prev_lock );
-}
-
 fd_vote_states_t const *
 fd_bank_vote_states_prev_prev_query( fd_bank_t * bank ) {
   /* If the pool element hasn't been setup yet, then return NULL */
@@ -239,11 +234,6 @@ fd_bank_vote_states_prev_locking_modify( fd_bank_t * bank ) {
   bank->vote_states_prev_pool_idx = child_idx;
   bank->vote_states_prev_dirty    = 1;
   return (fd_vote_states_t *)child_vote_states_prev->data;
-}
-
-void
-fd_bank_vote_states_prev_end_locking_modify( fd_bank_t * bank ) {
-  (void)bank;
 }
 
 fd_vote_states_t *
