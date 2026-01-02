@@ -1547,6 +1547,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   /* At this point, the total number of writable accounts in the
      transaction is known.  We can now attempt to get the required
      amount of memory from the account memory pool. */
+
   ushort writable_account_cnt = 0U;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     if( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) ) {
@@ -1559,9 +1560,9 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
   /* At this point we know which accounts are writable, but we don't
      know if we will need to create an account for the rollback fee
-     payer or nonce account.  To avoid a potental deadlock, we will want
-     to request the worst-case number of accounts (# writable accounts +
-     2 rollback accounts) for the transaction in one call to
+     payer or nonce account.  To avoid a potential deadlock, we want to
+     request the worst-case number of accounts (# writable accounts + 2
+     rollback accounts) for the transaction in one call to
      fd_acc_pool_acquire. */
 
   ulong   writable_accs_idx = 0UL;

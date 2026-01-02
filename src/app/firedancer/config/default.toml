@@ -528,9 +528,9 @@ user = ""
     # max_fork_width, the client will crash.
     max_fork_width = 32
 
-    # max_account_cnt is the used to size out the amount of memory used
-    # by transaction execution for account staging. The minimum amount
-    # of accounts is 256 if bundles are disabled and is 640 if bundles
+    # max_account_cnt is used to size out the amount of memory used by
+    # transaction execution for account staging. The minimum amount
+    # of accounts is 130 if bundles are disabled and is 650 if bundles
     # are enabled.
     max_account_cnt = 1024
 

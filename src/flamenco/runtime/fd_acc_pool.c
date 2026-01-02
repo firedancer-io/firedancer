@@ -4,14 +4,14 @@
 
 #define FD_ACC_POOL_MAGIC (0xF17EDA2CEACC6001UL) /* FIREDANCE ACC POOL */
 
-struct fd_acc_pool_ele {
-  uchar account[ sizeof(fd_account_meta_t) + FD_RUNTIME_ACC_SZ_MAX ];
+struct fd_acc_entry {
+  uchar account[ sizeof(fd_account_meta_t) + FD_RUNTIME_ACC_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
   ulong next_;
 };
-typedef struct fd_acc_pool_ele fd_acc_pool_ele_t;
+typedef struct fd_acc_entry fd_acc_entry_t;
 
-#define POOL_NAME fd_acc_pool_ele
-#define POOL_T    fd_acc_pool_ele_t
+#define POOL_NAME fd_acc_entry_pool
+#define POOL_T    fd_acc_entry_t
 #define POOL_NEXT next_
 #include "../../util/tmpl/fd_pool.c"
 
@@ -22,9 +22,9 @@ struct fd_acc_pool {
 };
 typedef struct fd_acc_pool fd_acc_pool_t;
 
-static inline fd_acc_pool_ele_t *
+static inline fd_acc_entry_t *
 fd_acc_pool( fd_acc_pool_t * acc_pool ) {
-  return fd_acc_pool_ele_join( (uchar *)acc_pool + acc_pool->pool_offset );
+  return fd_acc_entry_pool_join( (uchar *)acc_pool + acc_pool->pool_offset );
 }
 
 ulong
@@ -36,8 +36,8 @@ ulong
 fd_acc_pool_footprint( ulong account_cnt ) {
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l,  fd_acc_pool_align(),     sizeof(fd_acc_pool_t) );
-  l = FD_LAYOUT_APPEND( l,  fd_acc_pool_ele_align(), fd_acc_pool_ele_footprint( account_cnt ) );
+  l = FD_LAYOUT_APPEND( l,  fd_acc_pool_align(),       sizeof(fd_acc_pool_t) );
+  l = FD_LAYOUT_APPEND( l,  fd_acc_entry_pool_align(), fd_acc_entry_pool_footprint( account_cnt ) );
   return FD_LAYOUT_FINI( l, fd_acc_pool_align() );
 }
 
@@ -60,11 +60,11 @@ fd_acc_pool_new( void * shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_acc_pool_t * acc_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_acc_pool_align(), sizeof(fd_acc_pool_t) );
-  void *          pool     = FD_SCRATCH_ALLOC_APPEND( l, fd_acc_pool_ele_align(), fd_acc_pool_ele_footprint( account_cnt ) );
+  fd_acc_pool_t * acc_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_acc_pool_align(),       sizeof(fd_acc_pool_t) );
+  void *          pool     = FD_SCRATCH_ALLOC_APPEND( l, fd_acc_entry_pool_align(), fd_acc_entry_pool_footprint( account_cnt ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_acc_pool_align() );
 
-  if( FD_UNLIKELY( !fd_acc_pool_ele_new( pool, account_cnt ) ) ) {
+  if( FD_UNLIKELY( !fd_acc_entry_pool_new( pool, account_cnt ) ) ) {
     FD_LOG_WARNING(( "Failed to create acc pool" ));
     return NULL;
   }
@@ -110,15 +110,15 @@ fd_acc_pool_try_acquire( fd_acc_pool_t * acc_pool,
                          uchar * *       accounts_out ) {
   fd_rwlock_write( &acc_pool->lock_ );
 
-  fd_acc_pool_ele_t * pool = fd_acc_pool( acc_pool );
+  fd_acc_entry_t * pool = fd_acc_pool( acc_pool );
 
-  if( FD_UNLIKELY( fd_acc_pool_ele_free( pool )<request_cnt ) ) {
+  if( FD_UNLIKELY( fd_acc_entry_pool_free( pool )<request_cnt ) ) {
     fd_rwlock_unwrite( &acc_pool->lock_ );
     return 1;
   }
 
   for( ulong i=0UL; i<request_cnt; i++ ) {
-    fd_acc_pool_ele_t * ele = fd_acc_pool_ele_ele_acquire( pool );
+    fd_acc_entry_t * ele = fd_acc_entry_pool_ele_acquire( pool );
     accounts_out[ i ] = (uchar *)ele;
   }
 
@@ -142,10 +142,10 @@ fd_acc_pool_release( fd_acc_pool_t * acc_pool,
                      uchar *         account ) {
   fd_rwlock_write( &acc_pool->lock_ );
 
-  fd_acc_pool_ele_t * pool = fd_acc_pool( acc_pool );
+  fd_acc_entry_t * pool = fd_acc_pool( acc_pool );
 
-  fd_acc_pool_ele_t * ele = fd_type_pun( account );
-  fd_acc_pool_ele_ele_release( pool, ele );
+  fd_acc_entry_t * ele = fd_type_pun( account );
+  fd_acc_entry_pool_ele_release( pool, ele );
 
   fd_rwlock_unwrite( &acc_pool->lock_ );
 }
