@@ -211,7 +211,6 @@ fd_bank_vote_states_end_locking_modify( fd_bank_t * bank ) {
 
 fd_vote_states_t *
 fd_bank_vote_states_prev_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->vote_states_prev_lock );
   /* If the dirty flag is set, then we already have a pool element */
   /* that was copied over for the current bank. We can simply just */
   /* query the pool element and return it. */
@@ -244,7 +243,7 @@ fd_bank_vote_states_prev_locking_modify( fd_bank_t * bank ) {
 
 void
 fd_bank_vote_states_prev_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->vote_states_prev_lock );
+  (void)bank;
 }
 
 fd_vote_states_t *
