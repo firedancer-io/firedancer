@@ -394,7 +394,6 @@ struct fd_bank {
      is located at the pool idx in the pool. If the dirty flag has been
      set, then the element has been copied over for this bank. */
 
-  fd_rwlock_t epoch_rewards_lock;
   int epoch_rewards_dirty;
   ulong epoch_rewards_pool_idx;
   ulong epoch_rewards_pool_offset;
@@ -661,21 +660,14 @@ struct fd_banks {
 };
 typedef struct fd_banks fd_banks_t;
 
-/* Bank accesssors. Different accessors are emitted for different types
-   depending on if the field has a lock or not. */
+/* Bank accesssors and mutators. Different accessors are emitted for
+   different types depending on if the field has a lock or not. */
 
-fd_epoch_rewards_t const * fd_bank_epoch_rewards_locking_query( fd_bank_t * bank );
-void fd_bank_epoch_rewards_end_locking_query( fd_bank_t * bank );
-fd_epoch_rewards_t * fd_bank_epoch_rewards_locking_modify( fd_bank_t * bank );
-void fd_bank_epoch_rewards_end_locking_modify( fd_bank_t * bank );
+fd_epoch_rewards_t const * fd_bank_epoch_rewards_query( fd_bank_t * bank );
+fd_epoch_rewards_t * fd_bank_epoch_rewards_modify( fd_bank_t * bank );
 
 fd_epoch_leaders_t const * fd_bank_epoch_leaders_query( fd_bank_t * bank );
 fd_epoch_leaders_t * fd_bank_epoch_leaders_modify( fd_bank_t * bank );
-
-fd_vote_states_t const * fd_bank_vote_states_locking_query( fd_bank_t * bank );
-void fd_bank_vote_states_end_locking_query( fd_bank_t * bank );
-fd_vote_states_t * fd_bank_vote_states_locking_modify( fd_bank_t * bank );
-void fd_bank_vote_states_end_locking_modify( fd_bank_t * bank );
 
 fd_vote_states_t const * fd_bank_vote_states_prev_query( fd_bank_t * bank );
 fd_vote_states_t * fd_bank_vote_states_prev_modify( fd_bank_t * bank );
@@ -683,25 +675,10 @@ fd_vote_states_t * fd_bank_vote_states_prev_modify( fd_bank_t * bank );
 fd_vote_states_t const * fd_bank_vote_states_prev_prev_query( fd_bank_t * bank );
 fd_vote_states_t * fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank );
 
-#define HAS_LOCK_1(type, name)                                     \
-  type const * fd_bank_##name##_locking_query( fd_bank_t * bank ); \
-  void fd_bank_##name##_end_locking_query( fd_bank_t * bank );     \
-  type * fd_bank_##name##_locking_modify( fd_bank_t * bank );      \
-  void fd_bank_##name##_end_locking_modify( fd_bank_t * bank );
-
-#define HAS_LOCK_0(type, name)                                   \
-  type const * fd_bank_##name##_query( fd_bank_t const * bank ); \
-  type * fd_bank_##name##_modify( fd_bank_t * bank );
-
-#define X(type, name, footprint, align, has_lock)            \
-  void fd_bank_##name##_set( fd_bank_t * bank, type value ); \
-  type fd_bank_##name##_get( fd_bank_t const * bank );       \
-  HAS_LOCK_##has_lock(type, name)
-FD_BANKS_ITER(X)
-#undef X
-
-/* Define accessor and mutator functions for the non-templatized
-   fields. */
+fd_vote_states_t const * fd_bank_vote_states_locking_query( fd_bank_t * bank );
+void fd_bank_vote_states_end_locking_query( fd_bank_t * bank );
+fd_vote_states_t * fd_bank_vote_states_locking_modify( fd_bank_t * bank );
+void fd_bank_vote_states_end_locking_modify( fd_bank_t * bank );
 
 static inline fd_cost_tracker_t *
 fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
@@ -732,6 +709,24 @@ static inline void
 fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
   fd_rwlock_unread( &bank->cost_tracker_lock );
 }
+
+#define HAS_LOCK_1(type, name)                                     \
+  type const * fd_bank_##name##_locking_query( fd_bank_t * bank ); \
+  void fd_bank_##name##_end_locking_query( fd_bank_t * bank );     \
+  type * fd_bank_##name##_locking_modify( fd_bank_t * bank );      \
+  void fd_bank_##name##_end_locking_modify( fd_bank_t * bank );
+
+#define HAS_LOCK_0(type, name)                                   \
+  type const * fd_bank_##name##_query( fd_bank_t const * bank ); \
+  type * fd_bank_##name##_modify( fd_bank_t * bank );
+
+#define X(type, name, footprint, align, has_lock)            \
+  void fd_bank_##name##_set( fd_bank_t * bank, type value ); \
+  type fd_bank_##name##_get( fd_bank_t const * bank );       \
+  HAS_LOCK_##has_lock(type, name)
+FD_BANKS_ITER(X)
+#undef X
+
 
 #undef HAS_LOCK_0
 #undef HAS_LOCK_1

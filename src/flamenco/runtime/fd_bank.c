@@ -14,8 +14,7 @@ fd_bank_footprint( void ) {
 }
 
 fd_epoch_rewards_t const *
-fd_bank_epoch_rewards_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->epoch_rewards_lock );
+fd_bank_epoch_rewards_query( fd_bank_t * bank ) {
   /* If the pool element hasn't been setup yet, then return NULL */
   fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( bank );
   if( FD_UNLIKELY( epoch_rewards_pool==NULL ) ) {
@@ -26,11 +25,6 @@ fd_bank_epoch_rewards_locking_query( fd_bank_t * bank ) {
   }
   fd_bank_epoch_rewards_t * bank_epoch_rewards = fd_bank_epoch_rewards_pool_ele( epoch_rewards_pool, bank->epoch_rewards_pool_idx );
   return (fd_epoch_rewards_t *)bank_epoch_rewards->data;
-}
-
-void
-fd_bank_epoch_rewards_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->epoch_rewards_lock );
 }
 
 fd_epoch_leaders_t const *
@@ -96,8 +90,7 @@ fd_bank_vote_states_prev_prev_query( fd_bank_t * bank ) {
 }
 
 fd_epoch_rewards_t *
-fd_bank_epoch_rewards_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->epoch_rewards_lock );
+fd_bank_epoch_rewards_modify( fd_bank_t * bank ) {
   /* If the dirty flag is set, then we already have a pool element */
   /* that was copied over for the current bank. We can simply just */
   /* query the pool element and return it. */
@@ -126,11 +119,6 @@ fd_bank_epoch_rewards_locking_modify( fd_bank_t * bank ) {
   bank->epoch_rewards_pool_idx = child_idx;
   bank->epoch_rewards_dirty    = 1;
   return (fd_epoch_rewards_t *)child_epoch_rewards->data;
-}
-
-void
-fd_bank_epoch_rewards_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->epoch_rewards_lock );
 }
 
 fd_epoch_leaders_t *
@@ -721,7 +709,6 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   bank->epoch_rewards_pool_idx         = fd_bank_epoch_rewards_pool_idx_null( fd_banks_get_epoch_rewards_pool( banks ) );
   bank->epoch_rewards_dirty            = 0;
-  fd_rwlock_new( &bank->epoch_rewards_lock );
 
   bank->epoch_leaders_pool_idx         = fd_bank_epoch_leaders_pool_idx_null( fd_banks_get_epoch_leaders_pool( banks ) );
   bank->epoch_leaders_dirty            = 0;
@@ -815,7 +802,6 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   child_bank->epoch_rewards_dirty    = 0;
   child_bank->epoch_rewards_pool_idx = parent_bank->epoch_rewards_pool_idx;
-  fd_rwlock_new( &child_bank->epoch_rewards_lock );
 
   child_bank->epoch_leaders_dirty    = 0;
   child_bank->epoch_leaders_pool_idx = parent_bank->epoch_leaders_pool_idx;
