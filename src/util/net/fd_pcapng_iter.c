@@ -3,18 +3,6 @@
 #include <errno.h>
 #include <stdio.h>
 
-/* FIXME Option parsing spec violation
-
-     https://www.ietf.org/archive/id/draft-ietf-opsawg-pcapng-00.html#name-options
-
-     > Code that reads pcapng files MUST NOT assume an option list will
-     have an opt_endofopt option at the end; it MUST also check for the
-     end of the block, and SHOULD treat blocks where the option list has
-     no opt_endofopt option as if the option list had an opt_endofopt
-     option at the end.
-
-     This parser currently does not handle missing opt_endofopt */
-
 FD_FN_CONST ulong
 fd_pcapng_iter_align( void ) {
   return alignof(fd_pcapng_iter_t);
