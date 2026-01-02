@@ -146,6 +146,89 @@ append_netdev( fd_net_ctx_t * ctx,
   ctx->netdev_tbl.hdr->dev_cnt   = (ushort)(idx + (ushort)1);
 }
 
+/* Test net_tx_ready for all code paths */
+static void
+test_net_tx_ready( void ) {
+  fd_xdp_ring_t tx_ring;
+  uint tx_prod_val = 0;
+  uint tx_cons_val = 0;
+
+  fd_net_free_ring_t free_ring;
+  ulong free_queue[128];
+
+  /* Setup tx_ring */
+  tx_ring.prod = &tx_prod_val;
+  tx_ring.cons = &tx_cons_val;
+  tx_ring.depth = 128;
+  tx_ring.cached_prod = 0;
+  tx_ring.cached_cons = 0;
+
+  /* Setup free_ring */
+  free_ring.queue = free_queue;
+  free_ring.depth = 128;
+  free_ring.prod = 0;
+  free_ring.cons = 0;
+
+  /* Both ready - should return 1 */
+  tx_prod_val = tx_ring.cached_prod = 100;
+  tx_cons_val = tx_ring.cached_cons = 90;
+  free_ring.prod = 10;
+  free_ring.cons = 5;
+  FD_TEST( net_tx_ready( &tx_ring, &free_ring ) == 1 );
+
+  /* Free ring empty (prod == cons) - should return 0 */
+  tx_prod_val = tx_ring.cached_prod = 100;
+  tx_cons_val = tx_ring.cached_cons = 90;
+  free_ring.prod = free_ring.cons = 20; /* empty */
+  FD_TEST( net_tx_ready( &tx_ring, &free_ring ) == 0 );
+
+  /* TX ring full - should return 0 */
+  tx_prod_val = tx_ring.cached_prod = 200;
+  tx_cons_val = tx_ring.cached_cons = 72; /* 200 - 72 = 128, exactly depth */
+  free_ring.prod = 30;
+  free_ring.cons = 25;
+  FD_TEST( net_tx_ready( &tx_ring, &free_ring ) == 0 );
+
+  /* TX ring appears full with stale cache, but actually not full */
+  tx_ring.cached_prod = 300;
+  tx_ring.cached_cons = 172; /* 300 - 172 = 128, appears full */
+  tx_prod_val = 300;
+  tx_cons_val = 200; /* consumer made progress, 300 - 200 = 100 */
+  free_ring.prod = 40;
+  free_ring.cons = 35;
+  FD_TEST( net_tx_ready( &tx_ring, &free_ring ) == 1 );
+  FD_TEST( tx_ring.cached_cons == 200 ); /* verify cache was refreshed */
+
+  /* Both blocking conditions (free empty AND tx full) */
+  tx_prod_val = tx_ring.cached_prod = 500;
+  tx_cons_val = tx_ring.cached_cons = 372; /* 500 - 372 = 128, full */
+  free_ring.prod = free_ring.cons = 60; /* empty*/
+  FD_TEST( net_tx_ready( &tx_ring, &free_ring ) == 0 );
+
+  /* Edge case - tx ring with one slot available */
+  tx_prod_val = tx_ring.cached_prod = 600;
+  tx_cons_val = tx_ring.cached_cons = 473; /* 600 - 473 = 127, one slot */
+  free_ring.prod = 70;
+  free_ring.cons = 69;
+  FD_TEST( net_tx_ready( &tx_ring, &free_ring ) == 1 );
+
+  /* Edge case - free ring with one buffer available */
+  tx_prod_val = tx_ring.cached_prod = 700;
+  tx_cons_val = tx_ring.cached_cons = 690;
+  free_ring.prod = 81;
+  free_ring.cons = 80; /* one buffer */
+  FD_TEST( net_tx_ready( &tx_ring, &free_ring ) == 1 );
+
+  /* TX ring empty (should be ready) */
+  tx_prod_val = tx_ring.cached_prod = 800;
+  tx_cons_val = tx_ring.cached_cons = 800;
+  free_ring.prod = 110;
+  free_ring.cons = 105;
+  FD_TEST( net_tx_ready( &tx_ring, &free_ring ) == 1 );
+
+  FD_LOG_NOTICE(( "test_net_tx_ready: pass" ));
+}
+
 static void
 setup_netdev_table( fd_net_ctx_t * ctx ) {
   ctx->netdev_tbl.hdr->dev_cnt = 0;
@@ -189,6 +272,8 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  test_net_tx_ready();
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;

@@ -394,20 +394,19 @@ net_check_gre_interface_exists( fd_net_ctx_t * ctx ) {
 }
 
 
-/* net_tx_ready returns 1 if the current XSK is ready to submit a TX send
-   job.  If the XSK is blocked for sends, returns 0.  Reasons for block
-   include:
-   - No XSK TX buffer is available
-   - XSK TX ring is full */
+/* net_tx_ready returns 1 if we can submit a job to this TX ring, and 0 otherwise.
+   Reasons for block include:
+   - No TX buffer is available (free ring empty)
+   - TX ring is full
+
+   tx_ring: pointer to the XDP TX ring
+   free_ring: pointer to the free TX ring */
 
 static int
-net_tx_ready( fd_net_ctx_t * ctx,
-              uint           xsk_idx ) {
-  fd_xsk_t *           xsk     = &ctx->xsk[ xsk_idx ];
-  fd_xdp_ring_t *      tx_ring = &xsk->ring_tx;
-  fd_net_free_ring_t * free    = &ctx->free_tx;
-  if( free->prod == free->cons ) return 0; /* drop */
-  if( tx_ring->prod - tx_ring->cons >= tx_ring->depth ) return 0; /* drop */
+net_tx_ready( fd_xdp_ring_t *      tx_ring,
+              fd_net_free_ring_t * free_ring ) {
+  if( FD_UNLIKELY( free_ring->prod == free_ring->cons ) ) return 0; /* drop - no free buffers */
+  if( FD_UNLIKELY( fd_xdp_ring_full( tx_ring ) ) )        return 0; /* drop - tx ring full */
   return 1;
 }
 
@@ -468,9 +467,8 @@ net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
                         uint           xsk_idx,
                         long           now,
                         int *          charge_busy ) {
-  uint tx_prod = FD_VOLATILE_CONST( *ctx->xsk[ xsk_idx ].ring_tx.prod );
-  uint tx_cons = FD_VOLATILE_CONST( *ctx->xsk[ xsk_idx ].ring_tx.cons );
-  int tx_ring_empty = tx_prod==tx_cons;
+  fd_xdp_ring_t * tx_ring        = &ctx->xsk[ xsk_idx ].ring_tx;
+  int             tx_ring_empty  = fd_xdp_ring_empty( tx_ring, FD_XDP_RING_ROLE_PROD );
   if( fd_net_flusher_check( ctx->tx_flusher+xsk_idx, now, tx_ring_empty ) ) {
     net_tx_wakeup( ctx, &ctx->xsk[ xsk_idx ], charge_busy );
     fd_net_flusher_wakeup( ctx->tx_flusher+xsk_idx, now );
@@ -692,14 +690,14 @@ before_frag( fd_net_ctx_t * ctx,
 
   /* Skip if TX is blocked */
 
-  if( FD_UNLIKELY( !net_tx_ready( ctx, xsk_idx ) ) ) {
+  fd_xsk_t *           xsk  = &ctx->xsk[ xsk_idx ];
+  fd_net_free_ring_t * free = &ctx->free_tx;
+  if( FD_UNLIKELY( !net_tx_ready( &xsk->ring_tx, free ) ) ) {
     ctx->metrics.tx_full_fail_cnt++;
     return 1;
   }
 
   /* Allocate buffer for receive */
-
-  fd_net_free_ring_t * free      = &ctx->free_tx;
   ulong                alloc_seq = free->cons;
   void *               frame     = (void *)free->queue[ alloc_seq % free->depth ];
   free->cons = fd_seq_inc( alloc_seq, 1UL );
@@ -1026,6 +1024,7 @@ net_comp_event( fd_net_ctx_t * ctx,
   uint            comp_mask  = comp_ring->depth - 1U;
   ulong           frame      = FD_VOLATILE_CONST( comp_ring->frame_ring[ comp_seq&comp_mask ] );
   ulong const     frame_mask = FD_NET_MTU - 1UL;
+  FD_STATIC_ASSERT( FD_ULONG_IS_POW2( FD_NET_MTU ), "FD_NET_MTU must be a power of two" );
   if( FD_UNLIKELY( frame+FD_NET_MTU > ctx->umem_sz ) ) {
     FD_LOG_ERR(( "Bounds check failed: frame=0x%lx umem_sz=0x%lx",
                  frame, (ulong)ctx->umem_sz ));
@@ -1070,13 +1069,7 @@ net_rx_event( fd_net_ctx_t * ctx,
   /* Check if we have space in the fill ring to free the frame */
 
   fd_xdp_ring_t * fill_ring  = &xsk->ring_fr;
-  uint            fill_depth = fill_ring->depth;
-  uint            fill_mask  = fill_depth-1U;
-  ulong           frame_mask = FD_NET_MTU - 1UL;
-  uint            fill_prod  = FD_VOLATILE_CONST( *fill_ring->prod );
-  uint            fill_cons  = FD_VOLATILE_CONST( *fill_ring->cons );
-
-  if( FD_UNLIKELY( (int)(fill_prod-fill_cons) >= (int)fill_depth ) ) {
+  if( FD_UNLIKELY( fd_xdp_ring_full( fill_ring ) ) ) {
     ctx->metrics.rx_fill_blocked_cnt++;
     return; /* blocked */
   }
@@ -1085,7 +1078,6 @@ net_rx_event( fd_net_ctx_t * ctx,
 
   uint freed_chunk = (uint)( ctx->umem_chunk0 + (frame.addr>>FD_CHUNK_LG_SZ) );
   net_rx_packet( ctx, frame.addr, frame.len, &freed_chunk );
-
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *rx_ring->cons ) = rx_ring->cached_cons = rx_seq+1U;
 
@@ -1098,7 +1090,12 @@ net_rx_event( fd_net_ctx_t * ctx,
     FD_LOG_CRIT(( "mcache corruption detected: chunk=%u chunk0=%u wmark=%u",
                   freed_chunk, ctx->umem_chunk0, ctx->umem_wmark ));
   }
-  ulong freed_off = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
+
+  FD_STATIC_ASSERT( FD_ULONG_IS_POW2( FD_NET_MTU ), "FD_NET_MTU must be a power of two" );
+  uint  fill_prod  = fill_ring->cached_prod;
+  uint  fill_mask  = (fill_ring->depth)-1U;
+  ulong frame_mask = FD_NET_MTU - 1UL;
+  ulong freed_off  = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
   fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off & (~frame_mask);
   FD_VOLATILE( *fill_ring->prod ) = fill_ring->cached_prod = fill_prod+1U;
 
@@ -1132,24 +1129,20 @@ before_credit( fd_net_ctx_t *      ctx,
 
   net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
 
-  uint rx_cons = rr_xsk->ring_rx.cached_cons;
-  uint rx_prod = FD_VOLATILE_CONST( *rr_xsk->ring_rx.prod );
-  if( rx_cons!=rx_prod ) {
+  /* Fire RX event if we have RX desc avail */
+  if( !fd_xdp_ring_empty( &rr_xsk->ring_rx, FD_XDP_RING_ROLE_CONS ) ) {
     *charge_busy = 1;
-    rr_xsk->ring_rx.cached_prod = rx_prod;
-    net_rx_event( ctx, rr_xsk, rx_cons );
+    net_rx_event( ctx, rr_xsk, rr_xsk->ring_rx.cached_cons );
   } else {
     net_rx_wakeup( ctx, rr_xsk, charge_busy );
     ctx->rr_idx++;
     ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
   }
 
-  uint comp_cons = FD_VOLATILE_CONST( *rr_xsk->ring_cr.cons );
-  uint comp_prod = FD_VOLATILE_CONST( *rr_xsk->ring_cr.prod );
-  if( comp_cons!=comp_prod ) {
+  /* Fire comp event if we have comp desc avail */
+  if( !fd_xdp_ring_empty( &rr_xsk->ring_cr, FD_XDP_RING_ROLE_CONS ) ) {
     *charge_busy = 1;
-    rr_xsk->ring_cr.cached_prod = comp_prod;
-    net_comp_event( ctx, rr_xsk, comp_cons );
+    net_comp_event( ctx, rr_xsk, rr_xsk->ring_cr.cached_cons );
   }
 
 }
