@@ -1,11 +1,6 @@
-MAKEFLAGS += --no-builtin-rules
-MAKEFLAGS += --no-builtin-variables
-.SUFFIXES:
 .PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps
 .PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
 .PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-clean
-.SECONDARY:
-.SECONDEXPANSION:
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
