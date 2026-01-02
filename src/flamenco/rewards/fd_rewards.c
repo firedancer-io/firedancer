@@ -559,7 +559,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
   ulong minimum_stake_delegation = get_minimum_stake_delegation( bank );
 
-  fd_vote_states_t * vote_states = !!runtime_stack->stakes.prev_vote_credits_used ? fd_bank_vote_states_prev_locking_modify( bank ) : fd_bank_vote_states_locking_modify( bank );
+  fd_vote_states_t * vote_states = !!runtime_stack->stakes.prev_vote_credits_used ? fd_bank_vote_states_prev_modify( bank ) : fd_bank_vote_states_locking_modify( bank );
 
   fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_locking_modify( bank );
   fd_epoch_rewards_init( epoch_rewards );

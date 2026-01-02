@@ -199,7 +199,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   }
 
   /* Vote stakes for the previous epoch (E-1). */
-  fd_vote_states_t * vote_stakes_prev = fd_bank_vote_states_prev_locking_modify( bank );
+  fd_vote_states_t * vote_stakes_prev = fd_bank_vote_states_prev_modify( bank );
   for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[1].vote_stakes[i];
     if( FD_UNLIKELY( !elem->stake ) ) continue;

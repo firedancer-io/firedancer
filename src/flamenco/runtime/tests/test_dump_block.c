@@ -115,7 +115,7 @@ test_ctx_setup( void ) {
   FD_TEST( parent_vote_states );
   fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
 
-  fd_vote_states_t * parent_vote_states_prev = fd_bank_vote_states_prev_locking_modify( test_ctx->parent_bank );
+  fd_vote_states_t * parent_vote_states_prev = fd_bank_vote_states_prev_modify( test_ctx->parent_bank );
   parent_vote_states_prev                    = fd_vote_states_join( fd_vote_states_new( parent_vote_states_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   FD_TEST( parent_vote_states_prev );
 
@@ -403,7 +403,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
 
   /* Populate previous epoch vote accounts */
   if( input_ctx.epoch_ctx.vote_accounts_t_1_count ) {
-    fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_locking_modify( test_ctx->parent_bank );
+    fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( test_ctx->parent_bank );
 
     for( pb_size_t i=0U; i<input_ctx.epoch_ctx.vote_accounts_t_1_count; i++ ) {
       fd_exec_test_vote_account_t const * vote_acct = &input_ctx.epoch_ctx.vote_accounts_t_1[i];

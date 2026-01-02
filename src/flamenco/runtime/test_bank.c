@@ -532,14 +532,14 @@ main( int argc, char ** argv ) {
 
   /* Set some CoW fields. */
 
-  fd_vote_states_t * keys = fd_bank_vote_states_prev_locking_modify( bank9 );
+  fd_vote_states_t * keys = fd_bank_vote_states_prev_modify( bank9 );
   keys->magic = 101UL;
 
   /* Check that is now 1 free pool elements. */
 
   FD_TEST( fd_bank_vote_states_prev_pool_free( fd_bank_get_vote_states_prev_pool( bank9 ) ) == 1UL );
 
-  fd_vote_states_t * keys2 = fd_bank_vote_states_prev_locking_modify( bank9 );
+  fd_vote_states_t * keys2 = fd_bank_vote_states_prev_modify( bank9 );
   keys2->magic = 101UL;
 
   fd_banks_mark_bank_frozen( banks, bank9 );
@@ -611,13 +611,13 @@ main( int argc, char ** argv ) {
   /* Again, there are no free epoch leader pool elements. */
   FD_TEST( !fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank11 ) ) );
 
-  fd_vote_states_t const * keys3 = fd_bank_vote_states_prev_locking_query( bank11 );
+  fd_vote_states_t const * keys3 = fd_bank_vote_states_prev_query( bank11 );
   FD_TEST( keys3->magic == 101UL );
 
-  fd_vote_states_t const * keys4 = fd_bank_vote_states_prev_locking_query( bank11 );
+  fd_vote_states_t const * keys4 = fd_bank_vote_states_prev_query( bank11 );
   FD_TEST( keys4->magic == 101UL );
 
-  keys = fd_bank_vote_states_prev_locking_modify( bank11 );
+  keys = fd_bank_vote_states_prev_modify( bank11 );
   keys->magic = 101UL;
 
   fd_vote_states_t const * votes_const = fd_bank_vote_states_locking_query( bank11 );
@@ -645,10 +645,10 @@ main( int argc, char ** argv ) {
 
   /* Verify that the CoW fields are properly set for bank11 */
 
-  keys3 = fd_bank_vote_states_prev_locking_query( bank11 );
+  keys3 = fd_bank_vote_states_prev_query( bank11 );
   FD_TEST( keys3->magic == 101UL );
 
-  keys4 = fd_bank_vote_states_prev_locking_query( bank11 );
+  keys4 = fd_bank_vote_states_prev_query( bank11 );
   FD_TEST( keys4->magic == 101UL );
 
   votes_const = fd_bank_vote_states_locking_query( bank11 );
@@ -671,10 +671,10 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_bank_slot_get( bank11 ) == 0UL );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
 
-  keys3 = fd_bank_vote_states_prev_locking_query( bank11 );
+  keys3 = fd_bank_vote_states_prev_query( bank11 );
   FD_TEST( keys3->magic == 101UL );
 
-  keys4 = fd_bank_vote_states_prev_locking_query( bank11 );
+  keys4 = fd_bank_vote_states_prev_query( bank11 );
   FD_TEST( keys4->magic == 101UL );
 
   votes_const = fd_bank_vote_states_locking_query( bank11 );

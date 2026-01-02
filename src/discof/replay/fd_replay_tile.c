@@ -552,7 +552,7 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL );
 
   fd_vote_states_t const * vote_states_prev;
-  if( FD_LIKELY( current_epoch ) ) vote_states_prev = fd_bank_vote_states_prev_locking_query( bank );
+  if( FD_LIKELY( current_epoch ) ) vote_states_prev = fd_bank_vote_states_prev_query( bank );
   else                             vote_states_prev = fd_bank_vote_states_prev_prev_query( bank );
 
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );

@@ -677,8 +677,8 @@ void fd_bank_vote_states_end_locking_query( fd_bank_t * bank );
 fd_vote_states_t * fd_bank_vote_states_locking_modify( fd_bank_t * bank );
 void fd_bank_vote_states_end_locking_modify( fd_bank_t * bank );
 
-fd_vote_states_t const * fd_bank_vote_states_prev_locking_query( fd_bank_t * bank );
-fd_vote_states_t * fd_bank_vote_states_prev_locking_modify( fd_bank_t * bank );
+fd_vote_states_t const * fd_bank_vote_states_prev_query( fd_bank_t * bank );
+fd_vote_states_t * fd_bank_vote_states_prev_modify( fd_bank_t * bank );
 
 fd_vote_states_t const * fd_bank_vote_states_prev_prev_query( fd_bank_t * bank );
 fd_vote_states_t * fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank );

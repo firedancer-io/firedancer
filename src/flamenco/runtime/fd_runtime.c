@@ -415,7 +415,7 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t * bank ) {
 static void
 fd_runtime_update_vote_states_prev_prev( fd_bank_t * bank ) {
   fd_vote_states_t *       vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
-  fd_vote_states_t const * vote_states_prev      = fd_bank_vote_states_prev_locking_query( bank );
+  fd_vote_states_t const * vote_states_prev      = fd_bank_vote_states_prev_query( bank );
   fd_memcpy( vote_states_prev_prev, vote_states_prev, FD_VOTE_STATES_FOOTPRINT );
 }
 
@@ -424,7 +424,7 @@ fd_runtime_update_vote_states_prev_prev( fd_bank_t * bank ) {
 
 static void
 fd_runtime_update_vote_states_prev( fd_bank_t * bank ) {
-  fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
+  fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_modify( bank );
   fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( bank );
   fd_memcpy( vote_states_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
   fd_bank_vote_states_end_locking_query( bank );
@@ -1608,7 +1608,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
   fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
   fd_memcpy( vote_states_prev_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
 
-  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
+  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( bank );
   fd_memcpy( vote_states_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
 
   fd_bank_vote_states_end_locking_modify( bank );
