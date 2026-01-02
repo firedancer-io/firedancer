@@ -153,6 +153,40 @@ struct __attribute__((aligned(64UL))) fd_xdp_ring {
 };
 typedef struct fd_xdp_ring fd_xdp_ring_t;
 
+#define FD_XDP_RING_ROLE_PROD 0
+#define FD_XDP_RING_ROLE_CONS 1
+
+/* fd_xdp_ring_empty returns 1 if the ring is empty, 0 otherwise.
+   'role' is FD_XDP_RING_ROLE_PROD if userspace is the producer (fill, tx),
+   and FD_XDP_RING_ROLE_CONS if userspace is the consumer (rx, completion). */
+
+static inline int
+fd_xdp_ring_empty( fd_xdp_ring_t * ring, uint role ) {
+  if( role == FD_XDP_RING_ROLE_PROD ) {
+    /* If potentially stale cached_cons says everything consumed,
+       it's definitely empty. Else, refresh cached seq. */
+    if( FD_UNLIKELY( ring->cached_prod == ring->cached_cons ) ) return 1;
+    ring->cached_cons = FD_VOLATILE_CONST( *ring->cons );
+  } else {
+    /* If potentially stale cached_prod says we have more to read,
+       it's definitely non-empty. Else, refresh cached seq. */
+    if( FD_LIKELY( ring->cached_cons < ring->cached_prod ) ) return 0;
+    ring->cached_prod = FD_VOLATILE_CONST( *ring->prod );
+  }
+  return ring->cached_prod == ring->cached_cons;
+}
+
+/* fd_xdp_ring_full returns 1 if the ring is full, 0 otherwise.
+   Assumes caller is the producer to this ring (fill, tx). */
+static inline int
+fd_xdp_ring_full( fd_xdp_ring_t * ring ) {
+  /* If potentially stale cached_cons says we have more space,
+      it's definitely not full. Else, refresh cached seq. */
+  if( FD_LIKELY( ring->cached_prod - ring->cached_cons < ring->depth ) ) return 0;
+  ring->cached_cons = FD_VOLATILE_CONST( *ring->cons );
+  return ring->cached_prod - ring->cached_cons >= ring->depth;
+}
+
 /* fd_xsk_params_t: Memory layout parameters of XSK.
    Can be retrieved using fd_xsk_get_params() */
 
