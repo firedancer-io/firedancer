@@ -696,6 +696,9 @@ metric introduced.
     <counter name="ExecutedFailedTransactions" summary="Count of transactions that execute on chain but failed" />
     <counter name="SuccessfulTransactions" summary="Count of transactions that execute on chain and succeed" />
     <counter name="CostModelUndercount" summary="Count of transactions that used more CUs than the cost model should have permitted them to" />
+
+    <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes." />
+    <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes." />
 </tile>
 
 <tile name="poh">
@@ -1146,6 +1149,9 @@ metric introduced.
 
     <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes." />
     <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes." />
+
+    <counter name="ExecutedFailedTransactions" summary="Count of transactions that execute on chain but failed" />
+    <counter name="SuccessfulTransactions" summary="Count of transactions that execute on chain and succeed" />
 </tile>
 
 <tile name="benchs">

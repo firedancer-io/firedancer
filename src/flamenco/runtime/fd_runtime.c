@@ -992,8 +992,6 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     return err;
   }
 
-  txn_out->details.exec_start_timestamp = fd_tickcount();
-
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
   err = fd_executor_load_transaction_accounts( runtime, bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1139,8 +1137,6 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
                        fd_txn_in_t const * txn_in,
                        fd_txn_out_t *      txn_out ) {
 
-  txn_out->details.commit_start_timestamp = fd_tickcount();
-
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
 
   if( FD_UNLIKELY( txn_out->err.txn_err ) ) {
@@ -1274,11 +1270,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
                                     fd_bank_t *          bank,
                                     fd_txn_in_t const *  txn_in,
                                     fd_txn_out_t *       txn_out ) {
-
-  txn_out->details.prep_start_timestamp   = fd_tickcount();
-  txn_out->details.load_start_timestamp   = LONG_MAX;
-  txn_out->details.exec_start_timestamp   = LONG_MAX;
-  txn_out->details.commit_start_timestamp = LONG_MAX;
+  memset( &txn_out->timings, 0, sizeof(txn_out->timings) );
 
   txn_out->accounts.cnt   = 0UL;
 
@@ -1311,11 +1303,11 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
      fees-only, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
 
-  txn_out->details.exec_start_timestamp = fd_tickcount();
-
   /* Execute the transaction. */
+  txn_out->timings.exec_start_ticks = txn_out->timings.exec_end_ticks = fd_tickcount();
   if( FD_LIKELY( txn_out->err.is_committable && !txn_out->err.is_fees_only ) ) {
     txn_out->err.txn_err = fd_execute_txn( runtime, bank, txn_in, txn_out );
+    txn_out->timings.exec_end_ticks = fd_tickcount();
   }
 }
 

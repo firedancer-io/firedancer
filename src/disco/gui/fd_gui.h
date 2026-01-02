@@ -423,10 +423,10 @@ struct __attribute__((packed)) fd_gui_txn {
        (timestamp_delta_end_nanos-timestamp_delta_start_nanos) *
        ((double)txn_{}_pct/USHORT_MAX)
      ) */
-  uchar txn_start_pct;
-  uchar txn_load_end_pct;
-  uchar txn_end_pct;
-  uchar txn_preload_end_pct;
+  float txn_start_nanos;
+  float txn_load_end_nanos;
+  float txn_end_nanos;
+  float txn_preload_end_nanos;
   uchar flags; /* assigned with the FD_GUI_TXN_FLAGS_* macros */
   uchar source_tpu; /* FD_TXN_M_TPU_SOURCE_* */
   uint  source_ipv4;
@@ -840,10 +840,10 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
                                  ulong        txn_cnt,
                                  fd_txn_p_t * txns,
                                  ulong        pack_txn_idx,
-                                 uchar        txn_start_pct,
-                                 uchar        txn_load_end_pct,
-                                 uchar        txn_end_pct,
-                                 uchar        txn_preload_end_pct,
+                                 float        txn_start_nanos,
+                                 float        txn_load_end_nanos,
+                                 float        txn_end_nanos,
+                                 float        txn_preload_end_nanos,
                                  ulong        tips );
 
 int

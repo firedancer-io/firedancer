@@ -137,15 +137,11 @@ struct fd_microblock_trailer {
      timestamp of the microblock from bank, then these represent the
      elapsed time between the start of the microblock and the 3 state
      transitions (ready->start loading, loading -> execute, execute ->
-     done) for the first transaction.
-
-     For example, if a microblock starts at t=10 and ends at t=20, and
-     txn_exec_end_pct is UCHAR_MAX / 2, then this transaction started
-     executing at roughly 10+(20-10)*(128/UCHAR_MAX)=15 */
-  uchar txn_start_pct;
-  uchar txn_load_end_pct;
-  uchar txn_end_pct;
-  uchar txn_preload_end_pct;
+     done) for the first transaction. */
+  float txn_preload_end_nanos;
+  float txn_start_nanos;
+  float txn_load_end_nanos;
+  float txn_end_nanos;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 

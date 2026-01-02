@@ -567,6 +567,12 @@ struct fd_banks {
   #undef X
   #undef HAS_COW_0
   #undef HAS_COW_1
+
+  /* Metrics */
+
+  struct {
+    ulong orphan_cnt;
+  } metrics;
 };
 typedef struct fd_banks fd_banks_t;
 
