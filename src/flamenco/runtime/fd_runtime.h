@@ -5,16 +5,23 @@
 
 /* The general structure for executing transactions in Firedancer is as
    follows if we think about transaction execution as part of a state
-   machine:
+   machine where transactions are deterministic state transitions over
+   various data structures.
 
-   the starting and ending state are represented by the bank and the
-   runtime.  The bank holds all Solana state not represented by an
-   account (see fd_bank.c/h for more details) and each bank is per-slot.
-   The runtime holds valid joins to other important data structures such
-   as the accounts database, accounts mem pool. status cache, and
-   program cache.  The runtime also owns bounded out temporary memory
-   regions used for transaction execution.  So we expect the state of
-   the runtime and the bank to change as a result of execution.
+   The starting and ending state before a transaction is executed is
+   represented by the bank, accounts database, and status cache.  The
+   bank holds Solana state not represented by accounts (see fd_bank.c/h
+   for more details) and each bank is per-slot.  The latter two data
+   structures are contained by the runtime.
+
+   The runtime also owns valid join to important data structures which
+   are not directly transition such as the program cache which is a
+   pure cache on top of the accounts database.  The runtime also owns
+   bounded out temporary memory regions used for transaction execution
+   and valid joins to other scratch memory regions (e.g. acc_pool).
+
+   So we expect the state of the runtime and the bank to change as a
+   result of execution.
 
    The transaction, or the input to said state machine is represented by
    a fd_txn_in_t.  The fd_txn_in_t is just a parsed transaction message

@@ -1433,7 +1433,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
       fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
       for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-        if( !memcmp( &prev_txn_out->accounts.keys[ j ], acc, sizeof(fd_pubkey_t) ) && prev_txn_out->accounts.is_writable[j]==1 ) {
+        if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], acc ) && prev_txn_out->accounts.is_writable[j] ) {
           /* Found the account in a previous transaction */
           meta = prev_txn_out->accounts.metas[ j ];
           is_found = 1;
@@ -1467,8 +1467,9 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
        staging regions for the account. If the account exists, we need to
        copy the account data into the staging area; otherwise, we need to
        initialize a new metadata. */
-    uchar * new_raw_data = writable_accs_mem[ (*writable_accs_idx_out)++ ];
+    uchar * new_raw_data = writable_accs_mem[ *writable_accs_idx_out ];
     ulong   dlen         = !!meta ? meta->dlen : 0UL;
+    (*writable_accs_idx_out)++;
 
     if( FD_LIKELY( meta ) ) {
       /* Account exists, copy the data into the staging area */

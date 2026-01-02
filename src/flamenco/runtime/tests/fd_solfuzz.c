@@ -85,13 +85,13 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   ulong const spad_max = 1500000000UL; /* 1.5GB to accommodate 128 accounts 10MB each */
   ulong const bank_max = 1UL;
   ulong const fork_max = 1UL;
-  fd_solfuzz_runner_t * runner       = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),              wksp_tag );
-  void *                funk_mem     = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_footprint( txn_max, rec_max ),    wksp_tag );
-  void *                pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_footprint( txn_max, rec_max ),    wksp_tag );
-  uchar *               scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT,           wksp_tag );
-  void *                spad_mem     = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),            wksp_tag );
-  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max ), wksp_tag );
-  void *                acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(),          fd_acc_pool_footprint( 130UL ),           wksp_tag );
+  fd_solfuzz_runner_t * runner       = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),                                 wksp_tag );
+  void *                funk_mem     = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_footprint( txn_max, rec_max ),                       wksp_tag );
+  void *                pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_footprint( txn_max, rec_max ),                       wksp_tag );
+  uchar *               scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT,                              wksp_tag );
+  void *                spad_mem     = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),                               wksp_tag );
+  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max ),                    wksp_tag );
+  void *                acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(),          fd_acc_pool_footprint( FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ), wksp_tag );
   if( FD_UNLIKELY( !runner     ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(solfuzz_runner) failed" )); goto bail1; }
   if( FD_UNLIKELY( !funk_mem   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(funk) failed"           )); goto bail1; }
   if( FD_UNLIKELY( !pcache_mem ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(funk) failed"           )); goto bail1; }

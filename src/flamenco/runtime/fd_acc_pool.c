@@ -6,6 +6,7 @@
 
 struct fd_acc_entry {
   uchar account[ sizeof(fd_account_meta_t) + FD_RUNTIME_ACC_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+  ulong magic;
   ulong next_;
 };
 typedef struct fd_acc_entry fd_acc_entry_t;
@@ -64,7 +65,8 @@ fd_acc_pool_new( void * shmem,
   void *          pool     = FD_SCRATCH_ALLOC_APPEND( l, fd_acc_entry_pool_align(), fd_acc_entry_pool_footprint( account_cnt ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_acc_pool_align() );
 
-  if( FD_UNLIKELY( !fd_acc_entry_pool_new( pool, account_cnt ) ) ) {
+  fd_acc_entry_t * fd_acc_entry_pool = fd_acc_entry_pool_join( fd_acc_entry_pool_new( pool, account_cnt ) );
+  if( FD_UNLIKELY( !fd_acc_entry_pool ) ) {
     FD_LOG_WARNING(( "Failed to create acc pool" ));
     return NULL;
   }
@@ -75,6 +77,10 @@ fd_acc_pool_new( void * shmem,
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( acc_pool->magic ) = FD_ACC_POOL_MAGIC;
+  for( ulong i=0UL; i<account_cnt; i++ ) {
+    fd_acc_entry_t * ele = fd_acc_entry_pool_ele( fd_acc_entry_pool, i );
+    ele->magic = FD_ACC_POOL_MAGIC;
+  }
   FD_COMPILER_MFENCE();
 
   return shmem;
@@ -94,6 +100,20 @@ fd_acc_pool_join( void * mem ) {
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_acc_pool_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
+  }
+
+  fd_acc_entry_t * fd_acc_entry_pool = fd_acc_pool( acc_pool );
+  if( FD_UNLIKELY( !fd_acc_entry_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join acc entry pool" ));
+    return NULL;
+  }
+
+  for( ulong i=0UL; i<fd_acc_entry_pool_max( fd_acc_entry_pool ); i++ ) {
+    fd_acc_entry_t * ele = fd_acc_entry_pool_ele( fd_acc_entry_pool, i );
+    if( FD_UNLIKELY( ele->magic!=FD_ACC_POOL_MAGIC ) ) {
+      FD_LOG_WARNING(( "Invalid acc entry magic" ));
+      return NULL;
+    }
   }
 
   if( FD_UNLIKELY( acc_pool->magic!=FD_ACC_POOL_MAGIC ) ) {

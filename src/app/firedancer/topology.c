@@ -976,8 +976,14 @@ fd_topo_initialize( config_t * config ) {
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
-  if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) FD_TEST( config->firedancer.runtime.max_account_cnt>=FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_BUNDLE );
-  FD_TEST( config->firedancer.runtime.max_account_cnt>=FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX );
+  if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
+    if( FD_UNLIKELY( config->firedancer.runtime.max_account_cnt<FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_BUNDLE ) ) {
+      FD_LOG_ERR(( "max_account_cnt is less than the minimum required for bundle execution: %lu < %lu", config->firedancer.runtime.max_account_cnt, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_BUNDLE ));
+    }
+  }
+  if( FD_UNLIKELY( config->firedancer.runtime.max_account_cnt<FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ) ) {
+    FD_LOG_ERR(( "max_account_cnt is less than the minimum required for transaction execution: %lu < %lu", config->firedancer.runtime.max_account_cnt, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ));
+  }
   fd_topo_obj_t * acc_pool_obj = setup_topo_acc_pool( topo, config->firedancer.runtime.max_account_cnt );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec",   i   ) ], acc_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(bank_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], acc_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
