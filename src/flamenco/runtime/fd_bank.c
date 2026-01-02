@@ -255,6 +255,36 @@ fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank ) {
   return (fd_vote_states_t *)child_vote_states_prev_prev->data;
 }
 
+fd_cost_tracker_t *
+fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
+  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
+  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
+  FD_TEST( cost_tracker_mem );
+  fd_rwlock_write( &bank->cost_tracker_lock );
+  return fd_type_pun( cost_tracker_mem );
+}
+
+void
+fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->cost_tracker_lock );
+}
+
+fd_cost_tracker_t const *
+fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
+  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
+  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
+  FD_TEST( cost_tracker_mem );
+  fd_rwlock_read( &bank->cost_tracker_lock );
+  return fd_type_pun_const( cost_tracker_mem );
+}
+
+void
+fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_unread( &bank->cost_tracker_lock );
+}
+
 /* Bank accesssors */
 
 #define HAS_LOCK_0(type, name)                                    \
