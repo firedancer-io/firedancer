@@ -127,6 +127,7 @@ fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
    - account not found
    - internal database or user error (out of memory, attempting to view
      record which has an active modify_data handle, etc.)
+   - the account is a tombstone (0 lamports)
 
    It is always wrong to cast return value to a non-const pointer.
    Instead, use fd_funk_get_acc_meta_mutable to acquire a mutable handle.

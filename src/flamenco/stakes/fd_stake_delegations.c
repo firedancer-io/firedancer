@@ -358,7 +358,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
 
     int err = 0;
     fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly( funk, xid, &stake_delegation->stake_account, NULL, &err, NULL );
-    if( FD_UNLIKELY( err || meta->lamports==0UL ) ) {
+    if( FD_UNLIKELY( err ) ) {
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
       fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
       continue;
