@@ -2101,7 +2101,7 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
                               long       now ) {
 
   /* This is the slot used by frontend clients as the "startup slot". In
-     certain boot conditions, we don't recieve this slot from Agave, so
+     certain boot conditions, we don't receive this slot from Agave, so
      we include a bit of a hacky assignment here to make sure it is
      always present. */
   if( FD_UNLIKELY( gui->summary.startup_progress.startup_ledger_max_slot==ULONG_MAX ) ) {
@@ -2466,7 +2466,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
   /* ensure a history exists */
   if( FD_UNLIKELY( prev_slot_completed==ULONG_MAX || gui->summary.slot_rooted==ULONG_MAX ) ) return;
 
-  /* slot complete recieved out of order on the same fork? */
+  /* slot complete received out of order on the same fork? */
   FD_TEST( fd_gui_slot_is_ancestor( gui, prev_slot_completed, gui->summary.slot_completed ) || !fd_gui_slot_is_ancestor( gui, gui->summary.slot_completed, prev_slot_completed ) );
 
   /* fork switch: we need to "undo" the previous fork */

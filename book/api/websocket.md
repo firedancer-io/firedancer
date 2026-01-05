@@ -1900,7 +1900,7 @@ and is broadcast to all WebSocket clients.
 | slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
 | shred_idxs      | `(number\|null)[]` | `shred_idxs[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
 | events          | `number[]`         | `events[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
-| events_ts_delta | `string[]`         | `reference_ts + events_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occured |
+| events_ts_delta | `string[]`         | `reference_ts + events_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occurred |
 
 #### `slot.query_shreds`
 | frequency   | type          | example |
@@ -2431,7 +2431,7 @@ explicitly mentioned, skipped slots are not included.
 | timestamp_nanos | `string` | A UNIX nanosecond timestamp representing the time when these counts were sampled by the gui tile. |
 | regular         | `number` | The number of transactions stored in the "regular" treap (i.e. the primary buffer) at `timestamp_nanos` |
 | votes           | `number` | The number of transactions stored in the "votes" treap (i.e. the buffer dedicated for vote transactions) at `timestamp_nanos` |
-| conflicting     | `number` | The number of transactions stored in the "conflicting" treap (i.e. the buffer for transations with percieved account write conflicts, which recieve slightly less priority) at `timestamp_nanos` |
+| conflicting     | `number` | The number of transactions stored in the "conflicting" treap (i.e. the buffer for transactions with perceived account write conflicts, which receive slightly less priority) at `timestamp_nanos` |
 | bundles         | `number` | The number of transactions stored in the "bundles" treap (i.e. the buffer dedicated for bundle transactions) at `timestamp_nanos` |
 
 **`TsTileTimers`**

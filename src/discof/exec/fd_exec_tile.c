@@ -13,7 +13,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 
 /* The exec tile is responsible for executing single transactions. The
-   tile recieves a parsed transaction (fd_txn_p_t) and an identifier to
+   tile receives a parsed transaction (fd_txn_p_t) and an identifier to
    which bank to execute against (index into the bank pool). With this,
    the exec tile is able to identify the correct bank and accounts db
    handle (funk_txn) to execute the transaction against.  The exec tile
