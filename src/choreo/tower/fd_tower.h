@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_choreo_tower_fd_tower_h
 #define HEADER_fd_src_choreo_tower_fd_tower_h
 
+#include "../../choreo/voter/fd_voter.h"
+
 /* fd_tower presents an API for Solana's TowerBFT algorithm.
 
    What is TowerBFT? TowerBFT is an algorithm for converging a
@@ -517,6 +519,15 @@ fd_tower_reconcile( fd_tower_t  * tower,
 void
 fd_tower_from_vote_acc( fd_tower_t  * tower,
                         uchar const * vote_acc );
+
+/* fd_tower_with_lat_from_vote_acc deserializes the vote account into
+   tower, including slot latency (when available) for tower votes.
+   Assumes tower points to a static array of length FD_TOWER_VOTE_MAX.
+
+   Returns the number of copied elements. */
+ulong
+fd_tower_with_lat_from_vote_acc( fd_voter_vote_v3_t tower[ static FD_TOWER_VOTE_MAX ],
+                                 uchar const *      vote_acc );
 
 /* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
    instruction and serializes it into a Solana transaction.  Assumes

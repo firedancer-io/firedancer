@@ -428,12 +428,16 @@ query_acct_stake_from_bank( fd_tower_accts_t *  tower_accts_deque,
 }
 
 /* query accdb for the vote state (vote account data) of the given vote
-   account address as of xid.  Returns 1 if found, 0 otherwise. */
+   account address as of xid.  Returns 1 if found, 0 otherwise.
+
+   If opt_acc_bal is not NULL, it will be set to the account balance in
+   lamports of the queried account, if found. */
 
 static int
 query_vote_state_from_accdb( fd_accdb_user_t *         accdb,
                              fd_funk_txn_xid_t const * xid,
                              fd_pubkey_t const *       vote_acc,
+                             ulong *                   opt_acc_bal,
                              uchar                     buf[static FD_VOTE_STATE_DATA_MAX] ) {
   for(;;) {
     fd_accdb_peek_t peek[1];
@@ -445,6 +449,8 @@ query_vote_state_from_accdb( fd_accdb_user_t *         accdb,
       FD_LOG_CRIT(( "vote account %s exceeds FD_VOTE_STATE_DATA_MAX. dlen %lu > %lu", acc_cstr, data_sz, FD_VOTE_STATE_DATA_MAX ));
     }
     fd_memcpy( buf, fd_accdb_ref_data_const( peek->acc ), data_sz );
+
+    fd_ulong_store_if( !!opt_acc_bal, opt_acc_bal, fd_accdb_ref_lamports( peek->acc ) );
 
     if( FD_LIKELY( fd_accdb_peek_test( peek ) ) ) break;
     FD_SPIN_PAUSE();
@@ -480,7 +486,8 @@ replay_slot_completed( ctx_t *                      ctx,
 
   /* Query our on-chain vote acct and reconcile with our local tower. */
 
-  int found = query_vote_state_from_accdb( ctx->accdb, &xid, ctx->vote_account, ctx->our_vote_acct );
+  ulong our_vote_acct_bal = ULONG_MAX;
+  int found = query_vote_state_from_accdb( ctx->accdb, &xid, ctx->vote_account, &our_vote_acct_bal, ctx->our_vote_acct );
   if( FD_LIKELY( found ) ) {
     fd_tower_reconcile( ctx->tower, ctx->root_slot, ctx->our_vote_acct );
     /* Sanity check that most recent vote in tower exists in tower forks */
@@ -523,7 +530,7 @@ replay_slot_completed( ctx_t *                      ctx,
     fd_tower_accts_t *  acct     = fd_tower_accts_iter_ele( ctx->tower_accts, iter );
     fd_pubkey_t const * vote_acc = &acct->addr;
 
-    if( FD_UNLIKELY( !query_vote_state_from_accdb( ctx->accdb, &xid, vote_acc, acct->data ) ) ) {
+    if( FD_UNLIKELY( !query_vote_state_from_accdb( ctx->accdb, &xid, vote_acc, NULL, acct->data ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( vote_acc->uc, acc_cstr );
       FD_LOG_CRIT(( "vote account in bank->vote_states not found. slot %lu address: %s", slot_completed->slot, acc_cstr ));
     };
@@ -672,6 +679,7 @@ replay_slot_completed( ctx_t *                      ctx,
   msg->root_slot             = out.root_slot;
   msg->root_block_id         = out.root_block_id;
   msg->replay_bank_idx       = slot_completed->bank_idx;
+  msg->vote_acct_bal         = our_vote_acct_bal;
 
   /* Populate slot_done with a vote txn representing our current tower
      (regardless of whether there was a new vote slot or not).
@@ -685,6 +693,9 @@ replay_slot_completed( ctx_t *                      ctx,
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
   fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
   msg->vote_txn_sz = txn->payload_sz;
+
+  msg->tower_cnt = 0UL;
+  if( FD_LIKELY( found ) ) msg->tower_cnt = fd_tower_with_lat_from_vote_acc( msg->tower, ctx->our_vote_acct );
 
   fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_DONE, ctx->out_chunk, sizeof(fd_tower_slot_done_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_done_t), ctx->out_chunk0, ctx->out_wmark );
