@@ -140,6 +140,12 @@ fd_sysvar_cache_restore_fuzz( fd_bank_t *               bank,
                               fd_funk_t *               funk,
                               fd_funk_txn_xid_t const * xid );
 
+void
+fd_sysvar_cache_restore_from_metas( fd_bank_t *                 bank,
+                                    fd_pubkey_t const *         pubkeys,
+                                    fd_account_meta_t * * metas,
+                                    ulong                       metas_cnt );
+
 /* Generic accessors for serialized sysvar account data. */
 
 /* fd_sysvar_cache_data_query returns a pointer to raw/serialized sysvar

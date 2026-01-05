@@ -165,9 +165,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
 
     memcpy( &(txn_out->accounts.keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
-    if( !fd_solfuzz_pb_load_account( runtime, runner->accdb, xid, &test_ctx->accounts[j], 0, j, &metas[j] ) ) {
-      return 0;
-    }
     runtime->accounts.refcnt[j] = 0UL;
 
     uchar *             data     = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
@@ -345,7 +342,11 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore_fuzz( runner->bank, funk, xid );
+  fd_sysvar_cache_restore_from_metas( runner->bank,
+                                      txn_out->accounts.keys,
+                                      txn_out->accounts.metas,
+                                      txn_out->accounts.cnt );
+
   ctx->sysvar_cache = fd_bank_sysvar_cache_modify( runner->bank );
   ctx->runtime = runtime;
 
