@@ -34,6 +34,13 @@ FD_STATIC_ASSERT( FD_VOTER_V3==fd_vote_state_versioned_enum_current,  FD_VOTER_V
    uchar field `latency`.
 
    The binary layout begins with metadata in the vote account, followed by the voter's votes (tower), and terminates with the root. */
+
+struct __attribute__((packed)) fd_voter_vote_v3 {
+  uchar latency;
+  ulong slot;
+  uint  conf;
+};
+typedef struct fd_voter_vote_v3 fd_voter_vote_v3_t;
 struct __attribute__((packed)) fd_voter {
   uint        kind;
   fd_pubkey_t node_pubkey;
@@ -45,11 +52,7 @@ struct __attribute__((packed)) fd_voter {
       ulong slot;
       uint  conf;
     } votes_v2[31]; /* variable-length */
-    struct __attribute__((packed)) {
-      uchar latency;
-      ulong slot;
-      uint  conf;
-    } votes_v3[31]; /* variable-length */
+    fd_voter_vote_v3_t votes_v3[31]; /* variable-length */
     /* uchar root_option */
     /* ulong root */
   };

@@ -695,6 +695,19 @@ fd_tower_from_vote_acc( fd_tower_t   * tower,
   }
 }
 
+ulong
+fd_tower_with_lat_from_vote_acc( fd_voter_vote_v3_t tower[ static FD_TOWER_VOTE_MAX ],
+                                 uchar const *      vote_acc ) {
+  fd_voter_t const * voter = (fd_voter_t const *)fd_type_pun_const( vote_acc );
+  uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
+  for( ulong i=0; i<voter->votes_cnt; i++ ) {
+    if( FD_LIKELY( kind==FD_VOTER_V3 ) ) tower[ i ] = (fd_voter_vote_v3_t){ .latency = voter->votes_v3[i].latency, .slot = voter->votes_v3[i].slot, .conf = voter->votes_v3[i].conf };
+    if( FD_LIKELY( kind==FD_VOTER_V2 ) ) tower[ i ] = (fd_voter_vote_v3_t){ .latency = UCHAR_MAX, .slot = voter->votes_v2[i].slot, .conf = voter->votes_v2[i].conf };
+  }
+
+  return voter->votes_cnt;
+}
+
 void
 fd_tower_to_vote_txn( fd_tower_t const *    tower,
                       ulong                 root,
