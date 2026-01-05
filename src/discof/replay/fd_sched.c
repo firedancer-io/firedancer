@@ -1564,7 +1564,7 @@ try_activate_block( fd_sched_t * sched ) {
   /* ... No, promote unstaged blocks. */
   ulong root_idx = sched->root_idx;
   if( FD_UNLIKELY( root_idx==ULONG_MAX ) ) {
-    FD_LOG_CRIT(( "invariant violation: root_idx==ULONG_MAX indicating fd_sched is unintialized" ));
+    FD_LOG_CRIT(( "invariant violation: root_idx==ULONG_MAX indicating fd_sched is uninitialized" ));
   }
   /* Find and stage the longest stageable unstaged fork.  This is a
      policy decision. */
@@ -1779,7 +1779,7 @@ find_and_stage_longest_unstaged_fork( fd_sched_t * sched, int lane_idx ) {
   ulong root_idx = sched->root_idx;
 
   if( FD_UNLIKELY( root_idx==ULONG_MAX ) ) {
-    FD_LOG_CRIT(( "invariant violation: root_idx==ULONG_MAX indicating fd_sched is unintialized" ));
+    FD_LOG_CRIT(( "invariant violation: root_idx==ULONG_MAX indicating fd_sched is uninitialized" ));
   }
 
   /* First pass: compute the longest unstaged fork depth for each node
