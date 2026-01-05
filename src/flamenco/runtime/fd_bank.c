@@ -820,6 +820,14 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
     FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu is not frozen", parent_bank_idx ));
   }
 
+  /* If the parent bank is dead, mark the child bank as dead and don't
+     bother copying over any other fields. */
+  if( FD_UNLIKELY( parent_bank->flags & FD_BANK_FLAGS_DEAD ) ) {
+    child_bank->flags |= FD_BANK_FLAGS_DEAD;
+    fd_rwlock_unwrite( &banks->rwlock );
+    return child_bank;
+  }
+
   /* We want to copy over the fields from the parent to the child,
      except for the fields which correspond to the header of the bank
      struct which either are used for internal memory managment or are
@@ -871,16 +879,10 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
 
-  /* If the parent bank is dead, then we also need to mark the child
-     bank as being a dead block. */
-  if( FD_UNLIKELY( parent_bank->flags & FD_BANK_FLAGS_DEAD ) ) {
-    child_bank->flags |= FD_BANK_FLAGS_DEAD;
-  }
+  /* At this point, the child bank is replayable. */
+  child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
 
   child_bank->refcnt = 0UL;
-
-  /* Now the child bank is replayable. */
-  child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
 
   fd_rwlock_unwrite( &banks->rwlock );
 
@@ -1172,6 +1174,11 @@ fd_banks_subtree_mark_dead( fd_bank_t * bank_pool, fd_bank_t * bank ) {
   }
 
   bank->flags |= FD_BANK_FLAGS_DEAD;
+
+  if( FD_UNLIKELY( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) ) ) ) {
+    fd_bank_cost_tracker_pool_idx_release( fd_bank_get_cost_tracker_pool( bank ), bank->cost_tracker_pool_idx );
+    bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
+  }
 
   /* Recursively mark all children as dead. */
   ulong child_idx = bank->child_idx;
