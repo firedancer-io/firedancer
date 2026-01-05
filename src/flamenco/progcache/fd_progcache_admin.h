@@ -94,7 +94,17 @@ fd_progcache_clear( fd_progcache_admin_t * cache );
 void
 fd_progcache_verify( fd_progcache_admin_t * cache );
 
-/* TODO:FIXME: Add documentation. */
+/* fd_progcache_inject_rec iis used to insert a synthetic program cache
+   entry into the program cache.  Assumes no concurrent users of
+   progcache.  It is typically used on startup in test code.  If the
+   injection fails (e.g. in the case the data is not a valid ELF), it
+   will fail silently.  The data for the progcache entry for key
+   prog_addr is derived from the progdata_meta.  The caller is
+   responsible for ensuring that fd_progcache_inject_rec is called only
+   once for each prog_addr.
+
+   The entries will be inserted into the root transaction of the
+   progcache. */
 
 void
 fd_progcache_inject_rec( fd_progcache_admin_t *    cache,

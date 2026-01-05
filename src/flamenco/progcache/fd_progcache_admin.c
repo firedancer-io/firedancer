@@ -512,49 +512,6 @@ fd_progcache_verify( fd_progcache_admin_t * cache ) {
   FD_TEST( fd_funk_verify( cache->funk )==FD_FUNK_SUCCESS );
 }
 
-static void
-fd_funk_rec_push_tail( fd_funk_rec_t * rec_pool,
-                       fd_funk_rec_t * rec,
-                       uint *          rec_head_idx,
-                       uint *          rec_tail_idx ) {
-  uint rec_idx = (uint)( rec - rec_pool );
-  for(;;) {
-
-    /* Doubly linked list append.  Robust in the event of concurrent
-       publishes.  Iteration during publish not supported.  Sequence:
-       - Identify tail element
-       - Set new element's prev and next pointers
-       - Set tail element's next pointer
-       - Set tail pointer */
-
-    uint rec_prev_idx = FD_VOLATILE_CONST( *rec_tail_idx );
-    rec->prev_idx = rec_prev_idx;
-    rec->next_idx = FD_FUNK_REC_IDX_NULL;
-    FD_COMPILER_MFENCE();
-
-    uint * next_idx_p;
-    if( fd_funk_rec_idx_is_null( rec_prev_idx ) ) {
-      next_idx_p = rec_head_idx;
-    } else {
-      next_idx_p = &rec_pool[ rec_prev_idx ].next_idx;
-    }
-
-    if( FD_UNLIKELY( !__sync_bool_compare_and_swap( next_idx_p, FD_FUNK_REC_IDX_NULL, rec_idx ) ) ) {
-      /* Another thread beat us to the punch */
-      FD_SPIN_PAUSE();
-      continue;
-    }
-
-    if( FD_UNLIKELY( !__sync_bool_compare_and_swap( rec_tail_idx, rec_prev_idx, rec_idx ) ) ) {
-      /* This CAS is guaranteed to succeed if the previous CAS passed. */
-      FD_LOG_CRIT(( "Irrecoverable data race encountered while appending to txn rec list (invariant violation?): cas(%p,%u,%u)",
-                    (void *)rec_tail_idx, rec_prev_idx, rec_idx ));
-    }
-
-    break;
-  }
-}
-
 void
 fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
                          void const *              prog_addr,
@@ -573,8 +530,6 @@ fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
      slot(load_xid) > slot(entry_xid) >= slot(txn->xid) */
 
   /* Acquire reference to ELF binary data */
-
-  if( !progdata_meta ) return;
 
   ulong progdata_sz = progdata_meta->dlen;
   uchar const * progdata = NULL;
@@ -636,7 +591,7 @@ fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
 
   /* Convert to tombstone if load failed */
 
-  if( !rec ) {  /* load fail */
+  if( !rec ) { /* load fail */
     void * rec_mem = fd_funk_val_truncate( funk_rec, funk->alloc, funk->wksp, fd_progcache_rec_align(), fd_progcache_rec_footprint( NULL ), NULL );
     if( FD_UNLIKELY( !rec_mem ) ) {
       FD_LOG_ERR(( "Program cache is out of memory: fd_alloc_malloc failed (requested align=%lu sz=%lu)",
@@ -651,11 +606,4 @@ fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
   if( FD_UNLIKELY( insert_err!=FD_MAP_SUCCESS ) ) {
     FD_LOG_CRIT(( "fd_funk_rec_map_txn_insert failed: %i-%s", insert_err, fd_map_strerror( insert_err ) ));
   }
-
-  uint rec_head_idx = FD_FUNK_REC_IDX_NULL;
-  uint rec_tail_idx = FD_FUNK_REC_IDX_NULL;
-  fd_funk_rec_push_tail( funk->rec_pool->ele,
-    funk_rec,
-    &rec_head_idx,
-    &rec_tail_idx );
 }
