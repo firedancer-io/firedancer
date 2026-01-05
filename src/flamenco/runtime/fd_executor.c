@@ -985,6 +985,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
           NULL,
           &err,
           NULL );
+      if( FD_UNLIKELY( !meta ) ) FD_LOG_CRIT(( "fd_funk_get_acc_meta_readonly failed" ));
     }
 
     uchar * fee_payer_data = txn_out->accounts.rollback_fee_payer_mem;
