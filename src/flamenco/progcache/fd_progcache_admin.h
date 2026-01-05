@@ -3,6 +3,12 @@
 
 #include "../../funk/fd_funk.h"
 
+struct fd_account_meta;
+typedef struct fd_account_meta fd_account_meta_t;
+
+union fd_features;
+typedef union fd_features fd_features_t;
+
 struct fd_progcache_admin {
   fd_funk_t funk[1];
 
@@ -87,6 +93,26 @@ fd_progcache_clear( fd_progcache_admin_t * cache );
 
 void
 fd_progcache_verify( fd_progcache_admin_t * cache );
+
+/* fd_progcache_inject_rec is used to insert a synthetic program cache
+   entry into the program cache.  Assumes no concurrent users of
+   progcache.  It is typically used on startup in test code.  If the
+   injection fails (e.g. in the case the data is not a valid ELF), it
+   will fail silently.  The caller is responsible for ensuring that
+   fd_progcache_inject_rec is called only once for each prog_addr.
+
+   The entries will be inserted into the root transaction of the
+   progcache.  The data for the progcache entry for key prog_addr is
+   derived from the progdata_meta. */
+
+void
+fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
+                         void const *              prog_addr,
+                         fd_account_meta_t const * progdata_meta,
+                         fd_features_t const *     features,
+                         ulong                     slot,
+                         uchar *                   scratch,
+                         ulong                     scratch_sz );
 
 FD_PROTOTYPES_END
 

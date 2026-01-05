@@ -747,11 +747,13 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->gui_enabled ) ) bank->refcnt++; /* gui tile */
   slot_info->bank_idx = bank->idx;
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu", bank->idx, slot, bank->refcnt ));
 
   slot_info->parent_bank_idx = ULONG_MAX;
   fd_bank_t * parent_bank = fd_banks_get_parent( ctx->banks, bank );
   if( FD_LIKELY( parent_bank && ctx->gui_enabled ) ) {
     parent_bank->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu", parent_bank->idx, slot, parent_bank->refcnt ));
     slot_info->parent_bank_idx = parent_bank->idx;
   }
 
@@ -1277,6 +1279,7 @@ publish_reset( fd_replay_tile_t *  ctx,
   reset->next_leader_slot = ctx->next_leader_slot;
 
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++;
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu", bank->idx, reset->completed_slot, bank->refcnt ));
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -2061,6 +2064,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   fd_bank_t * replay_bank = fd_banks_bank_query( ctx->banks, msg->replay_bank_idx );
   if( FD_UNLIKELY( !replay_bank ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", msg->replay_bank_idx ));
   replay_bank->refcnt--;
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu", replay_bank->idx, msg->replay_slot, replay_bank->refcnt ));
 
   ctx->reset_block_id = msg->reset_block_id;
   ctx->reset_slot     = msg->reset_slot;
@@ -2116,6 +2120,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     reset->next_leader_slot = ctx->next_leader_slot;
 
     if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu", bank->idx, msg->reset_slot, bank->refcnt ));
 
     fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -2176,6 +2181,7 @@ process_resolv_slot_completed( fd_replay_tile_t * ctx, ulong bank_idx ) {
   FD_TEST( bank );
 
   bank->refcnt--;
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu", bank->idx, fd_bank_slot_get( bank ), bank->refcnt ));
 }
 
 static void
@@ -2340,6 +2346,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sig );
       FD_TEST( bank );
       bank->refcnt--;
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu", bank->idx, fd_bank_slot_get( bank ), bank->refcnt ));
       break;
     }
     default:

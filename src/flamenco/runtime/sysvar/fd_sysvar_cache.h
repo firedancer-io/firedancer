@@ -140,6 +140,20 @@ fd_sysvar_cache_restore_fuzz( fd_bank_t *               bank,
                               fd_funk_t *               funk,
                               fd_funk_txn_xid_t const * xid );
 
+/* fd_sysvar_cache_restore_from_metas is a version of the above
+   (fd_sysvar_cache_restore_fuzz) for use with solfuzz/protosol
+   conformance tooling.  This version works around the aforementioned
+   tooling bugs but also breaks a dependency on the accounts database to
+   refresh the sysvar cache.  Instead of reading sysvar state from the
+   accounts database, it searches for the sysvar accounts from the list
+   of pubkeys and metas that are passed in. */
+
+void
+fd_sysvar_cache_restore_from_metas( fd_bank_t *                 bank,
+                                    fd_pubkey_t const *         pubkeys,
+                                    fd_account_meta_t * const * metas,
+                                    ulong                       acc_cnt );
+
 /* Generic accessors for serialized sysvar account data. */
 
 /* fd_sysvar_cache_data_query returns a pointer to raw/serialized sysvar
