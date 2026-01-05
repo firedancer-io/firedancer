@@ -268,68 +268,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   }
 
-  /* Set slot bank variables and ensure all relevant sysvars are present */
-
-  for( ulong i=0UL; i < txn_out->accounts.cnt; i++ ) {
-    fd_account_meta_t * meta = txn_out->accounts.metas[i];
-    if( !memcmp( &txn_out->accounts.keys[i], fd_sysvar_clock_id.key, sizeof(fd_pubkey_t) ) ) {
-      fd_sol_sysvar_clock_t clock_[1];
-      fd_sol_sysvar_clock_t * clock = fd_bincode_decode_static(
-        sol_sysvar_clock, clock_,
-        fd_account_data( meta ),
-        meta->dlen,
-        NULL );
-      FD_TEST( clock );
-      fd_bank_slot_set( runner->bank, clock->slot );
-    }
-
-    if( !memcmp( &txn_out->accounts.keys[i], fd_sysvar_epoch_schedule_id.key, sizeof(fd_pubkey_t) ) ) {
-      fd_epoch_schedule_t epoch_schedule_[1];
-      fd_epoch_schedule_t * epoch_schedule = fd_bincode_decode_static(
-        epoch_schedule, epoch_schedule_,
-        fd_account_data( meta ),
-        meta->dlen,
-        NULL );
-      FD_TEST( epoch_schedule );
-      fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
-    }
-
-    if( !memcmp( &txn_out->accounts.keys[i], fd_sysvar_rent_id.key, sizeof(fd_pubkey_t) ) ) {
-      fd_rent_t rent_[1];
-      fd_rent_t * rent = fd_bincode_decode_static(
-        rent, rent_,
-        fd_account_data( meta ),
-        meta->dlen,
-        NULL );
-      FD_TEST( rent );
-      fd_bank_rent_set( runner->bank, *rent );
-    }
-
-    if( !memcmp( &txn_out->accounts.keys[i], fd_sysvar_recent_block_hashes_id.key, sizeof(fd_pubkey_t) ) ) {
-      uchar __attribute__((aligned(FD_SYSVAR_RECENT_HASHES_ALIGN))) rbh_mem[FD_SYSVAR_RECENT_HASHES_FOOTPRINT];
-
-      fd_bincode_decode_ctx_t ctx = {
-        .data    = fd_account_data( meta ),
-        .dataend = fd_account_data( meta ) + meta->dlen,
-      };
-
-      fd_recent_block_hashes_t * rbh = fd_recent_block_hashes_decode( rbh_mem, &ctx );
-      FD_TEST( rbh );
-
-      if( !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
-        fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
-        if( last ) {
-          fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( runner->bank );
-          fd_blockhashes_pop_new( blockhashes );
-          fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
-          info->fee_calculator = last->fee_calculator;
-
-          fd_bank_rbh_lamports_per_sig_set( runner->bank, last->fee_calculator.lamports_per_signature );
-        }
-      }
-    }
-  }
-
   fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ fd_bank_slot_get( runner->bank ), runner->bank->idx } }};
   fd_accdb_attach_child        ( runner->accdb_admin,     xid, exec_xid );
   fd_progcache_txn_attach_child( runner->progcache_admin, xid, exec_xid );
@@ -349,6 +287,44 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   ctx->sysvar_cache = fd_bank_sysvar_cache_modify( runner->bank );
   ctx->runtime = runtime;
+
+  fd_sol_sysvar_clock_t clock_[1];
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, clock_ );
+  if( FD_UNLIKELY( !clock ) ) {
+    FD_LOG_NOTICE(( "Unable to read clock sysvar" ));
+    return 0;
+  }
+  fd_bank_slot_set( runner->bank, clock->slot );
+
+  fd_epoch_schedule_t epoch_schedule_[1];
+  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
+  if( FD_UNLIKELY( !epoch_schedule ) ) {
+    FD_LOG_NOTICE(( "Unable to read epoch schedule sysvar" ));
+    return 0;
+  }
+  fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
+
+  fd_rent_t rent_[1];
+  fd_rent_t * rent = fd_sysvar_cache_rent_read( ctx->sysvar_cache, rent_ );
+  if( FD_UNLIKELY( !rent ) ) {
+    FD_LOG_NOTICE(( "Unable to read rent sysvar" ));
+    return 0;
+  }
+  fd_bank_rent_set( runner->bank, *rent );
+
+  fd_block_block_hash_entry_t const * deq = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
+  if( !deq_fd_block_block_hash_entry_t_empty( deq ) ) {
+    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( deq );
+    if( last ) {
+      fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( runner->bank );
+      fd_blockhashes_pop_new( blockhashes );
+      fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
+      info->fee_calculator = last->fee_calculator;
+
+      fd_bank_rbh_lamports_per_sig_set( runner->bank, last->fee_calculator.lamports_per_signature );
+    }
+  }
+
 
   uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
