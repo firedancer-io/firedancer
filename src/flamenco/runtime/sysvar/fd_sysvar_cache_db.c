@@ -49,14 +49,14 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
 static int
 sysvar_data_fill_from_metas( fd_sysvar_cache_t *         cache,
                              fd_pubkey_t const *         pubkeys,
-                             fd_account_meta_t * * metas,
-                             ulong                       metas_cnt,
+                             fd_account_meta_t * const * metas,
+                             ulong                       acc_cnt,
                              ulong                       idx ) {
   fd_sysvar_pos_t const * pos  = &fd_sysvar_pos_tbl[ idx ];
   fd_pubkey_t const *     key  = &fd_sysvar_key_tbl[ idx ];
   fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
 
-  for( ulong i=0UL; i<metas_cnt; i++ ) {
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
     if( !memcmp( &pubkeys[i], key, sizeof(fd_pubkey_t) ) ) {
       if( metas[i]->lamports==0UL ) return 0;
       ulong data_sz = metas[i]->dlen;
@@ -71,7 +71,6 @@ sysvar_data_fill_from_metas( fd_sysvar_cache_t *         cache,
   }
   return 0;
 }
-
 
 static int
 fd_sysvar_cache_restore1( fd_bank_t *               bank,
@@ -92,25 +91,6 @@ fd_sysvar_cache_restore1( fd_bank_t *               bank,
   return !saw_err;
 }
 
-static int
-fd_sysvar_cache_restore2( fd_bank_t *                 bank,
-                          fd_pubkey_t const *         pubkeys,
-                          fd_account_meta_t * * metas,
-                          ulong                       metas_cnt ) {
-  fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new(
-      fd_bank_sysvar_cache_modify( bank ) ) );
-
-      int saw_err = 0;
-      for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
-        int err = sysvar_data_fill_from_metas( cache, pubkeys, metas, metas_cnt, i );
-        if( err ) saw_err = 1;
-      }
-
-      fd_sysvar_cache_leave( cache );
-
-      return !saw_err;
-}
-
 int
 fd_sysvar_cache_restore( fd_bank_t *               bank,
                          fd_funk_t *               funk,
@@ -128,7 +108,14 @@ fd_sysvar_cache_restore_fuzz( fd_bank_t *               bank,
 void
 fd_sysvar_cache_restore_from_metas( fd_bank_t *                 bank,
                                     fd_pubkey_t const *         pubkeys,
-                                    fd_account_meta_t * * metas,
-                                    ulong                       metas_cnt ) {
-  fd_sysvar_cache_restore2( bank, pubkeys, metas, metas_cnt );
+                                    fd_account_meta_t * const * metas,
+                                    ulong                       acc_cnt ) {
+  fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new(
+    fd_bank_sysvar_cache_modify( bank ) ) );
+
+  for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
+    sysvar_data_fill_from_metas( cache, pubkeys, metas, acc_cnt, i );
+  }
+
+  fd_sysvar_cache_leave( cache );
 }
