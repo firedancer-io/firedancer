@@ -98,7 +98,7 @@ fd_progcache_verify( fd_progcache_admin_t * cache );
    entry into the program cache.  Assumes no concurrent users of
    progcache.  It is typically used on startup in test code.  If the
    injection fails (e.g. in the case the data is not a valid ELF), it
-   will fail silently. The caller is responsible for ensuring that
+   will fail silently.  The caller is responsible for ensuring that
    fd_progcache_inject_rec is called only once for each prog_addr.
 
    The entries will be inserted into the root transaction of the
