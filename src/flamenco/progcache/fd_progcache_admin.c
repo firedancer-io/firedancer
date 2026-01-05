@@ -1,5 +1,10 @@
 #include "fd_progcache_admin.h"
 #include "fd_progcache_rec.h"
+#include "fd_prog_load.h"
+#include "../runtime/program/fd_bpf_loader_program.h"
+#include "../runtime/program/fd_loader_v4_program.h"
+#include "../runtime/fd_system_ids.h"
+#include "../../funk/fd_funk_rec.h"
 
 /* Algorithm to estimate size of cache metadata structures (rec_pool
    object pool and rec_map hashchain table).
@@ -505,4 +510,100 @@ fd_progcache_clear( fd_progcache_admin_t * cache ) {
 void
 fd_progcache_verify( fd_progcache_admin_t * cache ) {
   FD_TEST( fd_funk_verify( cache->funk )==FD_FUNK_SUCCESS );
+}
+
+void
+fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
+                         void const *              prog_addr,
+                         fd_account_meta_t const * progdata_meta,
+                         fd_features_t const *     features,
+                         ulong                     slot,
+                         uchar *                   scratch,
+                         ulong                     scratch_sz ) {
+
+  /* XID overview:
+
+     - load_xid:   tip of fork currently being executed
+     - modify_xid: xid in which program was last modified / deployed
+     - txn->xid:   xid in which program cache entry is inserted
+
+     slot(load_xid) > slot(entry_xid) >= slot(txn->xid) */
+
+  /* Acquire reference to ELF binary data */
+
+  ulong progdata_sz = progdata_meta->dlen;
+  uchar const * progdata = NULL;
+  if( !memcmp( progdata_meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    progdata = (uchar const *)fd_account_data( progdata_meta ) + PROGRAMDATA_METADATA_SIZE;
+  } else if( !memcmp( progdata_meta->owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    progdata = (uchar const *)fd_account_data( progdata_meta ) + LOADER_V4_PROGRAM_DATA_OFFSET;
+  } else if( !memcmp( progdata_meta->owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
+             !memcmp( progdata_meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    progdata = (uchar const *)fd_account_data( progdata_meta );
+  }
+  if( FD_UNLIKELY( !progdata ) ) return;
+
+  /* Allocate a funk_rec */
+
+  fd_funk_t * funk = cache->funk;
+  fd_funk_rec_t * funk_rec = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 0, NULL );
+  if( FD_UNLIKELY( !funk_rec ) ) {
+    FD_LOG_ERR(( "Program cache is out of memory: fd_funk_rec_pool_acquire failed (rec_max=%lu)",
+                 fd_funk_rec_pool_ele_max( funk->rec_pool ) ));
+  }
+  memset( funk_rec, 0, sizeof(fd_funk_rec_t) );
+  fd_funk_val_init( funk_rec );
+
+  funk_rec->tag = 0;
+  funk_rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+  funk_rec->next_idx = FD_FUNK_REC_IDX_NULL;
+  memcpy( funk_rec->pair.key, prog_addr, 32UL );
+  fd_funk_txn_xid_set_root( funk_rec->pair.xid );
+
+  /* Load program */
+
+  ulong const load_slot = slot;
+  fd_prog_versions_t versions = fd_prog_versions( features, load_slot );
+  fd_sbpf_loader_config_t config = {
+    .sbpf_min_version = versions.min_sbpf_version,
+    .sbpf_max_version = versions.max_sbpf_version,
+  };
+  fd_sbpf_elf_info_t elf_info[1];
+
+  fd_progcache_rec_t * rec = NULL;
+  if( FD_LIKELY( fd_sbpf_elf_peek( elf_info, progdata, progdata_sz, &config )==FD_SBPF_ELF_SUCCESS ) ) {
+
+    fd_funk_t * funk          = cache->funk;
+    ulong       rec_align     = fd_progcache_rec_align();
+    ulong       rec_footprint = fd_progcache_rec_footprint( elf_info );
+
+    void * rec_mem = fd_funk_val_truncate( funk_rec, funk->alloc, funk->wksp, rec_align, rec_footprint, NULL );
+    if( FD_UNLIKELY( !rec_mem ) ) {
+      FD_LOG_ERR(( "Program cache is out of memory: fd_alloc_malloc failed (requested align=%lu sz=%lu)",
+                  rec_align, rec_footprint ));
+    }
+
+    rec = fd_progcache_rec_new( rec_mem, elf_info, &config, load_slot, features, progdata, progdata_sz, scratch, scratch_sz );
+    if( !rec ) {
+      fd_funk_val_flush( funk_rec, funk->alloc, funk->wksp );
+    }
+  }
+
+  /* Convert to tombstone if load failed */
+
+  if( !rec ) { /* load fail */
+    void * rec_mem = fd_funk_val_truncate( funk_rec, funk->alloc, funk->wksp, fd_progcache_rec_align(), fd_progcache_rec_footprint( NULL ), NULL );
+    if( FD_UNLIKELY( !rec_mem ) ) {
+      FD_LOG_ERR(( "Program cache is out of memory: fd_alloc_malloc failed (requested align=%lu sz=%lu)",
+                   fd_progcache_rec_align(), fd_progcache_rec_footprint( NULL ) ));
+    }
+    rec = fd_progcache_rec_new_nx( rec_mem, load_slot );
+  }
+
+  /* Publish cache entry to funk index */
+
+  int insert_err = fd_funk_rec_map_txn_insert( funk->rec_map, funk_rec );
+  if( FD_UNLIKELY( insert_err!=FD_MAP_SUCCESS ) ) {
+    FD_LOG_CRIT(( "fd_funk_rec_map_txn_insert failed: %i-%s", insert_err, fd_map_strerror( insert_err ) ));
+  }
 }
