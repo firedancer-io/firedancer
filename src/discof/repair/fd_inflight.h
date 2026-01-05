@@ -69,7 +69,7 @@ fd_inflights_footprint( void ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_inflights_t),   sizeof(fd_inflights_t)                             ),
+      fd_inflights_align(),      sizeof(fd_inflights_t)                             ),
       fd_inflight_pool_align(),  fd_inflight_pool_footprint ( FD_INFLIGHT_REQ_MAX ) ),
       fd_inflight_map_align(),   fd_inflight_map_footprint  ( FD_INFLIGHT_REQ_MAX ) ),
       fd_inflight_dlist_align(), fd_inflight_dlist_footprint()                      ),
