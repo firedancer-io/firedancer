@@ -171,6 +171,12 @@ fd_progcache_pull( fd_progcache_t *           cache,
                    void const *               prog_addr,
                    fd_prog_load_env_t const * env );
 
+fd_progcache_rec_t const *
+fd_progcache_force_insert( fd_progcache_t *          cache,
+                           void const *              prog_addr,
+                           fd_account_meta_t const * progdata_meta,
+                           fd_prog_load_env_t const * env );
+
 /* fd_progcache_invalidate marks the program at the given address as
    invalidated (typically due to a change of program content).  This
    creates a non-executable cache entry at the given xid.

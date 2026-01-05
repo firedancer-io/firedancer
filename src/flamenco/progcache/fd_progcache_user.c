@@ -671,7 +671,10 @@ fd_progcache_pull( fd_progcache_t *           cache,
 
 miss:
   cache->metrics->miss_cnt++;
-  return fd_progcache_insert( cache, accdb, xid, prog_addr, env, slot_min );
+  (void)accdb;
+  (void)fd_progcache_insert;
+  return NULL;
+  //return fd_progcache_insert( cache, accdb, xid, prog_addr, env, slot_min );
 }
 
 fd_progcache_rec_t const *

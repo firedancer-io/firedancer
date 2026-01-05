@@ -6,6 +6,7 @@
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../program/fd_bpf_loader_program.h"
+#include "../program/fd_loader_v4_program.h"
 #include "../sysvar/fd_sysvar.h"
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
@@ -125,13 +126,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
   runtime->instr.current_idx  = 0;
 
-  txn_in->txn                                                = txn;
+  txn_in->txn                                        = txn;
   txn_out->details.compute_budget.compute_unit_limit = test_ctx->cu_avail;
   txn_out->details.compute_budget.compute_meter      = test_ctx->cu_avail;
-  runtime->log.enable_vm_tracing                             = runner->enable_vm_tracing;
-  runtime->log.tracing_mem                                   = runner->enable_vm_tracing ?
-                                                               fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH ) :
-                                                               NULL;
+  runtime->log.enable_vm_tracing                     = runner->enable_vm_tracing;
+  runtime->log.tracing_mem                           = runner->enable_vm_tracing ?
+                                                       fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH ) :
+                                                       NULL;
 
   /* Set up instruction context */
   fd_instr_info_t * info = &runtime->instr.trace[ 0UL ];
@@ -169,14 +170,17 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
     runtime->accounts.refcnt[j] = 0UL;
 
-    if( metas[j] ) {
-      uchar *             data     = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-      ulong               dlen     = metas[j]->dlen;
-      fd_account_meta_t * meta     = (fd_account_meta_t *)data;
-      fd_memcpy( data, metas[j], sizeof(fd_account_meta_t)+dlen );
-      metas[j] = meta;
-    }
+    uchar *             data     = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+    fd_account_meta_t * meta     = (fd_account_meta_t *)data;
+    uint dlen = test_ctx->accounts[j].data ? test_ctx->accounts[j].data->size : 0U;
+    fd_memcpy( meta+1, test_ctx->accounts[j].data->bytes, dlen );
+    meta->dlen = dlen;
+    meta->lamports = test_ctx->accounts[j].lamports;
+    meta->executable = test_ctx->accounts[j].executable;
+    fd_memcpy( meta->owner, test_ctx->accounts[j].owner, sizeof(fd_pubkey_t) );
+    metas[j] = meta;
     txn_out->accounts.metas[j] = metas[j];
+    txn_out->accounts.keys[j]  = *acc_key;
 
     if( !memcmp( acc_key, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       has_program_id = 1;
@@ -202,7 +206,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
 
     fd_account_meta_t * meta = txn_out->accounts.metas[i];
-    if ( !fd_executor_pubkey_is_bpf_loader( (fd_pubkey_t *)meta->owner ) ) {
+    if( !fd_executor_pubkey_is_bpf_loader( (fd_pubkey_t *)meta->owner ) ) {
       continue;
     }
 
@@ -226,55 +230,106 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
       fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
 
-      fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-          runtime->funk,
-          xid,
-          programdata_acc,
-          NULL,
-          &err,
-          NULL );
-
-      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
+        if( 0 == memcmp( test_ctx->accounts[j].address, programdata_acc, sizeof(fd_pubkey_t) ) ) {
+          meta = txn_out->accounts.metas[j];
+          break;
+        }
+      }
+      if( FD_UNLIKELY( meta == NULL ) ) {
         continue;
       }
+
       runtime->accounts.executable_pubkeys[runtime->accounts.executable_cnt] = *programdata_acc;
-      runtime->accounts.executables_meta[runtime->accounts.executable_cnt]   = (fd_account_meta_t *)meta;
+      runtime->accounts.executables_meta[runtime->accounts.executable_cnt]   = meta;
       runtime->accounts.executable_cnt++;
+    } else if( FD_UNLIKELY( !memcmp( meta->owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
+                            !memcmp( meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      meta = txn_out->accounts.metas[i];
+    } else if( !memcmp( meta->owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+        /* Get the current loader v4 state. This implicitly also checks the dlen. */
+      int err;
+      fd_loader_v4_state_t const * state = fd_loader_v4_get_state( meta, &err );
+      if( FD_UNLIKELY( err ) ) {
+        continue;
+      }
+
+      /* The program must be deployed or finalized. */
+      if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( state ) ) ) {
+        continue;
+      }
     }
+
+    uchar * scratch = fd_spad_alloc( runner->spad, FD_FUNK_REC_ALIGN, FD_RUNTIME_ACC_SZ_MAX );
+    fd_progcache_inject_rec( runner->progcache_admin,
+                              &txn_out->accounts.keys[i],
+                              meta,
+                              features,
+                              fd_bank_slot_get( runner->bank ),
+                              scratch,
+                              FD_RUNTIME_ACC_SZ_MAX );
+
   }
 
   /* Set slot bank variables and ensure all relevant sysvars are present */
-  fd_sol_sysvar_last_restart_slot_t last_restart_slot_[1];
-  FD_TEST( fd_sysvar_last_restart_slot_read( funk, xid, last_restart_slot_ ) );
 
-  fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( runner->accdb, xid, clock_ );
-  FD_TEST( clock );
-  fd_bank_slot_set( runner->bank, clock->slot );
+  for( ulong i=0UL; i < txn_out->accounts.cnt; i++ ) {
+    fd_account_meta_t * meta = txn_out->accounts.metas[i];
+    if( !memcmp( &txn_out->accounts.keys[i], fd_sysvar_clock_id.key, sizeof(fd_pubkey_t) ) ) {
+      fd_sol_sysvar_clock_t clock_[1];
+      fd_sol_sysvar_clock_t * clock = fd_bincode_decode_static(
+        sol_sysvar_clock, clock_,
+        fd_account_data( meta ),
+        meta->dlen,
+        NULL );
+      FD_TEST( clock );
+      fd_bank_slot_set( runner->bank, clock->slot );
+    }
 
-  fd_epoch_schedule_t epoch_schedule_[1];
-  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, xid, epoch_schedule_ );
-  FD_TEST( epoch_schedule );
-  fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
+    if( !memcmp( &txn_out->accounts.keys[i], fd_sysvar_epoch_schedule_id.key, sizeof(fd_pubkey_t) ) ) {
+      fd_epoch_schedule_t epoch_schedule_[1];
+      fd_epoch_schedule_t * epoch_schedule = fd_bincode_decode_static(
+        epoch_schedule, epoch_schedule_,
+        fd_account_data( meta ),
+        meta->dlen,
+        NULL );
+      FD_TEST( epoch_schedule );
+      fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
+    }
 
-  /* Override epoch bank rent setting */
-  fd_rent_t rent[1];
-  FD_TEST( fd_sysvar_rent_read( funk, xid, rent ) );
-  fd_bank_rent_set( runner->bank, *rent );
+    if( !memcmp( &txn_out->accounts.keys[i], fd_sysvar_rent_id.key, sizeof(fd_pubkey_t) ) ) {
+      fd_rent_t rent_[1];
+      fd_rent_t * rent = fd_bincode_decode_static(
+        rent, rent_,
+        fd_account_data( meta ),
+        meta->dlen,
+        NULL );
+      FD_TEST( rent );
+      fd_bank_rent_set( runner->bank, *rent );
+    }
 
-  /* Override most recent blockhash if given */
-  uchar __attribute__((aligned(FD_SYSVAR_RECENT_HASHES_ALIGN))) rbh_mem[FD_SYSVAR_RECENT_HASHES_FOOTPRINT];
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, xid, rbh_mem );
-  FD_TEST( rbh );
-  if( !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
-    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
-    if( last ) {
-      fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( runner->bank );
-      fd_blockhashes_pop_new( blockhashes );
-      fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
-      info->fee_calculator = last->fee_calculator;
+    if( !memcmp( &txn_out->accounts.keys[i], fd_sysvar_recent_block_hashes_id.key, sizeof(fd_pubkey_t) ) ) {
+      uchar __attribute__((aligned(FD_SYSVAR_RECENT_HASHES_ALIGN))) rbh_mem[FD_SYSVAR_RECENT_HASHES_FOOTPRINT];
 
-      fd_bank_rbh_lamports_per_sig_set( runner->bank, last->fee_calculator.lamports_per_signature );
+      fd_bincode_decode_ctx_t ctx = {
+        .data    = fd_account_data( meta ),
+        .dataend = fd_account_data( meta ) + meta->dlen,
+      };
+
+      fd_recent_block_hashes_t * rbh = fd_recent_block_hashes_decode( rbh_mem, &ctx );
+      FD_TEST( rbh );
+
+      if( !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+        fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
+        if( last ) {
+          fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( runner->bank );
+          fd_blockhashes_pop_new( blockhashes );
+          fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
+          info->fee_calculator = last->fee_calculator;
+
+          fd_bank_rbh_lamports_per_sig_set( runner->bank, last->fee_calculator.lamports_per_signature );
+        }
+      }
     }
   }
 

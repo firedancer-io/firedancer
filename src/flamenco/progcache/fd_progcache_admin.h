@@ -3,6 +3,12 @@
 
 #include "../../funk/fd_funk.h"
 
+struct fd_account_meta;
+typedef struct fd_account_meta fd_account_meta_t;
+
+union fd_features;
+typedef union fd_features fd_features_t;
+
 struct fd_progcache_admin {
   fd_funk_t funk[1];
 
@@ -87,6 +93,17 @@ fd_progcache_clear( fd_progcache_admin_t * cache );
 
 void
 fd_progcache_verify( fd_progcache_admin_t * cache );
+
+/* TODO:FIXME: Add documentation. */
+
+void
+fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
+                         void const *              prog_addr,
+                         fd_account_meta_t const * progdata_meta,
+                         fd_features_t const *     features,
+                         ulong                     slot,
+                         uchar *                   scratch,
+                         ulong                     scratch_sz );
 
 FD_PROTOTYPES_END
 
