@@ -227,13 +227,14 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
       fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
 
-      for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
-        if( 0 == memcmp( test_ctx->accounts[j].address, programdata_acc, sizeof(fd_pubkey_t) ) ) {
+      meta = NULL;
+      for( ulong j=0UL; j<test_ctx->accounts_count; j++ ) {
+        if( !memcmp( test_ctx->accounts[j].address, programdata_acc, sizeof(fd_pubkey_t) ) ) {
           meta = txn_out->accounts.metas[j];
           break;
         }
       }
-      if( FD_UNLIKELY( meta == NULL ) ) {
+      if( FD_UNLIKELY( meta==NULL ) ) {
         continue;
       }
 
@@ -290,29 +291,21 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, clock_ );
-  if( FD_UNLIKELY( !clock ) ) {
-    FD_LOG_NOTICE(( "Unable to read clock sysvar" ));
-    return 0;
-  }
+  FD_TEST( clock );
   fd_bank_slot_set( runner->bank, clock->slot );
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
-  if( FD_UNLIKELY( !epoch_schedule ) ) {
-    FD_LOG_NOTICE(( "Unable to read epoch schedule sysvar" ));
-    return 0;
-  }
+  if( FD_UNLIKELY( !epoch_schedule ) ) { return 0; }
   fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
 
   fd_rent_t rent_[1];
   fd_rent_t * rent = fd_sysvar_cache_rent_read( ctx->sysvar_cache, rent_ );
-  if( FD_UNLIKELY( !rent ) ) {
-    FD_LOG_NOTICE(( "Unable to read rent sysvar" ));
-    return 0;
-  }
+  FD_TEST( rent );
   fd_bank_rent_set( runner->bank, *rent );
 
   fd_block_block_hash_entry_t const * deq = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
+  FD_TEST( deq );
   if( !deq_fd_block_block_hash_entry_t_empty( deq ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( deq );
     if( last ) {
@@ -324,7 +317,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       fd_bank_rbh_lamports_per_sig_set( runner->bank, last->fee_calculator.lamports_per_signature );
     }
   }
-
+  fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, deq );
 
   uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
