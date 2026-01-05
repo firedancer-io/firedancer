@@ -282,7 +282,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
           }
 
           if( FD_UNLIKELY( burst_max > burst_free ) ) {
-            FD_LOG_WARNING(( "Too large burst_max (increase FD_VINYL_RECV_MAX or decrease burst_max)" ));
+            FD_LOG_WARNING(( "Too large burst_max (increase FD_VINYL_REQ_MAX or decrease burst_max)" ));
             err = FD_VINYL_ERR_FULL;
             goto join_done;
           }
@@ -338,7 +338,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
           /* Every client_cnt run loop iterations we receive at most:
 
-               sum_clients recv_max = FD_VINYL_RECV_MAX - burst_free
+               sum_clients recv_max = FD_VINYL_REQ_MAX - burst_free
 
              requests.  To guarantee we processe requests fast enough
              that we never overrun our receive queue, under maximum
