@@ -187,7 +187,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* If the program id is not in the set of accounts it must be added to the set of accounts. */
   if( FD_UNLIKELY( !has_program_id ) ) {
-    fd_pubkey_t *      program_key = &txn_out->accounts.keys[ txn_out->accounts.cnt ];
+    fd_pubkey_t * program_key = &txn_out->accounts.keys[ txn_out->accounts.cnt ];
     memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
 
     fd_account_meta_t * meta = fd_spad_alloc( runner->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
@@ -203,11 +203,11 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
 
     fd_account_meta_t * meta = txn_out->accounts.metas[i];
-    if( !fd_executor_pubkey_is_bpf_loader( (fd_pubkey_t *)meta->owner ) ) {
+    if( !fd_executor_pubkey_is_bpf_loader( fd_type_pun( meta->owner ) ) ) {
       continue;
     }
 
-    if( meta == NULL ) {
+    if( meta==NULL ) {
       uchar * mem = fd_spad_alloc( runner->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) );
       fd_account_meta_t * meta = (fd_account_meta_t *)mem;
       memset( meta, 0, sizeof(fd_account_meta_t) );
@@ -245,7 +245,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                             !memcmp( meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
       meta = txn_out->accounts.metas[i];
     } else if( !memcmp( meta->owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
-        /* Get the current loader v4 state. This implicitly also checks the dlen. */
       int err;
       fd_loader_v4_state_t const * state = fd_loader_v4_get_state( meta, &err );
       if( FD_UNLIKELY( err ) ) {
@@ -256,6 +255,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( state ) ) ) {
         continue;
       }
+      meta = txn_out->accounts.metas[i];
     }
 
     uchar * scratch = fd_spad_alloc( runner->spad, FD_FUNK_REC_ALIGN, FD_RUNTIME_ACC_SZ_MAX );
