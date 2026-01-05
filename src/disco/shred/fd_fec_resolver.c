@@ -380,11 +380,27 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
-  if( FD_UNLIKELY( ( shred->fec_set_idx % FD_REEDSOL_FEC_SHRED_CNT ) != 0UL || shred->idx - shred->fec_set_idx >= FD_REEDSOL_FEC_SHRED_CNT ) ) {
+  if( FD_UNLIKELY( ( shred->fec_set_idx % FD_REEDSOL_FEC_SHRED_CNT ) != 0UL ) ) {
     FD_BASE58_ENCODE_32_BYTES( leader_pubkey, s );
     FD_LOG_WARNING(( "shred->fec_set_idx %u slot %lu idx %u. leader %s", shred->fec_set_idx, shred->slot, shred->idx, s ) );
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
+
+  /* in_type_idx is between [0, code.data_cnt) or [0, code.code_cnt),
+     where data_cnt <= FD_REEDSOL_DATA_SHREDS_MAX and code_cnt <=
+     FD_REEDSOL_PARITY_SHREDS_MAX.
+     On the other hand, shred_idx, goes from [0, code.data_cnt +
+     code.code_cnt), with all the data shreds having
+     shred_idx < code.data_cnt and all the parity shreds having
+     shred_idx >= code.data_cnt. */
+  ulong in_type_idx = fd_ulong_if( is_data_shred, shred->idx - shred->fec_set_idx, shred->code.idx );
+  ulong shred_idx   = fd_ulong_if( is_data_shred, in_type_idx, in_type_idx + shred->code.data_cnt  );
+
+  if( FD_UNLIKELY( in_type_idx >= FD_REEDSOL_FEC_SHRED_CNT ) )
+    return FD_FEC_RESOLVER_SHRED_REJECTED;
+
+  if( FD_UNLIKELY( is_data_shred && (shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) && shred->idx % FD_REEDSOL_FEC_SHRED_CNT != 31  ) )
+    return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   /* For the purposes of the shred header, tree_depth means the number
      of nodes, counting the leaf but excluding the root.  For bmtree,
@@ -399,18 +415,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   fd_bmtree_hash_leaf( leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
 
-  /* in_type_idx is between [0, code.data_cnt) or [0, code.code_cnt),
-     where data_cnt <= FD_REEDSOL_DATA_SHREDS_MAX and code_cnt <=
-     FD_REEDSOL_PARITY_SHREDS_MAX.
-     On the other hand, shred_idx, goes from [0, code.data_cnt +
-     code.code_cnt), with all the data shreds having
-     shred_idx < code.data_cnt and all the parity shreds having
-     shred_idx >= code.data_cnt. */
-  ulong in_type_idx = fd_ulong_if( is_data_shred, shred->idx - shred->fec_set_idx, shred->code.idx );
-  ulong shred_idx   = fd_ulong_if( is_data_shred, in_type_idx, in_type_idx + shred->code.data_cnt  );
-
-  if( FD_UNLIKELY( in_type_idx >= FD_REEDSOL_FEC_SHRED_CNT ) )
-    return FD_FEC_RESOLVER_SHRED_REJECTED;
   /* This, combined with the check on shred->code.data_cnt implies that
      shred_idx is in [0, DATA_SHREDS_MAX+PARITY_SHREDS_MAX). */
 

@@ -95,10 +95,10 @@
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
 
-#define DCACHE_ENTRIES_PER_FEC_SET (4UL)
-FD_STATIC_ASSERT( sizeof(fd_shred34_t) < USHORT_MAX, shred_34 );
-FD_STATIC_ASSERT( 34*DCACHE_ENTRIES_PER_FEC_SET >= FD_REEDSOL_FEC_SHRED_CNT+FD_REEDSOL_FEC_SHRED_CNT, shred_34 );
-FD_STATIC_ASSERT( sizeof(fd_shred34_t) == FD_SHRED_STORE_MTU, shred_34 );
+#define DCACHE_ENTRIES_PER_FEC_SET (2UL)
+FD_STATIC_ASSERT( sizeof(fd_shred32_t) < USHORT_MAX, shred_34 );
+FD_STATIC_ASSERT( 32*DCACHE_ENTRIES_PER_FEC_SET == FD_REEDSOL_FEC_SHRED_CNT+FD_REEDSOL_FEC_SHRED_CNT, shred_32 );
+FD_STATIC_ASSERT( sizeof(fd_shred32_t) == FD_SHRED_STORE_MTU, shred_34 );
 
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL, poh_shred_mtu );
 
@@ -157,8 +157,8 @@ typedef struct {
   fd_keyguard_client_t keyguard_client[1];
 
   /* shred34 and fec_sets are very related: fec_sets[i] has pointers
-     to the shreds in shred34[4*i + k] for k=0,1,2,3. */
-  fd_shred34_t       * shred34;
+     to the shreds in shred32[2i] and shred32[2i+1] */
+  fd_shred32_t       * shred32;
   fd_fec_set_t       * fec_sets;
 
   fd_stake_ci_t      * stake_ci;
@@ -907,27 +907,14 @@ after_frag( fd_shred_ctx_t *    ctx,
   for( ulong fset_k=0; fset_k<ctx->send_fec_set_cnt; fset_k++ ) {
 
     fd_fec_set_t * set = ctx->fec_sets + ctx->send_fec_set_idx[ fset_k ];
-    fd_shred34_t * s34 = ctx->shred34 + 4UL*ctx->send_fec_set_idx[ fset_k ];
+    fd_shred32_t * s32 = ctx->shred32 + 2UL*ctx->send_fec_set_idx[ fset_k ];
 
-    s34[ 0 ].shred_cnt = FD_REEDSOL_FEC_SHRED_CNT;
-    s34[ 1 ].shred_cnt = 0;
-    s34[ 2 ].shred_cnt = FD_REEDSOL_FEC_SHRED_CNT;
-    s34[ 3 ].shred_cnt = 0;
-
-    ulong s34_cnt     = 2UL + !!(s34[ 1 ].shred_cnt) + !!(s34[ 3 ].shred_cnt);
-    ulong txn_per_s34 = fd_ulong_if( fset_k<( ctx->send_fec_set_cnt - 1UL ), shredded_txn_cnt_per_fec_set, shredded_txn_cnt_last_fec_set ) / s34_cnt;
+    ulong s32_cnt     = 2UL;
+    ulong txn_per_s32 = fd_ulong_if( fset_k<( ctx->send_fec_set_cnt - 1UL ), shredded_txn_cnt_per_fec_set, shredded_txn_cnt_last_fec_set ) / s32_cnt;
 
     /* Attribute the transactions evenly to the non-empty shred34s */
-    for( ulong j=0UL; j<4UL; j++ ) s34[ j ].est_txn_cnt = fd_ulong_if( s34[ j ].shred_cnt>0UL, txn_per_s34, 0UL );
-
-    /* Add whatever is left to the last shred34 */
-    s34[ fd_ulong_if( s34[ 3 ].shred_cnt>0UL, 3, 2 ) ].est_txn_cnt += ctx->shredded_txn_cnt - txn_per_s34*s34_cnt;
-
-    /* Set the sz field so that metrics are more accurate. */
-    ulong sz0 = sizeof(fd_shred34_t) - (34UL - s34[ 0 ].shred_cnt)*FD_SHRED_MAX_SZ;
-    ulong sz1 = sizeof(fd_shred34_t) - (34UL - s34[ 1 ].shred_cnt)*FD_SHRED_MAX_SZ;
-    ulong sz2 = sizeof(fd_shred34_t) - (34UL - s34[ 2 ].shred_cnt)*FD_SHRED_MAX_SZ;
-    ulong sz3 = sizeof(fd_shred34_t) - (34UL - s34[ 3 ].shred_cnt)*FD_SHRED_MAX_SZ;
+    s32[ 0 ].est_txn_cnt = txn_per_s32;
+    s32[ 1 ].est_txn_cnt = ctx->shredded_txn_cnt - txn_per_s32; /* Add whatever is left to the last shred34 */
 
     fd_shred_t const * last = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ FD_REEDSOL_FEC_SHRED_CNT - 1 ] );
 
@@ -1034,13 +1021,8 @@ after_frag( fd_shred_ctx_t *    ctx,
 
       ulong new_sig = ctx->in_kind[ in_idx ]!=IN_KIND_NET; /* sig==0 means the store tile will do extra checks */
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+0UL ), sz0, 0UL, ctx->tsorig, tspub );
-      if( FD_UNLIKELY( s34[ 1 ].shred_cnt ) )
-        fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+1UL ), sz1, 0UL, ctx->tsorig, tspub );
-      if( FD_UNLIKELY( s34[ 2 ].shred_cnt ) )
-        fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, ctx->tsorig, tspub );
-      if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
-        fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sz3, 0UL, ctx->tsorig, tspub );
+      fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s32+0UL ), sizeof(fd_shred32_t), 0UL, ctx->tsorig, tspub );
+      fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s32+1UL ), sizeof(fd_shred32_t), 0UL, ctx->tsorig, tspub );
     }
 
     /* Compute all the destinations for all the new shreds */
@@ -1133,12 +1115,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->batch_cnt       = 0UL;
   ctx->slot            = ULONG_MAX;
 
-  /* If the default partial_depth is ever changed, correspondingly
-     change the size of the fd_fec_intra_pool in fd_fec_repair. */
   ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, shred_store_mcache_depth,
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong fec_set_cnt            = shred_store_mcache_depth + tile->shred.fec_resolver_depth + 4UL;
-  ulong fec_sets_required_sz   = fec_set_cnt*DCACHE_ENTRIES_PER_FEC_SET*sizeof(fd_shred34_t);
+  ulong fec_sets_required_sz   = fec_set_cnt*DCACHE_ENTRIES_PER_FEC_SET*sizeof(fd_shred32_t);
 
   void * fec_sets_shmem = NULL;
   ctx->shred_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_out", ctx->round_robin_id );
@@ -1178,22 +1158,22 @@ unprivileged_init( fd_topo_t *      topo,
   void * _fec_sets = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt   );
 
   fd_fec_set_t * fec_sets = (fd_fec_set_t *)_fec_sets;
-  fd_shred34_t * shred34  = (fd_shred34_t *)fec_sets_shmem;
+  fd_shred32_t * shred32  = (fd_shred32_t *)fec_sets_shmem;
 
   for( ulong i=0UL; i<fec_set_cnt; i++ ) {
-    fd_shred34_t * p34_base = shred34 + i*DCACHE_ENTRIES_PER_FEC_SET;
+    fd_shred32_t * p34_base = shred32 + i*DCACHE_ENTRIES_PER_FEC_SET;
     for( ulong k=0UL; k<DCACHE_ENTRIES_PER_FEC_SET; k++ ) {
-      fd_shred34_t * p34 = p34_base + k;
+      fd_shred32_t * p34 = p34_base + k;
 
       p34->stride   = (ulong)p34->pkts[1].buffer - (ulong)p34->pkts[0].buffer;
       p34->offset   = (ulong)p34->pkts[0].buffer - (ulong)p34;
-      p34->shred_sz = fd_ulong_if( k<2UL, 1203UL, 1228UL );
+      p34->shred_sz = fd_ulong_if( k==0UL, 1203UL, 1228UL ); /* first 32 are data, last 32 are parity */
     }
 
     uchar ** data_shred   = fec_sets[ i ].data_shreds;
     uchar ** parity_shred = fec_sets[ i ].parity_shreds;
-    for( ulong j=0UL; j<FD_REEDSOL_FEC_SHRED_CNT; j++ ) data_shred  [ j ] = p34_base[       j/34UL ].pkts[ j%34UL ].buffer;
-    for( ulong j=0UL; j<FD_REEDSOL_FEC_SHRED_CNT; j++ ) parity_shred[ j ] = p34_base[ 2UL + j/34UL ].pkts[ j%34UL ].buffer;
+    for( ulong j=0UL; j<FD_REEDSOL_FEC_SHRED_CNT; j++ ) data_shred  [ j ] = p34_base[       j/32UL ].pkts[ j%32UL ].buffer;
+    for( ulong j=0UL; j<FD_REEDSOL_FEC_SHRED_CNT; j++ ) parity_shred[ j ] = p34_base[ 1UL + j/32UL ].pkts[ j%32UL ].buffer;
   }
 
 #define NONNULL( x ) (__extension__({                                        \
@@ -1248,7 +1228,7 @@ unprivileged_init( fd_topo_t *      topo,
     fd_fec_resolver_set_shred_version( ctx->resolver, expected_shred_version );
   }
 
-  ctx->shred34  = shred34;
+  ctx->shred32  = shred32;
   ctx->fec_sets = fec_sets;
 
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, ctx->identity_key ) );

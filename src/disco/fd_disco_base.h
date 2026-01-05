@@ -40,7 +40,7 @@
 /* FD_SHRED_STORE_MTU is the size of an fd_shred34_t (statically
    asserted in fd_shred_tile.c). */
 
-#define FD_SHRED_STORE_MTU (41792UL)
+#define FD_SHRED_STORE_MTU (39360UL)
 
 /* FD_SHRED_OUT_MTU is the maximum size of a frag on the shred_out
    link.  This is the size of a data shred header + merkle root

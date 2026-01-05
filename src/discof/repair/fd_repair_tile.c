@@ -1002,7 +1002,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->net_out_idx       = UINT_MAX;
-  ctx->shred_tile_cnt    = 0;
+  ctx->shred_tile_cnt    = (uint)fd_topo_tile_name_cnt( topo, "shred" );
   ctx->repair_sign_cnt   = 0;
   ctx->sign_rrobin_idx   = 0;
 
@@ -1038,8 +1038,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( ctx->repair_sign_cnt!=sign_repair_idx ) ) {
     FD_LOG_ERR(( "Mismatch between repair_sign output links (%lu) and sign_repair input links (%u)", ctx->repair_sign_cnt, sign_repair_idx ));
   }
-
-  FD_TEST( ctx->shred_tile_cnt == fd_topo_tile_name_cnt( topo, "shred" ) );
 
 # if DEBUG_LOGGING
   if( fd_signs_map_key_max( ctx->signs_map ) < tile->repair.repair_sign_depth * tile->repair.repair_sign_cnt ) {

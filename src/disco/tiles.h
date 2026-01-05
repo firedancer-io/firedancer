@@ -16,11 +16,10 @@
    convenient for use in a dcache and for access from Rust. The limit of
    34 comes so that sizeof( fd_shred34_t ) < USHORT_MAX. */
 
-struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred34 {
-  ulong shred_cnt;
+struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred32 {
 
   /* est_txn_cnt: An estimate of the number of transactions contained in this
-     shred34_t.  The true value might not be a whole number, but this is
+     shred32_t.  The true value might not be a whole number, but this is
      helpful for diagnostic purposes. */
   ulong est_txn_cnt;
   ulong stride;
@@ -32,9 +31,9 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred34 {
   union {
     fd_shred_t shred;
     uchar      buffer[ FD_SHRED_MAX_SZ ];
-  } pkts[ 34 ];
+  } pkts[ 32 ];
 };
-typedef struct fd_shred34 fd_shred34_t;
+typedef struct fd_shred32 fd_shred32_t;
 
 struct fd_became_leader {
    ulong slot;
