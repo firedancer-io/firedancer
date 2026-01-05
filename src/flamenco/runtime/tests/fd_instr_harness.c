@@ -207,13 +207,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       continue;
     }
 
-    if( meta==NULL ) {
-      uchar * mem = fd_spad_alloc( runner->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) );
-      fd_account_meta_t * meta = (fd_account_meta_t *)mem;
-      memset( meta, 0, sizeof(fd_account_meta_t) );
-      continue;
-    }
-
     if( FD_UNLIKELY( !memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
       fd_bpf_upgradeable_loader_state_t program_loader_state[1];
       int err = fd_bpf_loader_program_get_state( meta, program_loader_state );
