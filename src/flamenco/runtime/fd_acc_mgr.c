@@ -29,6 +29,11 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
     void const * raw = fd_funk_val( rec, fd_funk_wksp( funk ) );
 
     fd_account_meta_t const * metadata = fd_type_pun_const( raw );
+    if( FD_UNLIKELY( metadata->lamports==0UL ) ) {
+      fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
+      if( NULL != orec ) *orec = NULL;
+      return NULL;
+    }
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_SUCCESS );
     return metadata;
 
