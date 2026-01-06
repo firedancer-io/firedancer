@@ -20,21 +20,17 @@ FD_PROTOTYPES_BEGIN
 /* TODO: Some optimizations, cleanups, future work:
    1. Simple data types (ulong, int, etc) should be stored as their
       underlying type instead of a byte array.
-   2. Perhaps make the query/modify scoping more explicit. Right now,
-      the caller is free to use the API wrong if there are no locks.
-      Maybe just expose a different API if there are no locks?
    3. Rename locks to suffix with _query_locking and _query_locking_end
-   4. Don't templatize out more complex types.
   */
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
-   for a given block. More specifically, the bank state corresponds to
+   for a given block.  More specifically, the bank state corresponds to
    all information needed during execution that is not stored on-chain,
-   but is instead cached in a validator's memory. Each of these bank
+   but is instead cached in a validator's memory.  Each of these bank
    fields are repesented by a member of the fd_bank_t struct.
 
    Management of fd_bank_t structs must be fork-aware: the state of each
-   fd_bank_t must be based on the fd_bank_t of it's parent block. This
+   fd_bank_t must be based on the fd_bank_t of its parent block.  This
    state is managed by the fd_banks_t struct.
 
    In order to support fork-awareness, there are several key features
@@ -53,29 +49,21 @@ FD_PROTOTYPES_BEGIN
       from multiple threads: add read-write locks to the fields that are
       concurrently written to.
    5. In practice, a bank state for a given block can be very large and
-      not all of the fields are written to every block. Therefore, it can
-      be very expensive to copy the entire bank state for a given block
-      each time a bank is created. In order to avoid large memcpys, we
-      can use a CoW mechanism for certain fields.
+      not all of the fields are written to every block.  Therefore, it
+      can be very expensive to copy the entire bank state for a given
+      block each time a bank is created.  In order to avoid large
+      memcpys, we can use a CoW mechanism for certain fields.
    6. In a similar vein, some fields are very large and are not written
-      to very often, and are only read at the epoch boundary. The most
-      notable example is the stake delegations cache. In order to handle
-      this, we can use a delta-based approach where each bank only has
-      a delta of the stake delegations. The root bank will own the full
-      set of stake delegations. This means that the deltas are only
-      applied to the root bank as each bank gets rooted. If the caller
-      needs to access the full set of stake delegations for a given
-      bank, they can assemble the full set of stake delegations by
+      to very often, and are only read at the epoch boundary.  The most
+      notable example is the stake delegations cache.  In order to
+      handle this, we can use a delta-based approach where each bank
+      only has a delta of the stake delegations.  The root bank will own
+      the full set of stake delegations.  This means that the deltas are
+      only applied to the root bank as each bank gets rooted.  If the
+      caller needs to access the full set of stake delegations for a
+      given bank, they can assemble the full set of stake delegations by
       applying all of the deltas from the current bank and all of its
       ancestors up to the root bank.
-
-  Each field of a fd_bank_t has a pre-specified set of fields including
-    - name: the name of the field
-    - footprint: the size of the field in bytes
-    - align: the alignment of the field
-    - CoW: whether the field is CoW
-    - has_lock: whether the field has a rw-lock
-    - type: type of the field
 
   fd_banks_t is represented by a left-child, right-sibling n-ary tree
   (inspired by fd_ghost) to keep track of the parent-child fork tree.
@@ -90,21 +78,20 @@ FD_PROTOTYPES_BEGIN
   establishing a mapping from the bank index (which is managed by
   fd_banks_t) and runtime state (e.g. slot number).
 
-  Most of the fields a fd_bank_t are templatized and can support CoW
-  sematics or locking semantics.
-
-  Each field in fd_bank_t that is not CoW is laid out contiguously in
-  the fd_bank_t struct as simple uchar buffers. This allows for a simple
-  memcpy to clone the bank state from a parent to a child.
+  The fields in fd_bank_t can be categorized into two groups:
+  1. Simple fields: these are fields which don't need any special
+     handling and are laid out contiguously in the fd_bank_t struct.
+     These types are also templatized out and are defined in the
+     FD_BANKS_ITER macro.
+  2. Complex fields: these are fields which need special handling
+     (e.g. locking, copy on write semantics, delta-based semantics).
+     These types are not templatized and are manually defined below.
 
   Each field that is CoW has its own memory pool. The memory
   corresponding to the field is not located in the fd_bank_t struct and
   is instead represented by a pool index and a dirty flag. If the field
   is modified, then the dirty flag is set, and an element of the pool
   is acquired and the data is copied over from the parent pool idx.
-
-  Not all fields in the bank are templatized: stake_delegations and
-  the cost_tracker.
 
   Currently, there is a delta-based field, fd_stake_delegations_t.
   Each bank stores a delta-based representation in the form of an
@@ -118,6 +105,9 @@ FD_PROTOTYPES_BEGIN
   call to fd_banks_clone_from_parent() which makes the bank replayable.
   The lifetime of a cost tracker element ends when the bank is marked
   dead or when the bank is frozen.
+
+  The lthash is a simple field that is laid out contiguously in the
+  fd_bank_t struct, but is not templatized and it has its own lock..
 
   So, when a bank is cloned from a parent, the non CoW fields are copied
   over and the CoW fields just copy over a pool index. The CoW behavior
@@ -148,63 +138,53 @@ FD_PROTOTYPES_BEGIN
   - Frozen: This bank has been marked as frozen and no other tasks
     should be dispatched to it.  Any bank-specific resources will be
     released (e.g. cost tracker element).  A bank can be marked frozen
-    in two cases:
-      1. The bank has finished executing all of its transactions
-      2. The bank has been marked dead and there are no outstanding
-         references to the bank.
-    A bank can only be copied from a parent bank
-    (fd_banks_clone_from_parent) if the parent bank has been frozen.
-    The program will crash if this invariant is violated.
-
-  NOTE: An important invariant is that if a templatized field is CoW,
-  then it must have a rw-lock.
-
-  NOTE: Another important invariant is that if a templatized field is
-  limiting its fork width, then it must be CoW.
+    if the bank has finished executing all of its transactions or if the
+    bank is marked as dead and has no outstanding references.  A bank
+    can only be copied from a parent bank (fd_banks_clone_from_parent)
+    if the parent bank has been frozen.  The program will crash if this
+    invariant is violated.
 
   The usage pattern is as follows:
 
    To create an initial bank:
    fd_bank_t * bank_init = fd_bank_init_bank( banks );
 
-   To create a new bank:
+   To create a new bank.  This simply provisions the memory for the bank
+   but it should not be used to execute transactions against.
    ulong bank_index = fd_banks_new_bank( banks, parent_bank_index );
 
-   To clone bank from parent banks:
+   To clone bank from parent banks.  This makes a bank replayable by
+   copying over the state from the parent bank into the child.  It
+   assumes that the bank index has been previously provisioned by a call
+   to fd_banks_new_bank and that the parent bank index has been frozen.
    fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, bank_index, parent_bank_index );
 
-   To advance the root bank
+   To ensure that the bank index we want to advance our root to is safe
+   and that there are no outstanding references to the banks that are
+   not descendants of the target bank.
+   fd_banks_advance_root_prepare( banks, target_bank_idx, &advanceable_bank_idx_out );
+
+   To advance the root bank.  This assumes that the bank index is "safe"
+   to advance to.  This means that none of the ancestors of the bank
+   index have a non-zero reference count.
    fd_bank_t * root_bank = fd_banks_advance_root( banks, bank_index );
 
    To query some arbitrary bank:
    fd_bank_t * bank_query = fd_banks_bank_query( banks, bank_index );
 
-  To access fields in the bank if a field does not have a lock:
+  To access the fields in the bank if they are templatized:
 
   fd_struct_t const * field = fd_bank_field_query( bank );
   OR
   fd_struct field = fd_bank_field_get( bank );
 
-  To modify fields in the bank if a field does not have a lock:
-
   fd_struct_t * field = fd_bank_field_modify( bank );
   OR
   fd_bank_field_set( bank, value );
 
-  To access fields in the bank if the field has a lock:
-
-  fd_struct_t const * field = fd_bank_field_locking_query( bank );
-  ... use field ...
-  fd_bank_field_locking_end_query( bank );
-
-  To modify fields in the bank if the field has a lock:
-
-  fd_struct_t * field = fd_bank_field_locking_modify( bank );
-  ... use field ...
-  fd_bank_field_locking_end_locking_modify( bank ); */
-
-/* Define additional fields to the bank struct here. If trying to add
-   a CoW field to the bank, define a pool for it as done below. */
+  If the fields are not templatized, their accessor and modifier
+  patterns vary and are documented below.
+*/
 
 #define FD_BANKS_ITER(X)                                                                                                                                                                                             \
   /* type,                             name,                        footprint,                                 align  */                                                                                             \
@@ -255,9 +235,7 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong)                             ) /* Epoch */                                              \
   X(int,                               has_identity_vote,           sizeof(int),                               alignof(int)                               ) /* Has identity vote */
 
-/* If a member of the bank is CoW then it needs a corresponding pool
-   which is defined here. If a type if not a CoW then it does not need
-   to be in a pool and is laid out contigiously in the bank struct. */
+/* Defining pools for any CoW fields. */
 
 struct fd_bank_epoch_rewards {
   ulong next;
