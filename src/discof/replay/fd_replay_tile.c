@@ -1056,6 +1056,39 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_stake_delegations_refresh( root_delegations, funk, &xid );
 
+  /* We want to clear out any stale vote states that may have been
+    included in the snapshot manifest.  If an agave snapshot is created
+    shortly after a vote state is removed from the stakes cache (Agave
+    equivalent of vote states), then the vote state will be included in
+    the snapshot manifest. */
+
+    fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
+    fd_vote_states_iter_t iter_[1];
+
+    ulong stale_vote_acc_cnt = 0UL;
+    for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+        !fd_vote_states_iter_done( iter );
+        fd_vote_states_iter_next( iter ) ) {
+      fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+      fd_accdb_peek_t peek[1];
+
+      for(;;) {
+        if( FD_UNLIKELY( !fd_accdb_peek( ctx->accdb, peek, &xid, &vote_state->vote_account ) ) ) {
+          ctx->runtime_stack.vote_accounts.stale_accs[ stale_vote_acc_cnt++ ] = vote_state->vote_account;
+          FD_BASE58_ENCODE_32_BYTES( vote_state->vote_account.uc, acc_cstr );
+          FD_LOG_DEBUG(( "vote account %s from manifest is stale", acc_cstr ));
+          break;
+        }
+        if( FD_LIKELY( fd_accdb_peek_test( peek ) ) ) break;
+        FD_SPIN_PAUSE();
+      }
+    }
+
+    for( ulong i=0UL; i<stale_vote_acc_cnt; i++ ) {
+      fd_vote_states_remove( vote_states, &ctx->runtime_stack.vote_accounts.stale_accs[ i ] );
+    }
+    fd_bank_vote_states_end_locking_modify( bank );
+
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 

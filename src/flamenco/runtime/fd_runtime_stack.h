@@ -45,6 +45,15 @@ union fd_runtime_stack {
        stake weights for the leader schedule calculation. */
     fd_vote_stake_weight_t  stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   } stakes;
+
+  struct {
+    /* List of vote state pool pubkeys that correspond to vote accounts
+       that are stale entries.  The vote states cache is originally
+       populated from the snapshot manifest and can't check against the
+       accounts database so it may contain stale entries.  These vote
+       accounts must be removed from the vote states cache. */
+    fd_pubkey_t stale_accs[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  } vote_accounts;
 };
 typedef union fd_runtime_stack fd_runtime_stack_t;
 
