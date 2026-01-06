@@ -163,9 +163,13 @@ fd_gui_new( void *                shmem,
   memset( gui->summary.scheduler_counts_snap[ 1 ], 0, sizeof(gui->summary.scheduler_counts_snap[ 1 ]) );
   gui->summary.scheduler_counts_snap_idx    = 2UL;
 
+  gui->summary.vote_latency_history_cnt = ULONG_MAX;
+
   for( ulong i=0UL; i<FD_GUI_SLOTS_CNT;  i++ ) gui->slots[ i ]->slot             = ULONG_MAX;
   for( ulong i=0UL; i<FD_GUI_LEADER_CNT; i++ ) gui->leader_slots[ i ]->slot      = ULONG_MAX;
   gui->leader_slots_cnt      = 0UL;
+
+  gui->tower_cnt = 0UL;
 
   gui->block_engine.has_block_engine = 0;
 
@@ -249,6 +253,11 @@ fd_gui_ws_open( fd_gui_t * gui,
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
   for( ulong i=0UL; i<printers_len; i++ ) {
     printers[ i ]( gui );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
+
+  if( FD_LIKELY( gui->summary.vote_latency_history_cnt!=ULONG_MAX ) ) {
+    fd_gui_printf_vote_latency_history( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
@@ -1450,6 +1459,22 @@ fd_gui_try_insert_ranking( fd_gui_t               * gui,
 #undef TRY_INSERT_SLOT
 }
 
+static inline ulong
+fd_gui_current_epoch_idx( fd_gui_t * gui ) {
+  ulong epoch_idx = ULONG_MAX;
+  ulong epoch     = ULONG_MAX;
+  for( ulong i = 0UL; i<2UL; i++ ) {
+    if( FD_LIKELY( gui->epoch.has_epoch[ i ] ) ) {
+      /* the "current" epoch is the smallest */
+      if( FD_LIKELY( gui->epoch.epochs[ i ].epoch<epoch ) ) {
+        epoch = gui->epoch.epochs[ i ].epoch;
+        epoch_idx = i;
+      }
+    }
+  }
+  return epoch_idx;
+}
+
 static void
 fd_gui_update_slot_rankings( fd_gui_t * gui ) {
   ulong first_replay_slot = ULONG_MAX;
@@ -1464,18 +1489,8 @@ fd_gui_update_slot_rankings( fd_gui_t * gui ) {
   if( FD_UNLIKELY( first_replay_slot==ULONG_MAX ) ) return;
   if( FD_UNLIKELY( gui->summary.slot_rooted ==ULONG_MAX ) ) return;
 
-  ulong epoch_start_slot = ULONG_MAX;
-  ulong epoch            = ULONG_MAX;
-  for( ulong i = 0UL; i<2UL; i++ ) {
-    if( FD_LIKELY( gui->epoch.has_epoch[ i ] ) ) {
-      /* the "current" epoch is the smallest */
-      epoch_start_slot = fd_ulong_min( epoch_start_slot, gui->epoch.epochs[ i ].start_slot );
-      epoch            = fd_ulong_min( epoch,            gui->epoch.epochs[ i ].epoch      );
-    }
-  }
-
-  if( FD_UNLIKELY( epoch==ULONG_MAX ) ) return;
-  ulong epoch_idx = epoch % 2UL;
+  ulong epoch_idx = fd_gui_current_epoch_idx( gui );
+  if( FD_UNLIKELY( epoch_idx==ULONG_MAX ) ) return;
 
   /* No new slots since the last update */
   if( FD_UNLIKELY( gui->epoch.epochs[ epoch_idx ].rankings_slot>gui->summary.slot_rooted ) ) return;
@@ -1647,6 +1662,7 @@ fd_gui_clear_slot( fd_gui_t *      gui,
   slot->slot                   = _slot;
   slot->parent_slot            = _parent_slot;
   slot->vote_slot              = ULONG_MAX;
+  slot->vote_latency           = UCHAR_MAX;
   slot->reset_slot             = ULONG_MAX;
   slot->max_compute_units      = UINT_MAX;
   slot->completed_time         = LONG_MAX;
@@ -2740,6 +2756,88 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
     gui->summary.vote_account_balance = tower->vote_acct_bal;
     fd_gui_printf_vote_balance( gui );
     fd_http_server_ws_broadcast( gui->http );
+  }
+
+  /* update slot history vote latencies with new votes */
+  for( ulong i=0UL; i<tower->tower_cnt; i++ ) {
+    fd_gui_slot_t * slot = fd_gui_get_slot( gui, tower->tower[ i ].slot );
+    if( FD_UNLIKELY( slot && slot->vote_latency!=tower->tower[ i ].latency ) ) {
+      slot->vote_latency = tower->tower[ i ].latency;
+      fd_gui_printf_slot( gui, slot->slot );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+    if( FD_UNLIKELY( i+1UL>=tower->tower_cnt ) ) break;
+    for( ulong s=tower->tower[ i ].slot+1UL; s<tower->tower[ i+1 ].slot; s++ ) {
+      fd_gui_slot_t * slot = fd_gui_get_slot( gui, s );
+      if( FD_LIKELY( slot && slot->vote_latency!=UCHAR_MAX ) ) {
+      slot->vote_latency = UCHAR_MAX;
+      fd_gui_printf_slot( gui, slot->slot );
+      fd_http_server_ws_broadcast( gui->http );
+      }
+    }
+  }
+
+  /* update run-length encoded latency history */
+  ulong epoch_idx = fd_gui_current_epoch_idx( gui );
+  if( FD_LIKELY( tower->tower_cnt && epoch_idx!=ULONG_MAX ) ) {
+    gui->tower_cnt = tower->tower_cnt;
+    fd_memcpy( gui->tower, tower->tower, tower->tower_cnt * sizeof(gui->tower[ 0 ]) );
+
+    ulong vote_slot = tower->tower[ 0 ].slot; /* on-chain tower root slot */
+    uchar vote_latency = tower->tower[ 0 ].latency;
+    ulong epoch_start = gui->epoch.epochs[ epoch_idx ].start_slot;
+    if( FD_LIKELY( tower->tower_cnt==FD_TOWER_VOTE_MAX ) ) {
+      int uninitialized = gui->summary.vote_latency_history_cnt==ULONG_MAX;
+
+      /* check if we've transitioned to a new epoch */
+      if( FD_UNLIKELY( !uninitialized && gui->summary.vote_latency_history_cnt && gui->summary.vote_latency_history[ 0 ].slot!=epoch_start ) ) {
+        gui->summary.vote_latency_history_cnt = 0UL;
+      }
+
+
+      /* reset history */
+      if( FD_UNLIKELY( vote_slot==epoch_start ) ) {
+        gui->summary.vote_latency_history[ 0 ].slot = epoch_start;
+        gui->summary.vote_latency_history[ 0 ].latency = vote_latency;
+        gui->summary.vote_latency_history[ 1 ].slot = epoch_start + 1UL;
+        gui->summary.vote_latency_history_cnt = 1UL;
+      } else if( FD_UNLIKELY( uninitialized || gui->summary.vote_latency_history_cnt==0UL ) ) {
+        gui->summary.vote_latency_history[ 0 ].slot = epoch_start;
+        gui->summary.vote_latency_history[ 0 ].latency = UCHAR_MAX;
+        gui->summary.vote_latency_history[ 1 ].slot = epoch_start+1UL;
+        gui->summary.vote_latency_history_cnt = 1UL;
+      } else if( FD_LIKELY( gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt ].slot==vote_slot ) ) {
+        if( FD_LIKELY( gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt-1UL ].latency==vote_latency ) ) {
+          /* we vote for the next slot with the same latency as our
+             previous vote */
+          gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt ].slot = vote_slot+1UL;
+        } else {
+          /* we vote for the next slot with a new latency */
+          gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt+1UL ].slot = vote_slot+1UL;
+          gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt ].latency = vote_latency;
+          gui->summary.vote_latency_history_cnt++;
+        }
+      } else if( FD_LIKELY( gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt ].slot<vote_slot ) ) {
+        /* we skipped some slots */
+        if( FD_LIKELY( gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt-1UL ].latency!=UCHAR_MAX ) ) {
+          gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt+1UL ].slot = vote_slot;
+          gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt ].latency = UCHAR_MAX;
+          gui->summary.vote_latency_history_cnt++;
+        } else {
+          gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt ].slot = vote_slot;
+        }
+
+        gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt+1UL ].slot = vote_slot+1UL;
+        gui->summary.vote_latency_history[ gui->summary.vote_latency_history_cnt ].latency = vote_latency;
+        gui->summary.vote_latency_history_cnt++;
+      }
+      FD_TEST( gui->summary.vote_latency_history_cnt && gui->summary.vote_latency_history_cnt<=MAX_SLOTS_PER_EPOCH );
+
+      if( FD_UNLIKELY( uninitialized ) ) {
+        fd_gui_printf_vote_latency_history( gui );
+        fd_http_server_ws_broadcast( gui->http );
+      }
+    }
   }
 }
 
