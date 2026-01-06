@@ -80,7 +80,7 @@ fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
   /* query the pool element and return it. */
   fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank );
   if( FD_UNLIKELY( epoch_leaders_pool==NULL ) ) {
-    FD_LOG_CRIT(( "NULL epoch rewards pool" ));
+    FD_LOG_CRIT(( "NULL epoch leaders pool" ));
   }
   if( bank->epoch_leaders_dirty ) {
     fd_bank_epoch_leaders_t * bank_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
@@ -88,7 +88,7 @@ fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
   }
   fd_rwlock_write( fd_bank_get_epoch_leaders_pool_lock( bank ) );
   if( FD_UNLIKELY( !fd_bank_epoch_leaders_pool_free( epoch_leaders_pool ) ) ) {
-    FD_LOG_CRIT(( "Failed to acquire epoch rewards pool element: pool is full" ));
+    FD_LOG_CRIT(( "Failed to acquire epoch leaders pool element: pool is full" ));
   }
   fd_bank_epoch_leaders_t * child_epoch_leaders = fd_bank_epoch_leaders_pool_ele_acquire( epoch_leaders_pool );
   fd_rwlock_unwrite( fd_bank_get_epoch_leaders_pool_lock( bank ) );
@@ -182,7 +182,7 @@ fd_bank_vote_states_prev_modify( fd_bank_t * bank ) {
   /* query the pool element and return it. */
   fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( bank );
   if( FD_UNLIKELY( vote_states_prev_pool==NULL ) ) {
-    FD_LOG_CRIT(( "NULL epoch rewards pool" ));
+    FD_LOG_CRIT(( "NULL vote states prev pool" ));
   }
   if( bank->vote_states_prev_dirty ) {
     fd_bank_vote_states_prev_t * bank_vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
@@ -190,7 +190,7 @@ fd_bank_vote_states_prev_modify( fd_bank_t * bank ) {
   }
   fd_rwlock_write( fd_bank_get_vote_states_prev_pool_lock( bank ) );
   if( FD_UNLIKELY( !fd_bank_vote_states_prev_pool_free( vote_states_prev_pool ) ) ) {
-    FD_LOG_CRIT(( "Failed to acquire epoch rewards pool element: pool is full" ));
+    FD_LOG_CRIT(( "Failed to acquire vote states prev pool element: pool is full" ));
   }
   fd_bank_vote_states_prev_t * child_vote_states_prev = fd_bank_vote_states_prev_pool_ele_acquire( vote_states_prev_pool );
   fd_rwlock_unwrite( fd_bank_get_vote_states_prev_pool_lock( bank ) );
@@ -226,7 +226,7 @@ fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank ) {
   /* query the pool element and return it. */
   fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
   if( FD_UNLIKELY( vote_states_prev_prev_pool==NULL ) ) {
-    FD_LOG_CRIT(( "NULL epoch rewards pool" ));
+    FD_LOG_CRIT(( "NULL vote states prev prev pool" ));
   }
   if( bank->vote_states_prev_prev_dirty ) {
     fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
@@ -234,7 +234,7 @@ fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank ) {
   }
   fd_rwlock_write( fd_bank_get_vote_states_prev_prev_pool_lock( bank ) );
   if( FD_UNLIKELY( !fd_bank_vote_states_prev_prev_pool_free( vote_states_prev_prev_pool ) ) ) {
-    FD_LOG_CRIT(( "Failed to acquire epoch rewards pool element: pool is full" ));
+    FD_LOG_CRIT(( "Failed to acquire vote states prev prev pool element: pool is full" ));
   }
   fd_bank_vote_states_prev_prev_t * child_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele_acquire( vote_states_prev_prev_pool );
   fd_rwlock_unwrite( fd_bank_get_vote_states_prev_prev_pool_lock( bank ) );
