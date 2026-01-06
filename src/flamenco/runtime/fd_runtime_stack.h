@@ -45,6 +45,13 @@ union fd_runtime_stack {
        stake weights for the leader schedule calculation. */
     fd_vote_stake_weight_t  stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   } stakes;
+
+  struct {
+    /* List of vote state pool indicies that correspond to vote accounts
+       that are stale entries.  The set of vote accounts must be
+       reverified */
+    fd_pubkey_t stale_accs[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  } vote_accounts;
 };
 typedef union fd_runtime_stack fd_runtime_stack_t;
 
