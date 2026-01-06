@@ -322,7 +322,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_rbh_lamports_per_sig_set( bank, FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE );
 
   fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
-  *inflation = (fd_inflation_t){
+  *inflation = (fd_inflation_t) {
     .initial         = test_ctx->epoch_ctx.inflation.initial,
     .terminal        = test_ctx->epoch_ctx.inflation.terminal,
     .taper           = test_ctx->epoch_ctx.inflation.taper,
