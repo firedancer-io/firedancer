@@ -316,8 +316,8 @@ struct fd_solcap_stake_reward {
 typedef struct fd_solcap_stake_reward fd_solcap_stake_reward_t;
 
 FD_FN_UNUSED static void
-fd_solcap_stake_reward( fd_pkt_writer_t *                 pw,
-                         fd_solcap_stake_reward_t const * reward ) {
+fd_solcap_stake_reward( fd_pkt_writer_t *                pw,
+                        fd_solcap_stake_reward_t const * reward ) {
   if( FD_LIKELY( !pw ) ) return;
   uchar * frame = fd_pkt_writer_alloc( pw );
   FD_CRIT( pw->mtu>=256, "undersize MTU" );

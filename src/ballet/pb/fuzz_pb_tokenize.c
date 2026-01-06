@@ -31,7 +31,10 @@ LLVMFuzzerTestOneInput( uchar const * data,
     case FD_PB_WIRE_TYPE_I32:
       break;
     case FD_PB_WIRE_TYPE_LEN:
-      if( fd_pb_inbuf_sz( buf )<tlv->len ) return 0;
+      if( FD_UNLIKELY( fd_pb_inbuf_sz( buf )<tlv->len ) ) {
+        /* tlv->len guaranteed addressable */
+        FD_LOG_CRIT(( "invalid length" ));
+      }
       fd_pb_inbuf_skip( buf, tlv->len );
       break;
     default:

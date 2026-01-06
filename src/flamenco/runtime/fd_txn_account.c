@@ -127,6 +127,8 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
 
   fd_accdb_ro_t ro[1];
   if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+    FD_LOG_NOTICE(( "%s", pubkey_b58 ));
     fd_accdb_user_fini( accdb );
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }

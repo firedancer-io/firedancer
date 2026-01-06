@@ -1,5 +1,6 @@
 #include "test_pb_encode.c"
 #include "test_pb_tokenize.c"
+#include "test_pb_less.c"
 #include "../../util/fd_util.h"
 
 int
@@ -9,6 +10,7 @@ main( int     argc,
 
   test_pb_encode();
   test_pb_tokenize();
+  test_pb_less();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

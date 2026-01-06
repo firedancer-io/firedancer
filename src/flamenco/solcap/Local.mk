@@ -10,3 +10,6 @@ $(call add-hdrs,fd_pkt_w_pcapng.h)
 $(call add-objs,fd_pkt_w_pcapng,fd_flamenco)
 $(call make-unit-test,test_solcap_writer,test_solcap_writer,fd_flamenco fd_tango fd_ballet fd_util)
 endif
+
+$(call add-hdrs,fd_pkt_buf.h)
+$(call add-objs,fd_pkt_buf,fd_flamenco)
