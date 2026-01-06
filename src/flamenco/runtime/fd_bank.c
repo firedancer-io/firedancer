@@ -657,7 +657,6 @@ fd_banks_join( void * mem ) {
     return NULL;
   }
 
-
   return banks;
 }
 
@@ -1363,7 +1362,6 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_unwrite( &banks->rwlock );
 }
-
 
 void
 fd_banks_clear_bank( fd_banks_t * banks,
