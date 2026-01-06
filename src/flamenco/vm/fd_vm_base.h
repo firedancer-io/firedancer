@@ -436,12 +436,14 @@ FD_PROTOTYPES_END
 /* FD_VM_ALT_BN128_ADDITION_COST is the number of compute units consumed
    to call alt_bn128_addition */
 
-#define FD_VM_ALT_BN128_ADDITION_COST                   (             334UL)
+#define FD_VM_ALT_BN128_G1_ADDITION_COST                (             334UL)
+#define FD_VM_ALT_BN128_G2_ADDITION_COST                (             535UL)
 
 /* FD_VM_ALT_BN128_MULTIPLICATION_COST is the number of compute units
    consumed to call alt_bn128_multiplication */
 
-#define FD_VM_ALT_BN128_MULTIPLICATION_COST             (            3840UL)
+#define FD_VM_ALT_BN128_G1_MULTIPLICATION_COST          (            3840UL)
+#define FD_VM_ALT_BN128_G2_MULTIPLICATION_COST          (           15670UL)
 
 /* FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_FIRST
    FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_OTHER give the total cost as

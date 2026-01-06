@@ -96,8 +96,10 @@ FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_PAIRING_INCR_COST        ==           13
 FD_STATIC_ASSERT( FD_VM_HEAP_SIZE                                ==           32768UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_HEAP_COST                                ==               8UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_MEM_OP_BASE_COST                         ==              10UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_ALT_BN128_ADDITION_COST                  ==             334UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_ALT_BN128_MULTIPLICATION_COST            ==            3840UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G1_ADDITION_COST               ==             334UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G2_ADDITION_COST               ==             535UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G1_MULTIPLICATION_COST         ==            3840UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G2_MULTIPLICATION_COST         ==           15670UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_FIRST    ==           36364UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_OTHER    ==           12121UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_BIG_MODULAR_EXPONENTIATION_COST          ==              33UL, vm_cu );

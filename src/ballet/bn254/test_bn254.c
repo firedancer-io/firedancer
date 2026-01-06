@@ -9,7 +9,27 @@ log_bench( char const * descr,
            long         dt ) {
   float khz = 1e6f *(float)iter/(float)dt;
   float tau = (float)dt /(float)iter;
-  FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
+  FD_LOG_NOTICE(( "%-32s %12.3fK/s/core %12.3f ns/call", descr, (double)khz, (double)tau ));
+}
+
+static inline void
+fd_bn254_el_bswap( uchar r[32] ) {
+  /* requires r to be aligned */
+  fd_uint256_bswap( fd_type_pun( r ), fd_type_pun_const( r ) );
+}
+
+static inline void
+fd_bn254_g1_bswap( uchar r[64] ) {
+  /* requires r to be aligned */
+  fd_uint256_bswap( fd_type_pun( r+00 ), fd_type_pun_const( r+00 ) );
+  fd_uint256_bswap( fd_type_pun( r+32 ), fd_type_pun_const( r+32 ) );
+}
+
+static inline void
+fd_bn254_g2_bswap( uchar r[128] ) {
+  /* requires r to be aligned */
+  fd_ulong_n_bswap( fd_type_pun( r+00 ), 8 );
+  fd_ulong_n_bswap( fd_type_pun( r+64 ), 8 );
 }
 
 int main( int     argc,
@@ -80,10 +100,8 @@ int main( int     argc,
       fd_hex_decode( in, tests[2*i], in_sz );
 
       if( in_sz==128UL ) {
-        fd_uint256_bswap( fd_type_pun( in+00 ), fd_type_pun_const( in+00 ) );
-        fd_uint256_bswap( fd_type_pun( in+32 ), fd_type_pun_const( in+32 ) );
-        fd_uint256_bswap( fd_type_pun( in+64 ), fd_type_pun_const( in+64 ) );
-        fd_uint256_bswap( fd_type_pun( in+96 ), fd_type_pun_const( in+96 ) );
+        fd_bn254_g1_bswap( in );
+        fd_bn254_g1_bswap( in+64 );
         FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
       } else {
         FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz, 0 /*LE*/ )!=0 );
@@ -91,8 +109,7 @@ int main( int     argc,
       }
 
       fd_hex_decode( exp, tests[2*i+1], 64 );
-      fd_uint256_bswap( fd_type_pun( exp+00 ), fd_type_pun_const( exp+00 ) );
-      fd_uint256_bswap( fd_type_pun( exp+32 ), fd_type_pun_const( exp+32 ) );
+      fd_bn254_g1_bswap( exp );
       if( !fd_memeq( res, exp, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
@@ -130,6 +147,80 @@ int main( int     argc,
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_add_syscall", iter, dt );
+    }
+  }
+
+  {
+    /* https://github.com/anza-xyz/solana-sdk/pull/494/files#diff-b1e790767fbeb2d8556dc1504b4e837d2c9d66e2257f2ebf03643ba35e7f2d84 */
+    const char * tests[] = {
+      // test 1
+      "0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae",
+      "10a3693db344bbd5567a49f182aed627c3d635f62239ec968453343579d2c97f1ad21074c95351bd1fd2aad875550ae54f524d29e73709b1ad7acacd514c0c3725c1bceec760b6faa9442f8952a2629d480d3412765319ebb321df7852a298350ed5d25a80ab891a9712b6e4bc37d1f94e8747055f448453983ab9c69e56fed7",
+      // test 2
+      "0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae",
+      // test 3
+      "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae",
+      "0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae",
+      // test 4
+      "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      // test 0 - moved at the end just so it's used for bench
+      "0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae07923af190d825e959dd7b95a67fab44917c4e8da278a06edd2c7aea35bcc8b019b62074331470c83e17134374ffadb0baf84312194fda3caf795c84c92b216d11ee8bcd475511c468d9983a288302e8673cdcc714a6ddc180d35d7dd0cfac4915e9eb42bb760271829b224aeb2ae0c06e800348e0d1cf6f712817768007cc7a",
+      "265f7dc03c5cca900001c251258fb56ca82611538570917db731b39c66d5f28a2e667015f89fc1b7579451bdaa212b98c58f01849a40783697a8f5e1107819801608ac87fa00ea9702a1c07a0a36fb494ceea2a2a40b8cd8d8451eb21dab812229fe448304a1819068b2d267252059a45f0c2d169dfed1c4f1bcc075a3761c2f",
+    };
+
+    uchar FD_ALIGNED res[128];
+    uchar FD_ALIGNED in[256];
+    uchar FD_ALIGNED exp[128];
+
+    for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      FD_TEST( fd_bn254_g2_add_syscall( res, in, in_sz, 1 /*BE*/ )==0 );
+
+      fd_hex_decode( exp, tests[2*i+1], 128 );
+      if( !fd_memeq( res, exp, 128 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 128 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* ADD little endian */
+    for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      if( in_sz==256UL ) {
+        fd_bn254_g2_bswap( in );
+        fd_bn254_g2_bswap( in+128 );
+        FD_TEST( fd_bn254_g2_add_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+      } else {
+        FD_TEST( fd_bn254_g2_add_syscall( res, in, in_sz, 0 /*LE*/ )!=0 );
+        continue;
+      }
+
+      fd_hex_decode( exp, tests[2*i+1], 128 );
+      fd_bn254_g2_bswap( exp );
+      if( !fd_memeq( res, exp, 128 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 128 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    {
+      ulong iter = 10000000UL;
+      long dt = fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) {
+        fd_bn254_g2_add_syscall( res, in, 128, 0 /*LE*/ );
+      }
+      dt = fd_log_wallclock() - dt;
+      log_bench( "fd_bn254_g2_add_syscall", iter, dt );
     }
   }
 
@@ -226,9 +317,8 @@ int main( int     argc,
       fd_hex_decode( in, tests[2*i], in_sz );
 
       if( in_sz==96UL ) {
-        fd_uint256_bswap( fd_type_pun( in+00 ), fd_type_pun_const( in+00 ) );
-        fd_uint256_bswap( fd_type_pun( in+32 ), fd_type_pun_const( in+32 ) );
-        fd_uint256_bswap( fd_type_pun( in+64 ), fd_type_pun_const( in+64 ) );
+        fd_bn254_g1_bswap( in );
+        fd_bn254_el_bswap( in+64 );
         FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
       } else {
         FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )!=0 );
@@ -236,8 +326,7 @@ int main( int     argc,
       }
 
       fd_hex_decode( exp, tests[2*i+1], 64 );
-      fd_uint256_bswap( fd_type_pun( exp+00 ), fd_type_pun_const( exp+00 ) );
-      fd_uint256_bswap( fd_type_pun( exp+32 ), fd_type_pun_const( exp+32 ) );
+      fd_bn254_g1_bswap( exp );
       if( !fd_memeq( res, exp, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
@@ -275,6 +364,79 @@ int main( int     argc,
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_scalar_mul_syscall", iter, dt );
+    }
+  }
+
+  {
+    /* https://github.com/anza-xyz/solana-sdk/pull/494/files#diff-b8ea7e2907f00b2b2362027951313dca6d28190d4703a9ac45f10f8e33990d5c */
+    const char * tests[] = {
+      // test 1
+      "24b96ea5d95769cdd611ef3be56658a26e4e390e293616b8ece193a023317925073fe1cb76ebafbcd1d7983e5cc1fe43610ace18e41460f8269aa450bddb7886008d6719fe6394737077ce2534f1846f86d6b5ccb40fbd2a05608b123025f7b9085a5a52e30f2e403c29ec97036c880b497f2efa60a5e28aa91307ebfaf5e85a0000000000000000000000000000000000000000000000000000000000000000",
+      "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      // test 2
+      "24b96ea5d95769cdd611ef3be56658a26e4e390e293616b8ece193a023317925073fe1cb76ebafbcd1d7983e5cc1fe43610ace18e41460f8269aa450bddb7886008d6719fe6394737077ce2534f1846f86d6b5ccb40fbd2a05608b123025f7b9085a5a52e30f2e403c29ec97036c880b497f2efa60a5e28aa91307ebfaf5e85a0000000000000000000000000000000000000000000000000000000000000001",
+      "24b96ea5d95769cdd611ef3be56658a26e4e390e293616b8ece193a023317925073fe1cb76ebafbcd1d7983e5cc1fe43610ace18e41460f8269aa450bddb7886008d6719fe6394737077ce2534f1846f86d6b5ccb40fbd2a05608b123025f7b9085a5a52e30f2e403c29ec97036c880b497f2efa60a5e28aa91307ebfaf5e85a",
+      // test 3
+      "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000009ea9b2b89d9e9b7296c67452f9e685f0366533e9d2f12b509a03a8068359585",
+      "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      // test 4 - ec
+      "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      // test 0 - moved at the end just so it's used for bench
+      "24b96ea5d95769cdd611ef3be56658a26e4e390e293616b8ece193a023317925073fe1cb76ebafbcd1d7983e5cc1fe43610ace18e41460f8269aa450bddb7886008d6719fe6394737077ce2534f1846f86d6b5ccb40fbd2a05608b123025f7b9085a5a52e30f2e403c29ec97036c880b497f2efa60a5e28aa91307ebfaf5e85a09ea9b2b89d9e9b7296c67452f9e685f0366533e9d2f12b509a03a8068359585",
+      "106513b05f2d798f05f4bf84864c9909b26ead36ea46a2c3b25c9ad0c8ae952d2706c764d7a14f926efd438aae65f207d4a22970ed3dccf12f13219a21a05242120a602d47b0cd6c471b0dcc28336e340da9fa71fab8ec923af7bf9304c9b20d0e8af2947a9c5089df09d629670f01b50bd757f04f99af42ef8455b38ac3f31e",
+    };
+
+    uchar FD_ALIGNED res[128];
+    uchar FD_ALIGNED in[160];
+    uchar FD_ALIGNED exp[128];
+
+    ulong len=sizeof(tests)/8/2;
+    for( ulong i=0; i<len; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      FD_TEST( fd_bn254_g2_scalar_mul_syscall( res, in, in_sz, 1 /*BE*/ )==0 );
+
+      fd_hex_decode( exp, tests[2*i+1], 128 );
+      if( !fd_memeq( res, exp, 128 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 128 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* MUL little endian */
+    for( ulong i=0; i<len; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      if( in_sz==160UL ) {
+        fd_bn254_g2_bswap( in );
+        fd_bn254_el_bswap( in+128 );
+        FD_TEST( fd_bn254_g2_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+      } else {
+        FD_TEST( fd_bn254_g2_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )!=0 );
+        continue;
+      }
+
+      fd_hex_decode( exp, tests[2*i+1], 128 );
+      fd_bn254_g2_bswap( exp );
+      if( !fd_memeq( res, exp, 128 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 128 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    {
+      ulong iter = 100UL;
+      long dt = fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) {
+        fd_bn254_g2_scalar_mul_syscall( res, in, 160, 0 /*LE*/ );
+      }
+      dt = fd_log_wallclock() - dt;
+      log_bench( "fd_bn254_g2_scalar_mul_syscall", iter, dt );
     }
   }
 
@@ -457,14 +619,9 @@ int main( int     argc,
       if( i==11 ) in_sz = 1920;
 
       fd_hex_decode( in, tests[2*i], in_sz );
-      for( ulong j=0; j<in_sz/32; j++ ) {
-        fd_uint256_bswap( fd_type_pun( in+j*32 ), fd_type_pun_const( in+j*32 ) );
-        if( j%6==3 || j%6==5 ) { /* coordinates in Fp2 are swapped */
-          uchar tmp[32];
-          memcpy( tmp, in+(j-1)*32, 32 );
-          memcpy( in+(j-1)*32, in+j*32, 32 );
-          memcpy( in+j*32, tmp, 32 );
-        }
+      for( ulong j=0; j<in_sz/192; j++ ) {
+        fd_bn254_g1_bswap( in+j*192 );
+        fd_bn254_g2_bswap( in+j*192+64 );
       }
 
       /* test G1 compress > decompress */
@@ -487,7 +644,7 @@ int main( int     argc,
       FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 32 );
-      fd_uint256_bswap( fd_type_pun( exp+00 ), fd_type_pun_const( exp+00 ) );
+      fd_bn254_el_bswap( exp );
       if( !fd_memeq( res, exp, 32 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 32 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 32 ));

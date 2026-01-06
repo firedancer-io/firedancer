@@ -42,6 +42,21 @@ fd_uint256_bswap( fd_uint256_t *       r,
   return r;
 }
 
+/* fd_ulong_n_bswap swaps 8*n bytes (n must be even).
+   Useful to convert from/to little and big endian.
+   This is written with a loop for readability, the compiler optimizes it away. */
+static inline void
+fd_ulong_n_bswap( ulong       r[], /* size n ulongs, i.e. 8*n bytes */
+                  ulong const n    /* must be even */ ) {
+  /* note: this only works for even n */
+  for( ulong j=0; j<n/2; j++ ) {
+    ulong aj = fd_ulong_bswap( r[j] );
+    ulong bj = fd_ulong_bswap( r[n-1-j] );
+    r[j] = bj;
+    r[n-1-j] = aj;
+  }
+}
+
 /* fd_uint256_eq returns 1 is a == b, 0 otherwise. */
 static inline int
 fd_uint256_eq( fd_uint256_t const * a,

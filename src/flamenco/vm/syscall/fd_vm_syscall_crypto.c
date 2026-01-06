@@ -17,21 +17,64 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
+  /* G1/pairing little endian syscalls are under feature gate alt_bn128_little_endian.
+     To clean up the feature gate after activation, just remove this block
+     (the rest of the function will behave correctly). */
+  {
+    if( FD_UNLIKELY(
+      !FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, alt_bn128_little_endian )
+      && ( group_op==FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_LE
+        || group_op==FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_LE
+        || group_op==FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_LE )
+    ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
+    }
+  }
+
+  /* G2 syscalls are under feature gate enable_alt_bn128_g2_syscalls.
+     To clean up the feature gate after activation, just remove this block
+     (the rest of the function will behave correctly). */
+  {
+    if( FD_UNLIKELY(
+      !FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, enable_alt_bn128_g2_syscalls )
+      && ( group_op==FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_BE
+        || group_op==FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_LE
+        || group_op==FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_BE
+        || group_op==FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_LE )
+    ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
+    }
+  }
+
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1520-L1549 */
   ulong cost = 0UL;
   ulong output_sz = 0UL;
   switch( group_op ) {
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_BE:
-  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_LE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ;
-    cost = FD_VM_ALT_BN128_ADDITION_COST;
+    cost = FD_VM_ALT_BN128_G1_ADDITION_COST;
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_BE:
-  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_LE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ;
-    cost = FD_VM_ALT_BN128_MULTIPLICATION_COST;
+    cost = FD_VM_ALT_BN128_G1_MULTIPLICATION_COST;
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_LE:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ;
+    cost = FD_VM_ALT_BN128_G2_ADDITION_COST;
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_LE:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ;
+    cost = FD_VM_ALT_BN128_G2_MULTIPLICATION_COST;
     break;
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_BE:
@@ -73,29 +116,38 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
 
   int big_endian = ( group_op & FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG ) ? 0 : 1;
 
-  /* little endian is under feature gate (big endian is not) */
-  int is_active_alt_bn128_little_endian = FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, alt_bn128_little_endian );
-  if( FD_LIKELY( !is_active_alt_bn128_little_endian && !big_endian ) ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
-    return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
-  }
-
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1567-L1598
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
   switch( group_op ) {
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_BE:
-  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_LE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_LE:
     /* Compute add */
     if( FD_LIKELY( fd_bn254_g1_add_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_BE:
-  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_LE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_LE:
     /* Compute scalar mul */
     if( FD_LIKELY( fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_LE:
+    /* Compute add */
+    if( FD_LIKELY( fd_bn254_g2_add_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_LE:
+    /* Compute scalar mul */
+    if( FD_LIKELY( fd_bn254_g2_scalar_mul_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;
@@ -126,6 +178,22 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1776 */
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
+
+  /* G1/G2 little endian syscalls are under feature gate alt_bn128_little_endian.
+     To clean up the feature gate after activation, just remove this block
+     (the rest of the function will behave correctly). */
+  {
+    if( FD_UNLIKELY(
+      !FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, alt_bn128_little_endian )
+      && ( op==FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS_LE
+        || op==FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS_LE
+        || op==FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS_LE
+        || op==FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS_LE )
+    ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
+    }
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1791-L1811 */
   ulong cost = 0UL;
@@ -185,13 +253,6 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
   uchar FD_ALIGNED out_buf[128];
 
   int big_endian = ( op & FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG ) ? 0 : 1;
-
-  /* little endian is under feature gate (big endian is not) */
-  int is_active_alt_bn128_little_endian = FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, alt_bn128_little_endian );
-  if( FD_LIKELY( !is_active_alt_bn128_little_endian && !big_endian ) ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
-    return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
-  }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1829-L1891
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
