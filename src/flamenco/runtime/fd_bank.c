@@ -279,9 +279,31 @@ fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
   fd_rwlock_unread( &bank->cost_tracker_lock );
 }
 
+fd_lthash_value_t const *
+fd_bank_lthash_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_read( &bank->lthash_lock );
+  return &bank->non_cow.lthash;
+}
+
+void
+fd_bank_lthash_end_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_unread( &bank->lthash_lock );
+}
+
+fd_lthash_value_t *
+fd_bank_lthash_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->lthash_lock );
+  return &bank->non_cow.lthash;
+}
+
+void
+fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->lthash_lock );
+}
+
 /* Bank accesssors */
 
-#define HAS_LOCK_0(type, name)                                    \
+#define X(type, name, footprint, align)                           \
   type const *                                                    \
   fd_bank_##name##_query( fd_bank_t const * bank ) {              \
     return (type const *)fd_type_pun_const( bank->non_cow.name ); \
@@ -289,43 +311,18 @@ fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
   type *                                                          \
   fd_bank_##name##_modify( fd_bank_t * bank ) {                   \
     return (type *)fd_type_pun( bank->non_cow.name );             \
-  }
-
-#define HAS_LOCK_1(type, name)                                    \
-  type const *                                                    \
-  fd_bank_##name##_locking_query( fd_bank_t * bank ) {            \
-    fd_rwlock_read( &bank->name##_lock );                         \
-    return (type const *)fd_type_pun_const( bank->non_cow.name ); \
-  }                                                               \
-  type *                                                          \
-  fd_bank_##name##_locking_modify( fd_bank_t * bank ) {           \
-    fd_rwlock_write( &bank->name##_lock );                        \
-    return (type *)fd_type_pun( bank->non_cow.name );             \
   }                                                               \
   void                                                            \
-  fd_bank_##name##_end_locking_query( fd_bank_t * bank ) {        \
-    fd_rwlock_unread( &bank->name##_lock );                       \
+  fd_bank_##name##_set( fd_bank_t * bank, type value ) {          \
+    FD_STORE( type, bank->non_cow.name, value );                  \
   }                                                               \
-  void                                                            \
-  fd_bank_##name##_end_locking_modify( fd_bank_t * bank ) {       \
-    fd_rwlock_unwrite( &bank->name##_lock );                      \
-  }
-
-#define X(type, name, footprint, align, has_lock) \
-  HAS_LOCK_##has_lock(type, name)                                        \
-  void                                                                   \
-  fd_bank_##name##_set( fd_bank_t * bank, type value ) {                 \
-    FD_STORE( type, bank->non_cow.name, value );                         \
-  }                                                                      \
-  type                                                                   \
-  fd_bank_##name##_get( fd_bank_t const * bank ) {                       \
-    type val = FD_LOAD( type, bank->non_cow.name );                      \
-    return val;                                                          \
+  type                                                            \
+  fd_bank_##name##_get( fd_bank_t const * bank ) {                \
+    type val = FD_LOAD( type, bank->non_cow.name );               \
+    return val;                                                   \
   }
 FD_BANKS_ITER(X)
 #undef X
-#undef HAS_LOCK_0
-#undef HAS_LOCK_1
 
 /**********************************************************************/
 
@@ -714,12 +711,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   fd_bank_t * bank = fd_banks_pool_ele_acquire( bank_pool );
   bank->bank_seq = FD_ATOMIC_FETCH_AND_ADD( &banks->bank_seq, 1UL );
 
-
-
-  #define X(type, name, footprint, align, has_lock) \
-    fd_memset( bank->non_cow.name, 0, footprint );
-  FD_BANKS_ITER(X)
-  #undef X
+  fd_memset( &bank->non_cow, 0, sizeof(bank->non_cow) );
 
   ulong null_idx    = fd_banks_pool_idx_null( bank_pool );
   bank->idx         = fd_banks_pool_idx( bank_pool, bank );
@@ -753,16 +745,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->stake_delegations_delta_dirty = 0;
   fd_rwlock_new( &bank->stake_delegations_delta_lock );
 
-
-  #define HAS_LOCK_1(name) \
-    fd_rwlock_new( &bank->name##_lock );
-  #define HAS_LOCK_0(name)
-
-  #define X(type, name, footprint, align, has_lock) HAS_LOCK_##has_lock(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_LOCK_0
-  #undef HAS_LOCK_1
+  fd_rwlock_new( &bank->lthash_lock );
 
   bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_REPLAYABLE | FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
@@ -861,17 +844,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   child_bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
   fd_rwlock_new( &child_bank->cost_tracker_lock );
 
-  /* Setup locks for new bank as free. */
-  #define HAS_LOCK_1(name) \
-    fd_rwlock_unwrite(&child_bank->name##_lock);
-  #define HAS_LOCK_0(name)
-
-  #define X(type, name, footprint, align, has_lock) \
-    HAS_LOCK_##has_lock(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_LOCK_0
-  #undef HAS_LOCK_1
+  fd_rwlock_new( &child_bank->lthash_lock );
 
   /* At this point, the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
