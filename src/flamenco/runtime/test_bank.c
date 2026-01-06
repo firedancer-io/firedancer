@@ -667,7 +667,7 @@ main( int argc, char ** argv ) {
 
   /* Set the cost tracker to some non-zero values. */
 
-  fd_banks_clear_bank( banks, bank11 );
+  fd_banks_clear_bank( banks, bank11, FD_RUNTIME_MAX_VOTE_ACCOUNTS );
   FD_TEST( fd_bank_slot_get( bank11 ) == 0UL );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
 

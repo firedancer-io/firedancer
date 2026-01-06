@@ -263,10 +263,10 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_runtime_stack_t * runtime_stack = runner->runtime_stack;
 
-  fd_banks_clear_bank( banks, bank );
+  fd_banks_clear_bank( banks, bank, FD_RUNTIME_MAX_VOTE_ACCOUNTS );
 
   /* Generate unique ID for funk txn */
-  fd_funk_txn_xid_t xid[1] = {{ .ul={ LONG_MAX,LONG_MAX } }};
+  fd_funk_txn_xid_t xid[1] = {{ .ul={ LONG_MAX, LONG_MAX } }};
 
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
@@ -334,21 +334,11 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Initialize the current running epoch stake and vote accounts */
 
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-  vote_states = fd_vote_states_join( fd_vote_states_new( vote_states, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  fd_bank_vote_states_end_locking_modify( bank );
-
-  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( bank );
-  vote_states_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-
-  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
-  vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 0UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
 
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
-  vote_states = fd_bank_vote_states_locking_modify( bank );
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     fd_solfuzz_pb_load_account( runner->runtime, accdb, xid, &test_ctx->acct_states[i], 1, i, NULL );
 
@@ -383,7 +373,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_epoch_set( bank, fd_slot_to_epoch( epoch_schedule, parent_slot, NULL ) );
 
   /* Update vote cache for epoch T-1 */
-  vote_states_prev = fd_bank_vote_states_prev_modify( bank );
+  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( bank );
   fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
       vote_states_prev,
       test_ctx->epoch_ctx.vote_accounts_t_1,
@@ -393,7 +383,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       1 );
 
   /* Update vote cache for epoch T-2 */
-  vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
+  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
   fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
       vote_states_prev_prev,
       test_ctx->epoch_ctx.vote_accounts_t_2,

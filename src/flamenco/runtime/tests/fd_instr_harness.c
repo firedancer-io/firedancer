@@ -55,19 +55,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   memset( txn_out->accounts.metas, 0, sizeof(fd_account_meta_t) * MAX_TX_ACCOUNT_LOCKS );
 
   /* Bank manager */
-  fd_banks_clear_bank( runner->banks, runner->bank );
+  fd_banks_clear_bank( runner->banks, runner->bank, 4UL );
 
   fd_features_t * features = fd_bank_features_modify( runner->bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
   if( !fd_solfuzz_pb_restore_features( features, feature_set ) ) {
     return 0;
   }
-
-  /* Setup vote states accounts */
-  fd_bank_vote_states_locking_modify( runner->bank );
-  fd_bank_vote_states_end_locking_modify( runner->bank );
-  fd_bank_vote_states_prev_modify( runner->bank );
-  fd_bank_vote_states_prev_prev_modify( runner->bank );
 
   /* Blockhash queue init */
 

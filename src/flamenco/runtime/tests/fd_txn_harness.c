@@ -63,7 +63,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, &xid );
 
   /* Set up slot context */
-  fd_banks_clear_bank( runner->banks, runner->bank );
+  fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
 
   /* Restore feature flags */
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_ctx.features;
@@ -126,11 +126,6 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( runner->accdb, &xid, clock_ );
   FD_TEST( clock );
-
-  fd_bank_vote_states_locking_modify( runner->bank );
-  fd_bank_vote_states_end_locking_modify( runner->bank );
-  fd_bank_vote_states_prev_modify( runner->bank );
-  fd_bank_vote_states_prev_prev_modify( runner->bank );
 
   /* Epoch schedule and rent get set from the epoch bank */
   fd_sysvar_epoch_schedule_init( runner->bank, runner->accdb, &xid, NULL );

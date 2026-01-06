@@ -1034,7 +1034,8 @@ fd_banks_advance_root( fd_banks_t * banks,
 
 void
 fd_banks_clear_bank( fd_banks_t * banks,
-                     fd_bank_t *  bank );
+                     fd_bank_t *  bank,
+                     ulong        max_vote_accounts );
 
 /* fd_banks_advance_root_prepare returns the highest block that can be
    safely advanced between the current root of the fork tree and the

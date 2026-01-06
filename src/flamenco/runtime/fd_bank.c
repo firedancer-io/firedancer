@@ -113,8 +113,8 @@ fd_bank_vote_states_locking_query( fd_bank_t * bank ) {
   if( FD_UNLIKELY( vote_states_pool==NULL ) ) {
     FD_LOG_CRIT(( "NULL vote states pool" ));
   }
-  if( bank->vote_states_pool_idx==fd_bank_vote_states_pool_idx_null( vote_states_pool ) ) {
-    return NULL;
+  if( FD_UNLIKELY( bank->vote_states_pool_idx==fd_bank_vote_states_pool_idx_null( vote_states_pool ) ) ) {
+    FD_LOG_CRIT(( "vote states pool element not set" ));
   }
   fd_bank_vote_states_t * bank_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->vote_states_pool_idx );
   return (fd_vote_states_t *)bank_vote_states->data;
@@ -149,10 +149,8 @@ fd_bank_vote_states_locking_modify( fd_bank_t * bank ) {
   /* new pool element and copy over the data from the parent idx.   */
   /* We also need to mark the dirty flag. */
   ulong child_idx = fd_bank_vote_states_pool_idx( vote_states_pool, child_vote_states );
-  if( bank->vote_states_pool_idx!=fd_bank_vote_states_pool_idx_null( vote_states_pool ) ) {
-    fd_bank_vote_states_t * parent_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->vote_states_pool_idx );
-    fd_memcpy( child_vote_states->data, parent_vote_states->data, FD_VOTE_STATES_FOOTPRINT );
-  }
+  fd_bank_vote_states_t * parent_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->vote_states_pool_idx );
+  fd_memcpy( child_vote_states->data, parent_vote_states->data, FD_VOTE_STATES_FOOTPRINT );
   bank->vote_states_pool_idx = child_idx;
   bank->vote_states_dirty    = 1;
   return (fd_vote_states_t *)child_vote_states->data;
@@ -170,8 +168,8 @@ fd_bank_vote_states_prev_query( fd_bank_t * bank ) {
   if( FD_UNLIKELY( vote_states_prev_pool==NULL ) ) {
     FD_LOG_CRIT(( "NULL vote states prev pool" ));
   }
-  if( bank->vote_states_prev_pool_idx==fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool ) ) {
-    return NULL;
+  if( FD_UNLIKELY( bank->vote_states_prev_pool_idx==fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool ) ) ) {
+    FD_LOG_CRIT(( "vote states prev pool element not set" ));
   }
   fd_bank_vote_states_prev_t * bank_vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
   return (fd_vote_states_t *)bank_vote_states_prev->data;
@@ -200,10 +198,8 @@ fd_bank_vote_states_prev_modify( fd_bank_t * bank ) {
   /* new pool element and copy over the data from the parent idx.   */
   /* We also need to mark the dirty flag. */
   ulong child_idx = fd_bank_vote_states_prev_pool_idx( vote_states_prev_pool, child_vote_states_prev );
-  if( bank->vote_states_prev_pool_idx!=fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool ) ) {
-    fd_bank_vote_states_prev_t * parent_vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
-    fd_memcpy( child_vote_states_prev->data, parent_vote_states_prev->data, FD_VOTE_STATES_FOOTPRINT );
-  }
+  fd_bank_vote_states_prev_t * parent_vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
+  fd_memcpy( child_vote_states_prev->data, parent_vote_states_prev->data, FD_VOTE_STATES_FOOTPRINT );
   bank->vote_states_prev_pool_idx = child_idx;
   bank->vote_states_prev_dirty    = 1;
   return (fd_vote_states_t *)child_vote_states_prev->data;
@@ -216,8 +212,8 @@ fd_bank_vote_states_prev_prev_query( fd_bank_t * bank ) {
   if( FD_UNLIKELY( vote_states_prev_prev_pool==NULL ) ) {
     FD_LOG_CRIT(( "NULL vote states prev prev pool" ));
   }
-  if( bank->vote_states_prev_prev_pool_idx==fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool ) ) {
-    return NULL;
+  if( FD_UNLIKELY( bank->vote_states_prev_prev_pool_idx==fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool ) ) ) {
+    FD_LOG_CRIT(( "vote states prev prev pool element not set" ));
   }
   fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
   return (fd_vote_states_t *)bank_vote_states_prev_prev->data;
@@ -246,10 +242,8 @@ fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank ) {
   /* new pool element and copy over the data from the parent idx.   */
   /* We also need to mark the dirty flag. */
   ulong child_idx = fd_bank_vote_states_prev_prev_pool_idx( vote_states_prev_prev_pool, child_vote_states_prev_prev );
-  if( bank->vote_states_prev_prev_pool_idx!=fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool ) ) {
-    fd_bank_vote_states_prev_prev_t * parent_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
-    fd_memcpy( child_vote_states_prev_prev->data, parent_vote_states_prev_prev->data, FD_VOTE_STATES_FOOTPRINT );
-  }
+  fd_bank_vote_states_prev_prev_t * parent_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+  fd_memcpy( child_vote_states_prev_prev->data, parent_vote_states_prev_prev->data, FD_VOTE_STATES_FOOTPRINT );
   bank->vote_states_prev_prev_pool_idx = child_idx;
   bank->vote_states_prev_prev_dirty    = 1;
   return (fd_vote_states_t *)child_vote_states_prev_prev->data;
@@ -743,15 +737,15 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->epoch_leaders_pool_idx         = fd_bank_epoch_leaders_pool_idx_null( fd_banks_get_epoch_leaders_pool( banks ) );
   bank->epoch_leaders_dirty            = 0;
 
-  bank->vote_states_pool_idx           = fd_bank_vote_states_pool_idx_null( fd_banks_get_vote_states_pool( banks ) );
-  bank->vote_states_dirty              = 0;
+  bank->vote_states_pool_idx           = fd_bank_vote_states_pool_idx( fd_banks_get_vote_states_pool( banks ), fd_bank_vote_states_pool_ele_acquire( fd_banks_get_vote_states_pool( banks ) ) );
+  bank->vote_states_dirty              = 1;
   fd_rwlock_new( &bank->vote_states_lock );
 
-  bank->vote_states_prev_pool_idx      = fd_bank_vote_states_prev_pool_idx_null( fd_banks_get_vote_states_prev_pool( banks ) );
-  bank->vote_states_prev_dirty         = 0;
+  bank->vote_states_prev_pool_idx      = fd_bank_vote_states_prev_pool_idx( fd_banks_get_vote_states_prev_pool( banks ), fd_bank_vote_states_prev_pool_ele_acquire( fd_banks_get_vote_states_prev_pool( banks ) ) );
+  bank->vote_states_prev_dirty         = 1;
 
-  bank->vote_states_prev_prev_pool_idx = fd_bank_vote_states_prev_prev_pool_idx_null( fd_banks_get_vote_states_prev_prev_pool( banks ) );
-  bank->vote_states_prev_prev_dirty    = 0;
+  bank->vote_states_prev_prev_pool_idx = fd_bank_vote_states_prev_prev_pool_idx( fd_banks_get_vote_states_prev_prev_pool( banks ), fd_bank_vote_states_prev_prev_pool_ele_acquire( fd_banks_get_vote_states_prev_prev_pool( banks ) ) );
+  bank->vote_states_prev_prev_dirty    = 1;
 
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_new( &bank->cost_tracker_lock );
@@ -1407,7 +1401,9 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
 
 
 void
-fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
+fd_banks_clear_bank( fd_banks_t * banks,
+                     fd_bank_t *  bank,
+                     ulong        max_vote_accounts ) {
 
   fd_rwlock_read( &banks->rwlock );
   /* Get the parent bank. */
@@ -1429,26 +1425,15 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
     bank->epoch_leaders_pool_idx = parent_bank ? parent_bank->epoch_leaders_pool_idx : fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool );
   }
 
-  fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( bank );
-  if( bank->vote_states_dirty ) {
-    fd_bank_vote_states_pool_idx_release( vote_states_pool, bank->vote_states_pool_idx );
-    bank->vote_states_dirty = 0;
-    bank->vote_states_pool_idx = parent_bank ? parent_bank->vote_states_pool_idx : fd_bank_vote_states_pool_idx_null( vote_states_pool );
-  }
+  bank->vote_states_dirty = 1;
+  fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( bank ), max_vote_accounts, 999UL ) );
+  fd_bank_vote_states_end_locking_modify( bank );
 
-  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( bank );
-  if( bank->vote_states_prev_dirty ) {
-    fd_bank_vote_states_prev_pool_idx_release( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
-    bank->vote_states_prev_dirty = 0;
-    bank->vote_states_prev_pool_idx = parent_bank ? parent_bank->vote_states_prev_pool_idx : fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool );
-  }
+  bank->vote_states_prev_dirty = 1;
+  fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_modify( bank ), max_vote_accounts, 999UL ) );
 
-  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
-  if( bank->vote_states_prev_prev_dirty ) {
-    fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
-    bank->vote_states_prev_prev_dirty = 0;
-    bank->vote_states_prev_prev_pool_idx = parent_bank ? parent_bank->vote_states_prev_prev_pool_idx : fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool );
-  }
+  bank->vote_states_prev_prev_dirty = 1;
+  fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_modify( bank ), max_vote_accounts, 999UL ) );
 
   /* We need to acquire a cost tracker element. */
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
