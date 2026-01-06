@@ -84,19 +84,6 @@ init_clock_sysvar( test_env_t * env ) {
 }
 
 static void
-init_vote_states( test_env_t * env ) {
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( env->bank );
-  vote_states = fd_vote_states_join( fd_vote_states_new( vote_states, 1UL, 999UL ) );
-  fd_bank_vote_states_end_locking_modify( env->bank );
-
-  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( env->bank );
-  vote_states_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev, 1UL, 999UL ) );
-
-  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( env->bank );
-  vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev, 1UL, 999UL ) );
-}
-
-static void
 init_stake_delegations( test_env_t * env ) {
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( env->banks );
   fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 999UL, 1UL, 0 ) );
@@ -154,7 +141,6 @@ test_env_create( test_env_t * env,
   init_epoch_schedule_sysvar( env );
   init_stake_history_sysvar( env );
   init_clock_sysvar( env );
-  init_vote_states( env );
   init_stake_delegations( env );
   init_blockhash_queue( env );
 
