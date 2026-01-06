@@ -71,8 +71,8 @@ fd_ssarchive_parse_filename( char const * _name,
 
   ptr = next + 1;
 
-  if(       FD_LIKELY( 0==strncmp( ptr, "tar.zst", 7UL ) ) ) *is_zstd = 1;
-  else if ( FD_LIKELY( 0==strncmp( ptr, "tar",     3UL ) ) ) *is_zstd = 0;
+  if(       FD_LIKELY( 0==strcmp( ptr, "tar.zst" ) ) ) *is_zstd = 1;
+  else if ( FD_LIKELY( 0==strcmp( ptr, "tar"     ) ) ) *is_zstd = 0;
   else return -1;
 
   return 0;
