@@ -4,7 +4,6 @@
 #include "fd_sol_compat.h"
 
 #include "../fd_executor_err.h"
-#include "../../capture/fd_solcap_writer.h"
 #include "../../../ballet/shred/fd_shred.h"
 
 #include "generated/block.pb.h"
@@ -42,12 +41,10 @@ sol_compat_setup_runner( fd_solfuzz_runner_options_t const * options ) {
     if( FD_UNLIKELY( fd == -1 ) ) {
       FD_LOG_ERR(( "open($FD_SOLCAP=%s) failed (%i-%s)", solcap_path, errno, fd_io_strerror( errno ) ));
     }
-    runner->solcap_file = (void *)(ulong)fd;
-    FD_LOG_NOTICE(( "Logging to solcap file %s", solcap_path ));
 
-    void * solcap_mem = fd_wksp_alloc_laddr( runner->wksp, fd_solcap_writer_align(), fd_solcap_writer_footprint(), 1UL );
-    runner->solcap = fd_solcap_writer_init( solcap_mem, fd );
-    FD_TEST( runner->solcap );
+    runner->solcap = fd_pkt_w_pcapng_new( runner->solcap_mem, fd, NULL, 0UL );
+    if( FD_UNLIKELY( !runner->solcap ) ) FD_LOG_ERR(( "Failed to initialize solcap writer" ));
+    FD_LOG_NOTICE(( "Logging to solcap file %s", solcap_path ));
   }
 
   return runner;
@@ -55,14 +52,9 @@ sol_compat_setup_runner( fd_solfuzz_runner_options_t const * options ) {
 
 static void
 sol_compat_cleanup_runner( fd_solfuzz_runner_t * runner ) {
-  /* Cleanup test runner */
   if( runner->solcap ) {
-    fd_wksp_free_laddr( ( runner->solcap ) );
+    fd_pkt_writer_fini( runner->solcap->base );
     runner->solcap = NULL;
-    if( runner->solcap_file ) {
-      close( (int)(ulong)runner->solcap_file );
-      runner->solcap_file = NULL;
-    }
   }
   fd_solfuzz_runner_delete( runner );
 }

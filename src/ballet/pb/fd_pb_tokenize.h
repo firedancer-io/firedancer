@@ -15,12 +15,17 @@ typedef struct fd_pb_inbuf fd_pb_inbuf_t;
 
 FD_PROTOTYPES_BEGIN
 
+FD_FN_CONST static inline fd_pb_inbuf_t
+fd_pb_inbuf( void const * data,
+             ulong        data_sz ) {
+  return (fd_pb_inbuf_t){ .cur=data, .end=(uchar const *)data+data_sz };
+}
+
 static inline fd_pb_inbuf_t *
 fd_pb_inbuf_init( fd_pb_inbuf_t * buf,
                   void const *    data,
                   ulong           data_sz ) {
-  buf->cur = data;
-  buf->end = buf->cur + data_sz;
+  *buf = fd_pb_inbuf( data, data_sz );
   return buf;
 }
 

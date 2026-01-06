@@ -31,6 +31,10 @@ fd_sysvar_account_update( fd_bank_t *               bank,
   fd_txn_account_set_slot    ( rec, slot                );
   fd_txn_account_set_data    ( rec, data, sz );
 
+  if( FD_UNLIKELY( sz!=0UL && lamports_after==0UL ) ) {
+    FD_LOG_CRIT(( "attempted to create sysvar account with zero balance, aborting" ));
+  }
+
   ulong lamports_minted;
   if( FD_UNLIKELY( __builtin_usubl_overflow( lamports_after, lamports_before, &lamports_minted ) ) ) {
     char name[ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( address->uc, NULL, name );

@@ -376,6 +376,8 @@ struct fd_bank {
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
 
+  void * user_data;
+
   /* Timestamps written and read only by replay */
 
   long first_fec_set_received_nanos;

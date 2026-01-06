@@ -1793,3 +1793,46 @@ user = ""
     # in the layout will be ignored.
     [development.snapshots]
         disable_lthash_verification = true
+
+    # Options to capture "solcap" structured event logs to disk.
+    # These logs include various Solana runtime events, and are commonly
+    # used to debug differences/mismatches between SVM implementations.
+    #
+    # solcap specification:
+    # https://github.com/firedancer-io/solana-core/tree/main/solcap
+    [development.solcap]
+        # If solcap infrastructure is enabled, let replay, bank, and
+        # exec tiles export events to shared memory.  These events are
+        # then logged to disk by the solcap tile.
+        enabled = false
+
+        # File path to write solcap events to (pcapng file format)
+        path = ""
+
+        # Replace and overwrite existing solcap files?
+        overwrite = false
+
+        # solcap verbosity levels (in increasing order)
+        #
+        #   "bank_hash"     bank hashes
+        #   "transactions"  executed transactions
+        #   "instructions"  executed instructions
+        #   "lthash"        account hash updates
+        verbosity = "bank_hash"
+
+    # Options to capture runtime state transitions in a re-executable
+    # format (solfuzz fixtures).
+    [development.solfuzz_dump]
+        # Path to output directory
+        # FIXME replace this with path interpolation
+        out_path = ""
+
+        # Do not capture state transitions before this slot number
+        start_slot = 0
+
+        # Controls which state transitions to capture
+        dump_elfs = false
+        dump_syscalls = false
+        dump_instructions = false
+        dump_transactions = false
+        dump_blocks = false

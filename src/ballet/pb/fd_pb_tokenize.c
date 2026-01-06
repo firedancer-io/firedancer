@@ -32,8 +32,11 @@ fd_pb_read_tlv_slow( fd_pb_inbuf_t * buf,
   ulong val;
   switch( wire_type ) {
   case FD_PB_WIRE_TYPE_VARINT:
+    if( FD_UNLIKELY( !read_varint( &buf2, &val ) ) ) return NULL;
+    break;
   case FD_PB_WIRE_TYPE_LEN:
     if( FD_UNLIKELY( !read_varint( &buf2, &val ) ) ) return NULL;
+    if( FD_UNLIKELY( val > fd_pb_inbuf_sz( &buf2 ) ) ) return NULL;
     break;
   case FD_PB_WIRE_TYPE_I64:
     if( FD_UNLIKELY( (ulong)( buf2.end - buf2.cur )<8UL ) ) return NULL;

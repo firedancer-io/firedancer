@@ -31,6 +31,7 @@
 #include "../../flamenco/runtime/fd_genesis_parse.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/solcap/fd_solcap_writer.h"
 
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 
@@ -332,10 +333,7 @@ struct fd_replay_tile {
   ulong               block_id_map_seed;
   fd_block_id_map_t * block_id_map;
 
-  /* Capture-related configs */
-  fd_capture_ctx_t *     capture_ctx;
-  FILE *                 capture_file;
-  fd_capture_link_buf_t  cap_repl_out[1];
+  fd_capture_ctx_t capture_ctx[1];
 
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis. */
@@ -441,7 +439,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),           fd_reasm_footprint( 1 << 20 ) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),           fd_sched_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),    fd_vote_tracker_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),     fd_capture_ctx_footprint() );
 
 # if FD_HAS_FLATCC
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -820,7 +817,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 # if FD_HAS_FLATCC
   /* If enabled, dump the block to a file and reset the dumping
      context state */
-  if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
+  if( FD_UNLIKELY( ctx->capture_ctx->dump_block_to_pb ) ) {
     fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
     fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, funk, ctx->capture_ctx );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
@@ -861,6 +858,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: leader bank is NULL for slot %lu", slot ));
   }
 
+  fd_solcap_bank_create( ctx->capture_ctx->solcap, ctx->leader_bank->bank_seq, fd_bank_slot_get( ctx->leader_bank ) );
   if( FD_UNLIKELY( !fd_banks_clone_from_parent( ctx->banks, ctx->leader_bank->idx, parent_bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu", slot ));
   }
@@ -1577,7 +1575,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
       /* Add the transaction to the block dumper if necessary. This
          logic doesn't need to be fork-aware since it's only meant to
          be used in backtest. */
-      if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
+      if( FD_UNLIKELY( ctx->capture_ctx->dump_block_to_pb ) ) {
         fd_dump_block_to_protobuf_collect_tx( ctx->block_dump_ctx, txn_p );
       }
 #     endif
@@ -1745,7 +1743,10 @@ process_fec_set( fd_replay_tile_t *  ctx,
   } else if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
     /* If we are seeing a FEC with fec set idx 0, this means that we are
        starting a new slot, and we need a new bank index. */
-    reasm_fec->bank_idx = fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now )->idx;
+    fd_bank_t * bank = fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now );
+    fd_solcap_bank_create( ctx->capture_ctx->solcap, bank->bank_seq, fd_bank_slot_get( bank ) );
+    reasm_fec->bank_idx = bank->idx;
+
     /* At this point remove any stale entry in the block id map if it
        exists and set the block id as not having been seen yet.  This is
        safe because we know that the old entry for this bank index has
@@ -2475,7 +2476,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * reasm_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( 1 << 20 ) );
   void * sched_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.max_live_slots ) );
   void * vote_tracker_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
-  void * _capture_ctx      = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
 # if FD_HAS_FLATCC
   void * block_dump_ctx    = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -2542,12 +2542,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( txncache_shmem );
   ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( ctx->txncache );
-
-  ctx->capture_ctx = NULL;
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || strcmp( "", tile->replay.dump_proto_dir ) ) ) {
-    ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
-    ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
-  }
 
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
     ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
@@ -2643,40 +2637,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
-
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
-    idx = fd_topo_find_tile_out_link( topo, tile, "cap_repl", 0UL );
-    FD_TEST( idx!=ULONG_MAX );
-    link = &topo->links[ tile->out_link_id[ idx ] ];
-
-
-    fd_capture_link_buf_t * cap_repl_out = ctx->cap_repl_out;
-    cap_repl_out->base.vt = &fd_capture_link_buf_vt;
-    cap_repl_out->idx     = idx;
-    cap_repl_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-    cap_repl_out->chunk0  = fd_dcache_compact_chunk0( cap_repl_out->mem, link->dcache );
-    cap_repl_out->wmark   = fd_dcache_compact_wmark( cap_repl_out->mem, link->dcache, link->mtu );
-    cap_repl_out->chunk   = cap_repl_out->chunk0;
-    cap_repl_out->mcache  = link->mcache;
-    cap_repl_out->depth   = fd_mcache_depth( link->mcache );
-    cap_repl_out->seq     = 0UL;
-
-    ctx->capture_ctx->capctx_type.buf  = cap_repl_out;
-    ctx->capture_ctx->capture_link    = &cap_repl_out->base;
-    ctx->capture_ctx->current_txn_idx = 0UL;
-
-
-    ulong consumer_tile_idx = fd_topo_find_tile( topo, "solcap", 0UL );
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
-    cap_repl_out->fseq = NULL;
-    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {
-        cap_repl_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
-        FD_TEST( cap_repl_out->fseq );
-        break;
-      }
-    }
-  }
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 

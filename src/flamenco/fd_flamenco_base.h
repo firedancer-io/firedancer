@@ -20,9 +20,6 @@ typedef struct fd_banks fd_banks_t;
 struct fd_exec_instr_ctx;
 typedef struct fd_exec_instr_ctx fd_exec_instr_ctx_t;
 
-struct fd_acc_mgr;
-typedef struct fd_acc_mgr fd_acc_mgr_t;
-
 struct fd_capture_ctx;
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 

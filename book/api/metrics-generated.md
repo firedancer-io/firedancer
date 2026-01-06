@@ -1226,3 +1226,13 @@
 | <span class="metrics-name">tower_&#8203;slot_&#8203;ignored</span> | counter | Number of times we ignored a slot likely due to minority fork publish |
 
 </div>
+
+## Solcap Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">solcap_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to disk |
+
+</div>
