@@ -194,6 +194,35 @@ fd_bn254_g1_add_syscall( uchar       out[64],
 }
 
 int
+fd_bn254_g2_add_syscall( uchar       out[128],
+                         uchar const in[],
+                         ulong       in_sz,
+                         int         big_endian ) {
+  /* Expected 256-byte input (2 points).
+     https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.2.1/bn254/src/addition.rs#L234-L236 */
+  if( FD_UNLIKELY( in_sz != 256UL ) ) {
+    return -1;
+  }
+  uchar FD_ALIGNED buf[256] = { 0 };
+  fd_memcpy( buf, in, in_sz );
+
+  /* Validate inputs (curve eq only, no subgroup)
+     https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.2.1/bn254/src/addition.rs#L238-L250 */
+  fd_bn254_g2_t r[1], a[1], b[1];
+  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_eq_only( a, &buf[ 0], big_endian ) ) ) {
+    return -1;
+  }
+  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_eq_only( b, &buf[128], big_endian ) ) ) {
+    return -1;
+  }
+
+  /* Compute point add and serialize result */
+  fd_bn254_g2_add_mixed( r, a, b );
+  fd_bn254_g2_tobytes( out, r, big_endian );
+  return 0;
+}
+
+int
 fd_bn254_g1_scalar_mul_syscall( uchar       out[64],
                                 uchar const in[],
                                 ulong       in_sz,
@@ -227,6 +256,42 @@ fd_bn254_g1_scalar_mul_syscall( uchar       out[64],
   /* Compute scalar mul and serialize result */
   fd_bn254_g1_scalar_mul( r, a, s );
   fd_bn254_g1_tobytes( out, r, big_endian );
+  return 0;
+}
+
+int
+fd_bn254_g2_scalar_mul_syscall( uchar       out[128],
+                                uchar const in[],
+                                ulong       in_sz,
+                                int         big_endian ) {
+  /* Expected 160-byte input (1 point + 1 scalar).
+     https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.2.1/bn254/src/multiplication.rs#L248-L250 */
+  if( FD_UNLIKELY( in_sz != 160UL ) ) {
+    return -1;
+  }
+  uchar FD_ALIGNED buf[160] = { 0 };
+  fd_memcpy( buf, in, 160UL );
+
+  /* Validate point (curve equation and subgroup membership)
+     https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.2.1/bn254/src/multiplication.rs#L252-L255 */
+  fd_bn254_g2_t r[1], a[1];
+  fd_bn254_scalar_t s[1];
+  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_subgroup( a, &buf[ 0], big_endian ) ) ) {
+    return -1;
+  }
+
+  /* Scalar is little endian and NOT validated
+     https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.2.1/bn254/src/multiplication.rs#L256-L272 */
+  if( FD_BIG_ENDIAN_LIKELY( big_endian ) ) {
+    fd_uint256_bswap( s, fd_type_pun_const( &buf[128] ) ); /* &buf[128] is always FD_ALIGNED */
+  } else {
+    memcpy( s, &buf[128], 32 );
+  }
+  // no: if( FD_UNLIKELY( !fd_bn254_scalar_validate( s ) ) ) return -1;
+
+  /* Compute scalar mul and serialize result */
+  fd_bn254_g2_scalar_mul( r, a, s );
+  fd_bn254_g2_tobytes( out, r, big_endian );
   return 0;
 }
 

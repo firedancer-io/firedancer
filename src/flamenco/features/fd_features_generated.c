@@ -1745,6 +1745,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "enable_bls12_381_syscall",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, enable_alt_bn128_g2_syscalls)>>3,
+    .id                        = {"\x08\xe8\xa4\x89\x6d\x65\x0f\x01\xb3\xde\x0b\xfd\x81\xec\x55\x33\x87\x9d\x4f\x9f\xd5\x02\xb6\xa2\x50\xc6\xb9\xc5\x6e\x10\xc5\xe6"},
+                                 /* bn1hKNURMGQaQoEVxahcEAcqiX3NwRs6hgKKNSLeKxH */
+    .name                      = "enable_alt_bn128_g2_syscalls",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -2007,6 +2013,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x8921a3abf23afaec: return &ids[ 253 ];
   case 0x640dddd90caae808: return &ids[ 254 ];
   case 0x1d0a91b3be4013c5: return &ids[ 255 ];
+  case 0x010f656d89a4e808: return &ids[ 256 ];
   default: break;
   }
   return NULL;
@@ -2268,4 +2275,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, static_instruction_limit             
 FD_STATIC_ASSERT( offsetof( fd_features_t, vote_state_v4                                           )>>3==253UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, alt_bn128_little_endian                                 )>>3==254UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_bls12_381_syscall                                )>>3==255UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_alt_bn128_g2_syscalls                            )>>3==256UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

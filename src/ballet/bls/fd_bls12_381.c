@@ -1,22 +1,9 @@
 #include "fd_bls12_381.h"
+#include "../bigint/fd_uint256.h"
 
 #include <blst.h>
 
-/* utils */
-
-/* bswap 8*n bytes, n even (we need n=6, n=12).
-   this is written with a loop for readability, the compiler optimizes it away. */
-static inline void
-fd_ulong_n_bswap( ulong       r[], /* size n ulongs, i.e. 8*n bytes */
-                  ulong const n ) {
-  /* note: this only works for even n */
-  for( ulong j=0; j<n/2; j++ ) {
-    ulong aj = fd_ulong_bswap( r[j] );
-    ulong bj = fd_ulong_bswap( r[n-1-j] );
-    r[j] = bj;
-    r[n-1-j] = aj;
-  }
-}
+/* Scalar */
 
 typedef blst_scalar fd_bls12_381_scalar_t;
 

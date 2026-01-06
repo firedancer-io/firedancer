@@ -66,6 +66,47 @@ fd_bn254_g2_set_zero( fd_bn254_g2_t * r ) {
 }
 
 static inline fd_bn254_g2_t *
+fd_bn254_g2_to_affine( fd_bn254_g2_t *       r,
+                       fd_bn254_g2_t const * p ) {
+  if( FD_UNLIKELY( fd_bn254_fp2_is_zero( &p->Z ) || fd_bn254_fp2_is_one( &p->Z ) ) ) {
+    return fd_bn254_g2_set( r, p );
+  }
+
+  fd_bn254_fp2_t iz[1], iz2[1];
+  fd_bn254_fp2_inv( iz, &p->Z );
+  fd_bn254_fp2_sqr( iz2, iz );
+
+  /* X / Z^2, Y / Z^3 */
+  fd_bn254_fp2_mul( &r->X, &p->X, iz2 );
+  fd_bn254_fp2_mul( &r->Y, &p->Y, iz2 );
+  fd_bn254_fp2_mul( &r->Y, &r->Y, iz );
+  fd_bn254_fp2_set_one( &r->Z );
+  return r;
+}
+
+uchar *
+fd_bn254_g2_tobytes( uchar                 out[128],
+                     fd_bn254_g2_t const * p,
+                     int                   big_endian ) {
+  if( FD_UNLIKELY( fd_bn254_g2_is_zero( p ) ) ) {
+    fd_memset( out, 0, 128UL );
+    /* no flags */
+    return out;
+  }
+
+  fd_bn254_g2_t r[1];
+  fd_bn254_g2_to_affine( r, p );
+
+  fd_bn254_fp2_from_mont( &r->X, &r->X );
+  fd_bn254_fp2_from_mont( &r->Y, &r->Y );
+
+  fd_bn254_fp2_tobytes_nm( &out[ 0], &r->X, big_endian );
+  fd_bn254_fp2_tobytes_nm( &out[64], &r->Y, big_endian );
+  /* no flags */
+  return out;
+}
+
+static inline fd_bn254_g2_t *
 fd_bn254_g2_frob( fd_bn254_g2_t *       r,
                   fd_bn254_g2_t const * p ) {
   fd_bn254_fp2_conj( &r->X, &p->X );
@@ -155,6 +196,10 @@ fd_bn254_g2_add_mixed( fd_bn254_g2_t *       r,
   if( FD_UNLIKELY( fd_bn254_g2_is_zero( p ) ) ) {
     return fd_bn254_g2_set( r, q );
   }
+  /* q==0, return p */
+  if( FD_UNLIKELY( fd_bn254_g2_is_zero( q ) ) ) {
+    return fd_bn254_g2_set( r, p );
+  }
   fd_bn254_fp2_t zz[1], u2[1], s2[1];
   fd_bn254_fp2_t h[1], hh[1];
   fd_bn254_fp2_t i[1], j[1];
@@ -215,6 +260,10 @@ fd_bn254_g2_add( fd_bn254_g2_t *       r,
   /* p==0, return q */
   if( FD_UNLIKELY( fd_bn254_g2_is_zero( p ) ) ) {
     return fd_bn254_g2_set( r, q );
+  }
+  /* q==0, return p */
+  if( FD_UNLIKELY( fd_bn254_g2_is_zero( q ) ) ) {
+    return fd_bn254_g2_set( r, p );
   }
   fd_bn254_fp2_t zz1[1], zz2[1];
   fd_bn254_fp2_t u1[1], s1[1];
@@ -285,9 +334,6 @@ fd_bn254_g2_scalar_mul( fd_bn254_g2_t *           r,
   int i = 255;
   for( ; i>=0 && !fd_uint256_bit( s, i ); i-- ) ; /* do nothing, just i-- */
   if( FD_UNLIKELY( i<0 ) ) {
-    /* COV: this only happens when the scalar is zero.
-       Unlike g1, g2_scalar_mul is not exposed to users but only used internally,
-       so scalar is never zero. */
     return fd_bn254_g2_set_zero( r );
   }
   fd_bn254_g2_set( r, p );
@@ -331,11 +377,12 @@ fd_bn254_g2_frombytes_internal( fd_bn254_g2_t * p,
   return p;
 }
 
-/* fd_bn254_g2_frombytes_check_subgroup performs frombytes AND checks subgroup membership. */
+/* fd_bn254_g2_frombytes_check_eq_only performs frombytes, checks the curve
+   equation, but does NOT check subgroup membership. */
 static inline fd_bn254_g2_t *
-fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
-                                      uchar const     in[128],
-                                      int             big_endian ) {
+fd_bn254_g2_frombytes_check_eq_only( fd_bn254_g2_t * p,
+                                     uchar const     in[128],
+                                     int             big_endian ) {
   if( FD_UNLIKELY( !fd_bn254_g2_frombytes_internal( p, in, big_endian ) ) ) {
     return NULL;
   }
@@ -354,6 +401,17 @@ fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
   fd_bn254_fp2_mul( x3b, x3b, &p->X );
   fd_bn254_fp2_add( x3b, x3b, fd_bn254_const_twist_b_mont );
   if( FD_UNLIKELY( !fd_bn254_fp2_eq( y2, x3b ) ) ) {
+    return NULL;
+  }
+  return p;
+}
+
+/* fd_bn254_g2_frombytes_check_subgroup performs frombytes AND checks subgroup membership. */
+static inline fd_bn254_g2_t *
+fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
+                                      uchar const     in[128],
+                                      int             big_endian ) {
+  if( FD_UNLIKELY( fd_bn254_g2_frombytes_check_eq_only( p, in, big_endian )==NULL ) ) {
     return NULL;
   }
 
@@ -395,6 +453,5 @@ fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
   if( FD_UNLIKELY( !fd_bn254_g2_eq( l, r ) ) ) {
     return NULL;
   }
-
   return p;
 }

@@ -25,6 +25,18 @@ fd_bn254_g1_scalar_mul_syscall( uchar       out[64],
                                 int         big_endian );
 
 int
+fd_bn254_g2_add_syscall( uchar       out[128],
+                         uchar const in[],
+                         ulong       in_sz,
+                         int         big_endian );
+
+int
+fd_bn254_g2_scalar_mul_syscall( uchar       out[128],
+                                uchar const in[],
+                                ulong       in_sz,
+                                int         big_endian );
+
+int
 fd_bn254_pairing_is_one_syscall( uchar       out[32],
                                  uchar const in[],
                                  ulong       in_sz,
