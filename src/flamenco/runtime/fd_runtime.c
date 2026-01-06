@@ -1110,7 +1110,9 @@ fd_runtime_save_account( fd_accdb_user_t *         accdb,
      - Hash new version of account */
   fd_lthash_value_t prev_hash[1];
   fd_accdb_ro_t ro[1];
+  int old_nonexist = 0;
   if( fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) {
+    old_nonexist = fd_accdb_ref_lamports( ro )==0UL;
     fd_hashes_account_lthash(
       pubkey,
       ro->meta,
@@ -1118,11 +1120,15 @@ fd_runtime_save_account( fd_accdb_user_t *         accdb,
       prev_hash );
     fd_accdb_close_ro( accdb, ro );
   } else {
+    old_nonexist = 1;
     fd_lthash_zero( prev_hash );
   }
 
   /* Mix in the account hash into the bank hash */
   fd_hashes_update_lthash( pubkey, meta, prev_hash, bank, capture_ctx );
+
+  /* Account did not exist before, and still does not exist */
+  if( FD_UNLIKELY( old_nonexist && meta->lamports==0 ) ) return;
 
   /* Save the new version of the account to Funk */
   fd_runtime_finalize_account( accdb, xid, pubkey, meta );
