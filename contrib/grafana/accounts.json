@@ -1,0 +1,898 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 5024,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "default": false,
+        "type": "prometheus",
+        "uid": "becngladj4cn4d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 24,
+            "gradientMode": "hue",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "recps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(replay_accdb_created{instance=\"$instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "Slot Boundary",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(exec_accdb_created{instance=\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Transactions",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "expr": "-sum(rate(replay_accdb_gc_root{instance=\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Rooting",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "expr": "-sum(rate(replay_accdb_reverted{instance=\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Reverted",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "expr": "-sum(rate(replay_accdb_reclaimed{instance=\"$instance\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Reclaimed",
+          "range": true,
+          "refId": "E"
+        }
+      ],
+      "title": "Account Growth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "default": false,
+        "type": "prometheus",
+        "uid": "becngladj4cn4d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "locale"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 1,
+      "interval": "60s",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "expr": "(\n    (\n        sum(snapin_accounts_loaded{instance=\"$instance\"})\n        -\n        (\n            sum(snapin_accounts_replaced{instance=\"$instance\"}) +\n            sum(snapin_accounts_ignored{instance=\"$instance\"})\n        )\n    )\n    and on() (snapin_state{instance=\"$instance\"} == 4)\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Snapshot",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "expr": "(\n    sum(increase(replay_accdb_created{instance=\"$instance\"}[$__rate_interval])) + \n    sum(increase(exec_accdb_created{instance=\"$instance\"}[$__rate_interval]))\n) -\n(\n    sum(increase(replay_accdb_gc_root{instance=\"$instance\"}[$__rate_interval])) +\n    sum(increase(replay_accdb_reverted{instance=\"$instance\"}[$__rate_interval])) +\n    sum(increase(replay_accdb_reclaimed{instance=\"$instance\"}[$__rate_interval]))\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Delta",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Account Count",
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Cumulative",
+            "cumulative": {
+              "field": "Delta",
+              "reducer": "sum"
+            },
+            "mode": "cumulativeFunctions",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Count",
+            "binary": {
+              "left": "Snapshot",
+              "right": "Cumulative"
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "Count"
+              ]
+            }
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "default": false,
+        "type": "prometheus",
+        "uid": "becngladj4cn4d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 7,
+        "x": 0,
+        "y": 12
+      },
+      "id": 4,
+      "maxDataPoints": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "11.2.5",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(increase(replay_accdb_created{instance=\"$instance\"}[$__range])) +\nsum(increase(exec_accdb_created{instance=\"$instance\"}[$__range]))",
+          "format": "time_series",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Created",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "increase(replay_accdb_rooted{instance=\"$instance\"}[$__range])",
+          "format": "time_series",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Rooted",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "increase(replay_accdb_gc_root{instance=\"$instance\"}[$__range])",
+          "format": "time_series",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Removed",
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "increase(replay_accdb_reclaimed{instance=\"$instance\"}[$__range])",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Reclaimed",
+          "range": false,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "increase(replay_accdb_reverted{instance=\"$instance\"}[$__range])",
+          "format": "time_series",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Reverted",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "(\n  sum(increase(replay_accdb_created{instance=\"$instance\"}[$__range])) +\n  sum(increase(exec_accdb_created{instance=\"$instance\"}[$__range]))\n) -\n(\n  sum(increase(replay_accdb_gc_root{instance=\"$instance\"}[$__range])) +\n  sum(increase(replay_accdb_reclaimed{instance=\"$instance\"}[$__range])) +\n  sum(increase(replay_accdb_reverted{instance=\"$instance\"}[$__range]))\n)",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Net Change",
+          "range": false,
+          "refId": "F"
+        }
+      ],
+      "title": "Record Pool Changes",
+      "transformations": [
+        {
+          "id": "seriesToRows",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "includeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "Metric": "Event",
+              "Value": "Record Count"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "default": false,
+        "type": "prometheus",
+        "uid": "becngladj4cn4d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 5,
+        "x": 7,
+        "y": 12
+      },
+      "id": 3,
+      "interval": "60s",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "expr": "increase(replay_accdb_reverted{instance=\"$instance\"}[$__rate_interval])",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Delta",
+          "range": true,
+          "refId": "D"
+        }
+      ],
+      "title": "Accounts Revert Count",
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Cumulative",
+            "cumulative": {
+              "field": "Delta",
+              "reducer": "sum"
+            },
+            "mode": "cumulativeFunctions",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "default": false,
+        "type": "prometheus",
+        "uid": "becngladj4cn4d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 5,
+        "x": 12,
+        "y": 12
+      },
+      "id": 5,
+      "interval": "60s",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "expr": "increase(replay_accdb_reclaimed{instance=\"$instance\"}[$__rate_interval])",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Delta",
+          "range": true,
+          "refId": "D"
+        }
+      ],
+      "title": "Accounts Reclaim Count",
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Cumulative",
+            "cumulative": {
+              "field": "Delta",
+              "reducer": "sum"
+            },
+            "mode": "cumulativeFunctions",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "default": false,
+        "type": "prometheus",
+        "uid": "becngladj4cn4d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds",
+            "seriesBy": "last"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "gradientMode": "scheme",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 7,
+        "x": 17,
+        "y": 12
+      },
+      "id": 6,
+      "interval": "60s",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "hidden",
+          "placement": "right",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "becngladj4cn4d"
+          },
+          "editorMode": "code",
+          "expr": "(\n  sum(increase(replay_accdb_created{instance=\"$instance\"}[$__rate_interval])) +\n  sum(increase(exec_accdb_created{instance=\"$instance\"}[$__rate_interval]))\n)\n-\n(\n  sum(increase(replay_accdb_gc_root{instance=\"$instance\"}[$__rate_interval])) +\n  sum(increase(replay_accdb_reverted{instance=\"$instance\"}[$__rate_interval])) +\n  sum(increase(replay_accdb_reclaimed{instance=\"$instance\"}[$__rate_interval]))\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Delta",
+          "range": true,
+          "refId": "D"
+        }
+      ],
+      "title": "Net Account Growth",
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "Cumulative",
+            "cumulative": {
+              "field": "Delta",
+              "reducer": "sum"
+            },
+            "mode": "cumulativeFunctions",
+            "reduce": {
+              "reducer": "sum"
+            }
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "Cumulative"
+              ]
+            }
+          }
+        }
+      ],
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "becngladj4cn4d"
+        },
+        "definition": "label_values(replay_accdb_created,instance)",
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "name": "instance",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(replay_accdb_created,instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "America/Chicago",
+  "title": "Firedancer Accounts",
+  "uid": "df7evc4tucge8a",
+  "version": 22,
+  "weekStart": ""
+}
