@@ -317,9 +317,11 @@ fd_snapin_vinyl_txn_commit( fd_snapin_tile_t * ctx ) {
         ulong exist_slot = ele->phdr.info.ul[ 1 ];
         ulong cur_slot   =      phdr.info.ul[ 1 ];
         if( exist_slot > cur_slot ) {
+          ctx->metrics.accounts_ignored++;
           fd_memset( block, 0, block_sz );
           goto next;
         }
+        ctx->metrics.accounts_replaced++;
       }
 
       /* Overwrite map entry */
@@ -429,8 +431,6 @@ bstream_push_account( fd_snapin_tile_t * ctx ) {
   ctx->vinyl_op.dst      = NULL;
   ctx->vinyl_op.dst_rem  = 0UL;
   ctx->vinyl_op.meta_ele = NULL;
-
-  ctx->metrics.accounts_inserted++;
 }
 
 /* bstream_alloc is a faster version of fd_vinyl_io_alloc.  Indirect
@@ -489,6 +489,7 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
   dst     += sizeof(fd_account_meta_t);
   dst_rem -= sizeof(fd_account_meta_t);
 
+  ctx->metrics.accounts_loaded++;
   FD_CRIT( dst_rem >= result->account_header.data_len, "corruption detected" );
   if( ctx->full ) {  /* update index immediately */
     ulong                 memo = fd_vinyl_key_memo( map->seed, &phdr->key );
@@ -499,9 +500,11 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
       /* Drop current value if existing is newer */
       ulong exist_slot = ele->phdr.info.ul[ 1 ];
       if( exist_slot > result->account_header.slot ) {
+        ctx->metrics.accounts_ignored++;
         ctx->vinyl_op.pair = NULL;
         return;
       }
+      ctx->metrics.accounts_replaced++;
     }
 
     ele->memo      = memo;
@@ -577,6 +580,7 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
   /* Insert map entries */
 
+  ctx->metrics.accounts_loaded += FD_SSPARSE_ACC_BATCH_MAX;
   fd_vinyl_meta_ele_t * batch_ele[ FD_SSPARSE_ACC_BATCH_MAX ];
   for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
     uchar const *  frame    = result->account_batch.batch[ i ];
@@ -592,9 +596,11 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
       /* Drop current value if existing is newer */
       ulong exist_slot = ele->phdr.info.ul[ 1 ];
       if( exist_slot > result->account_batch.slot ) {
+        ctx->metrics.accounts_ignored++;
         batch_ele[ i ] = NULL;
         continue;
       }
+      ctx->metrics.accounts_replaced++;
     }
 
     ulong val_sz = sizeof(fd_account_meta_t) + data_len;
@@ -666,8 +672,6 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
     ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
     ele->seq = seq_after;
-
-    ctx->metrics.accounts_inserted++;
   }
 }
 

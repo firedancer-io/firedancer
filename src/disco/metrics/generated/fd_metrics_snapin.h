@@ -24,13 +24,25 @@
 #define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_DESC "Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_OFF  (19UL)
-#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_NAME "snapin_accounts_inserted"
-#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_DESC "Number of accounts inserted during snapshot loading. Might decrease if snapshot load is aborted and restarted"
-#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_INSERTED_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_LOADED_OFF  (19UL)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_LOADED_NAME "snapin_accounts_loaded"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_LOADED_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_LOADED_DESC "Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_LOADED_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_SNAPIN_TOTAL (4UL)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_REPLACED_OFF  (20UL)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_REPLACED_NAME "snapin_accounts_replaced"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_REPLACED_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_REPLACED_DESC "Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_REPLACED_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_IGNORED_OFF  (21UL)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_IGNORED_NAME "snapin_accounts_ignored"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_IGNORED_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_IGNORED_DESC "Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNTS_IGNORED_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_SNAPIN_TOTAL (6UL)
 extern const fd_metrics_meta_t FD_METRICS_SNAPIN[FD_METRICS_SNAPIN_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_snapin_h */

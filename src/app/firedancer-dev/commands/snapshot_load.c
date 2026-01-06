@@ -736,7 +736,7 @@ snapshot_load_cmd_fn( args_t *   args,
 
     double progress = 100.0 * (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] / (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_TOTAL ) ];
 
-    ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED    ) ];
+    ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_LOADED    ) ];
 
     if( watch ) {
       printf( "%5.1f %% comp=%4.0fMB/s snap=%4.0fMB/s",

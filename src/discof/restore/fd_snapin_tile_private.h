@@ -88,7 +88,16 @@ struct fd_snapin_tile {
   struct {
     ulong full_bytes_read;
     ulong incremental_bytes_read;
-    ulong accounts_inserted;
+
+    /* Account counters (full + incremental) */
+    ulong accounts_loaded;
+    ulong accounts_replaced;
+    ulong accounts_ignored;
+
+    /* Account counters (snapshot taken for full snapshot only) */
+    ulong full_accounts_loaded;
+    ulong full_accounts_replaced;
+    ulong full_accounts_ignored;
   } metrics;
 
   struct {
