@@ -637,7 +637,7 @@ run( config_t const * config,
       snapshot_rx_samples[ snapshot_rx_idx%(sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0])) ] = (ulong)diff_tile( config, "snapct", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ) +
                                                                                                             (ulong)diff_tile( config, "snapct", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) );
       snapshot_rx_idx++;
-      snapshot_acc_samples[ snapshot_acc_idx%(sizeof(snapshot_acc_samples)/sizeof(snapshot_acc_samples[0])) ] = (ulong)diff_tile( config, "snapin", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED ) );
+      snapshot_acc_samples[ snapshot_acc_idx%(sizeof(snapshot_acc_samples)/sizeof(snapshot_acc_samples[0])) ] = (ulong)diff_tile( config, "snapin", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPIN, ACCOUNTS_LOADED ) );
       snapshot_acc_idx++;
 
       /* move up n lines, delete n lines, and restore cursor and clear to end of screen */

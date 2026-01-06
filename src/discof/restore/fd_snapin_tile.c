@@ -54,7 +54,13 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN ) ) {
-    FD_LOG_NOTICE(( "loaded %.1fM accounts from snapshot in %.3f seconds", (double)ctx->metrics.accounts_inserted/1e6, (double)(fd_log_wallclock()-ctx->boot_timestamp)/1e9 ));
+    ulong accounts_dup = ctx->metrics.accounts_ignored + ctx->metrics.accounts_replaced;
+    ulong accounts     = ctx->metrics.accounts_loaded  - accounts_dup;
+    long  elapsed_ns   = fd_log_wallclock() - ctx->boot_timestamp;
+    FD_LOG_NOTICE(( "loaded %.1fM accounts (%.1fM dups) from snapshot in %.3f seconds",
+                    (double)accounts/1e6,
+                    (double)accounts_dup/1e6,
+                    (double)elapsed_ns/1e9 ));
   }
   return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }
@@ -84,10 +90,12 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_snapin_tile_t * ctx ) {
+  FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
   FD_MGAUGE_SET( SNAPIN, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_INSERTED,      ctx->metrics.accounts_inserted );
-  FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_LOADED,        ctx->metrics.accounts_loaded );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_REPLACED,      ctx->metrics.accounts_replaced );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_IGNORED,       ctx->metrics.accounts_ignored );
 }
 
 /* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
@@ -591,6 +599,16 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         }
         fd_snapin_vinyl_wd_init( ctx );
       }
+      /* Rewind metric counters (no-op unless recovering from a fail) */
+      if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
+        ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded   = 0;
+        ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced = 0;
+        ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored  = 0;
+      } else {
+        ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
+        ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
+        ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
+      }
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -622,6 +640,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+
+      /* Backup metric counters */
+      ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
+      ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
+      ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
 
       if( ctx->use_vinyl ) {
         fd_snapin_vinyl_wd_fini( ctx );
