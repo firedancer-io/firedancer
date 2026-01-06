@@ -151,6 +151,7 @@ struct fd_runtime {
       uchar authorized_voters_mem      [ FD_AUTHORIZED_VOTERS_FOOTPRINT    ] __attribute__((aligned(FD_AUTHORIZED_VOTERS_ALIGN)));
       uchar vote_state_landed_votes_mem[ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
       uchar tower_sync_landed_votes_mem[ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
+      uchar vote_lockout_mem           [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
     } tower_sync;
 
     struct {
