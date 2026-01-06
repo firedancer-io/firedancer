@@ -21,6 +21,7 @@ void fd_gui_printf_repair_slot( fd_gui_t * gui );
 void fd_gui_printf_slot_caught_up( fd_gui_t * gui );
 void fd_gui_printf_skipped_history( fd_gui_t * gui );
 void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui );
+void fd_gui_printf_vote_latency_history( fd_gui_t * gui );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
 void fd_gui_printf_startup_progress( fd_gui_t * gui );
 void fd_gui_printf_boot_progress( fd_gui_t * gui );

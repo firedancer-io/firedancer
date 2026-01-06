@@ -1836,6 +1836,7 @@ initially replay one but the cluster votes on the other one.
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 | vote_slot                    | `number\|null` | The most recent slot for which this valiadtor had landed a vote as of the time that this slot was replayed.  This is equivalent to the largest voted-for slot in this validator's on-chain vote account after the execution of `slot`. `vote_slot` will typically be one less than `slot`, though `vote_slot` may be arbitrarily small if the last successfully landed vote from this validator was long before `slot`. May be `null` if the vote account for this node does not exist |
+| vote_latency                 | `number\|null` | The distance in slots between this slot and the slot which contains our vote for this slot.  This field is `null` if we have not yet landed a vote for this slot, and this message will be re-published once our vote lands. Due to forking or votes not landing, this field may be updated arbitrarily many times, or never |
 
 #### `slot.skipped_history`
 | frequency       | type       | example |
@@ -1862,6 +1863,41 @@ A list of all of the leader slots which were skipped in the current and
 immediately prior epoch.  Recent non-rooted slots may be included, and
 included skipped slots will not become unskipped as a later slot has
 rooted.
+
+#### `slot.vote_latency_history`
+| frequency | type                     | example |
+|-----------|--------------------------|---------|
+| *Once*    | `SlotVoteLatencyHistory` | below   |
+
+A history of all slot latencies for this epoch. Published once at
+validator startup, or, if the validator is running, immediatley when the
+WebSocket connection opens. The slot and latency arrays are run-length
+encoded. For example
+
+```
+"slot": [ a, b, c, d, e ]
+"latency": [ 1, 2, null, 1 ]
+```
+
+means that slots `[a, b)` have a latency of 1, slots `[b, c)` have a
+latency of 2, slots `[c, d)` did not get votes, and slots `[d, e)`
+have a latency of 1. A latency of `null` means that there were no votes
+recorded for that slot range.
+
+:::details Example
+
+```json
+{
+	"topic": "slot",
+	"key": "vote_latency_history",
+	"value": {
+        "slot": [286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027],
+        "latency": [1, 2, 1, null, 1, 2]
+    }
+}
+```
+
+:::
 
 #### `slot.live_shreds`
 | frequency   | type          | example |
