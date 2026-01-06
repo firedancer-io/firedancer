@@ -17,9 +17,9 @@ fd_bank_footprint( void ) {
 
 #define HAS_COW_1(type, name, footprint, align, has_lock)                                                          \
   type const *                                                                                                     \
-  fd_bank_##name##_locking_query( fd_bank_t * bank ) {                                                             \
+  fd_bank_##name##_locking_query( fd_bank_t * bank ) FD_ACQUIRE_SHARED( &bank->name##_lock ) {                      \
     fd_rwlock_read( &bank->name##_lock );                                                                          \
-    /* If the pool element hasn't been setup yet, then return NULL */                                              \
+    /* If the pool element hasn't been set up yet, then return NULL */                                             \
     fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                          \
     if( FD_UNLIKELY( name##_pool==NULL ) ) {                                                                       \
       FD_LOG_CRIT(( "NULL " #name " pool" ));                                                                      \
@@ -31,11 +31,11 @@ fd_bank_footprint( void ) {
     return (type *)bank_##name->data;                                                                              \
   }                                                                                                                \
   void                                                                                                             \
-  fd_bank_##name##_end_locking_query( fd_bank_t * bank ) {                                                         \
+  fd_bank_##name##_end_locking_query( fd_bank_t * bank ) FD_RELEASE_SHARED( &bank->name##_lock ) {                  \
     fd_rwlock_unread( &bank->name##_lock );                                                                        \
   }                                                                                                                \
   type *                                                                                                           \
-  fd_bank_##name##_locking_modify( fd_bank_t * bank ) {                                                            \
+  fd_bank_##name##_locking_modify( fd_bank_t * bank ) FD_ACQUIRE( &bank->name##_lock ) {                            \
     fd_rwlock_write( &bank->name##_lock );                                                                         \
     /* If the dirty flag is set, then we already have a pool element */                                            \
     /* that was copied over for the current bank. We can simply just */                                            \
@@ -67,7 +67,7 @@ fd_bank_footprint( void ) {
     return (type *)child_##name->data;                                                                             \
   }                                                                                                                \
   void                                                                                                             \
-  fd_bank_##name##_end_locking_modify( fd_bank_t * bank ) {                                                        \
+  fd_bank_##name##_end_locking_modify( fd_bank_t * bank ) FD_RELEASE( &bank->name##_lock ) {                        \
     fd_rwlock_unwrite( &bank->name##_lock );                                                                       \
   }
 
@@ -81,24 +81,24 @@ fd_bank_footprint( void ) {
     return (type *)fd_type_pun( bank->non_cow.name );             \
   }
 
-#define HAS_LOCK_1(type, name)                                    \
-  type const *                                                    \
-  fd_bank_##name##_locking_query( fd_bank_t * bank ) {            \
-    fd_rwlock_read( &bank->name##_lock );                         \
-    return (type const *)fd_type_pun_const( bank->non_cow.name ); \
-  }                                                               \
-  type *                                                          \
-  fd_bank_##name##_locking_modify( fd_bank_t * bank ) {           \
-    fd_rwlock_write( &bank->name##_lock );                        \
-    return (type *)fd_type_pun( bank->non_cow.name );             \
-  }                                                               \
-  void                                                            \
-  fd_bank_##name##_end_locking_query( fd_bank_t * bank ) {        \
-    fd_rwlock_unread( &bank->name##_lock );                       \
-  }                                                               \
-  void                                                            \
-  fd_bank_##name##_end_locking_modify( fd_bank_t * bank ) {       \
-    fd_rwlock_unwrite( &bank->name##_lock );                      \
+#define HAS_LOCK_1(type, name)                                                                    \
+  type const *                                                                                    \
+  fd_bank_##name##_locking_query( fd_bank_t * bank ) FD_ACQUIRE_SHARED( &bank->name##_lock ) {     \
+    fd_rwlock_read( &bank->name##_lock );                                                         \
+    return (type const *)fd_type_pun_const( bank->non_cow.name );                                 \
+  }                                                                                               \
+  type *                                                                                          \
+  fd_bank_##name##_locking_modify( fd_bank_t * bank ) FD_ACQUIRE( &bank->name##_lock ) {           \
+    fd_rwlock_write( &bank->name##_lock );                                                        \
+    return (type *)fd_type_pun( bank->non_cow.name );                                             \
+  }                                                                                               \
+  void                                                                                            \
+  fd_bank_##name##_end_locking_query( fd_bank_t * bank ) FD_RELEASE_SHARED( &bank->name##_lock ) { \
+    fd_rwlock_unread( &bank->name##_lock );                                                       \
+  }                                                                                               \
+  void                                                                                            \
+  fd_bank_##name##_end_locking_modify( fd_bank_t * bank ) FD_RELEASE_GENERIC( &bank->name##_lock ) {       \
+    fd_rwlock_unwrite( &bank->name##_lock );                                                      \
   }
 
 #define HAS_COW_0(type, name, footprint, align, has_lock) \
@@ -249,7 +249,7 @@ fd_banks_new( void * shmem,
 
   /* Now, call _new() and _join() for all of the CoW pools. */
   #define HAS_COW_1_LIMIT_1(name)                                                     \
-    fd_rwlock_unwrite( &banks->name##_pool_lock );                                    \
+    fd_rwlock_new( &banks->name##_pool_lock );                                    \
     void * name##_mem = fd_bank_##name##_pool_new( name##_pool_mem, max_fork_width ); \
     if( FD_UNLIKELY( !name##_mem ) ) {                                                \
       FD_LOG_WARNING(( "Failed to create " #name " pool" ));                          \
@@ -263,7 +263,7 @@ fd_banks_new( void * shmem,
     fd_banks_set_##name##_pool( banks, name##_pool );
 
   #define HAS_COW_1_LIMIT_0(name)                                                      \
-    fd_rwlock_unwrite( &banks->name##_pool_lock );                                     \
+    fd_rwlock_new( &banks->name##_pool_lock );                                     \
     void * name##_mem = fd_bank_##name##_pool_new( name##_pool_mem, max_total_banks ); \
     if( FD_UNLIKELY( !name##_mem ) ) {                                                 \
       FD_LOG_WARNING(( "Failed to create " #name " pool" ));                           \
@@ -569,7 +569,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   /* We want to copy over the fields from the parent to the child,
      except for the fields which correspond to the header of the bank
-     struct which either are used for internal memory managment or are
+     struct which either are used for internal memory management or are
      fields which are not copied over from the parent bank (e.g. stake
      delegations delta and the cost tracker).  We can take advantage of
      the fact that those fields are laid out at the top of the bank
@@ -601,14 +601,14 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   }
 
   child_bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-  fd_rwlock_unwrite( &child_bank->cost_tracker_lock );
+  fd_rwlock_new( &child_bank->cost_tracker_lock );
 
   child_bank->stake_delegations_delta_dirty = 0;
-  fd_rwlock_unwrite( &child_bank->stake_delegations_delta_lock );
+  fd_rwlock_new( &child_bank->stake_delegations_delta_lock );
 
   /* Setup locks for new bank as free. */
   #define HAS_LOCK_1(name) \
-    fd_rwlock_unwrite(&child_bank->name##_lock);
+    fd_rwlock_new(&child_bank->name##_lock);
   #define HAS_LOCK_0(name)
 
   #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
@@ -883,10 +883,10 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
     fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, bank->cost_tracker_pool_idx );
   }
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-  fd_rwlock_unwrite( &bank->cost_tracker_lock );
+  fd_rwlock_new( &bank->cost_tracker_lock );
 
   bank->stake_delegations_delta_dirty = 0;
-  fd_rwlock_unwrite( &bank->stake_delegations_delta_lock );
+  fd_rwlock_new( &bank->stake_delegations_delta_lock );
 
   fd_rwlock_unread( &banks->rwlock );
 }

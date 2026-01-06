@@ -412,7 +412,7 @@ fd_progcache_push( fd_progcache_t * cache,
 #if FD_HAS_ATOMIC
 
 static int
-fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
+fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) FD_TRY_ACQUIRE_SHARED( 1, &txn->lock[0] ) {
   for(;;) {
     ushort * lock  = &txn->lock->value;
     ushort   value = FD_VOLATILE_CONST( *lock );
@@ -436,10 +436,15 @@ fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
 
 #endif
 
+static inline void
+assert_and_unlock( fd_rwlock_t * lock ) FD_ASSERT_SHARED_CAPABILITY( lock ) FD_RELEASE_SHARED( lock ) {
+  fd_rwlock_unread( lock );
+}
+
 static void
 fd_progcache_txn_unlock( fd_funk_txn_t * txn ) {
-  if( !txn ) return;
-  fd_rwlock_unread( txn->lock );
+  if( FD_UNLIKELY( !txn ) ) return;
+  assert_and_unlock( txn->lock );
 }
 
 /* fd_progcache_lock_best_txn picks a fork graph node close to
@@ -458,7 +463,7 @@ fd_progcache_txn_unlock( fd_funk_txn_t * txn ) {
 
 static fd_funk_txn_t *
 fd_progcache_lock_best_txn( fd_progcache_t * cache,
-                            ulong            target_slot ) {
+                            ulong            target_slot ) FD_NO_THREAD_SAFETY_ANALYSIS {
 
   fd_funk_txn_xid_t last_publish[1];
   fd_funk_txn_xid_ld_atomic( last_publish, fd_funk_last_publish( cache->funk ) );
@@ -678,7 +683,7 @@ fd_progcache_rec_t const *
 fd_progcache_invalidate( fd_progcache_t *          cache,
                          fd_funk_txn_xid_t const * xid,
                          void const *              prog_addr,
-                         ulong                     slot ) {
+                         ulong                     slot ) FD_NO_THREAD_SAFETY_ANALYSIS {
   fd_funk_t * funk = cache->funk;
 
   if( FD_UNLIKELY( !cache || !funk->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
