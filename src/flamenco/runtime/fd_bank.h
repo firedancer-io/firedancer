@@ -107,7 +107,7 @@ FD_PROTOTYPES_BEGIN
   dead or when the bank is frozen.
 
   The lthash is a simple field that is laid out contiguously in the
-  fd_bank_t struct, but is not templatized and it has its own lock..
+  fd_bank_t struct, but is not templatized and it has its own lock.
 
   So, when a bank is cloned from a parent, the non CoW fields are copied
   over and the CoW fields just copy over a pool index. The CoW behavior
