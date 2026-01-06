@@ -1307,12 +1307,14 @@ fd_http_server_ws_send( fd_http_server_t * http,
      those connections, and has therefore already been closed. */
   if( FD_LIKELY( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 ) ) {
     http->stage_len = 0;
+    http->stage_comp_len = 0;
     return 0;
   }
 
   if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
     close_conn( http, ws_conn_id+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
     http->stage_len = 0;
+    http->stage_comp_len = 0;
     return 0;
   }
 
@@ -1440,7 +1442,8 @@ fd_http_server_stage_body( fd_http_server_t *          http,
                            fd_http_server_response_t * response ) {
   if( FD_UNLIKELY( http->stage_err ) ) {
     http->stage_err = 0;
-    http->stage_len = 0;
+    http->stage_len = 0UL;
+    http->stage_comp_len = 0UL;
     return -1;
   }
 
