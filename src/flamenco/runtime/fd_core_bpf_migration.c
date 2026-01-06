@@ -33,18 +33,12 @@ tmp_account_read( fd_tmp_account_t *        acc,
                   fd_funk_t *               funk,
                   fd_funk_txn_xid_t const * xid,
                   fd_pubkey_t const *       addr ) {
-  int opt_err = 0;
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
       funk,
       xid,
       addr,
-      NULL,
-      &opt_err,
       NULL );
-  if( FD_UNLIKELY( opt_err!=FD_ACC_MGR_SUCCESS ) ) {
-    if( FD_LIKELY( opt_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) return NULL;
-    FD_LOG_CRIT(( "fd_funk_get_acc_meta_readonly failed (%d)", opt_err ));
-  }
+  if( FD_LIKELY( !meta ) ) return NULL;
   tmp_account_new( acc, meta->dlen );
   acc->meta = *meta;
   acc->addr = *addr;
@@ -136,19 +130,14 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
     break;
   case FD_CORE_BPF_MIGRATION_TARGET_STATELESS: {
     /* Program account should not exist */
-    int opt_err = 0;
-    fd_funk_get_acc_meta_readonly(
+    int progdata_exists = !!fd_funk_get_acc_meta_readonly(
         funk,
         xid,
         program_address,
-        NULL,
-        &opt_err,
         NULL );
-    if( opt_err==FD_ACC_MGR_SUCCESS ) {
+    if( progdata_exists ) {
       /* CoreBpfMigrationError::AccountAlreadyExists(*program_address) */
       return NULL;
-    } else if( opt_err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-      FD_LOG_ERR(( "database error: %d", opt_err ));
     }
     break;
   }
@@ -164,19 +153,14 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
 
   do {
     /* Program data account should not exist */
-    int opt_err = 0;
-    fd_funk_get_acc_meta_readonly(
+    int progdata_exists = !!fd_funk_get_acc_meta_readonly(
         funk,
         xid,
         &program_data_address,
-        NULL,
-        &opt_err,
         NULL );
-    if( opt_err==FD_ACC_MGR_SUCCESS ) {
+    if( progdata_exists ) {
       /* CoreBpfMigrationError::AccountAlreadyExists(*program_address) */
       return NULL;
-    } else if( opt_err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-      FD_LOG_ERR(( "database error: %d", opt_err ));
     }
   } while(0);
 

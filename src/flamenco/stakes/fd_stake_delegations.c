@@ -356,16 +356,15 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
       continue;
     }
 
-    int err = 0;
-    fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly( funk, xid, &stake_delegation->stake_account, NULL, &err, NULL );
-    if( FD_UNLIKELY( err ) ) {
+    fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly( funk, xid, &stake_delegation->stake_account, NULL );
+    if( FD_UNLIKELY( !meta ) ) {
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
       fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
       continue;
     }
 
     fd_stake_state_v2_t stake_state;
-    err = fd_stake_get_state( meta, &stake_state );
+    int err = fd_stake_get_state( meta, &stake_state );
     if( FD_UNLIKELY( err ) ) {
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
       fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
