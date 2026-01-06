@@ -157,7 +157,7 @@ FD_PROTOTYPES_BEGIN
    copying over the state from the parent bank into the child.  It
    assumes that the bank index has been previously provisioned by a call
    to fd_banks_new_bank and that the parent bank index has been frozen.
-   fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, bank_index, parent_bank_index );
+   fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, bank_index );
 
    To ensure that the bank index we want to advance our root to is safe
    and that there are no outstanding references to the banks that are
@@ -338,22 +338,6 @@ struct fd_bank {
   ulong flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
   ulong bank_seq;    /* app-wide bank sequence number */
 
-  /* Define non-templatized types here. */
-
-  /* Cost tracker. */
-
-  ulong       cost_tracker_pool_idx;
-  ulong       cost_tracker_pool_offset;
-  fd_rwlock_t cost_tracker_lock;
-
-  /* Stake delegations delta. */
-
-  uchar       stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
-  int         stake_delegations_delta_dirty;
-  fd_rwlock_t stake_delegations_delta_lock;
-
-
-
   ulong refcnt; /* (r) reference count on the bank, see replay for more details */
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
@@ -379,33 +363,38 @@ struct fd_bank {
     #undef X
   } non_cow;
 
-  /* Now, layout all information needed for CoW fields. These are only
-     copied when explicitly requested by the caller. The field's data
-     is located at the pool idx in the pool. If the dirty flag has been
-     set, then the element has been copied over for this bank. */
+  /* Layout all information needed for non-templatized fields. */
 
-  int epoch_rewards_dirty;
+  fd_rwlock_t cost_tracker_lock;
+  ulong       cost_tracker_pool_idx;
+  ulong       cost_tracker_pool_offset;
+
+  fd_rwlock_t stake_delegations_delta_lock;
+  int         stake_delegations_delta_dirty;
+  uchar       stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
+
+  fd_rwlock_t vote_states_lock;
+  int         vote_states_dirty;
+  ulong       vote_states_pool_idx;
+  ulong       vote_states_pool_offset;
+  ulong       vote_states_pool_lock_offset;
+
+  int   epoch_rewards_dirty;
   ulong epoch_rewards_pool_idx;
   ulong epoch_rewards_pool_offset;
   ulong epoch_rewards_pool_lock_offset;
 
-  int epoch_leaders_dirty;
+  int   epoch_leaders_dirty;
   ulong epoch_leaders_pool_idx;
   ulong epoch_leaders_pool_offset;
   ulong epoch_leaders_pool_lock_offset;
 
-  fd_rwlock_t vote_states_lock;
-  int vote_states_dirty;
-  ulong vote_states_pool_idx;
-  ulong vote_states_pool_offset;
-  ulong vote_states_pool_lock_offset;
-
-  int vote_states_prev_dirty;
+  int   vote_states_prev_dirty;
   ulong vote_states_prev_pool_idx;
   ulong vote_states_prev_pool_offset;
   ulong vote_states_prev_pool_lock_offset;
 
-  int vote_states_prev_prev_dirty;
+  int   vote_states_prev_prev_dirty;
   ulong vote_states_prev_prev_pool_idx;
   ulong vote_states_prev_prev_pool_offset;
   ulong vote_states_prev_prev_pool_lock_offset;
@@ -641,49 +630,61 @@ typedef struct fd_banks fd_banks_t;
 
 fd_epoch_rewards_t const *
 fd_bank_epoch_rewards_query( fd_bank_t * bank );
+
 fd_epoch_rewards_t *
 fd_bank_epoch_rewards_modify( fd_bank_t * bank );
 
 fd_epoch_leaders_t const *
 fd_bank_epoch_leaders_query( fd_bank_t * bank );
+
 fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank );
 
 fd_vote_states_t const *
 fd_bank_vote_states_prev_query( fd_bank_t * bank );
+
 fd_vote_states_t *
 fd_bank_vote_states_prev_modify( fd_bank_t * bank );
 
 fd_vote_states_t const *
 fd_bank_vote_states_prev_prev_query( fd_bank_t * bank );
+
 fd_vote_states_t *
 fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank );
 
 fd_vote_states_t const *
 fd_bank_vote_states_locking_query( fd_bank_t * bank );
+
 void
 fd_bank_vote_states_end_locking_query( fd_bank_t * bank );
 
 fd_vote_states_t *
 fd_bank_vote_states_locking_modify( fd_bank_t * bank );
+
 void
 fd_bank_vote_states_end_locking_modify( fd_bank_t * bank );
 
 fd_cost_tracker_t *
 fd_bank_cost_tracker_locking_modify( fd_bank_t * bank );
+
 void
 fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank );
+
 fd_cost_tracker_t const *
 fd_bank_cost_tracker_locking_query( fd_bank_t * bank );
+
 void
 fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank );
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank );
+
 void
 fd_bank_lthash_end_locking_query( fd_bank_t * bank );
+
 fd_lthash_value_t *
 fd_bank_lthash_locking_modify( fd_bank_t * bank );
+
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 
@@ -970,8 +971,7 @@ fd_banks_get_parent( fd_banks_t * banks,
 
 fd_bank_t *
 fd_banks_clone_from_parent( fd_banks_t * banks,
-                            ulong        bank_idx,
-                            ulong        parent_bank_idx );
+                            ulong        bank_idx );
 
 /* fd_banks_advance_root() advances the root bank to the bank manager.
    This should only be used when a bank is no longer needed and has no

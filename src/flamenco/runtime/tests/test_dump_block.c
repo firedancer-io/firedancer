@@ -125,7 +125,7 @@ test_ctx_setup( void ) {
 
   /* ===== Create Child Bank ===== */
   ulong child_bank_idx = fd_banks_new_bank( test_ctx->banks, test_ctx->parent_bank->idx, 0L )->idx;
-  test_ctx->child_bank = fd_banks_clone_from_parent( test_ctx->banks, child_bank_idx, test_ctx->parent_bank->idx );
+  test_ctx->child_bank = fd_banks_clone_from_parent( test_ctx->banks, child_bank_idx );
   FD_TEST( test_ctx->child_bank );
 
   /* Allocate scratch pad */
