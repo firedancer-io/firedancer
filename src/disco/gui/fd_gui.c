@@ -2728,6 +2728,12 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
     fd_gui_printf_reset_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
   }
+
+  if( FD_UNLIKELY( tower->vote_acct_bal!=ULONG_MAX && gui->summary.vote_account_balance!=tower->vote_acct_bal ) ) {
+    gui->summary.vote_account_balance = tower->vote_acct_bal;
+    fd_gui_printf_vote_balance( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
 }
 
 void
