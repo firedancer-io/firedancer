@@ -598,8 +598,8 @@ fd_double_eq( double x,
 #define fd_ptr_if(c,t,f) ((__typeof__((t)))fd_ulong_if( (c), (ulong)(t), (ulong)(f) ))
 #endif
 
-/* FD_ULONG_{MASK_LSB,MASK_MSB,ALIGN_UP} are the same as
-   fd_ulong_{mask_lsb,mask_msb,align_up} but can be used at compile
+/* FD_ULONG_{MASK_LSB,MASK_MSB,ALIGN_UP,IS_POW2} are the same as
+   fd_ulong_{mask_lsb,mask_msb,align_up,is_pow2} but can be used at compile
    time.  The tradeoff is n/a must be safe against multiple evaluation
    at compile time.  x should be ulong compatible and n/a should be int
    compatible. */
@@ -607,7 +607,7 @@ fd_double_eq( double x,
 #define FD_ULONG_MASK_LSB( n )    ((((ulong)((n)<=63)) << ((n) & 63)) - 1UL)
 #define FD_ULONG_MASK_MSB( n )    (~FD_ULONG_MASK_LSB(64-(n)))
 #define FD_ULONG_ALIGN_UP( x, a ) (((x)+((a)-1UL)) & (~((a)-1UL)))
-
+#define FD_ULONG_IS_POW2( n )     ((!!(n)) & (!((n) & ((n)-1UL))))
 /* Unaligned access annotations.
 
    FD_LOAD( T, src ) is equivalent to:
