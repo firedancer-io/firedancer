@@ -606,8 +606,8 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L496-L517 */
 
     fd_pubkey_t const *       owner_pubkey  = (fd_pubkey_t const *)program_meta->owner;
-    fd_account_meta_t const * owner_account = fd_funk_get_acc_meta_readonly( runtime->funk, &xid, owner_pubkey, NULL, &err, NULL );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    fd_account_meta_t const * owner_account = fd_funk_get_acc_meta_readonly( runtime->funk, &xid, owner_pubkey, NULL );
+    if( FD_UNLIKELY( !owner_account ) ) {
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L520 */
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
@@ -717,11 +717,9 @@ fd_collect_loaded_account( fd_runtime_t *            runtime,
       runtime->funk,
       &xid,
       &loader_state->inner.program.programdata_address,
-      NULL,
-      &err,
       NULL );
 
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( !programdata_meta ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
@@ -975,15 +973,12 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
       }
     }
 
-    int err = FD_ACC_MGR_SUCCESS;
     if( !meta ) {
       fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
       meta = fd_funk_get_acc_meta_readonly(
           runtime->funk,
           &xid,
           fee_payer_key,
-          NULL,
-          &err,
           NULL );
       if( FD_UNLIKELY( !meta ) ) FD_LOG_CRIT(( "fd_funk_get_acc_meta_readonly failed" ));
     }
@@ -1444,21 +1439,13 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     }
   }
 
-  int err = FD_ACC_MGR_SUCCESS;
   if( FD_LIKELY( !meta ) ) {
     fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
     meta = fd_funk_get_acc_meta_readonly(
         runtime->funk,
         &xid,
         acc,
-        NULL,
-        &err,
         NULL );
-  }
-  /* If there is an error with a read from the accounts database, it is
-     unexpected unless the account does not exist. */
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
   }
 
   fd_account_meta_t * account_meta = NULL;
@@ -1488,7 +1475,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
        if the account does not exist, we need to initialize a new
        metadata. */
 
-    if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
+    if( FD_LIKELY( meta ) ) {
       account_meta = (fd_account_meta_t *)meta;
     } else if( fd_pubkey_eq( acc, &fd_sysvar_instructions_id ) ) {
       account_meta = fd_type_pun( runtime->accounts.sysvar_instructions_mem );
@@ -1530,10 +1517,8 @@ fd_executor_setup_executable_account( fd_runtime_t *            runtime,
       runtime->funk,
       &xid,
       programdata_acc,
-      NULL,
-      &err,
       NULL );
-  if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_LIKELY( meta ) ) {
     runtime->accounts.executable_pubkeys[*executable_idx] = *programdata_acc;
     runtime->accounts.executables_meta[*executable_idx]   = (fd_account_meta_t *)meta;
     (*executable_idx)++;

@@ -221,14 +221,9 @@ verify_rent_values( test_env_t * env,
 static int
 rent_was_modified_in_txn( test_env_t *                env,
                           fd_funk_txn_xid_t const *   xid ) {
-  fd_funk_t * funk = fd_accdb_user_v1_funk( env->accdb );
-  fd_funk_rec_key_t key;
-  fd_memcpy( key.uc, fd_sysvar_rent_id.key, FD_PUBKEY_FOOTPRINT );
-  fd_funk_txn_xid_t xid_out;
-  fd_funk_rec_query_t query[1];
-
-  fd_funk_rec_query_try_global( funk, xid, &key, &xid_out, query );
-  return fd_funk_txn_xid_eq( &xid_out, xid );
+  fd_accdb_peek_t peek[1];
+  FD_TEST( fd_accdb_peek( env->accdb, peek, xid, &fd_sysvar_rent_id ) );
+  return fd_funk_txn_xid_eq( peek->acc->rec->pair.xid, xid );
 }
 
 static int

@@ -1019,12 +1019,10 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
             runtime->funk,
             &xid,
             &txn_out->accounts.keys[ instr_accts[ 0UL ] ],
-            NULL,
-            &err,
             NULL );
         ulong acc_data_len = meta->dlen;
 
-        if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        if( FD_UNLIKELY( !meta ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
 

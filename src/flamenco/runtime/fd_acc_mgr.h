@@ -112,9 +112,6 @@ fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
    On success:
    - loads the account data into in-memory cache
    - returns a pointer to it in the caller's local address space
-   - if out_rec!=NULL, sets *out_rec to a pointer to the funk rec.
-     This handle is suitable as opt_con_rec for fd_funk_get_acc_meta_readonly.
-   - notably, leaves *opt_err untouched, even if opt_err!=NULL
 
    First byte of returned pointer is first byte of fd_account_meta_t.
    To find data region of account, add sizeof(fd_account_meta_t).
@@ -122,12 +119,7 @@ fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
    Lifetime of returned fd_funk_rec_t and account record pointers ends
    when user calls modify_data for same account, or tranasction ends.
 
-   On failure, returns NULL, and sets *opt_err if opt_err!=NULL.
-   Reasons for error include
-   - account not found
-   - internal database or user error (out of memory, attempting to view
-     record which has an active modify_data handle, etc.)
-   - the account is a tombstone (0 lamports)
+   If the account was not found, returns NULL.
 
    It is always wrong to cast return value to a non-const pointer.
    Instead, use fd_funk_get_acc_meta_mutable to acquire a mutable handle.
@@ -142,17 +134,7 @@ fd_account_meta_t const *
 fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
                                fd_funk_txn_xid_t const * xid,
                                fd_pubkey_t const *       pubkey,
-                               fd_funk_rec_t const **    orec,
-                               int *                     opt_err,
                                fd_funk_txn_xid_t *       xid_out );
-
-/* fd_acc_mgr_strerror converts an fd_acc_mgr error code into a human
-   readable cstr.  The lifetime of the returned pointer is infinite and
-   the call itself is thread safe.  The returned pointer is always to a
-   non-NULL cstr. */
-
-FD_FN_CONST char const *
-fd_acc_mgr_strerror( int err );
 
 FD_PROTOTYPES_END
 

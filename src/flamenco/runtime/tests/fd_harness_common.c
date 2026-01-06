@@ -25,7 +25,7 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
 
   /* Account must not yet exist */
   fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
-  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( funk, xid, pubkey, NULL, NULL, NULL) ) ) {
+  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( funk, xid, pubkey, NULL ) ) ) {
     return 0;
   }
 

@@ -63,7 +63,7 @@ fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *     
   fd_pubkey_t * programdata_address = &program_account_state->inner.program.programdata_address;
 
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      funk, xid, programdata_address, NULL, NULL, out_xid );
+      funk, xid, programdata_address, out_xid );
   if( FD_UNLIKELY( !meta ) ) return NULL;
   fd_txn_account_t _rec[1];
   fd_txn_account_t * programdata_acc = fd_txn_account_join( fd_txn_account_new( _rec, programdata_address, (void *)meta, 0 ) );
@@ -114,7 +114,7 @@ fd_prog_load_elf( fd_accdb_user_t *         accdb,
   fd_funk_txn_xid_t _out_xid;
   if( !out_xid ) out_xid = &_out_xid;
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      funk, xid, &prog_addr, NULL, NULL, out_xid );
+      funk, xid, &prog_addr, out_xid );
   if( FD_UNLIKELY( !meta ) ) return NULL;
   fd_txn_account_t _rec[1];
   fd_txn_account_t * rec = fd_txn_account_join( fd_txn_account_new( _rec, &prog_addr, (void *)meta, 0 ) );

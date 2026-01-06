@@ -107,32 +107,7 @@ FD_FN_CONST static inline int fd_funk_rec_idx_is_null( uint idx ) { return idx==
 
 /* Accessors */
 
-/* fd_funk_rec_query_try queries the in-preparation transaction pointed to
-   by txn for the record whose key matches the key pointed to by key.
-   If txn is NULL, the query will be done for the funk's last published
-   transaction.  Returns a pointer to current record on success and NULL
-   on failure.  Reasons for failure include txn is neither NULL nor a
-   pointer to a in-preparation transaction, key is NULL or not a record
-   in the given transaction.
-
-   The returned pointer is in the caller's address space if the
-   return value is non-NULL.
-
-   Assumes funk is a current local join (NULL returns NULL), txn is NULL
-   or points to an in-preparation transaction in the caller's address
-   space, key points to a record key in the caller's address space (NULL
-   returns NULL), and no concurrent operations on funk, txn or key.
-   funk retains no interest in key.  The funk retains ownership of any
-   returned record.
-
-   The query argument remembers the query for later validity testing.
-
-   This is reasonably fast O(1).
-
-   Important safety tip!  This function can encounter records
-   that have the ERASE flag set (i.e. are tombstones of erased
-   records). fd_funk_rec_query_try will still return the record in this
-   case, and the application should check for the flag. */
+/* FIXME deprecate */
 
 fd_funk_rec_t *
 fd_funk_rec_query_try( fd_funk_t *               funk,
