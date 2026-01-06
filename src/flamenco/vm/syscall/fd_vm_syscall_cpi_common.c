@@ -59,7 +59,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
                                           fd_pubkey_t const *               program_id,
                                           uchar const *                     cpi_instr_data,
                                           fd_instr_info_t *                 out_instr,
-                                          fd_pubkey_t                       out_instr_acct_keys[ FD_INSTR_ACCT_MAX ] ) {
+                                          fd_pubkey_t                       out_instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ] ) {
 
   out_instr->program_id   = UCHAR_MAX;
   out_instr->stack_height = vm->instr_ctx->runtime->instr.stack_sz+1;
@@ -73,7 +73,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
     out_instr->program_id = (uchar)program_id_idx;
   }
 
-  uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
+  uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
 
   for( ushort i=0; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
@@ -797,7 +797,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs. */
-  fd_pubkey_t cpi_instr_acct_keys[ FD_INSTR_ACCT_MAX ];
+  fd_pubkey_t cpi_instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
   fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->runtime->instr.trace[ vm->instr_ctx->runtime->instr.trace_length++ ];
 
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute, cpi_instr_acct_keys );
@@ -815,7 +815,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Prepare the instruction for execution in the runtime. This is required by the runtime
      before we can pass an instruction to the executor. */
-  fd_instruction_account_t instruction_accounts[256];
+  fd_instruction_account_t instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
   ulong instruction_accounts_cnt;
   err = fd_vm_prepare_instruction( instruction_to_execute, vm->instr_ctx, program_id, cpi_instr_acct_keys, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   /* Errors are propagated in the function itself. */
@@ -870,9 +870,9 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      Update the callee accounts with any changes made by the caller prior to this CPI execution
 
      https://github.com/anza-xyz/agave/blob/v3.0.1/syscalls/src/cpi.rs#L767-L892 */
-  fd_vm_cpi_caller_account_t caller_accounts[ 256 ];
-  ushort callee_account_keys[256];
-  ushort caller_accounts_to_update[256];
+  fd_vm_cpi_caller_account_t caller_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
+  ushort callee_account_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
+  ushort caller_accounts_to_update[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
   ulong caller_accounts_to_update_len = 0;
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     vm,

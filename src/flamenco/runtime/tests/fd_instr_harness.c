@@ -312,7 +312,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
   fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, deq );
 
-  uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
+  uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
     if( index >= test_ctx->accounts_count ) {

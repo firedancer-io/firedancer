@@ -58,17 +58,25 @@ int
 fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
                            fd_exec_instr_ctx_t *    instr_ctx,
                            fd_pubkey_t const *      callee_program_id_pubkey,
-                           fd_pubkey_t const        instr_acct_keys[ FD_INSTR_ACCT_MAX ],
-                           fd_instruction_account_t instruction_accounts[ FD_INSTR_ACCT_MAX ],
+                           fd_pubkey_t const        instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
+                           fd_instruction_account_t instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
                            ulong *                  instruction_accounts_cnt,
                            fd_pubkey_t const *      signers,
                            ulong                    signers_cnt ) {
 
   /* De-duplicate the instruction accounts, using the same logic as Solana */
   ulong deduplicated_instruction_accounts_cnt = 0;
-  fd_instruction_account_t deduplicated_instruction_accounts[256] = {0};
-  ulong duplicate_indicies_cnt = 0;
-  ulong duplicate_indices[256] = {0};
+  fd_instruction_account_t deduplicated_instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ] = {0};
+  ulong duplicate_indicies_cnt                                                                     = 0;
+  ulong duplicate_indices[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ]                                    = {0};
+
+  /* This function is either called by a true CPI or by a native cpi invocation.
+     The native CPI invocation is never called with more than 3 instruction
+     accounts, and the true CPI is never called with more than
+     FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS. */
+  if( FD_UNLIKELY( callee_instr->acct_cnt > FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
+    FD_LOG_CRIT(( "invariant violation: too many accounts %u", callee_instr->acct_cnt ));
+  }
 
   /* Normalize the privileges of each instruction account in the callee, after de-duping
      the account references.
@@ -256,15 +264,6 @@ get_cpi_invoke_unit_cost( fd_bank_t * bank ) {
     FD_VM_INVOKE_UNITS );
 }
 
-/* Maximum CPI instruction accounts. 255 was chosen to ensure that instruction
-   accounts are always within the maximum instruction account limit for BPF
-   program instructions.
-
-   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L19
-   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/serialization.rs#L26 */
-
-#define FD_CPI_MAX_INSTRUCTION_ACCOUNTS    (255UL)
-
 /* fd_vm_syscall_cpi_check_instruction contains common instruction acct
    count and data sz checks.  Also consumes compute units proportional
    to instruction data size. */
@@ -275,7 +274,7 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
                                      ulong           data_sz ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L146-L161 */
   if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
-    if( FD_UNLIKELY( acct_cnt > FD_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
+    if( FD_UNLIKELY( acct_cnt > FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
       // SyscallError::MaxInstructionAccountsExceeded
       return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
     }

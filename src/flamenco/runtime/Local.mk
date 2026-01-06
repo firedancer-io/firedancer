@@ -80,6 +80,8 @@ ifdef FD_HAS_HOSTED
 ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_rent_exemption_threshold,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_deprecate_rent_exemption_threshold,)
+$(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_instr_acct_bounds,)
 endif
 endif
 endif

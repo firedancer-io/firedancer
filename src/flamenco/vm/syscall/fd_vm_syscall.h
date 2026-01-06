@@ -775,8 +775,8 @@ int
 fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
                            fd_exec_instr_ctx_t *    instr_ctx,
                            fd_pubkey_t const *      callee_program_id_pubkey,
-                           fd_pubkey_t const        instr_acct_keys[ FD_INSTR_ACCT_MAX ],
-                           fd_instruction_account_t instruction_accounts[ FD_INSTR_ACCT_MAX ],
+                           fd_pubkey_t const        instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
+                           fd_instruction_account_t instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
                            ulong *                  instruction_accounts_cnt,
                            fd_pubkey_t const *      signers,
                            ulong                    signers_cnt );
