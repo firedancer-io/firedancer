@@ -684,7 +684,16 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       /* Publish any remaining funk txn */
       if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->accdb_admin->funk ) ) ) {
+        ctx->accdb_admin->metrics.gc_root_cnt = 0UL;
+        ctx->accdb_admin->metrics.reclaim_cnt = 0UL;
         fd_accdb_advance_root( ctx->accdb_admin, ctx->xid );
+        ctx->metrics.accounts_replaced += ctx->accdb_admin->metrics.gc_root_cnt;
+        /* If an incremental snapshot 'reclaims' (deletes) an account,
+           this removes both the full snapshot's original account, and
+           the incremental snapshot's tombstone record.  Thus account
+           for twice in metrics. */
+        ctx->metrics.accounts_loaded   -= ctx->accdb_admin->metrics.reclaim_cnt;
+        ctx->metrics.accounts_replaced += ctx->accdb_admin->metrics.reclaim_cnt;
       }
       FD_TEST( !fd_funk_last_publish_is_frozen( ctx->accdb_admin->funk ) );
 
