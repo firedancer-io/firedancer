@@ -2043,9 +2043,6 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
           publish_slot_dead( ctx, stem, bank );
         }
       }
-      // if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
-      //   fd_banks_mark_bank_frozen( ctx->banks, bank );
-      // }
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx, exec_tile_idx );
       break;
     }
@@ -2063,9 +2060,6 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
           publish_slot_dead( ctx, stem, bank );
         }
       }
-      // if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
-      //   fd_banks_mark_bank_frozen( ctx->banks, bank );
-      // }
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx );
       break;
     }

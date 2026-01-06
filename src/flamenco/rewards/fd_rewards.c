@@ -625,7 +625,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_epoch_rewards_insert( epoch_rewards, &stake_delegation->stake_account, calculated_stake_rewards->new_credits_observed, calculated_stake_rewards->staker_rewards );
   }
 
-  !!runtime_stack->stakes.prev_vote_credits_used ? (void)bank : fd_bank_vote_states_end_locking_modify( bank );
+  if( !runtime_stack->stakes.prev_vote_credits_used ) fd_bank_vote_states_end_locking_modify( bank );
 }
 
 /* Calculate epoch reward and return vote and stake rewards.

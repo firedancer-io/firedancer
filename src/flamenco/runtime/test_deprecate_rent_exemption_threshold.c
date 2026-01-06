@@ -84,12 +84,6 @@ init_clock_sysvar( test_env_t * env ) {
 }
 
 static void
-init_stake_delegations( test_env_t * env ) {
-  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( env->banks );
-  fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 999UL, 1UL, 0 ) );
-}
-
-static void
 init_blockhash_queue( test_env_t * env ) {
   ulong blockhash_seed = 12345UL;
   fd_blockhashes_t * bhq = fd_blockhashes_init( fd_bank_block_hash_queue_modify( env->bank ), blockhash_seed );
@@ -141,7 +135,6 @@ test_env_create( test_env_t * env,
   init_epoch_schedule_sysvar( env );
   init_stake_history_sysvar( env );
   init_clock_sysvar( env );
-  init_stake_delegations( env );
   init_blockhash_queue( env );
 
   fd_bank_slot_set( env->bank, 0UL );
