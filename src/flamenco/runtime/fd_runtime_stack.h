@@ -47,9 +47,11 @@ union fd_runtime_stack {
   } stakes;
 
   struct {
-    /* List of vote state pool indicies that correspond to vote accounts
-       that are stale entries.  The set of vote accounts must be
-       reverified */
+    /* List of vote state pool pubkeys that correspond to vote accounts
+       that are stale entries.  These vote accounts must be removed from
+       the vote states cache.  The vote states cache is originally
+       populated from the snapshot manifest and can't check against the
+       accounts database. */
     fd_pubkey_t stale_accs[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   } vote_accounts;
 };
