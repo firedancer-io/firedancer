@@ -1075,6 +1075,8 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       for(;;) {
         if( FD_UNLIKELY( !fd_accdb_peek( ctx->accdb, peek, &xid, &vote_state->vote_account ) ) ) {
           ctx->runtime_stack.vote_accounts.stale_accs[ stale_vote_acc_cnt++ ] = vote_state->vote_account;
+          FD_BASE58_ENCODE_32_BYTES( vote_state->vote_account.uc, acc_cstr );
+          FD_LOG_DEBUG(( "vote account %s from manifest is stale", acc_cstr ));
           break;
         }
         if( FD_LIKELY( fd_accdb_peek_test( peek ) ) ) break;
