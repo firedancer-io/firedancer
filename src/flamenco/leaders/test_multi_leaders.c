@@ -74,21 +74,21 @@ static void
 test_staked_only( void ) {
   fd_multi_epoch_leaders_t * mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC"   ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 0UL, "ABC" );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "ABCDE" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "ABCDE" ), 5UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 0UL, "ABC" );
   check_leaders( mleaders, 1UL, "ABCDE" );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 2UL, "ABCF" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 2UL, "ABCF" ), 4UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 2UL, "ABCF" );
   check_leaders( mleaders, 1UL, "ABCDE" );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 3UL, "I"    ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 3UL, "I" ), 1UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 2UL, "ABCF" );
   check_leaders( mleaders, 3UL, "I" );
@@ -100,24 +100,24 @@ static void
 test_transitions( void ) {
   fd_multi_epoch_leaders_t * mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABCD" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABCD" ), 4UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 0UL, "ABCD" );
 
   /* Transition to different set */
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "ABCDEF" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "ABCDEF" ), 6UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 0UL, "ABCD" );
   check_leaders( mleaders, 1UL, "ABCDEF" );
 
   /* Transition them back */
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 2UL, "AB" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 2UL, "AB" ), 2UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 1UL, "ABCDEF" );
   check_leaders( mleaders, 2UL, "AB" );
 
   /* Completely swap */
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 3UL, "GI" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 3UL, "GI" ), 2UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 2UL, "AB" );
   check_leaders( mleaders, 3UL, "GI" );
@@ -129,12 +129,12 @@ static void
 test_skip_ahead( void ) {
   fd_multi_epoch_leaders_t * mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 0UL, "ABC" );
 
   /* Skip ahead several epochs */
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 5UL, "DEF" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 5UL, "DEF" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 0UL, "ABC" ); /* Should remain because diff parity */
   check_leaders( mleaders, 1UL, NULL );
@@ -148,16 +148,16 @@ static void
 test_cancel( void ) {
   fd_multi_epoch_leaders_t * mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 0UL, "ABC" );
 
   /* Start init but don't finish */
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "DEF" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "DEF" ), 3UL );
   /* Don't call fini */
 
   /* Start another init - should cancel the previous one */
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "GHI" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "GHI" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
 
   check_leaders( mleaders, 0UL, "ABC" );
@@ -170,11 +170,11 @@ static void
 test_ordering( void ) {
   fd_multi_epoch_leaders_t * mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 0UL, "ABC" );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "BCA" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "BCA" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
   check_leaders( mleaders, 0UL, "ABC" );
   check_leaders( mleaders, 1UL, "BCA" );
@@ -186,10 +186,10 @@ static void
 test_next_slot( void ) {
   fd_multi_epoch_leaders_t * mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
 
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "D" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "D" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
 
   fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_epoch( mleaders, 0UL );
@@ -252,7 +252,7 @@ test_limits( void ) {
         buf->excluded_stake += stake;
       }
     }
-    fd_multi_epoch_leaders_stake_msg_init( mleaders, buf );
+    fd_multi_epoch_leaders_stake_msg_init( mleaders, buf, buf->staked_cnt);
     fd_multi_epoch_leaders_stake_msg_fini( mleaders );
 
     FD_TEST( fd_multi_epoch_leaders_get_lsched_for_slot( mleaders, stake_weight_cnt*SLOTS_PER_EPOCH ) );
@@ -271,7 +271,7 @@ test_get_sorted_lscheds( void ) {
   FD_TEST( result.lscheds[1] == NULL );
 
   /* Initialize one epoch (epoch 0) */
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 0UL, "ABC" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
 
   result = fd_multi_epoch_leaders_get_sorted_lscheds( mleaders );
@@ -280,7 +280,7 @@ test_get_sorted_lscheds( void ) {
   FD_TEST( result.lscheds[1] == NULL );
 
   /* Initialize second epoch (epoch 1) - should be sorted by epoch */
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "DEF" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 1UL, "DEF" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
 
   result = fd_multi_epoch_leaders_get_sorted_lscheds( mleaders );
@@ -290,7 +290,7 @@ test_get_sorted_lscheds( void ) {
   FD_TEST( result.lscheds[1]->epoch == 1UL );
 
   /* Initialize epoch 3 (overwrites epoch 1) - should maintain sorting */
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 3UL, "GHI" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 3UL, "GHI" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
 
   result = fd_multi_epoch_leaders_get_sorted_lscheds( mleaders );
@@ -300,7 +300,7 @@ test_get_sorted_lscheds( void ) {
   FD_TEST( result.lscheds[1]->epoch == 3UL );
 
   /* Initialize a much higher epoch (epoch 10) to test large gap */
-  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 10UL, "MNO" ) );
+  fd_multi_epoch_leaders_stake_msg_init( mleaders, generate_stake_msg( stake_msg, 10UL, "MNO" ), 3UL );
   fd_multi_epoch_leaders_stake_msg_fini( mleaders );
 
   result = fd_multi_epoch_leaders_get_sorted_lscheds( mleaders );
