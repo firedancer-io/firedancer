@@ -1082,7 +1082,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       }
     }
 
-    for( ulong i=0UL;i<stale_vote_acc_cnt;i++ ) {
+    for( ulong i=0UL; i<stale_vote_acc_cnt; i++ ) {
       fd_vote_states_remove( vote_states, &ctx->runtime_stack.vote_accounts.stale_accs[ i ] );
     }
     fd_bank_vote_states_end_locking_modify( bank );
