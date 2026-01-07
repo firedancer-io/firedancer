@@ -227,7 +227,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
     FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, account_b58 );
     FD_BASE58_ENCODE_32_BYTES( base->key,            base_b58    );
     fd_log_collector_printf_inefficient_max_512( ctx,
-      "Allocate: 'to' (account %s, base %s) must sign",
+      "Assign: 'to' (account %s, base %s) must sign",
       account_b58,
       base ? base_b58 : "None" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
