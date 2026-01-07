@@ -288,7 +288,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
       FD_BASE58_ENCODE_32_BYTES( to.pubkey->key, to_b58 );
       FD_BASE58_ENCODE_32_BYTES( base->key,  base_b58 );
       fd_log_collector_printf_inefficient_max_512( ctx,
-        "Allocate: 'to' (account %s, base %s) already in use",
+        "Create Account: 'to' (account %s, base %s) already in use",
         to_b58,
         base ? base_b58 : "None" );
       ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
