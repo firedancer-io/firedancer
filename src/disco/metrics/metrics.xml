@@ -1133,6 +1133,14 @@ metric introduced.
     <int value="4" name="Interpreter" label="VM interpreter execution" />
 </enum>
 
+<enum name="AccountChange">
+    <int value="0" name="UnchangedNonexist" label="Account did not exist before and still does not" />
+    <int value="1" name="Created" label="Account created" />
+    <int value="2" name="Delete" label="Account deleted" />
+    <int value="3" name="Modify" label="Account modified" />
+    <int value="4" name="Unchanged" label="Account unchanged" />
+</enum>
+
 <tile name="exec">
     <counter name="ProgcacheMisses" summary="Number of program cache misses" />
     <counter name="ProgcacheHits" summary="Number of program cache hits" />
@@ -1145,6 +1153,8 @@ metric introduced.
 
     <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes." />
     <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes." />
+
+    <counter name="TxnAccountChanges" enum="AccountChange" summary="Transaction account change event counters" />
 </tile>
 
 <tile name="benchs">

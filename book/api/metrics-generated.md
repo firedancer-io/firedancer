@@ -1140,6 +1140,11 @@
 | <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM setup (CPI)) |
 | <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM commit (CPI)) |
 | <span class="metrics-name">exec_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes. (VM interpreter execution) |
+| <span class="metrics-name">exec_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged_&#8203;nonexist</span>"} | counter | Transaction account change event counters (Account did not exist before and still does not) |
+| <span class="metrics-name">exec_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">created</span>"} | counter | Transaction account change event counters (Account created) |
+| <span class="metrics-name">exec_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">delete</span>"} | counter | Transaction account change event counters (Account deleted) |
+| <span class="metrics-name">exec_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">modify</span>"} | counter | Transaction account change event counters (Account modified) |
+| <span class="metrics-name">exec_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged</span>"} | counter | Transaction account change event counters (Account unchanged) |
 
 </div>
 

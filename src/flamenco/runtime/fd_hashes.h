@@ -106,11 +106,22 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
    execution. This includes sysvar accounts. */
 
 void
+fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
+                          fd_lthash_value_t const * lthash_prev, /* in */
+                          fd_pubkey_t const *       pubkey,
+                          fd_account_meta_t const * meta,
+                          fd_bank_t               * bank,
+                          fd_capture_ctx_t        * capture_ctx );
+
+FD_FN_UNUSED static void
 fd_hashes_update_lthash( fd_pubkey_t const *       pubkey,
                          fd_account_meta_t const * meta,
                          fd_lthash_value_t const * prev_account_hash,
                          fd_bank_t               * bank,
-                         fd_capture_ctx_t        * capture_ctx );
+                         fd_capture_ctx_t        * capture_ctx ) {
+  fd_lthash_value_t post[1];
+  fd_hashes_update_lthash1( post, prev_account_hash, pubkey, meta, bank, capture_ctx );
+}
 
 /* fd_hashes_hash_bank computes the bank hash for a completed slot.  The
    bank hash is a deterministic hash of the slot's state including all

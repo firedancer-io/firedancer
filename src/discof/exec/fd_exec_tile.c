@@ -128,6 +128,9 @@ metrics_write( fd_exec_tile_ctx_t * ctx ) {
 
   fd_accdb_user_t * accdb = ctx->accdb;
   FD_MCNT_SET( EXEC, ACCDB_CREATED, accdb->base.created_cnt );
+
+  FD_STATIC_ASSERT( sizeof(runtime->metrics.txn_account_save)/sizeof(ulong)==FD_METRICS_ENUM_ACCOUNT_CHANGE_CNT, enum );
+  FD_MCNT_ENUM_COPY( EXEC, TXN_ACCOUNT_CHANGES, runtime->metrics.txn_account_save );
 }
 
 /* Publish the txn finalized message to the replay tile */

@@ -200,6 +200,17 @@ struct fd_runtime {
     /* Ticks spent preparing/committing a cross-program invocation) */
     ulong cpi_setup_cum_ticks;
     ulong cpi_commit_cum_ticks;
+
+    /* Number of user txn account transitions */
+
+#   define FD_RUNTIME_SAVE_UNCHANGED_NONEXIST 0  /* non-existent account not modified */
+#   define FD_RUNTIME_SAVE_CREATE             1  /* account previously non-existent, non-zero balance after txn */
+#   define FD_RUNTIME_SAVE_DELETE             2  /* account previously existed,      non-existent     after txn */
+#   define FD_RUNTIME_SAVE_MODIFY             3  /* existing account modified */
+#   define FD_RUNTIME_SAVE_UNCHANGED          4  /* existing account not modified */
+#   define FD_RUNTIME_SAVE_MAX                5  /* enum variant count */
+    ulong txn_account_save[ FD_RUNTIME_SAVE_MAX ];
+
   } metrics;
 };
 typedef struct fd_runtime fd_runtime_t;

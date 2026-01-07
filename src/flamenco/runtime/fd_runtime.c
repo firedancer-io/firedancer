@@ -1061,66 +1061,65 @@ fd_runtime_finalize_account( fd_accdb_user_t *         accdb,
   fd_accdb_close_rw( accdb, rw );
 }
 
-/* fd_runtime_save_account is a convenience wrapper that looks
-   up the previous account state from funk before updating the lthash
-   and saving the new version of the account to funk.
-
-   TODO: We have to make a read request to the DB, so that we can calculate
-   the previous version of the accounts hash, to mix-out from the accumulated
-   lthash.  In future we should likely cache the previous version of the account
-   in transaction setup, so that we don't have to issue a read request here.
-
-   funk is the funk database handle.  funk_txn is the transaction
-   context to query (NULL for root context).  account is the modified
-   account.  bank and capture_ctx are passed to fd_hashes_update_lthash.
+/* fd_runtime_save_account persists a transaction account to the account
+   database and updates the bank lthash.
 
    This function:
-   - Queries funk for the previous account version
-   - Computes the hash of the previous version (or uses zero for new)
-   - Calls fd_hashes_update_lthash with the computed previous hash
-   - Saves the new version of the account to Funk
-   - Notifies the replay tile that an account update has occurred, so it
-     can write the account to the solcap file.
+   - Loads the previous account revision
+   - Computes the LtHash of the previous revision
+   - Computes the LtHash of the new revision
+   - Removes/adds the previous/new revision's LtHash
+   - Saves the new version of the account to funk
+   - Sends updates to metrics and capture infra
 
-   The function handles FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT gracefully (uses
-   zero hash).  On other funk errors, the function will FD_LOG_ERR.
-   All non-optional pointers must be valid. */
+   Returns FD_RUNTIME_SAVE_* */
 
-static void
+static int
 fd_runtime_save_account( fd_accdb_user_t *         accdb,
                          fd_funk_txn_xid_t const * xid,
                          fd_pubkey_t const *       pubkey,
                          fd_account_meta_t *       meta,
                          fd_bank_t *               bank,
                          fd_capture_ctx_t *        capture_ctx ) {
+  fd_lthash_value_t lthash_post[1];
+  fd_lthash_value_t lthash_prev[1];
 
   /* Update LtHash
      - Query old version of account and hash it
      - Hash new version of account */
-  fd_lthash_value_t prev_hash[1];
   fd_accdb_ro_t ro[1];
-  int old_nonexist = 0;
+  int old_exist = 0;
   if( fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) {
-    old_nonexist = fd_accdb_ref_lamports( ro )==0UL;
+    old_exist = fd_accdb_ref_lamports( ro )!=0UL;
     fd_hashes_account_lthash(
       pubkey,
       ro->meta,
       fd_accdb_ref_data_const( ro ),
-      prev_hash );
+      lthash_prev );
     fd_accdb_close_ro( accdb, ro );
   } else {
-    old_nonexist = 1;
-    fd_lthash_zero( prev_hash );
+    old_exist = 0;
+    fd_lthash_zero( lthash_prev );
+  }
+  int new_exist = meta->lamports!=0UL;
+
+  fd_hashes_update_lthash1( lthash_post, lthash_prev, pubkey, meta, bank, capture_ctx );
+
+  /* The first 32 bytes of an LtHash with a single input element are
+     equal to the BLAKE3_256 hash of an account.  Therefore, comparing
+     the first 32 bytes is a cryptographically secure equality check
+     for an account. */
+  int unchanged = 0==memcmp( lthash_post->bytes, lthash_prev->bytes, 32UL );
+
+  if( old_exist || new_exist ) {
+    fd_runtime_finalize_account( accdb, xid, pubkey, meta );
   }
 
-  /* Mix in the account hash into the bank hash */
-  fd_hashes_update_lthash( pubkey, meta, prev_hash, bank, capture_ctx );
-
-  /* Account did not exist before, and still does not exist */
-  if( FD_UNLIKELY( old_nonexist && meta->lamports==0 ) ) return;
-
-  /* Save the new version of the account to Funk */
-  fd_runtime_finalize_account( accdb, xid, pubkey, meta );
+  int save_type = (old_exist<<1) | (new_exist);
+  if( save_type==FD_RUNTIME_SAVE_MODIFY && unchanged ) {
+    save_type = FD_RUNTIME_SAVE_UNCHANGED;
+  }
+  return save_type;
 }
 
 /* fd_runtime_commit_txn is a helper used by the non-tpool transaction
@@ -1153,22 +1152,27 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
        We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
     if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-      fd_runtime_save_account( runtime->accdb,
-                               &xid,
-                               &txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn],
-                               txn_out->accounts.rollback_nonce,
-                               bank,
-                               runtime->log.capture_ctx );
+      int save_type =
+        fd_runtime_save_account(
+            runtime->accdb,
+            &xid,
+            &txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn],
+            txn_out->accounts.rollback_nonce,
+            bank,
+            runtime->log.capture_ctx );
+      runtime->metrics.txn_account_save[ save_type ]++;
     }
-
     /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
     if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      fd_runtime_save_account( runtime->accdb,
-                               &xid,
-                               &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX],
-                               txn_out->accounts.rollback_fee_payer,
-                               bank,
-                               runtime->log.capture_ctx );
+      int save_type =
+        fd_runtime_save_account(
+            runtime->accdb,
+            &xid,
+            &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX],
+            txn_out->accounts.rollback_fee_payer,
+            bank,
+            runtime->log.capture_ctx );
+      runtime->metrics.txn_account_save[ save_type ]++;
     }
   } else {
 
@@ -1202,7 +1206,9 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
          cache updates have been applied. */
       fd_executor_reclaim_account( txn_out->accounts.metas[i], fd_bank_slot_get( bank ) );
 
-      fd_runtime_save_account( runtime->accdb, &xid, pubkey, meta, bank, runtime->log.capture_ctx );
+      int save_type =
+        fd_runtime_save_account( runtime->accdb, &xid, pubkey, meta, bank, runtime->log.capture_ctx );
+      runtime->metrics.txn_account_save[ save_type ]++;
     }
 
     /* We need to queue any existing program accounts that may have
