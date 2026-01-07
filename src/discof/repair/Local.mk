@@ -9,4 +9,6 @@ $(call add-objs,fd_repair,fd_discof)
 $(call add-hdrs,fd_repair.h)
 $(call add-objs,fd_repair_metrics,fd_discof)
 $(call add-hdrs,fd_repair_metrics.h)
+ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_policy,test_policy,fd_discof fd_disco fd_tango fd_ballet fd_util)
+endif
