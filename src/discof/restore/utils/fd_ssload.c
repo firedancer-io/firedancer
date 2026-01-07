@@ -282,5 +282,5 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   }
   fd_bank_vote_states_end_locking_modify( bank );
 
-  bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
+  bank->data->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 }

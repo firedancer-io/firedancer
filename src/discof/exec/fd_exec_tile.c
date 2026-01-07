@@ -59,7 +59,7 @@ typedef struct fd_exec_tile_ctx {
 
   fd_log_collector_t    log_collector;
 
-  fd_bank_t *           bank;
+  fd_bank_t             bank[1];
 
   fd_acc_pool_t *       acc_pool;
 
@@ -139,7 +139,7 @@ static void
 publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
                            fd_stem_context_t *  stem ) {
   fd_exec_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
-  msg->bank_idx                  = ctx->bank->idx;
+  msg->bank_idx                  = ctx->bank->data->idx;
   msg->txn_exec->txn_idx         = ctx->txn_idx;
   msg->txn_exec->err             = !ctx->txn_out.err.is_committable;
   msg->txn_exec->slot            = ctx->slot;
@@ -178,8 +178,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
       case FD_EXEC_TT_TXN_EXEC: {
         /* Execute. */
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
-        FD_TEST( ctx->bank );
+        FD_TEST( fd_banks_bank_query( ctx->bank, ctx->banks, msg->bank_idx ) );
         ctx->txn_in.txn = &msg->txn;
 
         /* Set the capture txn index from the message so account updates

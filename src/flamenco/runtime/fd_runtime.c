@@ -248,7 +248,7 @@ fd_runtime_freeze( fd_bank_t *         bank,
                    fd_accdb_user_t *   accdb,
                    fd_capture_ctx_t *  capture_ctx ) {
 
-  fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+  fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   if( FD_LIKELY( fd_bank_slot_get( bank ) != 0UL ) ) {
     fd_sysvar_recent_hashes_update( bank, accdb, &xid, capture_ctx );
@@ -812,7 +812,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
 
-  fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+  fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
 
@@ -1137,7 +1137,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
   txn_out->details.commit_start_timestamp = fd_tickcount();
 
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   if( FD_UNLIKELY( txn_out->err.txn_err ) ) {
 
@@ -1264,7 +1264,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
        nonce mechanism itself prevents double spend.  We skip this logic
        entirely to simplify and improve performance of the txn cache. */
 
-    fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, txn_out->details.blockhash.uc, txn_out->details.blake_txn_msg_hash.uc );
+    fd_txncache_insert( runtime->status_cache, bank->data->txncache_fork_id, txn_out->details.blockhash.uc, txn_out->details.blake_txn_msg_hash.uc );
   }
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {

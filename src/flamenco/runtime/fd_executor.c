@@ -332,7 +332,7 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
   fd_blake3_fini( b3, &txn_out->details.blake_txn_msg_hash );
 
   fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
-  int found = fd_txncache_query( status_cache, bank->txncache_fork_id, blockhash->uc, txn_out->details.blake_txn_msg_hash.uc );
+  int found = fd_txncache_query( status_cache, bank->data->txncache_fork_id, blockhash->uc, txn_out->details.blake_txn_msg_hash.uc );
   if( FD_UNLIKELY( found ) ) return FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -559,7 +559,7 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
   ushort            instr_cnt             = TXN( txn_in->txn )->instr_cnt;
   fd_pubkey_t       validated_loaders[instr_cnt];
   ushort            validated_loaders_cnt = 0;
-  fd_funk_txn_xid_t xid                   = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+  fd_funk_txn_xid_t xid                   = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   /* The logic below handles special casing with loading instruction accounts.
      https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L445-L525 */
@@ -714,7 +714,7 @@ fd_collect_loaded_account( fd_runtime_t *            runtime,
   }
 
   /* Programdata account size check */
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
   fd_accdb_ro_t programdata_ro[1];
   if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, programdata_ro, &xid, &loader_state->inner.program.programdata_address ) ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -979,7 +979,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
       fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
     } else {
       /* Copy from account database */
-      fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+      fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
       fd_accdb_ro_t fee_payer_ro[1];
       if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, fee_payer_ro, &xid, fee_payer_key ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( fee_payer_key->uc, fee_payer_key_b58 );
@@ -1081,7 +1081,7 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
       FD_LOG_DEBUG(( "fd_executor_setup_txn_alut_account_keys(): failed to get slot hashes" ));
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
-    fd_funk_txn_xid_t xid       = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+    fd_funk_txn_xid_t xid       = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
     fd_acct_addr_t *  accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_out->accounts.keys[txn_out->accounts.cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( txn_in->txn ),
                                                          txn_in->txn->payload,
@@ -1446,7 +1446,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
   }
 
   if( FD_LIKELY( !meta ) ) {
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
     meta = fd_funk_get_acc_meta_readonly(
         runtime->funk,
         &xid,
@@ -1517,7 +1517,7 @@ fd_executor_setup_executable_account( fd_runtime_t *            runtime,
       invoked, the call will fail at the instruction execution level since the programdata
       account will not exist within the executable accounts list. */
   fd_pubkey_t *     programdata_acc = &program_loader_state->inner.program.programdata_address;
-  fd_funk_txn_xid_t xid             = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+  fd_funk_txn_xid_t xid             = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
       runtime->funk,

@@ -125,7 +125,7 @@ test_ctx_setup( void ) {
   FD_TEST( parent_vote_states_prev_prev );
 
   /* ===== Create Child Bank ===== */
-  ulong child_bank_idx = fd_banks_new_bank( test_ctx->banks, test_ctx->parent_bank->idx, 0L )->idx;
+  ulong child_bank_idx = fd_banks_new_bank( test_ctx->banks, test_ctx->parent_bank->data->idx, 0L )->data->idx;
   test_ctx->child_bank = fd_banks_clone_from_parent( test_ctx->banks, child_bank_idx );
   FD_TEST( test_ctx->child_bank );
 
@@ -463,7 +463,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
 
   /* Create parent funk transaction */
   test_ctx->parent_xid.ul[0] = parent_slot;
-  test_ctx->parent_xid.ul[1] = test_ctx->parent_bank->idx;
+  test_ctx->parent_xid.ul[1] = test_ctx->parent_bank->data->idx;
   fd_funk_txn_xid_t root_xid;
   fd_funk_txn_xid_set_root( &root_xid );
   fd_accdb_attach_child( test_ctx->accdb_admin, &root_xid, &test_ctx->parent_xid );
@@ -506,7 +506,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
 
   /* Create child funk transaction */
   test_ctx->child_xid.ul[0] = child_slot;
-  test_ctx->child_xid.ul[1] = test_ctx->child_bank->idx;
+  test_ctx->child_xid.ul[1] = test_ctx->child_bank->data->idx;
   fd_accdb_attach_child( test_ctx->accdb_admin, &test_ctx->parent_xid, &test_ctx->child_xid );
 
   /* Reset dump context and collect transactions */

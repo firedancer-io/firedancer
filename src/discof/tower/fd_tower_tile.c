@@ -510,8 +510,8 @@ replay_slot_completed( ctx_t *                      ctx,
   /* Insert the vote acct addrs and stakes from the bank into accts. */
 
   fd_tower_accts_remove_all( ctx->tower_accts );
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, slot_completed->bank_idx );
-  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
+  fd_bank_t bank[1];
+  if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, slot_completed->bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
   ulong total_stake = query_acct_stake_from_bank( ctx->tower_accts, ctx->slot_stakes, bank, slot_completed->slot );
 
   /* Insert the just replayed block into forks. */

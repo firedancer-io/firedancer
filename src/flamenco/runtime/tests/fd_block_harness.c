@@ -515,7 +515,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
     }
 
     fd_funk_t * funk = fd_accdb_user_v1_funk( runner->accdb );
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->idx } };
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->data->idx } };
 
     fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, funk, &xid, runner->runtime_stack, capture_ctx );
 
@@ -685,7 +685,7 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
       return 0;
     }
 
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->idx } };
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->data->idx } };
 
     /* Execute the constructed block against the runtime. */
     int is_committable = fd_solfuzz_block_ctx_exec( runner, txn_ptrs, txn_cnt, &poh );

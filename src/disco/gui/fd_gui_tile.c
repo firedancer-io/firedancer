@@ -357,10 +357,10 @@ after_frag( fd_gui_ctx_t *      ctx,
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
         fd_replay_slot_completed_t const * replay =  (fd_replay_slot_completed_t const *)src;
 
-        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, replay->bank_idx );
+        fd_bank_t bank[1];
         /* bank should already have positive refcnt */
-        FD_TEST( bank );
-        FD_TEST( bank->refcnt!=0 );
+        FD_TEST( fd_banks_bank_query( bank, ctx->banks, replay->bank_idx ) );
+        FD_TEST( bank->data->refcnt!=0 );
 
         fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
         FD_TEST( fd_vote_states_cnt( vote_states )<FD_RUNTIME_MAX_VOTE_ACCOUNTS );
@@ -387,8 +387,8 @@ after_frag( fd_gui_ctx_t *      ctx,
 
         fd_gui_slot_completed_t slot_completed;
         if( FD_LIKELY( replay->parent_bank_idx!=ULONG_MAX ) ) {
-          fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, replay->parent_bank_idx );
-          FD_TEST( parent_bank );
+          fd_bank_t parent_bank[1];
+          FD_TEST( fd_banks_bank_query( parent_bank, ctx->banks, replay->parent_bank_idx ) );
 
           slot_completed.total_txn_cnt          = (uint)(fd_bank_txn_count_get( bank )                 - fd_bank_txn_count_get( parent_bank ));
           slot_completed.vote_txn_cnt           = slot_completed.total_txn_cnt - (uint)(fd_bank_nonvote_txn_count_get( bank ) - fd_bank_nonvote_txn_count_get( parent_bank ));

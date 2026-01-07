@@ -148,7 +148,7 @@ typedef struct {
      rooted bank (after exchanging it for a new rooted bank). */
   fd_banks_t            banksl_join[1];
   fd_banks_t *          banks;
-  fd_bank_t *  bank;
+  fd_bank_t             bank[1];
 
   fd_accdb_user_t accdb[1];
 
@@ -350,7 +350,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
   txnm->reference_slot = ctx->flushing_slot;
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    if( FD_UNLIKELY( !ctx->bank ) ) {
+    if( FD_UNLIKELY( !ctx->bank->data ) ) {
       FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
       return 0;
     }
@@ -450,10 +450,9 @@ after_frag( fd_resolv_ctx_t *   ctx,
         fd_replay_root_advanced_t const * msg = &ctx->_rooted_slot_msg;
 
         /* Replace current bank with new bank */
-        fd_bank_t * prev_bank = ctx->bank;
+        fd_bank_data_t * prev_bank = ctx->bank->data;
 
-        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
-        FD_TEST( ctx->bank );
+        FD_TEST( fd_banks_bank_query( ctx->bank, ctx->banks, msg->bank_idx ) );
 
         /* Send slot completed message back to replay, so it can
            decrement the reference count of the previous bank. */
@@ -556,7 +555,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    if( FD_UNLIKELY( !ctx->bank ) ) {
+    if( FD_UNLIKELY( !ctx->bank->data ) ) {
       FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
@@ -639,7 +638,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( banks_obj_id!=ULONG_MAX );
   ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), NULL );
   FD_TEST( ctx->banks );
-  ctx->bank = NULL;
+  ctx->bank->data = NULL;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

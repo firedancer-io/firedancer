@@ -143,7 +143,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 10UL, env->bank->idx } };
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 10UL, env->bank->data->idx } };
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
   fd_progcache_txn_attach_child( env->progcache_admin, root, &env->xid );
 

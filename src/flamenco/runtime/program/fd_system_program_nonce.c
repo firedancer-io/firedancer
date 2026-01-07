@@ -957,7 +957,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   }
 
   fd_txn_account_t durable_nonce_rec[1];
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
                                                     &txn_out->accounts.keys[ nonce_idx ],
                                                     runtime->funk,

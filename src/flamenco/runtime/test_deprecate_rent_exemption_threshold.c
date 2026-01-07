@@ -129,7 +129,7 @@ test_env_create( test_env_t * env,
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 0UL, env->bank->idx } };
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 0UL, env->bank->data->idx } };
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
 
   init_rent_sysvar( env, TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR, TEST_DEFAULT_EXEMPTION_THRESHOLD );
@@ -209,11 +209,11 @@ process_slot( test_env_t * env,
               ulong        slot ) {
   fd_bank_t * parent_bank = env->bank;
   ulong parent_slot       = fd_bank_slot_get( parent_bank );
-  ulong parent_bank_idx   = parent_bank->idx;
+  ulong parent_bank_idx   = parent_bank->data->idx;
 
-  FD_TEST( parent_bank->flags & FD_BANK_FLAGS_FROZEN );
+  FD_TEST( parent_bank->data->flags & FD_BANK_FLAGS_FROZEN );
 
-  ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
+  ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->data->idx;
   fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
   FD_TEST( new_bank );
 

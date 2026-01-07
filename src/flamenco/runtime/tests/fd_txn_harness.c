@@ -84,7 +84,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
   /* Set up the funk transaction */
-  fd_funk_txn_xid_t xid = { .ul = { slot, runner->bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { slot, runner->bank->data->idx } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, &xid );
   fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, &xid );

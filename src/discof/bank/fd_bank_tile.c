@@ -171,8 +171,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
 
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
-  FD_TEST( bank );
+  fd_bank_t bank[1];
+  FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
   ulong bank_slot = fd_bank_slot_get( bank );
   FD_TEST( bank_slot==slot );
 
@@ -194,8 +194,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn_in->bundle.is_bundle = 0;
     txn_in->txn              = txn;
 
-    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
-    FD_TEST( bank );
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
 
     /* Stash the result in the flags value so that pack can inspect it. */
@@ -352,7 +350,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
 
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
+  fd_bank_t bank[1];
+  FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
   FD_TEST( bank );
   ulong bank_slot = fd_bank_slot_get( bank );
   FD_TEST( bank_slot==slot );
@@ -381,8 +380,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     txn_in->txn              = txn;
     txn_in->bundle.is_bundle = 1;
 
-    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
-    FD_TEST( bank );
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
