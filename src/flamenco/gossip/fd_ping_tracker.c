@@ -262,13 +262,11 @@ is_entrypoint( fd_ping_tracker_t const * ping_tracker,
 void
 fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
                        uchar const *       peer_pubkey,
-                       ulong               peer_stake,
                        fd_ip4_port_t       peer_address,
                        long                now ) {
   fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
 
   if( FD_UNLIKELY( !peer ) ) {
-    if( FD_LIKELY( peer_stake>=1000000000UL ) ) return;
     if( FD_UNLIKELY( is_entrypoint( ping_tracker, peer_address ) ) ) return;
 
     if( FD_UNLIKELY( !pool_free( ping_tracker->pool ) ) ) {
@@ -305,17 +303,16 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
     peer_map_ele_insert( ping_tracker->peers, peer, ping_tracker->pool );
     lru_list_ele_push_tail( ping_tracker->lru, peer, ping_tracker->pool );
   } else {
-    if( FD_LIKELY( peer_stake>=1000000000UL || is_entrypoint( ping_tracker, peer_address ) ) ) {
-      /* Node went from unstaked (or low staked) to >=1 SOL, or to being
-         an entrypoint.  No longer need to ping it. */
+    if( FD_LIKELY( is_entrypoint( ping_tracker, peer_address ) ) ) {
+      /* Node changed address and became an entrypoint.  No longer
+         need to ping it. */
       peer_map_ele_remove_fast( ping_tracker->peers, peer, ping_tracker->pool );
       lru_list_ele_remove( ping_tracker->lru, peer, ping_tracker->pool );
       remove_tracking( ping_tracker, peer );
       pool_ele_release( ping_tracker->pool, peer );
       if( FD_LIKELY( peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING ) ) {
-        ping_tracker->change_fn( ping_tracker->change_fn_ctx, peer->identity_pubkey.b, peer->address, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED );
+        ping_tracker->change_fn( ping_tracker->change_fn_ctx, peer->identity_pubkey.b, peer->address, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_ENTRYPOINT );
       }
-      ping_tracker->metrics->stake_changed_cnt++;
       switch( peer->state ) {
         case FD_PING_TRACKER_STATE_UNPINGED:         ping_tracker->metrics->unpinged_cnt--; break;
         case FD_PING_TRACKER_STATE_INVALID:          ping_tracker->metrics->invalid_cnt--; break;
@@ -361,31 +358,26 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
 void
 fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
                           uchar const *       peer_pubkey,
-                          ulong               peer_stake,
                           fd_ip4_port_t       peer_address,
                           uchar const *       pong_token,
                           long                now ) {
-  if( FD_UNLIKELY( peer_stake>=1000000000UL ) ) {
-    ping_tracker->metrics->pong_result[ 0UL ]++;
-    return;
-  }
   if( FD_UNLIKELY( is_entrypoint( ping_tracker, peer_address ) ) ) {
-    ping_tracker->metrics->pong_result[ 1UL ]++;
+    ping_tracker->metrics->pong_result[ 0UL ]++;
     return;
   }
 
   fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
   if( FD_UNLIKELY( !peer ) ) {
-    ping_tracker->metrics->pong_result[ 2UL ]++;
+    ping_tracker->metrics->pong_result[ 1UL ]++;
     return;
   }
 
   if( FD_UNLIKELY( peer_address.addr!=peer->address.addr || peer_address.port!=peer->address.port ) ) {
-    ping_tracker->metrics->pong_result[ 3UL ]++;
+    ping_tracker->metrics->pong_result[ 2UL ]++;
     return;
   }
   if( FD_UNLIKELY( memcmp( pong_token, peer->expected_pong_hash, 32UL ) ) ) {
-    ping_tracker->metrics->pong_result[ 4UL ]++;
+    ping_tracker->metrics->pong_result[ 3UL ]++;
     return;
   }
 
@@ -405,7 +397,7 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
   peer->state = FD_PING_TRACKER_STATE_VALID;
   ping_tracker->metrics->valid_cnt++;
   waiting_list_ele_push_tail( ping_tracker->waiting, peer, ping_tracker->pool );
-  ping_tracker->metrics->pong_result[ 5UL ]++;
+  ping_tracker->metrics->pong_result[ 4UL ]++;
 }
 
 int

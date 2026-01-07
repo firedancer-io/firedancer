@@ -72,18 +72,13 @@ test_basic( void ) {
   uchar random_pubkey[ 32UL ] = { 0 };
   for( ulong i=0UL; i<32UL; i++ ) random_pubkey[ i ] = fd_rng_uchar( rng );
 
-
-  /* High stake nodes do not get tracked ... */
-  fd_ping_tracker_track( ping_tracker, random_pubkey, 1000000000UL, entrypoints[0], now );
-  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(10), NULL, NULL, NULL ) );
-
   /* Entrypoints do not get tracked */
-  fd_ping_tracker_track( ping_tracker, random_pubkey, 0UL, entrypoints[0], now );
+  fd_ping_tracker_track( ping_tracker, random_pubkey, entrypoints[0], now );
   FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(10), NULL, NULL, NULL ) );
 
-  /* Low stake nodes do get tracked ... */
+  /* Regular nodes do get tracked ... */
   peer_t p = generate_random_peer( rng );
-  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now );
+  fd_ping_tracker_track( ping_tracker, p.pubkey, p.address, now );
 
   uchar const *         out_pubkey;
   fd_ip4_port_t const * out_address;
@@ -140,8 +135,8 @@ test_register( void ) {
   peer_t p1 = generate_random_peer( rng );
   peer_t p2 = generate_random_peer( rng );
 
-  fd_ping_tracker_track( ping_tracker, p1.pubkey, 0UL, p1.address, now );
-  fd_ping_tracker_track( ping_tracker, p1.pubkey, 0UL, p1.address, now+seconds(1) );
+  fd_ping_tracker_track( ping_tracker, p1.pubkey, p1.address, now );
+  fd_ping_tracker_track( ping_tracker, p1.pubkey, p1.address, now+seconds(1) );
 
   uchar const *         out_pubkey;
   fd_ip4_port_t const * out_address;
@@ -160,21 +155,21 @@ test_register( void ) {
   fd_sha256_fini( sha, valid_pong_token );
 
   /* Different address */
-  fd_ping_tracker_register( ping_tracker, p1.pubkey, 0UL, p2.address, valid_pong_token, now+seconds(3) );
+  fd_ping_tracker_register( ping_tracker, p1.pubkey, p2.address, valid_pong_token, now+seconds(3) );
   /* No state change, so no invocation to change fn */
   FD_TEST( change_ctx->invoke_cnt==0UL );
 
   /* Wrong token */
   uchar wrong_pong_token[ 32UL ] = { 0 };
-  fd_ping_tracker_register( ping_tracker, p1.pubkey, 0UL, p1.address, wrong_pong_token, now+seconds(3) );
+  fd_ping_tracker_register( ping_tracker, p1.pubkey, p1.address, wrong_pong_token, now+seconds(3) );
   FD_TEST( change_ctx->invoke_cnt==0UL );
 
   /* Unknown peer */
-  fd_ping_tracker_register( ping_tracker, p2.pubkey, 0UL, p2.address, valid_pong_token, now+seconds(3) );
+  fd_ping_tracker_register( ping_tracker, p2.pubkey, p2.address, valid_pong_token, now+seconds(3) );
   FD_TEST( change_ctx->invoke_cnt==0UL );
 
   /* Correct token */
-  fd_ping_tracker_register( ping_tracker, p1.pubkey, 0UL, p1.address, valid_pong_token, now+seconds(3) );
+  fd_ping_tracker_register( ping_tracker, p1.pubkey, p1.address, valid_pong_token, now+seconds(3) );
   FD_TEST( change_ctx->invoke_cnt==1UL );
   FD_TEST( change_ctx->last.now==now+seconds(3) );
   FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );
@@ -182,7 +177,7 @@ test_register( void ) {
   FD_TEST( change_ctx->last.address.addr==p1.address.addr );
 
   /* Second pong will not result in a change fn invocation */
-  fd_ping_tracker_register( ping_tracker, p1.pubkey, 0UL, p1.address, valid_pong_token, now+seconds(4) );
+  fd_ping_tracker_register( ping_tracker, p1.pubkey, p1.address, valid_pong_token, now+seconds(4) );
   FD_TEST( change_ctx->invoke_cnt==1UL );
 
   free( bytes );
@@ -207,7 +202,7 @@ test_change_address( void ) {
 
   peer_t p = generate_random_peer( rng );
 
-  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now );
+  fd_ping_tracker_track( ping_tracker, p.pubkey, p.address, now );
   uchar const *         out_pubkey;
   fd_ip4_port_t const * out_address;
   uchar const *         out_token;
@@ -221,7 +216,7 @@ test_change_address( void ) {
   fd_sha256_append( sha, out_token, 32UL );
   fd_sha256_fini( sha, valid_pong_token );
 
-  fd_ping_tracker_register( ping_tracker, p.pubkey, 0UL, p.address, valid_pong_token, now+seconds(2) );
+  fd_ping_tracker_register( ping_tracker, p.pubkey, p.address, valid_pong_token, now+seconds(2) );
   FD_TEST( change_ctx->invoke_cnt==1UL );
   FD_TEST( change_ctx->last.now==now+seconds(2) );
   FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );
@@ -229,7 +224,7 @@ test_change_address( void ) {
 
   p.address.addr = fd_rng_uint( rng );
   p.address.port = fd_rng_ushort( rng );
-  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now );
+  fd_ping_tracker_track( ping_tracker, p.pubkey, p.address, now );
   FD_TEST( change_ctx->invoke_cnt==2UL );
   FD_TEST( change_ctx->last.now==now );
   FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
@@ -261,10 +256,9 @@ test_random( void ) {
 
     if( opt==0UL ) {
       peer_t p = generate_random_peer( rng );
-      ulong p_stake = fd_rng_ulong( rng ) % (1048576000000000UL-1UL)+1UL;
 
       now += fd_rng_long_roll( rng, 1000000UL );
-      fd_ping_tracker_track( ping_tracker, p.pubkey, p_stake, p.address, now );
+      fd_ping_tracker_track( ping_tracker, p.pubkey, p.address, now );
     } else if( opt==1UL ) {
       uchar const *         out_pubkey;
       fd_ip4_port_t const * out_address;
@@ -295,7 +289,7 @@ test_invalid_transitions( void ) {
   long now = fd_log_wallclock();
   peer_t p = generate_random_peer( rng );
 
-  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now );
+  fd_ping_tracker_track( ping_tracker, p.pubkey, p.address, now );
   uchar const *         out_pubkey;
   fd_ip4_port_t const * out_address;
   uchar const *         out_token;
@@ -313,18 +307,18 @@ test_invalid_transitions( void ) {
   fd_sha256_fini( sha, valid_pong_token );
 
   /* Invalid to Valid */
-  fd_ping_tracker_register( ping_tracker, p.pubkey, 0UL, p.address, valid_pong_token, now+seconds(2) );
+  fd_ping_tracker_register( ping_tracker, p.pubkey, p.address, valid_pong_token, now+seconds(2) );
   FD_TEST( change_ctx->invoke_cnt==1UL );
   FD_TEST( memcmp( change_ctx->last.pubkey, p.pubkey, 32UL )==0 );
   FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );
 
   /* Valid to Valid Refreshing */
-  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now+seconds(18*60) ); /* refresh last rx */
+  fd_ping_tracker_track( ping_tracker, p.pubkey, p.address, now+seconds(18*60) ); /* refresh last rx */
   fd_ping_tracker_pop_request( ping_tracker, now+seconds(18*60+4), &out_pubkey, &out_address, &out_token );
   FD_TEST( change_ctx->invoke_cnt==1UL );
 
   /* Valid Refreshing to Invalid */
-  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now+seconds(20*60) ); /* refresh last rx */
+  fd_ping_tracker_track( ping_tracker, p.pubkey, p.address, now+seconds(20*60) ); /* refresh last rx */
   fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+3), &out_pubkey, &out_address, &out_token );
   FD_TEST( change_ctx->invoke_cnt==2UL );
   FD_TEST( memcmp( change_ctx->last.pubkey, p.pubkey, 32UL )==0 );
