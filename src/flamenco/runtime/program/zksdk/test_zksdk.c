@@ -10,6 +10,8 @@
 
 #include "instructions/test_fd_zksdk_pubkey_validity.h"
 
+#include <stdlib.h> // ARM64: malloc(3), free(3)
+
 // turn on/off benches
 #define BENCH 0
 

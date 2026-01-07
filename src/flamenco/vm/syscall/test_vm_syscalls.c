@@ -2,6 +2,8 @@
 #include "../test_vm_util.h"
 #include "../../runtime/fd_bank.h"
 
+#include <stdlib.h> // ARM64: malloc(3), free(3)
+
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
 static void
