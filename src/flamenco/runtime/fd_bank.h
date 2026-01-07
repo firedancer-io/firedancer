@@ -222,8 +222,6 @@ FD_PROTOTYPES_BEGIN
   X(fd_epoch_schedule_t,               epoch_schedule,              sizeof(fd_epoch_schedule_t),               alignof(fd_epoch_schedule_t)               ) /* Epoch schedule */                                     \
   X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t)                         ) /* Rent */                                               \
   X(fd_sysvar_cache_t,                 sysvar_cache,                sizeof(fd_sysvar_cache_t),                 alignof(fd_sysvar_cache_t)                 ) /* Sysvar cache */                                       \
-                                                                                                                                                            /* then there can be 100k unique leaders in the worst */ \
-                                                                                                                                                            /* case. We also can assume 432k slots per epoch. */     \
   X(fd_features_t,                     features,                    sizeof(fd_features_t),                     alignof(fd_features_t)                     ) /* Features */                                           \
   X(ulong,                             txn_count,                   sizeof(ulong),                             alignof(ulong)                             ) /* Transaction count */                                  \
   X(ulong,                             nonvote_txn_count,           sizeof(ulong),                             alignof(ulong)                             ) /* Nonvote transaction count */                          \
