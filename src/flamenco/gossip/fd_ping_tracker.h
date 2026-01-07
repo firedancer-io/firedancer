@@ -15,8 +15,7 @@
    not.
 
    Any peer which has tried to send us a gossip message within the last
-   two minutes is eligible to be pinged, except nodes with at least one
-   SOL of stake which are exempt from ping requirements.
+   two minutes is eligible to be pinged.
 
    Once a peer has been pinged, we wait up to twenty seconds for a
    response before trying again.  We repeatedly retry pinging the peer
@@ -49,17 +48,16 @@ struct fd_ping_tracker_metrics {
   ulong peers_evicted;
 
   ulong tracked_cnt;
-  ulong stake_changed_cnt;
   ulong address_changed_cnt;
 
-  ulong pong_result[ 6UL ];
+  ulong pong_result[ 5UL ];
 };
 
 typedef struct fd_ping_tracker_metrics fd_ping_tracker_metrics_t;
 
-#define FD_PING_TRACKER_CHANGE_TYPE_ACTIVE          (0)
-#define FD_PING_TRACKER_CHANGE_TYPE_INACTIVE        (1)
-#define FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED (2)
+#define FD_PING_TRACKER_CHANGE_TYPE_ACTIVE              (0)
+#define FD_PING_TRACKER_CHANGE_TYPE_INACTIVE            (1)
+#define FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_ENTRYPOINT (2)
 
 typedef void (*fd_ping_tracker_change_fn)( void *        ctx,
                                            uchar const * peer_pubkey,
@@ -93,13 +91,12 @@ fd_ping_tracker_join( void * shpt );
    The tracker is idempotent, and will only refresh and update
    information about the peer, based on knowledge that it sent us a new
    message and is still alive.  It is valid to register a peer pubkey
-   with a new stake amount, or peer address, and the tracker will
-   internally update the information. */
+   with a new peer address, and the tracker will internally update the
+   information. */
 
 void
 fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
                        uchar const *       peer_pubkey,
-                       ulong               peer_stake,
                        fd_ip4_port_t       peer_address,
                        long                now );
 
@@ -112,7 +109,6 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
 void
 fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
                           uchar const *       peer_pubkey,
-                          ulong               peer_stake,
                           fd_ip4_port_t       peer_address,
                           uchar const *       pong_token,
                           long                now );
