@@ -22,16 +22,28 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
   ulong output_sz = 0UL;
   switch( group_op ) {
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_BE:
-  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_LE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ;
-    cost = FD_VM_ALT_BN128_ADDITION_COST;
+    cost = FD_VM_ALT_BN128_G1_ADDITION_COST;
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_BE:
-  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_LE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ;
-    cost = FD_VM_ALT_BN128_MULTIPLICATION_COST;
+    cost = FD_VM_ALT_BN128_G1_MULTIPLICATION_COST;
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_LE:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ;
+    cost = FD_VM_ALT_BN128_G2_ADDITION_COST;
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_LE:
+    output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ;
+    cost = FD_VM_ALT_BN128_G2_MULTIPLICATION_COST;
     break;
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_BE:
@@ -84,18 +96,34 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
   switch( group_op ) {
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_BE:
-  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_LE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_LE:
     /* Compute add */
     if( FD_LIKELY( fd_bn254_g1_add_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_BE:
-  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_LE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_LE:
     /* Compute scalar mul */
     if( FD_LIKELY( fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_LE:
+    /* Compute add */
+    if( FD_LIKELY( fd_bn254_g2_add_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
+      ret = 0UL; /* success */
+    }
+    break;
+
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_LE:
+    /* Compute scalar mul */
+    if( FD_LIKELY( fd_bn254_g2_scalar_mul_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;
