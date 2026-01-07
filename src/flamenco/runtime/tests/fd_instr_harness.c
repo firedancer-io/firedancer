@@ -55,26 +55,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   memset( txn_out->accounts.metas, 0, sizeof(fd_account_meta_t) * MAX_TX_ACCOUNT_LOCKS );
 
   /* Bank manager */
-  fd_banks_clear_bank( runner->banks, runner->bank );
+  fd_banks_clear_bank( runner->banks, runner->bank, 4UL );
 
   fd_features_t * features = fd_bank_features_modify( runner->bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
   if( !fd_solfuzz_pb_restore_features( features, feature_set ) ) {
     return 0;
   }
-
-  /* Setup vote states accounts */
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( runner->bank ), 4UL, 999UL ) );
-  if( FD_UNLIKELY( !vote_states ) ) FD_LOG_ERR(( "fd_vote_states_new failed" ));
-  fd_bank_vote_states_end_locking_modify( runner->bank );
-
-  fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( runner->bank ), 4UL, 999UL ) );
-  if( FD_UNLIKELY( !vote_states_prev ) ) FD_LOG_ERR(( "fd_vote_states_new for prev failed" ));
-  fd_bank_vote_states_prev_end_locking_modify( runner->bank );
-
-  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( runner->bank ), 4UL, 999UL ) );
-  if( FD_UNLIKELY( !vote_states_prev_prev ) ) FD_LOG_ERR(( "fd_vote_staets_new for prev2 failed" ));
-  fd_bank_vote_states_prev_prev_end_locking_modify( runner->bank );
 
   /* Blockhash queue init */
 

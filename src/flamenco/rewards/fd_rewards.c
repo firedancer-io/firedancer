@@ -560,13 +560,12 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     new_warmup_cooldown_rate_epoch = NULL;
   }
 
-
   ulong minimum_stake_delegation = get_minimum_stake_delegation( bank );
-  ulong stake_delegation_cnt     = fd_stake_delegations_cnt( stake_delegations );
 
-  fd_vote_states_t * vote_states = !!runtime_stack->stakes.prev_vote_credits_used ? fd_bank_vote_states_prev_locking_modify( bank ) : fd_bank_vote_states_locking_modify( bank );
+  fd_vote_states_t * vote_states = !!runtime_stack->stakes.prev_vote_credits_used ? fd_bank_vote_states_prev_modify( bank ) : fd_bank_vote_states_locking_modify( bank );
 
-  fd_epoch_rewards_t * epoch_rewards = fd_epoch_rewards_join( fd_epoch_rewards_new( fd_bank_epoch_rewards_locking_modify( bank ), stake_delegation_cnt ) );
+  fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_modify( bank );
+  fd_epoch_rewards_init( epoch_rewards );
 
   /* Reset the vote rewards for each vote account. */
   fd_memset( runtime_stack->stakes.vote_rewards, 0UL, sizeof(runtime_stack->stakes.vote_rewards) );
@@ -629,9 +628,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_epoch_rewards_insert( epoch_rewards, &stake_delegation->stake_account, calculated_stake_rewards->new_credits_observed, calculated_stake_rewards->staker_rewards );
   }
 
-  fd_bank_epoch_rewards_end_locking_modify( bank );
-
-  !!runtime_stack->stakes.prev_vote_credits_used ? fd_bank_vote_states_prev_end_locking_modify( bank ) : fd_bank_vote_states_end_locking_modify( bank );
+  if( !runtime_stack->stakes.prev_vote_credits_used ) fd_bank_vote_states_end_locking_modify( bank );
 }
 
 /* Calculate epoch reward and return vote and stake rewards.
@@ -834,7 +831,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   fd_bank_vote_states_end_locking_query( bank );
 
   /* Verify that we didn't pay any more than we expected to */
-  fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_locking_modify( bank );
+  fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_modify( bank );
 
   ulong total_rewards = fd_ulong_sat_add( distributed_rewards, epoch_rewards->total_stake_rewards );
   if( FD_UNLIKELY( rewards_calc_result->validator_rewards<total_rewards ) ) {
@@ -846,7 +843,6 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   epoch_rewards->distributed_rewards = distributed_rewards;
   epoch_rewards->total_rewards       = rewards_calc_result->validator_rewards;
   epoch_rewards->total_points.ud     = rewards_calc_result->validator_points;
-  fd_bank_epoch_rewards_end_locking_modify( bank );
 }
 
 /* Distributes a single partitioned reward to a single stake account */
@@ -988,9 +984,8 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
                                          fd_funk_txn_xid_t const * xid,
                                          fd_capture_ctx_t *        capture_ctx ) {
 
-  fd_epoch_rewards_t const * epoch_rewards = fd_bank_epoch_rewards_locking_query( bank );
+  fd_epoch_rewards_t const * epoch_rewards = fd_bank_epoch_rewards_query( bank );
   if( FD_LIKELY( !epoch_rewards ) ) {
-    fd_bank_epoch_rewards_end_locking_query( bank );
     return;
   }
 
@@ -1015,9 +1010,6 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
       fd_sysvar_epoch_rewards_set_inactive( bank, accdb, xid, capture_ctx );
     }
   }
-
-  fd_bank_epoch_rewards_end_locking_query( bank );
-
 }
 
 /* Partitioned epoch rewards entry-point.
@@ -1055,7 +1047,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
      boundary. */
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  fd_epoch_rewards_t *        epoch_rewards  = fd_epoch_rewards_join( fd_bank_epoch_rewards_locking_modify( bank ) );
+  fd_epoch_rewards_t *        epoch_rewards  = fd_epoch_rewards_join( fd_bank_epoch_rewards_modify( bank ) );
 
   ulong num_partitions = get_reward_distribution_num_blocks(
       epoch_schedule,
@@ -1079,7 +1071,6 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       epoch_rewards->total_rewards,
       epoch_rewards->total_points.ud,
       parent_blockhash );
-  fd_bank_epoch_rewards_end_locking_modify( bank );
 }
 
 /*
@@ -1158,12 +1149,11 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       epoch_rewards_sysvar->total_points.ud,
       runtime_stack );
 
-  fd_epoch_rewards_t * epoch_rewards = fd_epoch_rewards_join( fd_bank_epoch_rewards_locking_modify( bank ) );
+  fd_epoch_rewards_t * epoch_rewards = fd_epoch_rewards_join( fd_bank_epoch_rewards_modify( bank ) );
   fd_epoch_rewards_hash_into_partitions( epoch_rewards, &epoch_rewards_sysvar->parent_blockhash, epoch_rewards_sysvar->num_partitions );
 
   /* Update the epoch reward status with the newly re-calculated partitions. */
   epoch_rewards->starting_block_height = epoch_rewards_sysvar->distribution_starting_block_height;
-  fd_bank_epoch_rewards_end_locking_modify( bank );
 
   runtime_stack->stakes.prev_vote_credits_used = 0;
 }

@@ -84,27 +84,6 @@ init_clock_sysvar( test_env_t * env ) {
 }
 
 static void
-init_vote_states( test_env_t * env ) {
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( env->bank );
-  vote_states = fd_vote_states_join( fd_vote_states_new( vote_states, 1UL, 999UL ) );
-  fd_bank_vote_states_end_locking_modify( env->bank );
-
-  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_locking_modify( env->bank );
-  vote_states_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev, 1UL, 999UL ) );
-  fd_bank_vote_states_prev_end_locking_modify( env->bank );
-
-  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( env->bank );
-  vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev, 1UL, 999UL ) );
-  fd_bank_vote_states_prev_prev_end_locking_modify( env->bank );
-}
-
-static void
-init_stake_delegations( test_env_t * env ) {
-  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( env->banks );
-  fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 1UL, 0 ) );
-}
-
-static void
 init_blockhash_queue( test_env_t * env ) {
   ulong blockhash_seed = 12345UL;
   fd_blockhashes_t * bhq = fd_blockhashes_init( fd_bank_block_hash_queue_modify( env->bank ), blockhash_seed );
@@ -156,8 +135,6 @@ test_env_create( test_env_t * env,
   init_epoch_schedule_sysvar( env );
   init_stake_history_sysvar( env );
   init_clock_sysvar( env );
-  init_vote_states( env );
-  init_stake_delegations( env );
   init_blockhash_queue( env );
 
   fd_bank_slot_set( env->bank, 0UL );
@@ -236,7 +213,7 @@ process_slot( test_env_t * env,
   FD_TEST( parent_bank->flags & FD_BANK_FLAGS_FROZEN );
 
   ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
-  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx, parent_bank_idx );
+  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
   FD_TEST( new_bank );
 
   fd_bank_slot_set( new_bank, slot );

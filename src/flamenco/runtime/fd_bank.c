@@ -13,65 +13,297 @@ fd_bank_footprint( void ) {
   return FD_LAYOUT_FINI( l, fd_bank_align() );
 }
 
+fd_epoch_rewards_t const *
+fd_bank_epoch_rewards_query( fd_bank_t * bank ) {
+  /* If the pool element hasn't been setup yet, then return NULL */
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( bank );
+  if( FD_UNLIKELY( epoch_rewards_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL epoch rewards pool" ));
+  }
+  if( bank->epoch_rewards_pool_idx==fd_bank_epoch_rewards_pool_idx_null( epoch_rewards_pool ) ) {
+    return NULL;
+  }
+  fd_bank_epoch_rewards_t * bank_epoch_rewards = fd_bank_epoch_rewards_pool_ele( epoch_rewards_pool, bank->epoch_rewards_pool_idx );
+  return fd_type_pun_const( bank_epoch_rewards->data );
+}
+
+fd_epoch_rewards_t *
+fd_bank_epoch_rewards_modify( fd_bank_t * bank ) {
+  /* If the dirty flag is set, then we already have a pool element
+     that was copied over for the current bank. We can simply just
+     query the pool element and return it. */
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( bank );
+  if( FD_UNLIKELY( epoch_rewards_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL epoch rewards pool" ));
+  }
+  if( bank->epoch_rewards_dirty ) {
+    fd_bank_epoch_rewards_t * bank_epoch_rewards = fd_bank_epoch_rewards_pool_ele( epoch_rewards_pool, bank->epoch_rewards_pool_idx );
+    return fd_type_pun( bank_epoch_rewards->data );
+  }
+  fd_rwlock_write( fd_bank_get_epoch_rewards_pool_lock( bank ) );
+  if( FD_UNLIKELY( !fd_bank_epoch_rewards_pool_free( epoch_rewards_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire epoch rewards pool element: pool is full" ));
+  }
+  fd_bank_epoch_rewards_t * child_epoch_rewards = fd_bank_epoch_rewards_pool_ele_acquire( epoch_rewards_pool );
+  fd_rwlock_unwrite( fd_bank_get_epoch_rewards_pool_lock( bank ) );
+  /* If the dirty flag has not been set yet, we need to allocated a
+     new pool element and copy over the data from the parent idx.
+     We also need to mark the dirty flag. */
+  ulong child_idx = fd_bank_epoch_rewards_pool_idx( epoch_rewards_pool, child_epoch_rewards );
+  if( bank->epoch_rewards_pool_idx!=fd_bank_epoch_rewards_pool_idx_null( epoch_rewards_pool ) ) {
+    fd_bank_epoch_rewards_t * parent_epoch_rewards = fd_bank_epoch_rewards_pool_ele( epoch_rewards_pool, bank->epoch_rewards_pool_idx );
+    fd_memcpy( child_epoch_rewards->data, parent_epoch_rewards->data, FD_EPOCH_REWARDS_FOOTPRINT );
+  }
+  bank->epoch_rewards_pool_idx = child_idx;
+  bank->epoch_rewards_dirty    = 1;
+  return fd_type_pun( child_epoch_rewards->data );
+}
+
+fd_epoch_leaders_t const *
+fd_bank_epoch_leaders_query( fd_bank_t * bank ) {
+  /* If the pool element hasn't been setup yet, then return NULL */
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank );
+  if( FD_UNLIKELY( epoch_leaders_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL epoch leaders pool" ));
+  }
+  if( bank->epoch_leaders_pool_idx==fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool ) ) {
+    return NULL;
+  }
+  fd_bank_epoch_leaders_t * bank_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
+  return fd_type_pun_const( bank_epoch_leaders->data );
+}
+
+fd_epoch_leaders_t *
+fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
+  /* If the dirty flag is set, then we already have a pool element
+     that was copied over for the current bank. We can simply just
+     query the pool element and return it. */
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank );
+  if( FD_UNLIKELY( epoch_leaders_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL epoch leaders pool" ));
+  }
+  if( bank->epoch_leaders_dirty ) {
+    fd_bank_epoch_leaders_t * bank_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
+    return fd_type_pun( bank_epoch_leaders->data );
+  }
+  fd_rwlock_write( fd_bank_get_epoch_leaders_pool_lock( bank ) );
+  if( FD_UNLIKELY( !fd_bank_epoch_leaders_pool_free( epoch_leaders_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire epoch leaders pool element: pool is full" ));
+  }
+  fd_bank_epoch_leaders_t * child_epoch_leaders = fd_bank_epoch_leaders_pool_ele_acquire( epoch_leaders_pool );
+  fd_rwlock_unwrite( fd_bank_get_epoch_leaders_pool_lock( bank ) );
+  /* If the dirty flag has not been set yet, we need to allocated a
+     new pool element and copy over the data from the parent idx.
+     We also need to mark the dirty flag. */
+  ulong child_idx = fd_bank_epoch_leaders_pool_idx( epoch_leaders_pool, child_epoch_leaders );
+  if( bank->epoch_leaders_pool_idx!=fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool ) ) {
+    fd_bank_epoch_leaders_t * parent_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
+    fd_memcpy( child_epoch_leaders->data, parent_epoch_leaders->data, FD_EPOCH_LEADERS_MAX_FOOTPRINT );
+  }
+  bank->epoch_leaders_pool_idx = child_idx;
+  bank->epoch_leaders_dirty    = 1;
+  return fd_type_pun( child_epoch_leaders->data );
+}
+
+fd_vote_states_t const *
+fd_bank_vote_states_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_read( &bank->vote_states_lock );
+  /* If the pool element hasn't been setup yet, then return NULL */
+  fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( bank );
+  if( FD_UNLIKELY( vote_states_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL vote states pool" ));
+  }
+  if( FD_UNLIKELY( bank->vote_states_pool_idx==fd_bank_vote_states_pool_idx_null( vote_states_pool ) ) ) {
+    FD_LOG_CRIT(( "vote states pool element not set" ));
+  }
+  fd_bank_vote_states_t * bank_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->vote_states_pool_idx );
+  return fd_type_pun_const( bank_vote_states->data );
+}
+
+void
+fd_bank_vote_states_end_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_unread( &bank->vote_states_lock );
+}
+
+fd_vote_states_t *
+fd_bank_vote_states_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->vote_states_lock );
+  /* If the dirty flag is set, then we already have a pool element
+     that was copied over for the current bank. We can simply just
+     query the pool element and return it. */
+  fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( bank );
+  if( FD_UNLIKELY( vote_states_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL vote states pool" ));
+  }
+  if( bank->vote_states_dirty ) {
+    fd_bank_vote_states_t * bank_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->vote_states_pool_idx );
+    return fd_type_pun( bank_vote_states->data );
+  }
+  fd_rwlock_write( fd_bank_get_vote_states_pool_lock( bank ) );
+  if( FD_UNLIKELY( !fd_bank_vote_states_pool_free( vote_states_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire vote states pool element: pool is full" ));
+  }
+  fd_bank_vote_states_t * child_vote_states = fd_bank_vote_states_pool_ele_acquire( vote_states_pool );
+  fd_rwlock_unwrite( fd_bank_get_vote_states_pool_lock( bank ) );
+  /* If the dirty flag has not been set yet, we need to allocated a
+     new pool element and copy over the data from the parent idx.
+     We also need to mark the dirty flag. */
+  ulong child_idx = fd_bank_vote_states_pool_idx( vote_states_pool, child_vote_states );
+  fd_bank_vote_states_t * parent_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->vote_states_pool_idx );
+  fd_memcpy( child_vote_states->data, parent_vote_states->data, FD_VOTE_STATES_FOOTPRINT );
+  bank->vote_states_pool_idx = child_idx;
+  bank->vote_states_dirty    = 1;
+  return fd_type_pun( child_vote_states->data );
+}
+
+void
+fd_bank_vote_states_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->vote_states_lock );
+}
+
+fd_vote_states_t const *
+fd_bank_vote_states_prev_query( fd_bank_t * bank ) {
+  /* If the pool element hasn't been setup yet, then return NULL */
+  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( bank );
+  if( FD_UNLIKELY( vote_states_prev_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL vote states prev pool" ));
+  }
+  if( FD_UNLIKELY( bank->vote_states_prev_pool_idx==fd_bank_vote_states_prev_pool_idx_null( vote_states_prev_pool ) ) ) {
+    FD_LOG_CRIT(( "vote states prev pool element not set" ));
+  }
+  fd_bank_vote_states_prev_t * bank_vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
+  return fd_type_pun_const( bank_vote_states_prev->data );
+}
+
+fd_vote_states_t *
+fd_bank_vote_states_prev_modify( fd_bank_t * bank ) {
+  /* If the dirty flag is set, then we already have a pool element
+     that was copied over for the current bank. We can simply just
+     query the pool element and return it. */
+  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( bank );
+  if( FD_UNLIKELY( vote_states_prev_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL vote states prev pool" ));
+  }
+  if( bank->vote_states_prev_dirty ) {
+    fd_bank_vote_states_prev_t * bank_vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
+    return fd_type_pun( bank_vote_states_prev->data );
+  }
+  fd_rwlock_write( fd_bank_get_vote_states_prev_pool_lock( bank ) );
+  if( FD_UNLIKELY( !fd_bank_vote_states_prev_pool_free( vote_states_prev_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire vote states prev pool element: pool is full" ));
+  }
+  fd_bank_vote_states_prev_t * child_vote_states_prev = fd_bank_vote_states_prev_pool_ele_acquire( vote_states_prev_pool );
+  fd_rwlock_unwrite( fd_bank_get_vote_states_prev_pool_lock( bank ) );
+  /* If the dirty flag has not been set yet, we need to allocated a
+     new pool element and copy over the data from the parent idx.
+     We also need to mark the dirty flag. */
+  ulong child_idx = fd_bank_vote_states_prev_pool_idx( vote_states_prev_pool, child_vote_states_prev );
+  fd_bank_vote_states_prev_t * parent_vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, bank->vote_states_prev_pool_idx );
+  fd_memcpy( child_vote_states_prev->data, parent_vote_states_prev->data, FD_VOTE_STATES_FOOTPRINT );
+  bank->vote_states_prev_pool_idx = child_idx;
+  bank->vote_states_prev_dirty    = 1;
+  return fd_type_pun( child_vote_states_prev->data );
+}
+
+fd_vote_states_t const *
+fd_bank_vote_states_prev_prev_query( fd_bank_t * bank ) {
+  /* If the pool element hasn't been setup yet, then return NULL */
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
+  if( FD_UNLIKELY( vote_states_prev_prev_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL vote states prev prev pool" ));
+  }
+  if( FD_UNLIKELY( bank->vote_states_prev_prev_pool_idx==fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool ) ) ) {
+    FD_LOG_CRIT(( "vote states prev prev pool element not set" ));
+  }
+  fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+  return fd_type_pun_const( bank_vote_states_prev_prev->data );
+}
+
+fd_vote_states_t *
+fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank ) {
+  /* If the dirty flag is set, then we already have a pool element
+     that was copied over for the current bank. We can simply just
+     query the pool element and return it. */
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
+  if( FD_UNLIKELY( vote_states_prev_prev_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL vote states prev prev pool" ));
+  }
+  if( bank->vote_states_prev_prev_dirty ) {
+    fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+    return fd_type_pun( bank_vote_states_prev_prev->data );
+  }
+  fd_rwlock_write( fd_bank_get_vote_states_prev_prev_pool_lock( bank ) );
+  if( FD_UNLIKELY( !fd_bank_vote_states_prev_prev_pool_free( vote_states_prev_prev_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire vote states prev prev pool element: pool is full" ));
+  }
+  fd_bank_vote_states_prev_prev_t * child_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele_acquire( vote_states_prev_prev_pool );
+  fd_rwlock_unwrite( fd_bank_get_vote_states_prev_prev_pool_lock( bank ) );
+  /* If the dirty flag has not been set yet, we need to allocated a
+     new pool element and copy over the data from the parent idx.
+     We also need to mark the dirty flag. */
+  ulong child_idx = fd_bank_vote_states_prev_prev_pool_idx( vote_states_prev_prev_pool, child_vote_states_prev_prev );
+  fd_bank_vote_states_prev_prev_t * parent_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+  fd_memcpy( child_vote_states_prev_prev->data, parent_vote_states_prev_prev->data, FD_VOTE_STATES_FOOTPRINT );
+  bank->vote_states_prev_prev_pool_idx = child_idx;
+  bank->vote_states_prev_prev_dirty    = 1;
+  return fd_type_pun( child_vote_states_prev_prev->data );
+}
+
+fd_cost_tracker_t *
+fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
+  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
+  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
+  FD_TEST( cost_tracker_mem );
+  fd_rwlock_write( &bank->cost_tracker_lock );
+  return fd_type_pun( cost_tracker_mem );
+}
+
+void
+fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->cost_tracker_lock );
+}
+
+fd_cost_tracker_t const *
+fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
+  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
+  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
+  FD_TEST( cost_tracker_mem );
+  fd_rwlock_read( &bank->cost_tracker_lock );
+  return fd_type_pun_const( cost_tracker_mem );
+}
+
+void
+fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_unread( &bank->cost_tracker_lock );
+}
+
+fd_lthash_value_t const *
+fd_bank_lthash_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_read( &bank->lthash_lock );
+  return &bank->non_cow.lthash;
+}
+
+void
+fd_bank_lthash_end_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_unread( &bank->lthash_lock );
+}
+
+fd_lthash_value_t *
+fd_bank_lthash_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->lthash_lock );
+  return &bank->non_cow.lthash;
+}
+
+void
+fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->lthash_lock );
+}
+
 /* Bank accesssors */
 
-#define HAS_COW_1(type, name, footprint, align, has_lock)                                                          \
-  type const *                                                                                                     \
-  fd_bank_##name##_locking_query( fd_bank_t * bank ) {                                                             \
-    fd_rwlock_read( &bank->name##_lock );                                                                          \
-    /* If the pool element hasn't been setup yet, then return NULL */                                              \
-    fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                          \
-    if( FD_UNLIKELY( name##_pool==NULL ) ) {                                                                       \
-      FD_LOG_CRIT(( "NULL " #name " pool" ));                                                                      \
-    }                                                                                                              \
-    if( bank->name##_pool_idx==fd_bank_##name##_pool_idx_null( name##_pool ) ) {                                   \
-      return NULL;                                                                                                 \
-    }                                                                                                              \
-    fd_bank_##name##_t * bank_##name = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx );            \
-    return (type *)bank_##name->data;                                                                              \
-  }                                                                                                                \
-  void                                                                                                             \
-  fd_bank_##name##_end_locking_query( fd_bank_t * bank ) {                                                         \
-    fd_rwlock_unread( &bank->name##_lock );                                                                        \
-  }                                                                                                                \
-  type *                                                                                                           \
-  fd_bank_##name##_locking_modify( fd_bank_t * bank ) {                                                            \
-    fd_rwlock_write( &bank->name##_lock );                                                                         \
-    /* If the dirty flag is set, then we already have a pool element */                                            \
-    /* that was copied over for the current bank. We can simply just */                                            \
-    /* query the pool element and return it. */                                                                    \
-    fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                          \
-    if( FD_UNLIKELY( name##_pool==NULL ) ) {                                                                       \
-      FD_LOG_CRIT(( "NULL " #name " pool" ));                                                                      \
-    }                                                                                                              \
-    if( bank->name##_dirty ) {                                                                                     \
-      fd_bank_##name##_t * bank_##name = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx );          \
-      return (type *)bank_##name->data;                                                                            \
-    }                                                                                                              \
-    fd_rwlock_write( fd_bank_get_##name##_pool_lock( bank ) );                                                     \
-    if( FD_UNLIKELY( !fd_bank_##name##_pool_free( name##_pool ) ) ) {                                              \
-      FD_LOG_CRIT(( "Failed to acquire " #name " pool element: pool is full" ));                                   \
-    }                                                                                                              \
-    fd_bank_##name##_t * child_##name = fd_bank_##name##_pool_ele_acquire( name##_pool );                          \
-    fd_rwlock_unwrite( fd_bank_get_##name##_pool_lock( bank ) );                                                   \
-    /* If the dirty flag has not been set yet, we need to allocated a */                                           \
-    /* new pool element and copy over the data from the parent idx.   */                                           \
-    /* We also need to mark the dirty flag. */                                                                     \
-    ulong child_idx = fd_bank_##name##_pool_idx( name##_pool, child_##name );                                      \
-    if( bank->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) {                                   \
-      fd_bank_##name##_t * parent_##name = fd_bank_##name##_pool_ele( name##_pool, bank->name##_pool_idx );        \
-      fd_memcpy( child_##name->data, parent_##name->data, fd_bank_##name##_footprint );                            \
-    }                                                                                                              \
-    bank->name##_pool_idx = child_idx;                                                                             \
-    bank->name##_dirty    = 1;                                                                                     \
-    return (type *)child_##name->data;                                                                             \
-  }                                                                                                                \
-  void                                                                                                             \
-  fd_bank_##name##_end_locking_modify( fd_bank_t * bank ) {                                                        \
-    fd_rwlock_unwrite( &bank->name##_lock );                                                                       \
-  }
-
-#define HAS_LOCK_0(type, name)                                    \
+#define X(type, name, footprint, align)                           \
   type const *                                                    \
   fd_bank_##name##_query( fd_bank_t const * bank ) {              \
     return (type const *)fd_type_pun_const( bank->non_cow.name ); \
@@ -79,48 +311,18 @@ fd_bank_footprint( void ) {
   type *                                                          \
   fd_bank_##name##_modify( fd_bank_t * bank ) {                   \
     return (type *)fd_type_pun( bank->non_cow.name );             \
-  }
-
-#define HAS_LOCK_1(type, name)                                    \
-  type const *                                                    \
-  fd_bank_##name##_locking_query( fd_bank_t * bank ) {            \
-    fd_rwlock_read( &bank->name##_lock );                         \
-    return (type const *)fd_type_pun_const( bank->non_cow.name ); \
-  }                                                               \
-  type *                                                          \
-  fd_bank_##name##_locking_modify( fd_bank_t * bank ) {           \
-    fd_rwlock_write( &bank->name##_lock );                        \
-    return (type *)fd_type_pun( bank->non_cow.name );             \
   }                                                               \
   void                                                            \
-  fd_bank_##name##_end_locking_query( fd_bank_t * bank ) {        \
-    fd_rwlock_unread( &bank->name##_lock );                       \
+  fd_bank_##name##_set( fd_bank_t * bank, type value ) {          \
+    FD_STORE( type, bank->non_cow.name, value );                  \
   }                                                               \
-  void                                                            \
-  fd_bank_##name##_end_locking_modify( fd_bank_t * bank ) {       \
-    fd_rwlock_unwrite( &bank->name##_lock );                      \
+  type                                                            \
+  fd_bank_##name##_get( fd_bank_t const * bank ) {                \
+    type val = FD_LOAD( type, bank->non_cow.name );               \
+    return val;                                                   \
   }
-
-#define HAS_COW_0(type, name, footprint, align, has_lock) \
-  HAS_LOCK_##has_lock(type, name)                         \
-  void                                                    \
-  fd_bank_##name##_set( fd_bank_t * bank, type value ) {  \
-    FD_STORE( type, bank->non_cow.name, value );          \
-  }                                                       \
-  type                                                    \
-  fd_bank_##name##_get( fd_bank_t const * bank ) {        \
-    type val = FD_LOAD( type, bank->non_cow.name );       \
-    return val;                                           \
-  }
-
-#define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-  HAS_COW_##cow(type, name, footprint, align, has_lock)
 FD_BANKS_ITER(X)
 #undef X
-#undef HAS_COW_0
-#undef HAS_COW_1
-#undef HAS_LOCK_0
-#undef HAS_LOCK_1
 
 /**********************************************************************/
 
@@ -137,30 +339,14 @@ fd_banks_footprint( ulong max_total_banks,
   /* max_fork_width is used in the macro below. */
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
-  l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
-  l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
-
-  /* Need to count the footprint for all of the CoW pools. The footprint
-     on each CoW pool depends on if the field limits the fork width. */
-
-  #define HAS_COW_1_LIMIT_1(name) \
-    l = FD_LAYOUT_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_fork_width ) );
-
-  #define HAS_COW_1_LIMIT_0(name) \
-    l = FD_LAYOUT_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_total_banks ) );
-
-  /* Do nothing for these. */
-  #define HAS_COW_0_LIMIT_0(name)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock)  \
-    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0_LIMIT_0
-  #undef HAS_COW_1_LIMIT_0
-  #undef HAS_COW_1_LIMIT_1
-
+  l = FD_LAYOUT_APPEND( l, fd_banks_align(),                           sizeof(fd_banks_t) );
+  l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),                      fd_banks_pool_footprint( max_total_banks ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_epoch_rewards_pool_align(),         fd_bank_epoch_rewards_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_epoch_leaders_pool_align(),         fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_pool_align(),           fd_bank_vote_states_pool_footprint( max_total_banks ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_prev_pool_align(),      fd_bank_vote_states_prev_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_prev_prev_pool_align(), fd_bank_vote_states_prev_prev_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(),          fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
 
@@ -180,31 +366,17 @@ fd_banks_new( void * shmem,
     return NULL;
   }
 
-  /* First, layout the banks and the pool used by fd_banks_t. */
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_banks_t * banks           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
-  void * pool_mem              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
-  void * cost_tracker_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  fd_banks_t * banks                          = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                           sizeof(fd_banks_t) );
+  void *       pool_mem                       = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),                      fd_banks_pool_footprint( max_total_banks ) );
+  void *       epoch_rewards_pool_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_rewards_pool_align(),         fd_bank_epoch_rewards_pool_footprint( max_fork_width ) );
+  void *       epoch_leaders_pool_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(),         fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
+  void *       vote_states_pool_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),           fd_bank_vote_states_pool_footprint( max_total_banks ) );
+  void *       vote_states_prev_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_prev_pool_align(),      fd_bank_vote_states_prev_pool_footprint( max_fork_width ) );
+  void *       vote_states_prev_prev_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_prev_prev_pool_align(), fd_bank_vote_states_prev_prev_pool_footprint( max_fork_width ) );
+  void *       cost_tracker_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),          fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
 
   fd_rwlock_new( &banks->rwlock );
-
-  /* Need to layout all of the CoW pools. */
-  #define HAS_COW_1_LIMIT_1(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_fork_width ) );
-
-  #define HAS_COW_1_LIMIT_0(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( max_total_banks ) );
-
-  /* Do nothing for these. */
-  #define HAS_COW_0_LIMIT_0(name)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0_LIMIT_0
-  #undef HAS_COW_1_LIMIT_0
-  #undef HAS_COW_1_LIMIT_1
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks + fd_banks_footprint( max_total_banks, max_fork_width ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -233,82 +405,130 @@ fd_banks_new( void * shmem,
     bank->flags = 0UL;
   }
 
+  /* Assign offset of the bank pool to the banks object. */
+
   fd_banks_set_bank_pool( banks, bank_pool );
 
-  /* Now call _new() and _join for the cost tracker pool.  Also, update
-     the offset in the banks. */
+  /* Create the pools for the non-inlined fields.  Also new() and join()
+     each of the elements in the pool as well as set up the lock for
+     each of the pools. */
 
-  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_cost_tracker_pool_join( fd_bank_cost_tracker_pool_new( cost_tracker_pool_mem, max_fork_width ) );
-  FD_TEST( cost_tracker_pool );
-  fd_banks_set_cost_tracker_pool( banks, cost_tracker_pool );
-
+  fd_rwlock_new( &banks->epoch_rewards_pool_lock );
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_epoch_rewards_pool_join( fd_bank_epoch_rewards_pool_new( epoch_rewards_pool_mem, max_fork_width ) );
+  if( FD_UNLIKELY( !epoch_rewards_pool ) ) {
+    FD_LOG_WARNING(( "Failed to create epoch rewards pool" ));
+    return NULL;
+  }
+  fd_banks_set_epoch_rewards_pool( banks, epoch_rewards_pool );
   for( ulong i=0UL; i<max_fork_width; i++ ) {
-    fd_bank_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i );
-    fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, larger_max_cost_per_block, seed ) );
+    fd_bank_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_pool_ele( epoch_rewards_pool, i );
+    if( FD_UNLIKELY( !fd_epoch_rewards_join( fd_epoch_rewards_new( epoch_rewards->data, FD_RUNTIME_MAX_STAKE_ACCOUNTS, seed ) ) ) ) {
+      FD_LOG_WARNING(( "Failed to create epoch rewards" ));
+      return NULL;
+    }
   }
 
-  /* Now, call _new() and _join() for all of the CoW pools. */
-  #define HAS_COW_1_LIMIT_1(name)                                                     \
-    fd_rwlock_unwrite( &banks->name##_pool_lock );                                    \
-    void * name##_mem = fd_bank_##name##_pool_new( name##_pool_mem, max_fork_width ); \
-    if( FD_UNLIKELY( !name##_mem ) ) {                                                \
-      FD_LOG_WARNING(( "Failed to create " #name " pool" ));                          \
-      return NULL;                                                                    \
-    }                                                                                 \
-    fd_bank_##name##_t * name##_pool = fd_bank_##name##_pool_join( name##_pool_mem ); \
-    if( FD_UNLIKELY( !name##_pool ) ) {                                               \
-      FD_LOG_WARNING(( "Failed to join " #name " pool" ));                            \
-      return NULL;                                                                    \
-    }                                                                                 \
-    fd_banks_set_##name##_pool( banks, name##_pool );
+  fd_rwlock_new( &banks->epoch_leaders_pool_lock );
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_epoch_leaders_pool_join( fd_bank_epoch_leaders_pool_new( epoch_leaders_pool_mem, max_fork_width ) );
+  if( FD_UNLIKELY( !epoch_leaders_pool ) ) {
+    FD_LOG_WARNING(( "Failed to create epoch leaders pool" ));
+    return NULL;
+  }
+  fd_banks_set_epoch_leaders_pool( banks, epoch_leaders_pool );
 
-  #define HAS_COW_1_LIMIT_0(name)                                                      \
-    fd_rwlock_unwrite( &banks->name##_pool_lock );                                     \
-    void * name##_mem = fd_bank_##name##_pool_new( name##_pool_mem, max_total_banks ); \
-    if( FD_UNLIKELY( !name##_mem ) ) {                                                 \
-      FD_LOG_WARNING(( "Failed to create " #name " pool" ));                           \
-      return NULL;                                                                     \
-    }                                                                                  \
-    fd_bank_##name##_t * name##_pool = fd_bank_##name##_pool_join( name##_pool_mem );  \
-    if( FD_UNLIKELY( !name##_pool ) ) {                                                \
-      FD_LOG_WARNING(( "Failed to join " #name " pool" ));                             \
-      return NULL;                                                                     \
-    }                                                                                  \
-    fd_banks_set_##name##_pool( banks, name##_pool );
+  fd_rwlock_new( &banks->vote_states_pool_lock );
+  fd_bank_vote_states_t * vote_states_pool = fd_bank_vote_states_pool_join( fd_bank_vote_states_pool_new( vote_states_pool_mem, max_total_banks ) );
+  if( FD_UNLIKELY( !vote_states_pool ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states pool" ));
+    return NULL;
+  }
+  fd_banks_set_vote_states_pool( banks, vote_states_pool );
+  for( ulong i=0UL; i<max_total_banks; i++ ) {
+    fd_bank_vote_states_t * vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, i );
+    if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
+      FD_LOG_WARNING(( "Failed to create vote states" ));
+      return NULL;
+    }
+  }
 
-  /* Do nothing for these. */
-  #define HAS_COW_0_LIMIT_0(name)
+  fd_rwlock_new( &banks->vote_states_prev_pool_lock );
+  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_vote_states_prev_pool_join( fd_bank_vote_states_prev_pool_new( vote_states_prev_pool_mem, max_fork_width ) );
+  if( FD_UNLIKELY( !vote_states_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states prev pool" ));
+    return NULL;
+  }
+  fd_banks_set_vote_states_prev_pool( banks, vote_states_prev_pool );
+  for( ulong i=0UL; i<max_fork_width; i++ ) {
+    fd_bank_vote_states_prev_t * vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, i );
+    if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states_prev->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
+      FD_LOG_WARNING(( "Failed to create vote states prev" ));
+      return NULL;
+    }
+  }
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0_LIMIT_0
-  #undef HAS_COW_1_LIMIT_1
-  #undef HAS_COW_1_LIMIT_0
+  fd_rwlock_new( &banks->vote_states_prev_prev_pool_lock );
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_vote_states_prev_prev_pool_join( fd_bank_vote_states_prev_prev_pool_new( vote_states_prev_prev_pool_mem, max_fork_width ) );
+  if( FD_UNLIKELY( !vote_states_prev_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states prev prev pool" ));
+    return NULL;
+  }
+  fd_banks_set_vote_states_prev_prev_pool( banks, vote_states_prev_prev_pool );
+  for( ulong i=0UL; i<max_fork_width; i++ ) {
+    fd_bank_vote_states_prev_prev_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, i );
+    if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
+      FD_LOG_WARNING(( "Failed to create vote states prev prev" ));
+      return NULL;
+    }
+  }
 
-  /* Now we need to assign offsets for all of the pools for each
-     fd_bank_t. */
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_cost_tracker_pool_join( fd_bank_cost_tracker_pool_new( cost_tracker_pool_mem, max_fork_width ) );
+  if( FD_UNLIKELY( !cost_tracker_pool ) ) {
+    FD_LOG_WARNING(( "Failed to create cost tracker pool" ));
+    return NULL;
+  }
+  fd_banks_set_cost_tracker_pool( banks, cost_tracker_pool );
+  for( ulong i=0UL; i<max_fork_width; i++ ) {
+    fd_bank_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i );
+    if( FD_UNLIKELY( !fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, larger_max_cost_per_block, seed ) ) ) ) {
+      FD_LOG_WARNING(( "Failed to create cost tracker" ));
+      return NULL;
+    }
+  }
+
+  /* For each bank, we need to set the offset of the pools and locks
+     for each of the non-inlined fields. */
 
   for( ulong i=0UL; i<max_total_banks; i++ ) {
 
     fd_bank_t * bank = fd_banks_pool_ele( bank_pool, i );
-    #define HAS_COW_1(name)                                                   \
-      fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks ); \
-      fd_bank_set_##name##_pool( bank, name##_pool );                         \
-      fd_bank_set_##name##_pool_lock( bank, &banks->name##_pool_lock );
-    #define HAS_COW_0(name)
 
-    #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(name)
-    FD_BANKS_ITER(X)
-    #undef X
-    #undef HAS_COW_0
-    #undef HAS_COW_1
+    fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_banks_get_epoch_rewards_pool( banks );
+    fd_bank_set_epoch_rewards_pool( bank, epoch_rewards_pool );
+    fd_bank_set_epoch_rewards_pool_lock( bank, &banks->epoch_rewards_pool_lock );
 
-    /* The cost tracker is not templatized and must be set manually. */
+    fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_banks_get_epoch_leaders_pool( banks );
+    fd_bank_set_epoch_leaders_pool( bank, epoch_leaders_pool );
+    fd_bank_set_epoch_leaders_pool_lock( bank, &banks->epoch_leaders_pool_lock );
+
+    fd_bank_vote_states_t * vote_states_pool = fd_banks_get_vote_states_pool( banks );
+    fd_bank_set_vote_states_pool( bank, vote_states_pool );
+    fd_bank_set_vote_states_pool_lock( bank, &banks->vote_states_pool_lock );
+
+    fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_banks_get_vote_states_prev_pool( banks );
+    fd_bank_set_vote_states_prev_pool( bank, vote_states_prev_pool );
+    fd_bank_set_vote_states_prev_pool_lock( bank, &banks->vote_states_prev_pool_lock );
+
+    fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_banks_get_vote_states_prev_prev_pool( banks );
+    fd_bank_set_vote_states_prev_prev_pool( bank, vote_states_prev_prev_pool );
+    fd_bank_set_vote_states_prev_prev_pool_lock( bank, &banks->vote_states_prev_prev_pool_lock );
+
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
     fd_bank_set_cost_tracker_pool( bank, cost_tracker_pool );
+
+    if( FD_UNLIKELY( !fd_stake_delegations_join( fd_stake_delegations_new( bank->stake_delegations_delta, seed, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 ) ) ) ) {
+      FD_LOG_WARNING(( "Failed to create stake delegations" ));
+      return NULL;
+    }
   }
 
   banks->max_total_banks = max_total_banks;
@@ -316,7 +536,7 @@ fd_banks_new( void * shmem,
   banks->root_idx        = ULONG_MAX;
   banks->bank_seq        = 0UL;  /* FIXME randomize across runs? */
 
-  if( FD_UNLIKELY( !fd_stake_delegations_new( banks->stake_delegations_root, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) ) ) {
+  if( FD_UNLIKELY( !fd_stake_delegations_new( banks->stake_delegations_root, 0UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) ) ) {
     FD_LOG_WARNING(( "Unable to create stake delegations root" ));
     return NULL;
   }
@@ -348,27 +568,14 @@ fd_banks_join( void * mem ) {
   }
 
   FD_SCRATCH_ALLOC_INIT( l, banks );
-  banks                         = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
-  void * pool_mem               = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( banks->max_total_banks ) );
-  void * cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( banks->max_fork_width ) );
-
-  /* Need to layout all of the CoW pools. */
-  #define HAS_COW_1_LIMIT_1(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( banks->max_fork_width ) );
-
-  #define HAS_COW_1_LIMIT_0(name) \
-    void * name##_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_##name##_pool_align(), fd_bank_##name##_pool_footprint( banks->max_total_banks ) );
-
-  /* Don't need to layout if not CoW. */
-  #define HAS_COW_0_LIMIT_0(name)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow##_LIMIT_##limit_fork_width(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0_LIMIT_0
-  #undef HAS_COW_1_LIMIT_0
-  #undef HAS_COW_1_LIMIT_1
+  banks                                 = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                           sizeof(fd_banks_t) );
+  void * pool_mem                       = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),                      fd_banks_pool_footprint( banks->max_total_banks ) );
+  void * epoch_rewards_pool_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_rewards_pool_align(),         fd_bank_epoch_rewards_pool_footprint( banks->max_fork_width ) );
+  void * epoch_leaders_pool_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(),         fd_bank_epoch_leaders_pool_footprint( banks->max_fork_width ) );
+  void * vote_states_pool_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),           fd_bank_vote_states_pool_footprint( banks->max_total_banks ) );
+  void * vote_states_prev_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_prev_pool_align(),      fd_bank_vote_states_prev_pool_footprint( banks->max_fork_width ) );
+  void * vote_states_prev_prev_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_prev_prev_pool_align(), fd_bank_vote_states_prev_prev_pool_footprint( banks->max_fork_width ) );
+  void * cost_tracker_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),          fd_bank_cost_tracker_pool_footprint( banks->max_fork_width ) );
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
 
@@ -383,6 +590,62 @@ fd_banks_join( void * mem ) {
     return NULL;
   }
 
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_banks_get_epoch_rewards_pool( banks );
+  if( FD_UNLIKELY( !epoch_rewards_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch rewards pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( epoch_rewards_pool!=fd_bank_epoch_rewards_pool_join( epoch_rewards_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch rewards pool" ));
+    return NULL;
+  }
+
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_banks_get_epoch_leaders_pool( banks );
+  if( FD_UNLIKELY( !epoch_leaders_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch leaders pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( epoch_leaders_pool!=fd_bank_epoch_leaders_pool_join( epoch_leaders_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch leaders pool" ));
+    return NULL;
+  }
+
+  fd_bank_vote_states_t * vote_states_pool = fd_banks_get_vote_states_pool( banks );
+  if( FD_UNLIKELY( !vote_states_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( vote_states_pool!=fd_bank_vote_states_pool_join( vote_states_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states pool" ));
+    return NULL;
+  }
+
+  fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_banks_get_vote_states_prev_pool( banks );
+  if( FD_UNLIKELY( !vote_states_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( vote_states_prev_pool!=fd_bank_vote_states_prev_pool_join( vote_states_prev_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev pool" ));
+    return NULL;
+  }
+
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_banks_get_vote_states_prev_prev_pool( banks );
+  if( FD_UNLIKELY( !vote_states_prev_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev prev pool" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( vote_states_prev_prev_pool!=fd_bank_vote_states_prev_prev_pool_join( vote_states_prev_prev_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev prev pool" ));
+    return NULL;
+  }
+
+
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
   if( FD_UNLIKELY( !cost_tracker_pool ) ) {
     FD_LOG_WARNING(( "Failed to join cost tracker pool" ));
@@ -393,28 +656,6 @@ fd_banks_join( void * mem ) {
     FD_LOG_WARNING(( "Failed to join cost tracker pool" ));
     return NULL;
   }
-
-  /* Now, call _join() for all of the CoW pools. */
-  #define HAS_COW_1(name)                                                             \
-    fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );           \
-    if( FD_UNLIKELY( !name##_pool ) ) {                                               \
-      FD_LOG_WARNING(( "Failed to join " #name " pool" ));                            \
-      return NULL;                                                                    \
-    }                                                                                 \
-    if( FD_UNLIKELY( name##_pool!=fd_bank_##name##_pool_join( name##_pool_mem ) ) ) { \
-      FD_LOG_WARNING(( "Failed to join " #name " pool" ));                            \
-      return NULL;                                                                    \
-    }
-
-  /* Do nothing when the field is not CoW. */
-  #define HAS_COW_0(name)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
 
   return banks;
 }
@@ -445,7 +686,6 @@ fd_banks_delete( void * shmem ) {
 
   fd_banks_t * banks = (fd_banks_t *)shmem;
   banks->magic = 0UL;
-
   return shmem;
 }
 
@@ -469,19 +709,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   fd_bank_t * bank = fd_banks_pool_ele_acquire( bank_pool );
   bank->bank_seq = FD_ATOMIC_FETCH_AND_ADD( &banks->bank_seq, 1UL );
 
-  #define HAS_COW_1(type, name, footprint) \
-    bank->name##_dirty    = 0;             \
-    bank->name##_pool_idx = fd_bank_##name##_pool_idx_null( fd_bank_get_##name##_pool( bank ) );
-
-  #define HAS_COW_0(type, name, footprint) \
-    fd_memset( bank->non_cow.name, 0, footprint );
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  fd_memset( &bank->non_cow, 0, sizeof(bank->non_cow) );
 
   ulong null_idx    = fd_banks_pool_idx_null( bank_pool );
   bank->idx         = fd_banks_pool_idx( bank_pool, bank );
@@ -490,35 +718,32 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->child_idx   = null_idx;
   bank->sibling_idx = null_idx;
 
-  /* Set all CoW fields to null. */
-  #define HAS_COW_1(name)                                                             \
-    fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );           \
-    bank->name##_pool_idx            = fd_bank_##name##_pool_idx_null( name##_pool ); \
-    bank->name##_dirty               = 0;
+  /* For all non-inlined fields make sure that each field is marked
+     as not dirty and that the locks are initialized. */
 
-  /* Do nothing for these. */
-  #define HAS_COW_0(name)
+  bank->epoch_rewards_pool_idx         = fd_bank_epoch_rewards_pool_idx_null( fd_banks_get_epoch_rewards_pool( banks ) );
+  bank->epoch_rewards_dirty            = 0;
 
-  #define HAS_LOCK_1(name) \
-    fd_rwlock_new( &bank->name##_lock );
-  #define HAS_LOCK_0(name)
+  bank->epoch_leaders_pool_idx         = fd_bank_epoch_leaders_pool_idx_null( fd_banks_get_epoch_leaders_pool( banks ) );
+  bank->epoch_leaders_dirty            = 0;
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(name);                                                   \
-    HAS_LOCK_##has_lock(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
-  #undef HAS_LOCK_0
-  #undef HAS_LOCK_1
+  bank->vote_states_pool_idx           = fd_bank_vote_states_pool_idx( fd_banks_get_vote_states_pool( banks ), fd_bank_vote_states_pool_ele_acquire( fd_banks_get_vote_states_pool( banks ) ) );
+  bank->vote_states_dirty              = 1;
+  fd_rwlock_new( &bank->vote_states_lock );
 
-  fd_bank_set_cost_tracker_pool( bank, fd_banks_get_cost_tracker_pool( banks ) );
+  bank->vote_states_prev_pool_idx      = fd_bank_vote_states_prev_pool_idx( fd_banks_get_vote_states_prev_pool( banks ), fd_bank_vote_states_prev_pool_ele_acquire( fd_banks_get_vote_states_prev_pool( banks ) ) );
+  bank->vote_states_prev_dirty         = 1;
+
+  bank->vote_states_prev_prev_pool_idx = fd_bank_vote_states_prev_prev_pool_idx( fd_banks_get_vote_states_prev_prev_pool( banks ), fd_bank_vote_states_prev_prev_pool_ele_acquire( fd_banks_get_vote_states_prev_prev_pool( banks ) ) );
+  bank->vote_states_prev_prev_dirty    = 1;
+
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_new( &bank->cost_tracker_lock );
 
   bank->stake_delegations_delta_dirty = 0;
   fd_rwlock_new( &bank->stake_delegations_delta_lock );
+
+  fd_rwlock_new( &bank->lthash_lock );
 
   bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_REPLAYABLE | FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
@@ -538,8 +763,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
 fd_bank_t *
 fd_banks_clone_from_parent( fd_banks_t * banks,
-                            ulong        child_bank_idx,
-                            ulong        parent_bank_idx ) {
+                            ulong        child_bank_idx ) {
   fd_rwlock_write( &banks->rwlock );
 
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
@@ -559,75 +783,69 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   /* Then make sure that the parent bank is valid and frozen. */
 
-  fd_bank_t * parent_bank = fd_banks_pool_ele( bank_pool, parent_bank_idx );
+  fd_bank_t * parent_bank = fd_banks_pool_ele( bank_pool, child_bank->parent_idx );
   if( FD_UNLIKELY( !parent_bank ) ) {
-    FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu does not exist", parent_bank_idx ));
+    FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu does not exist", child_bank->parent_idx ));
   }
   if( FD_UNLIKELY( !(parent_bank->flags&FD_BANK_FLAGS_FROZEN) ) ) {
-    FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu is not frozen", parent_bank_idx ));
+    FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu is not frozen", child_bank->parent_idx ));
   }
 
-  /* We want to copy over the fields from the parent to the child,
-     except for the fields which correspond to the header of the bank
-     struct which either are used for internal memory managment or are
-     fields which are not copied over from the parent bank (e.g. stake
-     delegations delta and the cost tracker).  We can take advantage of
-     the fact that those fields are laid out at the top of the bank
-     struct. */
+  /* If the parent bank is dead, mark the child bank as dead and don't
+     bother copying over any other fields. */
+  if( FD_UNLIKELY( parent_bank->flags & FD_BANK_FLAGS_DEAD ) ) {
+    child_bank->flags |= FD_BANK_FLAGS_DEAD;
+    fd_rwlock_unwrite( &banks->rwlock );
+    return child_bank;
+  }
+
+  /* We can simply copy over all of the data in the bank struct that
+     is not used for internal tracking that is laid out contiguously. */
 
   child_bank->non_cow = parent_bank->non_cow;
 
-  #define HAS_COW_1(type, name, footprint) \
-    child_bank->name##_dirty    = 0;       \
-    child_bank->name##_pool_idx = parent_bank->name##_pool_idx;
+  /* For the other fields reset the state from the parent bank. */
 
-  #define HAS_COW_0(type, name, footprint)
+  child_bank->epoch_rewards_dirty    = 0;
+  child_bank->epoch_rewards_pool_idx = parent_bank->epoch_rewards_pool_idx;
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  child_bank->epoch_leaders_dirty    = 0;
+  child_bank->epoch_leaders_pool_idx = parent_bank->epoch_leaders_pool_idx;
 
-  /* Initialization for the non-templatized fields. */
+  child_bank->vote_states_dirty    = 0;
+  child_bank->vote_states_pool_idx = parent_bank->vote_states_pool_idx;
+  fd_rwlock_new( &child_bank->vote_states_lock );
+
+  child_bank->vote_states_prev_dirty    = 0;
+  child_bank->vote_states_prev_pool_idx = parent_bank->vote_states_prev_pool_idx;
+
+  child_bank->vote_states_prev_prev_dirty    = 0;
+  child_bank->vote_states_prev_prev_pool_idx = parent_bank->vote_states_prev_prev_pool_idx;
+
+  /* The stake delegation delta needs to be reset. */
+
+  child_bank->stake_delegations_delta_dirty = 0;
+  fd_rwlock_new( &child_bank->stake_delegations_delta_lock );
 
   /* The cost tracker pool needs to be set for the child bank and then
-     a cost tracker pool element needs to be acquired.*/
+     a cost tracker pool element needs to be acquired. */
 
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( child_bank );
   if( FD_UNLIKELY( fd_bank_cost_tracker_pool_free( cost_tracker_pool )==0UL ) ) {
     FD_LOG_CRIT(( "invariant violation: no free cost tracker pool elements" ));
   }
-
   child_bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-  fd_rwlock_unwrite( &child_bank->cost_tracker_lock );
+  fd_rwlock_new( &child_bank->cost_tracker_lock );
 
-  child_bank->stake_delegations_delta_dirty = 0;
-  fd_rwlock_unwrite( &child_bank->stake_delegations_delta_lock );
+  /* The lthash has already been copied over, we just need to initialize
+     the lock for the current bank. */
 
-  /* Setup locks for new bank as free. */
-  #define HAS_LOCK_1(name) \
-    fd_rwlock_unwrite(&child_bank->name##_lock);
-  #define HAS_LOCK_0(name)
+  fd_rwlock_new( &child_bank->lthash_lock );
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_LOCK_##has_lock(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_LOCK_0
-  #undef HAS_LOCK_1
-
-  /* If the parent bank is dead, then we also need to mark the child
-     bank as being a dead block. */
-  if( FD_UNLIKELY( parent_bank->flags & FD_BANK_FLAGS_DEAD ) ) {
-    child_bank->flags |= FD_BANK_FLAGS_DEAD;
-  }
+  /* At this point, the child bank is replayable. */
+  child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
 
   child_bank->refcnt = 0UL;
-
-  /* Now the child bank is replayable. */
-  child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
 
   fd_rwlock_unwrite( &banks->rwlock );
 
@@ -796,39 +1014,71 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     fd_bank_t * next = fd_banks_pool_ele( bank_pool, head->next );
 
-    /* Decide if we need to free any CoW fields. We free a CoW member
-       from its pool if the dirty flag is set unless it is the same
-       pool that the new root uses.
+    /* For the non-inlined CoW fields, if we are pruning a bank away and
+       it holds ownership of a pool element, we need to release it if
+       the new root isn't using the same pool element.  If it is, we
+       transfer ownership of this pool index to the new root. */
 
-       If the new root did not have the dirty bit set, that means the node
-       didn't own the pool index. Change the ownership to the new root. */
-    #define HAS_COW_1(name)                                                                                                  \
-      fd_rwlock_write( &new_root->name##_lock );                                                                             \
-      fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );                                                \
-      if( head->name##_dirty && head->name##_pool_idx!=new_root->name##_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) { \
-        fd_rwlock_write( &banks->name##_pool_lock );                                                                         \
-        fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );                                             \
-        fd_rwlock_unwrite( &banks->name##_pool_lock );                                                                       \
-      } else if( new_root->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) {                                \
-        new_root->name##_dirty = 1;                                                                                          \
-      }                                                                                                                      \
-      fd_rwlock_unwrite( &new_root->name##_lock );
+    fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( new_root );
+    if( head->epoch_rewards_dirty ) {
+      if( head->epoch_rewards_pool_idx!=new_root->epoch_rewards_pool_idx ) {
+        fd_rwlock_write( &banks->epoch_rewards_pool_lock );
+        fd_bank_epoch_rewards_pool_idx_release( epoch_rewards_pool, head->epoch_rewards_pool_idx );
+        fd_rwlock_unwrite( &banks->epoch_rewards_pool_lock );
+      } else {
+        new_root->epoch_rewards_dirty = 1;
+      }
+    }
 
-    /* Do nothing for these. */
-    #define HAS_COW_0(name)
+    fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( new_root );
+    if( head->epoch_leaders_dirty ) {
+      if( head->epoch_leaders_pool_idx!=new_root->epoch_leaders_pool_idx ) {
+        fd_rwlock_write( &banks->epoch_leaders_pool_lock );
+        fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, head->epoch_leaders_pool_idx );
+        fd_rwlock_unwrite( &banks->epoch_leaders_pool_lock );
+      } else {
+        new_root->epoch_leaders_dirty = 1;
+      }
+    }
 
-    #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-      HAS_COW_##cow(name)
-    FD_BANKS_ITER(X)
-    #undef X
-    #undef HAS_COW_0
-    #undef HAS_COW_1
+    fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( new_root );
+    if( head->vote_states_dirty ) {
+      if( head->vote_states_pool_idx!=new_root->vote_states_pool_idx ) {
+        fd_rwlock_write( &banks->vote_states_pool_lock );
+        fd_bank_vote_states_pool_idx_release( vote_states_pool, head->vote_states_pool_idx );
+        fd_rwlock_unwrite( &banks->vote_states_pool_lock );
+      } else {
+        new_root->vote_states_dirty = 1;
+      }
+    }
+
+    fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_get_vote_states_prev_pool( new_root );
+    if( head->vote_states_prev_dirty ) {
+      if( head->vote_states_prev_pool_idx!=new_root->vote_states_prev_pool_idx ) {
+        fd_rwlock_write( &banks->vote_states_prev_pool_lock );
+        fd_bank_vote_states_prev_pool_idx_release( vote_states_prev_pool, head->vote_states_prev_pool_idx );
+        fd_rwlock_unwrite( &banks->vote_states_prev_pool_lock );
+      } else {
+        new_root->vote_states_prev_dirty = 1;
+      }
+    }
+
+    fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( new_root );
+    if( head->vote_states_prev_prev_dirty ) {
+      if( head->vote_states_prev_prev_pool_idx!=new_root->vote_states_prev_prev_pool_idx ) {
+        fd_rwlock_write( &banks->vote_states_prev_prev_pool_lock );
+        fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, head->vote_states_prev_prev_pool_idx );
+        fd_rwlock_unwrite( &banks->vote_states_prev_prev_pool_lock );
+      } else {
+        new_root->vote_states_prev_prev_dirty = 1;
+      }
+    }
 
     /* It is possible for a bank that never finished replaying to be
        pruned away.  If the bank was never frozen, then it's possible
        that the bank still owns a cost tracker pool element.  If this
        is the case, we need to release the pool element. */
-    if( head->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( head )) ) {
+    if( head->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( head ) ) ) {
       FD_TEST( !(head->flags&FD_BANK_FLAGS_FROZEN) && head->flags&FD_BANK_FLAGS_REPLAYABLE );
       FD_LOG_DEBUG(( "releasing cost tracker pool element for bank at index %lu at slot %lu", head->idx, fd_bank_slot_get( head ) ));
       fd_bank_cost_tracker_pool_idx_release( fd_bank_get_cost_tracker_pool( head ), head->cost_tracker_pool_idx );
@@ -846,49 +1096,6 @@ fd_banks_advance_root( fd_banks_t * banks,
   fd_rwlock_unwrite( &banks->rwlock );
 
   return new_root;
-}
-
-void
-fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
-
-  fd_rwlock_read( &banks->rwlock );
-  /* Get the parent bank. */
-  fd_bank_t * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
-
-  fd_memset( &bank->non_cow, 0, sizeof(bank->non_cow) );
-
-  #define HAS_COW_1(type, name, footprint)                                                                                  \
-    fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                                   \
-    if( bank->name##_dirty ) {                                                                                              \
-      /* If the dirty flag is set, then we have a pool allocated for */                                                     \
-      /* this specific bank. We need to release the pool index and   */                                                     \
-      /* assign the bank to the idx corresponding to the parent.     */                                                     \
-      fd_bank_##name##_pool_idx_release( name##_pool, bank->name##_pool_idx );                                              \
-      bank->name##_dirty    = 0;                                                                                            \
-      bank->name##_pool_idx = parent_bank ? parent_bank->name##_pool_idx : fd_bank_##name##_pool_idx_null( name##_pool );   \
-    }
-
-  #define HAS_COW_0(type, name, footprint)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
-
-  /* We need to acquire a cost tracker element. */
-  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
-  if( FD_UNLIKELY( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) ) {
-    fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, bank->cost_tracker_pool_idx );
-  }
-  bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-  fd_rwlock_unwrite( &bank->cost_tracker_lock );
-
-  bank->stake_delegations_delta_dirty = 0;
-  fd_rwlock_unwrite( &bank->stake_delegations_delta_lock );
-
-  fd_rwlock_unread( &banks->rwlock );
 }
 
 /* Is the fork tree starting at the given bank entirely eligible for
@@ -1113,9 +1320,16 @@ fd_banks_new_bank( fd_banks_t * banks,
     curr_bank->sibling_idx = child_bank_idx;
   }
 
-  child_bank->first_fec_set_received_nanos = now;
+  child_bank->epoch_rewards_dirty           = 0;
+  child_bank->epoch_leaders_dirty           = 0;
+  child_bank->vote_states_dirty             = 0;
+  child_bank->vote_states_prev_dirty        = 0;
+  child_bank->vote_states_prev_prev_dirty   = 0;
+  child_bank->stake_delegations_delta_dirty = 0;
+
+  child_bank->first_fec_set_received_nanos      = now;
   child_bank->first_transaction_scheduled_nanos = 0L;
-  child_bank->last_transaction_finished_nanos = 0L;
+  child_bank->last_transaction_finished_nanos   = 0L;
 
   fd_rwlock_unwrite( &banks->rwlock );
   return child_bank;
@@ -1147,4 +1361,53 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
   fd_bank_cost_tracker_pool_idx_release( fd_bank_get_cost_tracker_pool( bank ), bank->cost_tracker_pool_idx );
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_unwrite( &banks->rwlock );
+}
+
+void
+fd_banks_clear_bank( fd_banks_t * banks,
+                     fd_bank_t *  bank,
+                     ulong        max_vote_accounts ) {
+
+  fd_rwlock_read( &banks->rwlock );
+  /* Get the parent bank. */
+  fd_bank_t * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
+
+  fd_memset( &bank->non_cow, 0, sizeof(bank->non_cow) );
+
+  fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_bank_get_epoch_rewards_pool( bank );
+  if( bank->epoch_rewards_dirty ) {
+    fd_bank_epoch_rewards_pool_idx_release( epoch_rewards_pool, bank->epoch_rewards_pool_idx );
+    bank->epoch_rewards_dirty = 0;
+    bank->epoch_rewards_pool_idx = parent_bank ? parent_bank->epoch_rewards_pool_idx : fd_bank_epoch_rewards_pool_idx_null( epoch_rewards_pool );
+  }
+
+  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank );
+  if( bank->epoch_leaders_dirty ) {
+    fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, bank->epoch_leaders_pool_idx );
+    bank->epoch_leaders_dirty = 0;
+    bank->epoch_leaders_pool_idx = parent_bank ? parent_bank->epoch_leaders_pool_idx : fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool );
+  }
+
+  bank->vote_states_dirty = 1;
+  fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( bank ), max_vote_accounts, 999UL ) );
+  fd_bank_vote_states_end_locking_modify( bank );
+
+  bank->vote_states_prev_dirty = 1;
+  fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_modify( bank ), max_vote_accounts, 999UL ) );
+
+  bank->vote_states_prev_prev_dirty = 1;
+  fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_modify( bank ), max_vote_accounts, 999UL ) );
+
+  /* We need to acquire a cost tracker element. */
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
+  if( FD_UNLIKELY( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) ) {
+    fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, bank->cost_tracker_pool_idx );
+  }
+  bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
+  fd_rwlock_unwrite( &bank->cost_tracker_lock );
+
+  bank->stake_delegations_delta_dirty = 0;
+  fd_rwlock_unwrite( &bank->stake_delegations_delta_lock );
+
+  fd_rwlock_unread( &banks->rwlock );
 }

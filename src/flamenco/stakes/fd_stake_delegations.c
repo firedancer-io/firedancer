@@ -51,6 +51,7 @@ fd_stake_delegations_footprint( ulong max_stake_accounts ) {
 
 void *
 fd_stake_delegations_new( void * mem,
+                          ulong  seed,
                           ulong  max_stake_accounts,
                           int    leave_tombstones ) {
   if( FD_UNLIKELY( !mem ) ) {
@@ -85,8 +86,7 @@ fd_stake_delegations_new( void * mem,
     return NULL;
   }
 
-  /* TODO: The seed shouldn't be hardcoded. */
-  if( FD_UNLIKELY( !fd_stake_delegation_map_new( map_mem, map_chain_cnt, 999UL ) ) ) {
+  if( FD_UNLIKELY( !fd_stake_delegation_map_new( map_mem, map_chain_cnt, seed ) ) ) {
     FD_LOG_WARNING(( "Failed to create stake delegations map" ));
     return NULL;
   }
@@ -191,6 +191,14 @@ fd_stake_delegations_delete( void * mem ) {
   stake_delegations->magic = 0UL;
 
   return mem;
+}
+
+void
+fd_stake_delegations_init( fd_stake_delegations_t * stake_delegations ) {
+  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations );
+  fd_stake_delegation_map_reset( stake_delegation_map );
+  fd_stake_delegation_t * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+  fd_stake_delegation_pool_reset( stake_delegation_pool );
 }
 
 void

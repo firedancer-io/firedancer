@@ -496,7 +496,8 @@ fd_sched_can_ingest( fd_sched_t * sched,
 }
 
 FD_WARN_UNUSED int
-fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
+fd_sched_fec_ingest( fd_sched_t *     sched,
+                     fd_sched_fec_t * fec ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( fec->bank_idx<sched->block_cnt_max );
   FD_TEST( fec->parent_bank_idx<sched->block_cnt_max );

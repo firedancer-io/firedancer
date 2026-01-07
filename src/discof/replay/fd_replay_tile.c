@@ -553,17 +553,14 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL );
 
   fd_vote_states_t const * vote_states_prev;
-  if( FD_LIKELY( current_epoch ) ) vote_states_prev = fd_bank_vote_states_prev_locking_query( bank );
-  else                             vote_states_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+  if( FD_LIKELY( current_epoch ) ) vote_states_prev = fd_bank_vote_states_prev_query( bank );
+  else                             vote_states_prev = fd_bank_vote_states_prev_prev_query( bank );
 
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
   ulong stake_weights_sz = generate_stake_weight_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states_prev, stake_weights_msg );
   ulong stake_weights_sig = 4UL;
   fd_stem_publish( stem, ctx->stake_out->idx, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-
-  if( FD_LIKELY( current_epoch ) ) fd_bank_vote_states_prev_end_locking_query( bank );
-  else                             fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( stake_weights_msg ) );
   fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
@@ -595,16 +592,13 @@ replay_block_start( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !parent_bank ) ) {
     FD_LOG_CRIT(( "invariant violation: parent bank is NULL for bank index %lu", parent_bank_idx ));
   }
-  if( FD_UNLIKELY( !(parent_bank->flags&FD_BANK_FLAGS_FROZEN) ) ) {
-    FD_LOG_CRIT(( "invariant violation: parent bank is not frozen for bank index %lu", parent_bank_idx ));
-  }
   ulong parent_slot = fd_bank_slot_get( parent_bank );
 
   /* Clone the bank from the parent.  We must special case the first
      slot that is executed as the snapshot does not provide a parent
      block id. */
 
-  bank = fd_banks_clone_from_parent( ctx->banks, bank_idx, parent_bank_idx );
+  bank = fd_banks_clone_from_parent( ctx->banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
@@ -862,7 +856,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: leader bank is NULL for slot %lu", slot ));
   }
 
-  if( FD_UNLIKELY( !fd_banks_clone_from_parent( ctx->banks, ctx->leader_bank->idx, parent_bank_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_banks_clone_from_parent( ctx->banks, ctx->leader_bank->idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu", slot ));
   }
 
@@ -1828,13 +1822,13 @@ process_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
+  if( FD_UNLIKELY( bank->flags&FD_BANK_FLAGS_DEAD ) ) {
+    if( FD_UNLIKELY( reasm_fec->slot_complete ) ) publish_slot_dead( ctx, stem, bank );
+    return;
+  }
 
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
     fd_banks_mark_bank_dead( ctx->banks, bank );
-  }
-
-  if( FD_UNLIKELY( reasm_fec->slot_complete && bank->flags&FD_BANK_FLAGS_DEAD ) ) {
-    publish_slot_dead( ctx, stem, bank );
   }
 }
 
@@ -2039,8 +2033,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
       }
       if( FD_UNLIKELY( msg->txn_exec->err && !(bank->flags&FD_BANK_FLAGS_DEAD) ) ) {
         /* Every transaction in a valid block has to execute.
-           Otherwise, we should mark the block as dead.  Also freeze the
-           bank if possible. */
+           Otherwise, we should mark the block as dead. */
         fd_banks_mark_bank_dead( ctx->banks, bank );
         fd_sched_block_abandon( ctx->sched, bank->idx );
 

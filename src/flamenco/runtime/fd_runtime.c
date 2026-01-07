@@ -123,10 +123,9 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_query( bank );
   fd_vote_stake_weight_t * epoch_weights         = runtime_stack->stakes.stake_weights;
   ulong                    stake_weight_cnt      = fd_stake_weights_by_node( vote_states_prev_prev, epoch_weights );
-  fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   /* Derive leader schedule */
 
@@ -140,7 +139,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     }
 
     ulong vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( bank );
-    void * epoch_leaders_mem = fd_bank_epoch_leaders_locking_modify( bank );
+    void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
     fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
         epoch_leaders_mem,
         epoch,
@@ -153,7 +152,6 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     if( FD_UNLIKELY( !leaders ) ) {
       FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
     }
-    fd_bank_epoch_leaders_end_locking_modify( bank );
   }
 }
 
@@ -272,17 +270,15 @@ fd_runtime_freeze( fd_bank_t *         bank,
       /* do_create=1 because we might wanna pay fees to a leader
          account that we've purged due to 0 balance. */
 
-      fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( bank );
+      fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank );
       if( FD_UNLIKELY( !leaders ) ) {
         FD_LOG_CRIT(( "fd_runtime_freeze: leaders not found" ));
-        fd_bank_epoch_leaders_end_locking_query( bank );
         break;
       }
 
       fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, fd_bank_slot_get( bank ) );
       if( FD_UNLIKELY( !leader ) ) {
         FD_LOG_CRIT(( "fd_runtime_freeze: leader not found" ));
-        fd_bank_epoch_leaders_end_locking_query( bank );
         break;
       }
 
@@ -299,14 +295,11 @@ fd_runtime_freeze( fd_bank_t *         bank,
         FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
         FD_LOG_WARNING(( "fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for leader (%s) failed", leader_b58 ));
         burn = fd_ulong_sat_add( burn, fees );
-        fd_bank_epoch_leaders_end_locking_query( bank );
         break;
       }
 
       fd_lthash_value_t prev_hash[1];
       fd_hashes_account_lthash( leader, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
-
-      fd_bank_epoch_leaders_end_locking_query( bank );
 
       if ( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, validate_fee_collector_account ) ) ) {
         ulong _burn;
@@ -421,12 +414,9 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t * bank ) {
 
 static void
 fd_runtime_update_vote_states_prev_prev( fd_bank_t * bank ) {
-
-  fd_vote_states_t *       vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( bank );
-  fd_vote_states_t const * vote_states_prev      = fd_bank_vote_states_prev_locking_query( bank );
-  fd_memcpy( vote_states_prev_prev, vote_states_prev, fd_bank_vote_states_footprint );
-  fd_bank_vote_states_prev_prev_end_locking_modify( bank );
-  fd_bank_vote_states_prev_end_locking_query( bank );
+  fd_vote_states_t *       vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
+  fd_vote_states_t const * vote_states_prev      = fd_bank_vote_states_prev_query( bank );
+  fd_memcpy( vote_states_prev_prev, vote_states_prev, FD_VOTE_STATES_FOOTPRINT );
 }
 
 /* Replace the vote states for T-1 (vote_states_prev) with the vote
@@ -434,10 +424,9 @@ fd_runtime_update_vote_states_prev_prev( fd_bank_t * bank ) {
 
 static void
 fd_runtime_update_vote_states_prev( fd_bank_t * bank ) {
-  fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
+  fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_modify( bank );
   fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( bank );
-  fd_memcpy( vote_states_prev, vote_states, fd_bank_vote_states_footprint );
-  fd_bank_vote_states_prev_end_locking_modify( bank );
+  fd_memcpy( vote_states_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
   fd_bank_vote_states_end_locking_query( bank );
 }
 
@@ -1469,7 +1458,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     /* FIXME Why is there a previous blockhash at genesis?  Why is the
              last_hash field an option type in Agave, if even the first
              real block has a previous blockhash? */
-    /* TODO: Use a real seed here. */
     fd_blockhashes_t *    bhq  = fd_blockhashes_init( fd_bank_block_hash_queue_modify( bank ), 0UL );
     fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, genesis_hash );
     info->fee_calculator.lamports_per_signature = 0UL;
@@ -1503,7 +1491,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     FD_LOG_CRIT(( "Failed to join and new a stake delegations" ));
   }
 
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   if( FD_UNLIKELY( !vote_states ) ) {
     FD_LOG_CRIT(( "Failed to join and new a vote states" ));
   }
@@ -1623,13 +1611,11 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     }
   }
 
-  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( bank );
+  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
   fd_memcpy( vote_states_prev_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
-  fd_bank_vote_states_prev_prev_end_locking_modify( bank );
 
-  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
+  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( bank );
   fd_memcpy( vote_states_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
-  fd_bank_vote_states_prev_end_locking_modify( bank );
 
   fd_bank_vote_states_end_locking_modify( bank );
 
