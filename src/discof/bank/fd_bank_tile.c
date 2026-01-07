@@ -52,6 +52,7 @@ struct fd_bank_ctx {
   int enable_rebates;
   fd_pack_rebate_sum_t rebater[ 1 ];
 
+  fd_banks_t banksl_join[1];
   fd_banks_t * banks;
 
   fd_accdb_user_t accdb[1];
@@ -620,7 +621,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  ctx->banks = NONNULL( fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) ) );
+
+  ctx->banks = NONNULL( fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), NULL ) );
 
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );

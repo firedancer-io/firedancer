@@ -91,6 +91,7 @@ struct fd_capture_tile_ctx {
   int                  enable_publish_stake_weights;
   ulong *              manifest_wmark;
   uchar *              manifest_bank_mem;
+  fd_banks_t           banksl_join[1];
   fd_banks_t *         banks;
   fd_bank_t *          bank;
   char                 manifest_path[ PATH_MAX ];
@@ -836,7 +837,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->manifest_bank_mem    = manifest_bank_mem;
 
   // TODO: ???? Why is this calling fd_banks_new ... does not seem right
-  ctx->banks = fd_banks_join( fd_banks_new( ctx->manifest_bank_mem, MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH, 0 /* TODO? */, 8888UL /* TODO? */ ) );
+  ctx->banks = fd_banks_join( ctx->banksl_join, fd_banks_new( ctx->manifest_bank_mem, MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH, 0 /* TODO? */, 8888UL /* TODO? */ ), NULL );
   FD_TEST( ctx->banks );
   ctx->bank  = fd_banks_init_bank( ctx->banks );
   fd_bank_slot_set( ctx->bank, 0UL );

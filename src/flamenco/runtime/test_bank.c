@@ -4,7 +4,8 @@
 
 static void
 test_bank_advancing( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ) );
+  fd_banks_t banksl_join[1];
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ), NULL );
   /* Create the following fork tree with refcnts:
 
          P(0)
@@ -300,7 +301,9 @@ main( int argc, char ** argv ) {
 
   /* Init banks */
 
-  fd_banks_t * banks = fd_banks_join( mem );
+  fd_banks_t banksl_join[1];
+
+  fd_banks_t * banks = fd_banks_join( banksl_join, mem, NULL );
   FD_TEST( banks );
 
   fd_bank_t * bank = fd_banks_init_bank( banks );
@@ -673,10 +676,10 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
 
   FD_TEST( fd_banks_leave( banks ) );
-  FD_TEST( fd_banks_join( fd_banks_leave( banks ) ) == banks );
+  FD_TEST( fd_banks_join( banksl_join, fd_banks_leave( banks ), NULL ) == banks );
   uchar * deleted_banks_mem = fd_banks_delete( fd_banks_leave( banks ) );
   FD_TEST( deleted_banks_mem == mem );
-  FD_TEST( fd_banks_join( deleted_banks_mem ) == NULL );
+  FD_TEST( fd_banks_join( banksl_join, deleted_banks_mem, NULL ) == NULL );
 
   test_bank_advancing( mem );
 

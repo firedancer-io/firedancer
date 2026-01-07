@@ -97,7 +97,8 @@ test_ctx_setup( void ) {
   FD_TEST( banks_mem );
 
   /* Initialize banks */
-  test_ctx->banks = fd_banks_join( fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 0, 8888UL ) );
+  fd_banks_t * banksl_join = fd_wksp_alloc_laddr( test_ctx->wksp, alignof(fd_banks_t), sizeof(fd_banks_t), wksp_tag );
+  test_ctx->banks = fd_banks_join( banksl_join, fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 0, 8888UL ), NULL );
   FD_TEST( test_ctx->banks );
 
   /* Initialize stake delegations at the root level */

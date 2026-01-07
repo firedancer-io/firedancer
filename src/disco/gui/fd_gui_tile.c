@@ -98,6 +98,7 @@ typedef struct fd_gui_out_ctx fd_gui_out_ctx_t;
 typedef struct {
   fd_topo_t * topo;
   fd_banks_t * banks;
+  fd_banks_t            banksl_join[1];
 
   int is_full_client;
   int snapshots_enabled;
@@ -792,7 +793,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( ctx->is_full_client ) ) {
     FD_TEST( banks_obj_id!=ULONG_MAX );
-    ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) ); FD_TEST( ctx->banks );
+    ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), NULL ); FD_TEST( ctx->banks );
   }
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

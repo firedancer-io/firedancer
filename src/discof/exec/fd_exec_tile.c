@@ -46,6 +46,7 @@ typedef struct fd_exec_tile_ctx {
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
      fd_funk_t. */
+  fd_banks_t            banksl_join[1];
   fd_banks_t *          banks;
   fd_accdb_user_t       accdb[1];
   fd_progcache_t        progcache[1];
@@ -323,7 +324,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Could not find topology object for banks" ));
   }
 
-  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), NULL );
   if( FD_UNLIKELY( !ctx->banks ) ) {
     FD_LOG_ERR(( "Failed to join banks" ));
   }

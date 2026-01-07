@@ -146,7 +146,8 @@ typedef struct {
      freeing the bank when it is no longer needed.  To facilitate this,
      the resolv tile sends a message to replay when it is done with a
      rooted bank (after exchanging it for a new rooted bank). */
-  fd_banks_t * banks;
+  fd_banks_t            banksl_join[1];
+  fd_banks_t *          banks;
   fd_bank_t *  bank;
 
   fd_accdb_user_t accdb[1];
@@ -636,7 +637,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), NULL );
   FD_TEST( ctx->banks );
   ctx->bank = NULL;
 

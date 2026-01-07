@@ -149,7 +149,8 @@ struct fd_replay_tile {
 
   fd_txncache_t * txncache;
   fd_store_t *    store;
-  fd_banks_t *    banks;
+  fd_banks_t            banksl_join[1];
+  fd_banks_t *          banks;
 
   /* This flag is 1 If we have seen a vote signature that our node has
      sent out get rooted at least one time.  The value is 0 otherwise.
@@ -479,7 +480,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   }
   FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
 
-  fd_bank_t * bank_pool = fd_banks_get_bank_pool( ctx->banks );
+  fd_bank_t * bank_pool = fd_banks_get_bank_pool( ctx->banks->data );
   ulong live_banks = fd_banks_pool_max( bank_pool ) - fd_banks_pool_free( bank_pool );
   FD_MGAUGE_SET( REPLAY, LIVE_BANKS, live_banks );
 
@@ -2488,10 +2489,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), NULL );
   FD_TEST( ctx->banks );
 
-  fd_bank_t * bank_pool = fd_banks_get_bank_pool( ctx->banks );
+  fd_bank_t * bank_pool = fd_banks_get_bank_pool( ctx->banks->data );
   FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, fd_banks_pool_max( bank_pool ) );
 
   fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
