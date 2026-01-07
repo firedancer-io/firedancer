@@ -211,7 +211,8 @@ fd_gui_set_identity( fd_gui_t *    gui,
 
 void
 fd_gui_ws_open( fd_gui_t * gui,
-                ulong      ws_conn_id ) {
+                ulong      ws_conn_id,
+                long now ) {
   void (* printers[] )( fd_gui_t * gui ) = {
     gui->summary.is_full_client ? fd_gui_printf_boot_progress : fd_gui_printf_startup_progress,
     fd_gui_printf_version,
@@ -269,6 +270,12 @@ fd_gui_ws_open( fd_gui_t * gui,
      block other information. */
   fd_gui_printf_peers_all( gui );
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+
+  /* rebroadcast 10s of historical shred data */
+  if( FD_LIKELY( gui->shreds.staged_next_broadcast!=ULONG_MAX ) ) {
+    fd_gui_printf_shred_rebroadcast( gui, now-(long)(10*1e9) );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
 }
 
 static void
@@ -1520,7 +1527,7 @@ fd_gui_request_slot_shreds( fd_gui_t *    gui,
     return 0;
   }
 
-  fd_gui_printf_slot_shred_updates( gui, _slot, request_id );
+  fd_gui_printf_slot_query_shreds( gui, _slot, request_id );
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   return 0;
 }

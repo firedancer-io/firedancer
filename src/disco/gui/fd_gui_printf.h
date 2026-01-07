@@ -125,9 +125,12 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
                                          ulong      id );
 
 void
-fd_gui_printf_slot_shred_updates( fd_gui_t * gui,
-                                  ulong      _slot,
-                                  ulong      id );
+fd_gui_printf_slot_query_shreds( fd_gui_t * gui,
+                                 ulong      _slot,
+                                 ulong      id );
+
+void
+fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after );
 
 void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui );

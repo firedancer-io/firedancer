@@ -2404,86 +2404,102 @@ fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers ) {
 }
 
 void
-fd_gui_printf_shred_updates( fd_gui_t * gui ) {
-  ulong  _start_offset = gui->shreds.staged_next_broadcast;
-  ulong  _end_offset   = gui->shreds.staged_tail;
-
+fd_gui_printf_shreds_staged( fd_gui_t * gui, ulong start_offset, ulong end_offset ) {
   ulong min_slot = ULONG_MAX;
   long min_ts = LONG_MAX;
 
-  for( ulong i=_start_offset; i<_end_offset; i++ ) {
+  for( ulong i=start_offset; i<end_offset; i++ ) {
     min_slot = fd_ulong_min( min_slot, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].slot      );
     min_ts   = fd_long_min ( min_ts,   gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].timestamp );
   }
 
+  jsonp_ulong      ( gui->http, "reference_slot", min_slot );
+  jsonp_long_as_str( gui->http, "reference_ts",   min_ts   );
+
+  jsonp_open_array( gui->http, "slot_delta" );
+    for( ulong i=start_offset; i<end_offset; i++ ) jsonp_ulong( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].slot-min_slot );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "shred_idx" );
+    for( ulong i=start_offset; i<end_offset; i++ ) {
+      if( FD_LIKELY( gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].shred_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].shred_idx );
+      else                                                                                        jsonp_null ( gui->http, NULL );
+    }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "event" );
+    for( ulong i=start_offset; i<end_offset; i++ ) jsonp_ulong( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].event );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "event_ts_delta" );
+    for( ulong i=start_offset; i<end_offset; i++ ) jsonp_long_as_str( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].timestamp-min_ts );
+  jsonp_close_array( gui->http );
+}
+
+void
+fd_gui_printf_shreds_history( fd_gui_t * gui, ulong _slot ) {
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  ulong end_offset = slot->shreds.end_offset;
+  ulong start_offset = slot->shreds.start_offset;
+  FD_TEST( slot && slot->shreds.end_offset > gui->shreds.history_tail-FD_GUI_SHREDS_HISTORY_SZ );
+
+  long min_ts = LONG_MAX;
+  for( ulong i=start_offset; i<end_offset; i++ ) {
+    min_ts   = fd_long_min ( min_ts,   gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].timestamp );
+  }
+
+  jsonp_ulong      ( gui->http, "reference_slot", _slot );
+  jsonp_long_as_str( gui->http, "reference_ts",   min_ts   );
+
+  jsonp_open_array( gui->http, "slot_delta" );
+    for( ulong i=start_offset; i<end_offset; i++ ) jsonp_ulong( gui->http, NULL, 0UL );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "shred_idx" );
+    for( ulong i=start_offset; i<end_offset; i++ ) {
+      if( FD_LIKELY( gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].shred_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].shred_idx );
+      else                                                                                         jsonp_null ( gui->http, NULL );
+    }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "event" );
+    for( ulong i=start_offset; i<end_offset; i++ ) jsonp_ulong( gui->http, NULL, gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].event );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "event_ts_delta" );
+    for( ulong i=start_offset; i<end_offset; i++ ) jsonp_long_as_str( gui->http, NULL, gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].timestamp-min_ts );
+  jsonp_close_array( gui->http );
+}
+
+void
+fd_gui_printf_shred_updates( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "slot", "live_shreds" );
     jsonp_open_object( gui->http, "value" );
-        jsonp_ulong      ( gui->http, "reference_slot", min_slot );
-        jsonp_long_as_str( gui->http, "reference_ts",   min_ts   );
-
-        jsonp_open_array( gui->http, "slot_delta" );
-          for( ulong i=_start_offset; i<_end_offset; i++ ) jsonp_ulong( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].slot-min_slot );
-        jsonp_close_array( gui->http );
-        jsonp_open_array( gui->http, "shred_idx" );
-          for( ulong i=_start_offset; i<_end_offset; i++ ) {
-            if( FD_LIKELY( gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].shred_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].shred_idx );
-            else                                                                                        jsonp_null ( gui->http, NULL );
-          }
-        jsonp_close_array( gui->http );
-        jsonp_open_array( gui->http, "event" );
-          for( ulong i=_start_offset; i<_end_offset; i++ ) jsonp_ulong( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].event );
-        jsonp_close_array( gui->http );
-        jsonp_open_array( gui->http, "event_ts_delta" );
-          for( ulong i=_start_offset; i<_end_offset; i++ ) jsonp_long_as_str( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].timestamp-min_ts );
-        jsonp_close_array( gui->http );
+      fd_gui_printf_shreds_staged( gui, gui->shreds.staged_next_broadcast, gui->shreds.staged_tail );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }
 
 void
-fd_gui_printf_slot_shred_updates( fd_gui_t * gui,
+fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after ) {
+  FD_TEST( gui->shreds.staged_next_broadcast!=ULONG_MAX );
+
+  ulong _start_offset = gui->shreds.staged_next_broadcast;
+  for( ulong i=gui->shreds.staged_head; i<gui->shreds.staged_next_broadcast; i++ ) {
+    if( FD_LIKELY( gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].timestamp<after ) ) continue;
+    _start_offset = i;
+    break;
+  }
+
+  jsonp_open_envelope( gui->http, "slot", "live_shreds" );
+    jsonp_open_object( gui->http, "value" );
+      fd_gui_printf_shreds_staged( gui, _start_offset, gui->shreds.staged_next_broadcast );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+}
+
+void
+fd_gui_printf_slot_query_shreds( fd_gui_t * gui,
                                   ulong      _slot,
                                   ulong      id ) {
-  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
-
-  if( FD_UNLIKELY( !slot || slot->shreds.end_offset <= gui->shreds.history_tail-FD_GUI_SHREDS_HISTORY_SZ ) ) {
-    jsonp_open_envelope( gui->http, "slot", "query_shreds" );
-      jsonp_ulong( gui->http, "id", id );
-      jsonp_null( gui->http, "value" );
-    jsonp_close_envelope( gui->http );
-    return;
-  }
-
-  ulong  _start_offset = slot->shreds.start_offset;
-  ulong  _end_offset   = slot->shreds.end_offset;
-
-  long min_ts = LONG_MAX;
-
-  for( ulong i=_start_offset; i<_end_offset; i++ ) {
-    min_ts   = fd_long_min ( min_ts,   gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].timestamp );
-  }
-
   jsonp_open_envelope( gui->http, "slot", "query_shreds" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
-        jsonp_ulong      ( gui->http, "reference_slot", _slot );
-        jsonp_long_as_str( gui->http, "reference_ts",   min_ts   );
-
-        jsonp_open_array( gui->http, "slot_delta" );
-          for( ulong i=_start_offset; i<_end_offset; i++ ) jsonp_ulong( gui->http, NULL, 0UL );
-        jsonp_close_array( gui->http );
-        jsonp_open_array( gui->http, "shred_idx" );
-          for( ulong i=_start_offset; i<_end_offset; i++ ) {
-            if( FD_LIKELY( gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].shred_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].shred_idx );
-            else                                                                                        jsonp_null ( gui->http, NULL );
-          }
-        jsonp_close_array( gui->http );
-        jsonp_open_array( gui->http, "event" );
-          for( ulong i=_start_offset; i<_end_offset; i++ ) jsonp_ulong( gui->http, NULL, gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].event );
-        jsonp_close_array( gui->http );
-        jsonp_open_array( gui->http, "event_ts_delta" );
-          for( ulong i=_start_offset; i<_end_offset; i++ ) jsonp_long_as_str( gui->http, NULL, gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].timestamp-min_ts );
-        jsonp_close_array( gui->http );
+      fd_gui_printf_shreds_history( gui, _slot );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }

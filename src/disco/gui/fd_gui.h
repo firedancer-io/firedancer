@@ -795,7 +795,8 @@ fd_gui_set_identity( fd_gui_t *    gui,
 
 void
 fd_gui_ws_open( fd_gui_t *  gui,
-                ulong       conn_id );
+                ulong       conn_id,
+                long now );
 
 int
 fd_gui_ws_message( fd_gui_t *    gui,

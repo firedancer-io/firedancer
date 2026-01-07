@@ -672,7 +672,7 @@ gui_ws_open( ulong  conn_id,
              void * _ctx ) {
   fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
 
-  fd_gui_ws_open( ctx->gui, conn_id );
+  fd_gui_ws_open( ctx->gui, conn_id, fd_clock_now( ctx->clock ) );
   if( FD_UNLIKELY( ctx->is_full_client ) ) fd_gui_peers_ws_open( ctx->peers, conn_id, fd_clock_now( ctx->clock ) );
 }
 
