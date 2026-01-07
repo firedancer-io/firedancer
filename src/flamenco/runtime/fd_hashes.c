@@ -76,22 +76,22 @@ fd_hashes_hash_bank( fd_lthash_value_t const * lthash,
 }
 
 void
-fd_hashes_update_lthash( fd_pubkey_t const *       pubkey,
-                         fd_account_meta_t const * meta,
-                         fd_lthash_value_t const * prev_account_hash,
-                         fd_bank_t               * bank,
-                         fd_capture_ctx_t        * capture_ctx ) {
+fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
+                          fd_lthash_value_t const * lthash_prev, /* in */
+                          fd_pubkey_t const *       pubkey,
+                          fd_account_meta_t const * meta,
+                          fd_bank_t               * bank,
+                          fd_capture_ctx_t        * capture_ctx ) {
 
   /* Hash the new version of the account */
-  fd_lthash_value_t new_hash[1];
-  fd_hashes_account_lthash( pubkey, meta, fd_account_data( meta ), new_hash );
+  fd_hashes_account_lthash( pubkey, meta, fd_account_data( meta ), lthash_post );
 
   /* Subtract the old hash of the account from the bank lthash */
   fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
-  fd_lthash_sub( bank_lthash, prev_account_hash );
+  fd_lthash_sub( bank_lthash, lthash_prev );
 
   /* Add the new hash of the account to the bank lthash */
-  fd_lthash_add( bank_lthash, new_hash );
+  fd_lthash_add( bank_lthash, lthash_post );
 
   fd_bank_lthash_end_locking_modify( bank );
 
