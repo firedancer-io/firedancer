@@ -1253,7 +1253,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   int res = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
     FD_LOG_DEBUG(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
-    txn_out->err.is_committable = 0;
+    txn_out->err.is_committable = fd_cost_tracker_err_to_runtime_err( res );
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 

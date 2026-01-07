@@ -391,7 +391,7 @@ user = ""
         # snapshot.  A local snapshot that has an older age than one we
         # can download might actually result in a faster catchup time
         # because of the faster loading speed.  The full age should be
-        # set higher than the incremental age  because, as full snapshots
+        # set higher than the incremental age because, as full snapshots
         # are much larger than incremental snapshots, the time penalty
         # for downloading a full snapshot is much higher.
         max_local_full_effective_age = 1000
