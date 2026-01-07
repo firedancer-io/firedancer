@@ -26,6 +26,8 @@ WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
 DISABLE_LTHASH_VERIFICATION=true
 
+DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
+
 if [[ -n "$CI" ]]; then
   SKIP_CHECKSUM=0
   WATCH=( "--no-watch" )
@@ -197,6 +199,10 @@ else
   if [[ $SKIP_CHECKSUM -eq 0 ]]; then
     check_ledger_checksum_and_redownload
   fi
+fi
+
+if [[ "$DOWNLOAD_ONLY" == "true" ]]; then
+  exit 0
 fi
 
 chmod -R 0700 $DUMP/$LEDGER
