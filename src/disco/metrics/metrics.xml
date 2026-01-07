@@ -982,24 +982,20 @@ metric introduced.
 </enum>
 
 <enum name="GossvfCrdsOutcome">
-    <int value="0" name="SuccessPullResponse" label="Pull Response (success)" />
-    <int value="1" name="SuccessPush" label="Push (success)" />
+    <int value="0"  name="SuccessPullResponse" label="Pull Response (success)" />
+    <int value="1"  name="SuccessPush" label="Push (success)" />
 
-    <int value="2" name="DroppedPullResponseDuplicate" label="Pull Response (duplicate)" />
-    <int value="3" name="DroppedPullResponseSignature" label="Pull Response (signature)" />
-    <int value="4" name="DroppedPullResponseRelayerNoContactInfo" label="Pull Response (relayer no contact info)" />
-    <int value="4" name="DroppedPullResponseRelayerShredVersion" label="Pull Response (relayer shred version)" />
-    <int value="4" name="DroppedPullResponseOriginNoContactInfo" label="Pull Response (origin no contact info)" />
-    <int value="4" name="DroppedPullResponseOriginShredVersion" label="Pull Response (origin shred version)" />
-    <int value="5" name="DroppedPullResponseInactive" label="Pull Response (inactive)" />
+    <int value="2"  name="DroppedPullResponseDuplicate" label="Pull Response (duplicate)" />
+    <int value="3"  name="DroppedPullResponseSignature" label="Pull Response (signature)" />
+    <int value="4"  name="DroppedPullResponseOriginNoContactInfo" label="Pull Response (origin no contact info)" />
+    <int value="5"  name="DroppedPullResponseOriginShredVersion" label="Pull Response (origin shred version)" />
+    <int value="6"  name="DroppedPullResponseInactive" label="Pull Response (inactive)" />
 
-    <int value="3" name="DroppedPushSignature" label="Push (signature)" />
-    <int value="4" name="DroppedPushRelayerNoContactInfo" label="Push (relayer no contact info)" />
-    <int value="4" name="DroppedPushRelayerShredVersion" label="Push (relayer shred version)" />
-    <int value="4" name="DroppedPushOriginNoContactInfo" label="Push (origin no contact info)" />
-    <int value="4" name="DroppedPushOriginShredVersion" label="Push (origin shred version)" />
-    <int value="5" name="DroppedPushInactive" label="Push (inactive)" />
-    <int value="5" name="DroppedPushWallclock" label="Push (wallclock)" />
+    <int value="7"  name="DroppedPushSignature" label="Push (signature)" />
+    <int value="8"  name="DroppedPushOriginNoContactInfo" label="Push (origin no contact info)" />
+    <int value="9"  name="DroppedPushOriginShredVersion" label="Push (origin shred version)" />
+    <int value="10" name="DroppedPushInactive" label="Push (inactive)" />
+    <int value="11" name="DroppedPushWallclock" label="Push (wallclock)" />
 </enum>
 
 <tile name="gossvf">

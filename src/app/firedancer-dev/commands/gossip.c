@@ -896,7 +896,7 @@ gossip_cmd_fn( args_t *   args,
     }
   }
 
-  printf(" Single Tile RX bw %s\n", fmt_bytes( buf1, net0_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ] - prev_net0_rx_bytes ) );
+  printf(" Single Tile RX bw %s\n\n", fmt_bytes( buf1, net0_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ] - prev_net0_rx_bytes ) );
   prev_net0_rx_bytes = net0_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ];
 
   ulong pull_response_drops = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
@@ -906,42 +906,38 @@ gossip_cmd_fn( args_t *   args,
   ulong crds_success = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_SUCCESS_PULL_RESPONSE ) );
   ulong crds_duplicate = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) );
   ulong crds_signature = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_SIGNATURE ) );
-  ulong crds_relayer_shred = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_RELAYER_SHRED_VERSION ) );
   ulong crds_origin_no_contact = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO ) );
   ulong crds_origin_shred = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION ) );
   ulong crds_inactive = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_INACTIVE ) );
 
-  ulong pull_response_crds_total = crds_success + crds_duplicate + crds_signature + crds_relayer_shred + crds_origin_no_contact + crds_origin_shred + crds_inactive;
+  ulong pull_response_crds_total = crds_success + crds_duplicate + crds_signature + crds_origin_no_contact + crds_origin_shred + crds_inactive;
 
   ulong prev_crds_success = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_SUCCESS_PULL_RESPONSE ) );
   ulong prev_crds_duplicate = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) );
   ulong prev_crds_signature = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_SIGNATURE ) );
-  ulong prev_crds_relayer_shred = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_RELAYER_SHRED_VERSION ) );
   ulong prev_crds_origin_no_contact = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO ) );
   ulong prev_crds_origin_shred = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION ) );
   ulong prev_crds_inactive = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_INACTIVE ) );
 
-  ulong prev_pull_response_crds_total = prev_crds_success + prev_crds_duplicate + prev_crds_signature + prev_crds_relayer_shred + prev_crds_origin_no_contact + prev_crds_origin_shred + prev_crds_inactive;
+  ulong prev_pull_response_crds_total = prev_crds_success + prev_crds_duplicate + prev_crds_signature + prev_crds_origin_no_contact + prev_crds_origin_shred + prev_crds_inactive;
 
-  printf(" Pull response CRDS drops: (%lu/%lu) %.1f %% (%.1f %% duplicate, %.1f %% signature, %.1f %% relayer shred version, %.1f %% origin no contact info, %.1f %% origin shred version %.1f, %% inactive)\n",
+  printf(" Pull response CRDS drops: (%lu/%lu) %.1f %% (%.1f %% duplicate, %.1f %% signature, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive)\n",
           pull_response_crds_total - crds_success,
           pull_response_crds_total,
           ((double)pull_response_crds_total - (double)crds_success ) / (double)pull_response_crds_total * 100.0,
           (double)crds_duplicate / (double)pull_response_crds_total * 100.0,
           (double)crds_signature / (double)pull_response_crds_total * 100.0,
-          (double)crds_relayer_shred / (double)pull_response_crds_total * 100.0,
           (double)crds_origin_no_contact / (double)pull_response_crds_total * 100.0,
           (double)crds_origin_shred / (double)pull_response_crds_total * 100.0,
           (double)crds_inactive / (double)pull_response_crds_total * 100.0 );
 
 
-  printf( " Pull response CRDS inc drops: (%lu/%lu) %1.f %% (%.1f %% duplicate, %.1f %% signature, %.1f %% relayer shred version, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive)\n\n",
+  printf( " Pull response CRDS inc drops: (%lu/%lu) %1.f %% (%.1f %% duplicate, %.1f %% signature, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive)\n\n",
           (pull_response_crds_total - prev_pull_response_crds_total) - (crds_success - prev_crds_success),
           pull_response_crds_total - prev_pull_response_crds_total,
           ((double)(pull_response_crds_total - prev_pull_response_crds_total) - (double)(crds_success - prev_crds_success) ) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
           (double)(crds_duplicate - prev_crds_duplicate) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
           (double)(crds_signature - prev_crds_signature) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
-          (double)(crds_relayer_shred - prev_crds_relayer_shred) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
           (double)(crds_origin_no_contact - prev_crds_origin_no_contact) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
           (double)(crds_origin_shred - prev_crds_origin_shred) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
           (double)(crds_inactive - prev_crds_inactive) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0 );
@@ -977,46 +973,38 @@ gossip_cmd_fn( args_t *   args,
 
  ulong push_crds_success = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_SUCCESS_PUSH ) );
  ulong push_crds_signature = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_SIGNATURE ) );
- ulong push_crds_relayer_no_contact = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_RELAYER_NO_CONTACT_INFO ) );
- ulong push_crds_relayer_shred = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_RELAYER_SHRED_VERSION ) );
  ulong push_crds_origin_no_contact = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO ) );
  ulong push_crds_origin_shred = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_ORIGIN_SHRED_VERSION ) );
  ulong push_crds_inactive = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_INACTIVE ) );
  ulong push_crds_wallclock = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_WALLCLOCK ) );
 
- ulong push_crds_total = push_crds_success + push_crds_signature + push_crds_relayer_no_contact + push_crds_relayer_shred + push_crds_origin_no_contact + push_crds_origin_shred + push_crds_inactive + push_crds_wallclock;
+ ulong push_crds_total = push_crds_success + push_crds_signature + push_crds_origin_no_contact + push_crds_origin_shred + push_crds_inactive + push_crds_wallclock;
 
  ulong prev_push_crds_success = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_SUCCESS_PUSH ) );
  ulong prev_push_crds_signature = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_SIGNATURE ) );
- ulong prev_push_crds_relayer_no_contact = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_RELAYER_NO_CONTACT_INFO ) );
- ulong prev_push_crds_relayer_shred = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_RELAYER_SHRED_VERSION ) );
  ulong prev_push_crds_origin_no_contact = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO ) );
  ulong prev_push_crds_origin_shred = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_ORIGIN_SHRED_VERSION ) );
  ulong prev_push_crds_inactive = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_INACTIVE ) );
  ulong prev_push_crds_wallclock = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PUSH_WALLCLOCK ) );
 
- ulong prev_push_crds_total = prev_push_crds_success + prev_push_crds_signature + prev_push_crds_relayer_no_contact + prev_push_crds_relayer_shred + prev_push_crds_origin_no_contact + prev_push_crds_origin_shred + prev_push_crds_inactive + prev_push_crds_wallclock;
+ ulong prev_push_crds_total = prev_push_crds_success + prev_push_crds_signature + prev_push_crds_origin_no_contact + prev_push_crds_origin_shred + prev_push_crds_inactive + prev_push_crds_wallclock;
 
- printf(" Push CRDS drops: (%lu/%lu) %.1f %% (%.1f %% signature, %.1f %% relayer no contact info, %.1f %% relayer shred version, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive, %.1f %% wallclock)\n",
+ printf(" Push CRDS drops: (%lu/%lu) %.1f %% (%.1f %% signature, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive, %.1f %% wallclock)\n",
          push_crds_total - push_crds_success,
          push_crds_total,
          ((double)push_crds_total - (double)push_crds_success ) / (double)push_crds_total * 100.0,
          (double)push_crds_signature / (double)push_crds_total * 100.0,
-         (double)push_crds_relayer_no_contact / (double)push_crds_total * 100.0,
-         (double)push_crds_relayer_shred / (double)push_crds_total * 100.0,
          (double)push_crds_origin_no_contact / (double)push_crds_total * 100.0,
          (double)push_crds_origin_shred / (double)push_crds_total * 100.0,
          (double)push_crds_inactive / (double)push_crds_total * 100.0,
          (double)push_crds_wallclock / (double)push_crds_total * 100.0 );
 
 
- printf( " Push CRDS inc drops: (%lu/%lu) %.1f %% (%.1f %% signature, %.1f %% relayer no contact info, %.1f %% relayer shred version, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive, %.1f %% wallclock)\n\n",
+ printf( " Push CRDS inc drops: (%lu/%lu) %.1f %% (%.1f %% signature, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive, %.1f %% wallclock)\n\n",
          (push_crds_total - prev_push_crds_total) - (push_crds_success - prev_push_crds_success),
          push_crds_total - prev_push_crds_total,
          ((double)(push_crds_total - prev_push_crds_total) - (double)(push_crds_success - prev_push_crds_success) ) / (double)(push_crds_total - prev_push_crds_total) * 100.0,
          (double)(push_crds_signature - prev_push_crds_signature) / (double)(push_crds_total - prev_push_crds_total) * 100.0,
-         (double)(push_crds_relayer_no_contact - prev_push_crds_relayer_no_contact) / (double)(push_crds_total - prev_push_crds_total) * 100.0,
-         (double)(push_crds_relayer_shred - prev_push_crds_relayer_shred) / (double)(push_crds_total - prev_push_crds_total) * 100.0,
          (double)(push_crds_origin_no_contact - prev_push_crds_origin_no_contact) / (double)(push_crds_total - prev_push_crds_total) * 100.0,
          (double)(push_crds_origin_shred - prev_push_crds_origin_shred) / (double)(push_crds_total - prev_push_crds_total) * 100.0,
          (double)(push_crds_inactive - prev_push_crds_inactive) / (double)(push_crds_total - prev_push_crds_total) * 100.0,
