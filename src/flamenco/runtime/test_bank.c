@@ -1,5 +1,7 @@
 #include "fd_bank.h"
 
+#include <stdlib.h> // ARM64: aligned_alloc(3)
+
 static void
 test_bank_advancing( void * mem ) {
   fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 2UL, 0, 8888UL ) );
