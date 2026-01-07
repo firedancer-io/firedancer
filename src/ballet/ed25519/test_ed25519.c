@@ -5,6 +5,9 @@
 #include "test_ed25519_wycheproof.c"
 #include "test_ed25519_cctv.c"
 
+#define FD_ED25519_UNIT_TESTS
+#include "fd_curve25519_secure.c"
+
 static uchar *
 fd_rng_b256( fd_rng_t * rng,
              uchar      r[ 32 ] ) {
@@ -759,6 +762,45 @@ test_point_frombytes( FD_PARAM_UNUSED fd_rng_t * rng ) {
 }
 
 static void
+test_point_add_secure( fd_rng_t * rng FD_PARAM_UNUSED ) {
+  uchar _bufa[32]; uchar * bufa = _bufa;
+  uchar _bufb[32]; uchar * bufb = _bufb;
+  uchar _bufr[32]; uchar * bufr = _bufr;
+  uchar _bufe[32]; uchar * bufe = _bufe;
+
+  fd_ed25519_point_t a[1];
+  fd_ed25519_point_t b[1];
+  fd_ed25519_point_t r[1];
+  fd_ed25519_point_t e[1];
+  fd_ed25519_point_t tmp0[1];
+  fd_ed25519_point_t tmp1[1];
+
+  {
+    // this failed the point_add_secure
+    fd_hex_decode( bufa, "0100000000000000000000000000000000b90000000000000000000000000080", 32 );
+    fd_hex_decode( bufb, "0000000000000000000000000000000000fb0000000000000000000000000080", 32 );
+    fd_hex_decode( bufe, "1e7eb8ea9e26b4e89d6ae958797cee2d0a64ecf2f3a50eb4d4fff0492abf0658", 32 );
+
+    FD_TEST( fd_ed25519_point_frombytes( a, bufa ) );
+    FD_TEST( fd_ed25519_point_frombytes( b, bufb ) );
+
+    FD_TEST( fd_ed25519_point_frombytes( e, bufe ) );
+    {
+      fd_ed25519_point_tobytes( bufr, a );
+      FD_TEST( fd_memeq( bufr, bufa, 32UL ) );
+      fd_ed25519_point_tobytes( bufr, b );
+      FD_TEST( fd_memeq( bufr, bufb, 32UL ) );
+    }
+
+    fd_curve25519_into_precomputed( b );
+    fd_ed25519_point_add_secure( r, a, b, tmp0, tmp1 );
+    fd_ed25519_point_tobytes( bufr, r );
+
+    FD_TEST( fd_memeq( bufr, bufe, 32UL ) );
+  }
+}
+
+static void
 test_point_sub( fd_rng_t * rng FD_PARAM_UNUSED ) {
   uchar _bufa[32]; uchar * bufa = _bufa;
   uchar _bufb[32]; uchar * bufb = _bufb;
@@ -1335,6 +1377,7 @@ main( int     argc,
   test_point_validate( rng );
   test_point_frombytes( rng );
   test_point_sub( rng );
+  test_point_add_secure( rng );
   test_point_mul( rng );
 
   test_sc_validate  ( rng );
