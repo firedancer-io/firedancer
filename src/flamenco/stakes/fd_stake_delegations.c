@@ -337,7 +337,7 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
 
 void
 fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
-                              fd_funk_t *               funk,
+                              fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid ) {
 
   fd_stake_delegation_map_t * stake_delegation_map = fd_stake_delegations_get_map( stake_delegations );
@@ -364,21 +364,23 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
       continue;
     }
 
-    fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly( funk, xid, &stake_delegation->stake_account, NULL );
-    if( FD_UNLIKELY( !meta ) ) {
+    fd_accdb_ro_t ro[1];
+    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &stake_delegation->stake_account ) ) ) {
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
       fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
       continue;
     }
 
     fd_stake_state_v2_t stake_state;
-    int err = fd_stake_get_state( meta, &stake_state );
+    int err = fd_stake_get_state( ro->meta, &stake_state );
     if( FD_UNLIKELY( err ) ) {
+      fd_accdb_close_ro( accdb, ro );
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
       fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
     }
 
     if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+      fd_accdb_close_ro( accdb, ro );
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
       fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
     }
@@ -392,6 +394,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
         stake_state.inner.stake.stake.delegation.deactivation_epoch,
         stake_state.inner.stake.stake.credits_observed,
         stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
+    fd_accdb_close_ro( accdb, ro );
   }
 }
 
