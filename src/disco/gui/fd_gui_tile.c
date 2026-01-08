@@ -97,8 +97,7 @@ typedef struct fd_gui_out_ctx fd_gui_out_ctx_t;
 
 typedef struct {
   fd_topo_t * topo;
-  fd_banks_t * banks;
-  fd_banks_t            banksl_join[1];
+  fd_banks_t  banks[1];
 
   int is_full_client;
   int snapshots_enabled;
@@ -136,7 +135,7 @@ typedef struct {
 
   long next_poll_deadline;
 
-  char          version_string[ 16UL ];
+  char version_string[ 16UL ];
 
   fd_keyswitch_t * keyswitch;
   uchar const *    identity_key;
@@ -357,8 +356,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
         fd_replay_slot_completed_t const * replay =  (fd_replay_slot_completed_t const *)src;
 
-        fd_bank_t bank[1];
+
         /* bank should already have positive refcnt */
+        fd_bank_t bank[1];
         FD_TEST( fd_banks_bank_query( bank, ctx->banks, replay->bank_idx ) );
         FD_TEST( bank->data->refcnt!=0 );
 
@@ -795,7 +795,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( ctx->is_full_client ) ) {
     FD_TEST( banks_obj_id!=ULONG_MAX );
     FD_TEST( banks_locks_obj_id!=ULONG_MAX );
-    ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) );
+    FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
     FD_TEST( ctx->banks );
   }
 

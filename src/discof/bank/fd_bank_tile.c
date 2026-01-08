@@ -52,8 +52,7 @@ struct fd_bank_ctx {
   int enable_rebates;
   fd_pack_rebate_sum_t rebater[ 1 ];
 
-  fd_banks_t banksl_join[1];
-  fd_banks_t * banks;
+  fd_banks_t banks[1];
 
   fd_accdb_user_t accdb[1];
   fd_progcache_t  progcache[1];
@@ -350,9 +349,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
 
-  fd_bank_t bank_l[1];
-  fd_bank_t * bank = fd_banks_bank_query( bank_l, ctx->banks, ctx->_bank_idx );
-  FD_TEST( bank );
+  fd_bank_t bank[1];
+  FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
   ulong bank_slot = fd_bank_slot_get( bank );
   FD_TEST( bank_slot==slot );
 
@@ -618,11 +616,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-
   ulong banks_locks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks_locks" );
   FD_TEST( banks_locks_obj_id!=ULONG_MAX );
-
-  ctx->banks = NONNULL( fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
+  NONNULL( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
 
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
