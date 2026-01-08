@@ -1,4 +1,66 @@
+import urllib.request
+import ipaddress
+import gzip
+import csv
+import struct
+import tempfile
+from pathlib import Path
+from typing import BinaryIO
+
+def convert_ipinfo(input_path: Path, output_path: Path) -> None:
+    country_codes = set()
+    with open(input_path, 'r') as r:
+        reader = csv.DictReader(r)
+        for row in reader:
+            try:
+                ipaddress.IPv4Network(row['network'])
+            except ipaddress.AddressValueError:
+                continue
+            assert len(row['country_code']) == 2
+            country_codes.add(row['country_code'])
+
+    assert len(country_codes) < 256, f"Too many country codes ({len(country_codes)}) to fit in a byte (max 255)"
+
+    country_to_index = {cc: idx for idx, cc in enumerate(sorted(country_codes))}
+
+    with open(input_path, 'r') as r:
+        reader = csv.DictReader(r)
+        with open(output_path, 'wb') as f:
+            f.write(struct.pack('<Q', len(country_codes)))
+            for cc in sorted(country_codes):
+                f.write(cc.encode('ascii'))
+
+            records = 0
+            for row in reader:
+                try:
+                    network = ipaddress.IPv4Network(row['network'])
+                except ipaddress.AddressValueError:
+                    continue
+
+                country_idx = country_to_index[row['country_code']]
+
+                f.write(struct.pack('>I', int(network.network_address)))
+                f.write(struct.pack('<B', network.prefixlen))
+                f.write(struct.pack('<B', country_idx))
+                records += 1
+
+    if records > 1e22:
+        raise AssertionError("Number of records exceeds IPINFO_MAX_NODES")
+
+    print(f"Converted {records} records with {len(country_codes)} country codes")
+
 def main():
+    ipinfo_access_token = input("Input your ipinfo API token. You can retrieve it by visiting https://ipinfo.io/dashboard/token and logging in with your github account.\n")
+    url = f"https://ipinfo.io/data/ipinfo_lite.csv.gz?token={ipinfo_access_token}"
+
+    req = urllib.request.Request(url=url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'})
+    with urllib.request.urlopen(req) as f:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with gzip.open(f, 'rb') as f_in:
+                f_out = (Path(tmpdir) / "ipinfo.csv")
+                f_out.write_bytes(f_in.read())
+            convert_ipinfo(f_out, Path('src/disco/gui/ipinfo.bin'))
+
     with open('src/app/fdctl/version.mk', 'r') as f:
         lines = f.readlines()
 
@@ -51,6 +113,10 @@ def main():
         f.write('VERSION_MAJOR := {}\n'.format(version_major))
         f.write('VERSION_MINOR := {}\n'.format(version_minor))
         f.write('VERSION_PATCH := {}\n'.format(version_patch))
+
+    print(f"Creating commit and updating ipinfo.bin")
+    subprocess.run(['git', 'add', 'src/disco/gui/ipinfo.bin'], check=True)
+    subprocess.run(['git', 'commit', '-m', f'Update ipinfo.bin'], check=True)
 
     print(f"Creating commit and tagging version v0.{version_minor}{version_patch:02d}.{solana_version}")
     subprocess.run(['git', 'add', 'src/app/fdctl/version.mk'], check=True)
