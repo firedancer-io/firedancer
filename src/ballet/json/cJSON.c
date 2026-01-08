@@ -20,6 +20,13 @@
   THE SOFTWARE.
 */
 
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+
+/* Known bug: cJSON uses NaN/infinity but we use -ffast-math */
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
+#pragma GCC diagnostic ignored "-Wnan-infinity-disabled"
+
 /* cJSON */
 /* JSON parser in C. */
 
@@ -398,6 +405,8 @@ loop_end:
     {
         item->valueint = (int)number;
     }
+
+    item->valueulong = strtoul((const char*)number_c_string, NULL, 10);
 
     item->type = cJSON_Number;
 
@@ -2793,6 +2802,7 @@ cJSON * cJSON_Duplicate_rec(const cJSON *item, size_t depth, cJSON_bool recurse)
     newitem->type = item->type & (~cJSON_IsReference);
     newitem->valueint = item->valueint;
     newitem->valuedouble = item->valuedouble;
+    newitem->valueulong = item->valueulong;
     if (item->valuestring)
     {
         newitem->valuestring = (char*)cJSON_strdup((unsigned char*)item->valuestring, &global_hooks);
