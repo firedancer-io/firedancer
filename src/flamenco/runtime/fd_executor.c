@@ -605,22 +605,25 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
        should be avoided.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L496-L517 */
 
-    fd_pubkey_t const *       owner_pubkey  = (fd_pubkey_t const *)program_meta->owner;
-    fd_account_meta_t const * owner_account = fd_funk_get_acc_meta_readonly( runtime->funk, &xid, owner_pubkey, NULL );
-    if( FD_UNLIKELY( !owner_account ) ) {
+    fd_accdb_ro_t owner_ro[1];
+    fd_pubkey_t const * owner_pubkey  = (fd_pubkey_t const *)program_meta->owner;
+    if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, owner_ro, &xid, owner_pubkey ) ) ) {
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L520 */
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
+    ulong       const owner_sz    = fd_accdb_ref_data_sz( owner_ro );
+    fd_pubkey_t const owner_owner = FD_LOAD( fd_pubkey_t, fd_accdb_ref_owner( owner_ro ) );
+    fd_accdb_close_ro( runtime->accdb, owner_ro );
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L502-L510 */
-    if( FD_UNLIKELY( memcmp( owner_account->owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( !fd_pubkey_eq( &owner_owner, &fd_solana_native_loader_id ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
 
     /* Count the owner's data in the loaded account size for program accounts.
        However, it is important to not double count repeated owners.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L511-L517 */
-    err = accumulate_and_check_loaded_account_data_size( owner_account->dlen,
+    err = accumulate_and_check_loaded_account_data_size( owner_sz,
                                                          requested_loaded_accounts_data_size,
                                                          &txn_out->details.loaded_accounts_data_size );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
