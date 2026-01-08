@@ -5,6 +5,11 @@ $(call add-objs,fd_accdb_admin,fd_flamenco)
 # User API
 $(call add-hdrs,fd_accdb_user.h fd_accdb_sync.h)
 
+# Minimal database
+$(call add-hdrs,fd_accdb_impl_v0.h)
+$(call add-objs,fd_accdb_impl_v0,fd_flamenco)
+$(call make-unit-test,test_accdb_v0,test_accdb_v0,fd_flamenco fd_ballet fd_util)
+
 # Funk-based database
 $(call add-hdrs,fd_accdb_impl_v1.h)
 $(call add-objs,fd_accdb_impl_v1,fd_flamenco)
