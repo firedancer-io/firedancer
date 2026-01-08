@@ -1,9 +1,7 @@
 #include "fd_solfuzz_private.h"
 #include "generated/context.pb.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_runtime.h"
 #include "../../features/fd_features.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
 #include <assert.h>
 
 int
@@ -24,8 +22,9 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
   /* Account must not yet exist */
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
-  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( funk, xid, pubkey, NULL ) ) ) {
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return 0;
   }
 
