@@ -1512,16 +1512,9 @@ fd_executor_setup_executable_account( fd_runtime_t *            runtime,
   fd_pubkey_t *     programdata_acc = &program_loader_state->inner.program.programdata_address;
   fd_funk_txn_xid_t xid             = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
 
-  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      runtime->funk,
-      &xid,
-      programdata_acc,
-      NULL );
-  if( FD_LIKELY( meta ) ) {
-    runtime->accounts.executable_pubkeys[*executable_idx] = *programdata_acc;
-    runtime->accounts.executables_meta[*executable_idx]   = (fd_account_meta_t *)meta;
-    (*executable_idx)++;
-  }
+  fd_accdb_ro_t * ro = &runtime->accounts.executables_meta[ *executable_idx ];
+  ro = fd_accdb_open_ro( runtime->accdb, ro, &xid, programdata_acc );
+  if( FD_LIKELY( ro ) ) (*executable_idx)++;
 }
 
 void
