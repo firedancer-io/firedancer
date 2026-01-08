@@ -553,8 +553,8 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      order to capture the block context from before the current block
      was executed, since dumping is happening in the block finalize
      step. */
-  fd_bank_t parent_bank_l[1];
-  fd_bank_t *                    parent_bank    = fd_banks_get_parent( parent_bank_l, banks, bank );
+  fd_bank_t parent_bank[1];
+  fd_banks_get_parent( parent_bank, banks, bank );
   ulong                          current_slot   = fd_bank_slot_get( bank );
   ulong                          parent_slot    = fd_bank_slot_get( parent_bank );
   fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_bank->data->idx } };

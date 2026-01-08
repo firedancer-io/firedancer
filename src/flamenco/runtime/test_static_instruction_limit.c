@@ -110,11 +110,15 @@ main( int     argc,
                                                 0UL );
   FD_TEST( wksp );
 
-  fd_bank_data_t * bank_data = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_data_t), sizeof(fd_bank_data_t), 1UL );
-  fd_bank_t *      bank      = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), 1UL );
+  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), 1UL );
+  fd_bank_data_t *   bank_data   = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_data_t), sizeof(fd_bank_data_t), 1UL );
+  fd_bank_t *        bank        = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), 1UL );
+  FD_TEST( banks_locks );
   FD_TEST( bank_data );
   FD_TEST( bank );
-  bank->data = bank_data;
+  fd_banks_locks_init( banks_locks );
+  bank->data  = bank_data;
+  bank->locks = banks_locks;
 
   test_static_instruction_limit_deactivated( bank );
   test_static_instruction_limit_exceeded( bank );

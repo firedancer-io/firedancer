@@ -100,9 +100,8 @@ typedef struct {
 
   /* external joins owned by replay tile */
 
-  fd_banks_t         banksl_join[1];
-  fd_banks_t *       banks;
-  fd_accdb_user_t    accdb[1];
+  fd_banks_t      banks[1];
+  fd_accdb_user_t accdb[1];
 
   /* frag-related structures (consume and publish) */
 
@@ -888,8 +887,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( banks_obj_id!=ULONG_MAX );
   ulong banks_locks_obj_id = fd_pod_query_ulong( topo->props, "banks_locks", ULONG_MAX );
   FD_TEST( banks_locks_obj_id!=ULONG_MAX );
-  ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) );
-  FD_TEST( ctx->banks );
+  FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
 
   ulong funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX );
   FD_TEST( funk_obj_id!=ULONG_MAX );

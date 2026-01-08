@@ -47,6 +47,7 @@ typedef struct fd_exec_tile_ctx {
      a funk_txn and a bank. These are queried from fd_banks_t and
      fd_funk_t. */
   fd_banks_t            banks[1];
+  fd_bank_t             bank[1];
   fd_accdb_user_t       accdb[1];
   fd_progcache_t        progcache[1];
 
@@ -57,8 +58,6 @@ typedef struct fd_exec_tile_ctx {
   ulong                 dispatch_time_comp;
 
   fd_log_collector_t    log_collector;
-
-  fd_bank_t             bank[1];
 
   fd_acc_pool_t *       acc_pool;
 

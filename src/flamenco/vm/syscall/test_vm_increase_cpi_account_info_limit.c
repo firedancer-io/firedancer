@@ -42,6 +42,7 @@ struct test_env {
   fd_exec_instr_ctx_t     instr_ctx[1];
   fd_bank_t               bank[1];
   fd_bank_data_t          bank_data[1];
+  fd_banks_locks_t        bank_locks[1];
   fd_txn_out_t            txn_out[1];
   fd_instr_info_t         instr[1];
   uchar                   rodata[100];
@@ -173,7 +174,7 @@ test_env_create( test_env_t * env,
   fd_vm_t * vm = fd_vm_join( fd_vm_new( env->vm ) );
   FD_TEST( vm );
 
-  test_vm_minimal_exec_instr_ctx( env->instr_ctx, env->runtime, env->bank, env->bank_data, env->txn_out );
+  test_vm_minimal_exec_instr_ctx( env->instr_ctx, env->runtime, env->bank, env->bank_data, env->bank_locks, env->txn_out );
 
   fd_features_t * features = fd_bank_features_modify( env->bank );
   fd_features_disable_all( features );
