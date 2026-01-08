@@ -16,7 +16,8 @@ void
 fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
                    fd_banks_t *              banks,
                    fd_bank_t *               bank,
-                   fd_vote_state_credits_t * vote_state_credits );
+                   fd_vote_state_credits_t * vote_state_credits,
+                   int                       is_incremental );
 
 FD_PROTOTYPES_END
 

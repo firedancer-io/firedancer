@@ -148,6 +148,14 @@ fd_vote_states_join( void * mem ) {
   return vote_states;
 }
 
+void
+fd_vote_states_init( fd_vote_states_t * vote_states ) {
+  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
+  fd_vote_state_map_reset( vote_state_map );
+  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
+  fd_vote_state_pool_reset( vote_state_pool );
+}
+
 fd_vote_state_ele_t *
 fd_vote_states_update( fd_vote_states_t *  vote_states,
                        fd_pubkey_t const * vote_account ) {

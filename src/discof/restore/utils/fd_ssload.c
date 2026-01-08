@@ -61,7 +61,8 @@ void
 fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
                    fd_banks_t *              banks,
                    fd_bank_t *               bank,
-                   fd_vote_state_credits_t * vote_state_credits ) {
+                   fd_vote_state_credits_t * vote_state_credits,
+                   int                       is_incremental ) {
 
   /* Slot */
 
@@ -181,6 +182,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
 
   /* Stake delegations for the current epoch. */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
+  if( is_incremental ) fd_stake_delegations_init( stake_delegations );
   for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
     fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
     if( FD_UNLIKELY( elem->stake_delegation==0UL ) ) {
@@ -200,6 +202,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
 
   /* Vote stakes for the previous epoch (E-1). */
   fd_vote_states_t * vote_stakes_prev = fd_bank_vote_states_prev_modify( bank );
+  if( is_incremental ) fd_vote_states_init( vote_stakes_prev );
   for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[1].vote_stakes[i];
     if( FD_UNLIKELY( !elem->stake ) ) continue;
@@ -242,12 +245,13 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
      stakes at the end of epoch 6, we should query by 8, because
      the leader schedule for epoch 8 is determined based on the
      stakes at the end of epoch 6.  Therefore, we save the total
-     epoch stake by querying for epoch+1. This logic is encapsulated
+     epoch stake by querying for epoch+1.  This logic is encapsulated
      in fd_ssmanifest_parser.c. */
   fd_bank_total_epoch_stake_set( bank, manifest->epoch_stakes[1].total_stake );
 
   /* Vote stakes for the previous epoch (E-2) */
   fd_vote_states_t * vote_stakes_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
+  if( is_incremental ) fd_vote_states_init( vote_stakes_prev_prev );
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
     if( FD_UNLIKELY( !elem->stake ) ) continue;
@@ -261,6 +265,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
 
   /* Vote states for the current epoch. */
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
+  if( is_incremental ) fd_vote_states_init( vote_states );
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
 
