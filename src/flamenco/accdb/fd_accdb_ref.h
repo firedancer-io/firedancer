@@ -12,6 +12,7 @@
    stores and DB specifics) and the runtime layer (offer no runtime
    protections). */
 
+#include "fd_accdb_base.h"
 #include "../fd_flamenco_base.h"
 #include "../../funk/fd_funk_rec.h"
 #include "../../funk/fd_funk_val.h"
@@ -19,9 +20,10 @@
 /* fd_accdb_ref_t is an opaque account database handle. */
 
 struct fd_accdb_ref {
-  ulong user_data;
   ulong meta_laddr;
+  ulong user_data;
   uchar address[32];
+  uint  accdb_type;  /* FD_ACCDB_TYPE_* */
 };
 typedef struct fd_accdb_ref fd_accdb_ref_t;
 
@@ -30,14 +32,27 @@ typedef struct fd_accdb_ref fd_accdb_ref_t;
 union fd_accdb_ro {
   fd_accdb_ref_t ref[1];
   struct {
-    ulong                     user_data;
     fd_account_meta_t const * meta;
-    uchar                     address[32];
   };
 };
 typedef union fd_accdb_ro fd_accdb_ro_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_accdb_ro_init_nodb creates a read-only account reference to an
+   account that is not managed by an account database.  This is useful
+   for local caching (e.g. cross-program invocations). */
+
+static inline fd_accdb_ro_t *
+fd_accdb_ro_init_nodb( fd_accdb_ro_t *           ro,
+                       void const *              address,
+                       fd_account_meta_t const * meta ) {
+  ro->meta = meta;
+  ro->ref->user_data = 0UL;
+  memcpy( ro->ref->address, address, 32UL );
+  ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+  return ro;
+}
 
 static inline void const *
 fd_accdb_ref_address( fd_accdb_ro_t const * ro ) {
@@ -89,15 +104,28 @@ union fd_accdb_rw {
   fd_accdb_ref_t ref[1];
   fd_accdb_ro_t  ro [1];
   struct {
-    ulong               user_data;
     fd_account_meta_t * meta;
-    uchar               address[32];
-    uint                published : 1;
   };
 };
 typedef union fd_accdb_rw fd_accdb_rw_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_accdb_rw_init_nodb creates a writable account reference to an
+   account that is not managed by an account database.  This is useful
+   for local caching (e.g. cross-program invocations). */
+
+static inline fd_accdb_rw_t *
+fd_accdb_rw_init_nodb( fd_accdb_rw_t *           rw,
+                       void const *              address,
+                       fd_account_meta_t const * meta,
+                       ulong                     data_max ) {
+  rw->meta = (fd_account_meta_t *)meta;
+  rw->ref->user_data = data_max;
+  memcpy( rw->ref->address, address, 32UL );
+  rw->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+  return rw;
+}
 
 // void
 // fd_accdb_ref_clear( fd_accdb_rw_t * rw );

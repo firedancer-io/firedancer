@@ -199,7 +199,7 @@ rent_was_modified_in_txn( test_env_t *                env,
                           fd_funk_txn_xid_t const *   xid ) {
   fd_accdb_peek_t peek[1];
   FD_TEST( fd_accdb_peek( env->accdb, peek, xid, &fd_sysvar_rent_id ) );
-  fd_funk_rec_t * rec = (void *)peek->acc->user_data;
+  fd_funk_rec_t * rec = (void *)peek->acc->ref->user_data;
   return fd_funk_txn_xid_eq( rec->pair.xid, xid );
 }
 

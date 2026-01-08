@@ -170,10 +170,15 @@ fd_accdb_user_v0_open_ro( fd_accdb_user_t *         accdb_,
       FD_LOG_CRIT(( "accdb_user_v0_open_ro failed: account %s is currently in use", address_b58 ));
     }
     rec->reader_cnt++;
-    found = ro;
-    FD_STORE( fd_pubkey_t, found->address, rec->key );
-    found->meta = &rec->meta;
+
+    *ro = (fd_accdb_ro_t) {0};
+    FD_STORE( fd_pubkey_t, ro->ref->address, rec->key );
+    ro->ref->accdb_type = FD_ACCDB_TYPE_V0;
+    ro->ref->user_data  = 0UL;
+    ro->meta            = &rec->meta;
+
     accdb->base.ro_active++;
+    found = ro;
   }
 
   fd_rwlock_unwrite( &v0->lock );
@@ -188,9 +193,9 @@ fd_accdb_user_v0_close_ro( fd_accdb_user_t * accdb,
 
   fd_rwlock_write( &v0->lock );
 
-  long idx = find_key( v0, ro->address );
+  long idx = find_key( v0, ro->ref->address );
   if( FD_UNLIKELY( idx<0L ) ) {
-    FD_BASE58_ENCODE_32_BYTES( ro->address, address_b58 );
+    FD_BASE58_ENCODE_32_BYTES( ro->ref->address, address_b58 );
     FD_LOG_CRIT(( "accdb_user_v0_close_ro failed: account %s not found", address_b58 ));
   }
   fd_accdb_v0_rec_t * rec = &v0->rec[ idx ];
@@ -244,11 +249,11 @@ fd_accdb_user_v0_open_rw( fd_accdb_user_t *         accdb_,
   rec->writer_cnt = 1;
   rec->reader_cnt = 0;
 
-  *rw = (fd_accdb_rw_t) {
-    .meta      = &rec->meta,
-    .published = 1
-  };
-  memcpy( rw->address, address, sizeof(fd_pubkey_t) );
+  *rw = (fd_accdb_rw_t) {0};
+  memcpy( rw->ref->address, address, sizeof(fd_pubkey_t) );
+  rw->ref->accdb_type = FD_ACCDB_TYPE_V0;
+  rw->ref->user_data  = 0UL;
+  rw->meta            = &rec->meta;
 
 beach:
   fd_rwlock_unwrite( &v0->lock );
@@ -263,9 +268,9 @@ fd_accdb_user_v0_close_rw( fd_accdb_user_t * accdb,
 
   fd_rwlock_write( &v0->lock );
 
-  long idx = find_key( v0, rw->address );
+  long idx = find_key( v0, rw->ref->address );
   if( FD_UNLIKELY( idx<0L ) ) {
-    FD_BASE58_ENCODE_32_BYTES( rw->address, address_b58 );
+    FD_BASE58_ENCODE_32_BYTES( rw->ref->address, address_b58 );
     FD_LOG_CRIT(( "accdb_user_v0_close_rw failed: account %s not found", address_b58 ));
   }
   fd_accdb_v0_rec_t * rec = &v0->rec[ idx ];
@@ -286,7 +291,10 @@ fd_accdb_user_v0_close_rw( fd_accdb_user_t * accdb,
 ulong
 fd_accdb_user_v0_rw_data_max( fd_accdb_user_t *     accdb,
                               fd_accdb_rw_t const * rw ) {
-  (void)accdb; (void)rw;
+  (void)accdb;
+  if( rw->ref->accdb_type==FD_ACCDB_TYPE_NONE ) {
+    return rw->ref->user_data; /* data_max */
+  }
   return FD_RUNTIME_ACC_SZ_MAX;
 }
 
