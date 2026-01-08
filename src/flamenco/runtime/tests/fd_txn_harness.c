@@ -33,6 +33,33 @@
    } while(0);                                                                        \
 })
 
+/* Writes a transaction account to the output Protobuf message's
+   resulting_state field. out_account_data should be a pointer to
+   a contiguous region of memory that can hold the account data +
+   data length. */
+static void
+fd_solfuzz_pb_txn_ctx_write_account( fd_pubkey_t const *              pubkey,
+                                     fd_account_meta_t const *        meta,
+                                     fd_exec_test_resulting_state_t * resulting_state,
+                                     pb_bytes_array_t *               out_account_data ) {
+  fd_exec_test_acct_state_t * out_acct = &resulting_state->acct_states[ resulting_state->acct_states_count++ ];
+  memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
+
+  /* Copy over account content */
+  memcpy( out_acct->address, pubkey, sizeof(fd_pubkey_t) );
+
+  out_acct->lamports = meta->lamports;
+
+  if( meta->dlen>0UL ) {
+    out_acct->data       = out_account_data;
+    out_acct->data->size = (pb_size_t)meta->dlen;
+    fd_memcpy( out_acct->data->bytes, fd_account_data( meta ), meta->dlen );
+  }
+
+  out_acct->executable = meta->executable;
+  memcpy( out_acct->owner, meta->owner, sizeof(fd_pubkey_t) );
+}
+
 static void
 fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_accdb_clear( runner->accdb_admin );
@@ -462,65 +489,73 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     /* Allocate space for captured accounts */
-    ulong modified_acct_cnt = txn_out->accounts.cnt;
-
     txn_result->has_resulting_state         = true;
     txn_result->resulting_state.acct_states =
       FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
-                                  sizeof (fd_exec_test_acct_state_t) * modified_acct_cnt );
+                                  sizeof (fd_exec_test_acct_state_t) * txn_out->accounts.cnt );
     if( FD_UNLIKELY( _l > output_end ) ) {
       abort();
     }
 
-    /* If the transaction is a fees-only transaction, we have to create rollback accounts to iterate over and save. */
-    fd_account_meta_t * * accounts_to_save = txn_out->accounts.metas;
-    ulong                 accounts_cnt     = txn_out->accounts.cnt;
+    /* There are two possible outcomes when a transaction passes
+       sanitization checks in the runtime:
+       1. The transaction fails to load and is not executed (i.e.
+          load_transaction_accounts fails). We only capture the fee
+          payer and nonce accounts.
+       2. The transaction successfully loads, and is executed. This case
+          includes both transactions that succeed and transactions that
+          fail with an instruction error. If the transaction succeeds,
+          the resulting account states for writable accounts are all
+          captured. If the transaction failed with an instruction error,
+          all changes made to the writable accounts up until the
+          instruction error are captured.
+       */
     if( txn_out->err.is_fees_only ) {
-      accounts_to_save = fd_spad_alloc( runner->spad, alignof(fd_txn_account_t), sizeof(fd_txn_account_t) * 2 );
-      accounts_cnt     = 0UL;
-
+      /* If the transaction is a fees-only transaction, only capture the
+         rollback accounts. Note that there is a weird allowed edge
+         case where the nonce account can be the fee payer, so we add
+         special casing to make sure we don't capture the fee payer
+         twice. */
       if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-        accounts_to_save[accounts_cnt++] = txn_out->accounts.rollback_fee_payer;
+        fd_pubkey_t *       fee_payer_key    = &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX];
+        fd_account_meta_t * fee_payer_meta   = txn_out->accounts.rollback_fee_payer;
+        pb_bytes_array_t *  out_account_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( fee_payer_meta->dlen ) );
+        if( FD_UNLIKELY( _l>output_end ) ) {
+          abort();
+        }
+
+        fd_solfuzz_pb_txn_ctx_write_account( fee_payer_key, fee_payer_meta, &txn_result->resulting_state, out_account_data );
       }
 
       if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-        accounts_to_save[accounts_cnt++] = txn_out->accounts.rollback_nonce;
-      }
-    }
-
-    /* Capture borrowed accounts */
-    for( ulong j=0UL; j<accounts_cnt; j++ ) {
-      fd_account_meta_t * meta = accounts_to_save[j];
-      fd_pubkey_t * pubkey     = &txn_out->accounts.keys[j];
-
-      if( !( fd_runtime_account_is_writable_idx( txn_in, txn_out, runner->bank, (ushort)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
-
-      ulong modified_idx = txn_result->resulting_state.acct_states_count;
-      assert( modified_idx < modified_acct_cnt );
-
-      fd_exec_test_acct_state_t * out_acct = &txn_result->resulting_state.acct_states[ modified_idx ];
-      memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
-      /* Copy over account content */
-
-      memcpy( out_acct->address, pubkey, sizeof(fd_pubkey_t) );
-
-      out_acct->lamports = meta->lamports;
-
-      if( meta->dlen>0UL ) {
-        out_acct->data =
-          FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                      PB_BYTES_ARRAY_T_ALLOCSIZE( meta->dlen ) );
-        if( FD_UNLIKELY( _l > output_end ) ) {
+        fd_pubkey_t *       nonce_key        = &txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn];
+        fd_account_meta_t * nonce_meta       = txn_out->accounts.rollback_nonce;
+        pb_bytes_array_t *  out_account_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( nonce_meta->dlen ) );
+        if( FD_UNLIKELY( _l>output_end ) ) {
           abort();
         }
-        out_acct->data->size = (pb_size_t)meta->dlen;
-        fd_memcpy( out_acct->data->bytes, fd_account_data( meta ), meta->dlen );
+
+        fd_solfuzz_pb_txn_ctx_write_account( nonce_key, nonce_meta, &txn_result->resulting_state, out_account_data );
       }
+    } else {
+      /* Transaction executed, capture fee payer and other writable
+         accounts */
+      for( ulong j=0UL; j<txn_out->accounts.cnt; j++ ) {
+        fd_pubkey_t *       pubkey   = &txn_out->accounts.keys[j];
+        fd_account_meta_t * meta     = txn_out->accounts.metas[j];
 
-      out_acct->executable = meta->executable;
-      memcpy( out_acct->owner, meta->owner, sizeof(fd_pubkey_t) );
+        if( !( fd_runtime_account_is_writable_idx( txn_in, txn_out, runner->bank, (ushort)j ) || /* Capture writable accounts */
+               j==FD_FEE_PAYER_TXN_IDX ) ) {                                                               /* Capture the fee payer account */
+          continue;
+        }
 
-      txn_result->resulting_state.acct_states_count++;
+        pb_bytes_array_t * out_account_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( meta->dlen ) );
+        if( FD_UNLIKELY( _l>output_end ) ) {
+          abort();
+        }
+
+        fd_solfuzz_pb_txn_ctx_write_account( pubkey, meta, &txn_result->resulting_state, out_account_data );
+      }
     }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
