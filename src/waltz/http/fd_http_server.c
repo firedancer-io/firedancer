@@ -575,13 +575,14 @@ read_conn_http( fd_http_server_t * http,
 
   conn->upgrade_websocket = 0;
   int compress_websocket = 0;
-  if( FD_UNLIKELY( upgrade_key && !strncmp( upgrade_key, "websocket", 9UL ) ) ) {
+  if( FD_UNLIKELY( upgrade_key && !strncasecmp( upgrade_key, "websocket", 9UL ) ) ) {
     conn->request_bytes_len = (ulong)result;
     conn->upgrade_websocket = 1;
 
 #if FD_HAS_ZSTD
     for( ulong i=0UL; i<num_headers; i++ ) {
-      if( FD_LIKELY( headers[ i ].name_len==22UL && !strncasecmp( headers[ i ].name, "Sec-WebSocket-Protocol", 22UL ) && strstr( headers[ i ].value, "compress-zstd" ) ) ) {
+      if( FD_LIKELY( headers[ i ].name_len==22UL && !strncasecmp( headers[ i ].name, "Sec-WebSocket-Protocol", 22UL ) &&
+                     headers[ i ].value_len==13UL && !strncmp( headers[ i ].value, "compress-zstd", 13UL ) ) ) {
         compress_websocket = 1;
       }
     }
