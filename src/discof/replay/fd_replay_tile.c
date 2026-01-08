@@ -1052,7 +1052,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
 
-  fd_stake_delegations_refresh( root_delegations, funk, &xid );
+  fd_stake_delegations_refresh( root_delegations, ctx->accdb, &xid );
 
   /* We want to clear out any stale vote states that may have been
     included in the snapshot manifest.  If an agave snapshot is created
