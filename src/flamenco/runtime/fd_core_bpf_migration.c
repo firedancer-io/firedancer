@@ -4,9 +4,7 @@
 #include "fd_runtime_stack.h"
 #include "fd_pubkey_utils.h"
 #include "fd_system_ids.h"
-#include "fd_acc_mgr.h"
 #include "fd_hashes.h"
-#include "../accdb/fd_accdb_impl_v1.h"
 #include <assert.h>
 
 static fd_pubkey_t
@@ -30,20 +28,16 @@ tmp_account_new( fd_tmp_account_t * acc,
 
 fd_tmp_account_t *
 tmp_account_read( fd_tmp_account_t *        acc,
-                  fd_funk_t *               funk,
+                  fd_accdb_user_t *         accdb,
                   fd_funk_txn_xid_t const * xid,
                   fd_pubkey_t const *       addr ) {
-  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      funk,
-      xid,
-      addr,
-      NULL );
-  if( FD_LIKELY( !meta ) ) return NULL;
-  tmp_account_new( acc, meta->dlen );
-  acc->meta = *meta;
+  fd_accdb_ro_t ro[1];
+  if( FD_LIKELY( !fd_accdb_open_ro( accdb, ro, xid, addr ) ) ) return NULL;
+  tmp_account_new( acc, fd_accdb_ref_data_sz( ro ) );
+  acc->meta = *ro->meta;
   acc->addr = *addr;
-  fd_memcpy( acc->data, fd_account_meta_get_data_const( meta ), meta->dlen );
-  acc->data_sz = meta->dlen;
+  fd_memcpy( acc->data, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) );
+  acc->data_sz = fd_accdb_ref_data_sz( ro );
   return acc;
 }
 
@@ -110,7 +104,7 @@ target_builtin_t *
 target_builtin_new_checked( target_builtin_t *        target_builtin,
                             fd_pubkey_t const *       program_address,
                             int                       migration_target,
-                            fd_funk_t *               funk,
+                            fd_accdb_user_t *         accdb,
                             fd_funk_txn_xid_t const * xid,
                             fd_runtime_stack_t *      runtime_stack ) {
 
@@ -119,7 +113,7 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
   fd_tmp_account_t * program_account = &runtime_stack->bpf_migration.program_account;
   switch( migration_target ) {
   case FD_CORE_BPF_MIGRATION_TARGET_BUILTIN:
-    if( FD_UNLIKELY( !tmp_account_read( program_account, funk, xid, program_address ) ) ) {
+    if( FD_UNLIKELY( !tmp_account_read( program_account, accdb, xid, program_address ) ) ) {
       /* CoreBpfMigrationError::AccountNotFound(*program_address) */
       return NULL;
     }
@@ -130,13 +124,11 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
     break;
   case FD_CORE_BPF_MIGRATION_TARGET_STATELESS: {
     /* Program account should not exist */
-    int progdata_exists = !!fd_funk_get_acc_meta_readonly(
-        funk,
-        xid,
-        program_address,
-        NULL );
+    fd_accdb_ro_t ro[1];
+    int progdata_exists = !!fd_accdb_open_ro( accdb, ro, xid, program_address );
     if( progdata_exists ) {
       /* CoreBpfMigrationError::AccountAlreadyExists(*program_address) */
+      fd_accdb_close_ro( accdb, ro );
       return NULL;
     }
     break;
@@ -153,13 +145,11 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
 
   do {
     /* Program data account should not exist */
-    int progdata_exists = !!fd_funk_get_acc_meta_readonly(
-        funk,
-        xid,
-        &program_data_address,
-        NULL );
+    fd_accdb_ro_t ro[1];
+    int progdata_exists = !!fd_accdb_open_ro( accdb, ro, xid, &program_data_address );
     if( progdata_exists ) {
       /* CoreBpfMigrationError::AccountAlreadyExists(*program_address) */
+      fd_accdb_close_ro( accdb, ro );
       return NULL;
     }
   } while(0);
@@ -177,11 +167,11 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
 
 static fd_tmp_account_t *
 source_buffer_new_checked( fd_tmp_account_t *        acc,
-                           fd_funk_t *               funk,
+                           fd_accdb_user_t *         accdb,
                            fd_funk_txn_xid_t const * xid,
                            fd_pubkey_t const *       pubkey ) {
 
-  if( FD_UNLIKELY( !tmp_account_read( acc, funk, xid, pubkey ) ) ) {
+  if( FD_UNLIKELY( !tmp_account_read( acc, accdb, xid, pubkey ) ) ) {
     /* CoreBpfMigrationError::AccountNotFound(*buffer_address) */
     return NULL;
   }
@@ -301,14 +291,12 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
                               fd_runtime_stack_t *                   runtime_stack,
                               fd_pubkey_t const *                    builtin_program_id,
                               fd_capture_ctx_t *                     capture_ctx ) {
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
-
   target_builtin_t target[1];
   if( FD_UNLIKELY( !target_builtin_new_checked(
       target,
       builtin_program_id,
       config->migration_target,
-      funk,
+      accdb,
       xid,
       runtime_stack ) ) )
     return;
@@ -316,7 +304,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
   if( FD_UNLIKELY( !source_buffer_new_checked(
       source,
-      funk,
+      accdb,
       xid,
       config->source_buffer_address ) ) )
     return;
