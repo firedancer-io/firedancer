@@ -101,7 +101,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   char *      _page_sz = "normal";
-  ulong       page_cnt = 710UL;
+  ulong       page_cnt = 1000UL;
   ulong       numa_idx = fd_shmem_numa_idx( 0 );
   fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
                                                 page_cnt,
