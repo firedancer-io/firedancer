@@ -21,7 +21,7 @@ typedef struct blockhash blockhash_t;
 
 struct blockhash_map {
   blockhash_t key;
-  ulong       slot;
+  ulong       block_height;
 };
 
 typedef struct blockhash_map blockhash_map_t;
@@ -122,17 +122,18 @@ typedef struct {
 
   void * root_bank;
   ulong  root_slot;
+  ulong  root_block_height;
 
   blockhash_map_t * blockhash_map;
 
-  ulong flushing_slot;
+  ulong flushing_block_height;
   ulong flush_pool_idx;
 
   fd_stashed_txn_m_t * pool;
   map_chain_t *        map_chain;
   lru_list_t           lru_list[1];
 
-  ulong completed_slot;
+  ulong completed_block_height;
   ulong blockhash_ring_idx;
   blockhash_t blockhash_ring[ BLOCKHASH_RING_LEN ];
 
@@ -236,7 +237,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
 
-  txnm->reference_slot = ctx->flushing_slot;
+  txnm->reference_block_height = ctx->flushing_block_height;
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
@@ -253,7 +254,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, 0UL, tspub );
+  fd_stem_publish( stem, 0UL, ctx->root_block_height, ctx->out_chunk, realized_sz, 0UL, 0UL, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 
   return 1;
@@ -323,12 +324,13 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         ctx->root_bank = frag->bank;
         ctx->root_slot = frag->slot;
+        ctx->root_block_height = frag->block_height;
         break;
       }
       case 1: {
         fd_completed_bank_t * frag = (fd_completed_bank_t *)ctx->_bank_msg;
 
-        /* blockhash_ring is initalized to all zeros. blockhash=0 is an illegal map query */
+        /* blockhash_ring is initialized to all zeros. blockhash=0 is an illegal map query */
         if( FD_UNLIKELY( memcmp( &ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], (uchar[ 32UL ]){ 0UL }, sizeof(blockhash_t) ) ) ) {
           blockhash_map_t * entry = map_query( ctx->blockhash_map, ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], NULL );
           if( FD_LIKELY( entry ) ) map_remove( ctx->blockhash_map, entry );
@@ -338,13 +340,13 @@ after_frag( fd_resolv_ctx_t *   ctx,
         ctx->blockhash_ring_idx++;
 
         blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)frag->hash );
-        blockhash->slot = frag->slot;
+        blockhash->block_height = frag->block_height;
 
         blockhash_t * hash = (blockhash_t *)frag->hash;
         ctx->flush_pool_idx  = map_chain_idx_query_const( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );
-        ctx->flushing_slot   = frag->slot;
+        ctx->flushing_block_height   = frag->block_height;
 
-        ctx->completed_slot = frag->slot;
+        ctx->completed_block_height = frag->block_height;
         break;
       }
       default:
@@ -391,11 +393,11 @@ after_frag( fd_resolv_ctx_t *   ctx,
     return;
   }
 
-  txnm->reference_slot = ctx->completed_slot;
+  txnm->reference_block_height = ctx->completed_block_height;
   blockhash_map_t const * blockhash = map_query_const( ctx->blockhash_map, *(blockhash_t*)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off ), NULL );
   if( FD_LIKELY( blockhash ) ) {
-    txnm->reference_slot = blockhash->slot;
-    if( FD_UNLIKELY( txnm->reference_slot+151UL<ctx->completed_slot ) ) {
+    txnm->reference_block_height = blockhash->block_height;
+    if( FD_UNLIKELY( txnm->reference_block_height+FD_TXN_MAX_BLOCK_HEIGHT<ctx->root_block_height ) ) {
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       ctx->metrics.blockhash_expired++;
       return;
@@ -454,7 +456,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
+  fd_stem_publish( stem, 0UL, ctx->root_block_height, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
@@ -472,7 +474,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bundle_failed = 0;
   ctx->bundle_id     = 0UL;
 
-  ctx->completed_slot = 0UL;
+  ctx->completed_block_height = 0UL;
   ctx->blockhash_ring_idx = 0UL;
 
   ctx->flush_pool_idx = ULONG_MAX;
@@ -487,7 +489,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_LIKELY( !tile->kind_id ) ) _fd_ext_resolv_tile_cnt = ctx->round_robin_cnt;
 
-  ctx->root_bank = NULL;
+  ctx->root_bank         = NULL;
+  ctx->root_slot         = 0UL;
+  ctx->root_block_height = 0UL;
 
   memset( ctx->blockhash_ring, 0, sizeof( ctx->blockhash_ring ) );
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );

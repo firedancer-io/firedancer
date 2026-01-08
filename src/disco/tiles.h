@@ -37,7 +37,8 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred34 {
 typedef struct fd_shred34 fd_shred34_t;
 
 struct fd_became_leader {
-   ulong slot;
+  ulong slot;
+  ulong block_height;
 
   /* Start and end time of the slot in nanoseconds (from
      fd_log_wallclock()). */
@@ -106,12 +107,13 @@ typedef struct fd_became_leader fd_became_leader_t;
 struct fd_rooted_bank {
   void * bank;
   ulong  slot;
+  ulong  block_height;
 };
 
 typedef struct fd_rooted_bank fd_rooted_bank_t;
 
 struct fd_completed_bank {
-   ulong slot;
+   ulong block_height;
    uchar hash[32];
 };
 

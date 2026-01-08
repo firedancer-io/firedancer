@@ -33,12 +33,6 @@
    transactions/microblock, that's 62k txn/sec/bank. */
 #define MICROBLOCK_DURATION_NS  (0L)
 
-/* There are 151 accepted blockhashes, but those don't include skips.
-   This check is neither precise nor accurate, but just good enough.
-   The bank tile does the final check.  We give a little margin for a
-   few percent skip rate. */
-#define TRANSACTION_LIFETIME_SLOTS 160UL
-
 /* Time is normally a long, but pack expects a ulong.  Add -LONG_MIN to
    the time values so that LONG_MIN maps to 0, LONG_MAX maps to
    ULONG_MAX, and everything in between maps linearly with a slope of 1.
@@ -216,10 +210,9 @@ typedef struct {
      successful transaction insert. */
   long last_successful_insert;
 
-  /* highest_observed_slot stores the highest slot number we've seen
-     from any transaction coming from the resolv tile.  When this
-     increases, we expire old transactions. */
-  ulong highest_observed_slot;
+   /* root_block_height stores the block height of the last rooted slot we've seen
+     coming from the resolv tile.  When this increases, we expire old transactions. */
+  ulong root_block_height;
 
   /* microblock_duration_ns, and wait_duration
      respectively scaled to be in ticks instead of nanoseconds */
@@ -285,7 +278,7 @@ typedef struct {
     ulong id;
     ulong txn_cnt;
     ulong txn_received;
-    ulong min_blockhash_slot;
+    ulong min_block_height;
     fd_txn_e_t * _txn[ FD_PACK_MAX_TXN_PER_BUNDLE ];
     fd_txn_e_t * const * bundle; /* points to _txn when non-NULL */
   } current_bundle[1];
@@ -495,11 +488,9 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   spot->txnp->scheduler_arrival_time_nanos = insert->txnp->scheduler_arrival_time_nanos;
   extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
-  ulong blockhash_slot = insert->txnp->blockhash_slot;
-
   ulong deleted;
   long insert_duration = -fd_tickcount();
-  int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_slot, &deleted );
+  int result = fd_pack_insert_txn_fini( ctx->pack, spot, &deleted );
   insert_duration      += fd_tickcount();
 
   FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
@@ -889,11 +880,12 @@ during_frag( fd_pack_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
-    ulong payload_sz  = txnm->payload_sz;
-    ulong txn_t_sz    = txnm->txn_t_sz;
-    uint  source_ipv4 = txnm->source_ipv4;
-    uchar source_tpu  = txnm->source_tpu;
+    fd_txn_m_t * txnm            = (fd_txn_m_t *)dcache_entry;
+    ulong payload_sz             = txnm->payload_sz;
+    ulong txn_t_sz               = txnm->txn_t_sz;
+    uint  source_ipv4            = txnm->source_ipv4;
+    uchar source_tpu             = txnm->source_tpu;
+    ulong reference_block_height = txnm->reference_block_height;
     FD_TEST( payload_sz<=FD_TPU_MTU    );
     FD_TEST( txn_t_sz  <=FD_TXN_MAX_SZ );
     fd_txn_t * txn  = fd_txn_m_txn_t( txnm );
@@ -901,17 +893,17 @@ during_frag( fd_pack_ctx_t * ctx,
     ulong addr_table_sz = 32UL*txn->addr_table_adtl_cnt;
     FD_TEST( addr_table_sz<=32UL*FD_TXN_ACCT_ADDR_MAX );
 
-    if( FD_UNLIKELY( (ctx->leader_slot==ULONG_MAX) & (sig>ctx->highest_observed_slot) ) ) {
-      /* Using the resolv tile's knowledge of the current slot is a bit
-         of a hack, since we don't get any info if there are no
-         transactions and we're not leader.  We're actually in exactly
-         the case where that's okay though.  The point of calling
-         expire_before long before we become leader is so that we don't
-         drop new but low-fee-paying transactions when pack is clogged
-         with expired but high-fee-paying transactions.  That can only
-         happen if we are getting transactions. */
-      ctx->highest_observed_slot = sig;
-      ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
+    if( FD_UNLIKELY( (ctx->leader_slot==ULONG_MAX) & (sig>ctx->root_block_height) ) ) {
+      /* Using the resolv tile's knowledge of the current last root
+         block height is a bit of a hack, since we don't get any info if
+         there are no transactions and we're not leader.  We're actually
+         in exactly the case where that's okay though.  The point of
+         calling expire_before long before we become leader is so that
+         we don't drop new but low-fee-paying transactions when pack is
+         clogged with expired but high-fee-paying transactions.
+         That can only happen if we are getting transactions. */
+      ctx->root_block_height = sig;
+      ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->root_block_height, FD_TXN_MAX_BLOCK_HEIGHT )-FD_TXN_MAX_BLOCK_HEIGHT );
       FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
     }
 
@@ -926,7 +918,7 @@ during_frag( fd_pack_ctx_t * ctx,
         }
         ctx->current_bundle->id                 = bundle_id;
         ctx->current_bundle->txn_cnt            = txnm->block_engine.bundle_txn_cnt;
-        ctx->current_bundle->min_blockhash_slot = ULONG_MAX;
+        ctx->current_bundle->min_block_height   = ULONG_MAX;
         ctx->current_bundle->txn_received       = 0UL;
 
         if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) {
@@ -939,8 +931,8 @@ during_frag( fd_pack_ctx_t * ctx,
 
         ctx->current_bundle->bundle = fd_pack_insert_bundle_init( ctx->pack, ctx->current_bundle->_txn, ctx->current_bundle->txn_cnt );
       }
-      ctx->cur_spot                           = ctx->current_bundle->bundle[ ctx->current_bundle->txn_received ];
-      ctx->current_bundle->min_blockhash_slot = fd_ulong_min( ctx->current_bundle->min_blockhash_slot, sig );
+      ctx->cur_spot                         = ctx->current_bundle->bundle[ ctx->current_bundle->txn_received ];
+      ctx->current_bundle->min_block_height = fd_ulong_min( ctx->current_bundle->min_block_height, reference_block_height );
     } else {
       ctx->is_bundle = 0;
 #if FD_PACK_USE_EXTRA_STORAGE
@@ -953,11 +945,7 @@ during_frag( fd_pack_ctx_t * ctx,
           FD_MCNT_INC( PACK, TRANSACTION_DROPPED_FROM_EXTRA, 1UL );
         }
         ctx->cur_spot = extra_txn_deq_peek_tail( extra_txn_deq_insert_tail( ctx->extra_txn_deq ) );
-        /* We want to store the current time in cur_spot so that we can
-           track its expiration better.  We just stash it in the CU
-           fields, since those aren't important right now. */
-        ctx->cur_spot->txnp->blockhash_slot = sig;
-        ctx->insert_to_extra                = 1;
+        ctx->insert_to_extra = 1;
         FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
       }
 #else
@@ -976,6 +964,10 @@ during_frag( fd_pack_ctx_t * ctx,
     ctx->cur_spot->txnp->payload_sz  = payload_sz;
     ctx->cur_spot->txnp->source_ipv4 = source_ipv4;
     ctx->cur_spot->txnp->source_tpu  = source_tpu;
+    /* We just stash the reference block height in the CU
+       fields, since those aren't important until
+       fd_pack_insert_txn_fini is called. */
+    ctx->cur_spot->txnp->reference_block_height = reference_block_height;
 
     break;
   }
@@ -1050,7 +1042,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     }
     ctx->leader_slot = leader_slot;
 
-    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
+    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->_became_leader->block_height, FD_TXN_MAX_BLOCK_HEIGHT )-FD_TXN_MAX_BLOCK_HEIGHT );
     FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
     ctx->leader_bank          = ctx->_became_leader->bank;
@@ -1120,7 +1112,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       if( FD_UNLIKELY( ++(ctx->current_bundle->txn_received)==ctx->current_bundle->txn_cnt ) ) {
         ulong deleted;
         long insert_duration = -fd_tickcount();
-        int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_slot, 0, ctx->blk_engine_cfg, &deleted );
+        int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_block_height, 0, ctx->blk_engine_cfg, &deleted );
         insert_duration      += fd_tickcount();
         FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
@@ -1128,10 +1120,9 @@ after_frag( fd_pack_ctx_t *     ctx,
         ctx->current_bundle->bundle = NULL;
       }
     } else {
-      ulong blockhash_slot = sig;
       ulong deleted;
       long insert_duration = -fd_tickcount();
-      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot, &deleted );
+      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, &deleted );
       insert_duration      += fd_tickcount();
       FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
@@ -1314,7 +1305,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->rng                           = rng;
   ctx->ticks_per_ns                  = fd_tempo_tick_per_ns( NULL );
   ctx->last_successful_insert        = 0L;
-  ctx->highest_observed_slot         = 0UL;
+  ctx->root_block_height             = 0UL;
   ctx->microblock_duration_ticks     = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)MICROBLOCK_DURATION_NS  + 0.5);
 #if FD_PACK_USE_EXTRA_STORAGE
   ctx->insert_to_extra               = 0;

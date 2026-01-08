@@ -978,6 +978,7 @@ fd_ext_bank_load_account( void const *  bank,
 CALLED_FROM_RUST static void
 publish_became_leader( fd_poh_ctx_t * ctx,
                        ulong          slot,
+                       ulong          block_height,
                        ulong          epoch ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
@@ -1035,6 +1036,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
   leader->max_microblocks_in_slot = ctx->max_microblocks_per_slot;
   leader->ticks_per_slot          = ctx->ticks_per_slot;
   leader->total_skipped_ticks     = ctx->ticks_per_slot*(slot-ctx->reset_slot);
+  leader->block_height            = block_height;
   leader->epoch                   = epoch;
   leader->bundle->config[0]       = config[0];
   leader->slot                    = slot;
@@ -1069,6 +1071,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
 CALLED_FROM_RUST void
 fd_ext_poh_begin_leader( void const * bank,
                          ulong        slot,
+                         ulong        block_height,
                          ulong        epoch,
                          ulong        hashcnt_per_tick,
                          ulong        cus_block_limit,
@@ -1151,7 +1154,7 @@ fd_ext_poh_begin_leader( void const * bank,
   FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || slot>=ctx->highwater_leader_slot );
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), slot );
 
-  publish_became_leader( ctx, slot, epoch );
+  publish_became_leader( ctx, slot, block_height, epoch );
   FD_LOG_INFO(( "fd_ext_poh_begin_leader(slot=%lu, highwater_leader_slot=%lu, last_slot=%lu, last_hashcnt=%lu)", slot, ctx->highwater_leader_slot, ctx->last_slot, ctx->last_hashcnt ));
 
   fd_ext_poh_write_unlock();
