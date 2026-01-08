@@ -208,9 +208,15 @@ jobs:
 
           const body = table;
 
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body
-          });
+          const isFromFork = context.payload.pull_request.head.repo.fork;
+
+          if (!isFromFork) {
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+          }
+
+          console.log(body)
