@@ -121,7 +121,7 @@ fd_accdb_user_v2_open_ro( fd_accdb_user_t *         accdb_,
   *ro = (fd_accdb_ro_t) {
     .meta = meta
   };
-  memcpy( ro->ref->address, address, 32UL );
+  memcpy( ro->address, address, 32UL );
 
   /* Hide tombstones */
 
@@ -150,7 +150,7 @@ fd_accdb_user_v2_close_ro( fd_accdb_user_t * accdb_,
   ulong *           req_val_gaddr = fd_vinyl_req_batch_val_gaddr( accdb->vinyl_req_pool, batch_idx );
   schar *           req_err       = fd_vinyl_req_batch_err      ( accdb->vinyl_req_pool, batch_idx );
   fd_vinyl_comp_t * comp          = fd_vinyl_req_batch_comp     ( accdb->vinyl_req_pool, batch_idx );
-  fd_vinyl_key_init( req_key, ro->ref->address, 32UL );
+  fd_vinyl_key_init( req_key, ro->address, 32UL );
   req_val_gaddr[0] = fd_wksp_gaddr_fast( accdb->vinyl_data_wksp, (void *)ro->meta );
   memset( comp, 0, sizeof(fd_vinyl_comp_t) );
   fd_vinyl_req_send_batch(
