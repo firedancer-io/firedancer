@@ -567,6 +567,6 @@ limitations under the License.
 
 =======================================================================
 
-The IP address data in src/disco/gui/ipinfo.bin is powered by IPinfo Inc.
+The IP address data in src/disco/gui/dbip.bin is powered by DB-IP.com
 
 =======================================================================

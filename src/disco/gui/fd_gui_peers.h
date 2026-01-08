@@ -24,40 +24,67 @@
 #include "../../waltz/http/fd_http_server.h"
 #include "../topo/fd_topo.h"
 
+#if FD_HAS_ZSTD
+#define FD_GUI_GEOIP_ZSTD_COMPRESSION_LEVEL 19
+#define FD_GUI_GEOIP_ZSTD_WINDOW_LOG 23
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#endif
+
 #include <math.h>
 
 /* Node in an IP geolocation binary trie.  The trie is built from a
    compressed binary file with the following format:
 
-     num_country_codes: ulong count of country codes (little-endian)
-     country_codes: Array of 2-byte ASCII country codes
-     nodes: Series of 6-byte records containing:
-       uint network address (big-endian)
-       uchar prefix length (0-32), which defines the applicable network
-             mask
-       uchar country code index, into country_codes
+   GeoIp Binary layout
+  | country_code_cnt (8 bytes) |
+  | country_codes (2*country_code_cnt bytes) |
+  | city_names_cnt (8 bytes) |
+  | city_names (see below) |
+  | record_cnt (8 bytes) |
+  | records (record_cnt*10UL) |
+
+  Record binary layout
+  | ip (4 bytes) |
+  | prefix_sz (1 byte) |
+  | country_code_idx (1 byte) |
+  | city_name_idx (4 bytes) |
+
+  country_code_cnt: ulong count of country codes (little-endian)
+  country_codes: Array of 2-byte ASCII country codes, not null-terminated.
+  city_names_cnt: ulong count of city names (little-endian).
+  city_names: Concatenation of variable-length, null-terminated city names
+  record_cnt: ulong count of CIDR IP ranges in records
+  records: Series of 10-byte records containing:
+  ip: network ipv4 address (big-endian)
+  prefix_sz: uchar count of 1 bits (up to 32) in the netmask of the CIDR address
+  country_code_idx: uchar country code index, into country_codes
+  city_name_idx: uint city name index, into city_names.
 
   In the trie, each node represents one bit position in an IP address.
   Paths follow 0 (left child) and 1 (right child) bits from the IP's MSB
   to LSB.  Nodes with has_prefix=1 indicate a match at that prefix
-  lengt country_code_idx references the 2-letter country code in the
-  table.  Maximum depth is 32 levels (for IPv4).  */
+  length country_code_idx references the 2-letter country code in the
+  table.  Maximum depth is 32 levels (for IPv4).
 
-struct fd_gui_ipinfo_node {
+  FD_GUI_GEOIP_*_MAX_NODES should be larger than 2*num_records (since
+  records are stored in the leaves of a binary tree). */
+
+#define FD_GUI_GEOIP_DBIP_MAX_NODES   (1UL<<24UL) /* 16M nodes */
+#define FD_GUI_GEOIP_MAX_CITY_NAME_SZ (80UL)
+#define FD_GUI_GEOIP_MAX_CITY_CNT     (160000UL)
+#define FD_GUI_GEOIP_MAX_COUNTRY_CNT  (254UL)
+
+struct fd_gui_geoip_node {
   uchar has_prefix;
   uchar country_code_idx;
+  uint  city_name_idx;
 
-  struct fd_gui_ipinfo_node * left;
-  struct fd_gui_ipinfo_node * right;
+  struct fd_gui_geoip_node * left;
+  struct fd_gui_geoip_node * right;
 };
 
-typedef struct fd_gui_ipinfo_node fd_gui_ipinfo_node_t;
-
-struct fd_gui_country_code {
-  char cc[ 3 ];
-};
-
-typedef struct fd_gui_country_code fd_gui_country_code_t;
+typedef struct fd_gui_geoip_node fd_gui_geoip_node_t;
 
 #define FD_GUI_PEERS_NODE_NOP    (0)
 #define FD_GUI_PEERS_NODE_ADD    (1)
@@ -138,6 +165,7 @@ struct fd_gui_peers_node {
   ulong       epoch;
   ulong       epoch_credits;
   uchar       country_code_idx;
+  uint        city_name_idx;
   int         delinquent;
 
   struct {
@@ -325,6 +353,14 @@ struct fd_gui_peers_ws_conn {
 
 typedef struct fd_gui_peers_ws_conn fd_gui_peers_ws_conn_t;
 
+struct fd_gui_ip_db {
+  fd_gui_geoip_node_t * nodes;
+  char country_code[ FD_GUI_GEOIP_MAX_COUNTRY_CNT ][ 3 ]; /* ISO 3166-1 alpha-2 country codes as cstrings */
+  char city_name[ FD_GUI_GEOIP_MAX_CITY_CNT ][ FD_GUI_GEOIP_MAX_CITY_NAME_SZ ]; /* city_names as cstrings */
+};
+
+typedef struct fd_gui_ip_db fd_gui_ip_db_t;
+
 struct fd_gui_peers_ctx {
   long next_client_nanos; /* ns timestamp when we'll service the next ws client */
   long next_metric_rate_update_nanos; /* ns timestamp when we'll next update rate-of-change metrics */
@@ -353,10 +389,11 @@ struct fd_gui_peers_ctx {
   fd_gui_peers_vote_t votes        [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   fd_gui_peers_vote_t votes_scratch[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ]; /* for fast stable sort */
 
-  struct {
-    fd_gui_ipinfo_node_t * nodes;
-    fd_gui_country_code_t country_code[ 512 ]; /* ISO 3166-1 alpha-2 country codes */
-  } ipinfo;
+#if FD_HAS_ZSTD
+  ZSTD_DCtx * zstd_dctx;
+#endif
+
+  fd_gui_ip_db_t dbip;
 };
 
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
