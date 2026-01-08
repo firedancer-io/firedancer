@@ -1,6 +1,5 @@
 #include "fd_system_program.h"
 #include "../fd_borrowed_account.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../fd_acc_pool.h"
 #include "../sysvar/fd_sysvar_rent.h"
@@ -1004,7 +1003,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      the nonce instruction are signers. This is a successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( TXN( txn_in->txn ), (int)instr_accts[i] ) ) {
-      if( !memcmp( &txn_out->accounts.keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof(fd_pubkey_t) ) ) {
+      if( fd_pubkey_eq( &txn_out->accounts.keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority ) ) {
         /*
            Mark nonce account to make sure that we modify and hash the
            account even if the transaction failed to execute
@@ -1015,14 +1014,8 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
            Now figure out the state that the nonce account should
            advance to.
          */
-        fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-            runtime->funk,
-            &xid,
-            &txn_out->accounts.keys[ instr_accts[ 0UL ] ],
-            NULL );
-        ulong acc_data_len = meta->dlen;
-
-        if( FD_UNLIKELY( !meta ) ) {
+        fd_accdb_ro_t nonce_ro[1];
+        if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, nonce_ro, &xid, &txn_out->accounts.keys[ instr_accts[ 0UL ] ] ) ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
 
@@ -1046,19 +1039,22 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
           } }
         };
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > FD_ACC_NONCE_SZ_MAX ) ) {
-          FD_LOG_ERR(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
+          FD_LOG_CRIT(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
         }
         /* make_modifiable uses the old length for the data copy */
-        void * borrowed_account_data = txn_out->accounts.rollback_nonce_mem;
+        uchar * borrowed_account_data = txn_out->accounts.rollback_nonce_mem;
         if( FD_UNLIKELY( !borrowed_account_data ) ) {
           FD_LOG_CRIT(( "Failed to allocate memory for nonce account" ));
         }
-        if( FD_UNLIKELY( !meta ) ) {
-          FD_LOG_CRIT(( "Failed to get meta for nonce account" ));
-        }
-        fd_memcpy( borrowed_account_data, meta, sizeof(fd_account_meta_t)+acc_data_len );
+        fd_memcpy( borrowed_account_data,
+                   nonce_ro->meta,
+                   sizeof(fd_account_meta_t) );
+        fd_memcpy( borrowed_account_data+sizeof(fd_account_meta_t),
+                   fd_accdb_ref_data_const( nonce_ro ),
+                   fd_accdb_ref_data_sz   ( nonce_ro ) );
 
         txn_out->accounts.rollback_nonce = (fd_account_meta_t *)borrowed_account_data;
+        fd_accdb_close_ro( runtime->accdb, nonce_ro );
 
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>txn_out->accounts.rollback_nonce->dlen ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
