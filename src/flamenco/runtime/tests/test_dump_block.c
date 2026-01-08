@@ -48,9 +48,9 @@ typedef struct test_ctx {
   fd_funk_txn_xid_t child_xid;   /* Child funk txn (slot 100, child_bank->idx) */
 
   /* Banks (slot/epoch management) */
-  fd_banks_t   banks[1];
-  fd_bank_t    parent_bank[1];
-  fd_bank_t    child_bank[1];
+  fd_banks_t banks[1];
+  fd_bank_t  parent_bank[1];
+  fd_bank_t  child_bank[1];
 
   /* Scratch pad for temporary allocations */
   fd_spad_t * spad;

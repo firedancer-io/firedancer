@@ -34,8 +34,7 @@
 struct test_env {
   fd_wksp_t *          wksp;
   ulong                tag;
-  void *               banks_mem;
-  fd_banks_t *         banks;
+  fd_banks_t           banks[1];
   fd_bank_t            bank[1];
   void *               funk_mem;
   fd_accdb_admin_t     accdb_admin[1];
@@ -96,8 +95,7 @@ init_blockhash_queue( test_env_t * env ) {
 
 static test_env_t *
 test_env_create( test_env_t * env,
-                 fd_wksp_t *  wksp,
-                 fd_banks_t * banksl_join ) {
+                 fd_wksp_t *  wksp ) {
   fd_memset( env, 0, sizeof(test_env_t) );
   env->wksp = wksp;
   env->tag  = 1UL;
@@ -115,14 +113,13 @@ test_env_create( test_env_t * env,
   FD_TEST( fd_accdb_admin_join( env->accdb_admin, env->funk_mem ) );
   FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem ) );
 
-  env->banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
-  FD_TEST( env->banks_mem );
+  fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
+  FD_TEST( banks_data );
   fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), env->tag );
   FD_TEST( banks_locks );
   fd_banks_locks_init( banks_locks );
 
-  env->banks = fd_banks_join( banksl_join, fd_banks_new( env->banks_mem, max_total_banks, max_fork_width, 0, 8888UL ), banks_locks );
-  FD_TEST( env->banks );
+  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 0, 8888UL ), banks_locks ) );
 
   FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
@@ -160,7 +157,7 @@ test_env_destroy( test_env_t * env ) {
 
   fd_wksp_free_laddr( env->runtime_stack );
   fd_banks_delete( fd_banks_leave( env->banks ) );
-  fd_wksp_free_laddr( env->banks_mem );
+  fd_wksp_free_laddr( env->banks->data );
   fd_wksp_free_laddr( env->banks->locks );
   fd_alloc_compact( fd_funk_alloc( env->accdb_admin->funk ) );
 
@@ -266,8 +263,7 @@ advance_to_slot( test_env_t * env,
 static void
 test_deprecate_rent_exemption_threshold( fd_wksp_t * wksp ) {
   test_env_t env[1];
-  fd_banks_t banksl_join[1];
-  test_env_create( env, wksp, banksl_join );
+  test_env_create( env, wksp );
 
   /* Advance to last slot of epoch 1. Rent should not change. */
   int rent_modified = advance_to_slot( env, (2UL * TEST_SLOTS_PER_EPOCH) - 1UL );
