@@ -13,7 +13,6 @@
 #define FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_KEYBASE_USERNAME_SZ (  80UL)
 #define FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_MAX_SZ              ( 576UL) /* does not include size of ConfigKeys */
 #define FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ                  (FD_GUI_CONFIG_PARSE_CONFIG_KEYS_MAX_SZ+FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_MAX_SZ)
-#define FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ_WITH_NULL        (FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ+1UL) /* cJSON parser requires one byte past the parsable JSON */
 
 /* The size of a ConfigKeys of length 2, which is the expected length of ValidatorInfo */
 #define FD_GUI_CONFIG_PARSE_CONFIG_KEYS_MAX_SZ         (1UL + (32UL + 1UL)*2UL)
