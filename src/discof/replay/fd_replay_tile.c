@@ -149,9 +149,7 @@ struct fd_replay_tile {
 
   fd_txncache_t * txncache;
   fd_store_t *    store;
-  fd_banks_t            banksl_join[1];
-  fd_banks_t *          banks;
-  fd_bank_t            bank[1];
+  fd_banks_t      banks[1];
 
   /* This flag is 1 If we have seen a vote signature that our node has
      sent out get rooted at least one time.  The value is 0 otherwise.
@@ -647,7 +645,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
 static void
 cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
-  /* TODO:FIXME: This is potentially an unsafe check */
   if( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank->data ) ) ) {
     fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
     slot_info->cost_tracker.block_cost                   = cost_tracker->block_cost;
@@ -1571,9 +1568,8 @@ dispatch_task( fd_replay_tile_t *  ctx,
       /* FIXME: this should be done during txn parsing so that we don't
          have to loop over all accounts a second time. */
       /* Insert or reverify invoked programs for this epoch, if needed. */
-      fd_bank_t bank_l[1];
-      fd_bank_t * bank = fd_banks_bank_query( bank_l, ctx->banks, task->txn_exec->bank_idx );
-      FD_TEST( bank );
+      fd_bank_t bank[1];
+      FD_TEST( fd_banks_bank_query( bank, ctx->banks, task->txn_exec->bank_idx ) );
 
 #     if FD_HAS_FLATCC
       /* Add the transaction to the block dumper if necessary. This
@@ -1603,9 +1599,8 @@ dispatch_task( fd_replay_tile_t *  ctx,
     case FD_SCHED_TT_TXN_SIGVERIFY: {
       fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, task->txn_sigverify->txn_idx );
 
-      fd_bank_t bank_l[1];
-      fd_bank_t * bank = fd_banks_bank_query( bank_l, ctx->banks, task->txn_sigverify->bank_idx );
-      FD_TEST( bank );
+      fd_bank_t bank[1];
+      FD_TEST( fd_banks_bank_query( bank, ctx->banks, task->txn_sigverify->bank_idx ) );
       bank->data->refcnt++;
 
       fd_replay_out_link_t *        exec_out = ctx->exec_out;
@@ -1750,7 +1745,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
   } else if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
     /* If we are seeing a FEC with fec set idx 0, this means that we are
        starting a new slot, and we need a new bank index. */
-    reasm_fec->bank_idx = fd_banks_new_bank( ctx->bank, ctx->banks, reasm_fec->parent_bank_idx, now )->data->idx;
+    fd_bank_t bank[1];
+    reasm_fec->bank_idx = fd_banks_new_bank( bank, ctx->banks, reasm_fec->parent_bank_idx, now )->data->idx;
     /* At this point remove any stale entry in the block id map if it
        exists and set the block id as not having been seen yet.  This is
        safe because we know that the old entry for this bank index has
@@ -2102,7 +2098,6 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
                          fd_tower_slot_done_t const * msg,
                          ulong                        seq ) {
   fd_bank_t replay_bank[1];
-
   if( FD_UNLIKELY( !fd_banks_bank_query( replay_bank, ctx->banks, msg->replay_bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", msg->replay_bank_idx ));
   replay_bank->data->refcnt--;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu", replay_bank->data->idx, msg->replay_slot, replay_bank->data->refcnt ));
@@ -2502,8 +2497,7 @@ unprivileged_init( fd_topo_t *      topo,
   ulong banks_locks_obj_id = fd_pod_query_ulong( topo->props, "banks_locks", ULONG_MAX );
   FD_TEST( banks_locks_obj_id!=ULONG_MAX );
 
-  ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) );
-  FD_TEST( ctx->banks );
+  FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
 
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( ctx->banks->data );
   FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, fd_banks_pool_max( bank_pool ) );
@@ -2619,7 +2613,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->highwater_leader_slot = ULONG_MAX;
   ctx->slot_duration_nanos   = 350L*1000L*1000L; /* TODO: Not fixed ... not always 350ms ... */
   ctx->slot_duration_ticks   = (double)ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
-  ctx->leader_bank->data           = NULL;
+  ctx->leader_bank->data     = NULL;
 
   ctx->block_id_len = tile->replay.max_live_slots;
   ctx->block_id_arr = (fd_block_id_ele_t *)block_id_arr_mem;
