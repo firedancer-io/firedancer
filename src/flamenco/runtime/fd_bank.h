@@ -377,27 +377,22 @@ struct fd_bank_data {
   int         vote_states_dirty;
   ulong       vote_states_pool_idx;
   ulong       vote_states_pool_offset;
-  ulong       vote_states_pool_lock_offset;
 
   int   epoch_rewards_dirty;
   ulong epoch_rewards_pool_idx;
   ulong epoch_rewards_pool_offset;
-  ulong epoch_rewards_pool_lock_offset;
 
   int   epoch_leaders_dirty;
   ulong epoch_leaders_pool_idx;
   ulong epoch_leaders_pool_offset;
-  ulong epoch_leaders_pool_lock_offset;
 
   int   vote_states_prev_dirty;
   ulong vote_states_prev_pool_idx;
   ulong vote_states_prev_pool_offset;
-  ulong vote_states_prev_pool_lock_offset;
 
   int   vote_states_prev_prev_dirty;
   ulong vote_states_prev_prev_pool_idx;
   ulong vote_states_prev_prev_pool_offset;
-  ulong vote_states_prev_prev_pool_lock_offset;
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
@@ -412,6 +407,11 @@ struct fd_banks_locks {
      concurrently accessed or modified, and this lock does not offer
      synchronization on individual fields within a bank. */
   fd_rwlock_t banks_lock;
+  fd_rwlock_t epoch_rewards_pool_lock;
+  fd_rwlock_t epoch_leaders_pool_lock;
+  fd_rwlock_t vote_states_pool_lock;
+  fd_rwlock_t vote_states_prev_pool_lock;
+  fd_rwlock_t vote_states_prev_prev_pool_lock;
 };
 typedef struct fd_banks_locks fd_banks_locks_t;
 
@@ -436,16 +436,6 @@ fd_bank_get_epoch_rewards_pool( fd_bank_data_t * bank ) {
 }
 
 static inline void
-fd_bank_set_epoch_rewards_pool_lock( fd_bank_data_t * bank, fd_rwlock_t * rwlock ) {
-  bank->epoch_rewards_pool_lock_offset = (ulong)rwlock - (ulong)bank;
-}
-
-static inline fd_rwlock_t *
-fd_bank_get_epoch_rewards_pool_lock( fd_bank_data_t * bank ) {
-  return (fd_rwlock_t *)( (uchar *)bank + bank->epoch_rewards_pool_lock_offset );
-}
-
-static inline void
 fd_bank_set_epoch_leaders_pool( fd_bank_data_t * bank, fd_bank_epoch_leaders_t * epoch_leaders_pool ) {
   void * epoch_leaders_pool_mem = fd_bank_epoch_leaders_pool_leave( epoch_leaders_pool );
   if( FD_UNLIKELY( !epoch_leaders_pool_mem ) ) {
@@ -457,16 +447,6 @@ fd_bank_set_epoch_leaders_pool( fd_bank_data_t * bank, fd_bank_epoch_leaders_t *
 static inline fd_bank_epoch_leaders_t *
 fd_bank_get_epoch_leaders_pool( fd_bank_data_t * bank ) {
   return fd_bank_epoch_leaders_pool_join( (uchar *)bank + bank->epoch_leaders_pool_offset );
-}
-
-static inline void
-fd_bank_set_epoch_leaders_pool_lock( fd_bank_data_t * bank, fd_rwlock_t * rwlock ) {
-  bank->epoch_leaders_pool_lock_offset = (ulong)rwlock - (ulong)bank;
-}
-
-static inline fd_rwlock_t *
-fd_bank_get_epoch_leaders_pool_lock( fd_bank_data_t * bank ) {
-  return (fd_rwlock_t *)( (uchar *)bank + bank->epoch_leaders_pool_lock_offset );
 }
 
 static inline void
@@ -484,16 +464,6 @@ fd_bank_get_vote_states_pool( fd_bank_data_t * bank ) {
 }
 
 static inline void
-fd_bank_set_vote_states_pool_lock( fd_bank_data_t * bank, fd_rwlock_t * rwlock ) {
-  bank->vote_states_pool_lock_offset = (ulong)rwlock - (ulong)bank;
-}
-
-static inline fd_rwlock_t *
-fd_bank_get_vote_states_pool_lock( fd_bank_data_t * bank ) {
-  return (fd_rwlock_t *)( (uchar *)bank + bank->vote_states_pool_lock_offset );
-}
-
-static inline void
 fd_bank_set_vote_states_prev_pool( fd_bank_data_t * bank, fd_bank_vote_states_prev_t * vote_states_prev_pool ) {
   void * vote_states_prev_pool_mem = fd_bank_vote_states_prev_pool_leave( vote_states_prev_pool );
   if( FD_UNLIKELY( !vote_states_prev_pool_mem ) ) {
@@ -508,16 +478,6 @@ fd_bank_get_vote_states_prev_pool( fd_bank_data_t * bank ) {
 }
 
 static inline void
-fd_bank_set_vote_states_prev_pool_lock( fd_bank_data_t * bank, fd_rwlock_t * rwlock ) {
-  bank->vote_states_prev_pool_lock_offset = (ulong)rwlock - (ulong)bank;
-}
-
-static inline fd_rwlock_t *
-fd_bank_get_vote_states_prev_pool_lock( fd_bank_data_t * bank ) {
-  return (fd_rwlock_t *)( (uchar *)bank + bank->vote_states_prev_pool_lock_offset );
-}
-
-static inline void
 fd_bank_set_vote_states_prev_prev_pool( fd_bank_data_t * bank, fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool ) {
   void * vote_states_prev_prev_pool_mem = fd_bank_vote_states_prev_prev_pool_leave( vote_states_prev_prev_pool );
   if( FD_UNLIKELY( !vote_states_prev_prev_pool_mem ) ) {
@@ -529,16 +489,6 @@ fd_bank_set_vote_states_prev_prev_pool( fd_bank_data_t * bank, fd_bank_vote_stat
 static inline fd_bank_vote_states_prev_prev_t *
 fd_bank_get_vote_states_prev_prev_pool( fd_bank_data_t * bank ) {
   return fd_bank_vote_states_prev_prev_pool_join( (uchar *)bank + bank->vote_states_prev_prev_pool_offset );
-}
-
-static inline void
-fd_bank_set_vote_states_prev_prev_pool_lock( fd_bank_data_t * bank, fd_rwlock_t * rwlock ) {
-  bank->vote_states_prev_prev_pool_lock_offset = (ulong)rwlock - (ulong)bank;
-}
-
-static inline fd_rwlock_t *
-fd_bank_get_vote_states_prev_prev_pool_lock( fd_bank_data_t * bank ) {
-  return (fd_rwlock_t *)( (uchar *)bank + bank->vote_states_prev_prev_pool_lock_offset );
 }
 
 /* Do the same setup for the cost tracker pool. */
@@ -618,19 +568,10 @@ struct fd_banks_data {
   /* Layout all CoW pools. */
 
   ulong epoch_rewards_pool_offset;
-  fd_rwlock_t epoch_rewards_pool_lock;
-
   ulong epoch_leaders_pool_offset;
-  fd_rwlock_t epoch_leaders_pool_lock;
-
   ulong vote_states_pool_offset;
-  fd_rwlock_t vote_states_pool_lock;
-
   ulong vote_states_prev_pool_offset;
-  fd_rwlock_t vote_states_prev_pool_lock;
-
   ulong vote_states_prev_prev_pool_offset;
-  fd_rwlock_t vote_states_prev_prev_pool_lock;
 };
 typedef struct fd_banks_data fd_banks_data_t;
 
@@ -887,7 +828,8 @@ fd_banks_root( fd_bank_t *  bank_l,
   if( FD_UNLIKELY( !bank_data ) ) {
     return NULL;
   }
-  bank_l->data = bank_data;
+  bank_l->data  = bank_data;
+  bank_l->locks = banks->locks;
   return bank_l;
 }
 
@@ -969,7 +911,8 @@ fd_banks_bank_query( fd_bank_t *  bank_l,
   if( FD_UNLIKELY( !(bank_data->flags&FD_BANK_FLAGS_INIT) ) ) {
     return NULL;
   }
-  bank_l->data = bank_data;
+  bank_l->data  = bank_data;
+  bank_l->locks = banks->locks;
   return bank_l;
 }
 
@@ -977,7 +920,8 @@ static inline fd_bank_t *
 fd_banks_get_parent( fd_bank_t *  bank_l,
                      fd_banks_t * banks,
                      fd_bank_t *  bank ) {
-  bank_l->data = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank->data->parent_idx );
+  bank_l->data  = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank->data->parent_idx );
+  bank_l->locks = banks->locks;
   if( FD_UNLIKELY( !bank_l->data ) ) {
     return NULL;
   }

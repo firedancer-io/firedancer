@@ -4,8 +4,10 @@
 
 static void
 test_bank_advancing( void * mem ) {
+  fd_banks_locks_t locks[1];
+  fd_banks_locks_init( locks );
   fd_banks_t banksl_join[1];
-  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ), NULL );
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ), locks );
   /* Create the following fork tree with refcnts:
 
          P(0)
@@ -309,7 +311,10 @@ main( int argc, char ** argv ) {
 
   fd_banks_t banksl_join[1];
 
-  fd_banks_t * banks = fd_banks_join( banksl_join, mem, NULL );
+  fd_banks_locks_t locks[1];
+  fd_banks_locks_init( locks );
+
+  fd_banks_t * banks = fd_banks_join( banksl_join, mem, locks );
   FD_TEST( banks );
 
   fd_bank_t bank[1];

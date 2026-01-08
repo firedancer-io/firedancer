@@ -76,13 +76,15 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng, fd_runtime_t * runtime ) {
   fd_txn_out_t txn_out[1];
   fd_instr_info_t instr[1];
   fd_log_collector_t log_collector[1];
-  fd_bank_t bank[1];
+  fd_bank_data_t bank_data[1];
+  fd_bank_t bank = { .data = bank_data };
+
   ulong tx_len = 0;
-  ctx.bank = bank;
+  ctx.bank = &bank;
   runtime->log.log_collector = log_collector;
 
-  fd_bank_slot_set( bank, 0UL );
-  fd_features_t * features = fd_bank_features_modify( bank );
+  fd_bank_slot_set( &bank, 0UL );
+  fd_features_t * features = fd_bank_features_modify( &bank );
   fd_features_enable_all( features );
 
   // load test data

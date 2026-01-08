@@ -127,7 +127,9 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   env->banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
   FD_TEST( env->banks_mem );
   fd_banks_t * banksl_join = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_t), sizeof(fd_banks_t), env->tag );
-  env->banks = fd_banks_join( banksl_join, fd_banks_new( env->banks_mem, max_total_banks, max_fork_width, 0, 8888UL ), NULL );
+  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), env->tag );
+  fd_banks_locks_init( banks_locks );
+  env->banks = fd_banks_join( banksl_join, fd_banks_new( env->banks_mem, max_total_banks, max_fork_width, 0, 8888UL ), banks_locks );
   FD_TEST( env->banks );
   FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
