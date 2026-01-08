@@ -17,6 +17,8 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
 
+#define FD_BANKS_MAX_BANKS (4096UL)
+
 /* TODO: Some optimizations, cleanups, future work:
    1. Simple data types (ulong, int, etc) should be stored as their
       underlying type instead of a byte array.
@@ -353,8 +355,6 @@ struct fd_bank_data {
      allow for cloning the bank state with a simple memcpy. Each
      non-CoW field is just represented as a byte array. */
 
-  fd_rwlock_t lthash_lock;
-
   struct {
     fd_lthash_value_t lthash;
 
@@ -365,18 +365,15 @@ struct fd_bank_data {
 
   /* Layout all information needed for non-templatized fields. */
 
-  fd_rwlock_t cost_tracker_lock;
-  ulong       cost_tracker_pool_idx;
-  ulong       cost_tracker_pool_offset;
+  ulong cost_tracker_pool_idx;
+  ulong cost_tracker_pool_offset;
 
-  fd_rwlock_t stake_delegations_delta_lock;
-  int         stake_delegations_delta_dirty;
-  uchar       stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
+  int   stake_delegations_delta_dirty;
+  uchar stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
 
-  fd_rwlock_t vote_states_lock;
-  int         vote_states_dirty;
-  ulong       vote_states_pool_idx;
-  ulong       vote_states_pool_offset;
+  int   vote_states_dirty;
+  ulong vote_states_pool_idx;
+  ulong vote_states_pool_offset;
 
   int   epoch_rewards_dirty;
   ulong epoch_rewards_pool_idx;
@@ -412,6 +409,12 @@ struct fd_banks_locks {
   fd_rwlock_t vote_states_pool_lock;
   fd_rwlock_t vote_states_prev_pool_lock;
   fd_rwlock_t vote_states_prev_prev_pool_lock;
+
+  fd_rwlock_t lthash_lock[ FD_BANKS_MAX_BANKS ];
+  fd_rwlock_t cost_tracker_lock[ FD_BANKS_MAX_BANKS ];
+  fd_rwlock_t stake_delegations_delta_lock[ FD_BANKS_MAX_BANKS ];
+  fd_rwlock_t vote_states_lock[ FD_BANKS_MAX_BANKS ];
+
 };
 typedef struct fd_banks_locks fd_banks_locks_t;
 
@@ -670,7 +673,7 @@ FD_BANKS_ITER(X)
 
 static inline fd_stake_delegations_t *
 fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->data->stake_delegations_delta_lock );
+  fd_rwlock_write( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
   if( !bank->data->stake_delegations_delta_dirty ) {
     bank->data->stake_delegations_delta_dirty = 1;
     fd_stake_delegations_init( fd_type_pun( bank->data->stake_delegations_delta ) );
@@ -680,18 +683,18 @@ fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
 
 static inline void
 fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->data->stake_delegations_delta_lock );
+  fd_rwlock_unwrite( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
 }
 
 static inline fd_stake_delegations_t *
 fd_bank_stake_delegations_delta_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->data->stake_delegations_delta_lock );
+  fd_rwlock_read( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
   return bank->data->stake_delegations_delta_dirty ? fd_stake_delegations_join( bank->data->stake_delegations_delta ) : NULL;
 }
 
 static inline void
 fd_bank_stake_delegations_delta_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->data->stake_delegations_delta_lock );
+  fd_rwlock_unread( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
 }
 
 /* fd_bank_stake_delegations_frontier_query() will return a pointer to

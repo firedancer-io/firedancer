@@ -107,7 +107,7 @@ fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
 
 fd_vote_states_t const *
 fd_bank_vote_states_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->data->vote_states_lock );
+  fd_rwlock_read( &bank->locks->vote_states_lock[ bank->data->idx ] );
   /* If the pool element hasn't been setup yet, then return NULL */
   fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( bank->data );
   if( FD_UNLIKELY( vote_states_pool==NULL ) ) {
@@ -122,12 +122,12 @@ fd_bank_vote_states_locking_query( fd_bank_t * bank ) {
 
 void
 fd_bank_vote_states_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->data->vote_states_lock );
+  fd_rwlock_unread( &bank->locks->vote_states_lock[ bank->data->idx ] );
 }
 
 fd_vote_states_t *
 fd_bank_vote_states_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->data->vote_states_lock );
+  fd_rwlock_write( &bank->locks->vote_states_lock[ bank->data->idx ] );
   /* If the dirty flag is set, then we already have a pool element
      that was copied over for the current bank. We can simply just
      query the pool element and return it. */
@@ -158,7 +158,7 @@ fd_bank_vote_states_locking_modify( fd_bank_t * bank ) {
 
 void
 fd_bank_vote_states_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->data->vote_states_lock );
+  fd_rwlock_unwrite( &bank->locks->vote_states_lock[ bank->data->idx ] );
 }
 
 fd_vote_states_t const *
@@ -255,13 +255,13 @@ fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
   FD_TEST( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
   uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->data->cost_tracker_pool_idx )->data;
   FD_TEST( cost_tracker_mem );
-  fd_rwlock_write( &bank->data->cost_tracker_lock );
+  fd_rwlock_write( &bank->locks->cost_tracker_lock[ bank->data->idx ] );
   return fd_type_pun( cost_tracker_mem );
 }
 
 void
 fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->data->cost_tracker_lock );
+  fd_rwlock_unwrite( &bank->locks->cost_tracker_lock[ bank->data->idx ] );
 }
 
 fd_cost_tracker_t const *
@@ -270,35 +270,35 @@ fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
   FD_TEST( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
   uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->data->cost_tracker_pool_idx )->data;
   FD_TEST( cost_tracker_mem );
-  fd_rwlock_read( &bank->data->cost_tracker_lock );
+  fd_rwlock_read( &bank->locks->cost_tracker_lock[ bank->data->idx ] );
   return fd_type_pun_const( cost_tracker_mem );
 }
 
 void
 fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->data->cost_tracker_lock );
+  fd_rwlock_unread( &bank->locks->cost_tracker_lock[ bank->data->idx ] );
 }
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->data->lthash_lock );
+  fd_rwlock_read( &bank->locks->lthash_lock[ bank->data->idx ] );
   return &bank->data->non_cow.lthash;
 }
 
 void
 fd_bank_lthash_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->data->lthash_lock );
+  fd_rwlock_unread( &bank->locks->lthash_lock[ bank->data->idx ] );
 }
 
 fd_lthash_value_t *
 fd_bank_lthash_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->data->lthash_lock );
+  fd_rwlock_write( &bank->locks->lthash_lock[ bank->data->idx ] );
   return &bank->data->non_cow.lthash;
 }
 
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->data->lthash_lock );
+  fd_rwlock_unwrite( &bank->locks->lthash_lock[ bank->data->idx ] );
 }
 
 /* Bank accesssors */
@@ -716,6 +716,9 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   /* For all non-inlined fields make sure that each field is marked
      as not dirty and that the locks are initialized. */
 
+  bank_l->data  = bank;
+  bank_l->locks = banks->locks;
+
   bank->epoch_rewards_pool_idx         = fd_bank_epoch_rewards_pool_idx_null( fd_banks_get_epoch_rewards_pool( banks->data ) );
   bank->epoch_rewards_dirty            = 0;
 
@@ -724,7 +727,7 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
 
   bank->vote_states_pool_idx           = fd_bank_vote_states_pool_idx( fd_banks_get_vote_states_pool( banks->data ), fd_bank_vote_states_pool_ele_acquire( fd_banks_get_vote_states_pool( banks->data ) ) );
   bank->vote_states_dirty              = 1;
-  fd_rwlock_new( &bank->vote_states_lock );
+  fd_rwlock_new( &bank_l->locks->vote_states_lock[ bank->idx ] );
 
   bank->vote_states_prev_pool_idx      = fd_bank_vote_states_prev_pool_idx( fd_banks_get_vote_states_prev_pool( banks->data ), fd_bank_vote_states_prev_pool_ele_acquire( fd_banks_get_vote_states_prev_pool( banks->data ) ) );
   bank->vote_states_prev_dirty         = 1;
@@ -733,12 +736,12 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   bank->vote_states_prev_prev_dirty    = 1;
 
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
-  fd_rwlock_new( &bank->cost_tracker_lock );
+  fd_rwlock_new( &bank_l->locks->cost_tracker_lock[ bank->idx ] );
 
   bank->stake_delegations_delta_dirty = 0;
-  fd_rwlock_new( &bank->stake_delegations_delta_lock );
+  fd_rwlock_new( &bank_l->locks->stake_delegations_delta_lock[ bank->idx ] );
 
-  fd_rwlock_new( &bank->lthash_lock );
+  fd_rwlock_new( &bank_l->locks->lthash_lock[ bank->idx ] );
 
   bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_REPLAYABLE | FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
@@ -814,7 +817,7 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   child_bank->vote_states_dirty    = 0;
   child_bank->vote_states_pool_idx = parent_bank->vote_states_pool_idx;
-  fd_rwlock_new( &child_bank->vote_states_lock );
+  fd_rwlock_new( &bank_l->locks->vote_states_lock[ child_bank->idx ] );
 
   child_bank->vote_states_prev_dirty    = 0;
   child_bank->vote_states_prev_pool_idx = parent_bank->vote_states_prev_pool_idx;
@@ -825,7 +828,7 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   /* The stake delegation delta needs to be reset. */
 
   child_bank->stake_delegations_delta_dirty = 0;
-  fd_rwlock_new( &child_bank->stake_delegations_delta_lock );
+  fd_rwlock_new( &bank_l->locks->stake_delegations_delta_lock[ child_bank->idx ] );
 
   /* The cost tracker pool needs to be set for the child bank and then
      a cost tracker pool element needs to be acquired. */
@@ -835,12 +838,12 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
     FD_LOG_CRIT(( "invariant violation: no free cost tracker pool elements" ));
   }
   child_bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-  fd_rwlock_new( &child_bank->cost_tracker_lock );
+  fd_rwlock_new( &bank_l->locks->cost_tracker_lock[ child_bank->idx ] );
 
   /* The lthash has already been copied over, we just need to initialize
      the lock for the current bank. */
 
-  fd_rwlock_new( &child_bank->lthash_lock );
+  fd_rwlock_new( &bank_l->locks->lthash_lock[ child_bank->idx ] );
 
   /* At this point, the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
@@ -1409,10 +1412,10 @@ fd_banks_clear_bank( fd_banks_t * banks,
     fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, bank->data->cost_tracker_pool_idx );
   }
   bank->data->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-  fd_rwlock_unwrite( &bank->data->cost_tracker_lock );
+  fd_rwlock_unwrite( &banks->locks->cost_tracker_lock[ bank->data->idx ] );
 
   bank->data->stake_delegations_delta_dirty = 0;
-  fd_rwlock_unwrite( &bank->data->stake_delegations_delta_lock );
+  fd_rwlock_unwrite( &banks->locks->stake_delegations_delta_lock[ bank->data->idx ] );
 
   fd_rwlock_unread( &banks->locks->banks_lock );
 }
@@ -1425,4 +1428,11 @@ fd_banks_locks_init( fd_banks_locks_t * locks ) {
   fd_rwlock_new( &locks->vote_states_pool_lock );
   fd_rwlock_new( &locks->vote_states_prev_pool_lock );
   fd_rwlock_new( &locks->vote_states_prev_prev_pool_lock );
+
+  for( ulong i = 0UL; i < FD_BANKS_MAX_BANKS; i++ ) {
+    fd_rwlock_new( &locks->lthash_lock[i] );
+    fd_rwlock_new( &locks->cost_tracker_lock[i] );
+    fd_rwlock_new( &locks->stake_delegations_delta_lock[i] );
+    fd_rwlock_new( &locks->vote_states_lock[i] );
+  }
 }
