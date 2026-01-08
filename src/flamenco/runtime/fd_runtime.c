@@ -1103,20 +1103,23 @@ fd_runtime_save_account( fd_accdb_user_t *         accdb,
   }
   int new_exist = meta->lamports!=0UL;
 
+  /* FIXME don't calculate LtHash if (!old_exist && !new_exist)
+           This change is blocked by solcap v2, which is not smart
+           enough to understand that (lthash+0==lthash). */
   fd_hashes_update_lthash1( lthash_post, lthash_prev, pubkey, meta, bank, capture_ctx );
 
   /* The first 32 bytes of an LtHash with a single input element are
      equal to the BLAKE3_256 hash of an account.  Therefore, comparing
      the first 32 bytes is a cryptographically secure equality check
      for an account. */
-  int unchanged = 0==memcmp( lthash_post->bytes, lthash_prev->bytes, 32UL );
+  int changed = 0!=memcmp( lthash_post->bytes, lthash_prev->bytes, 32UL );
 
-  if( old_exist || new_exist ) {
+  if( changed ) {
     fd_runtime_finalize_account( accdb, xid, pubkey, meta );
   }
 
   int save_type = (old_exist<<1) | (new_exist);
-  if( save_type==FD_RUNTIME_SAVE_MODIFY && unchanged ) {
+  if( save_type==FD_RUNTIME_SAVE_MODIFY && !changed ) {
     save_type = FD_RUNTIME_SAVE_UNCHANGED;
   }
   return save_type;
