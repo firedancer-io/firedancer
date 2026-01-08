@@ -210,13 +210,13 @@ jobs:
           // Save to file for artifact
           fs.writeFileSync('comment.txt', body);
 
-          // Save PR number if this is a pull request or issue comment
-          if (context.eventName === 'pull_request' || context.eventName === 'issue_comment') {
+          // Save PR number if this is a pull request
+          if (context.eventName === 'pull_request') {
             fs.writeFileSync('pr_number.txt', context.issue.number.toString());
           }
 
     - name: Upload comment artifacts
-      if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
+      if: github.event_name == 'pull_request'
       uses: actions/upload-artifact@v4
       with:
         name: benchmark-comment
