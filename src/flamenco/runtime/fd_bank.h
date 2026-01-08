@@ -402,7 +402,7 @@ struct fd_bank_data {
 typedef struct fd_bank_data fd_bank_data_t;
 
 struct fd_banks_locks {
-  int unused;
+  fd_rwlock_t banks_lock;
 };
 typedef struct fd_banks_locks fd_banks_locks_t;
 
@@ -1093,6 +1093,9 @@ static inline int
 fd_banks_is_full( fd_banks_t * banks ) {
   return fd_banks_pool_free( fd_banks_get_bank_pool( banks->data ) )==0UL;
 }
+
+void
+fd_banks_locks_init( fd_banks_locks_t * locks );
 
 FD_PROTOTYPES_END
 

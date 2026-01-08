@@ -13,6 +13,31 @@
   __x; }))
 
 static ulong
+banks_locks_footprint( fd_topo_t const *     topo FD_PARAM_UNUSED,
+                       fd_topo_obj_t const * obj FD_PARAM_UNUSED ) {
+  return sizeof(fd_banks_locks_t);
+}
+
+static ulong
+banks_locks_align( fd_topo_t const *     topo FD_PARAM_UNUSED,
+                   fd_topo_obj_t const * obj FD_PARAM_UNUSED ) {
+  return alignof(fd_banks_locks_t);
+}
+
+static void
+banks_locks_new( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj ) {
+  fd_banks_locks_init( fd_topo_obj_laddr( topo, obj->id ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_banks_locks = {
+  .name      = "banks_locks",
+  .footprint = banks_locks_footprint,
+  .align     = banks_locks_align,
+  .new       = banks_locks_new,
+};
+
+static ulong
 banks_footprint( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
   return fd_banks_footprint( VAL("max_live_slots"), VAL("max_fork_width") );

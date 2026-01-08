@@ -323,7 +323,12 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Could not find topology object for banks" ));
   }
 
-  ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), NULL );
+  ulong banks_locks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks_locks" );
+  if( FD_UNLIKELY( banks_locks_obj_id==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "Could not find topology object for banks_locks" ));
+  }
+
+  ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) );
   if( FD_UNLIKELY( !ctx->banks ) ) {
     FD_LOG_ERR(( "Failed to join banks" ));
   }

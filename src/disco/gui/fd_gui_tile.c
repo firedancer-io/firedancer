@@ -789,11 +789,14 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->idle_cnt = 0UL;
   ctx->in_cnt = tile->in_cnt;
 
-  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  ulong banks_obj_id       = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  ulong banks_locks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks_locks" );
 
   if( FD_UNLIKELY( ctx->is_full_client ) ) {
     FD_TEST( banks_obj_id!=ULONG_MAX );
-    ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), NULL ); FD_TEST( ctx->banks );
+    FD_TEST( banks_locks_obj_id!=ULONG_MAX );
+    ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) );
+    FD_TEST( ctx->banks );
   }
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

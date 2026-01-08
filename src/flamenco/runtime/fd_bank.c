@@ -552,7 +552,8 @@ fd_banks_t *
 fd_banks_join( fd_banks_t * banks_ljoin,
                void *       banks_data_mem,
                void *       bank_locks_mem ) {
-  fd_banks_data_t * banks_data = (fd_banks_data_t *)banks_data_mem;
+  fd_banks_data_t * banks_data   = (fd_banks_data_t *)banks_data_mem;
+  fd_banks_locks_t * banks_locks = (fd_banks_locks_t *)bank_locks_mem;
 
   if( FD_UNLIKELY( !banks_data ) ) {
     FD_LOG_WARNING(( "NULL banks" ));
@@ -660,7 +661,7 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   }
 
   banks_ljoin->data  = banks_data;
-  banks_ljoin->locks = (fd_banks_locks_t *)bank_locks_mem;
+  banks_ljoin->locks = banks_locks;
 
   return banks_ljoin;
 }
@@ -1422,4 +1423,9 @@ fd_banks_clear_bank( fd_banks_t * banks,
   fd_rwlock_unwrite( &bank->data->stake_delegations_delta_lock );
 
   fd_rwlock_unread( &banks->data->rwlock );
+}
+
+void
+fd_banks_locks_init( fd_banks_locks_t * locks ) {
+  fd_rwlock_new( &locks->banks_lock );
 }

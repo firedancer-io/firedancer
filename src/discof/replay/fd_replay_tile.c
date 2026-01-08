@@ -2499,7 +2499,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), NULL );
+  ulong banks_locks_obj_id = fd_pod_query_ulong( topo->props, "banks_locks", ULONG_MAX );
+  FD_TEST( banks_locks_obj_id!=ULONG_MAX );
+
+  ctx->banks = fd_banks_join( ctx->banksl_join, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) );
   FD_TEST( ctx->banks );
 
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( ctx->banks->data );

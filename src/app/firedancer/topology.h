@@ -21,6 +21,10 @@ setup_topo_banks( fd_topo_t *  topo,
                   int          larger_max_cost_per_block );
 
 fd_topo_obj_t *
+setup_topo_banks_locks( fd_topo_t *  topo,
+                        char const * wksp_name );
+
+fd_topo_obj_t *
 setup_topo_funk( fd_topo_t *  topo,
                  char const * wksp_name,
                  ulong        max_account_records,
