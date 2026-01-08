@@ -502,7 +502,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_link( topo, "snapct_repr",  "snapct_repr",  128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; /* TODO: wire in repair later */
     if( FD_LIKELY( config->tiles.gui.enabled ) ) {
       /**/             fd_topob_link( topo, "snapct_gui",   "snapct_gui",   128UL,                                    sizeof(fd_snapct_update_t),    1UL );
-      /**/             fd_topob_link( topo, "snapin_gui",   "snapin_gui",   128UL,                                    FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ_WITH_NULL, 1UL );
+      /**/             fd_topob_link( topo, "snapin_gui",   "snapin_gui",   128UL,                                    FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, 1UL );
     }
     if( vinyl_enabled ) {
       fd_topo_link_t * snapin_wh =
