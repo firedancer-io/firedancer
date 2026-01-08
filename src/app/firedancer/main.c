@@ -86,6 +86,7 @@ extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execor;
 extern fd_topo_run_tile_t fd_tile_send;
 extern fd_topo_run_tile_t fd_tile_tower;
+extern fd_topo_run_tile_t fd_tile_solcap;
 
 extern fd_topo_run_tile_t fd_tile_snapct;
 extern fd_topo_run_tile_t fd_tile_snapld;
@@ -134,6 +135,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_genesi,
 # endif
   &fd_tile_ipecho,
+  &fd_tile_solcap,
   NULL,
 };
 
