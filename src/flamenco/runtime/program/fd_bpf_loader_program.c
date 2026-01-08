@@ -2568,7 +2568,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), ctx->bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), ctx->bank->data->idx } };
   fd_progcache_rec_t const * cache_entry =
       fd_progcache_pull( ctx->runtime->progcache,
                          ctx->runtime->accdb,

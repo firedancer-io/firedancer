@@ -553,10 +553,11 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      order to capture the block context from before the current block
      was executed, since dumping is happening in the block finalize
      step. */
-  fd_bank_t *                    parent_bank    = fd_banks_get_parent( banks, bank );
+  fd_bank_t parent_bank[1];
+  fd_banks_get_parent( parent_bank, banks, bank );
   ulong                          current_slot   = fd_bank_slot_get( bank );
   ulong                          parent_slot    = fd_bank_slot_get( parent_bank );
-  fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_bank->idx } };
+  fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_bank->data->idx } };
   fd_exec_test_block_context_t * block_context  = &dump_ctx->block_context;
   ulong                          dump_txn_count = dump_ctx->txns_to_dump_cnt;
   fd_spad_t *                    spad           = dump_ctx->spad;
@@ -772,7 +773,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   txn_context_msg->account_shared_data = fd_spad_alloc( spad,
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
   for( ulong i = 0; i < txn_out->accounts.cnt; ++i ) {
     // Make sure account is not a non-migrating builtin
     if( !is_builtin_account( &txn_out->accounts.keys[i] ) ) {
@@ -907,7 +908,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Program ID */
   fd_memcpy( instr_context->program_id, txn_out->accounts.keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
 
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_out->accounts.cnt;
@@ -1259,7 +1260,7 @@ fd_spad_t * spad = fd_spad_join( fd_spad_new( runtime->log.dumping_mem, 1UL<<28U
 
 FD_SPAD_FRAME_BEGIN( spad ) {
 
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   /* Get the programdata for the account */
   ulong         program_data_len = 0UL;

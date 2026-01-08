@@ -100,8 +100,8 @@ typedef struct {
 
   /* external joins owned by replay tile */
 
-  fd_banks_t *       banks;
-  fd_accdb_user_t    accdb[1];
+  fd_banks_t      banks[1];
+  fd_accdb_user_t accdb[1];
 
   /* frag-related structures (consume and publish) */
 
@@ -509,8 +509,8 @@ replay_slot_completed( ctx_t *                      ctx,
   /* Insert the vote acct addrs and stakes from the bank into accts. */
 
   fd_tower_accts_remove_all( ctx->tower_accts );
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, slot_completed->bank_idx );
-  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
+  fd_bank_t bank[1];
+  if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, slot_completed->bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
   ulong total_stake = query_acct_stake_from_bank( ctx->tower_accts, ctx->slot_stakes, bank, slot_completed->slot );
 
   /* Insert the just replayed block into forks. */
@@ -885,8 +885,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
-  FD_TEST( ctx->banks );
+  ulong banks_locks_obj_id = fd_pod_query_ulong( topo->props, "banks_locks", ULONG_MAX );
+  FD_TEST( banks_locks_obj_id!=ULONG_MAX );
+  FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
 
   ulong funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX );
   FD_TEST( funk_obj_id!=ULONG_MAX );

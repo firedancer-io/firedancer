@@ -36,9 +36,8 @@ struct test_env {
   fd_progcache_admin_t progcache_admin[1];
   fd_progcache_t       progcache[1];
   uchar *              progcache_scratch;
-  void *               banks_mem;
-  fd_banks_t *         banks;
-  fd_bank_t *          bank;
+  fd_banks_t           banks[1];
+  fd_bank_t            bank[1];
   void *               acc_pool_mem;
   fd_acc_pool_t *      acc_pool;
   fd_runtime_t *       runtime;
@@ -124,12 +123,12 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   FD_TEST( fd_progcache_join( env->progcache, env->pcache_mem, env->progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
   FD_TEST( fd_progcache_admin_join( env->progcache_admin, env->pcache_mem ) );
 
-  env->banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
-  FD_TEST( env->banks_mem );
-  env->banks = fd_banks_join( fd_banks_new( env->banks_mem, max_total_banks, max_fork_width, 0, 8888UL ) );
-  FD_TEST( env->banks );
-  env->bank = fd_banks_init_bank( env->banks );
-  FD_TEST( env->bank );
+  fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
+  FD_TEST( banks_data );
+  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), env->tag );
+  fd_banks_locks_init( banks_locks );
+  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 0, 8888UL ), banks_locks ) );
+  FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
   env->acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(), fd_acc_pool_footprint( acc_pool_cnt ), env->tag );
   FD_TEST( env->acc_pool_mem );
@@ -142,7 +141,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 10UL, env->bank->idx } };
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 10UL, env->bank->data->idx } };
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
   fd_progcache_txn_attach_child( env->progcache_admin, root, &env->xid );
 
@@ -174,8 +173,8 @@ test_env_destroy( test_env_t * env ) {
 
   fd_wksp_free_laddr( env->runtime );
   fd_wksp_free_laddr( env->acc_pool_mem );
-  fd_banks_delete( fd_banks_leave( env->banks ) );
-  fd_wksp_free_laddr( env->banks_mem );
+  fd_wksp_free_laddr( env->banks->data );
+  fd_wksp_free_laddr( env->banks->locks );
 
   fd_progcache_leave( env->progcache, NULL );
   void * pcache_funk = NULL;

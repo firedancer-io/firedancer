@@ -97,7 +97,7 @@ typedef struct fd_gui_out_ctx fd_gui_out_ctx_t;
 
 typedef struct {
   fd_topo_t * topo;
-  fd_banks_t * banks;
+  fd_banks_t  banks[1];
 
   int is_full_client;
   int snapshots_enabled;
@@ -135,7 +135,7 @@ typedef struct {
 
   long next_poll_deadline;
 
-  char          version_string[ 16UL ];
+  char version_string[ 16UL ];
 
   fd_keyswitch_t * keyswitch;
   uchar const *    identity_key;
@@ -356,10 +356,11 @@ after_frag( fd_gui_ctx_t *      ctx,
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
         fd_replay_slot_completed_t const * replay =  (fd_replay_slot_completed_t const *)src;
 
-        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, replay->bank_idx );
+
         /* bank should already have positive refcnt */
-        FD_TEST( bank );
-        FD_TEST( bank->refcnt!=0 );
+        fd_bank_t bank[1];
+        FD_TEST( fd_banks_bank_query( bank, ctx->banks, replay->bank_idx ) );
+        FD_TEST( bank->data->refcnt!=0 );
 
         fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
         FD_TEST( fd_vote_states_cnt( vote_states )<FD_RUNTIME_MAX_VOTE_ACCOUNTS );
@@ -386,8 +387,8 @@ after_frag( fd_gui_ctx_t *      ctx,
 
         fd_gui_slot_completed_t slot_completed;
         if( FD_LIKELY( replay->parent_bank_idx!=ULONG_MAX ) ) {
-          fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, replay->parent_bank_idx );
-          FD_TEST( parent_bank );
+          fd_bank_t parent_bank[1];
+          FD_TEST( fd_banks_bank_query( parent_bank, ctx->banks, replay->parent_bank_idx ) );
 
           slot_completed.total_txn_cnt          = (uint)(fd_bank_txn_count_get( bank )                 - fd_bank_txn_count_get( parent_bank ));
           slot_completed.vote_txn_cnt           = slot_completed.total_txn_cnt - (uint)(fd_bank_nonvote_txn_count_get( bank ) - fd_bank_nonvote_txn_count_get( parent_bank ));
@@ -788,11 +789,14 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->idle_cnt = 0UL;
   ctx->in_cnt = tile->in_cnt;
 
-  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  ulong banks_obj_id       = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  ulong banks_locks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks_locks" );
 
   if( FD_UNLIKELY( ctx->is_full_client ) ) {
     FD_TEST( banks_obj_id!=ULONG_MAX );
-    ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) ); FD_TEST( ctx->banks );
+    FD_TEST( banks_locks_obj_id!=ULONG_MAX );
+    FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
+    FD_TEST( ctx->banks );
   }
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

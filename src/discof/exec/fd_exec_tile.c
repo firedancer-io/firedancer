@@ -46,7 +46,8 @@ typedef struct fd_exec_tile_ctx {
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
      fd_funk_t. */
-  fd_banks_t *          banks;
+  fd_banks_t            banks[1];
+  fd_bank_t             bank[1];
   fd_accdb_user_t       accdb[1];
   fd_progcache_t        progcache[1];
 
@@ -57,8 +58,6 @@ typedef struct fd_exec_tile_ctx {
   ulong                 dispatch_time_comp;
 
   fd_log_collector_t    log_collector;
-
-  fd_bank_t *           bank;
 
   fd_acc_pool_t *       acc_pool;
 
@@ -138,7 +137,7 @@ static void
 publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
                            fd_stem_context_t *  stem ) {
   fd_exec_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
-  msg->bank_idx                  = ctx->bank->idx;
+  msg->bank_idx                  = ctx->bank->data->idx;
   msg->txn_exec->txn_idx         = ctx->txn_idx;
   msg->txn_exec->err             = !ctx->txn_out.err.is_committable;
   msg->txn_exec->slot            = ctx->slot;
@@ -177,8 +176,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
       case FD_EXEC_TT_TXN_EXEC: {
         /* Execute. */
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
-        FD_TEST( ctx->bank );
+        FD_TEST( fd_banks_bank_query( ctx->bank, ctx->banks, msg->bank_idx ) );
         ctx->txn_in.txn = &msg->txn;
 
         /* Set the capture txn index from the message so account updates
@@ -323,8 +321,12 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Could not find topology object for banks" ));
   }
 
-  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
-  if( FD_UNLIKELY( !ctx->banks ) ) {
+  ulong banks_locks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks_locks" );
+  if( FD_UNLIKELY( banks_locks_obj_id==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "Could not find topology object for banks_locks" ));
+  }
+
+  if( FD_UNLIKELY( !fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) ) ) {
     FD_LOG_ERR(( "Failed to join banks" ));
   }
 

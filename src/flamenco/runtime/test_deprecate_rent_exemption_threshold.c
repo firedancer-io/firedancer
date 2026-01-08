@@ -34,9 +34,8 @@
 struct test_env {
   fd_wksp_t *          wksp;
   ulong                tag;
-  void *               banks_mem;
-  fd_banks_t *         banks;
-  fd_bank_t *          bank;
+  fd_banks_t           banks[1];
+  fd_bank_t            bank[1];
   void *               funk_mem;
   fd_accdb_admin_t     accdb_admin[1];
   fd_accdb_user_t      accdb[1];
@@ -114,13 +113,15 @@ test_env_create( test_env_t * env,
   FD_TEST( fd_accdb_admin_join( env->accdb_admin, env->funk_mem ) );
   FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem ) );
 
-  env->banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
-  FD_TEST( env->banks_mem );
-  env->banks = fd_banks_join( fd_banks_new( env->banks_mem, max_total_banks, max_fork_width, 0, 8888UL ) );
-  FD_TEST( env->banks );
+  fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
+  FD_TEST( banks_data );
+  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), env->tag );
+  FD_TEST( banks_locks );
+  fd_banks_locks_init( banks_locks );
 
-  env->bank = fd_banks_init_bank( env->banks );
-  FD_TEST( env->bank );
+  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 0, 8888UL ), banks_locks ) );
+
+  FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), env->tag );
   FD_TEST( env->runtime_stack );
@@ -128,7 +129,7 @@ test_env_create( test_env_t * env,
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 0UL, env->bank->idx } };
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 0UL, env->bank->data->idx } };
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
 
   init_rent_sysvar( env, TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR, TEST_DEFAULT_EXEMPTION_THRESHOLD );
@@ -155,8 +156,8 @@ test_env_destroy( test_env_t * env ) {
   FD_TEST( env );
 
   fd_wksp_free_laddr( env->runtime_stack );
-  fd_banks_delete( fd_banks_leave( env->banks ) );
-  fd_wksp_free_laddr( env->banks_mem );
+  fd_wksp_free_laddr( env->banks->data );
+  fd_wksp_free_laddr( env->banks->locks );
   fd_alloc_compact( fd_funk_alloc( env->accdb_admin->funk ) );
 
   void * funk_mem = NULL;
@@ -208,12 +209,12 @@ process_slot( test_env_t * env,
               ulong        slot ) {
   fd_bank_t * parent_bank = env->bank;
   ulong parent_slot       = fd_bank_slot_get( parent_bank );
-  ulong parent_bank_idx   = parent_bank->idx;
+  ulong parent_bank_idx   = parent_bank->data->idx;
 
-  FD_TEST( parent_bank->flags & FD_BANK_FLAGS_FROZEN );
+  FD_TEST( parent_bank->data->flags & FD_BANK_FLAGS_FROZEN );
 
-  ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
-  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
+  ulong new_bank_idx = fd_banks_new_bank( env->bank, env->banks, parent_bank_idx, 0L )->data->idx;
+  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->bank, env->banks, new_bank_idx );
   FD_TEST( new_bank );
 
   fd_bank_slot_set( new_bank, slot );
@@ -227,8 +228,7 @@ process_slot( test_env_t * env,
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
 
-  env->bank = new_bank;
-  env->xid  = xid;
+  env->xid = xid;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( env->banks, env->bank, env->accdb, env->runtime_stack, NULL, &is_epoch_boundary );

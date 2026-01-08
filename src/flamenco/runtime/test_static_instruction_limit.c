@@ -8,7 +8,7 @@
 
 static void
 init_bank( fd_bank_t * bank ) {
-  memset( bank, 0, sizeof(fd_bank_t) );
+  memset( bank->data, 0, sizeof(fd_bank_data_t) );
   fd_bank_slot_set( bank, 1UL );
 }
 
@@ -101,7 +101,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   char *      _page_sz = "normal";
-  ulong       page_cnt = 710UL;
+  ulong       page_cnt = 1000UL;
   ulong       numa_idx = fd_shmem_numa_idx( 0 );
   fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
                                                 page_cnt,
@@ -110,8 +110,15 @@ main( int     argc,
                                                 0UL );
   FD_TEST( wksp );
 
-  fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), 1UL );
+  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), 1UL );
+  fd_bank_data_t *   bank_data   = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_data_t), sizeof(fd_bank_data_t), 1UL );
+  fd_bank_t *        bank        = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), 1UL );
+  FD_TEST( banks_locks );
+  FD_TEST( bank_data );
   FD_TEST( bank );
+  fd_banks_locks_init( banks_locks );
+  bank->data  = bank_data;
+  bank->locks = banks_locks;
 
   test_static_instruction_limit_deactivated( bank );
   test_static_instruction_limit_exceeded( bank );

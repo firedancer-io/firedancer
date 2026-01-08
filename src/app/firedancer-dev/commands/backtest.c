@@ -373,6 +373,13 @@ backtest_topo( config_t * config ) {
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
+  /* banks_locks_obj shared by replay and exec tiles */
+  fd_topob_wksp( topo, "banks_locks" );
+  fd_topo_obj_t * banks_locks_obj = setup_topo_banks_locks( topo, "banks_locks" );
+  fd_topob_tile_uses( topo, replay_tile, banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, banks_locks_obj->id, "banks_locks" ) );
+
   /* txncache_obj, busy_obj and poh_slot_obj only by replay tile */
   fd_topob_wksp( topo, "txncache"    );
   fd_topob_wksp( topo, "bank_busy"   );

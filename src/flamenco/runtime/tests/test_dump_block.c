@@ -48,9 +48,9 @@ typedef struct test_ctx {
   fd_funk_txn_xid_t child_xid;   /* Child funk txn (slot 100, child_bank->idx) */
 
   /* Banks (slot/epoch management) */
-  fd_banks_t * banks;
-  fd_bank_t *  parent_bank;  /* Parent bank */
-  fd_bank_t *  child_bank;   /* Child bank */
+  fd_banks_t banks[1];
+  fd_bank_t  parent_bank[1];
+  fd_bank_t  child_bank[1];
 
   /* Scratch pad for temporary allocations */
   fd_spad_t * spad;
@@ -96,9 +96,11 @@ test_ctx_setup( void ) {
   void * banks_mem       = fd_wksp_alloc_laddr( test_ctx->wksp, fd_banks_align(), banks_footprint, wksp_tag );
   FD_TEST( banks_mem );
 
+  void * banks_locks_mem = fd_wksp_alloc_laddr( test_ctx->wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), wksp_tag );
+  FD_TEST( banks_locks_mem );
+
   /* Initialize banks */
-  test_ctx->banks = fd_banks_join( fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 0, 8888UL ) );
-  FD_TEST( test_ctx->banks );
+  FD_TEST( fd_banks_join( test_ctx->banks, fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 0, 8888UL ), banks_locks_mem ) );
 
   /* Initialize stake delegations at the root level */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( test_ctx->banks );
@@ -106,7 +108,7 @@ test_ctx_setup( void ) {
   FD_TEST( stake_delegations );
 
   /* ===== Create Parent Bank ===== */
-  test_ctx->parent_bank = fd_banks_init_bank( test_ctx->banks );
+  FD_TEST( fd_banks_init_bank( test_ctx->parent_bank, test_ctx->banks ) );
   FD_TEST( test_ctx->parent_bank );
 
   /* Initialize vote states for parent bank */
@@ -124,9 +126,8 @@ test_ctx_setup( void ) {
   FD_TEST( parent_vote_states_prev_prev );
 
   /* ===== Create Child Bank ===== */
-  ulong child_bank_idx = fd_banks_new_bank( test_ctx->banks, test_ctx->parent_bank->idx, 0L )->idx;
-  test_ctx->child_bank = fd_banks_clone_from_parent( test_ctx->banks, child_bank_idx );
-  FD_TEST( test_ctx->child_bank );
+  ulong child_bank_idx = fd_banks_new_bank( test_ctx->child_bank, test_ctx->banks, test_ctx->parent_bank->data->idx, 0L )->data->idx;
+  FD_TEST( fd_banks_clone_from_parent( test_ctx->child_bank, test_ctx->banks, child_bank_idx ) );
 
   /* Allocate scratch pad */
   ulong  spad_footprint = fd_spad_footprint( TEST_SPAD_MEM_MAX );
@@ -179,7 +180,8 @@ test_ctx_teardown( test_ctx_t * test_ctx ) {
   fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( test_ctx->spad ) ) );
 
   /* Clean up banks */
-  fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( test_ctx->banks ) ) );
+  fd_wksp_free_laddr( test_ctx->banks->data );
+  fd_wksp_free_laddr( test_ctx->banks->locks );
 
   /* Clean up funk */
   fd_accdb_user_fini( test_ctx->accdb );
@@ -462,7 +464,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
 
   /* Create parent funk transaction */
   test_ctx->parent_xid.ul[0] = parent_slot;
-  test_ctx->parent_xid.ul[1] = test_ctx->parent_bank->idx;
+  test_ctx->parent_xid.ul[1] = test_ctx->parent_bank->data->idx;
   fd_funk_txn_xid_t root_xid;
   fd_funk_txn_xid_set_root( &root_xid );
   fd_accdb_attach_child( test_ctx->accdb_admin, &root_xid, &test_ctx->parent_xid );
@@ -505,7 +507,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
 
   /* Create child funk transaction */
   test_ctx->child_xid.ul[0] = child_slot;
-  test_ctx->child_xid.ul[1] = test_ctx->child_bank->idx;
+  test_ctx->child_xid.ul[1] = test_ctx->child_bank->data->idx;
   fd_accdb_attach_child( test_ctx->accdb_admin, &test_ctx->parent_xid, &test_ctx->child_xid );
 
   /* Reset dump context and collect transactions */

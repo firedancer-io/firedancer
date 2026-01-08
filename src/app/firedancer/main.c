@@ -19,6 +19,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
+extern fd_topo_obj_callbacks_t fd_obj_cb_banks_locks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
 extern fd_topo_obj_callbacks_t fd_obj_cb_acc_pool;
 
@@ -36,6 +37,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
   &fd_obj_cb_banks,
+  &fd_obj_cb_banks_locks,
   &fd_obj_cb_funk,
   &fd_obj_cb_acc_pool,
   NULL,

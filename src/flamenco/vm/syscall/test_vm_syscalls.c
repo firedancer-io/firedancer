@@ -265,10 +265,12 @@ main( int     argc,
 
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_bank_t           bank[1];
+  fd_bank_data_t      bank_data[1];
+  fd_banks_locks_t    bank_locks[1];
   fd_txn_out_t        txn_out[1];
   fd_log_collector_t  log_collector[1];
   runtime->log.log_collector = log_collector;
-  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, bank_data, bank_locks, txn_out );
 
   int vm_ok = !!fd_vm_init(
       /* vm                                   */ vm,

@@ -86,19 +86,16 @@ struct fd_capture_tile_ctx {
   ulong repair_buffer_sz;
   uchar repair_buffer[ FD_NET_MTU ];
 
-  out_link_t           stake_out[1];
-  out_link_t           snap_out[1];
-  int                  enable_publish_stake_weights;
-  ulong *              manifest_wmark;
-  uchar *              manifest_bank_mem;
-  fd_banks_t *         banks;
-  fd_bank_t *          bank;
-  char                 manifest_path[ PATH_MAX ];
-  int                  manifest_load_done;
-  uchar *              manifest_spad_mem;
-  fd_spad_t *          manifest_spad;
-  uchar *              shared_spad_mem;
-  fd_spad_t *          shared_spad;
+  out_link_t  stake_out[1];
+  out_link_t  snap_out[1];
+  int         enable_publish_stake_weights;
+  ulong *     manifest_wmark;
+  char        manifest_path[ PATH_MAX ];
+  int         manifest_load_done;
+  uchar *     manifest_spad_mem;
+  fd_spad_t * manifest_spad;
+  uchar *     shared_spad_mem;
+  fd_spad_t * shared_spad;
 
   fd_ip4_udp_hdrs_t intake_hdr[1];
 
@@ -140,16 +137,6 @@ scratch_align( void ) {
 }
 
 FD_FN_CONST static inline ulong
-manifest_bank_align( void ) {
-  return fd_banks_align();
-}
-
-FD_FN_CONST static inline ulong
-manifest_bank_footprint( void ) {
-  return fd_banks_footprint( MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH );
-}
-
-FD_FN_CONST static inline ulong
 manifest_load_align( void ) {
   return 128UL;
 }
@@ -187,13 +174,12 @@ shared_spad_max_alloc_footprint( void ) {
      The footprint for the banks needs to be equal to
      banks footprint (at least for the current setup with
      MANIFEST_MAX_TOTAL_BANKS==2). */
-  return fd_ulong_max( manifest_bank_footprint(), manifest_load_footprint() );
+  return manifest_load_footprint();
 }
 
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong footprint = sizeof(fd_capture_tile_ctx_t)
-                    + manifest_bank_footprint()
                     + fd_spad_footprint( manifest_spad_max_alloc_footprint() )
                     + fd_spad_footprint( shared_spad_max_alloc_footprint() )
                     + fd_alloc_footprint();
@@ -221,7 +207,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_capture_tile_ctx_t),  sizeof(fd_capture_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, manifest_bank_align(),           manifest_bank_footprint() );
   l = FD_LAYOUT_APPEND( l, manifest_spad_max_alloc_align(), fd_spad_footprint( manifest_spad_max_alloc_footprint() ) );
   l = FD_LAYOUT_APPEND( l, shared_spad_max_alloc_align(),   fd_spad_footprint( shared_spad_max_alloc_footprint() ) );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),                fd_alloc_footprint() );
@@ -754,7 +739,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_capture_tile_ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t),  sizeof(fd_capture_tile_ctx_t) );
-  void * manifest_bank_mem          = FD_SCRATCH_ALLOC_APPEND( l, manifest_bank_align(),           manifest_bank_footprint() );
   void * manifest_spad_mem          = FD_SCRATCH_ALLOC_APPEND( l, manifest_spad_max_alloc_align(), fd_spad_footprint( manifest_spad_max_alloc_footprint() ) );
   void * shared_spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, shared_spad_max_alloc_align(),   fd_spad_footprint( shared_spad_max_alloc_footprint() ) );
   void * alloc_mem                  = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),                fd_alloc_footprint() );
@@ -832,15 +816,6 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( !ctx->manifest_wmark ) ) FD_LOG_ERR(( "no root_slot fseq" ));
     FD_TEST( ULONG_MAX==fd_fseq_query( ctx->manifest_wmark ) );
   }
-
-  ctx->manifest_bank_mem    = manifest_bank_mem;
-
-  // TODO: ???? Why is this calling fd_banks_new ... does not seem right
-  ctx->banks = fd_banks_join( fd_banks_new( ctx->manifest_bank_mem, MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH, 0 /* TODO? */, 8888UL /* TODO? */ ) );
-  FD_TEST( ctx->banks );
-  ctx->bank  = fd_banks_init_bank( ctx->banks );
-  fd_bank_slot_set( ctx->bank, 0UL );
-  FD_TEST( ctx->bank );
 
   strncpy( ctx->manifest_path, tile->shredcap.manifest_path, PATH_MAX );
   ctx->manifest_load_done = 0;
