@@ -130,7 +130,9 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
   fd_banks_t * banks_l = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_t), sizeof(fd_banks_t), wksp_tag );
-  runner->banks = fd_banks_join( banks_l, fd_banks_new( banks_mem, bank_max, fork_max, 0, 8888UL ), NULL );
+  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), wksp_tag );
+  fd_banks_locks_init( banks_locks );
+  runner->banks = fd_banks_join( banks_l, fd_banks_new( banks_mem, bank_max, fork_max, 0, 8888UL ), banks_locks );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
   fd_bank_t * bank_l = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
   runner->bank = fd_banks_init_bank( bank_l, runner->banks );
