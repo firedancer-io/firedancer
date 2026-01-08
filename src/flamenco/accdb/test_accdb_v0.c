@@ -49,12 +49,16 @@ test_accdb_v0_logic( void ) {
   /* Create account */
 
   FD_TEST( fd_accdb_open_rw( user, rw0, NULL, &k0, 0UL, FD_ACCDB_FLAG_CREATE )==rw0 );
+  FD_TEST( rw0->ref->accdb_type==FD_ACCDB_TYPE_V0 );
+  FD_TEST( rw0->ref->user_data==0UL );
   FD_TEST( user_v0->base.rw_active==1 );
   fd_accdb_ref_lamports_set( rw0, 1UL );
   fd_accdb_close_rw( user, rw0 );
   FD_TEST( user_v0->base.rw_active==0 );
 
   FD_TEST( fd_accdb_open_ro( user, ro0, NULL, &k0 )==ro0 );
+  FD_TEST( ro0->ref->accdb_type==FD_ACCDB_TYPE_V0 );
+  FD_TEST( ro0->ref->user_data==0UL );
   FD_TEST( user_v0->base.ro_active==1 );
   FD_TEST( fd_pubkey_eq( fd_accdb_ref_address( ro0 ), &k0 ) );
   FD_TEST( fd_accdb_ref_data_sz ( ro0 )==0UL );

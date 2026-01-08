@@ -561,6 +561,7 @@ fd_progcache_insert( fd_progcache_t *           cache,
                  fd_funk_rec_pool_ele_max( funk->rec_pool ) ));
   }
   memset( funk_rec, 0, sizeof(fd_funk_rec_t) );
+  funk_rec->pub = 1;
   fd_funk_val_init( funk_rec );
 
   /* Pick and lock a txn in which cache entry is created at */
@@ -719,6 +720,7 @@ fd_progcache_invalidate( fd_progcache_t *          cache,
   }
   memset( funk_rec, 0, sizeof(fd_funk_rec_t) );
   fd_funk_val_init( funk_rec );
+  funk_rec->pub = 1;
 
   /* Create a tombstone */
 

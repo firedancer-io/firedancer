@@ -1,4 +1,5 @@
 #include "fd_accdb_impl_v1.h"
+#include "fd_accdb_base.h"
 #include "fd_accdb_sync.h"
 
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v1_t)<=alignof(fd_accdb_user_t), layout );
@@ -210,16 +211,15 @@ fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
   if( !rec ) return NULL;
 
   *peek = (fd_accdb_peek_t) {
-    .acc = {{
-      .user_data = (ulong)rec,
-      .meta      = fd_funk_val( rec, funk->wksp )
-    }},
     .spec = {{
       .key  = *key,
       .keyp = rec->pair.key
     }}
   };
-  memcpy( peek->acc->address, address, 32UL );
+  memcpy( peek->acc->ref->address, address, 32UL );
+  peek->acc->ref->accdb_type = FD_ACCDB_TYPE_V1;
+  peek->acc->ref->user_data  = (ulong)rec;
+  peek->acc->meta            = fd_funk_val( rec, funk->wksp );
   return peek;
 }
 
@@ -289,6 +289,7 @@ fd_accdb_prep_create( fd_accdb_rw_t *           rw,
   memcpy( rec->pair.key->uc, address, 32UL );
   fd_funk_txn_xid_copy( rec->pair.xid, xid );
   rec->tag      = 0;
+  rec->pub      = 0;
   rec->prev_idx = FD_FUNK_REC_IDX_NULL;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
 
@@ -296,12 +297,11 @@ fd_accdb_prep_create( fd_accdb_rw_t *           rw,
   meta->slot = xid->ul[0];
 
   accdb->base.rw_active++;
-  *rw = (fd_accdb_rw_t) {
-    .user_data = (ulong)rec,
-    .meta      = meta,
-    .published = 0
-  };
-  memcpy( rw->address, address, 32UL );
+  *rw = (fd_accdb_rw_t){0};
+  memcpy( rw->ref->address, address, 32UL );
+  rw->ref->accdb_type = FD_ACCDB_TYPE_V1;
+  rw->ref->user_data  = (ulong)rec;
+  rw->meta            = meta;
   return rw;
 }
 
@@ -317,12 +317,10 @@ fd_accdb_prep_inplace( fd_accdb_rw_t *      rw,
   }
 
   accdb->base.rw_active++;
-  *rw = (fd_accdb_rw_t) {
-    .user_data = (ulong)rec,
-    .meta      = fd_funk_val( rec, accdb->funk->wksp ),
-    .published = 1
-  };
-  memcpy( rw->address, rec->pair.key->uc, 32UL );
+  *rw = (fd_accdb_rw_t) {0};
+  memcpy( rw->ref->address, rec->pair.key->uc, 32UL );
+  rw->ref->user_data = (ulong)rec;
+  rw->meta           = fd_funk_val( rec, accdb->funk->wksp );
   if( FD_UNLIKELY( !rw->meta->lamports ) ) {
     memset( rw->meta, 0, sizeof(fd_account_meta_t) );
   }
@@ -413,10 +411,12 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
     memset( val, 0, sizeof(fd_account_meta_t) );
     return fd_accdb_prep_create( rw, v1, xid, address, val, sizeof(fd_account_meta_t), val_max );
 
-  } else if( fd_funk_txn_xid_eq( ((fd_funk_rec_t *)peek->acc->user_data)->pair.xid, xid ) ) {
+  }
+
+  fd_funk_rec_t * rec = (fd_funk_rec_t *)peek->acc->ref->user_data;
+  if( fd_funk_txn_xid_eq( rec->pair.xid, xid ) ) {
 
     /* Mutable record found, modify in-place */
-    fd_funk_rec_t * rec = (fd_funk_rec_t *)peek->acc->user_data;
     ulong  acc_orig_sz = fd_accdb_ref_data_sz( peek->acc );
     ulong  val_sz_min  = sizeof(fd_account_meta_t)+fd_ulong_max( data_max, acc_orig_sz );
     void * val         = fd_funk_val_truncate( rec, v1->funk->alloc, v1->funk->wksp, 16UL, val_sz_min, NULL );
@@ -433,7 +433,6 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
   } else {
 
     /* Frozen record found, copy out to new object */
-    fd_funk_rec_t * rec = (fd_funk_rec_t *)peek->acc->user_data;
     ulong  acc_orig_sz = fd_accdb_ref_data_sz( peek->acc );
     ulong  val_sz_min  = sizeof(fd_account_meta_t)+fd_ulong_max( data_max, acc_orig_sz );
     ulong  val_sz      = flag_truncate ? sizeof(fd_account_meta_t) : rec->val_sz;
@@ -468,13 +467,13 @@ fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
                            fd_accdb_rw_t *   write ) {
   if( FD_UNLIKELY( !accdb ) ) FD_LOG_CRIT(( "NULL accdb" ));
   fd_accdb_user_v1_t * v1  = (fd_accdb_user_v1_t *)accdb;
-  fd_funk_rec_t *      rec = (fd_funk_rec_t *)write->user_data;
+  fd_funk_rec_t *      rec = (fd_funk_rec_t *)write->ref->user_data;
 
   if( FD_UNLIKELY( !v1->base.rw_active ) ) {
     FD_LOG_CRIT(( "Failed to modify account: ref count underflow" ));
   }
 
-  if( !write->published ) {
+  if( !rec->pub ) {
     if( FD_UNLIKELY( v1->tip_txn_idx==ULONG_MAX ) ) {
       FD_LOG_CRIT(( "accdb_user corrupt: not joined to a transaction" ));
     }
@@ -485,6 +484,7 @@ fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
       .rec_tail_idx = &txn->rec_tail_idx
     };
     fd_funk_rec_publish( v1->funk, &prepare );
+    rec->pub = 1;
   }
 
   v1->base.rw_active--;
@@ -494,7 +494,10 @@ ulong
 fd_accdb_user_v1_rw_data_max( fd_accdb_user_t *     accdb,
                               fd_accdb_rw_t const * rw ) {
   (void)accdb;
-  fd_funk_rec_t * rec = (fd_funk_rec_t *)rw->user_data;
+  if( rw->ref->accdb_type==FD_ACCDB_TYPE_NONE ) {
+    return rw->ref->user_data; /* data_max */
+  }
+  fd_funk_rec_t * rec = (fd_funk_rec_t *)rw->ref->user_data;
   return (ulong)( rec->val_max - sizeof(fd_account_meta_t) );
 }
 
@@ -509,13 +512,12 @@ fd_accdb_user_v1_rw_data_sz_set( fd_accdb_user_t * accdb,
     FD_LOG_CRIT(( "invalid flags for rw_data_sz_set: %#02x", (uint)flags ));
   }
 
-  fd_funk_rec_t * rec = (fd_funk_rec_t *)rw->user_data;
   ulong prev_sz = rw->meta->dlen;
   if( data_sz>prev_sz ) {
     ulong data_max = fd_accdb_ref_data_max( accdb, rw );
     if( FD_UNLIKELY( data_sz>data_max ) ) {
-      FD_LOG_CRIT(( "attempted to write %lu bytes into a rec %p with only %lu bytes of data space",
-                    data_sz, (void *)rec, data_max ));
+      FD_LOG_CRIT(( "attempted to write %lu bytes into a rec with only %lu bytes of data space",
+                    data_sz, data_max ));
     }
     if( !flag_dontzero ) {
       void * tail = (uchar *)fd_accdb_ref_data( rw ) + prev_sz;
@@ -523,7 +525,11 @@ fd_accdb_user_v1_rw_data_sz_set( fd_accdb_user_t * accdb,
     }
   }
   rw->meta->dlen  = (uint)data_sz;
-  rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & FD_FUNK_REC_VAL_MAX;
+
+  if( rw->ref->accdb_type==FD_ACCDB_TYPE_V1 ) {
+    fd_funk_rec_t * rec = (fd_funk_rec_t *)rw->ref->user_data;
+    rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & FD_FUNK_REC_VAL_MAX;
+  }
 }
 
 fd_accdb_user_vt_t const fd_accdb_user_v1_vt = {

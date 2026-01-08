@@ -68,6 +68,7 @@ fd_accdb_open_ro( fd_accdb_user_t *         accdb,
 static inline void
 fd_accdb_close_ro( fd_accdb_user_t * accdb,
                    fd_accdb_ro_t *   ro ) {
+  if( FD_UNLIKELY( ro->ref->accdb_type==FD_ACCDB_TYPE_NONE ) ) return;
   accdb->base.vt->close_ro( accdb, ro );
 }
 
@@ -161,8 +162,9 @@ fd_accdb_open_rw( fd_accdb_user_t *         accdb,
 
 static inline void
 fd_accdb_close_rw( fd_accdb_user_t * accdb,
-                   fd_accdb_rw_t *   write ) { /* destroyed */
-  accdb->base.vt->close_rw( accdb, write );
+                   fd_accdb_rw_t *   rw ) { /* destroyed */
+  if( FD_UNLIKELY( rw->ref->accdb_type==FD_ACCDB_TYPE_NONE ) ) return;
+  accdb->base.vt->close_rw( accdb, rw );
 }
 
 /* fd_accdb_ref_data_max returns the data capacity of an account. */
@@ -198,7 +200,7 @@ fd_accdb_ref_data_set( fd_accdb_user_t * accdb,
                        ulong             data_sz ) {
   fd_accdb_ref_data_sz_set( accdb, rw, data_sz, FD_ACCDB_FLAG_DONTZERO );
   fd_memcpy( fd_accdb_ref_data( rw ), data, data_sz );
-  rw->meta->dlen  = (uint)data_sz;
+  rw->meta->dlen = (uint)data_sz;
 }
 
 FD_PROTOTYPES_END
