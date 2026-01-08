@@ -8,8 +8,11 @@ void
 test_vm_minimal_exec_instr_ctx( fd_exec_instr_ctx_t * instr_ctx,
                                 fd_runtime_t *        runtime,
                                 fd_bank_t *           bank,
+                                fd_bank_data_t *      bank_data,
                                 fd_txn_out_t *        txn_out ) {
   memset( instr_ctx, 0, sizeof(fd_exec_instr_ctx_t) );
+
+  bank->data = bank_data;
 
   /* Setup feature flags */
   fd_features_disable_all( fd_bank_features_modify( bank ) );

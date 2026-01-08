@@ -117,11 +117,14 @@ test_env_create( test_env_t * env,
 
   env->banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
   FD_TEST( env->banks_mem );
-  env->banks = fd_banks_join( banksl_join, fd_banks_new( env->banks_mem, max_total_banks, max_fork_width, 0, 8888UL ), NULL );
+  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), env->tag );
+  FD_TEST( banks_locks );
+  fd_banks_locks_init( banks_locks );
+
+  env->banks = fd_banks_join( banksl_join, fd_banks_new( env->banks_mem, max_total_banks, max_fork_width, 0, 8888UL ), banks_locks );
   FD_TEST( env->banks );
 
-  //env->bank = fd_banks_init_bank( env->banks ); TODO:FIXME:
-  FD_TEST( env->bank );
+  FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), env->tag );
   FD_TEST( env->runtime_stack );
@@ -158,6 +161,7 @@ test_env_destroy( test_env_t * env ) {
   fd_wksp_free_laddr( env->runtime_stack );
   fd_banks_delete( fd_banks_leave( env->banks ) );
   fd_wksp_free_laddr( env->banks_mem );
+  fd_wksp_free_laddr( env->banks->locks );
   fd_alloc_compact( fd_funk_alloc( env->accdb_admin->funk ) );
 
   void * funk_mem = NULL;

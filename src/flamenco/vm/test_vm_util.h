@@ -13,6 +13,7 @@ void
 test_vm_minimal_exec_instr_ctx( fd_exec_instr_ctx_t * instr_ctx,
                                 fd_runtime_t *        runtime,
                                 fd_bank_t *           bank,
+                                fd_bank_data_t *      bank_data,
                                 fd_txn_out_t *        txn_out );
 
 void

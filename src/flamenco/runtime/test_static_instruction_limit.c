@@ -8,7 +8,7 @@
 
 static void
 init_bank( fd_bank_t * bank ) {
-  memset( bank, 0, sizeof(fd_bank_t) );
+  memset( bank->data, 0, sizeof(fd_bank_data_t) );
   fd_bank_slot_set( bank, 1UL );
 }
 
@@ -110,8 +110,11 @@ main( int     argc,
                                                 0UL );
   FD_TEST( wksp );
 
-  fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), 1UL );
+  fd_bank_data_t * bank_data = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_data_t), sizeof(fd_bank_data_t), 1UL );
+  fd_bank_t *      bank      = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), 1UL );
+  FD_TEST( bank_data );
   FD_TEST( bank );
+  bank->data = bank_data;
 
   test_static_instruction_limit_deactivated( bank );
   test_static_instruction_limit_exceeded( bank );

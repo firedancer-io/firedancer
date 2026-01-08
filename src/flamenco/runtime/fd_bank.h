@@ -402,6 +402,15 @@ struct fd_bank_data {
 typedef struct fd_bank_data fd_bank_data_t;
 
 struct fd_banks_locks {
+  /* This lock is only used to serialize banks fork tree reads with
+     respect to fork tree writes.  In other words, tree traversals
+     cannot happen at the same time as a tree pruning operation or a
+     tree insertion operation.  So the public APIs on banks take either
+     a read lock or a write lock depending on what they do on the fork
+     tree.  For example, publishing takes a write lock, and bank lookups
+     take a read lock.  Notably, individual banks can still be
+     concurrently accessed or modified, and this lock does not offer
+     synchronization on individual fields within a bank. */
   fd_rwlock_t banks_lock;
 };
 typedef struct fd_banks_locks fd_banks_locks_t;
@@ -580,17 +589,6 @@ struct fd_banks_data {
                                   any given slot. */
   ulong       root_idx;        /* root idx */
   ulong       bank_seq;        /* app-wide bank sequence number */
-
-  /* This lock is only used to serialize banks fork tree reads with
-     respect to fork tree writes.  In other words, tree traversals
-     cannot happen at the same time as a tree pruning operation or a
-     tree insertion operation.  So the public APIs on banks take either
-     a read lock or a write lock depending on what they do on the fork
-     tree.  For example, publishing takes a write lock, and bank lookups
-     take a read lock.  Notably, individual banks can still be
-     concurrently accessed or modified, and this lock does not offer
-     synchronization on individual fields within a bank. */
-  fd_rwlock_t rwlock;
 
   ulong       pool_offset;     /* offset of pool from banks */
 
@@ -937,6 +935,8 @@ fd_banks_t *
 fd_banks_join( fd_banks_t * banks_ljoin,
                void *       banks_data_mem,
                void *       bank_locks_mem );
+
+/* TODO:FIXME: FIX THESE */
 
 /* fd_banks_leave() leaves a bank. */
 

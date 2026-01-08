@@ -17,6 +17,9 @@ typedef struct fd_bank fd_bank_t;
 struct fd_banks;
 typedef struct fd_banks fd_banks_t;
 
+struct fd_bank_data;
+typedef struct fd_bank_data fd_bank_data_t;
+
 struct fd_exec_instr_ctx;
 typedef struct fd_exec_instr_ctx fd_exec_instr_ctx_t;
 

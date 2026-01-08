@@ -23,7 +23,11 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   fd_accdb_user_t * accdb = fd_accdb_user_v1_init( env->accdb, funk_mem );
   FD_TEST( accdb );
 
+  fd_bank_data_t * bank_data = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_data_t), sizeof(fd_bank_data_t), wksp_tag );
+  FD_TEST( bank_data );
   fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
+  FD_TEST( bank );
+  bank->data = bank_data;
 
   env->shfunk       = funk_mem;
   env->bank         = bank;
