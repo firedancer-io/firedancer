@@ -712,7 +712,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Instruction checks ***********************************************/
 
-  int err = fd_vm_syscall_cpi_check_instruction( vm, VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) );
+  int err = fd_vm_syscall_cpi_check_instruction( VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) );
   if( FD_UNLIKELY( err ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
     return err;
@@ -720,22 +720,20 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Agave consumes CU in translate_instruction
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
-  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
-    ulong total_cu_translation_cost = VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT;
+  ulong total_cu_translation_cost = VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT;
 
-    /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L686-L699 */
-    if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, increase_cpi_account_info_limit ) ) {
-      /* Agave bills the same regardless of ABI */
-      ulong account_meta_translation_cost =
-        fd_ulong_sat_mul(
-          VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ),
-          FD_VM_RUST_ACCOUNT_META_SIZE ) /
-        FD_VM_CPI_BYTES_PER_UNIT;
-      total_cu_translation_cost = fd_ulong_sat_add( total_cu_translation_cost, account_meta_translation_cost );
-    }
-
-    FD_VM_CU_UPDATE( vm, total_cu_translation_cost );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L686-L699 */
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, increase_cpi_account_info_limit ) ) {
+    /* Agave bills the same regardless of ABI */
+    ulong account_meta_translation_cost =
+      fd_ulong_sat_mul(
+        VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ),
+        FD_VM_RUST_ACCOUNT_META_SIZE ) /
+      FD_VM_CPI_BYTES_PER_UNIT;
+    total_cu_translation_cost = fd_ulong_sat_add( total_cu_translation_cost, account_meta_translation_cost );
   }
+
+  FD_VM_CU_UPDATE( vm, total_cu_translation_cost );
 
   /* Final checks for translate_instruction
    */

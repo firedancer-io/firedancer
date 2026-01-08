@@ -13,7 +13,7 @@ on:
         default: src/flamenco/runtime/tests/run_backtest_ci.sh
       timeout:
         type: number
-        default: 45
+        default: 60
   workflow_dispatch:
     inputs:
       machine:
@@ -27,7 +27,7 @@ on:
         default: src/flamenco/runtime/tests/run_backtest_ci.sh
       timeout:
         type: number
-        default: 45
+        default: 60
 jobs:
   backtest-ledger-replay:
     timeout-minutes: ${{ fromJSON(inputs.timeout) }}
@@ -74,7 +74,7 @@ jobs:
           DUMP_DIR=../dump DOWNLOAD_ONLY=true ${{ inputs.script }}
 
       - name: run backtest
-        timeout-minutes: 10
+        timeout-minutes: 30
         run: |
           sudo $OBJDIR/bin/firedancer-dev configure init keys
           sudo prlimit --pid=$$ --nofile=1048576

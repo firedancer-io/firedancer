@@ -269,26 +269,16 @@ get_cpi_invoke_unit_cost( fd_bank_t * bank ) {
    to instruction data size. */
 
 static int
-fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
-                                     ulong           acct_cnt,
+fd_vm_syscall_cpi_check_instruction( ulong           acct_cnt,
                                      ulong           data_sz ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L146-L161 */
-  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
-    if( FD_UNLIKELY( acct_cnt > FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
-      // SyscallError::MaxInstructionAccountsExceeded
-      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
-    }
-    if( FD_UNLIKELY( data_sz>FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN ) ) {
-      // SyscallError::MaxInstructionDataLenExceeded
-      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
-    }
-  } else {
-    // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1114
-    ulong tot_sz = fd_ulong_sat_add( fd_ulong_sat_mul( FD_VM_RUST_ACCOUNT_META_SIZE, acct_cnt ), data_sz );
-    if ( FD_UNLIKELY( tot_sz > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
-      // SyscallError::InstructionTooLarge
-      return FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE;
-    }
+  if( FD_UNLIKELY( acct_cnt > FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
+    // SyscallError::MaxInstructionAccountsExceeded
+    return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
+  }
+  if( FD_UNLIKELY( data_sz>FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN ) ) {
+    // SyscallError::MaxInstructionDataLenExceeded
+    return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
   }
 
   return FD_VM_SUCCESS;
