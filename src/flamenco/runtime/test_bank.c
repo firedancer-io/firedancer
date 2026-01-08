@@ -72,7 +72,6 @@ test_bank_advancing( void * mem ) {
   fd_bank_t bank_Y[1];
   ulong bank_idx_Y = fd_banks_new_bank( bank_Y, banks, bank_idx_X, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( bank_Y, banks, bank_idx_Y ) );  /* Y slot = 104 */
-  FD_TEST( bank_Y );
   FD_TEST( bank_Y->data->bank_seq==4UL );
   fd_bank_slot_set( bank_Y, 104UL );
   bank_Y->data->refcnt = 0UL; /* Y(0) */
@@ -100,7 +99,6 @@ test_bank_advancing( void * mem ) {
   fd_bank_t bank_M[1];
   ulong bank_idx_M = fd_banks_new_bank( bank_M, banks, bank_idx_B, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( bank_M, banks, bank_idx_M ) );  /* M slot = 107 */
-  FD_TEST( bank_M );
   FD_TEST( bank_M->data->bank_seq==7UL );
   fd_bank_slot_set( bank_M, 107UL );
   bank_M->data->refcnt = 0UL; /* M(0) */

@@ -1571,8 +1571,9 @@ dispatch_task( fd_replay_tile_t *  ctx,
       /* FIXME: this should be done during txn parsing so that we don't
          have to loop over all accounts a second time. */
       /* Insert or reverify invoked programs for this epoch, if needed. */
-      fd_bank_t bank[1];
-      fd_banks_bank_query( bank, ctx->banks, task->txn_exec->bank_idx );
+      fd_bank_t bank_l[1];
+      fd_bank_t * bank = fd_banks_bank_query( bank_l, ctx->banks, task->txn_exec->bank_idx );
+      FD_TEST( bank );
 
 #     if FD_HAS_FLATCC
       /* Add the transaction to the block dumper if necessary. This
@@ -1602,8 +1603,9 @@ dispatch_task( fd_replay_tile_t *  ctx,
     case FD_SCHED_TT_TXN_SIGVERIFY: {
       fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, task->txn_sigverify->txn_idx );
 
-      fd_bank_t bank[1];
-      fd_banks_bank_query( bank, ctx->banks, task->txn_sigverify->bank_idx );
+      fd_bank_t bank_l[1];
+      fd_bank_t * bank = fd_banks_bank_query( bank_l, ctx->banks, task->txn_sigverify->bank_idx );
+      FD_TEST( bank );
       bank->data->refcnt++;
 
       fd_replay_out_link_t *        exec_out = ctx->exec_out;
@@ -2025,7 +2027,8 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
   ulong exec_tile_idx = sig&0xFFFFFFFFUL;
 
   fd_bank_t bank[1];
-  fd_banks_bank_query( bank, ctx->banks, msg->bank_idx );
+  FD_TEST( fd_banks_bank_query( bank, ctx->banks, msg->bank_idx ) );
+  FD_TEST( bank->data );
   bank->data->refcnt--;
 
   switch( sig>>32 ) {
