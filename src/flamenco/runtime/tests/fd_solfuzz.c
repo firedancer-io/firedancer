@@ -129,14 +129,10 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
-  fd_banks_t * banks_l = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_t), sizeof(fd_banks_t), wksp_tag );
   fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), wksp_tag );
   fd_banks_locks_init( banks_locks );
-  runner->banks = fd_banks_join( banks_l, fd_banks_new( banks_mem, bank_max, fork_max, 0, 8888UL ), banks_locks );
-  if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
-  fd_bank_t * bank_l = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
-  runner->bank = fd_banks_init_bank( bank_l, runner->banks );
-  if( FD_UNLIKELY( !runner->bank ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_banks_join( runner->banks, fd_banks_new( banks_mem, bank_max, fork_max, 0, 8888UL ), banks_locks ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_banks_init_bank( runner->bank, runner->banks ) ) ) goto bail2;
   runner->acc_pool = fd_acc_pool_join( fd_acc_pool_new( acc_pool_mem, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ) );
   if( FD_UNLIKELY( !runner->acc_pool ) ) goto bail2;
   fd_bank_slot_set( runner->bank, 0UL );
@@ -152,10 +148,10 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   return runner;
 
 bail2:
-  if( runner->spad      ) fd_spad_delete( fd_spad_leave( runner->spad ) );
-  if( shfunk            ) fd_funk_delete( shfunk ); /* free underlying fd_alloc instance */
-  if( shpcache          ) fd_funk_delete( shpcache );
-  if( runner->banks     ) fd_banks_delete( fd_banks_leave( runner->banks ) );
+  if( runner->spad ) fd_spad_delete( fd_spad_leave( runner->spad ) );
+  if( shfunk       ) fd_funk_delete( shfunk ); /* free underlying fd_alloc instance */
+  if( shpcache     ) fd_funk_delete( shpcache );
+  fd_banks_delete( fd_banks_leave( runner->banks ) );
 bail1:
   fd_wksp_free_laddr( scratch      );
   fd_wksp_free_laddr( pcache_mem   );
@@ -186,7 +182,7 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
 # endif
 
   if( runner->spad  ) fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
-  if( runner->banks ) fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( runner->banks ) ) );
+  fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( runner->banks ) ) );
   fd_wksp_free_laddr( runner );
 }
 

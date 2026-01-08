@@ -15,6 +15,7 @@
 #include "../../accdb/fd_accdb_user.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../progcache/fd_progcache_user.h"
+#include "../fd_bank.h"
 #if FD_HAS_FLATCC
 #include "flatcc/flatcc_builder.h"
 #endif
@@ -31,8 +32,8 @@ struct fd_solfuzz_runner {
   ulong           wksp_tag;
   ulong           wksp_baseline_used_sz;
   fd_spad_t *     spad;
-  fd_banks_t *    banks;
-  fd_bank_t *     bank;
+  fd_banks_t      banks[1];
+  fd_bank_t       bank[1];
   fd_runtime_t *  runtime;
   fd_acc_pool_t * acc_pool;
 

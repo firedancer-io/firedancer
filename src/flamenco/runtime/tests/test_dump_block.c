@@ -48,8 +48,7 @@ typedef struct test_ctx {
   fd_funk_txn_xid_t child_xid;   /* Child funk txn (slot 100, child_bank->idx) */
 
   /* Banks (slot/epoch management) */
-  fd_banks_t * banks;
-  fd_bank_t    bank[1];
+  fd_banks_t   banks[1];
   fd_bank_t    parent_bank[1];
   fd_bank_t    child_bank[1];
 
@@ -97,10 +96,11 @@ test_ctx_setup( void ) {
   void * banks_mem       = fd_wksp_alloc_laddr( test_ctx->wksp, fd_banks_align(), banks_footprint, wksp_tag );
   FD_TEST( banks_mem );
 
+  void * banks_locks_mem = fd_wksp_alloc_laddr( test_ctx->wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), wksp_tag );
+  FD_TEST( banks_locks_mem );
+
   /* Initialize banks */
-  fd_banks_t * banksl_join = fd_wksp_alloc_laddr( test_ctx->wksp, alignof(fd_banks_t), sizeof(fd_banks_t), wksp_tag );
-  test_ctx->banks = fd_banks_join( banksl_join, fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 0, 8888UL ), NULL );
-  FD_TEST( test_ctx->banks );
+  FD_TEST( fd_banks_join( test_ctx->banks, fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 0, 8888UL ), banks_locks_mem ) );
 
   /* Initialize stake delegations at the root level */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( test_ctx->banks );
@@ -126,7 +126,7 @@ test_ctx_setup( void ) {
   FD_TEST( parent_vote_states_prev_prev );
 
   /* ===== Create Child Bank ===== */
-  ulong child_bank_idx = fd_banks_new_bank( test_ctx->bank, test_ctx->banks, test_ctx->parent_bank->data->idx, 0L )->data->idx;
+  ulong child_bank_idx = fd_banks_new_bank( test_ctx->child_bank, test_ctx->banks, test_ctx->parent_bank->data->idx, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( test_ctx->child_bank, test_ctx->banks, child_bank_idx ) );
 
   /* Allocate scratch pad */
