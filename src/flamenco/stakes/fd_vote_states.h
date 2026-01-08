@@ -200,6 +200,12 @@ fd_vote_states_new( void * mem,
 fd_vote_states_t *
 fd_vote_states_join( void * mem );
 
+/* fd_vote_states_init resets the state of a valid join of a
+   vote states struct. */
+
+void
+fd_vote_states_init( fd_vote_states_t * vote_states );
+
 /* fd_vote_states_update inserts or updates the vote state corresponding
    to a given account. */
 
