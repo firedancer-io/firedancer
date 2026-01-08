@@ -1275,6 +1275,11 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
     return;
   }
 
+  for( ulong i=0UL; i<runtime->accounts.executable_cnt; i++ ) {
+    fd_accdb_close_ro( runtime->accdb, &runtime->accounts.executable[i] );
+  }
+  runtime->accounts.executable_cnt = 0UL;
+
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     if( txn_out->accounts.is_writable[i] ) {
       fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.metas[i] ) );
@@ -1289,6 +1294,9 @@ static inline void
 fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
   runtime->instr.stack_sz          = 0;
   runtime->instr.trace_length      = 0UL;
+  for( ulong i=0UL; i<runtime->accounts.executable_cnt; i++ ) {
+    fd_accdb_close_ro( runtime->accdb, &runtime->accounts.executable[i] );
+  }
   runtime->accounts.executable_cnt = 0UL;
 }
 
@@ -1814,8 +1822,8 @@ fd_runtime_get_executable_account( fd_runtime_t *              runtime,
   }
 
   for( ushort i=0; i<runtime->accounts.executable_cnt; i++ ) {
-    if( memcmp( pubkey->uc, runtime->accounts.executable_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
-      *meta = runtime->accounts.executables_meta[i];
+    if( fd_pubkey_eq( pubkey, fd_accdb_ref_address( &runtime->accounts.executable[i] ) ) ) {
+      *meta = runtime->accounts.executable[i].meta;
       if( FD_UNLIKELY( !fd_account_meta_exists( *meta ) ) ) {
         return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
       }
