@@ -149,17 +149,18 @@ FD_PROTOTYPES_BEGIN
   The usage pattern is as follows:
 
    To create an initial bank:
-   fd_bank_t * bank_init = fd_bank_init_bank( banks );
+   fd_banks_t bank[1];
+   fd_bank_t * bank_init = fd_bank_init_bank( bank, banks );
 
    To create a new bank.  This simply provisions the memory for the bank
    but it should not be used to execute transactions against.
-   ulong bank_index = fd_banks_new_bank( banks, parent_bank_index );
+   ulong bank_index = fd_banks_new_bank( bank, banks, parent_bank_index )->data->idx;
 
    To clone bank from parent banks.  This makes a bank replayable by
    copying over the state from the parent bank into the child.  It
    assumes that the bank index has been previously provisioned by a call
    to fd_banks_new_bank and that the parent bank index has been frozen.
-   fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, bank_index );
+   fd_bank_t * bank_clone = fd_banks_clone_from_parent( bank, banks, bank_index );
 
    To ensure that the bank index we want to advance our root to is safe
    and that there are no outstanding references to the banks that are
@@ -169,10 +170,10 @@ FD_PROTOTYPES_BEGIN
    To advance the root bank.  This assumes that the bank index is "safe"
    to advance to.  This means that none of the ancestors of the bank
    index have a non-zero reference count.
-   fd_bank_t * root_bank = fd_banks_advance_root( banks, bank_index );
+   fd_banks_advance_root( banks, bank_index );
 
    To query some arbitrary bank:
-   fd_bank_t * bank_query = fd_banks_bank_query( banks, bank_index );
+   fd_bank_t * bank_query = fd_banks_bank_query( bank, banks, bank_index );
 
   To access the fields in the bank if they are templatized:
 
@@ -183,6 +184,16 @@ FD_PROTOTYPES_BEGIN
   fd_struct_t * field = fd_bank_field_modify( bank );
   OR
   fd_bank_field_set( bank, value );
+
+  The locks and data used by an fd_bank_t or an fd_banks_t are stored as
+  separate objects.  The locks are stored in an fd_banks_locks_t struct
+  and the data is stored in an fd_banks_data_t struct for an fd_banks_t.
+  Each fd_bank_t uses a fd_bank_data_t struct to store its state and
+  fd_banks_locks_t to store the locks for the bank.  The reason for
+  splitting out the locks and data is to allow for more fine-grained
+  security isolation: this allows for the data for the banks to be
+  mapped in read-only to specific tiles while still being able to use
+  locks to access concurrent fields in the banks.
 
   If the fields are not templatized, their accessor and modifier
   patterns vary and are documented below.
@@ -836,16 +847,16 @@ fd_banks_root( fd_bank_t *  bank_l,
   return bank_l;
 }
 
-/* fd_banks_align() returns the alignment of fd_banks_t */
+/* fd_banks_align() returns the alignment of fd_banks_data_t */
 
 ulong
 fd_banks_align( void );
 
-/* fd_banks_footprint() returns the footprint of fd_banks_t.  This
+/* fd_banks_footprint() returns the footprint of fd_banks_data_t.  This
    includes the struct itself but also the footprint for all of the
    pools.
 
-   The footprint of fd_banks_t is determined by the total number
+   The footprint of fd_banks_data_t is determined by the total number
    of banks that the bank manages.  This is an analog for the max number
    of unrooted blocks the bank can manage at any given time.
 
@@ -853,7 +864,7 @@ fd_banks_align( void );
    max width of forks that can exist at any given time.  The reason for
    this is that there are several large CoW structs that are only
    written to during the epoch boundary (e.g. epoch_rewards,
-   epoch_stakes, etc.).  These structs are read-only afterwards. This
+   epoch_stakes, etc.).  These structs are read-only afterwards.  This
    means if we also bound the max number of forks that can execute
    through the epoch boundary, we can bound the memory footprint of
    the banks. */
@@ -862,10 +873,18 @@ ulong
 fd_banks_footprint( ulong max_total_banks,
                     ulong max_fork_width );
 
-/* fd_banks_new() creates a new fd_banks_t struct.  This function lays
-   out the memory for all of the constituent fd_bank_t structs and
-   pools depending on the max_total_banks and the max_fork_width for a
-   given block. */
+
+/* fd_banks_locks_init() initializes the locks for the fd_banks_t
+   struct.  In practice, this initializes all of the locks used by the
+   underlying banks. */
+
+void
+fd_banks_locks_init( fd_banks_locks_t * locks );
+
+/* fd_banks_new() creates a new fd_banks_data_t struct.  This function
+   lays out the memory for all of the constituent fd_bank_data_t structs
+   and pools depending on the max_total_banks and the max_fork_width for
+   a given block. */
 
 void *
 fd_banks_new( void * mem,
@@ -874,7 +893,10 @@ fd_banks_new( void * mem,
               int    larger_max_cost_per_block,
               ulong  seed );
 
-/* fd_banks_join() joins a new fd_banks_t struct. */
+/* fd_banks_join() joins a new fd_banks_t struct.  It takes in a local
+   handle to an fd_banks_t struct along with a valid banks_data_mem and
+   banks_locks_mem.  It returns the local handle to the joined
+   fd_banks_t struct on success and NULL on failure (logs details). */
 
 fd_banks_t *
 fd_banks_join( fd_banks_t * banks_ljoin,
@@ -882,7 +904,7 @@ fd_banks_join( fd_banks_t * banks_ljoin,
                void *       bank_locks_mem );
 
 /* fd_banks_init_bank() initializes a new bank in the bank manager.
-   This should only be used during bootup. This returns an initial
+   This should only be used during bootup.  This returns an initial
    fd_bank_t with the corresponding bank index set to 0. */
 
 fd_bank_t *
@@ -1028,9 +1050,6 @@ static inline int
 fd_banks_is_full( fd_banks_t * banks ) {
   return fd_banks_pool_free( fd_banks_get_bank_pool( banks->data ) )==0UL;
 }
-
-void
-fd_banks_locks_init( fd_banks_locks_t * locks );
 
 FD_PROTOTYPES_END
 

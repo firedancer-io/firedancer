@@ -366,6 +366,11 @@ fd_banks_new( void * shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( max_total_banks>=FD_BANKS_MAX_BANKS ) ) {
+    FD_LOG_WARNING(( "max_total_banks is too large" ));
+    return NULL;
+  }
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_banks_data_t * banks_data                = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                           sizeof(fd_banks_data_t) );
   void *       pool_mem                       = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),                      fd_banks_pool_footprint( max_total_banks ) );
@@ -1071,8 +1076,8 @@ fd_banks_advance_root( fd_banks_t * banks,
     head = next;
   }
 
-  new_root->data->parent_idx  = null_idx;
-  banks->data->root_idx = new_root->data->idx;
+  new_root->data->parent_idx = null_idx;
+  banks->data->root_idx      = new_root->data->idx;
 
   fd_rwlock_unwrite( &banks->locks->banks_lock );
 }
@@ -1405,7 +1410,7 @@ fd_banks_locks_init( fd_banks_locks_t * locks ) {
   fd_rwlock_new( &locks->vote_states_prev_pool_lock );
   fd_rwlock_new( &locks->vote_states_prev_prev_pool_lock );
 
-  for( ulong i = 0UL; i < FD_BANKS_MAX_BANKS; i++ ) {
+  for( ulong i=0UL; i<FD_BANKS_MAX_BANKS; i++ ) {
     fd_rwlock_new( &locks->lthash_lock[i] );
     fd_rwlock_new( &locks->cost_tracker_lock[i] );
     fd_rwlock_new( &locks->stake_delegations_delta_lock[i] );
