@@ -50,11 +50,18 @@ metrics_write( fd_snapwm_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPWM, STATE, (ulong)ctx->state );
 }
 
+static inline void
+seq_to_tsorig_tspub( ulong * tsorig,
+                     ulong * tspub,
+                     ulong   seq ) {
+  *tsorig = ( seq >>  0 ) & ((1UL<<32)-1UL);
+  *tspub  = ( seq >> 32 ) & ((1UL<<32)-1UL);
+}
+
 static void
-transition_malformed( fd_snapwm_tile_t *  ctx,
-                      fd_stem_context_t * stem ) {
+transition_malformed( fd_snapwm_tile_t *  ctx ) {
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
-  fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 /* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
@@ -121,10 +128,9 @@ verify_slot_deltas_with_slot_history( fd_snapwm_tile_t * ctx ) {
 static int
 handle_data_frag( fd_snapwm_tile_t *  ctx,
                   ulong               chunk,
-                  ulong               acc_cnt,
-                  fd_stem_context_t * stem ) {
+                  ulong               acc_cnt ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
-    transition_malformed( ctx, stem );
+    transition_malformed( ctx );
     return 0;
   }
   else if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
@@ -145,8 +151,10 @@ handle_data_frag( fd_snapwm_tile_t *  ctx,
 
 static void
 handle_control_frag( fd_snapwm_tile_t *  ctx,
-                     fd_stem_context_t * stem,
                      ulong               sig ) {
+  ulong tsorig = 0UL;
+  ulong tspub  = 0UL;
+
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
@@ -179,6 +187,9 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       if( ctx->vinyl.txn_active ) {
         fd_snapwm_vinyl_txn_cancel( ctx );
       }
+      if( !ctx->lthash_disabled ) {
+        seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
+      }
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT: {
@@ -195,6 +206,9 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       if( ctx->vinyl.txn_active ) {
         fd_snapwm_vinyl_txn_commit( ctx );
       }
+      if( !ctx->lthash_disabled ) {
+        seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
+      }
       break;
     }
 
@@ -207,10 +221,13 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       if( ctx->vinyl.txn_active ) {
         fd_snapwm_vinyl_txn_commit( ctx );
       }
+      if( !ctx->lthash_disabled ) {
+        seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
+      }
 
       if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
         FD_LOG_WARNING(( "slot deltas verification failed" ));
-        transition_malformed( ctx, stem );
+        transition_malformed( ctx );
         break;
       }
       break;
@@ -228,6 +245,9 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       if( ctx->vinyl.txn_active ) {
         fd_snapwm_vinyl_txn_cancel( ctx );
       }
+      if( !ctx->lthash_disabled ) {
+        seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
+      }
       break;
 
     default:
@@ -236,7 +256,19 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( ctx->stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, tsorig, tspub );
+}
+
+static inline void
+handle_expected_hash_message( fd_snapwm_tile_t *  ctx,
+                              ulong               chunk,
+                              ulong               sz ) {
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return;
+  uchar * src = fd_chunk_to_laddr( ctx->in.wksp, chunk );
+  uchar * dst = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+  memcpy( dst, src, sz );
+  fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sz, 0UL, 0UL, 0UL );
+  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
 }
 
 static inline int
@@ -253,11 +285,14 @@ returnable_frag( fd_snapwm_tile_t *  ctx,
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   ctx->stem = stem;
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz/*acc_cnt*/, stem );
-  else                                           handle_control_frag( ctx, stem, sig );
-  ctx->stem = NULL;
 
-  return 0;
+  int ret = 0;
+  if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) )                 ret = handle_data_frag( ctx, chunk, sz/*acc_cnt*/ );
+  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_EXPECTED ) ) handle_expected_hash_message( ctx, chunk, sz );
+  else                                                         handle_control_frag( ctx, sig );
+
+  ctx->stem = NULL;
+  return ret;
 }
 
 static ulong
@@ -291,11 +326,6 @@ privileged_init( fd_topo_t *      topo,
   fd_snapwm_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   memset( ctx, 0, sizeof(fd_snapwm_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
-
-  if( !tile->snapwm.lthash_disabled ) {
-    FD_LOG_WARNING(( "lthash verficiation for vinyl not yet implemented" ));
-    tile->snapwm.lthash_disabled = 1;
-  }
 
   fd_snapwm_vinyl_privileged_init( ctx, topo, tile );
 }
@@ -339,13 +369,13 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 2", tile->in_cnt ));
 
   ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapwm_ct", 0UL );
-  if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapwm_ls", 0UL );
-  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapwm_ct` or `snapwm_ls`" ));
+  if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapwm_lv", 0UL );
+  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapwm_ct` or `snapwm_lv`" ));
   fd_topo_link_t * snapwm_out_link = &topo->links[ tile->out_link_id[ out_link_ct_idx ] ];
   ctx->out_ct_idx = out_link_ct_idx;
 
-  if( 0==strcmp( snapwm_out_link->name, "snapwm_ls" ) ) {
-    ctx->hash_out = out1( topo, tile, "snapwm_ls" );
+  if( 0==strcmp( snapwm_out_link->name, "snapwm_lv" ) ) {
+    ctx->hash_out = out1( topo, tile, "snapwm_lv" );
   }
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -376,8 +406,9 @@ unprivileged_init( fd_topo_t *      topo,
 
 /* Control fragments can result in one extra publish to forward the
    message down the pipeline, in addition to the result / malformed
-   message. Can send one duplicate account message as well. */
-#define STEM_BURST 3UL
+   message.  Alternatively, it can send either one duplicate account(s)
+   message or an expected lthash message. */
+#define STEM_BURST 2UL
 
 #define STEM_LAZY  1000L
 

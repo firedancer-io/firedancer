@@ -29,6 +29,8 @@ struct wd_buf {
 #define WD_BUF_APPEND 2U
 #define WD_BUF_IOWAIT 3U
 
+#define WD_WR_FSEQ_CNT_MAX (32UL)
+
 /* fd_vinyl_io_wd implements the fd_vinyl_io_t interface */
 
 struct fd_vinyl_io_wd {
@@ -50,7 +52,8 @@ struct fd_vinyl_io_wd {
   uchar *          wr_base;    /* base pointer for data cache */
   uchar *          wr_chunk0;  /* [wr_chunk0,wr_chunk1) is the data cache data region */
   uchar *          wr_chunk1;
-  ulong const *    wr_fseq;    /* completion notifications */
+  ulong const *    wr_fseq[WD_WR_FSEQ_CNT_MAX]; /* completion notifications */
+  ulong            wr_fseq_cnt;/* completion notifications count */
   ulong            wr_mtu;     /* max block byte size */
 };
 
@@ -78,8 +81,8 @@ fd_vinyl_io_wd_footprint( ulong block_depth );
    block_dcache is a dcache (data cache) sized to block_depth*block_mtu
    data_sz.  block_mtu is a multiple of FD_VINYL_BSTREAM_BLOCK_SZ and
    determines the largest O_DIRECT write operation (typically between 2
-   to 64 MiB).  block_fseq points to the snapwr tile's fseq (used to
-   report write completions).
+   to 64 MiB).  block_fseq points to the snapwr tile's fseq(s) (used
+   to report write completions).
 
    Returns a handle to the bstream on success (has ownership of lmem and
    dev_fd, ownership returned on fini) and NULL on failure (logs
@@ -91,7 +94,8 @@ fd_vinyl_io_wd_init( void *           lmem,
                      ulong            io_seed,
                      fd_frag_meta_t * block_mcache,
                      uchar *          block_dcache,
-                     ulong const *    block_fseq,
+                     ulong const **   block_fseq,
+                     ulong            block_fseq_cnt,
                      ulong            block_mtu );
 
 /* API restrictions:

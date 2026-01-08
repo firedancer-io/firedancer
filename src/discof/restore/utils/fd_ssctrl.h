@@ -83,12 +83,15 @@
 #define FD_SNAPSHOT_HASH_MSG_RESULT_ADD        (9UL) /* Hash result sent from snapla to snapls */
 
 /* snapin -> snapls */
+/* snapin -> snapwm -> snaplv */
 #define FD_SNAPSHOT_HASH_MSG_EXPECTED         (10UL) /* Hash result sent from snapin to snapls */
 
 /* snapin -> snapls */
 #define FD_SNAPSHOT_HASH_MSG_SUB              (11UL) /* Duplicate account sent from snapin to snapls, includes account header and data */
 #define FD_SNAPSHOT_HASH_MSG_SUB_HDR          (12UL) /* Duplicate account sent from snapin to snapls, only the account header, no data */
 #define FD_SNAPSHOT_HASH_MSG_SUB_DATA         (13UL) /* Duplicate account sent from snapin to snapls, only the account data, no header */
+/* snapwm -> snaplv -> snaplh */
+#define FD_SNAPSHOT_HASH_MSG_LTHASH_SUB_BATCH (14UL) /* Duplicate account(s) batch sent from snapwm to snaplv, only the account header(s) */
 
 /* Sent by snapct to tell snapld whether to load a local file or
    download from a particular external peer. */
@@ -146,5 +149,6 @@ struct fd_snapshot_full_account {
 typedef struct fd_snapshot_full_account fd_snapshot_full_account_t;
 
 #define FD_SNAPSHOT_MAX_SNAPLA_TILES (8UL)
+#define FD_SNAPSHOT_MAX_SNAPLH_TILES (8UL)
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssctrl_h */

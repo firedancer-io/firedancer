@@ -168,7 +168,12 @@ wd_poll_write( fd_vinyl_io_t * io ) {
     FD_CRIT( buf->state==WD_BUF_IOWAIT, "corrupt wd_buf" );
 
     ulong comp_seq  = buf->io_seq;
-    ulong found_seq = fd_fseq_query( wd->wr_fseq );
+    ulong min_fseq  = ULONG_MAX;
+    for( ulong i=0; i<wd->wr_fseq_cnt; i++ ) {
+      ulong wr_fseq = fd_fseq_query( wd->wr_fseq[ i ] );
+      min_fseq      = fd_ulong_min( min_fseq, wr_fseq );
+    }
+    ulong found_seq = min_fseq;
     /* each seq in [0,found_seq) is consumed (non-inclusive) */
     if( fd_seq_ge( comp_seq, found_seq ) ) break;
     FD_CRIT( fd_seq_le( found_seq, wd->wr_seq ), "got completion for a sequence number not yet submitted" );
@@ -371,7 +376,8 @@ fd_vinyl_io_wd_init( void *           lmem,
                      ulong            io_seed,
                      fd_frag_meta_t * block_mcache,
                      uchar *          block_dcache,
-                     ulong const *    block_fseq,
+                     ulong const **   block_fseq,
+                     ulong            block_fseq_cnt,
                      ulong            block_mtu ) {
   /* Mostly copied from fd_vinyl_io_bd.c */
 
@@ -459,7 +465,11 @@ fd_vinyl_io_wd_init( void *           lmem,
   wd->wr_base   = block_dcache;
   wd->wr_chunk0 = wd->wr_base;
   wd->wr_chunk1 = wd->wr_base + (block_depth*block_mtu);
-  wd->wr_fseq   = block_fseq;
+  FD_TEST( block_fseq_cnt<=WD_WR_FSEQ_CNT_MAX );
+  for( ulong i=0UL; i<block_fseq_cnt; i++ ) {
+    wd->wr_fseq[i] = block_fseq[i];
+  }
+  wd->wr_fseq_cnt = block_fseq_cnt;
   wd->wr_mtu    = block_mtu;
 
   /* Set vinyl io_seed */

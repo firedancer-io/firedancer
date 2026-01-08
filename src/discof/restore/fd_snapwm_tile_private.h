@@ -70,6 +70,9 @@ struct fd_snapwm_tile {
 
     ulong txn_seq;  /* bstream seq of first txn record (in [seq_past,seq_present]) */
     uint  txn_active : 1;
+
+    ulong   duplicate_accounts_batch_sz;
+    ulong   duplicate_accounts_batch_cnt;
   } vinyl;
 };
 
@@ -173,6 +176,28 @@ fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
                               fd_account_meta_t * meta,
                               uchar *             data,
                               ulong               data_max );
+
+/* fd_snapwm_vinyl_duplicate_accounts_batch_{init,append,fini} handle
+   duplicate accounts batching when lthash computation is enabled.
+   The batch is needed to minimize the STEM_BURST, and make the stem
+   credit handling possible.  _fini is responsible for sending the
+   message downstream.
+   Typical usage:
+     fd_snapwm_vinyl_duplicate_accounts_batch_init( ctx );
+     for(...) {
+       ...
+       fd_snapwm_vinyl_duplicate_accounts_batch_append( ctx, phdr, seq );
+     }
+     fd_snapwm_vinyl_duplicate_accounts_batch_fini( ctx );
+   They all return 1 on success, and 0 otherwise. */
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_init( fd_snapwm_tile_t * ctx );
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_append( fd_snapwm_tile_t *        ctx,
+                                                 fd_vinyl_bstream_phdr_t * phdr,
+                                                 ulong                     seq );
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_fini( fd_snapwm_tile_t * ctx );
 
 FD_PROTOTYPES_END
 
