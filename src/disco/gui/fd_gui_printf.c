@@ -1199,9 +1199,15 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
       jsonp_close_object( peers->http );
 
       if( FD_LIKELY( peer->country_code_idx!=UCHAR_MAX ) ) {
-        jsonp_string( peers->http, "country_code", peers->ipinfo.country_code[ peer->country_code_idx ].cc );
+        jsonp_string( peers->http, "country_code", peers->dbip.country_code[ peer->country_code_idx ] );
       } else {
         jsonp_null( peers->http, "country_code" );
+      }
+
+      if( FD_LIKELY( peer->city_name_idx!=UINT_MAX ) ) {
+        jsonp_string( peers->http, "city_name", peers->dbip.city_name[ peer->city_name_idx ] );
+      } else {
+        jsonp_null( peers->http, "city_name" );
       }
 
     jsonp_close_object( peers->http );
@@ -2198,7 +2204,7 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "Country" );
-              jsonp_string( peers->http, "new_value", peers->ipinfo.country_code[ cur->country_code_idx ].cc );
+              jsonp_string( peers->http, "new_value", peers->dbip.country_code[ cur->country_code_idx ] );
             jsonp_close_object( peers->http );
           }
 
@@ -2300,7 +2306,7 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
           fd_base58_encode_32( cur->contact_info.pubkey.uc, NULL, pubkey_base58 );
           jsonp_string( peers->http, "Pubkey", pubkey_base58 );
           jsonp_string( peers->http, "Name", cur->name );
-          jsonp_string( peers->http, "Country", peers->ipinfo.country_code[ cur->country_code_idx ].cc );
+          jsonp_string( peers->http, "Country", peers->dbip.country_code[ cur->country_code_idx ] );
 
           char peer_addr[ 16 ]; /* 255.255.255.255 + '\0' */
           FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(cur->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr) ) );
