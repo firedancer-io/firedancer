@@ -49,11 +49,7 @@ get_inflation_start_slot( fd_bank_t const * bank ) {
       ? fd_bank_features_query( bank )->devnet_and_testnet
       : ULONG_MAX;
 
-  ulong enable = ULONG_MAX;
-  if( FD_FEATURE_ACTIVE_BANK( bank, full_inflation_vote ) &&
-      FD_FEATURE_ACTIVE_BANK( bank, full_inflation_enable ) ) {
-    enable = fd_bank_features_query( bank )->full_inflation_enable;
-  }
+  ulong enable = fd_bank_features_query( bank )->full_inflation_enable;
 
   ulong min_slot = fd_ulong_min( enable, devnet_and_testnet );
   if( min_slot == ULONG_MAX ) {
@@ -477,7 +473,6 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
       fd_bank_features_query( bank ),
-      fd_bank_slot_get( bank ),
       new_warmup_cooldown_rate_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -553,7 +548,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
       fd_bank_features_query( bank ),
-      fd_bank_slot_get( bank ),
       new_warmup_cooldown_rate_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -1106,7 +1100,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   FD_LOG_DEBUG(( "epoch rewards is active" ));
   runtime_stack->stakes.prev_vote_credits_used = 1;
 
-  ulong const slot           = fd_bank_slot_get( bank );
   ulong const epoch          = fd_bank_epoch_get( bank );
   ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
@@ -1116,7 +1109,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
       fd_bank_features_query( bank ),
-      slot,
       new_warmup_cooldown_rate_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {

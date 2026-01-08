@@ -14,7 +14,7 @@ TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
-INGEST_MODE="shredcap"
+INGEST_MODE="rocksdb"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
@@ -284,6 +284,8 @@ set -x
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
 
 echo "Log for ledger $LEDGER at $LOG"
+
+$OBJDIR/bin/firedancer-dev configure fini all &> /dev/null
 
 # check that the ledger is not corrupted after a run
 if [[ $SKIP_CHECKSUM -eq 0 ]]; then

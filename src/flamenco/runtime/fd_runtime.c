@@ -609,8 +609,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
   long start = fd_log_wallclock();
 
-  ulong const slot = fd_bank_slot_get( bank );
-
   /* Activate new features
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
 
@@ -636,7 +634,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
       fd_bank_features_query( bank ),
-      slot,
       new_rate_activation_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {

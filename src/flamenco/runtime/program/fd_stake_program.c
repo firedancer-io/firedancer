@@ -306,7 +306,6 @@ validate_split_amount( fd_exec_instr_ctx_t const * invoke_context,
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1048
   if( FD_UNLIKELY(
-           FD_FEATURE_ACTIVE_BANK( invoke_context->bank, require_rent_exempt_split_destination ) &&
            source_is_active && source_remaining_balance!=0 &&
            destination_lamports<destination_rent_exempt_reserve ) ) {
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -765,7 +764,6 @@ int
 fd_new_warmup_cooldown_rate_epoch(
     fd_epoch_schedule_t const * epoch_schedule,
     fd_features_t const *       features,
-    ulong                       slot,
     /* out */ ulong *           epoch,
     int *                       err
 ) {
@@ -776,13 +774,8 @@ fd_new_warmup_cooldown_rate_epoch(
     *err   = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     return 1;
   }
-  /* reduce_stake_warmup_cooldown is activated on all clusters, so we shouldn't have a `None` case. */
-  if( FD_LIKELY( FD_FEATURE_ACTIVE( slot, features, reduce_stake_warmup_cooldown ) ) ) {
-    ulong slot = features->reduce_stake_warmup_cooldown;
-    *epoch     = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-    return 1;
-  }
-  return 0;
+  *epoch = fd_slot_to_epoch( epoch_schedule, features->reduce_stake_warmup_cooldown, NULL );
+  return 1;
 }
 
 /**********************************************************************/
@@ -852,7 +845,6 @@ get_if_mergeable( fd_exec_instr_ctx_t *         invoke_context, // not const to 
     int is_some = fd_new_warmup_cooldown_rate_epoch(
         epoch_schedule,
         fd_bank_features_query( invoke_context->bank ),
-        fd_bank_slot_get( invoke_context->bank ),
         &new_rate_activation_epoch,
         &err );
     if( FD_UNLIKELY( err ) ) return err;
@@ -1171,7 +1163,6 @@ get_stake_status( fd_exec_instr_ctx_t const *    invoke_context,
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       epoch_schedule,
       fd_bank_features_query( invoke_context->bank ),
-      fd_bank_slot_get( invoke_context->bank ),
       &new_rate_activation_epoch,
       &err );
   if( FD_UNLIKELY( err ) ) return err;
@@ -1217,7 +1208,6 @@ redelegate_stake( fd_exec_instr_ctx_t const *   ctx,
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       epoch_schedule,
       fd_bank_features_query( ctx->bank ),
-      fd_bank_slot_get( ctx->bank ),
       &new_rate_activation_epoch,
       &err );
   if( FD_UNLIKELY( err ) ) return err;
@@ -1652,22 +1642,17 @@ split( fd_exec_instr_ctx_t const * ctx,
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L431
     ulong minimum_delegation = get_minimum_delegation( ctx->bank );
 
-    int is_active;
-    if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( ctx->bank, require_rent_exempt_split_destination ) ) ) {
-      // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L434
-      fd_sol_sysvar_clock_t clock_;
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
-      if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L434
+    fd_sol_sysvar_clock_t clock_;
+    fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
+    if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-      // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L435
-      fd_stake_activation_status_t status = {0};
-      rc = get_stake_status( ctx, stake, clock, &status );
-      if( FD_UNLIKELY( rc ) ) return rc;
+    // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L435
+    fd_stake_activation_status_t status = {0};
+    rc = get_stake_status( ctx, stake, clock, &status );
+    if( FD_UNLIKELY( rc ) ) return rc;
 
-      is_active = status.effective>0;
-    } else {
-      is_active = 0;
-    }
+    int is_active = status.effective>0;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L438
     validated_split_info_t validated_split_info = {0};
@@ -2870,7 +2855,6 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     int   is_some = fd_new_warmup_cooldown_rate_epoch(
         epoch_schedule,
         fd_bank_features_query( ctx->bank ),
-        fd_bank_slot_get( ctx->bank ),
         &new_rate_activation_epoch,
         &err );
     if( FD_UNLIKELY( err ) ) return err;
