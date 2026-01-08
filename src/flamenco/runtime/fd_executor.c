@@ -956,6 +956,9 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
     txn_out->accounts.rollback_fee_payer = txn_out->accounts.rollback_nonce;
   } else {
+    uchar * fee_payer_data = txn_out->accounts.rollback_fee_payer_mem;
+    txn_out->accounts.rollback_fee_payer = fd_type_pun( fee_payer_data );
+
     fd_account_meta_t const * meta = NULL;
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
       int is_found = 0;
@@ -963,7 +966,6 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
           if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], fee_payer_key ) && prev_txn_out->accounts.is_writable[j] ) {
-            /* Found the account in a previous transaction */
             meta = prev_txn_out->accounts.metas[ j ];
             is_found = 1;
             break;
@@ -972,19 +974,24 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
       }
     }
 
-    if( !meta ) {
+    if( meta ) {
+      /* Account modified in a previous transaction */
+      fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
+    } else {
+      /* Copy from account database */
       fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-      meta = fd_funk_get_acc_meta_readonly(
-          runtime->funk,
-          &xid,
-          fee_payer_key,
-          NULL );
-      if( FD_UNLIKELY( !meta ) ) FD_LOG_CRIT(( "fd_funk_get_acc_meta_readonly failed" ));
+      fd_accdb_ro_t fee_payer_ro[1];
+      if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, fee_payer_ro, &xid, fee_payer_key ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( fee_payer_key->uc, fee_payer_key_b58 );
+        FD_LOG_CRIT(( "accdb query for fee payer account failed: xid=%lu:%lu address=%s", xid.ul[0], xid.ul[1], fee_payer_key_b58 ));
+      }
+      fd_memcpy( fee_payer_data,
+                 fee_payer_ro->meta,
+                 sizeof(fd_account_meta_t) );
+      fd_memcpy( fee_payer_data+sizeof(fd_account_meta_t),
+                 fd_accdb_ref_data_const( fee_payer_ro ),
+                 fd_accdb_ref_data_sz   ( fee_payer_ro ) );
     }
-
-    uchar * fee_payer_data = txn_out->accounts.rollback_fee_payer_mem;
-    fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
-    txn_out->accounts.rollback_fee_payer = fd_type_pun( fee_payer_data );
   }
 
   /* Deduct the transaction fees from the rollback account. Because of prior checks, this should never fail. */
