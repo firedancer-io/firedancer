@@ -157,7 +157,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     uchar *             data     = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
     fd_account_meta_t * meta     = (fd_account_meta_t *)data;
     uint dlen = test_ctx->accounts[j].data ? test_ctx->accounts[j].data->size : 0U;
-    fd_memcpy( meta+1, test_ctx->accounts[j].data->bytes, dlen );
+    if( test_ctx->accounts[j].data ) {
+      fd_memcpy( meta+1, test_ctx->accounts[j].data->bytes, dlen );
+    }
     meta->dlen = dlen;
     meta->lamports = test_ctx->accounts[j].lamports;
     meta->executable = test_ctx->accounts[j].executable;
