@@ -151,6 +151,7 @@ struct fd_replay_tile {
   fd_store_t *    store;
   fd_banks_t            banksl_join[1];
   fd_banks_t *          banks;
+  fd_bank_t            bank[1];
 
   /* This flag is 1 If we have seen a vote signature that our node has
      sent out get rooted at least one time.  The value is 0 otherwise.
@@ -369,7 +370,7 @@ struct fd_replay_tile {
   long        reset_timestamp_nanos;
   double      slot_duration_nanos;
   double      slot_duration_ticks;
-  fd_bank_t * leader_bank; /* ==NULL if not currently the leader */
+  fd_bank_t   leader_bank[1];
 
   ulong  resolv_tile_cnt;
 
@@ -468,7 +469,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WORK, ctx->metrics.store_publish_work );
 
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
-  ulong leader_slot = ctx->leader_bank ? fd_bank_slot_get( ctx->leader_bank ) : 0UL;
+  ulong leader_slot = ctx->leader_bank->data ? fd_bank_slot_get( ctx->leader_bank ) : 0UL;
   FD_MGAUGE_SET( REPLAY, LEADER_SLOT, leader_slot );
 
   if( FD_LIKELY( ctx->leader_bank ) ) {
@@ -602,7 +603,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
      slot that is executed as the snapshot does not provide a parent
      block id. */
 
-  if( FD_UNLIKELY( !fd_banks_clone_from_parent( ctx->banks, bank_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_banks_clone_from_parent( parent_bank, ctx->banks, bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
   fd_bank_slot_set( bank, slot );
@@ -854,12 +855,11 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   }
   ulong parent_slot = fd_bank_slot_get( parent_bank );
 
-  ctx->leader_bank = fd_banks_new_bank( ctx->banks, parent_bank_idx, now );
-  if( FD_UNLIKELY( !ctx->leader_bank ) ) {
+  if( FD_UNLIKELY( !fd_banks_new_bank( ctx->leader_bank, ctx->banks, parent_bank_idx, now ) ) ) {
     FD_LOG_CRIT(( "invariant violation: leader bank is NULL for slot %lu", slot ));
   }
 
-  if( FD_UNLIKELY( !fd_banks_clone_from_parent( ctx->banks, ctx->leader_bank->data->idx ) ) ) {
+  if( FD_UNLIKELY( !fd_banks_clone_from_parent( ctx->leader_bank, ctx->banks, ctx->leader_bank->data->idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu", slot ));
   }
 
@@ -952,9 +952,9 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   /* We are no longer leader so we can clear the bank index we use for
      being the leader. */
-  ctx->leader_bank = NULL;
-  ctx->recv_poh    = 0;
-  ctx->is_leader   = 0;
+  ctx->leader_bank->data = NULL;
+  ctx->recv_poh          = 0;
+  ctx->is_leader         = 0;
 }
 
 static void
@@ -1748,7 +1748,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
   } else if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
     /* If we are seeing a FEC with fec set idx 0, this means that we are
        starting a new slot, and we need a new bank index. */
-    reasm_fec->bank_idx = fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now )->data->idx;
+    reasm_fec->bank_idx = fd_banks_new_bank( ctx->bank, ctx->banks, reasm_fec->parent_bank_idx, now )->data->idx;
     /* At this point remove any stale entry in the block id map if it
        exists and set the block id as not having been seen yet.  This is
        safe because we know that the old entry for this bank index has
@@ -2502,9 +2502,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( ctx->banks->data );
   FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, fd_banks_pool_max( bank_pool ) );
 
-  fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
+  fd_bank_t bank[1];
+  FD_TEST( fd_banks_init_bank( bank, ctx->banks ) );
   fd_bank_slot_set( bank, 0UL );
-  FD_TEST( bank );
   FD_TEST( bank->data->idx==FD_REPLAY_BOOT_BANK_IDX );
 
   ctx->consensus_root_slot = ULONG_MAX;
@@ -2613,7 +2613,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->highwater_leader_slot = ULONG_MAX;
   ctx->slot_duration_nanos   = 350L*1000L*1000L; /* TODO: Not fixed ... not always 350ms ... */
   ctx->slot_duration_ticks   = (double)ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
-  ctx->leader_bank           = NULL;
+  ctx->leader_bank->data           = NULL;
 
   ctx->block_id_len = tile->replay.max_live_slots;
   ctx->block_id_arr = (fd_block_id_ele_t *)block_id_arr_mem;

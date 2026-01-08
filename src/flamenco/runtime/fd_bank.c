@@ -695,7 +695,8 @@ fd_banks_delete( void * shmem ) {
 }
 
 fd_bank_t *
-fd_banks_init_bank( fd_banks_t * banks ) {
+fd_banks_init_bank( fd_bank_t *  bank_l,
+                    fd_banks_t * banks ) {
 
   if( FD_UNLIKELY( !banks ) ) {
     FD_LOG_WARNING(( "NULL banks" ));
@@ -763,11 +764,13 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   banks->data->root_idx = bank->idx;
 
   fd_rwlock_unwrite( &banks->data->rwlock );
-  return (fd_bank_t *)bank; /* TODO:FIXME: asdf */
+  bank_l->data = bank;
+  return bank_l;
 }
 
 fd_bank_t *
-fd_banks_clone_from_parent( fd_banks_t * banks,
+fd_banks_clone_from_parent( fd_bank_t *  bank_l,
+                            fd_banks_t * banks,
                             ulong        child_bank_idx ) {
   fd_rwlock_write( &banks->data->rwlock );
 
@@ -801,7 +804,8 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   if( FD_UNLIKELY( parent_bank->flags & FD_BANK_FLAGS_DEAD ) ) {
     child_bank->flags |= FD_BANK_FLAGS_DEAD;
     fd_rwlock_unwrite( &banks->data->rwlock );
-    return (fd_bank_t *)child_bank; /* TODO:FIXME: asdf */
+    bank_l->data = child_bank;
+    return bank_l;
   }
 
   /* We can simply copy over all of the data in the bank struct that
@@ -854,7 +858,8 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   fd_rwlock_unwrite( &banks->data->rwlock );
 
-  return (fd_bank_t *)child_bank; /* TODO:FIXME: asdf */
+  bank_l->data = child_bank;
+  return bank_l;
 }
 
 /* Apply a fd_stake_delegations_t into the root. This assumes that there
@@ -1252,7 +1257,8 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
 }
 
 fd_bank_t *
-fd_banks_new_bank( fd_banks_t * banks,
+fd_banks_new_bank( fd_bank_t *  bank_l,
+                   fd_banks_t * banks,
                    ulong        parent_bank_idx,
                    long         now ) {
 
@@ -1337,7 +1343,8 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->last_transaction_finished_nanos   = 0L;
 
   fd_rwlock_unwrite( &banks->data->rwlock );
-  return (fd_bank_t *)child_bank; /* TODO:FIXME: theres another one too above*/
+  bank_l->data = child_bank;
+  return bank_l;
 }
 
 void

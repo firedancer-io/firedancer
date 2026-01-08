@@ -93,7 +93,7 @@ struct fd_capture_tile_ctx {
   uchar *              manifest_bank_mem;
   fd_banks_t           banksl_join[1];
   fd_banks_t *         banks;
-  fd_bank_t *          bank;
+  fd_bank_t            bank[1];
   char                 manifest_path[ PATH_MAX ];
   int                  manifest_load_done;
   uchar *              manifest_spad_mem;
@@ -839,9 +839,8 @@ unprivileged_init( fd_topo_t *      topo,
   // TODO: ???? Why is this calling fd_banks_new ... does not seem right
   ctx->banks = fd_banks_join( ctx->banksl_join, fd_banks_new( ctx->manifest_bank_mem, MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH, 0 /* TODO? */, 8888UL /* TODO? */ ), NULL );
   FD_TEST( ctx->banks );
-  ctx->bank  = fd_banks_init_bank( ctx->banks );
+  FD_TEST( fd_banks_init_bank( ctx->bank, ctx->banks ) );
   fd_bank_slot_set( ctx->bank, 0UL );
-  FD_TEST( ctx->bank );
 
   strncpy( ctx->manifest_path, tile->shredcap.manifest_path, PATH_MAX );
   ctx->manifest_load_done = 0;

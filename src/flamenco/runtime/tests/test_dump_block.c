@@ -49,8 +49,9 @@ typedef struct test_ctx {
 
   /* Banks (slot/epoch management) */
   fd_banks_t * banks;
-  fd_bank_t *  parent_bank;  /* Parent bank */
-  fd_bank_t *  child_bank;   /* Child bank */
+  fd_bank_t    bank[1];
+  fd_bank_t    parent_bank[1];
+  fd_bank_t    child_bank[1];
 
   /* Scratch pad for temporary allocations */
   fd_spad_t * spad;
@@ -107,7 +108,7 @@ test_ctx_setup( void ) {
   FD_TEST( stake_delegations );
 
   /* ===== Create Parent Bank ===== */
-  test_ctx->parent_bank = fd_banks_init_bank( test_ctx->banks );
+  FD_TEST( fd_banks_init_bank( test_ctx->parent_bank, test_ctx->banks ) );
   FD_TEST( test_ctx->parent_bank );
 
   /* Initialize vote states for parent bank */
@@ -125,9 +126,8 @@ test_ctx_setup( void ) {
   FD_TEST( parent_vote_states_prev_prev );
 
   /* ===== Create Child Bank ===== */
-  ulong child_bank_idx = fd_banks_new_bank( test_ctx->banks, test_ctx->parent_bank->data->idx, 0L )->data->idx;
-  test_ctx->child_bank = fd_banks_clone_from_parent( test_ctx->banks, child_bank_idx );
-  FD_TEST( test_ctx->child_bank );
+  ulong child_bank_idx = fd_banks_new_bank( test_ctx->bank, test_ctx->banks, test_ctx->parent_bank->data->idx, 0L )->data->idx;
+  FD_TEST( fd_banks_clone_from_parent( test_ctx->child_bank, test_ctx->banks, child_bank_idx ) );
 
   /* Allocate scratch pad */
   ulong  spad_footprint = fd_spad_footprint( TEST_SPAD_MEM_MAX );

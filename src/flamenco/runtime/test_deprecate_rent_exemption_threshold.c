@@ -36,7 +36,7 @@ struct test_env {
   ulong                tag;
   void *               banks_mem;
   fd_banks_t *         banks;
-  fd_bank_t *          bank;
+  fd_bank_t            bank[1];
   void *               funk_mem;
   fd_accdb_admin_t     accdb_admin[1];
   fd_accdb_user_t      accdb[1];
@@ -120,7 +120,7 @@ test_env_create( test_env_t * env,
   env->banks = fd_banks_join( banksl_join, fd_banks_new( env->banks_mem, max_total_banks, max_fork_width, 0, 8888UL ), NULL );
   FD_TEST( env->banks );
 
-  env->bank = fd_banks_init_bank( env->banks );
+  //env->bank = fd_banks_init_bank( env->banks ); TODO:FIXME:
   FD_TEST( env->bank );
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), env->tag );
@@ -213,8 +213,8 @@ process_slot( test_env_t * env,
 
   FD_TEST( parent_bank->data->flags & FD_BANK_FLAGS_FROZEN );
 
-  ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->data->idx;
-  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
+  ulong new_bank_idx = fd_banks_new_bank( env->bank, env->banks, parent_bank_idx, 0L )->data->idx;
+  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->bank, env->banks, new_bank_idx );
   FD_TEST( new_bank );
 
   fd_bank_slot_set( new_bank, slot );
@@ -228,7 +228,7 @@ process_slot( test_env_t * env,
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
 
-  env->bank = new_bank;
+  //env->bank = new_bank;
   env->xid  = xid;
 
   int is_epoch_boundary = 0;

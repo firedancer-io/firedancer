@@ -953,7 +953,8 @@ fd_banks_delete( void * shmem );
    fd_bank_t with the corresponding bank index set to 0. */
 
 fd_bank_t *
-fd_banks_init_bank( fd_banks_t * banks );
+fd_banks_init_bank( fd_bank_t *  bank_l,
+                    fd_banks_t * banks );
 
 /* fd_banks_get_bank_idx returns a bank for a given bank index. */
 
@@ -997,7 +998,8 @@ fd_banks_get_parent( fd_bank_t *  bank_l,
    semantics of the Agave client. */
 
 fd_bank_t *
-fd_banks_clone_from_parent( fd_banks_t * banks,
+fd_banks_clone_from_parent( fd_bank_t *  bank_l,
+                            fd_banks_t * banks,
                             ulong        bank_idx );
 
 /* fd_banks_advance_root() advances the root bank to the bank manager.
@@ -1079,7 +1081,8 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
    and the there are available bank indices in the bank pool. */
 
 fd_bank_t *
-fd_banks_new_bank( fd_banks_t * banks,
+fd_banks_new_bank( fd_bank_t *  bank_l,
+                   fd_banks_t * banks,
                    ulong        parent_bank_idx,
                    long         now );
 

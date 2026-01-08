@@ -38,7 +38,7 @@ struct test_env {
   uchar *              progcache_scratch;
   void *               banks_mem;
   fd_banks_t *         banks;
-  fd_bank_t *          bank;
+  fd_bank_t            bank[1];
   void *               acc_pool_mem;
   fd_acc_pool_t *      acc_pool;
   fd_runtime_t *       runtime;
@@ -129,8 +129,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   fd_banks_t * banksl_join = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_t), sizeof(fd_banks_t), env->tag );
   env->banks = fd_banks_join( banksl_join, fd_banks_new( env->banks_mem, max_total_banks, max_fork_width, 0, 8888UL ), NULL );
   FD_TEST( env->banks );
-  env->bank = fd_banks_init_bank( env->banks );
-  FD_TEST( env->bank );
+  FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
   env->acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(), fd_acc_pool_footprint( acc_pool_cnt ), env->tag );
   FD_TEST( env->acc_pool_mem );
