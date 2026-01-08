@@ -165,6 +165,42 @@ fd_accdb_close_rw( fd_accdb_user_t * accdb,
   accdb->base.vt->close_rw( accdb, write );
 }
 
+/* fd_accdb_ref_data_max returns the data capacity of an account. */
+
+static inline ulong
+fd_accdb_ref_data_max( fd_accdb_user_t * accdb,
+                       fd_accdb_rw_t *   rw ) {
+  return accdb->base.vt->rw_data_max( accdb, rw );
+}
+
+/* fd_accdb_ref_data_sz_set expands/truncates the data size of an
+   account.  Assumes that the account has sufficient capacity
+   (fd_accdb_ref_data_max).  If an increase of the account size was
+   requested, zero-initializes the tail region, unless FLAG_DONTZERO is
+   set. */
+
+static inline void
+fd_accdb_ref_data_sz_set( fd_accdb_user_t * accdb,
+                          fd_accdb_rw_t *   rw,
+                          ulong             data_sz,
+                          int               flags ) {
+  accdb->base.vt->rw_data_sz_set( accdb, rw, data_sz, flags );
+}
+
+/* fd_accdb_ref_data_set replaces the data content of an account.
+   Assumes that the account has sufficient capacity
+   (fd_accdb_ref_data_max). */
+
+FD_FN_UNUSED static void
+fd_accdb_ref_data_set( fd_accdb_user_t * accdb,
+                       fd_accdb_rw_t *   rw,
+                       void const *      data,
+                       ulong             data_sz ) {
+  fd_accdb_ref_data_sz_set( accdb, rw, data_sz, FD_ACCDB_FLAG_DONTZERO );
+  fd_memcpy( fd_accdb_ref_data( rw ), data, data_sz );
+  rw->meta->dlen  = (uint)data_sz;
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_sync_h */

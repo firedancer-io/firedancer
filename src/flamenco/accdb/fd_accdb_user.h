@@ -10,6 +10,7 @@
 
 #define FD_ACCDB_FLAG_CREATE   (1)
 #define FD_ACCDB_FLAG_TRUNCATE (2)
+#define FD_ACCDB_FLAG_DONTZERO (3)
 
 /* fd_accdb_user_vt_t specifies the interface (vtable) for the account
    DB client. */
@@ -46,6 +47,16 @@ struct fd_accdb_user_vt {
   void
   (* close_rw)( fd_accdb_user_t * accdb,
                 fd_accdb_rw_t *   write );
+
+  ulong
+  (* rw_data_max)( fd_accdb_user_t *     accdb,
+                   fd_accdb_rw_t const * rw );
+
+  void
+  (* rw_data_sz_set)( fd_accdb_user_t * accdb,
+                      fd_accdb_rw_t *   rw,
+                      ulong             data_sz,
+                      int               flags );
 
 };
 

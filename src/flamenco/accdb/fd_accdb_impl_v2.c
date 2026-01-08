@@ -139,7 +139,8 @@ fd_accdb_user_v2_close_ro( fd_accdb_user_t * accdb_,
                            fd_accdb_ro_t *   ro ) {
   fd_accdb_user_v2_t * accdb = (fd_accdb_user_v2_t *)accdb_;
 
-  if( ro->rec ) {
+  if( ro->user_data ) {
+    /* Funk record, no RELEASE request required */
     accdb->base.ro_active--;
     return;
   }
@@ -184,29 +185,15 @@ fd_accdb_user_v2_close_ro( fd_accdb_user_t * accdb_,
   accdb->base.ro_active--;
 }
 
-fd_accdb_rw_t *
-fd_accdb_user_v2_open_rw( fd_accdb_user_t *         accdb,
-                          fd_accdb_rw_t *           rw,
-                          fd_funk_txn_xid_t const * xid,
-                          void const *              address,
-                          ulong                     data_max,
-                          int                       flags ) {
-  return fd_accdb_user_v1_open_rw( accdb, rw, xid, address, data_max, flags );
-}
-
-void
-fd_accdb_user_v2_close_rw( fd_accdb_user_t * accdb,
-                           fd_accdb_rw_t *   write ) {
-  fd_accdb_user_v1_close_rw( accdb, write );
-}
-
 fd_accdb_user_vt_t const fd_accdb_user_v2_vt = {
-  .fini     = fd_accdb_user_v2_fini,
-  .peek     = fd_accdb_user_v2_peek,
-  .open_ro  = fd_accdb_user_v2_open_ro,
-  .close_ro = fd_accdb_user_v2_close_ro,
-  .open_rw  = fd_accdb_user_v2_open_rw,
-  .close_rw = fd_accdb_user_v2_close_rw
+  .fini           = fd_accdb_user_v2_fini,
+  .peek           = fd_accdb_user_v2_peek,
+  .open_ro        = fd_accdb_user_v2_open_ro,
+  .close_ro       = fd_accdb_user_v2_close_ro,
+  .open_rw        = fd_accdb_user_v1_open_rw,
+  .close_rw       = fd_accdb_user_v1_close_rw,
+  .rw_data_max    = fd_accdb_user_v1_rw_data_max,
+  .rw_data_sz_set = fd_accdb_user_v1_rw_data_sz_set
 };
 
 fd_accdb_user_t *

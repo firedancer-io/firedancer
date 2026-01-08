@@ -211,8 +211,8 @@ fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
 
   *peek = (fd_accdb_peek_t) {
     .acc = {{
-      .rec  = rec,
-      .meta = fd_funk_val( rec, funk->wksp )
+      .user_data = (ulong)rec,
+      .meta      = fd_funk_val( rec, funk->wksp )
     }},
     .spec = {{
       .key  = *key,
@@ -297,7 +297,7 @@ fd_accdb_prep_create( fd_accdb_rw_t *           rw,
 
   accdb->base.rw_active++;
   *rw = (fd_accdb_rw_t) {
-    .rec       = rec,
+    .user_data = (ulong)rec,
     .meta      = meta,
     .published = 0
   };
@@ -318,7 +318,7 @@ fd_accdb_prep_inplace( fd_accdb_rw_t *      rw,
 
   accdb->base.rw_active++;
   *rw = (fd_accdb_rw_t) {
-    .rec       = rec,
+    .user_data = (ulong)rec,
     .meta      = fd_funk_val( rec, accdb->funk->wksp ),
     .published = 1
   };
@@ -369,7 +369,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
                           void const *              address,
                           ulong                     data_max,
                           int                       flags ) {
-  fd_accdb_user_v1_t * v1 = (fd_accdb_user_v1_t *)accdb;
+  fd_accdb_user_v1_t * v1  = (fd_accdb_user_v1_t *)accdb;
 
   int const flag_create   = !!( flags & FD_ACCDB_FLAG_CREATE   );
   int const flag_truncate = !!( flags & FD_ACCDB_FLAG_TRUNCATE );
@@ -413,10 +413,10 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
     memset( val, 0, sizeof(fd_account_meta_t) );
     return fd_accdb_prep_create( rw, v1, xid, address, val, sizeof(fd_account_meta_t), val_max );
 
-  } else if( fd_funk_txn_xid_eq( peek->acc->rec->pair.xid, xid ) ) {
+  } else if( fd_funk_txn_xid_eq( ((fd_funk_rec_t *)peek->acc->user_data)->pair.xid, xid ) ) {
 
     /* Mutable record found, modify in-place */
-    fd_funk_rec_t * rec = (void *)( peek->acc->ref->rec_laddr );
+    fd_funk_rec_t * rec = (fd_funk_rec_t *)peek->acc->user_data;
     ulong  acc_orig_sz = fd_accdb_ref_data_sz( peek->acc );
     ulong  val_sz_min  = sizeof(fd_account_meta_t)+fd_ulong_max( data_max, acc_orig_sz );
     void * val         = fd_funk_val_truncate( rec, v1->funk->alloc, v1->funk->wksp, 16UL, val_sz_min, NULL );
@@ -425,7 +425,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
     }
     fd_accdb_prep_inplace( rw, v1, rec );
     if( flag_truncate ) {
-      rw->rec->val_sz = sizeof(fd_account_meta_t);
+      rec->val_sz = sizeof(fd_account_meta_t);
       rw->meta->dlen  = 0;
     }
     return rw;
@@ -433,9 +433,10 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
   } else {
 
     /* Frozen record found, copy out to new object */
+    fd_funk_rec_t * rec = (fd_funk_rec_t *)peek->acc->user_data;
     ulong  acc_orig_sz = fd_accdb_ref_data_sz( peek->acc );
     ulong  val_sz_min  = sizeof(fd_account_meta_t)+fd_ulong_max( data_max, acc_orig_sz );
-    ulong  val_sz      = flag_truncate ? sizeof(fd_account_meta_t) : peek->acc->rec->val_sz;
+    ulong  val_sz      = flag_truncate ? sizeof(fd_account_meta_t) : rec->val_sz;
     ulong  val_max     = 0UL;
     void * val         = fd_alloc_malloc_at_least( v1->funk->alloc, 16UL, val_sz_min, &val_max );
     if( FD_UNLIKELY( !val ) ) {
@@ -466,7 +467,8 @@ void
 fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
                            fd_accdb_rw_t *   write ) {
   if( FD_UNLIKELY( !accdb ) ) FD_LOG_CRIT(( "NULL accdb" ));
-  fd_accdb_user_v1_t * v1 = (fd_accdb_user_v1_t *)accdb;
+  fd_accdb_user_v1_t * v1  = (fd_accdb_user_v1_t *)accdb;
+  fd_funk_rec_t *      rec = (fd_funk_rec_t *)write->user_data;
 
   if( FD_UNLIKELY( !v1->base.rw_active ) ) {
     FD_LOG_CRIT(( "Failed to modify account: ref count underflow" ));
@@ -478,7 +480,7 @@ fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
     }
     fd_funk_txn_t * txn = v1->funk->txn_pool->ele + v1->tip_txn_idx;
     fd_funk_rec_prepare_t prepare = {
-      .rec          = write->rec,
+      .rec          = rec,
       .rec_head_idx = &txn->rec_head_idx,
       .rec_tail_idx = &txn->rec_tail_idx
     };
@@ -488,13 +490,51 @@ fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
   v1->base.rw_active--;
 }
 
+ulong
+fd_accdb_user_v1_rw_data_max( fd_accdb_user_t *     accdb,
+                              fd_accdb_rw_t const * rw ) {
+  (void)accdb;
+  fd_funk_rec_t * rec = (fd_funk_rec_t *)rw->user_data;
+  return (ulong)( rec->val_max - sizeof(fd_account_meta_t) );
+}
+
+void
+fd_accdb_user_v1_rw_data_sz_set( fd_accdb_user_t * accdb,
+                                 fd_accdb_rw_t *   rw,
+                                 ulong             data_sz,
+                                 int               flags ) {
+  (void)accdb;
+  int flag_dontzero = !!( flags & FD_ACCDB_FLAG_DONTZERO );
+  if( FD_UNLIKELY( flags & ~(FD_ACCDB_FLAG_DONTZERO) ) ) {
+    FD_LOG_CRIT(( "invalid flags for rw_data_sz_set: %#02x", (uint)flags ));
+  }
+
+  fd_funk_rec_t * rec = (fd_funk_rec_t *)rw->user_data;
+  ulong prev_sz = rw->meta->dlen;
+  if( data_sz>prev_sz ) {
+    ulong data_max = fd_accdb_ref_data_max( accdb, rw );
+    if( FD_UNLIKELY( data_sz>data_max ) ) {
+      FD_LOG_CRIT(( "attempted to write %lu bytes into a rec %p with only %lu bytes of data space",
+                    data_sz, (void *)rec, data_max ));
+    }
+    if( !flag_dontzero ) {
+      void * tail = (uchar *)fd_accdb_ref_data( rw ) + prev_sz;
+      fd_memset( tail, 0, data_sz-prev_sz );
+    }
+  }
+  rw->meta->dlen  = (uint)data_sz;
+  rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & FD_FUNK_REC_VAL_MAX;
+}
+
 fd_accdb_user_vt_t const fd_accdb_user_v1_vt = {
-  .fini     = fd_accdb_user_v1_fini,
-  .peek     = fd_accdb_user_v1_peek,
-  .open_ro  = fd_accdb_user_v1_open_ro,
-  .close_ro = fd_accdb_user_v1_close_ro,
-  .open_rw  = fd_accdb_user_v1_open_rw,
-  .close_rw = fd_accdb_user_v1_close_rw
+  .fini           = fd_accdb_user_v1_fini,
+  .peek           = fd_accdb_user_v1_peek,
+  .open_ro        = fd_accdb_user_v1_open_ro,
+  .close_ro       = fd_accdb_user_v1_close_ro,
+  .open_rw        = fd_accdb_user_v1_open_rw,
+  .close_rw       = fd_accdb_user_v1_close_rw,
+  .rw_data_max    = fd_accdb_user_v1_rw_data_max,
+  .rw_data_sz_set = fd_accdb_user_v1_rw_data_sz_set
 };
 
 fd_accdb_user_t *

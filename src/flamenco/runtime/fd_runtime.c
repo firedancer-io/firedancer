@@ -1045,11 +1045,11 @@ fd_runtime_finalize_account( fd_accdb_user_t *         accdb,
   if( FD_UNLIKELY( !rw_ok ) ) FD_LOG_CRIT(( "fd_accdb_open_rw failed" ));
 
   void const * data = fd_account_data( meta );
-  fd_accdb_ref_lamports_set( rw, meta->lamports   );
-  fd_accdb_ref_owner_set   ( rw, meta->owner      );
-  fd_accdb_ref_exec_bit_set( rw, meta->executable );
-  fd_accdb_ref_data_set    ( rw, data, meta->dlen );
-  fd_accdb_ref_slot_set    ( rw, xid->ul[0]    );
+  fd_accdb_ref_lamports_set(        rw, meta->lamports   );
+  fd_accdb_ref_owner_set   (        rw, meta->owner      );
+  fd_accdb_ref_exec_bit_set(        rw, meta->executable );
+  fd_accdb_ref_data_set    ( accdb, rw, data, meta->dlen );
+  fd_accdb_ref_slot_set    (        rw, xid->ul[0]       );
 
   fd_accdb_close_rw( accdb, rw );
 }
