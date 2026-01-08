@@ -162,9 +162,10 @@ test_truncate_create( fd_accdb_admin_t * admin,
   fd_funk_rec_key_t key = { .ul={ 42UL } };
   fd_accdb_rw_t rw[1];
   FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, 56UL, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE ) );
-  FD_TEST( rw->rec->val_sz  == sizeof(fd_account_meta_t) );
-  FD_TEST( rw->rec->val_max >= sizeof(fd_account_meta_t)+56UL );
-  FD_TEST( rw->meta->dlen   == 0UL );
+  fd_funk_rec_t * rec = (void *)rw->user_data;
+  FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max   >= sizeof(fd_account_meta_t)+56UL );
+  FD_TEST( rw->meta->dlen == 0UL );
   fd_accdb_close_rw( accdb, rw );
 
   fd_accdb_advance_root( admin, &xid );
@@ -197,17 +198,19 @@ test_truncate_inplace( fd_accdb_admin_t * admin,
   fd_accdb_rw_t rw[1];
   ulong data_sz_0 = 56UL;
   FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_0, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( rw, "hello", 5UL );
-  FD_TEST( rw->rec->val_sz  == sizeof(fd_account_meta_t)+5UL );
-  FD_TEST( rw->rec->val_max >= sizeof(fd_account_meta_t)+data_sz_0 );
-  FD_TEST( rw->meta->dlen   == 5UL );
+  fd_accdb_ref_data_set( accdb, rw, "hello", 5UL );
+  fd_funk_rec_t * rec = (void *)rw->user_data;
+  FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t)+5UL );
+  FD_TEST( rec->val_max   >= sizeof(fd_account_meta_t)+data_sz_0 );
+  FD_TEST( rw->meta->dlen == 5UL );
   fd_accdb_close_rw( accdb, rw );
 
   ulong data_sz_1 = 256UL;
   FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_1, FD_ACCDB_FLAG_TRUNCATE ) );
-  FD_TEST( rw->rec->val_sz  == sizeof(fd_account_meta_t) );
-  FD_TEST( rw->rec->val_max >= sizeof(fd_account_meta_t)+data_sz_1 );
-  FD_TEST( rw->meta->dlen   == 0UL );
+  rec = (void *)rw->user_data;
+  FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max   >= sizeof(fd_account_meta_t)+data_sz_1 );
+  FD_TEST( rw->meta->dlen == 0UL );
   fd_accdb_close_rw( accdb, rw );
 
   fd_accdb_advance_root( admin, &xid );
@@ -224,17 +227,19 @@ test_truncate_copy( fd_accdb_admin_t * admin,
   fd_funk_rec_key_t key = { .ul={ 42UL } };
   fd_accdb_rw_t rw[1];
   FD_TEST( fd_accdb_open_rw( accdb, rw, &xid1, &key, 56UL, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( rw, "hello", 5UL );
-  FD_TEST( rw->rec->val_sz  == sizeof(fd_account_meta_t)+5UL );
-  FD_TEST( rw->rec->val_max >= sizeof(fd_account_meta_t)+56UL );
-  FD_TEST( rw->meta->dlen   == 5UL );
+  fd_accdb_ref_data_set( accdb, rw, "hello", 5UL );
+  fd_funk_rec_t * rec = (void *)rw->user_data;
+  FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t)+5UL );
+  FD_TEST( rec->val_max   >= sizeof(fd_account_meta_t)+56UL );
+  FD_TEST( rw->meta->dlen == 5UL );
   fd_accdb_close_rw( accdb, rw );
 
   fd_funk_txn_xid_t xid2 = { .ul={ 5UL, 0UL } };
   fd_accdb_attach_child( admin, &xid1, &xid2 );
   FD_TEST( fd_accdb_open_rw( accdb, rw, &xid2, &key, 256UL, FD_ACCDB_FLAG_TRUNCATE ) );
-  FD_TEST( rw->rec->val_sz  == sizeof(fd_account_meta_t) );
-  FD_TEST( rw->rec->val_max >= sizeof(fd_account_meta_t)+256UL );
+  rec = (void *)rw->user_data;
+  FD_TEST( rec->val_sz  == sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max >= sizeof(fd_account_meta_t)+256UL );
   FD_TEST( rw->meta->dlen   == 0UL );
   fd_accdb_close_rw( accdb, rw );
 

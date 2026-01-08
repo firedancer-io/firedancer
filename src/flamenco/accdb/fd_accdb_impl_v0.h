@@ -91,6 +91,17 @@ void
 fd_accdb_user_v0_close_rw( fd_accdb_user_t * accdb,
                            fd_accdb_rw_t *   write );
 
+
+ulong
+fd_accdb_user_v0_rw_data_max( fd_accdb_user_t *     accdb,
+                              fd_accdb_rw_t const * rw );
+
+void
+fd_accdb_user_v0_rw_data_sz_set( fd_accdb_user_t * accdb,
+                                 fd_accdb_rw_t *   rw,
+                                 ulong             data_sz,
+                                 int               flags );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_impl_v0_h */

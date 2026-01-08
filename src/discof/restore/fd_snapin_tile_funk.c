@@ -19,7 +19,7 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   if( !ctx->full && !existing_rec ) {
     fd_accdb_peek_t peek[1];
     if( fd_accdb_peek( ctx->accdb, peek, ctx->xid, result->account_header.pubkey ) ) {
-      existing_rec = peek->acc->rec;
+      existing_rec = (fd_funk_rec_t *)peek->acc->user_data;
     }
   }
   if( FD_UNLIKELY( existing_rec ) ) {

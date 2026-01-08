@@ -178,7 +178,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
   if( FD_UNLIKELY( !fd_funk_txn_xid_eq( &txn->xid, xid ) ) ) FD_LOG_CRIT(( "accdb_user corrupt: not joined to the expected transaction" ));
   if( !rw->published ) {
     *prepare_out = (fd_funk_rec_prepare_t) {
-      .rec          = rw->rec,
+      .rec          = (fd_funk_rec_t *)rw->user_data,
       .rec_head_idx = &txn->rec_head_idx,
       .rec_tail_idx = &txn->rec_tail_idx
     };

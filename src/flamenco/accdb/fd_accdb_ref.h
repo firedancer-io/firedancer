@@ -19,7 +19,7 @@
 /* fd_accdb_ref_t is an opaque account database handle. */
 
 struct fd_accdb_ref {
-  ulong rec_laddr;
+  ulong user_data;
   ulong meta_laddr;
   uchar address[32];
 };
@@ -30,7 +30,7 @@ typedef struct fd_accdb_ref fd_accdb_ref_t;
 union fd_accdb_ro {
   fd_accdb_ref_t ref[1];
   struct {
-    fd_funk_rec_t const *     rec;
+    ulong                     user_data;
     fd_account_meta_t const * meta;
     uchar                     address[32];
   };
@@ -89,7 +89,7 @@ union fd_accdb_rw {
   fd_accdb_ref_t ref[1];
   fd_accdb_ro_t  ro [1];
   struct {
-    fd_funk_rec_t *     rec;
+    ulong               user_data;
     fd_account_meta_t * meta;
     uchar               address[32];
     uint                published : 1;
@@ -102,50 +102,9 @@ FD_PROTOTYPES_BEGIN
 // void
 // fd_accdb_ref_clear( fd_accdb_rw_t * rw );
 
-static inline ulong
-fd_accdb_ref_data_max( fd_accdb_rw_t * rw ) {
-  ulong data_max;
-  if( FD_UNLIKELY( __builtin_usubl_overflow( rw->rec->val_max, sizeof(fd_account_meta_t), &data_max ) ) ) {
-    FD_LOG_CRIT(( "invalid rec->val_max %lu for account at rec %p", (ulong)rw->rec->val_max, (void *)rw->rec ));
-  }
-  return data_max;
-}
-
 static inline void *
 fd_accdb_ref_data( fd_accdb_rw_t * rw ) {
   return (void *)( rw->meta+1 );
-}
-
-static inline void
-fd_accdb_ref_data_set( fd_accdb_rw_t * rw,
-                       void const *    data,
-                       ulong           data_sz ) {
-  ulong data_max = fd_accdb_ref_data_max( rw );
-  if( FD_UNLIKELY( data_sz>data_max ) ) {
-    FD_LOG_CRIT(( "attempted to write %lu bytes into a rec %p with only %lu bytes of data space",
-                  data_sz, (void *)rw->rec, data_max ));
-  }
-  fd_memcpy( fd_accdb_ref_data( rw ), data, data_sz );
-  rw->meta->dlen  = (uint)data_sz;
-  rw->rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & FD_FUNK_REC_VAL_MAX;
-}
-
-FD_FN_UNUSED static void
-fd_accdb_ref_data_sz_set( fd_accdb_rw_t * rw,
-                          ulong           data_sz ) {
-  ulong prev_sz = rw->meta->dlen;
-  if( data_sz>prev_sz ) {
-    /* Increasing size, zero out tail */
-    ulong data_max = fd_accdb_ref_data_max( rw );
-    if( FD_UNLIKELY( data_sz>data_max ) ) {
-      FD_LOG_CRIT(( "attempted to write %lu bytes into a rec %p with only %lu bytes of data space",
-                    data_sz, (void *)rw->rec, data_max ));
-    }
-    void * tail = (uchar *)fd_accdb_ref_data( rw ) + prev_sz;
-    fd_memset( tail, 0, data_sz-prev_sz );
-  }
-  rw->meta->dlen  = (uint)data_sz;
-  rw->rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & FD_FUNK_REC_VAL_MAX;
 }
 
 static inline void

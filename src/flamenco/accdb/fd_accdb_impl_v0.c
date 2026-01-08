@@ -283,11 +283,45 @@ fd_accdb_user_v0_close_rw( fd_accdb_user_t * accdb,
   fd_rwlock_unwrite( &v0->lock );
 }
 
+ulong
+fd_accdb_user_v0_rw_data_max( fd_accdb_user_t *     accdb,
+                              fd_accdb_rw_t const * rw ) {
+  (void)accdb; (void)rw;
+  return FD_RUNTIME_ACC_SZ_MAX;
+}
+
+void
+fd_accdb_user_v0_rw_data_sz_set( fd_accdb_user_t * accdb,
+                                 fd_accdb_rw_t *   rw,
+                                 ulong             data_sz,
+                                 int               flags ) {
+  (void)accdb;
+  int flag_dontzero = !!( flags & FD_ACCDB_FLAG_DONTZERO );
+  if( FD_UNLIKELY( flags & ~(FD_ACCDB_FLAG_DONTZERO) ) ) {
+    FD_LOG_CRIT(( "invalid flags for rw_data_sz_set: %#02x", (uint)flags ));
+  }
+
+  ulong prev_sz = rw->meta->dlen;
+  if( data_sz>prev_sz ) {
+    if( FD_UNLIKELY( data_sz>FD_RUNTIME_ACC_SZ_MAX ) ) {
+      FD_LOG_CRIT(( "attempted to write %lu bytes into a rec with only %lu bytes of data space",
+                    data_sz, FD_RUNTIME_ACC_SZ_MAX ));
+    }
+    if( !flag_dontzero ) {
+      void * tail = (uchar *)fd_accdb_ref_data( rw ) + prev_sz;
+      fd_memset( tail, 0, data_sz-prev_sz );
+    }
+  }
+  rw->meta->dlen = (uint)data_sz;
+}
+
 fd_accdb_user_vt_t const fd_accdb_user_v0_vt = {
-  .fini     = fd_accdb_user_v0_fini,
-  .peek     = fd_accdb_user_v0_peek,
-  .open_ro  = fd_accdb_user_v0_open_ro,
-  .close_ro = fd_accdb_user_v0_close_ro,
-  .open_rw  = fd_accdb_user_v0_open_rw,
-  .close_rw = fd_accdb_user_v0_close_rw
+  .fini           = fd_accdb_user_v0_fini,
+  .peek           = fd_accdb_user_v0_peek,
+  .open_ro        = fd_accdb_user_v0_open_ro,
+  .close_ro       = fd_accdb_user_v0_close_ro,
+  .open_rw        = fd_accdb_user_v0_open_rw,
+  .close_rw       = fd_accdb_user_v0_close_rw,
+  .rw_data_max    = fd_accdb_user_v0_rw_data_max,
+  .rw_data_sz_set = fd_accdb_user_v0_rw_data_sz_set
 };
