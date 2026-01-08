@@ -881,18 +881,6 @@ fd_banks_join( fd_banks_t * banks_ljoin,
                void *       banks_data_mem,
                void *       bank_locks_mem );
 
-/* TODO:FIXME: FIX THESE */
-
-/* fd_banks_leave() leaves a bank. */
-
-void *
-fd_banks_leave( fd_banks_t * banks );
-
-/* fd_banks_delete() deletes a bank. */
-
-void *
-fd_banks_delete( void * shmem );
-
 /* fd_banks_init_bank() initializes a new bank in the bank manager.
    This should only be used during bootup. This returns an initial
    fd_bank_t with the corresponding bank index set to 0. */

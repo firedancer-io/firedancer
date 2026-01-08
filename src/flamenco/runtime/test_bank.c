@@ -689,11 +689,7 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_bank_slot_get( bank11 ) == 0UL );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
 
-  FD_TEST( fd_banks_leave( banks ) );
   FD_TEST( fd_banks_join( banksl_join, banks->data, NULL ) == banks );
-  // uchar * deleted_banks_mem = fd_banks_delete( fd_banks_leave( banks ) );
-  // FD_TEST( deleted_banks_mem == mem );
-  // FD_TEST( fd_banks_join( banksl_join, deleted_banks_mem, NULL ) == NULL );
 
   test_bank_advancing( mem );
 

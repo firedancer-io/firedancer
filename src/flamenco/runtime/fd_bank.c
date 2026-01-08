@@ -539,12 +539,17 @@ fd_banks_new( void * shmem,
 fd_banks_t *
 fd_banks_join( fd_banks_t * banks_ljoin,
                void *       banks_data_mem,
-               void *       bank_locks_mem ) {
-  fd_banks_data_t * banks_data   = (fd_banks_data_t *)banks_data_mem;
-  fd_banks_locks_t * banks_locks = (fd_banks_locks_t *)bank_locks_mem;
+               void *       banks_locks_mem ) {
+  fd_banks_data_t *  banks_data  = (fd_banks_data_t *)banks_data_mem;
+  fd_banks_locks_t * banks_locks = (fd_banks_locks_t *)banks_locks_mem;
 
   if( FD_UNLIKELY( !banks_data ) ) {
-    FD_LOG_WARNING(( "NULL banks" ));
+    FD_LOG_WARNING(( "NULL banks data" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !banks_locks ) ) {
+    FD_LOG_WARNING(( "NULL banks locks" ));
     return NULL;
   }
 
@@ -652,35 +657,6 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   banks_ljoin->locks = banks_locks;
 
   return banks_ljoin;
-}
-
-void *
-fd_banks_leave( fd_banks_t * banks ) {
-
-  if( FD_UNLIKELY( !banks ) ) {
-    FD_LOG_WARNING(( "NULL banks" ));
-    return NULL;
-  }
-
-  return (void *)banks;
-}
-
-void *
-fd_banks_delete( void * shmem ) {
-
-  if( FD_UNLIKELY( !shmem ) ) {
-    FD_LOG_WARNING(( "NULL banks" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned((ulong)shmem, fd_banks_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned banks" ));
-    return NULL;
-  }
-
-  fd_banks_t * banks = (fd_banks_t *)shmem;
-  banks->data->magic = 0UL;
-  return shmem;
 }
 
 fd_bank_t *

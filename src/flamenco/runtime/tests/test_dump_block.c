@@ -180,7 +180,8 @@ test_ctx_teardown( test_ctx_t * test_ctx ) {
   fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( test_ctx->spad ) ) );
 
   /* Clean up banks */
-  fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( test_ctx->banks ) ) );
+  fd_wksp_free_laddr( test_ctx->banks->data );
+  fd_wksp_free_laddr( test_ctx->banks->locks );
 
   /* Clean up funk */
   fd_accdb_user_fini( test_ctx->accdb );

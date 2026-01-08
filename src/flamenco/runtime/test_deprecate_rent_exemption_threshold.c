@@ -156,7 +156,6 @@ test_env_destroy( test_env_t * env ) {
   FD_TEST( env );
 
   fd_wksp_free_laddr( env->runtime_stack );
-  fd_banks_delete( fd_banks_leave( env->banks ) );
   fd_wksp_free_laddr( env->banks->data );
   fd_wksp_free_laddr( env->banks->locks );
   fd_alloc_compact( fd_funk_alloc( env->accdb_admin->funk ) );
@@ -229,8 +228,7 @@ process_slot( test_env_t * env,
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
 
-  //env->bank = new_bank;
-  env->xid  = xid;
+  env->xid = xid;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( env->banks, env->bank, env->accdb, env->runtime_stack, NULL, &is_epoch_boundary );

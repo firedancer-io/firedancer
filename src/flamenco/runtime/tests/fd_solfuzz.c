@@ -151,7 +151,6 @@ bail2:
   if( runner->spad ) fd_spad_delete( fd_spad_leave( runner->spad ) );
   if( shfunk       ) fd_funk_delete( shfunk ); /* free underlying fd_alloc instance */
   if( shpcache     ) fd_funk_delete( shpcache );
-  fd_banks_delete( fd_banks_leave( runner->banks ) );
 bail1:
   fd_wksp_free_laddr( scratch      );
   fd_wksp_free_laddr( pcache_mem   );
@@ -182,7 +181,8 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
 # endif
 
   if( runner->spad  ) fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
-  fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( runner->banks ) ) );
+  fd_wksp_free_laddr( runner->banks->data );
+  fd_wksp_free_laddr( runner->banks->locks );
   fd_wksp_free_laddr( runner );
 }
 
