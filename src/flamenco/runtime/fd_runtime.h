@@ -79,9 +79,8 @@ struct fd_runtime {
     /* The executable accounts are derived from the accounts in the
        transaction and are used by the bpf loader program to validate
        the program data account. */
-    ulong                     executable_cnt;                             /* Number of BPF upgradeable loader accounts. */
-    fd_account_meta_t const * executables_meta[ MAX_TX_ACCOUNT_LOCKS ];   /* Array of BPF upgradeable loader program data accounts */
-    fd_pubkey_t               executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
+    ulong                     executable_cnt;                            /* Number of BPF upgradeable loader accounts. */
+    fd_accdb_ro_t             executable[ MAX_TX_ACCOUNT_LOCKS ];        /* Array of BPF upgradeable loader program data accounts */
 
     ulong                     starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
     ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */
