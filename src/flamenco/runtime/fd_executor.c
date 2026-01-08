@@ -713,22 +713,18 @@ fd_collect_loaded_account( fd_runtime_t *            runtime,
     }
   }
 
-  /* Load the programdata account from Funk to read the programdata length */
+  /* Programdata account size check */
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-
-  fd_account_meta_t const * programdata_meta = fd_funk_get_acc_meta_readonly(
-      runtime->funk,
-      &xid,
-      &loader_state->inner.program.programdata_address,
-      NULL );
-
-  if( FD_UNLIKELY( !programdata_meta ) ) {
+  fd_accdb_ro_t programdata_ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, programdata_ro, &xid, &loader_state->inner.program.programdata_address ) ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
+  ulong programdata_sz = fd_accdb_ref_data_sz( programdata_ro );
+  fd_accdb_close_ro( runtime->accdb, programdata_ro );
 
   /* Try to accumulate the programdata's data size
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L625-L630 */
-  ulong programdata_size_delta = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE, programdata_meta->dlen );
+  ulong programdata_size_delta = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE, programdata_sz );
   err = fd_increase_calculated_data_size( txn_out, programdata_size_delta );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
