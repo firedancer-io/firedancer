@@ -603,7 +603,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
      slot that is executed as the snapshot does not provide a parent
      block id. */
 
-  if( FD_UNLIKELY( !fd_banks_clone_from_parent( parent_bank, ctx->banks, bank_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_banks_clone_from_parent( bank, ctx->banks, bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
   fd_bank_slot_set( bank, slot );
