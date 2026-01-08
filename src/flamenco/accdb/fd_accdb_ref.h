@@ -6,9 +6,6 @@
    - accdb_ref is an opaque handle to an account database cache entry.
    - accdb_ro (extends accdb_ref) represents a read-only handle.
    - accdb_rw (extends accdb_ro) represents a read-write handle.
-
-   - accdb_guardr is a read-only account lock guard
-   - accdb_guardw is an exclusive account lock guard
    - accdb_spec is an account speculative read guard
 
    These APIs sit between the database layer (abstracts away backing
@@ -24,7 +21,7 @@
 struct fd_accdb_ref {
   ulong rec_laddr;
   ulong meta_laddr;
-  uchar address[32];  /* only for vinyl requests */
+  uchar address[32];
 };
 typedef struct fd_accdb_ref fd_accdb_ref_t;
 
@@ -35,11 +32,17 @@ union fd_accdb_ro {
   struct {
     fd_funk_rec_t const *     rec;
     fd_account_meta_t const * meta;
+    uchar                     address[32];
   };
 };
 typedef union fd_accdb_ro fd_accdb_ro_t;
 
 FD_PROTOTYPES_BEGIN
+
+static inline void const *
+fd_accdb_ref_address( fd_accdb_ro_t const * ro ) {
+  return ro->ref->address;
+}
 
 static inline void const *
 fd_accdb_ref_data_const( fd_accdb_ro_t const * ro ) {
@@ -88,6 +91,7 @@ union fd_accdb_rw {
   struct {
     fd_funk_rec_t *     rec;
     fd_account_meta_t * meta;
+    uchar               address[32];
     uint                published : 1;
   };
 };
