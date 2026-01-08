@@ -944,15 +944,11 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
   /* Add executable accounts */
   for( ulong i = 0; i < runtime->accounts.executable_cnt; i++ ) {
-    fd_txn_account_t txn_account[1];
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &runtime->accounts.executable_pubkeys[i], runtime->funk, &xid );
-    if( ret != FD_ACC_MGR_SUCCESS ) {
-      continue;
-    }
     // Make sure the account doesn't exist in the output accounts yet
+    fd_accdb_ro_t const * ro = &runtime->accounts.executables_meta[i];
     bool account_exists = false;
     for( ulong j = 0; j < instr_context->accounts_count; j++ ) {
-      if( 0 == memcmp( instr_context->accounts[j].address, runtime->accounts.executable_pubkeys[i].uc, sizeof(fd_pubkey_t) ) ) {
+      if( 0 == memcmp( instr_context->accounts[j].address, fd_accdb_ref_address( ro ), sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }
@@ -960,7 +956,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     // Copy it into output
     if( !account_exists ) {
       fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( txn_account->pubkey, txn_account->meta, output_account, spad );
+      dump_account_state( fd_accdb_ref_address( ro ), ro->meta, output_account, spad );
     }
   }
 

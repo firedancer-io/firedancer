@@ -218,8 +218,10 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
         continue;
       }
 
-      runtime->accounts.executable_pubkeys[runtime->accounts.executable_cnt] = *programdata_acc;
-      runtime->accounts.executables_meta[runtime->accounts.executable_cnt]   = meta;
+      fd_accdb_ro_t * ro = &runtime->accounts.executables_meta[ runtime->accounts.executable_cnt ];
+      memset( ro, 0, sizeof(fd_accdb_ro_t) );
+      fd_memcpy( ro->address, programdata_acc, sizeof(fd_pubkey_t) );
+      ro->meta = meta;
       runtime->accounts.executable_cnt++;
     } else if( FD_UNLIKELY( !memcmp( meta->owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
                             !memcmp( meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) ) {

@@ -219,6 +219,7 @@ fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
       .keyp = rec->pair.key
     }}
   };
+  memcpy( peek->acc->address, address, 32UL );
   return peek;
 }
 
@@ -300,6 +301,7 @@ fd_accdb_prep_create( fd_accdb_rw_t *           rw,
     .meta      = meta,
     .published = 0
   };
+  memcpy( rw->address, address, 32UL );
   return rw;
 }
 
@@ -320,6 +322,7 @@ fd_accdb_prep_inplace( fd_accdb_rw_t *      rw,
     .meta      = fd_funk_val( rec, accdb->funk->wksp ),
     .published = 1
   };
+  memcpy( rw->address, rec->pair.key->uc, 32UL );
   if( FD_UNLIKELY( !rw->meta->lamports ) ) {
     memset( rw->meta, 0, sizeof(fd_account_meta_t) );
   }
