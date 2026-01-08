@@ -540,10 +540,8 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
           uchar * acct = fd_chunk_to_laddr( ctx->gui_out.mem, ctx->gui_out.chunk );
           fd_memcpy( acct, result->account_data.data, result->account_data.data_sz );
 
-          /* We add 1 to the frag size since the cJSON parser used by
-             the gui tile requires one byte past the parsable JSON */
-          fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz+1UL, 0UL, 0UL, 0UL );
-          ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz+1UL, ctx->gui_out.chunk0, ctx->gui_out.wmark );
+          fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz, 0UL, 0UL, 0UL );
+          ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz, ctx->gui_out.chunk0, ctx->gui_out.wmark );
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
