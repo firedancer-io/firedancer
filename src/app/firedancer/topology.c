@@ -562,7 +562,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    shred_depth,                              FD_SHRED_OUT_MTU,              3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_out",    shred_depth,                              sizeof(fd_ed25519_sig_t),      1UL );
   /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    128UL,                                    sizeof(fd_tower_msg_t),        3UL ); /* dup conf + cluster conf + slot_done */
   /**/                 fd_topob_link( topo, "send_out",     "send_out",     128UL,                                    FD_TPU_RAW_MTU,                1UL );
 
@@ -740,7 +739,6 @@ fd_topo_initialize( config_t * config ) {
   }
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "shred_out",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "shred_out",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(shred_tile_cnt)  fd_topob_tile_out(   topo, "repair",  0UL,                       "repair_shred", i                                                  );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",   0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_stake", 0UL                                                );
@@ -803,7 +801,6 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "replay_stake", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_out(   topo, "shred",   i,                         "shred_out",    i                                                  );
-  FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "repair_shred", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "ipecho_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "poh_shred",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_out(   topo, "shred",   i,                         "shred_net",    i                                                  );
@@ -1051,7 +1048,7 @@ fd_topo_initialize( config_t * config ) {
   }
 
   ulong fec_set_cnt = shred_depth + config->tiles.shred.max_pending_shred_sets + 4UL;
-  ulong fec_sets_sz = fec_set_cnt*sizeof(fd_shred34_t)*4; /* mirrors # of dcache entires in frankendancer */
+  ulong fec_sets_sz = fec_set_cnt*sizeof(fd_shred32_t)*2; /* mirrors DCACHE_ENTRIES_PER_FEC_SET */
   fd_topo_obj_t * fec_sets_obj = setup_topo_fec_sets( topo, "fec_sets", shred_tile_cnt*fec_sets_sz );
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];

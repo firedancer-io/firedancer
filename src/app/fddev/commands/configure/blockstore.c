@@ -75,7 +75,7 @@ init( config_t const * config ) {
   FD_TEST( fd_shredder_count_data_shreds  ( batch_sz, FD_SHRED_TYPE_MERKLE_DATA )<=34UL );
   FD_TEST( fd_shredder_count_parity_shreds( batch_sz, FD_SHRED_TYPE_MERKLE_CODE )<=34UL );
 
-  fd_shred34_t data, parity;
+  fd_shred32_t data, parity;
   fd_fec_set_t fec;
   for( ulong i=0UL; i<34UL; i++ ) {
     fec.data_shreds  [ i ] = data.pkts  [ i ].buffer;

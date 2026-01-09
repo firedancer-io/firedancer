@@ -76,22 +76,20 @@ after_frag( fd_store_ctx_t *    ctx,
   (void)tspub;
   (void)stem;
 
-  fd_shred34_t * shred34 = (fd_shred34_t *)ctx->mem;
+  fd_shred32_t * shred32 = (fd_shred32_t *)ctx->mem;
 
-  FD_TEST( shred34->shred_sz<=shred34->stride );
-  if( FD_LIKELY( shred34->shred_cnt ) ) {
-    FD_TEST( shred34->offset<sz  );
-    FD_TEST( shred34->shred_cnt<=34UL );
-    FD_TEST( shred34->stride==sizeof(shred34->pkts[0]) );
-    FD_TEST( shred34->offset + shred34->stride*(shred34->shred_cnt - 1UL) + shred34->shred_sz <= sz);
-  }
+  FD_TEST( shred32->shred_sz<=shred32->stride );
+  FD_TEST( shred32->offset<sz  );
+  FD_TEST( shred32->stride==sizeof(shred32->pkts[0]) );
+  FD_TEST( shred32->offset + shred32->stride*(31) + shred32->shred_sz <= sz);
 
-  if( FD_UNLIKELY( ctx->disable_blockstore_from_slot && ( ctx->disable_blockstore_from_slot <= shred34->pkts->shred.slot ) ) ) return;
+
+  if( FD_UNLIKELY( ctx->disable_blockstore_from_slot && ( ctx->disable_blockstore_from_slot <= shred32->pkts->shred.slot ) ) ) return;
 
   /* No error code because this cannot fail. */
-  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride, !!sig );
+  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, FD_REEDSOL_FEC_SHRED_CNT, ctx->mem+shred32->offset, shred32->shred_sz, shred32->stride, !!sig );
 
-  FD_MCNT_INC( STORE, TRANSACTIONS_INSERTED, shred34->est_txn_cnt );
+  FD_MCNT_INC( STORE, TRANSACTIONS_INSERTED, shred32->est_txn_cnt );
 }
 
 static void
