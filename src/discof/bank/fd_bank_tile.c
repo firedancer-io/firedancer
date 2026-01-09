@@ -440,11 +440,13 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     }
     FD_LOG_DEBUG(("success bundle"));
   } else {
+    FD_TEST( failed_idx != ULONG_MAX );
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
       /* If the bundle peer flag is not set, that means the transaction
          was at least partially sanitized/setup.  We have to cancel
          these txns as they will not be included in the block. */
+
       if( i<=failed_idx ) {
         FD_LOG_DEBUG(("cancelling txn %lu", i));
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
