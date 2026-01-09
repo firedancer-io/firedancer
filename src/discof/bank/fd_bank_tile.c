@@ -359,6 +359,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
   int execution_success = 1;
 
+  FD_LOG_DEBUG(( "acc pool free: %lu", fd_acc_pool_free( ctx->runtime->acc_pool ) ));
   /* Every transaction in the bundle should be executed in order against
      different transaciton contexts. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -387,6 +388,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     writable_alt[i] = fd_type_pun_const( txn_out->accounts.keys+TXN( txn_in->txn )->acct_addr_cnt );
   }
+
+  FD_LOG_DEBUG(( "acc pool free: %lu", fd_acc_pool_free( ctx->runtime->acc_pool ) ));
 
   /* If all of the transactions in the bundle executed successfully, we
      can commit the transactions in order.  At this point, we cann also
@@ -448,6 +451,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       txns[ i ].flags = fd_uint_if( !!(txns[ i ].flags>>24), txns[ i ].flags, txns[ i ].flags | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24) );
     }
   }
+
+  FD_LOG_DEBUG(( "acc pool free: %lu", fd_acc_pool_free( ctx->runtime->acc_pool ) ));
 
   if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
 

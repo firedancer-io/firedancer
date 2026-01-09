@@ -86,6 +86,11 @@ void
 fd_acc_pool_release( fd_acc_pool_t * acc_pool,
                      uchar *         account );
 
+/* fd_acc_pool_free returns the number of free acc_pool elements
+   atomically. */
+ulong
+fd_acc_pool_free( fd_acc_pool_t * acc_pool );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_acc_pool_h */

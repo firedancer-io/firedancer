@@ -169,3 +169,11 @@ fd_acc_pool_release( fd_acc_pool_t * acc_pool,
 
   fd_rwlock_unwrite( &acc_pool->lock_ );
 }
+
+ulong
+fd_acc_pool_free( fd_acc_pool_t * acc_pool ) {
+  fd_rwlock_read( &acc_pool->lock_ );
+  ulong free = fd_acc_entry_pool_free( fd_acc_pool( acc_pool ) );
+  fd_rwlock_unread( &acc_pool->lock_ );
+  return free;
+}
