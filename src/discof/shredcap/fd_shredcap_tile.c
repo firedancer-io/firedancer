@@ -311,11 +311,6 @@ handle_new_contact_info( fd_capture_tile_ctx_t * ctx,
   }
 }
 
-static int
-is_fec_completes_msg( ulong sz ) {
-  return sz == FD_SHRED_DATA_HEADER_SZ + 2 * FD_SHRED_MERKLE_ROOT_SZ;
-}
-
 static inline void
 during_frag( fd_capture_tile_ctx_t * ctx,
              ulong                   in_idx,
@@ -326,7 +321,7 @@ during_frag( fd_capture_tile_ctx_t * ctx,
              ulong                   ctl ) {
   ctx->skip_frag = 0;
   if( ctx->in_kind[ in_idx ]==SHRED_OUT ) {
-    if( !is_fec_completes_msg( sz ) ) {
+    if( fd_disco_shred_out_msg_type( sig ) != FD_SHRED_OUT_MSG_TYPE_FEC ) {
       ctx->skip_frag = 1;
       return;
     }
@@ -578,9 +573,6 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     snprintf( fec_complete, sizeof(fec_complete),
              "%ld,%lu,%u,%u,%u\n",
               fd_log_wallclock(), shred->slot, ref_tick, shred->fec_set_idx, data_cnt );
-
-    // Last shred is guaranteed to be a data shred
-
 
     int err = fd_io_buffered_ostream_write( &ctx->fecs_ostream, fec_complete, strlen(fec_complete) );
     FD_TEST( err==0 );
