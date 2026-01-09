@@ -977,6 +977,10 @@ after_frag( fd_shred_ctx_t *    ctx,
 
         ulong sz = fd_shred_header_sz( shred->variant );
         fd_memcpy( fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ), shred, sz );
+
+        fd_memcpy( (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, &ctx->out_merkle_roots[0], FD_SHRED_MERKLE_ROOT_SZ );
+        sz += FD_SHRED_MERKLE_ROOT_SZ;
+
         FD_STORE(uint, fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, nonce );
         sz += 4UL;
 

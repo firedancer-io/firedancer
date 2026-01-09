@@ -35,6 +35,71 @@
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
 
+/* Merkle root tracking.
+
+   For each FEC set in the slot, we track the first merkle root we have received for that FEC set.
+   It's stored in the merkle_roots array. Then for any shred index that arrives after,
+   the merkle root is compared to the merkle root we have stored.
+
+   If they are the same  ->  good.
+   If they are different ->  we're going to toss this shred that we have. i.e., continue
+                             trying to repair this shred idx.  Shred tile won't de-duplicate it
+                             because the merkle roots are different.
+
+
+  Actually don't think we are gonna do verify the chain on each FEC
+  arrival - instead we'll let it sit then verify the chain when the
+  confirmation arrives. (because we don't know which chain is correct)
+
+  Eventually one of two things happen:
+  1. We are able to complete version of the FEC with the merkle root we have
+     - Nothing happens to the FEC.
+
+  2. We are not able to complete any version of the FEC
+     - Imagine we get shred 0 of FEC_A. then get shreds 1-31 of FEC_B.
+       We keep tossing FEC_B shreds because the merkle roots are different.
+       No one is giving us FEC_A shreds because they don't exist. We are stuck.
+       ????? then what do we do lol
+          - If we cannot complete 1 version of the FEC, let's say in the middle...
+          - whadda do. nothing I guess.
+          PAIN CASE UGH
+
+       the next fec would not chain. or we would get a garbage slot overall
+       that does chain i guess.
+
+  So unfortunately....
+  Let's pretend for now that we can get a completed FEC set for every FEC set in the slot.
+  (i.e. we see the slot completion happen, but the merkle roots dont necessarily chain )
+
+  3. We are able to complete some other version of the FEC
+     - In this case, we get a fec_complete message for a different version of the FEC.
+       Now, if the chained merkle roots verify, then we can replace the FEC with the new version.
+       Or maybe we shouldn't replace ?? :< . or we can so that we more hurriedly "complete" the slot.
+       Because we know we have these shreds in store.
+
+  As soon as we have a confirmed block id, we
+  can verify the slot - verify the chain.
+     - If it doesn't match, dump & repair BACKWARDS. from the point starting
+       with the incorrect block_id / incomplete FEC
+
+         Goes back to step 1. & all the
+         painnnnn.
+
+  What if we don't even have all the shreds though SAD
+
+  And how can we verify until the last confirmed thing? If perhaps we
+  are completing the forest outta order?
+
+  SAD
+
+
+*/
+
+#define FD_FEC_BLK_MAX (FD_SHRED_BLK_MAX / 32UL) /* 1024 */
+#define SET_NAME fd_forest_merkle
+#define SET_MAX  FD_FEC_BLK_MAX
+#include "../../util/tmpl/fd_set.c"
+
 /* fd_forest_blk_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
    (`child_idx`), its immediate-right sibling (`sibling_idx`), and its
@@ -61,6 +126,15 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   fd_forest_blk_idxs_t fecs[fd_forest_blk_idxs_word_cnt]; /* fec set idxs - 1, or the idx of the last shred in every FEC set */
   fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* data shred idxs */
   fd_forest_blk_idxs_t cmpl[fd_forest_blk_idxs_word_cnt]; /* last shred idx of every FEC set that has been completed by shred_tile */
+
+  struct {
+    fd_hash_t mr;
+    fd_hash_t cmr;
+  } merkle_roots[ FD_FEC_BLK_MAX ];
+  fd_forest_merkle_t    merkle_recvd[fd_forest_merkle_word_cnt];
+  fd_forest_merkle_t merkle_verified[fd_forest_merkle_word_cnt];
+
+  uchar confirmed; /* 1 if the slot has been confirmed, 0 otherwise */
 
   /* i.e. when fecs == cmpl, the slot is truly complete and everything
   is contained in fec store. Look at fec_clear for more details.*/
@@ -626,8 +700,17 @@ fd_forest_blk_parent_update( fd_forest_t * forest, ulong slot, ulong parent_slot
    corresponding to the shred slot. */
 
 fd_forest_blk_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete, int ref_tick, int src );
+fd_forest_data_shred_insert( fd_forest_t * forest,
+                             ulong         slot,
+                             ulong         parent_slot,
+                             uint          shred_idx,
+                             uint          fec_set_idx,
+                             int           slot_complete,
+                             int           ref_tick,
+                             int           src,
+                             fd_hash_t *   mr );
 
+/* TODO: Does merkle validation need to happen for coding shreds as well*/
 fd_forest_blk_t *
 fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
 
@@ -637,7 +720,15 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
    corresponding to the shred slot. */
 
 fd_forest_blk_t *
-fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick );
+fd_forest_fec_insert( fd_forest_t * forest,
+                      ulong slot,
+                      ulong parent_slot,
+                      uint last_shred_idx,
+                      uint fec_set_idx,
+                      int slot_complete,
+                      int ref_tick,
+                      fd_hash_t * mr,
+                      fd_hash_t * cmr );
 
 /* fd_forest_fec_clear clears the FEC set at the given slot and
    fec_set_idx.
@@ -660,6 +751,11 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 
 void
 fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx );
+
+/* fd_forest_fec_chain_verify verifies the chain of merkle roots for a given block.
+   Returns a pointer to the first slot that does not confirm, or NULL if the chain is valid. */
+fd_forest_blk_t *
+fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t * mr );
 
 /* fd_forest_slot_clear is used to clear a slot from the forest.
    It is called when we receive a duplicate confirmed message for a version

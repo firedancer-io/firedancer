@@ -209,6 +209,7 @@ fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
   root_ele->sibling          = null;
   root_ele->buffered_idx     = 0;
   root_ele->complete_idx     = 0;
+  root_ele->confirmed        = 1;
 
   fd_forest_blk_idxs_full( root_ele->fecs );
   fd_forest_blk_idxs_full( root_ele->cmpl );
@@ -536,6 +537,9 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   fd_forest_blk_idxs_null( blk->idxs ); /* expensive */
   fd_forest_blk_idxs_null( blk->cmpl ); /* expensive */
 
+  fd_forest_merkle_null( blk->merkle_recvd );
+  fd_forest_merkle_null( blk->merkle_verified );
+
   blk->est_buffered_tick_recv = 0;
 
   /* Metrics tracking */
@@ -662,7 +666,15 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
 }
 
 fd_forest_blk_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete, int ref_tick, int src ) {
+fd_forest_data_shred_insert( fd_forest_t * forest,
+                             ulong         slot,
+                             ulong         parent_slot,
+                             uint          shred_idx,
+                             uint          fec_set_idx,
+                             int           slot_complete,
+                             int           ref_tick,
+                             int           src,
+                             fd_hash_t   * mr ) {
   VER_INC;
   FD_TEST( shred_idx <= FD_SHRED_IDX_MAX );
   fd_forest_blk_t * ele = query( forest, slot );
@@ -680,12 +692,30 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot
   }
   if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) ele->first_shred_ts = fd_tickcount();
 
+  uint fec_idx = fec_set_idx / 32UL; /* index into merkle root array */
+  if( FD_UNLIKELY( !fd_forest_merkle_test( ele->merkle_recvd, fec_idx ) ) ) {
+    fd_forest_merkle_insert( ele->merkle_recvd, fec_idx );
+    //FD_BASE58_ENCODE_32_BYTES( mr->key, mr_b58 );
+    //FD_LOG_NOTICE(( "fd_forest: fd_forest_data_shred_insert: inserting merkle root for slot %lu, fec_set_idx %u, value %s", slot, fec_set_idx, mr_b58 ));
+    ele->merkle_roots[fec_idx].mr  = *mr;
+  } else {
+    /* verify that the received merkle root is consistent with the current merkle root.
+       No need to check the cmr, because matching mr implies matching cmr. */
+    fd_hash_t * current_mr = &ele->merkle_roots[fec_idx].mr;
+    if( FD_UNLIKELY( !fd_hash_eq( current_mr, mr ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( current_mr->key, current_mr_b58 );
+      FD_BASE58_ENCODE_32_BYTES( mr->key, mr_b58 );
+      FD_LOG_CRIT(( "fd_forest: fd_forest_data_shred_insert: merkle root mismatch for fec_set_idx %u. current_mr %s, received_mr %s", fec_set_idx, current_mr_b58, mr_b58 ));
+      return NULL;
+    }
+  }
+
   fd_forest_blk_idxs_insert( ele->idxs, shred_idx );
   while( fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) {
     ele->buffered_idx++;
     ele->est_buffered_tick_recv = ref_tick;
     /* If the buffered_idx increases, this means the
-    est_buffered_tick_recv is at least ref_tick */
+       est_buffered_tick_recv is at least ref_tick */
   }
   advance_consumed_frontier( forest, slot, parent_slot );
   return ele;
@@ -701,7 +731,7 @@ fd_forest_blk_parent_update( fd_forest_t * forest, ulong slot, ulong parent_slot
 }
 
 fd_forest_blk_t *
-fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick ) {
+fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick, fd_hash_t * mr, fd_hash_t * cmr ) {
   VER_INC;
   FD_TEST( last_shred_idx <= FD_SHRED_IDX_MAX );
 
@@ -709,13 +739,23 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 # if FD_FOREST_USE_HANDHOLDING
   if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest_fec_insert: ele %lu is not in the forest. fec_insert should be preceded by blk_insert", slot ));
 # endif
+
+  uint fec_idx = fec_set_idx / 32UL; /* index into merkle root array */
+  if( FD_LIKELY( fd_forest_merkle_test( ele->merkle_recvd, fec_idx )
+                 && !fd_hash_eq( &ele->merkle_roots[fec_idx].mr, mr ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[fec_idx].mr.key, mr_b58 );
+    FD_LOG_CRIT(( "TODO implement overwrite: fd_forest: fd_forest_fec_insert: merkle root mismatch for fec_set_idx %u. current_mr %s, received_mr %s", fec_set_idx, mr_b58, mr_b58 ));
+    return NULL;
+  }
+  /* write the cmr */
+  ele->merkle_roots[fec_idx].cmr = *cmr;
   /* It's important that we set the cmpl idx here. If this happens to be
      the last fec_complete we needed to finish the slot, then we rely on
      the advance_consumed_frontier call in the below data_shred_insert
      to move forward the consumed frontier.  */
   fd_forest_blk_idxs_insert( ele->cmpl, last_shred_idx );
   for( uint idx = fec_set_idx; idx <= last_shred_idx; idx++ ) {
-    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED );
+    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED, mr );
   }
   return ele;
 }
@@ -741,6 +781,38 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx ) 
   }
   return ele;
 }
+
+/* Let's assume for now that all the slots are done and that we have all the shreds
+   because otherwise im gonna have a bad time. */
+
+fd_forest_blk_t *
+fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t * mr ) {
+  FD_TEST( ele && ele->complete_idx != UINT_MAX );
+  fd_hash_t * expected_mr = mr;
+  uint        fec_idx     = ele->complete_idx / 32UL;
+  while( FD_UNLIKELY( !ele->confirmed ) ) {
+    if( FD_UNLIKELY( !fd_hash_eq( expected_mr, &ele->merkle_roots[fec_idx].mr ) ) ) {
+      return ele; /* TODO: return a ptr to the first slot that does not confirm */
+    }
+
+    /* This FEC merkle is correct, and the chained merkle is correct. */
+    fd_forest_merkle_insert( ele->merkle_verified, fec_idx );
+
+    expected_mr = &ele->merkle_roots[fec_idx].cmr;
+    if( FD_UNLIKELY( fec_idx == 0 ) ) {
+      /* hop to the parent slot, but first we've made it through this
+         slot successfully verifying the chain! mark it confirmed! */
+      ele->confirmed = 1;
+      ele = fd_forest_pool_ele( fd_forest_pool( forest ), ele->parent );
+      if( FD_UNLIKELY( !ele || ele->complete_idx == UINT_MAX ) ) FD_LOG_CRIT(( "TODO: equivocating across parent slots is not supported yet, or parent slot %lu is not complete? %u", ele->parent_slot, ele->complete_idx ));
+      fec_idx = ele->complete_idx / 32UL;
+      continue;
+    }
+    fec_idx--; /* go back one FEC set */
+  }
+  return NULL;
+}
+
 
 void
 fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx ) {
@@ -966,8 +1038,9 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     fd_forest_pool_ele_release( pool, head );
   }
 
-  new_root_ele->parent = null; /* unlink new root from parent */
-  forest->root         = fd_forest_pool_idx( pool, new_root_ele );
+  new_root_ele->parent    = null; /* unlink new root from parent */
+  new_root_ele->confirmed = 1;
+  forest->root            = fd_forest_pool_idx( pool, new_root_ele );
 
   /* 3. New root is in orphaned. This is the case where maybe the
         expected snapshot slot has jumped far ahead.  Invariants tell
