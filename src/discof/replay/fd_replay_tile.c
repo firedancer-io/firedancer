@@ -363,7 +363,7 @@ struct fd_replay_tile {
   long        next_leader_tickcount;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
-  fd_bank_t * reset_bank;
+  fd_bank_t   reset_bank[1];
   fd_hash_t   reset_block_id;
   long        reset_timestamp_nanos;
   double      slot_duration_nanos;
@@ -2127,7 +2127,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   }
 
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) FD_TEST( msg->root_slot<=msg->reset_slot );
-  ctx->reset_bank = bank;
+  fd_memcpy( ctx->reset_bank, bank, sizeof(fd_bank_t) );
 
   if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
     fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
