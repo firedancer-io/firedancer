@@ -490,20 +490,20 @@ fd_feature_activate( fd_bank_t *               bank,
 
   if( id->reverted==1 ) return;
 
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
-  fd_txn_account_t acct_rec[1];
-  int err = fd_txn_account_init_from_funk_readonly( acct_rec, addr, funk, xid );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, addr ) ) ) {
     return;
   }
 
   FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
   fd_feature_t feature[1];
   int decode_err = 0;
-  if( FD_UNLIKELY( !fd_bincode_decode_static( feature, feature, fd_txn_account_get_data( acct_rec ), fd_txn_account_get_data_len( acct_rec ), &decode_err ) ) ) {
+  if( FD_UNLIKELY( !fd_bincode_decode_static( feature, feature, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ), &decode_err ) ) ) {
+    fd_accdb_close_ro( accdb, ro );
     FD_LOG_WARNING(( "Failed to decode feature account %s (%d)", addr_b58, decode_err ));
     return;
   }
+  fd_accdb_close_ro( accdb, ro );
 
   if( feature->has_activated_at ) {
     FD_LOG_DEBUG(( "feature already activated - acc: %s, slot: %lu", addr_b58, feature->activated_at ));
@@ -611,9 +611,8 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   /* Activate new features
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
 
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_features_activate( bank, accdb, xid, capture_ctx );
-  fd_features_restore( bank, funk, xid );
+  fd_features_restore( bank, accdb, xid );
 
   /* SIMD-0194: deprecate_rent_exemption_threshold
      https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
@@ -1712,8 +1711,7 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
     fd_write_builtin_account( bank, accdb, xid, capture_ctx, pubkey, (const char *)account->data, account->meta.dlen );
   }
 
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
-  fd_features_restore( bank, funk, xid );
+  fd_features_restore( bank, accdb, xid );
 
   /* At this point, state related to the bank and the accounts db
      have been initialized and we are free to finish executing the

@@ -54,7 +54,7 @@ fd_features_enable_one_offs( fd_features_t * f, char const * * one_offs, uint on
 
 static void
 fd_feature_restore( fd_bank_t *               bank,
-                    fd_funk_t *               funk,
+                    fd_accdb_user_t *         accdb,
                     fd_funk_txn_xid_t const * xid,
                     fd_feature_id_t const *   id,
                     fd_pubkey_t const *       addr ) {
@@ -67,24 +67,22 @@ fd_feature_restore( fd_bank_t *               bank,
   /* Skip reverted features */
   if( FD_UNLIKELY( id->reverted ) ) return;
 
-  fd_txn_account_t acct_rec[1];
-  int err = fd_txn_account_init_from_funk_readonly( acct_rec,
-                                                    addr,
-                                                    funk,
-                                                    xid );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, addr ) ) )  {
     return;
   }
 
   /* Skip accounts that are not owned by the feature program
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L42-L44 */
-  if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( acct_rec ), fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( memcmp( fd_accdb_ref_owner( ro ), fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return;
   }
 
   /* Account data size must be >= FD_FEATURE_SIZEOF (9 bytes)
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L45-L47 */
-  if( FD_UNLIKELY( fd_txn_account_get_data_len( acct_rec )<FD_FEATURE_SIZEOF ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro )<FD_FEATURE_SIZEOF ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return;
   }
 
@@ -93,11 +91,13 @@ fd_feature_restore( fd_bank_t *               bank,
   fd_feature_t feature[1];
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       feature, feature,
-      fd_txn_account_get_data( acct_rec ),
-      fd_txn_account_get_data_len( acct_rec ),
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ),
       NULL ) ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return;
   }
+  fd_accdb_close_ro( accdb, ro );
 
   FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
   if( feature->has_activated_at ) {
@@ -110,12 +110,12 @@ fd_feature_restore( fd_bank_t *               bank,
 
 void
 fd_features_restore( fd_bank_t *               bank,
-                     fd_funk_t *               funk,
+                     fd_accdb_user_t *         accdb,
                      fd_funk_txn_xid_t const * xid ) {
 
   for( fd_feature_id_t const * id = fd_feature_iter_init();
                                    !fd_feature_iter_done( id );
                                id = fd_feature_iter_next( id ) ) {
-    fd_feature_restore( bank, funk, xid, id, &id->id );
+    fd_feature_restore( bank, accdb, xid, id, &id->id );
   }
 }

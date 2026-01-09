@@ -4,7 +4,7 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "fd_features_generated.h"
-#include "../../funk/fd_funk_base.h"
+#include "../accdb/fd_accdb_user.h"
 
 /* Macro FEATURE_ID_CNT expands to the number of features in
    fd_features_t. */
@@ -154,7 +154,7 @@ fd_feature_id_query( ulong prefix );
 
 void
 fd_features_restore( fd_bank_t *               bank,
-                     fd_funk_t *               funk,
+                     fd_accdb_user_t *         accdb,
                      fd_funk_txn_xid_t const * xid );
 
 FD_PROTOTYPES_END
