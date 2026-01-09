@@ -343,7 +343,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       FD_BASE58_ENCODE_32_BYTES( msg->bank_hash.uc, bh_got_b58 );
       if( FD_LIKELY( !memcmp( msg->bank_hash.uc, ctx->bank_hashes[ ctx->bank_hash_idx ], 32UL ) ) ) {
 
-        FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%s (switch %.2f ms, begin %.2f ms, exec %.2f ms, finish %.2f ms)", msg->slot, bh_got_b58,
+        FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%-44s (switch %.2f ms, begin %.2f ms, exec %6.2f ms, finish %.2f ms)", msg->slot, bh_got_b58,
           (double)(msg->preparation_begin_nanos-prior_completion_timestamp)/1e6,
           (double)(msg->first_transaction_scheduled_nanos-msg->preparation_begin_nanos)/1e6,
           (double)(msg->last_transaction_finished_nanos-msg->first_transaction_scheduled_nanos)/1e6,
