@@ -1262,10 +1262,14 @@ FD_SPAD_FRAME_BEGIN( spad ) {
 
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
+  fd_accdb_ro_t program_acc_ro[1];
+  fd_accdb_ro_init_nodb( program_acc_ro, program_acc->pubkey, program_acc->meta );
+
   /* Get the programdata for the account */
-  ulong         program_data_len = 0UL;
-  uchar const * program_data     =
-      fd_prog_load_elf( runtime->accdb, &xid, program_acc, &program_data_len, NULL );
+  ulong           program_data_off = 0UL;
+  ulong           program_data_len = 0UL;
+  fd_accdb_ro_t * program_data =
+      fd_prog_load_elf( runtime->accdb, &xid, program_acc_ro, program_acc->pubkey, &program_data_off );
   if( program_data==NULL ) {
     return;
   }
@@ -1297,7 +1301,9 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   elf_ctx.has_elf = true;
   elf_ctx.elf.data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( program_data_len ) );
   elf_ctx.elf.data->size = (pb_size_t)program_data_len;
-  fd_memcpy( elf_ctx.elf.data->bytes, program_data, program_data_len );
+  fd_memcpy( elf_ctx.elf.data->bytes + program_data_off,
+             fd_accdb_ref_data_const( program_acc_ro ),
+             program_data_len );
 
   /* ElfLoaderCtx -> features */
   elf_ctx.has_features = true;

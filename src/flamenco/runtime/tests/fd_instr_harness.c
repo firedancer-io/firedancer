@@ -228,7 +228,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       meta = txn_out->accounts.metas[i];
     } else if( !memcmp( meta->owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
       int err;
-      fd_loader_v4_state_t const * state = fd_loader_v4_get_state( meta, &err );
+      fd_loader_v4_state_t const * state = fd_loader_v4_get_state( fd_account_data( meta ), meta->dlen, &err );
       if( FD_UNLIKELY( err ) ) {
         continue;
       }

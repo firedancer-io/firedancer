@@ -1,6 +1,8 @@
 #include "fd_prog_load.h"
 #include "fd_progcache_user.h"
 #include "fd_progcache_rec.h"
+#include "../accdb/fd_accdb_sync.h"
+#include "../accdb/fd_accdb_impl_v1.h"
 #include "../../util/racesan/fd_racesan_target.h"
 
 FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
@@ -520,6 +522,35 @@ fd_progcache_lock_best_txn( fd_progcache_t * cache,
   FD_LOG_CRIT(( "Could not find program cache fork graph node for target slot %lu", target_slot ));
 }
 
+/* account_xid_lower_bound tries to find the oldest XID at which the
+   given record is exactly present.  sample_xid is an arbitrary XID at
+   which the given record is present.  May return a newer XID, if the
+   oldest XID cannot be determined exactly. */
+
+static fd_funk_txn_xid_t
+account_xid_lower_bound( fd_accdb_user_t *         accdb,
+                         fd_accdb_ro_t const *     record,
+                         fd_funk_txn_xid_t const * sample_xid ) {
+  switch( record->ref->accdb_type ) {
+  case FD_ACCDB_TYPE_V1: { /* possibly rooted */
+    fd_funk_rec_t * rec = (fd_funk_rec_t *)record->ref->user_data;
+    fd_funk_txn_xid_t res;
+    fd_funk_txn_xid_ld_atomic( &res, rec->pair.xid );
+    if( FD_UNLIKELY( fd_funk_txn_xid_eq_root( &res ) ) ) {
+      fd_funk_txn_xid_ld_atomic( &res, fd_funk_last_publish( fd_accdb_user_v1_funk( accdb ) ) );
+    }
+    return res;
+  }
+  case FD_ACCDB_TYPE_V2: { /* rooted */
+    fd_funk_txn_xid_t res;
+    fd_funk_txn_xid_ld_atomic( &res, fd_funk_last_publish( fd_accdb_user_v1_funk( accdb ) ) );
+    return res;
+  }
+  default: /* unknown */
+    return *sample_xid;
+  }
+}
+
 static fd_progcache_rec_t const *
 fd_progcache_insert( fd_progcache_t *           cache,
                      fd_accdb_user_t *          accdb,
@@ -538,10 +569,18 @@ fd_progcache_insert( fd_progcache_t *           cache,
 
   /* Acquire reference to ELF binary data */
 
-  fd_funk_txn_xid_t modify_xid;
-  ulong progdata_sz;
-  uchar const * progdata = fd_prog_load_elf( accdb, load_xid, prog_addr, &progdata_sz, &modify_xid );
-  if( FD_UNLIKELY( !progdata ) ) return NULL;
+  fd_accdb_ro_t progdata[1];
+  ulong         elf_offset;
+  if( FD_UNLIKELY( !fd_prog_load_elf( accdb, load_xid, progdata, prog_addr, &elf_offset ) ) ) {
+    return NULL;
+  }
+
+  uchar const * bin    = (uchar const *)fd_accdb_ref_data_const( progdata ) + elf_offset;
+  ulong         bin_sz = /*           */fd_accdb_ref_data_sz   ( progdata ) - elf_offset;
+
+  /* Derive the slot in which the account was modified in */
+
+  fd_funk_txn_xid_t modify_xid = account_xid_lower_bound( accdb, progdata, load_xid );
   ulong target_slot = modify_xid.ul[0];
 
   /* Prevent cache entry from crossing epoch boundary */
@@ -580,7 +619,7 @@ fd_progcache_insert( fd_progcache_t *           cache,
   fd_sbpf_elf_info_t elf_info[1];
 
   fd_progcache_rec_t * rec = NULL;
-  if( FD_LIKELY( fd_sbpf_elf_peek( elf_info, progdata, progdata_sz, &config )==FD_SBPF_ELF_SUCCESS ) ) {
+  if( FD_LIKELY( fd_sbpf_elf_peek( elf_info, bin, bin_sz, &config )==FD_SBPF_ELF_SUCCESS ) ) {
 
     fd_funk_t * funk          = cache->funk;
     ulong       rec_align     = fd_progcache_rec_align();
@@ -592,12 +631,15 @@ fd_progcache_insert( fd_progcache_t *           cache,
                   rec_align, rec_footprint ));
     }
 
-    rec = fd_progcache_rec_new( rec_mem, elf_info, &config, load_slot, features, progdata, progdata_sz, cache->scratch, cache->scratch_sz );
+    rec = fd_progcache_rec_new( rec_mem, elf_info, &config, load_slot, features, bin, bin_sz, cache->scratch, cache->scratch_sz );
     if( !rec ) {
       fd_funk_val_flush( funk_rec, funk->alloc, funk->wksp );
     }
 
   }
+
+  fd_accdb_close_ro( accdb, progdata );
+  /* invalidates bin pointer */
 
   /* Convert to tombstone if load failed */
 
