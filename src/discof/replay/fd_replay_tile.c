@@ -1133,7 +1133,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
      seconds could be considered reasonable.  This is arbitrary and
      chosen due to intuition. */
   if( FD_UNLIKELY( now<ctx->next_leader_tickcount+(long)(3.0*ctx->slot_duration_ticks) ) ) {
-    FD_TEST( ctx->reset_bank );
+    FD_TEST( ctx->reset_bank->data );
 
     /* TODO: Make the max_active_descendant calculation more efficient
        by caching it in the bank structure and updating it as banks are
@@ -1374,7 +1374,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   ctx->published_root_bank_idx = 0UL;
 
   ctx->reset_slot            = 0UL;
-  ctx->reset_bank            = bank;
+  fd_memcpy( ctx->reset_bank, bank, sizeof(fd_bank_t) );
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
@@ -1481,7 +1481,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->published_root_bank_idx = 0UL;
 
     ctx->reset_slot            = snapshot_slot;
-    ctx->reset_bank            = bank;
+    fd_memcpy( ctx->reset_bank, bank, sizeof(fd_bank_t) );
     ctx->reset_timestamp_nanos = fd_log_wallclock();
     ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
     if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
@@ -2606,7 +2606,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->is_leader             = 0;
   ctx->reset_slot            = 0UL;
-  ctx->reset_bank            = NULL;
+  fd_memset( ctx->reset_bank, 0, sizeof(fd_bank_t) );
   ctx->reset_block_id        = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
   ctx->reset_timestamp_nanos = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
