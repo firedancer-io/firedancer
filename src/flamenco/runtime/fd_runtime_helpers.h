@@ -43,7 +43,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 int
 fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *          txn,
                                            uchar const *             payload,
-                                           fd_funk_t *               funk,
+                                           fd_accdb_user_t *         accdb,
                                            fd_funk_txn_xid_t const * xid,
                                            ulong                     slot,
                                            fd_slot_hash_t const *    hashes, /* deque */
