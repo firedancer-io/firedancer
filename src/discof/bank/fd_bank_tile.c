@@ -433,6 +433,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       txns[ i ].flags                       |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       tips[ i ]                              = txn_out->details.tips;
     }
+    FD_LOG_DEBUG(("success bundle"));
   } else {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
@@ -450,6 +451,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       tips[ i ]                              = 0UL;
       txns[ i ].flags = fd_uint_if( !!(txns[ i ].flags>>24), txns[ i ].flags, txns[ i ].flags | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24) );
     }
+    FD_LOG_DEBUG(("failed bundle"));
   }
 
   FD_LOG_DEBUG(( "acc pool free: %lu", fd_acc_pool_free( ctx->runtime->acc_pool ) ));
