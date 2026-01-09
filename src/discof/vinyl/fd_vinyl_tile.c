@@ -135,6 +135,12 @@ register_clients( fd_vinyl_tile_ctx_t * ctx ) {
       FD_LOG_ERR(( "Failed to initialize vinyl tile (%i-%s)", err, fd_vinyl_strerror( err ) ));
     }
 
+    ulong       client_idx    = ctx->client_active_cnt;
+    fd_wksp_t * rq_wksp       = ctx->client_param[ client_idx ].rq_wksp;
+    ulong       rq_gaddr      = ctx->client_param[ client_idx ].rq_gaddr;
+    fd_wksp_cstr( rq_wksp, rq_gaddr, cmd->join.rq );
+    FD_LOG_INFO(( "joined client %u with rq %s:%lu", ctx->client_active_cnt, fd_wksp_name( rq_wksp ), rq_gaddr ));
+
     ctx->client_active_cnt++;
     ctx->client_join_inflight = 0;
 
