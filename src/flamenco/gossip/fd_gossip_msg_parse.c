@@ -79,6 +79,8 @@ decode_u64_varint( uchar const * payload,
     uchar byte = FD_LOAD( uchar, CURSOR ); INC( 1U );
     value |= (ulong)(byte & 0x7F) << shift;
     if( !(byte & 0x80) ) {
+      CHECK( (uchar)(value>>shift)==byte );
+      CHECK( byte || ( shift==0 && value==0 ) );
       *out_value = value;
       return BYTES_CONSUMED;
     }
