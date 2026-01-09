@@ -1085,7 +1085,7 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
     fd_acct_addr_t *  accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_out->accounts.keys[txn_out->accounts.cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( txn_in->txn ),
                                                          txn_in->txn->payload,
-                                                         runtime->funk,
+                                                         runtime->accdb,
                                                          &xid,
                                                          fd_bank_slot_get( bank ),
                                                          slot_hashes,

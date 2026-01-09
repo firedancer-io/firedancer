@@ -756,7 +756,7 @@ int
 fd_runtime_load_txn_address_lookup_tables(
     fd_txn_t const *          txn,
     uchar const *             payload,
-    fd_funk_t *               funk,
+    fd_accdb_user_t *         accdb,
     fd_funk_txn_xid_t const * xid,
     ulong                     slot,
     fd_slot_hash_t const *    hashes, /* deque */
@@ -779,19 +779,18 @@ fd_runtime_load_txn_address_lookup_tables(
     fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, payload+addr_lut->addr_off );
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
-    fd_txn_account_t addr_lut_rec[1];
-    int db_err = fd_txn_account_init_from_funk_readonly(
-        addr_lut_rec, &addr_lut_acc, funk,  xid );
-    if( FD_UNLIKELY( db_err!=FD_ACC_MGR_SUCCESS ) ) {
+    fd_accdb_ro_t alut_ro[1];
+    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, alut_ro, xid, &addr_lut_acc ) ) ) {
       return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
     }
 
     int err = fd_alut_interp_next(
         interp,
         &addr_lut_acc,
-        fd_txn_account_get_owner   ( addr_lut_rec ),
-        fd_txn_account_get_data    ( addr_lut_rec ),
-        fd_txn_account_get_data_len( addr_lut_rec ) );
+        fd_accdb_ref_owner     ( alut_ro ),
+        fd_accdb_ref_data_const( alut_ro ),
+        fd_accdb_ref_data_sz   ( alut_ro ) );
+    fd_accdb_close_ro( accdb, alut_ro );
     if( FD_UNLIKELY( err ) ) return err;
   }
 
