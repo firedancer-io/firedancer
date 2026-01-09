@@ -451,7 +451,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   memcpy( poh, test_ctx->slot_ctx.poh, sizeof(fd_hash_t) );
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore_fuzz( bank, funk, xid );
+  fd_sysvar_cache_restore_fuzz( bank, accdb, xid );
 
   /* Prepare raw transaction pointers and block / microblock infos */
   ulong        txn_cnt  = test_ctx->txns_count;

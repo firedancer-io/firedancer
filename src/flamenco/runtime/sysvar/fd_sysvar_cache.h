@@ -22,6 +22,7 @@
 
 #include "fd_sysvar_base.h"
 #include "../../types/fd_types.h"
+#include "../../accdb/fd_accdb_base.h"
 
 #define FD_SYSVAR_CACHE_ENTRY_CNT 9
 
@@ -127,7 +128,7 @@ fd_sysvar_cache_delete( void * mem );
 
 int
 fd_sysvar_cache_restore( fd_bank_t *               bank,
-                         fd_funk_t *               funk,
+                         fd_accdb_user_t *         accdb,
                          fd_funk_txn_xid_t const * xid );
 
 /* fd_sysvar_cache_restore_fuzz is a weaker version of the above for use
@@ -137,7 +138,7 @@ fd_sysvar_cache_restore( fd_bank_t *               bank,
 
 void
 fd_sysvar_cache_restore_fuzz( fd_bank_t *               bank,
-                              fd_funk_t *               funk,
+                              fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid );
 
 /* fd_sysvar_cache_restore_from_metas is a version of the above
