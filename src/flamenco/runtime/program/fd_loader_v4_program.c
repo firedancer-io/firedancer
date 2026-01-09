@@ -1,6 +1,8 @@
 #include "fd_loader_v4_program.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../../log_collector/fd_log_collector.h"
+#include "../fd_borrowed_account.h"
+#include "../fd_system_ids.h"
 
 /* The loader v4 program instruction can correspond to one of three
    instruction types: write, copy, set_program_length.  Only the write
@@ -62,17 +64,18 @@ fd_loader_v4_get_state_mut( uchar * data,
 
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L32-L44 */
 fd_loader_v4_state_t const *
-fd_loader_v4_get_state( fd_account_meta_t const * meta,
-                        int *                     err ) {
+fd_loader_v4_get_state( void const * data,
+                        ulong        data_sz,
+                        int *        err ) {
   *err = FD_EXECUTOR_INSTR_SUCCESS;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L35-L36 */
-  if( FD_UNLIKELY( meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
+  if( FD_UNLIKELY( data_sz<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     return NULL;
   }
 
-  return fd_type_pun_const( fd_account_data( meta ) );
+  return fd_type_pun_const( data );
 }
 
 /* `check_program_account()` validates the program account's state from its data.
@@ -94,7 +97,9 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L70 */
-  fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program->meta, err );
+  void const * data    = fd_borrowed_account_get_data    ( program );
+  ulong        data_sz = fd_borrowed_account_get_data_len( program );
+  fd_loader_v4_state_t const * state = fd_loader_v4_get_state( data, data_sz, err );
   if( FD_UNLIKELY( *err ) ) {
     return NULL;
   }
@@ -752,7 +757,9 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L454 */
-  fd_loader_v4_state_t const * state_of_next_version = fd_loader_v4_get_state( next_version.meta, &err );
+  void const * next_data    = fd_borrowed_account_get_data    ( &next_version );
+  ulong        next_data_sz = fd_borrowed_account_get_data_len( &next_version );
+  fd_loader_v4_state_t const * state_of_next_version = fd_loader_v4_get_state( next_data, next_data_sz, &err );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -890,7 +897,9 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
        Therefore, Firedancer recovers the DelayVisibility and Closed
        states on-the-fly before querying cahce. */
 
-    fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program.meta, &rc );
+    void const * prog_data    = fd_borrowed_account_get_data    ( &program );
+    ulong        prog_data_sz = fd_borrowed_account_get_data_len( &program );
+    fd_loader_v4_state_t const * state = fd_loader_v4_get_state( prog_data, prog_data_sz, &rc );
     if( FD_UNLIKELY( rc ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
