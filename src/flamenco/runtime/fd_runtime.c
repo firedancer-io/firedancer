@@ -301,16 +301,14 @@ fd_runtime_freeze( fd_bank_t *         bank,
       fd_lthash_value_t prev_hash[1];
       fd_hashes_account_lthash( leader, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
 
-      if ( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, validate_fee_collector_account ) ) ) {
-        ulong _burn;
-        if( FD_UNLIKELY( _burn=fd_runtime_validate_fee_collector( bank, rec, fees ) ) ) {
-          if( FD_UNLIKELY( _burn!=fees ) ) {
-            FD_LOG_ERR(( "expected _burn(%lu)==fees(%lu)", _burn, fees ));
-          }
-          burn = fd_ulong_sat_add( burn, fees );
-          FD_LOG_WARNING(("fd_runtime_freeze: burned %lu", fees ));
-          break;
+      ulong _burn;
+      if( FD_UNLIKELY( _burn=fd_runtime_validate_fee_collector( bank, rec, fees ) ) ) {
+        if( FD_UNLIKELY( _burn!=fees ) ) {
+          FD_LOG_ERR(( "expected _burn(%lu)==fees(%lu)", _burn, fees ));
         }
+        burn = fd_ulong_sat_add( burn, fees );
+        FD_LOG_WARNING(("fd_runtime_freeze: burned %lu", fees ));
+        break;
       }
 
       /* TODO: is it ok to not check the overflow error here? */

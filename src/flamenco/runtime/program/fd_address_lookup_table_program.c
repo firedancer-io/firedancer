@@ -214,13 +214,6 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   lut_key      = lut_acct.pubkey;
   lut_owner    = fd_borrowed_account_get_owner( &lut_acct );
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L63-L70 */
-  if( !FD_FEATURE_ACTIVE_BANK( ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
-      && fd_borrowed_account_get_data_len( &lut_acct ) != 0UL ) {
-    fd_log_collector_msg_literal( ctx, "Table account must not be allocated" );
-    return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
-  }
-
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L72 */
   fd_borrowed_account_drop( &lut_acct );
 
@@ -233,13 +226,6 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L75 */
   authority_key = authority_acct.pubkey;
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L76-L83 */
-  if( !FD_FEATURE_ACTIVE_BANK( ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
-      && !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY, NULL ) ) {
-    fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L85 */
   fd_borrowed_account_drop( &authority_acct );
@@ -304,8 +290,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L129-L135 */
-  if( FD_FEATURE_ACTIVE_BANK( ctx->bank, relax_authority_signer_check_for_lookup_table_creation )
-      && 0==memcmp( lut_owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  if( 0==memcmp( lut_owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 

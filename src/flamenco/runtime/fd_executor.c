@@ -1028,10 +1028,6 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
   fd_executor_calculate_fee( bank, txn_out, TXN( txn_in->txn ), txn_in->txn->payload, &execution_fee, &priority_fee );
   ulong total_fee = fd_ulong_sat_add( execution_fee, priority_fee );
 
-  if( !FD_FEATURE_ACTIVE_BANK( bank, remove_rounding_in_fee_calculation ) ) {
-    total_fee = fd_rust_cast_double_to_ulong( round( (double)total_fee ) );
-  }
-
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
   err = fd_validate_fee_payer( fee_payer_key, fee_payer_meta, fd_bank_rent_query( bank ), total_fee );
   if( FD_UNLIKELY( err ) ) {
