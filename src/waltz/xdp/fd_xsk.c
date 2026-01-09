@@ -65,7 +65,7 @@ fd_xsk_mmap_ring( fd_xdp_ring_t * ring,
      kernel to exclude this region from core dumps for consistency
      with fd_shmem. Reimplements syscall logic of fd_numa_mlock()
      from fd_shmem_private.h to circumvent the ASan interceptor
-     and avoid private header dependencies. */ 
+     and avoid private header dependencies. */
 
   if( FD_UNLIKELY( (int)syscall( SYS_mlock, res, map_sz ) ) )
     FD_LOG_WARNING(( "syscall(SYS_mlock, %p, %lu KiB) on %s ring failed (%i-%s); attempting to continue",
