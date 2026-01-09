@@ -1494,8 +1494,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };
 
-    fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
-    fd_features_restore( bank, funk, &xid );
+    fd_features_restore( bank, ctx->accdb, &xid );
 
     fd_runtime_update_leaders( bank, &ctx->runtime_stack );
 
