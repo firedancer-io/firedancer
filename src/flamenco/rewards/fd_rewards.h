@@ -69,7 +69,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
 void
 fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
                                             fd_bank_t *               bank,
-                                            fd_funk_t *               funk,
+                                            fd_accdb_user_t *         accdb,
                                             fd_funk_txn_xid_t const * xid,
                                             fd_runtime_stack_t *      runtime_stack,
                                             fd_capture_ctx_t *        capture_ctx );

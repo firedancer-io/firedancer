@@ -79,9 +79,8 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
                               fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx ) {
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   uchar __attribute__((aligned(FD_SYSVAR_SLOT_HASHES_ALIGN))) slot_hashes_mem[FD_SYSVAR_SLOT_HASHES_FOOTPRINT];
-  fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( funk, xid, slot_hashes_mem );
+  fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( accdb, xid, slot_hashes_mem );
   fd_slot_hash_t *          hashes             = NULL;
   if( FD_UNLIKELY( !slot_hashes_global ) ) {
     /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */
@@ -119,12 +118,11 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
 }
 
 fd_slot_hashes_global_t *
-fd_sysvar_slot_hashes_read( fd_funk_t *               funk,
+fd_sysvar_slot_hashes_read( fd_accdb_user_t *         accdb,
                             fd_funk_txn_xid_t const * xid,
                             uchar *                   slot_hashes_mem ) {
-  fd_txn_account_t rec[1];
-  int err = fd_txn_account_init_from_funk_readonly( rec, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, funk, xid );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_slot_hashes_id ) ) ) {
     return NULL;
   }
 
@@ -132,14 +130,17 @@ fd_sysvar_slot_hashes_read( fd_funk_t *               funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( rec )==0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = fd_txn_account_get_data( rec ),
-    .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
+    .data    = fd_accdb_ref_data_const( ro ),
+    .dataend = (uchar *)fd_accdb_ref_data_const( ro ) + fd_accdb_ref_data_sz( ro )
   };
 
-  return fd_slot_hashes_decode_global( slot_hashes_mem, &decode );
+  fd_slot_hashes_global_t * rc = fd_slot_hashes_decode_global( slot_hashes_mem, &decode );
+  fd_accdb_close_ro( accdb, ro );
+  return rc;
 }

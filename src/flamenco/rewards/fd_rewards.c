@@ -630,7 +630,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L273 */
 static uint128
 calculate_validator_rewards( fd_bank_t *                    bank,
-                             fd_funk_t *                    funk,
+                             fd_accdb_user_t *              accdb,
                              fd_funk_txn_xid_t const *      xid,
                              fd_runtime_stack_t *           runtime_stack,
                              fd_stake_delegations_t const * stake_delegations,
@@ -639,11 +639,12 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                              ulong *                        rewards_out ) {
 
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
   }
 
   /* Calculate the epoch reward points from stake/vote accounts */
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   uint128 points = calculate_reward_points_partitioned(
       bank,
       funk,
@@ -708,7 +709,7 @@ get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
    https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L277 */
 static void
 calculate_rewards_for_partitioning( fd_bank_t *                            bank,
-                                    fd_funk_t *                            funk,
+                                    fd_accdb_user_t *                      accdb,
                                     fd_funk_txn_xid_t const *              xid,
                                     fd_runtime_stack_t *                   runtime_stack,
                                     fd_stake_delegations_t const *         stake_delegations,
@@ -725,7 +726,7 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   ulong total_rewards = rewards.validator_rewards;
 
   uint128 points = calculate_validator_rewards( bank,
-                                                funk,
+                                                accdb,
                                                 xid,
                                                 runtime_stack,
                                                 stake_delegations,
@@ -759,10 +760,9 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
      completed epoch.  We store the stake account rewards and vote
      states rewards in the bank */
 
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
   calculate_rewards_for_partitioning( bank,
-                                      funk,
+                                      accdb,
                                       xid,
                                       runtime_stack,
                                       stake_delegations,
@@ -1075,13 +1075,13 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
 void
 fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
                                             fd_bank_t *               bank,
-                                            fd_funk_t *               funk,
+                                            fd_accdb_user_t *         accdb,
                                             fd_funk_txn_xid_t const * xid,
                                             fd_runtime_stack_t *      runtime_stack,
                                             fd_capture_ctx_t *        capture_ctx ) {
 
   fd_sysvar_epoch_rewards_t epoch_rewards_sysvar[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( funk, xid, epoch_rewards_sysvar ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( accdb, xid, epoch_rewards_sysvar ) ) ) {
     FD_LOG_DEBUG(( "Failed to read or decode epoch rewards sysvar - may not have been created yet" ));
     return;
   }
@@ -1116,7 +1116,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   }
 
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
   }
 
@@ -1131,7 +1131,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       rewards for the previous epoch). */
   calculate_stake_vote_rewards(
       bank,
-      funk,
+      fd_accdb_user_v1_funk( accdb ),
       xid,
       stake_delegations,
       capture_ctx,

@@ -28,7 +28,7 @@ fd_sysvar_stake_history_init( fd_bank_t *               bank,
    lamports, this function returns NULL. */
 
 fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_funk_t *               funk,
+fd_sysvar_stake_history_read( fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_stake_history_t  *     stake_history );
 

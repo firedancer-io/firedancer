@@ -557,10 +557,9 @@ static void
 deprecate_rent_exemption_threshold( fd_bank_t *               bank,
                                     fd_accdb_user_t *         accdb,
                                     fd_funk_txn_xid_t const * xid,
-                                    fd_capture_ctx_t *        capture_ctx,
-                                    fd_funk_t *               funk ) {
+                                    fd_capture_ctx_t *        capture_ctx ) {
   fd_rent_t rent[1] = {0};
-  if( FD_UNLIKELY( !fd_sysvar_rent_read( funk, xid, rent ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_rent_read( accdb, xid, rent ) ) ) {
     FD_LOG_CRIT(( "fd_sysvar_rent_read failed" ));
   }
   rent->lamports_per_uint8_year = fd_rust_cast_double_to_ulong(
@@ -619,7 +618,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   /* SIMD-0194: deprecate_rent_exemption_threshold
      https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, deprecate_rent_exemption_threshold ) ) ) {
-    deprecate_rent_exemption_threshold( bank, accdb, xid, capture_ctx, funk );
+    deprecate_rent_exemption_threshold( bank, accdb, xid, capture_ctx );
   }
 
   /* Apply builtin program feature transitions
@@ -1425,7 +1424,7 @@ fd_runtime_genesis_init_program( fd_bank_t *               bank,
 static void
 fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
                                    fd_bank_t *               bank,
-                                   fd_funk_t *               funk,
+                                   fd_accdb_user_t *         accdb,
                                    fd_funk_txn_xid_t const * xid,
                                    fd_genesis_t const *      genesis_block,
                                    fd_hash_t const *         genesis_hash ) {
@@ -1584,7 +1583,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
   ulong new_rate_activation_epoch = 0UL;
 
   fd_stake_history_t stake_history[1];
-  fd_sysvar_stake_history_read( funk, xid, stake_history );
+  fd_sysvar_stake_history_read( accdb, xid, stake_history );
 
   fd_refresh_vote_accounts(
       bank,
@@ -1701,8 +1700,7 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
      setting some fields, and notably setting up the vote and stake
      caches which are used for leader scheduling/rewards. */
 
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
-  fd_runtime_init_bank_from_genesis( banks, bank, funk, xid, genesis_block, genesis_hash );
+  fd_runtime_init_bank_from_genesis( banks, bank, accdb, xid, genesis_block, genesis_hash );
 
   /* Write the native programs to the accounts db. */
 
@@ -1714,6 +1712,7 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
     fd_write_builtin_account( bank, accdb, xid, capture_ctx, pubkey, (const char *)account->data, account->meta.dlen );
   }
 
+  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_features_restore( bank, funk, xid );
 
   /* At this point, state related to the bank and the accounts db

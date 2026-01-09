@@ -177,10 +177,8 @@ static void
 verify_rent_values( test_env_t * env,
                     ulong        expected_lamports,
                     double       expected_threshold ) {
-  fd_funk_t * funk = fd_accdb_user_v1_funk( env->accdb );
-
   fd_rent_t funk_rent[1];
-  FD_TEST( fd_sysvar_rent_read( funk, &env->xid, funk_rent ) );
+  FD_TEST( fd_sysvar_rent_read( env->accdb, &env->xid, funk_rent ) );
   FD_TEST( funk_rent->lamports_per_uint8_year == expected_lamports );
   FD_TEST( funk_rent->exemption_threshold     == expected_threshold );
 

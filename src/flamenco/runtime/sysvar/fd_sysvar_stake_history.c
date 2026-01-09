@@ -26,12 +26,11 @@ write_stake_history( fd_bank_t *               bank,
 }
 
 fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_funk_t *               funk,
+fd_sysvar_stake_history_read( fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_stake_history_t *      stake_history ) {
-  fd_txn_account_t stake_rec[1];
-  int err = fd_txn_account_init_from_funk_readonly( stake_rec, &fd_sysvar_stake_history_id, funk, xid );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_stake_history_id ) ) ) {
     return NULL;
   }
 
@@ -39,15 +38,18 @@ fd_sysvar_stake_history_read( fd_funk_t *               funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( stake_rec )==0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
-  return fd_bincode_decode_static(
+  stake_history = fd_bincode_decode_static(
       stake_history, stake_history,
-      fd_txn_account_get_data( stake_rec ),
-      fd_txn_account_get_data_len( stake_rec ),
-      &err );
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz( ro ),
+      NULL );
+  fd_accdb_close_ro( accdb, ro );
+  return stake_history;
 }
 
 void
@@ -67,9 +69,8 @@ fd_sysvar_stake_history_update( fd_bank_t *                                 bank
                                 fd_capture_ctx_t *                          capture_ctx,
                                 fd_epoch_stake_history_entry_pair_t const * pair ) {
 
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
     FD_LOG_CRIT(( "Failed to read stake history sysvar" ));
   }
 

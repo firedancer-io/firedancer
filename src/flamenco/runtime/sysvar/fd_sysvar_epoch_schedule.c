@@ -1,8 +1,6 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../fd_acc_mgr.h"
-#include "../fd_txn_account.h"
 
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
@@ -54,13 +52,11 @@ fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
 }
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
+fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,
                                fd_funk_txn_xid_t const * xid,
                                fd_epoch_schedule_t *     out ) {
-
-  fd_txn_account_t acc[1];
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, xid );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_epoch_schedule_id ) ) ) {
     return NULL;
   }
 
@@ -68,15 +64,18 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
-  return fd_bincode_decode_static(
+  fd_epoch_schedule_t * rc = fd_bincode_decode_static(
       epoch_schedule, out,
-      fd_txn_account_get_data( acc ),
-      fd_txn_account_get_data_len( acc ),
-      &err );
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ),
+      NULL );
+  fd_accdb_close_ro( accdb, ro );
+  return rc;
 }
 
 void

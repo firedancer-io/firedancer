@@ -1,8 +1,6 @@
 #include "fd_sysvar_slot_history.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../fd_txn_account.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
 
 /* FIXME These constants should be header defines */
 
@@ -86,18 +84,17 @@ fd_sysvar_slot_history_update( fd_bank_t *               bank,
   /* Set current_slot, and update next_slot */
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
-  fd_txn_account_t rec[1];
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, xid );
-  if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
-
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, key ) ) ) FD_LOG_ERR(( "slot history account does not exist, cannot continue" ));
   fd_bincode_decode_ctx_t ctx = {
-    .data    = fd_txn_account_get_data( rec ),
-    .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
+    .data    = fd_accdb_ref_data_const( ro ),
+    .dataend = (uchar const *)fd_accdb_ref_data_const( ro ) + fd_accdb_ref_data_sz( ro )
   };
 
   uchar __attribute__((aligned(FD_SYSVAR_SLOT_HISTORY_ALIGN))) slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] = {0};
   fd_slot_history_global_t * history = fd_slot_history_decode_global( slot_history_mem, &ctx );
+  if( FD_UNLIKELY( !history ) ) FD_LOG_HEXDUMP_ERR(( "corrupt slot history sysvar", fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ));
+  fd_accdb_close_ro( accdb, ro );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
   fd_sysvar_slot_history_set( history, fd_bank_slot_get( bank ) );
@@ -109,38 +106,39 @@ fd_sysvar_slot_history_update( fd_bank_t *               bank,
 }
 
 fd_slot_history_global_t *
-fd_sysvar_slot_history_read( fd_funk_t *               funk,
+fd_sysvar_slot_history_read( fd_accdb_user_t *         accdb,
                              fd_funk_txn_xid_t const * xid,
                              uchar                     out_mem[ static FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] ) {
   /* Set current_slot, and update next_slot */
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
-  fd_txn_account_t rec[1];
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, xid );
-  if( err ) {
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, key ) ) ) {
+    FD_LOG_CRIT(( "slot history account does not exist, cannot continue" ));
   }
 
   /* This check is needed as a quirk of the fuzzer. If a sysvar account
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( rec )==0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
-  ulong data_len = fd_txn_account_get_data_len( rec );
+  ulong data_len = fd_accdb_ref_data_sz( ro );
   if( FD_UNLIKELY( data_len>FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) ) {
     FD_LOG_ERR(( "corrupt slot history sysvar: sysvar data is too large (%lu bytes)", data_len ));
   }
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = fd_txn_account_get_data( rec ),
-    .dataend = fd_txn_account_get_data( rec ) + data_len
+    .data    = fd_accdb_ref_data_const( ro ),
+    .dataend = (uchar const *)fd_accdb_ref_data_const( ro ) + fd_accdb_ref_data_sz( ro )
   };
-
-  return fd_slot_history_decode_global( out_mem, &ctx );
+  fd_slot_history_global_t * history = fd_slot_history_decode_global( out_mem, &ctx );
+  fd_accdb_close_ro( accdb, ro );
+  return history;
 }
 
 int

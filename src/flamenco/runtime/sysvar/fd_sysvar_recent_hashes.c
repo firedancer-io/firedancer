@@ -75,38 +75,42 @@ fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
 }
 
 fd_recent_block_hashes_t *
-fd_sysvar_recent_hashes_read( fd_funk_t *               funk,
+fd_sysvar_recent_hashes_read( fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               uchar                     rbh_mem[ static FD_SYSVAR_RECENT_HASHES_FOOTPRINT ] ) {
-  fd_txn_account_t acc[1];
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_recent_block_hashes_id, funk, xid );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_recent_block_hashes_id ) ) ) {
     return NULL;
+  }
 
   fd_bincode_decode_ctx_t ctx = {
-    .data    = fd_txn_account_get_data( acc ),
-    .dataend = fd_txn_account_get_data( acc ) + fd_txn_account_get_data_len( acc ),
+    .data    = fd_accdb_ref_data_const( ro ),
+    .dataend = (uchar *)fd_accdb_ref_data_const( ro ) + fd_accdb_ref_data_sz( ro ),
   };
 
   /* This check is needed as a quirk of the fuzzer. If a sysvar account
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
   ulong total_sz = 0;
-  err = fd_recent_block_hashes_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
+  if( FD_UNLIKELY( fd_recent_block_hashes_decode_footprint( &ctx, &total_sz ) ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
   /* This would never happen in a real cluster, this is a workaround
      for fuzz-generated cases where sysvar accounts are not funded. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc ) == 0 ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro ) == 0 ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
-  return fd_recent_block_hashes_decode( rbh_mem, &ctx );
+  fd_recent_block_hashes_t * rbh = fd_recent_block_hashes_decode( rbh_mem, &ctx );
+  fd_accdb_close_ro( accdb, ro );
+  return rbh;
 }

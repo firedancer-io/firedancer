@@ -58,26 +58,32 @@ fd_sysvar_last_restart_slot_derive(
 
 fd_sol_sysvar_last_restart_slot_t *
 fd_sysvar_last_restart_slot_read(
-    fd_funk_t *                         funk,
+    fd_accdb_user_t *                   accdb,
     fd_funk_txn_xid_t const *           xid,
     fd_sol_sysvar_last_restart_slot_t * out
 ) {
 
-  fd_txn_account_t acc[1];
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, xid );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_last_restart_slot_id ) ) ) {
+    return NULL;
+  }
 
   /* This check is needed as a quirk of the fuzzer. If a sysvar account
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) return NULL;
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+    fd_accdb_close_ro( accdb, ro );
+    return NULL;
+  }
 
-  return fd_bincode_decode_static(
+  out = fd_bincode_decode_static(
       sol_sysvar_last_restart_slot, out,
-      fd_txn_account_get_data( acc ),
-      fd_txn_account_get_data_len( acc ),
-      &err );
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ),
+      NULL );
+  fd_accdb_close_ro( accdb, ro );
+  return out;
 }
 
 /* fd_sysvar_last_restart_slot_update is equivalent to
@@ -97,9 +103,8 @@ fd_sysvar_last_restart_slot_update(
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2098-L2106 */
   ulong last_restart_slot_have = ULONG_MAX;
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   fd_sol_sysvar_last_restart_slot_t sysvar;
-  if( FD_LIKELY( fd_sysvar_last_restart_slot_read( funk, xid, &sysvar ) ) ) {
+  if( FD_LIKELY( fd_sysvar_last_restart_slot_read( accdb, xid, &sysvar ) ) ) {
     last_restart_slot_have = sysvar.slot;
   }
 
