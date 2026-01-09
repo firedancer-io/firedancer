@@ -357,7 +357,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
   ulong                  tips        [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
 
-  int execution_success = 1;
+  int   execution_success = 1;
+  ulong failed_idx        = ULONG_MAX;
 
   FD_LOG_DEBUG(( "acc pool free: %lu", fd_acc_pool_free( ctx->runtime->acc_pool ) ));
   /* Every transaction in the bundle should be executed in order against
@@ -385,6 +386,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       execution_success = 0;
+      failed_idx = i;
       FD_LOG_DEBUG(("txn %lu failed to execute", i));
       continue;
     }
@@ -443,7 +445,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       /* If the bundle peer flag is not set, that means the transaction
          was at least partially sanitized/setup.  We have to cancel
          these txns as they will not be included in the block. */
-      if( txns[ i ].flags == ((txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-ctx->txn_out[i].err.txn_err)<<24)) ) {
+      if( i<=failed_idx ) {
         FD_LOG_DEBUG(("cancelling txn %lu", i));
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
       }
