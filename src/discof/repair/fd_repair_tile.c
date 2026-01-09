@@ -26,7 +26,7 @@
 #include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../tower/fd_tower_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
-#include "../../util/net/fd_net_headers.h"
+#include "../../disco/net/fd_net_checks.h"
 #include "../../tango/fd_tango_base.h"
 
 #include "../forest/fd_forest.h"

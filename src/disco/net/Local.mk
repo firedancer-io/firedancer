@@ -5,3 +5,8 @@ endif
 ifdef FD_HAS_LINUX
 $(call add-objs,fd_linux_bond,fd_disco)
 endif
+$(call make-unit-test,test_net_checks,test_net_checks,fd_util)
+$(call run-unit-test,test_net_checks)
+ifdef FD_HAS_HOSTED
+$(call make-fuzz-test,fuzz_net_checks,fuzz_net_checks,fd_util)
+endif

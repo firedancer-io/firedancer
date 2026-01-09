@@ -8,7 +8,7 @@
 #include "../../flamenco/gossip/fd_gossip_private.h"
 #include "../../flamenco/gossip/fd_ping_tracker.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
-#include "../../util/net/fd_net_headers.h"
+#include "../../disco/net/fd_net_checks.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "generated/fd_gossvf_tile_seccomp.h"
 
