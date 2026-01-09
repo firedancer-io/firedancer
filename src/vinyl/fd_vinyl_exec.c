@@ -325,7 +325,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
           _client[ client_cnt ].rq        = rq;
           _client[ client_cnt ].cq        = cq;
           _client[ client_cnt ].burst_max = burst_max;
-          _client[ client_cnt ].seq       = fd_vinyl_rq_seq( rq );
+          _client[ client_cnt ].seq       = 0UL;
           _client[ client_cnt ].link_id   = link_id;
           _client[ client_cnt ].laddr0    = (ulong)wksp;
           _client[ client_cnt ].laddr1    = ULONG_MAX; //wksp->gaddr_hi; /* FIXME: HOW TO GET THIS CLEANLY */
