@@ -33,7 +33,7 @@ fd_sysvar_slot_history_update( fd_bank_t *               bank,
    lamports, this function returns NULL. */
 
 fd_slot_history_global_t *
-fd_sysvar_slot_history_read( fd_funk_t *               funk,
+fd_sysvar_slot_history_read( fd_accdb_user_t *         accdb,
                              fd_funk_txn_xid_t const * xid,
                              uchar                     out_mem[ static FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] );
 

@@ -43,7 +43,7 @@ fd_rent_exempt_minimum_balance( fd_rent_t const * rent,
    has zero lamports, this function returns NULL. */
 
 fd_rent_t const *
-fd_sysvar_rent_read( fd_funk_t *               funk,
+fd_sysvar_rent_read( fd_accdb_user_t *         accdb,
                      fd_funk_txn_xid_t const * xid,
                      fd_rent_t *               rent );
 

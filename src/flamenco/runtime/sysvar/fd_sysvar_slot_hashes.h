@@ -53,7 +53,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
    If the account doesn't exist in funk or if the account has zero
    lamports, this function returns NULL. */
 fd_slot_hashes_global_t *
-fd_sysvar_slot_hashes_read( fd_funk_t *               funk,
+fd_sysvar_slot_hashes_read( fd_accdb_user_t *         accdb,
                             fd_funk_txn_xid_t const * xid,
                             uchar *                   slot_hashes_mem );
 

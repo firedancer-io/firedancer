@@ -13,9 +13,7 @@
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
-#include "../../stakes/fd_stakes.h"
 #include "../../types/fd_types.h"
-#include "../../../disco/pack/fd_pack.h"
 #include "generated/block.pb.h"
 #include "../../capture/fd_capture_ctx.h"
 #include "../../capture/fd_solcap_writer.h"
@@ -360,12 +358,12 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];
-  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, xid, epoch_schedule_ );
+  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( accdb, xid, epoch_schedule_ );
   FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( bank, *epoch_schedule );
 
   fd_rent_t rent[1];
-  FD_TEST( fd_sysvar_rent_read( funk, xid, rent ) );
+  FD_TEST( fd_sysvar_rent_read( accdb, xid, rent ) );
   fd_bank_rent_set( bank, *rent );
 
   /* Current epoch gets updated in process_new_epoch, so use the epoch
@@ -419,7 +417,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   // Use the latest lamports per signature
   uchar __attribute__((aligned(FD_SYSVAR_RECENT_HASHES_ALIGN))) rbh_mem[FD_SYSVAR_RECENT_HASHES_FOOTPRINT];
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, xid, rbh_mem );
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( accdb, xid, rbh_mem );
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
@@ -514,10 +512,8 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       fd_solcap_writer_init( capture_ctx->capture, solcap_fd );
     }
 
-    fd_funk_t * funk = fd_accdb_user_v1_funk( runner->accdb );
     fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->data->idx } };
-
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, funk, &xid, runner->runtime_stack, capture_ctx );
+    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb, &xid, runner->runtime_stack, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
@@ -640,9 +636,8 @@ fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *          runn
                                              fd_funk_txn_xid_t const *      xid,
                                              fd_exec_test_block_effects_t * effects ) {
   /* Read epoch schedule sysvar */
-  fd_funk_t * funk = fd_accdb_user_v1_funk( runner->accdb );
   fd_epoch_schedule_t es_;
-  fd_epoch_schedule_t *sched = fd_sysvar_epoch_schedule_read( funk, xid, &es_ );
+  fd_epoch_schedule_t * sched = fd_sysvar_epoch_schedule_read( runner->accdb, xid, &es_ );
   FD_TEST( sched!=NULL );
 
   /* We will capture the leader schedule for the current epoch that we

@@ -3,7 +3,6 @@
 #include "fd_txn_harness.h"
 #include "../fd_runtime.h"
 #include "../fd_executor.h"
-#include "../fd_txn_account.h"
 #include "../program/fd_builtin_programs.h"
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
@@ -78,7 +77,6 @@ static fd_txn_p_t *
 fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                               fd_exec_test_txn_context_t const * test_ctx ) {
   fd_accdb_user_t * accdb = runner->accdb;
-  fd_funk_t *       funk  = fd_accdb_user_v1_funk( runner->accdb );
 
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
@@ -134,29 +132,29 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Ensure the presence of */
   fd_epoch_schedule_t epoch_schedule_[1];
-  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, &xid, epoch_schedule_ );
+  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( accdb, &xid, epoch_schedule_ );
   FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
 
   fd_rent_t rent[1];
-  FD_TEST( fd_sysvar_rent_read( funk, &xid, rent ) );
+  FD_TEST( fd_sysvar_rent_read( accdb, &xid, rent ) );
   fd_bank_rent_set( runner->bank, *rent );
 
   uchar __attribute__((aligned(FD_SLOT_HASHES_GLOBAL_ALIGN))) slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
-  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, slot_hashes_mem );
+  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( accdb, &xid, slot_hashes_mem );
   FD_TEST( slot_hashes );
 
   fd_stake_history_t stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, &xid, stake_history_ );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( accdb, &xid, stake_history_ );
   FD_TEST( stake_history );
 
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( runner->accdb, &xid, clock_ );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( accdb, &xid, clock_ );
   FD_TEST( clock );
 
   /* Epoch schedule and rent get set from the epoch bank */
-  fd_sysvar_epoch_schedule_init( runner->bank, runner->accdb, &xid, NULL );
-  fd_sysvar_rent_init( runner->bank, runner->accdb, &xid, NULL );
+  fd_sysvar_epoch_schedule_init( runner->bank, accdb, &xid, NULL );
+  fd_sysvar_rent_init( runner->bank, accdb, &xid, NULL );
 
   /* Blockhash queue is given in txn message. We need to populate the following two fields:
      - block_hash_queue
@@ -169,7 +167,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
   uchar __attribute__((aligned(FD_SYSVAR_RECENT_HASHES_ALIGN))) rbh_mem[FD_SYSVAR_RECENT_HASHES_FOOTPRINT];
-  fd_recent_block_hashes_t const * rbh_sysvar = fd_sysvar_recent_hashes_read( funk, &xid, rbh_mem );
+  fd_recent_block_hashes_t const * rbh_sysvar = fd_sysvar_recent_hashes_read( accdb, &xid, rbh_mem );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_sysvar ) {
     rbh->hashes = rbh_sysvar->hashes;
@@ -197,14 +195,14 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
       }
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
       fd_bank_poh_set( runner->bank, blockhash );
-      fd_sysvar_recent_hashes_update( runner->bank, runner->accdb, &xid, NULL );
+      fd_sysvar_recent_hashes_update( runner->bank, accdb, &xid, NULL );
     }
   } else {
     // Add a default empty blockhash and use it as genesis
     num_blockhashes = 1;
     *fd_bank_genesis_hash_modify( runner->bank ) = (fd_hash_t){0};
     fd_bank_poh_set( runner->bank, (fd_hash_t){0} );
-    fd_sysvar_recent_hashes_update( runner->bank, runner->accdb, &xid, NULL );
+    fd_sysvar_recent_hashes_update( runner->bank, accdb, &xid, NULL );
   }
 
   /* Restore sysvars from account context */

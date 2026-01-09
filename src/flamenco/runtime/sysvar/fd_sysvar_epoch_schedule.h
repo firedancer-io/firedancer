@@ -68,7 +68,7 @@ fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
    has zero lamports, this function returns NULL. */
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
+fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,
                                fd_funk_txn_xid_t const * xid,
                                fd_epoch_schedule_t *     out );
 
