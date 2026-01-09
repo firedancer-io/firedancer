@@ -373,6 +373,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     if( execution_success==0 ) {
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24);
+
       continue;
     }
 
@@ -383,6 +384,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       execution_success = 0;
+      FD_LOG_DEBUG(("txn %lu failed to execute", i));
       continue;
     }
 
@@ -441,6 +443,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
          was at least partially sanitized/setup.  We have to cancel
          these txns as they will not be included in the block. */
       if( !(txns[ i ].flags&((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24)) ) {
+        FD_LOG_DEBUG(("cancelling txn %lu", i));
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
       }
 
