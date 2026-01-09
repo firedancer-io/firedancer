@@ -22,7 +22,7 @@
 
 #include "fd_sysvar_base.h"
 #include "../../types/fd_types.h"
-#include "../../accdb/fd_accdb_base.h"
+#include "../../accdb/fd_accdb_ref.h"
 
 #define FD_SYSVAR_CACHE_ENTRY_CNT 9
 
@@ -141,19 +141,9 @@ fd_sysvar_cache_restore_fuzz( fd_bank_t *               bank,
                               fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid );
 
-/* fd_sysvar_cache_restore_from_metas is a version of the above
-   (fd_sysvar_cache_restore_fuzz) for use with solfuzz/protosol
-   conformance tooling.  This version works around the aforementioned
-   tooling bugs but also breaks a dependency on the accounts database to
-   refresh the sysvar cache.  Instead of reading sysvar state from the
-   accounts database, it searches for the sysvar accounts from the list
-   of pubkeys and metas that are passed in. */
-
 void
-fd_sysvar_cache_restore_from_metas( fd_bank_t *                 bank,
-                                    fd_pubkey_t const *         pubkeys,
-                                    fd_account_meta_t * const * metas,
-                                    ulong                       acc_cnt );
+fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t *   cache,
+                                  fd_accdb_ro_t const * ro );
 
 /* Generic accessors for serialized sysvar account data. */
 

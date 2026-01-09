@@ -158,7 +158,7 @@ do{
 
   uchar *                   input_ptr      = NULL;
   uchar                     program_id_idx = instr_ctx->instr->program_id;
-  fd_account_meta_t const * program_acc    = instr_ctx->txn_out->accounts.metas[program_id_idx];
+  fd_account_meta_t const * program_acc    = instr_ctx->txn_out->accounts.account[program_id_idx].meta;
   uchar                     is_deprecated  = ( program_id_idx < instr_ctx->txn_out->accounts.cnt ) &&
                                             ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
@@ -471,7 +471,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   uchar *             input_ptr      = NULL;
   uchar               program_id_idx = ctx->instr->program_id;
-  fd_account_meta_t * program_acc    = ctx->txn_out->accounts.metas[program_id_idx];
+  fd_account_meta_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx].meta;
   uchar               is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
                                       ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 

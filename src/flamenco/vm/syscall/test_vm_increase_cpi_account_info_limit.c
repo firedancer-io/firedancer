@@ -191,21 +191,21 @@ test_env_create( test_env_t * env,
   memset( env->sysprog_meta, 0, sizeof(fd_account_meta_t) );
   memcpy( env->sysprog_meta->owner, &fd_solana_native_loader_id, sizeof(fd_pubkey_t) );
   env->sysprog_meta->executable = 1;
-  env->txn_out->accounts.metas[0] = env->sysprog_meta;
+  env->txn_out->accounts.account[0].meta = env->sysprog_meta;
 
   memcpy( &env->txn_out->accounts.keys[1], &test_transfer_from_pubkey, sizeof(fd_pubkey_t) );
   env->source_meta = fd_wksp_alloc_laddr( wksp, alignof(fd_account_meta_t), sizeof(fd_account_meta_t), TEST_WKSP_TAG );
   memset( env->source_meta, 0, sizeof(fd_account_meta_t) );
   memcpy( env->source_meta->owner, &fd_solana_system_program_id, sizeof(fd_pubkey_t) );
   env->source_meta->lamports = 1000000UL;
-  env->txn_out->accounts.metas[1] = env->source_meta;
+  env->txn_out->accounts.account[1].meta = env->source_meta;
 
   memcpy( &env->txn_out->accounts.keys[2], &test_transfer_to_pubkey, sizeof(fd_pubkey_t) );
   env->dest_meta = fd_wksp_alloc_laddr( wksp, alignof(fd_account_meta_t), sizeof(fd_account_meta_t), TEST_WKSP_TAG );
   memset( env->dest_meta, 0, sizeof(fd_account_meta_t) );
   memcpy( env->dest_meta->owner, &fd_solana_system_program_id, sizeof(fd_pubkey_t) );
   env->dest_meta->lamports = 0UL;
-  env->txn_out->accounts.metas[2] = env->dest_meta;
+  env->txn_out->accounts.account[2].meta = env->dest_meta;
 
   env->runtime->accounts.refcnt[0] = 0UL;
   env->runtime->accounts.refcnt[1] = 0UL;

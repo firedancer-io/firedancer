@@ -40,32 +40,6 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
 }
 
 static int
-sysvar_data_fill_from_metas( fd_sysvar_cache_t *         cache,
-                             fd_pubkey_t const *         pubkeys,
-                             fd_account_meta_t * const * metas,
-                             ulong                       acc_cnt,
-                             ulong                       idx ) {
-  fd_sysvar_pos_t const * pos  = &fd_sysvar_pos_tbl[ idx ];
-  fd_pubkey_t const *     key  = &fd_sysvar_key_tbl[ idx ];
-  fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
-
-  for( ulong i=0UL; i<acc_cnt; i++ ) {
-    if( !memcmp( &pubkeys[i], key, sizeof(fd_pubkey_t) ) ) {
-      if( metas[i]->lamports==0UL ) return 0;
-      ulong data_sz = metas[i]->dlen;
-      data_sz = fd_ulong_min( data_sz, pos->data_max );
-      uchar * data = (uchar *)cache+pos->data_off;
-      fd_memcpy( data, fd_account_data( metas[i] ), data_sz );
-      desc->data_sz = (uint)data_sz;
-
-      /* Recover object cache entry from data cache entry */
-      return fd_sysvar_obj_restore( cache, desc, pos );
-    }
-  }
-  return 0;
-}
-
-static int
 fd_sysvar_cache_restore1( fd_bank_t *               bank,
                           fd_accdb_user_t *         accdb,
                           fd_funk_txn_xid_t const * xid,
@@ -99,16 +73,24 @@ fd_sysvar_cache_restore_fuzz( fd_bank_t *               bank,
 }
 
 void
-fd_sysvar_cache_restore_from_metas( fd_bank_t *                 bank,
-                                    fd_pubkey_t const *         pubkeys,
-                                    fd_account_meta_t * const * metas,
-                                    ulong                       acc_cnt ) {
-  fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new(
-    fd_bank_sysvar_cache_modify( bank ) ) );
-
-  for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
-    sysvar_data_fill_from_metas( cache, pubkeys, metas, acc_cnt, i );
+fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t *   cache,
+                                  fd_accdb_ro_t const * ro ) {
+  ulong idx;
+  for( idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
+    if( 0==memcmp( fd_accdb_ref_address( ro ), fd_sysvar_key_tbl[ idx ].uc, sizeof(fd_pubkey_t) ) ) break;
   }
+  if( FD_UNLIKELY( idx==FD_SYSVAR_CACHE_ENTRY_CNT ) ) return;
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro ) )==0UL ) return;
 
-  fd_sysvar_cache_leave( cache );
+  fd_sysvar_pos_t const * pos  = &fd_sysvar_pos_tbl[ idx ];
+  fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
+
+  ulong   data_sz = fd_accdb_ref_data_sz( ro );
+  /* */   data_sz = fd_ulong_min( data_sz, pos->data_max );
+  uchar * data    = (uchar *)cache+pos->data_off;
+  fd_memcpy( data, fd_accdb_ref_data_const( ro ), data_sz );
+  desc->data_sz = (uint)data_sz;
+
+  /* Recover object cache entry from data cache entry */
+  fd_sysvar_obj_restore( cache, desc, pos );
 }

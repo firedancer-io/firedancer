@@ -218,9 +218,9 @@ struct fd_txn_in {
   fd_txn_p_t const * txn;
 
   struct {
-    int                  is_bundle;
-    fd_txn_out_t const * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
-    ulong                prev_txn_cnt;
+    int            is_bundle;
+    fd_txn_out_t * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+    ulong          prev_txn_cnt;
   } bundle;
 };
 typedef struct fd_txn_in fd_txn_in_t;
@@ -280,11 +280,11 @@ struct fd_txn_out {
     /* is_setup is set to 1 if account data buffer resources have been
        acquired for the transaction and 0 if they have not.  If the flag
        has been set, memory resources must be released. */
-    int                 is_setup;
-    ulong               cnt;
-    fd_pubkey_t         keys       [ MAX_TX_ACCOUNT_LOCKS ];
-    fd_account_meta_t * metas      [ MAX_TX_ACCOUNT_LOCKS ];
-    uchar               is_writable[ MAX_TX_ACCOUNT_LOCKS ];
+    int           is_setup;
+    ulong         cnt;
+    fd_pubkey_t   keys       [ MAX_TX_ACCOUNT_LOCKS ];
+    fd_accdb_rw_t account    [ MAX_TX_ACCOUNT_LOCKS ]; /* FIXME use accdb_ref_t here for safety - some accounts are readonly */
+    uchar         is_writable[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* The fee payer and nonce accounts are treated differently than
        other accounts: if an on-transaction fails they are still

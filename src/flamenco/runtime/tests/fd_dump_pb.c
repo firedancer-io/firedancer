@@ -915,7 +915,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   instr_context->accounts = fd_spad_alloc( spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + runtime->accounts.executable_cnt) * sizeof(fd_exec_test_acct_state_t));
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
     // Copy account information over
-    fd_account_meta_t * account_meta = txn_out->accounts.metas[i];
+    fd_account_meta_t * account_meta = txn_out->accounts.account[i].meta;
     fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
     dump_account_state( &txn_out->accounts.keys[i], account_meta, output_account, spad );
   }
