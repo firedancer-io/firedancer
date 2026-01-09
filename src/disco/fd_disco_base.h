@@ -44,10 +44,10 @@
 
 /* FD_SHRED_OUT_MTU is the maximum size of a frag on the shred_out
    link.  This is the size of a data shred header + merkle root
-   + chained merkle root. */
+   + chained merkle root + nonce/is_leader. */
 
-#define FD_SHRED_OUT_MTU (FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ + sizeof(int))
-FD_STATIC_ASSERT( FD_SHRED_OUT_MTU == 156UL , update FD_SHRED_OUT_MTU );
+#define FD_SHRED_OUT_MTU (FD_SHRED_CODE_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ + sizeof(int))
+FD_STATIC_ASSERT( FD_SHRED_OUT_MTU == 157UL , update FD_SHRED_OUT_MTU );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
@@ -144,92 +144,78 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
    The encoded fields vary depending on the type of the sig.  The
    diagram below describes the encoding.
 
-   is_turbine (1) | slot (32) | fec_set_idx (15) | is_code (1) | shred_idx or data_cnt (15)
-   [63]           | [31, 62]  | [16, 30]         | [15]        | [0, 14]
+   for sz==FD_SHRED_OUT_MTU
 
-   There are two types of messages on the shred_out link.  The first
-   type is a generic shred message. The second is a FEC set completion
-   message. Since we have run out of bits, the receiver must look at the
-   sz of the dcache entry to determine which type of message it is.
+   msg_type (1)   | slot (32) | fec_set_idx (15) | is_turbine (1) | shred_idx (15) |
+   MSG_TYPE_SHRED | [31, 62]  | [16, 30]         | [15]           | [0, 14]        |
 
-   For the first message type (SHRED):
+   in the above case, the last 4 bytes of the dcache entry are the nonce.
 
-   The first bit [63] describes whether this shred source was turbine
-   or repair.
+   msg_type (1)   | slot (32) | fec_set_idx (15)| is_slot_complete (1) | data_cnt (15) |
+   MSG_TYPE_FEC   | [31, 62]  | [16, 30]        | [15]                 | [0, 14]       | => should soon always be 32
 
-   The next 32 bits [31, 62] describe the slot number. Note: if the slot
-   number is >= UINT_MAX, the sender will store the value UINT_MAX in
-   this field. If the receiver sees a value of UINT_MAX in the field, it
-   must read the actual slot number from the dcache entry.
+   in the above case, the last 4 bytes of the dcache entry are the is_leader flag..
 
-   The following 15 bits [16, 30] describe the fec_set_idx.  This is a
+   for sz==0:
+   these are FEC_CLEAR messages and look like MSG_TYPE_SHRED but with some unpopulated fields:
+   ...   | slot (32) | fec_set_idx (15) | ...  | max_shred_idx (15) |
+   ...   | [31, 62]  | [16, 30]         | ...  | [0, 14]            |
+
+   is_turbine describes whether this shred source was turbine or repair.
+   If the source is repair, then the nonce value in the dcache will
+   have meaning.
+
+   Note: if the slot number is >= UINT_MAX, the sender will store the
+   value UINT_MAX in this field. If the receiver sees a value of
+   UINT_MAX in the field, it must read the actual slot number from the
+   dcache entry.
+
+   The following 15 bits describe the fec_set_idx.  This is a
    15-bit value because shreds are bounded to 2^15 per slot, so in the
    worst case there is an independent FEC set for every shred, which
-   results in at most 2^15 FEC sets per slot.
+   results in at most 2^15 FEC sets per slot. */
 
-   The next bit [15] describes whether it is a coding shred (is_code).
-   If is_code = 0, the sig describes a data shred, and the last 15 bits
-   [0, 14] encode the shred_idx.  If is_code = 1, the sig describes a
-   coding shred, and the last 15 bits encode the data_cnt.
+#define FD_SHRED_OUT_MSG_TYPE_SHRED (0)
+#define FD_SHRED_OUT_MSG_TYPE_FEC   (1)
 
-   For the second message type (FEC):
-
-   Currently, the size of the FEC message is
-   FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int).
-
-   Only the slot and fec_set_idx bits are populated. The data in the
-   frag is the full shred header of the last data shred in the FEC set,
-   the merkle root of the FEC set, and the chained merkle root of the
-   FEC. Each field immediately follows the other field. */
-
-/* TODO this shred_out_sig can be greatly simplified when FEC sets
-   are uniformly coding shreds and fixed size. */
+FD_FN_CONST static inline int fd_disco_shred_out_msg_type( ulong sig ) { return fd_ulong_extract_bit( sig, 63 ); }
 
 FD_FN_CONST static inline ulong
 fd_disco_shred_out_shred_sig( int   is_turbine,
                               ulong slot,
                               uint  fec_set_idx,
-                              int   is_code,
-                              uint  shred_idx_or_data_cnt ) {
-   ulong slot_ul                  = fd_ulong_min( slot, (ulong)UINT_MAX );
-   ulong shred_idx_or_data_cnt_ul = fd_ulong_min( (ulong)shred_idx_or_data_cnt, (ulong)FD_SHRED_BLK_MAX );
-   ulong fec_set_idx_ul           = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_BLK_MAX );
-   ulong is_turbine_ul            = !!is_turbine;
-   ulong is_code_ul               = !!is_code;
+                              uint  shred_idx ) {
+   ulong slot_ul        = fd_ulong_min( slot, (ulong)UINT_MAX );
+   ulong shred_idx_ul   = fd_ulong_min( (ulong)shred_idx,   (ulong)FD_SHRED_BLK_MAX );
+   ulong fec_set_idx_ul = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_BLK_MAX );
+   ulong is_turbine_ul  = !!is_turbine;
+   ulong msg_type_ul    = FD_SHRED_OUT_MSG_TYPE_SHRED;
 
-  return is_turbine_ul << 63 | slot_ul << 31 | fec_set_idx_ul << 16 | is_code_ul << 15 | shred_idx_or_data_cnt_ul;
+  return msg_type_ul << 63 | slot_ul << 31 | fec_set_idx_ul << 16 | is_turbine_ul << 15 | shred_idx_ul;
 }
 
 /* fd_disco_shred_out_shred_sig_{...} are accessors for the fields encoded
    in the sig described above. */
 
-FD_FN_CONST static inline int   fd_disco_shred_out_shred_sig_is_turbine ( ulong sig ) { return       fd_ulong_extract_bit( sig, 63     ); }
 FD_FN_CONST static inline ulong fd_disco_shred_out_shred_sig_slot       ( ulong sig ) { return       fd_ulong_extract    ( sig, 31, 62 ); }
 FD_FN_CONST static inline uint  fd_disco_shred_out_shred_sig_fec_set_idx( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 16, 30 ); }
-FD_FN_CONST static inline int   fd_disco_shred_out_shred_sig_is_code    ( ulong sig ) { return       fd_ulong_extract_bit( sig, 15     ); }
-FD_FN_CONST static inline uint  fd_disco_shred_out_shred_sig_shred_idx  ( ulong sig ) { return (uint)fd_ulong_extract_lsb( sig, 15     ); } /* only when is_code = 0 */
-FD_FN_CONST static inline uint  fd_disco_shred_out_shred_sig_data_cnt   ( ulong sig ) { return (uint)fd_ulong_extract_lsb( sig, 15     ); } /* only when is_code = 1 */
+FD_FN_CONST static inline int   fd_disco_shred_out_shred_sig_is_turbine ( ulong sig ) { return       fd_ulong_extract_bit( sig, 15     ); }
+FD_FN_CONST static inline uint  fd_disco_shred_out_shred_sig_shred_idx  ( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 0, 14  ); }
 
-/*
-   | slot (32) | fec_set_idx (15) | data_cnt (15) | is_data_complete (1) | is_batch_complete (1) |
-   | [32, 63]  | [17, 31]         | [2, 16]       | [1]                  | [0]                   |
-
-*/
 FD_FN_CONST static inline ulong
-fd_disco_shred_out_fec_sig( ulong slot, uint fec_set_idx, uint data_cnt, int is_slot_complete, int is_batch_complete ) {
+fd_disco_shred_out_fec_sig( ulong slot, uint fec_set_idx, uint data_cnt, int is_slot_complete ) {
   ulong slot_ul          = fd_ulong_min( slot, (ulong)UINT_MAX );
   ulong fec_set_idx_ul   = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_BLK_MAX );
   ulong data_cnt_ul      = fd_ulong_min( (ulong)data_cnt, (ulong)FD_SHRED_BLK_MAX );
   ulong is_slot_complete_ul = !!is_slot_complete;
-  ulong is_batch_complete_ul = !!is_batch_complete;
-  return slot_ul << 32 | fec_set_idx_ul << 17 | data_cnt_ul << 2 | is_slot_complete_ul << 1 | is_batch_complete_ul;
+  ulong msg_type_ul         = FD_SHRED_OUT_MSG_TYPE_FEC;
+  return msg_type_ul << 63 | slot_ul << 31 | fec_set_idx_ul << 16 | is_slot_complete_ul << 15 | data_cnt_ul;
 }
 
-FD_FN_CONST static inline ulong fd_disco_shred_out_fec_sig_slot             ( ulong sig ) { return         fd_ulong_extract    ( sig, 32, 63 ); }
-FD_FN_CONST static inline uint  fd_disco_shred_out_fec_sig_fec_set_idx      ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 17, 31 ); }
-FD_FN_CONST static inline uint  fd_disco_shred_out_fec_sig_data_cnt         ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 2, 16  ); }
-FD_FN_CONST static inline int   fd_disco_shred_out_fec_sig_is_slot_complete ( ulong sig ) { return         fd_ulong_extract_bit( sig, 1     ); }
-FD_FN_CONST static inline int   fd_disco_shred_out_fec_sig_is_batch_complete( ulong sig ) { return         fd_ulong_extract_bit( sig, 0     ); }
+FD_FN_CONST static inline ulong fd_disco_shred_out_fec_sig_slot            ( ulong sig ) { return         fd_ulong_extract    ( sig, 31, 62 ); }
+FD_FN_CONST static inline uint  fd_disco_shred_out_fec_sig_fec_set_idx     ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 16, 30 ); }
+FD_FN_CONST static inline int   fd_disco_shred_out_fec_sig_is_slot_complete( ulong sig ) { return         fd_ulong_extract_bit( sig, 15     ); }
+FD_FN_CONST static inline uint  fd_disco_shred_out_fec_sig_data_cnt        ( ulong sig ) { return (uint)  fd_ulong_extract    ( sig, 0, 14  ); }
 
 /* Exclusively used for force completion messages */
 
