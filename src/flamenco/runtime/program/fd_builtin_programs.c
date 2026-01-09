@@ -181,17 +181,16 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 
 // https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4944
 static int
-fd_builtin_is_bpf( fd_funk_t *               funk,
+fd_builtin_is_bpf( fd_accdb_user_t *         accdb,
                    fd_funk_txn_xid_t const * xid,
                    fd_pubkey_t const  *      pubkey ) {
-  fd_txn_account_t rec[1];
-  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, funk, xid );
-  if( !!err ) {
+  fd_accdb_ro_t ro[1];
+  if( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) {
     return 0;
   }
-
-  fd_pubkey_t const * owner = fd_txn_account_get_owner( rec );
-  return memcmp( owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_solana_bpf_loader_upgradeable_program_id) )==0;
+  int is_bpf = memcmp( fd_accdb_ref_owner( ro ), &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_solana_bpf_loader_upgradeable_program_id) )==0;
+  fd_accdb_close_ro( accdb, ro );
+  return is_bpf;
 }
 
 
@@ -280,10 +279,9 @@ fd_builtin_programs_init( fd_bank_t *               bank,
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/builtins/src/lib.rs#L52 */
   fd_builtin_program_t const * builtins = fd_builtins();
 
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
     /** https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4949 */
-    if( fd_bank_slot_get( bank )==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( funk, xid, builtins[i].pubkey ) ) {
+    if( fd_bank_slot_get( bank )==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( accdb, xid, builtins[i].pubkey ) ) {
       fd_write_builtin_account( bank, accdb, xid, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen( builtins[i].data ) );
     } else if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       continue;
