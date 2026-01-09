@@ -360,7 +360,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   int   execution_success = 1;
   ulong failed_idx        = ULONG_MAX;
 
-  FD_LOG_DEBUG(( "acc pool free: %lu", fd_acc_pool_free( ctx->runtime->acc_pool ) ));
   /* Every transaction in the bundle should be executed in order against
      different transaciton contexts. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -387,14 +386,11 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       execution_success = 0;
       failed_idx = i;
-      FD_LOG_DEBUG(("txn %lu failed to execute", i));
       continue;
     }
 
     writable_alt[i] = fd_type_pun_const( txn_out->accounts.keys+TXN( txn_in->txn )->acct_addr_cnt );
   }
-
-  FD_LOG_DEBUG(( "acc pool free: %lu", fd_acc_pool_free( ctx->runtime->acc_pool ) ));
 
   /* If all of the transactions in the bundle executed successfully, we
      can commit the transactions in order.  At this point, we cann also
@@ -438,7 +434,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       txns[ i ].flags                       |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       tips[ i ]                              = txn_out->details.tips;
     }
-    FD_LOG_DEBUG(("success bundle"));
   } else {
     FD_TEST( failed_idx != ULONG_MAX );
     for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -448,7 +443,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
          these txns as they will not be included in the block. */
 
       if( i<=failed_idx ) {
-        FD_LOG_DEBUG(("cancelling txn %lu", i));
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
       }
 
@@ -459,10 +453,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       tips[ i ]                              = 0UL;
       txns[ i ].flags = fd_uint_if( !!(txns[ i ].flags>>24), txns[ i ].flags, txns[ i ].flags | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24) );
     }
-    FD_LOG_DEBUG(("failed bundle"));
   }
-
-  FD_LOG_DEBUG(( "acc pool free: %lu", fd_acc_pool_free( ctx->runtime->acc_pool ) ));
 
   if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
 
