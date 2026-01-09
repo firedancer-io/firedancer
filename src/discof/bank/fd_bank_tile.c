@@ -357,7 +357,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
   ulong                  tips        [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
 
-  int execution_success = 1;
+  int   execution_success = 1;
+  ulong failed_idx        = ULONG_MAX;
 
   /* Every transaction in the bundle should be executed in order against
      different transaciton contexts. */
@@ -366,6 +367,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_txn_p_t *   txn     = &txns[ i ];
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ i ];
     fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
+
+    txn_out->err.txn_err = FD_RUNTIME_EXECUTE_SUCCESS;
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
@@ -382,6 +385,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       execution_success = 0;
+      failed_idx = i;
       continue;
     }
 
@@ -396,8 +400,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
-      fd_txn_in_t *  txn_in  = &ctx->txn_in[ i ];
-      fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
+      fd_txn_in_t *  txn_in    = &ctx->txn_in[ i ];
+      fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
       fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
@@ -431,12 +435,14 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       tips[ i ]                              = txn_out->details.tips;
     }
   } else {
+    FD_TEST( failed_idx != ULONG_MAX );
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
       /* If the bundle peer flag is not set, that means the transaction
          was at least partially sanitized/setup.  We have to cancel
          these txns as they will not be included in the block. */
-      if( !(txns[ i ].flags&((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24)) ) {
+
+      if( i<=failed_idx ) {
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
       }
 
