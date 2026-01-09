@@ -943,7 +943,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       /* We've spilled an in-progress FEC set in the fec_resolver. We
          need to let repair know to clear out it's cached info for that
          fec set and re-repair those shreds. */
-      ulong sig_ = fd_disco_shred_out_shred_sig( 0, spilled_fec.slot, spilled_fec.fec_set_idx, 0, FD_FEC_SHRED_CNT-1U );
+      ulong sig_ = fd_disco_shred_out_shred_sig( 0, spilled_fec.slot, spilled_fec.fec_set_idx, FD_FEC_SHRED_CNT-1U );
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, ctx->shred_out_idx, sig_, ctx->shred_out_chunk, 0, 0, ctx->tsorig, tspub );
     }
@@ -974,12 +974,19 @@ after_frag( fd_shred_ctx_t *    ctx,
         int  is_code               = fd_shred_is_code( fd_shred_type( shred->variant ) );
         uint shred_idx_or_data_cnt = shred->idx;
         if( FD_LIKELY( is_code ) ) shred_idx_or_data_cnt = shred->code.data_cnt;  /* optimize for code_cnt >= data_cnt */
-        ulong _sig = fd_disco_shred_out_shred_sig( fd_disco_netmux_sig_proto(sig)==DST_PROTO_SHRED, shred->slot, shred->fec_set_idx, is_code, shred_idx_or_data_cnt );
+        ulong _sig = fd_disco_shred_out_shred_sig( fd_disco_netmux_sig_proto(sig)==DST_PROTO_SHRED, shred->slot, shred->fec_set_idx, shred_idx_or_data_cnt );
 
         /* Copy the shred header into the frag and publish. */
 
         ulong sz = fd_shred_header_sz( shred->variant );
         fd_memcpy( fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ), shred, sz );
+
+        fd_memcpy( (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, &ctx->out_merkle_roots[0], FD_SHRED_MERKLE_ROOT_SZ );
+        sz += FD_SHRED_MERKLE_ROOT_SZ;
+
+        fd_memcpy( (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, (uchar *)shred + fd_shred_chain_off( shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
+        sz += FD_SHRED_MERKLE_ROOT_SZ;
+
         FD_STORE(uint, fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, nonce );
         sz += 4UL;
 
@@ -1087,7 +1094,7 @@ after_frag( fd_shred_ctx_t *    ctx,
 
       int is_leader_fec = ctx->in_kind[ in_idx ]==IN_KIND_POH;
 
-      ulong   sig   = fd_disco_shred_out_fec_sig( last->slot, last->fec_set_idx, (uint)FD_FEC_SHRED_CNT, last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE, last->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
+      ulong   sig   = fd_disco_shred_out_fec_sig( last->slot, last->fec_set_idx, (uint)FD_FEC_SHRED_CNT, last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
       uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
       memcpy( chunk,                                                         last,                                                FD_SHRED_DATA_HEADER_SZ );
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                                 ctx->out_merkle_roots[fset_k].hash,                  FD_SHRED_MERKLE_ROOT_SZ );

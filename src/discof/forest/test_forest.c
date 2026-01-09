@@ -18,13 +18,17 @@
 fd_forest_blk_t *
 fd_forest_blk_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int data_complete FD_PARAM_UNUSED, int slot_complete ) {
   fd_forest_blk_insert( forest, slot, parent_slot );
-  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR );
+  fd_hash_t mr = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
+  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR, &mr, &cmr );
 }
 
 fd_forest_blk_t *
 fd_forest_blk_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete ) {
   fd_forest_blk_insert( forest, slot, parent_slot );
-  return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete, 0 );
+  fd_hash_t mr  = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
+  return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete, 0, &mr, &cmr );
 }
 
 #define slot_idx( forest, slot ) fd_forest_pool_idx( fd_forest_pool( forest ), fd_forest_query( forest, slot ) )
@@ -929,6 +933,107 @@ test_orphan_requests( fd_wksp_t * wksp ) {
   FD_TEST( forest->orphiter.ele_idx == fd_forest_pool_idx_null( fd_forest_pool( forest ) ) );
 }
 
+void
+test_slot_clear( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+  /*
+       2
+      | \
+      3  3'
+  */
+
+  /* We execute (2, 0) -> (2,32) -> (3, 0') -> (3, 32'). Tower detects
+     that (3, 32) is the duplicate confirmed version.
+     We must dump slot 3 and re-repair. */
+
+  fd_hash_t mr_0     = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t mr_2_0   = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_2_32  = (fd_hash_t){ .key = { 3 } };
+  fd_hash_t mr_3_0   = (fd_hash_t){ .key = { 4 } };
+  fd_hash_t mr_3_32  = (fd_hash_t){ .key = { 5 } };
+  fd_hash_t mr_3_0_  = (fd_hash_t){ .key = { 6 } }; (void)mr_3_0_;
+  fd_hash_t mr_3_32_ = (fd_hash_t){ .key = { 7 } };
+
+  fd_forest_blk_t * ele;
+  fd_forest_init( forest, 0 );
+  fd_forest_blk_insert( forest, 2, 0 );
+  fd_forest_blk_insert( forest, 3, 2 );
+  /*                            slot paren  last  fec_set  slot_cmpl  rt  mr        cmr */
+  fd_forest_fec_insert( forest, 2,   0,     31,   0,       0,         0,  &mr_2_0,  &mr_0 );
+  fd_forest_fec_insert( forest, 2,   0,     63,   32,      1,         0,  &mr_2_32, &mr_2_0 );
+
+  fd_forest_fec_insert( forest, 3,   2,     31,   0,       0,         0,  &mr_3_0,  &mr_2_0 );
+  fd_forest_fec_insert( forest, 3,   2,     63,   32,      1,         0,  &mr_3_32, &mr_3_0 );
+
+  ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
+  FD_TEST( ele == fd_forest_query( forest, 3 ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( ele ) == 32UL );
+
+  /* Now we would dump the last incorrect FEC */
+  fd_forest_fec_clear( forest, 3, 32, 31 );
+
+  /* Now pretend we have received the correct FEC for 3, 32 */
+  fd_forest_fec_insert( forest, 3,    2,    63,   32,      1,         0,  &mr_3_32_, &mr_3_0_ );
+  ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
+  FD_TEST( ele == fd_forest_query( forest, 3 ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( ele ) == 0 );
+
+  FD_TEST( ele->confirmed == 0 );
+  FD_TEST( fd_forest_query( forest, 2 )->confirmed == 0 );
+
+
+  /* Now we dump incorrect FEC (3, 0). */
+
+  fd_forest_fec_clear( forest, 3, 0, 31 );
+
+  /* Now pretend we have received the correct FEC for 3, 0 */
+  fd_hash_t garbage_mr = (fd_hash_t){ .key = { 67 } };
+  FD_TEST( !fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, 0, &garbage_mr, &garbage_mr ) ); // first get an incorrect shred, should be rejected.
+  fd_forest_fec_insert( forest, 3,   2,    31,      0,      0,          0, &mr_3_0_, &mr_2_32 );
+
+  ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
+  FD_TEST( !ele );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == UINT_MAX );
+  FD_TEST( fd_forest_query( forest, 3 )->confirmed == 1 );
+  FD_TEST( fd_forest_query( forest, 2 )->confirmed == 1 );
+
+  fd_forest_print( forest );
+
+  /*
+       2
+       | \
+       3' \
+     / |   \
+    8  4   4'
+
+      We receive 4 (that has only 1 FEC set) built off of 3'.  We later
+      see that 4' is the duplicate confirmed version.  4' may have been
+      built off an entirely different parent.
+
+      We must clear 4 and re-repair 4'.
+  */
+
+  /* now pretend that we rerepaired 4 */
+
+  /* now scenario is we've replayed through 6, but then learn 5 is
+     an incorrect version.  We need to dump it.  At that point we
+     expect slot 6 to be in subtrees, and 7 in the orphaned.
+      0 - 2 - 4 - 5 - 6 - 7            0 - 2 - 4     6 - 7
+           \                     ->         \
+            3                                3
+     */
+
+    /* now we add back 5, .
+      0 - 2 - 4 - 5 - 6 - 7            0 - 2 - 4     6 - 7
+           \                     ->         \
+            3                                3
+     */
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -945,7 +1050,7 @@ main( int argc, char ** argv ) {
   test_out_of_order( wksp );
   test_forks( wksp );
   test_print_tree( wksp );
-  // test_large_print_tree( wksp);
+  //test_large_print_tree( wksp);
   test_linear_forest_iterator( wksp );
   test_branched_forest_iterator( wksp );
   test_frontier( wksp );
@@ -953,6 +1058,7 @@ main( int argc, char ** argv ) {
   test_iter_publish( wksp );
   test_iter_subtree( wksp );
   test_orphan_requests( wksp );
+  test_slot_clear( wksp );
 
   fd_halt();
   return 0;
