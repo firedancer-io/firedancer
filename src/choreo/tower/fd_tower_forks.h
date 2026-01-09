@@ -91,6 +91,8 @@ typedef struct fd_tower_leaf fd_tower_leaf_t;
    it is stored like:
    vote+lockout -> (vote, validator A) -> (2, validator B) -> (any other vote, any other validator)
 
+   tower switch check only cares for intervals where the interval end is >= the last vote slot, so we can skip intervals where the interval end is < the last vote slot.
+
    Since a validator can have up to 31 entries in the tower, and we have
    a max_vote_accounts, we can pool the interval objects to be
    31*max_vote_accounts entries PER bank / executed slot. We can also
@@ -264,7 +266,8 @@ void
 fd_forks_lockouts_add( fd_forks_t * forks,
                        ulong fork_slot,
                        fd_hash_t const * vote_account_pubkey,
-                       fd_tower_accts_t * acct );
+                       fd_tower_accts_t * acct,
+                       ulong our_last_vote_slot );
 
 void
 fd_forks_lockouts_clear( fd_forks_t * forks, ulong fork_slot );

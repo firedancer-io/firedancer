@@ -508,6 +508,9 @@ replay_slot_completed( ctx_t *                      ctx,
     FD_TEST( !last_vote || fd_forks_query( ctx->forks, last_vote->slot ) );
   }
 
+  fd_tower_vote_t const * last_vote = fd_tower_peek_tail_const( ctx->tower );
+  ulong our_last_vote_slot = last_vote ? last_vote->slot : 0;
+
   /* Insert the vote acct addrs and stakes from the bank into accts. */
 
   fd_tower_accts_remove_all( ctx->tower_accts );
@@ -571,7 +574,7 @@ replay_slot_completed( ctx_t *                      ctx,
 
     /* 1. Update forks with lockouts. */
 
-    fd_forks_lockouts_add( ctx->forks, slot_completed->slot, &acct->addr, acct );
+    fd_forks_lockouts_add( ctx->forks, slot_completed->slot, &acct->addr, acct, our_last_vote_slot );
 
     /* 2. Count the last vote slot in the vote state towards ghost. */
 
