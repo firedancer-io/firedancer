@@ -29,6 +29,7 @@ else # CROSS=0
 
 include config/extra/with-ucontext.mk
 include config/extra/with-secp256k1.mk
+include config/extra/with-blst.mk
 include config/extra/with-zstd.mk
 include config/extra/with-bzip2.mk
 include config/extra/with-lz4.mk
