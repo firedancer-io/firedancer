@@ -200,7 +200,8 @@ fd_forks_remove( fd_forks_t * forks, ulong slot ) {
 }
 
 void
-fd_forks_lockouts_add( fd_forks_t * forks, ulong fork_slot, fd_hash_t const * vote_account_pubkey, fd_tower_accts_t * accts ) {
+fd_forks_lockouts_add( fd_forks_t * forks, ulong fork_slot, fd_hash_t const * vote_account_pubkey, fd_tower_accts_t * accts, ulong our_last_vote_slot ) {
+  (void)our_last_vote_slot;
   uchar __attribute__((aligned(FD_TOWER_ALIGN))) scratch[ FD_TOWER_FOOTPRINT ];
   fd_tower_t * scratch_tower = fd_tower_join( fd_tower_new( scratch ) );
 
@@ -212,6 +213,9 @@ fd_forks_lockouts_add( fd_forks_t * forks, ulong fork_slot, fd_hash_t const * vo
     fd_tower_t * vote    = fd_tower_iter_ele( scratch_tower, iter );
     ulong interval_start = vote->slot;
     ulong interval_end   = vote->slot + (1UL << vote->conf);
+
+    if( interval_end < our_last_vote_slot ) continue;
+
     ulong key = fd_lockout_interval_key( fork_slot, interval_end );
 
     if( !fd_lockout_intervals_map_ele_query( forks->lockout_intervals_map, &key, NULL, forks->lockout_intervals_pool ) ) {
@@ -233,15 +237,20 @@ fd_forks_lockouts_add( fd_forks_t * forks, ulong fork_slot, fd_hash_t const * vo
 
 void
 fd_forks_lockouts_clear( fd_forks_t * forks, ulong fork_slot ) {
+  long remove_t0 = fd_log_wallclock();
   for( fd_lockout_slots_t * slot_interval = fd_lockout_slots_map_ele_remove( forks->lockout_slots_map, &fork_slot, NULL, forks->lockout_slots_pool );
                             slot_interval;
                             slot_interval = fd_lockout_slots_map_ele_remove( forks->lockout_slots_map, &fork_slot, NULL, forks->lockout_slots_pool ) ) {
+    FD_LOG_INFO(( "fd_forks_lockouts_clear: slot_interval remove %ld ns", fd_log_wallclock() - remove_t0 ));
     ulong key = fd_lockout_interval_key( fork_slot, slot_interval->interval_end );
+    long itrvl_t0 = fd_log_wallclock();
     for( fd_lockout_intervals_t * itrvl = fd_lockout_intervals_map_ele_remove( forks->lockout_intervals_map, &key, NULL, forks->lockout_intervals_pool );
                                   itrvl;
                                   itrvl = fd_lockout_intervals_map_ele_remove( forks->lockout_intervals_map, &key, NULL, forks->lockout_intervals_pool ) ) {
       fd_lockout_intervals_pool_ele_release( forks->lockout_intervals_pool, itrvl );
     }
     fd_lockout_slots_pool_ele_release( forks->lockout_slots_pool, slot_interval );
+    FD_LOG_INFO(( "fd_forks_lockouts_clear: itrvl remove %ld ns", fd_log_wallclock() - itrvl_t0 ));
+    remove_t0 = fd_log_wallclock();
   }
 }
