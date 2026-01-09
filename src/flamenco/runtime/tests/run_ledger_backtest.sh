@@ -207,7 +207,6 @@ fi
 
 chmod -R 0700 $DUMP/$LEDGER
 
-echo_notice "Starting on-demand ingest and replay"
 if [[ -n "$GENESIS" ]]; then
   HAS_INCREMENTAL="false"
 fi
@@ -271,7 +270,7 @@ if [[ "$INGEST_MODE" == "shredcap" ]]; then
   echo "Converted rocksdb to shredcap"
 fi
 
-echo "Running backtest for $LEDGER"
+echo_notice "Running backtest for $LEDGER"
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
 
@@ -285,15 +284,17 @@ sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /de
 
 echo "Log for ledger $LEDGER at $LOG"
 
-$OBJDIR/bin/firedancer-dev configure fini all &> /dev/null
-
 # check that the ledger is not corrupted after a run
 if [[ $SKIP_CHECKSUM -eq 0 ]]; then
   check_ledger_checksum
 fi
 
 if [ "$status" -eq 0 ]; then
-  echo_notice "Finished on-demand ingest and replay\n"
+  snapshot_load_time=$(grep "loaded" $LOG | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")
+  echo "Snapshot load time for $LEDGER: $snapshot_load_time seconds"
+  elapsed_time=$(grep "Backtest playback done." $LOG | grep -o "elapsed: [0-9.]*" | grep -o "[0-9.]*")
+  echo "Replay time for $LEDGER: $elapsed_time seconds"
+  echo_notice "Finished backtest for ledger $LEDGER\n"
   exit 0
 fi
 
