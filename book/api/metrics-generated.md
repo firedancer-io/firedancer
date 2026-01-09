@@ -568,15 +568,13 @@
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;count</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">invalid</span>"} | gauge |  (Peer was pinged but has not yet responded, or responded with an invalid pong) |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;count</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">valid</span>"} | gauge |  (Peer was pinged and is currently valid) |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;count</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">valid_&#8203;refreshing</span>"} | gauge |  (Peer was pinged and is currently valid, and is being refreshed with a new ping) |
-| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">staked</span>"} | counter |  (Pong ignored as node is staked) |
-| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">entrypoint</span>"} | counter |  (Pong ignored as node is an entrypoint) |
-| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">untracked</span>"} | counter |  (Pong ignored as node has no outstanding ping) |
-| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">address</span>"} | counter |  (Pong ignored as responding node doesn't match pinged address) |
-| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">token</span>"} | counter |  (Pong ignored as token was not valid) |
-| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;response="<span class="metrics-enum">success</span>"} | counter |  (Pong accepted) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;result="<span class="metrics-enum">entrypoint</span>"} | counter |  (Pong ignored as node is an entrypoint) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;result="<span class="metrics-enum">untracked</span>"} | counter |  (Pong ignored as node has no outstanding ping) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;result="<span class="metrics-enum">address</span>"} | counter |  (Pong ignored as responding node doesn't match pinged address) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;result="<span class="metrics-enum">token</span>"} | counter |  (Pong ignored as token was not valid) |
+| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;pong_&#8203;result</span><br/>{pong_&#8203;result="<span class="metrics-enum">success</span>"} | counter |  (Pong accepted) |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;evicted_&#8203;count</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracked_&#8203;count</span> | counter |  |
-| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;stake_&#8203;changed_&#8203;count</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;address_&#8203;changed_&#8203;count</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;capacity</span> | gauge |  |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;count</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | gauge |  (Contact Info V1) |
