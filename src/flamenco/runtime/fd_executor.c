@@ -1481,11 +1481,11 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
        if the account does not exist, we need to initialize a new
        metadata. */
 
-    if( FD_LIKELY( meta ) ) {
-      account_meta = (fd_account_meta_t *)meta;
-    } else if( fd_pubkey_eq( acc, &fd_sysvar_instructions_id ) ) {
+    if( FD_UNLIKELY( fd_pubkey_eq( acc, &fd_sysvar_instructions_id ) ) ) {
       account_meta = fd_type_pun( runtime->accounts.sysvar_instructions_mem );
       fd_account_meta_init( account_meta );
+    } else if( FD_LIKELY( meta ) ) {
+      account_meta = (fd_account_meta_t *)meta;
     } else {
       account_meta = (fd_account_meta_t *)&FD_ACCOUNT_META_DEFAULT;
     }
