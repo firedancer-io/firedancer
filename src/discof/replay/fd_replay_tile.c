@@ -837,7 +837,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   long before = fd_log_wallclock();
 
   /* Make sure that we are not already leader. */
-  FD_TEST( ctx->leader_bank==NULL );
+  FD_TEST( ctx->leader_bank->data==NULL );
 
   fd_block_id_ele_t * parent_ele = fd_block_id_map_ele_query( ctx->block_id_map, parent_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !parent_ele ) ) {
@@ -912,7 +912,7 @@ static void
 fini_leader_bank( fd_replay_tile_t *  ctx,
                   fd_stem_context_t * stem ) {
 
-  FD_TEST( ctx->leader_bank!=NULL );
+  FD_TEST( ctx->leader_bank->data!=NULL );
   FD_TEST( ctx->is_leader );
   FD_TEST( ctx->block_id_arr[ ctx->leader_bank->data->idx ].block_id_seen );
   FD_TEST( ctx->recv_poh );
