@@ -992,7 +992,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
         https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
 
         In any case, we should always add the dlen of the fee payer. */
-    txn_out->details.loaded_accounts_data_size = txn_out->accounts.metas[ FD_FEE_PAYER_TXN_IDX ]->dlen;
+    txn_out->details.loaded_accounts_data_size = fd_accdb_ref_data_sz( txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].ro );
 
     /* Special case handling for if a nonce account is present in the transaction. */
     if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
@@ -1135,6 +1135,14 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   }
   runtime->accounts.executable_cnt = 0UL;
 
+  /* Release read-only accounts */
+
+  for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
+    if( !txn_out->accounts.is_writable[i] ) {
+      fd_accdb_close_ro( runtime->accdb, txn_out->accounts.account[i].ro );
+    }
+  }
+
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   if( FD_UNLIKELY( txn_out->err.txn_err ) ) {
@@ -1184,31 +1192,31 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         continue;
       }
 
-      fd_pubkey_t const * pubkey = &txn_out->accounts.keys[i];
-      fd_account_meta_t * meta   = txn_out->accounts.metas[i];
+      fd_pubkey_t const * pubkey  = &txn_out->accounts.keys[i];
+      fd_accdb_rw_t *     account = &txn_out->accounts.account[i];
 
       /* Tips for bundles are collected in the bank: a user submitting a
          bundle must include a instruction that transfers lamports to
          a specific tip account.  Tips accumulated through the slot. */
       if( fd_pack_tip_is_tip_account( fd_type_pun_const( pubkey->uc ) ) ) {
-        txn_out->details.tips += fd_ulong_sat_sub( meta->lamports, runtime->accounts.starting_lamports[i] );
+        txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( account->ro ), runtime->accounts.starting_lamports[i] );
         FD_ATOMIC_FETCH_AND_ADD( fd_bank_tips_modify( bank ), txn_out->details.tips );
       }
 
-      if( 0==memcmp( meta->owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-        fd_stakes_update_vote_state( pubkey, meta, bank );
+      if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_vote_program_id ) ) {
+        fd_stakes_update_vote_state( pubkey, account->meta, bank );
       }
 
-      if( 0==memcmp( meta->owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
-        fd_stakes_update_stake_delegation( pubkey, meta, bank );
+      if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_stake_program_id ) ) {
+        fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
 
       /* Reclaim any accounts that have 0-lamports, now that any related
          cache updates have been applied. */
-      fd_executor_reclaim_account( txn_out->accounts.metas[i], fd_bank_slot_get( bank ) );
+      fd_executor_reclaim_account( txn_out->accounts.account[i].meta, fd_bank_slot_get( bank ) );
 
       int save_type =
-        fd_runtime_save_account( runtime->accdb, &xid, pubkey, meta, bank, runtime->log.capture_ctx );
+        fd_runtime_save_account( runtime->accdb, &xid, pubkey, account->meta, bank, runtime->log.capture_ctx );
       runtime->metrics.txn_account_save[ save_type ]++;
     }
 
@@ -1267,7 +1275,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     if( txn_out->accounts.is_writable[i] ) {
-      fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.metas[i] ) );
+      fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.account[i].meta ) );
     }
   }
 
@@ -1289,7 +1297,7 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     if( txn_out->accounts.is_writable[i] ) {
-      fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.metas[i] ) );
+      fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.account[i].meta ) );
     }
   }
 
@@ -1821,7 +1829,7 @@ fd_runtime_get_executable_account( fd_runtime_t *              runtime,
                                              &index,
                                              condition );
   if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
-    *meta = txn_out->accounts.metas[index];
+    *meta = txn_out->accounts.account[index].meta;
     return FD_ACC_MGR_SUCCESS;
   }
 
@@ -1840,8 +1848,8 @@ fd_runtime_get_executable_account( fd_runtime_t *              runtime,
 
 int
 fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
-                                             ushort                idx,
-                                             fd_pubkey_t const * * key ) {
+                                        ushort                idx,
+                                        fd_pubkey_t const * * key ) {
   /* Return a NotEnoughAccountKeys error if idx is out of bounds.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L218 */
   if( FD_UNLIKELY( idx>=txn_out->accounts.cnt ) ) {
@@ -1935,7 +1943,7 @@ fd_runtime_account_check_exists( fd_txn_in_t const * txn_in,
                                  fd_txn_out_t *      txn_out,
                                  ushort              idx ) {
   (void) txn_in;
-  return fd_account_meta_exists( txn_out->accounts.metas[idx] );
+  return fd_account_meta_exists( txn_out->accounts.account[idx].meta );
 }
 
 int

@@ -161,6 +161,9 @@ fd_accdb_ref_slot_set( fd_accdb_rw_t * rw,
 
 FD_PROTOTYPES_END
 
+FD_STATIC_ASSERT( sizeof(fd_accdb_ref_t)==sizeof(fd_accdb_ro_t), layout );
+FD_STATIC_ASSERT( sizeof(fd_accdb_ref_t)==sizeof(fd_accdb_rw_t), layout );
+
 /* fd_accdb_spec_t tracks a speculative access to a shared resource.
    Destroying this guard object marks the end of a speculative access. */
 

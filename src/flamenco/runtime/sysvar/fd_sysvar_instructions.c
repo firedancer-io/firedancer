@@ -53,7 +53,7 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
     FD_LOG_ERR(( "Failed to view sysvar instructions borrowed account. It may not be included in the txn account keys." ));
   }
 
-  fd_account_meta_t * meta = txn_out->accounts.metas[ txn_idx ];
+  fd_account_meta_t * meta = txn_out->accounts.account[ txn_idx ].meta;
   /* Agave sets up the borrowed account for the instructions sysvar to contain
      default values except for the data which is serialized into the account. */
 

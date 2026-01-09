@@ -32,9 +32,10 @@ FD_PROTOTYPES_BEGIN
 /* The following account management APIs are helpers for fd_account_meta_t creation,
    existence, and retrieval from funk */
 
-static inline void
+static inline fd_account_meta_t *
 fd_account_meta_init( fd_account_meta_t * m ) {
   fd_memset( m, 0, sizeof(fd_account_meta_t) );
+  return m;
 }
 
 /* fd_account_meta_exists checks if the account in a funk record exists or was
