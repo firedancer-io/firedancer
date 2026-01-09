@@ -827,8 +827,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, &xid, runtime_stack, capture_ctx );
 
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
-  if( FD_UNLIKELY( !fd_sysvar_cache_restore( bank, funk, &xid ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_cache_restore( bank, accdb, &xid ) ) ) {
     FD_LOG_ERR(( "Failed to restore sysvar cache" ));
   }
 }
