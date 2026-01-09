@@ -129,6 +129,8 @@ typedef struct {
 
   /* metrics */
 
+  volatile ulong * exec_link_metrics;
+
   struct ctx_metrics_t {
     ulong vote_txn_invalid;
     ulong vote_txn_ignored;
@@ -768,6 +770,7 @@ returnable_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
+  long t0 = fd_log_wallclock();
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_DEDUP: {
     if( FD_UNLIKELY( ctx->root_slot==ULONG_MAX ) ) return 1;
@@ -775,12 +778,14 @@ returnable_frag( ctx_t *             ctx,
     FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
     FD_TEST( txnm->txn_t_sz<=FD_TXN_MAX_SZ );
     count_vote_txn( ctx, stem, tsorig, fd_txn_m_txn_t_const( txnm ), fd_txn_m_payload_const( txnm ) );
+    FD_LOG_INFO(( "count_vote_txn. dedup %lu. %ld ns", seq, fd_log_wallclock() - t0 ));
     return 0;
   }
   case IN_KIND_EXEC: {
     if( FD_LIKELY( (sig>>32)==FD_EXEC_TT_TXN_EXEC ) ) {
       fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
       count_vote_txn( ctx, stem, tsorig, TXN(&msg->txn), msg->txn.payload );
+      FD_LOG_INFO(( "count_vote_txn. exec %lu/%lu. %ld ns", seq, ctx->exec_link_metrics[ MIDX( COUNTER, LINK, CONSUMED_COUNT ) ], fd_log_wallclock() - t0 ));
     }
     return 0;
   }
@@ -792,6 +797,7 @@ returnable_frag( ctx_t *             ctx,
       fd_replay_slot_dead_t * slot_dead = (fd_replay_slot_dead_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       fd_hfork_record_our_bank_hash( ctx->hfork, &slot_dead->block_id, NULL, fd_ghost_root( ctx->ghost )->total_stake );
     }
+    FD_LOG_INFO(( "replay_slot_completed %lu. %ld ns", seq, fd_log_wallclock() - t0 ));
     return 0;
   }
   default: {
@@ -912,6 +918,18 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
+
+
+  ulong exec_tile_idx = fd_topo_find_tile( topo, "exec", 0UL );
+  FD_TEST( exec_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t * exec_tile = &topo->tiles[ exec_tile_idx ];
+
+  ulong replay_exec_in_link_idx = fd_topo_find_tile_in_link( topo, exec_tile, "replay_exec", 0UL );
+  FD_TEST( replay_exec_in_link_idx!=ULONG_MAX );
+  volatile ulong * exec_link_metrics = fd_metrics_link_in( exec_tile->metrics, replay_exec_in_link_idx );
+  FD_TEST( exec_link_metrics!=NULL );
+  ctx->exec_link_metrics = exec_link_metrics;
+
 }
 
 static ulong
@@ -948,6 +966,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (3UL) /* dup conf + cluster conf + slot_done */
+#define STEM_LAZY  (1000000UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE    ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN   alignof(ctx_t)

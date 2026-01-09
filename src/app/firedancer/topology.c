@@ -748,8 +748,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "poh_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(exec_tile_cnt)   fd_topob_tile_in (   topo, "exec",    i,            "metric_in", "replay_exec",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
-  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "dedup_resolv", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* txns can be dropped because confirmations are already unreliable, as they depend on gossip votes. */
-  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_exec",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* In practice only gets overrun during boot, and should be changed back to RELIABLE after a fix is made. */
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "dedup_resolv", 0UL,          FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED ); /* txns can be dropped because confirmations are already unreliable, as they depend on gossip votes. */
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_exec",  0UL,          FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED ); /* In practice only gets overrun during boot, and should be changed back to RELIABLE after a fix is made. */
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_out",    0UL                                                );
 
