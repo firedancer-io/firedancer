@@ -195,7 +195,7 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
 
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L109 */
 static void
-calculate_stake_points_and_credits( fd_funk_t *                    funk,
+calculate_stake_points_and_credits( fd_accdb_user_t *              accdb,
                                     fd_funk_txn_xid_t const *      xid,
                                     fd_stake_history_t const *     stake_history,
                                     fd_stake_delegation_t const *  stake,
@@ -203,12 +203,8 @@ calculate_stake_points_and_credits( fd_funk_t *                    funk,
                                     ulong *                        new_rate_activation_epoch,
                                     fd_calculated_stake_points_t * result ) {
 
-
-  fd_txn_account_t vote_rec[1];
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( vote_rec,
-                                                           &vote_state->vote_account,
-                                                           funk,
-                                                           xid )!=FD_ACC_MGR_SUCCESS ) ) {
+  fd_accdb_ro_t vote_ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &vote_state->vote_account ) ) ) {
     FD_LOG_ERR(( "Unable to read vote account" ));
   }
 
@@ -216,7 +212,8 @@ calculate_stake_points_and_credits( fd_funk_t *                    funk,
 
   uchar __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN))) buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
-  get_vote_credits( fd_txn_account_get_data( vote_rec ), fd_txn_account_get_data_len( vote_rec ), buf, &epoch_credits );
+  get_vote_credits( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), buf, &epoch_credits );
+  fd_accdb_close_ro( accdb, vote_ro );
 
   ulong credits_in_stake = stake->credits_observed;
   ulong credits_cnt      = deq_fd_vote_epoch_credits_t_cnt( epoch_credits );
@@ -338,7 +335,7 @@ fd_vote_commission_split( uchar                   commission,
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
 static int
-redeem_rewards( fd_funk_t *                     funk,
+redeem_rewards( fd_accdb_user_t *               accdb,
                 fd_funk_txn_xid_t const *       xid,
                 fd_stake_history_t const *      stake_history,
                 fd_stake_delegation_t const *   stake,
@@ -358,7 +355,7 @@ redeem_rewards( fd_funk_t *                     funk,
   fd_calculated_stake_points_t stake_points_result = {0};
   if( FD_LIKELY( !recalc_vote_state_credits ) ) {
     calculate_stake_points_and_credits(
-      funk,
+      accdb,
       xid,
       stake_history,
       stake,
@@ -460,7 +457,7 @@ get_minimum_stake_delegation( fd_bank_t * bank ) {
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L445 */
 static uint128
 calculate_reward_points_partitioned( fd_bank_t *                    bank,
-                                     fd_funk_t *                    funk,
+                                     fd_accdb_user_t *              accdb,
                                      fd_funk_txn_xid_t const *      xid,
                                      fd_stake_delegations_t const * stake_delegations,
                                      fd_stake_history_t const *     stake_history ) {
@@ -499,7 +496,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
     }
 
     fd_calculated_stake_points_t stake_point_result;
-    calculate_stake_points_and_credits( funk,
+    calculate_stake_points_and_credits( accdb,
                                         xid,
                                         stake_history,
                                         stake_delegation,
@@ -532,7 +529,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L323 */
 static void
 calculate_stake_vote_rewards( fd_bank_t *                    bank,
-                              fd_funk_t *                    funk,
+                              fd_accdb_user_t *              accdb,
                               fd_funk_txn_xid_t const *      xid,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_capture_ctx_t *             capture_ctx FD_PARAM_UNUSED,
@@ -590,7 +587,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
        rewards redemption: it is a misnomer. */
     fd_calculated_stake_rewards_t calculated_stake_rewards[1] = {0};
     int err = redeem_rewards(
-        funk,
+        accdb,
         xid,
         stake_history,
         stake_delegation,
@@ -644,10 +641,9 @@ calculate_validator_rewards( fd_bank_t *                    bank,
   }
 
   /* Calculate the epoch reward points from stake/vote accounts */
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
   uint128 points = calculate_reward_points_partitioned(
       bank,
-      funk,
+      accdb,
       xid,
       stake_delegations,
       stake_history );
@@ -670,7 +666,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
      use the vote states from the end of the current_epoch. */
   calculate_stake_vote_rewards(
       bank,
-      funk,
+      accdb,
       xid,
       stake_delegations,
       capture_ctx,
@@ -1131,7 +1127,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       rewards for the previous epoch). */
   calculate_stake_vote_rewards(
       bank,
-      fd_accdb_user_v1_funk( accdb ),
+      accdb,
       xid,
       stake_delegations,
       capture_ctx,
