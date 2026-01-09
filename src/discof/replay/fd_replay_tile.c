@@ -470,7 +470,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   ulong leader_slot = ctx->leader_bank->data ? fd_bank_slot_get( ctx->leader_bank ) : 0UL;
   FD_MGAUGE_SET( REPLAY, LEADER_SLOT, leader_slot );
 
-  if( FD_LIKELY( ctx->leader_bank ) ) {
+  if( FD_LIKELY( ctx->leader_bank->data ) ) {
     FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, leader_slot );
     FD_MGAUGE_SET( REPLAY, LEADER_SLOT, leader_slot );
   } else {
@@ -837,7 +837,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   long before = fd_log_wallclock();
 
   /* Make sure that we are not already leader. */
-  FD_TEST( ctx->leader_bank==NULL );
+  FD_TEST( ctx->leader_bank->data==NULL );
 
   fd_block_id_ele_t * parent_ele = fd_block_id_map_ele_query( ctx->block_id_map, parent_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !parent_ele ) ) {
@@ -912,7 +912,7 @@ static void
 fini_leader_bank( fd_replay_tile_t *  ctx,
                   fd_stem_context_t * stem ) {
 
-  FD_TEST( ctx->leader_bank!=NULL );
+  FD_TEST( ctx->leader_bank->data!=NULL );
   FD_TEST( ctx->is_leader );
   FD_TEST( ctx->block_id_arr[ ctx->leader_bank->data->idx ].block_id_seen );
   FD_TEST( ctx->recv_poh );
@@ -1263,7 +1263,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
 
   FD_TEST( ctx->is_booted );
   FD_TEST( ctx->is_leader );
-  FD_TEST( ctx->leader_bank!=NULL );
+  FD_TEST( ctx->leader_bank->data!=NULL );
 
   FD_TEST( ctx->highwater_leader_slot>=slot_ended->slot );
   FD_TEST( ctx->next_leader_slot>ctx->highwater_leader_slot );
@@ -1739,7 +1739,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( reasm_fec->leader ) ) {
     /* If we are the leader we just need to copy in the bank index that
        the leader slot is using. */
-    FD_TEST( ctx->leader_bank!=NULL );
+    FD_TEST( ctx->leader_bank->data!=NULL );
     reasm_fec->bank_idx = ctx->leader_bank->data->idx;
   } else if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
     /* If we are seeing a FEC with fec set idx 0, this means that we are
