@@ -69,26 +69,28 @@ const fd_bn254_fp_t fd_bn254_const_frob_gamma2_mont[5] = {
 /* Fp2 */
 
 static inline fd_bn254_fp2_t *
-fd_bn254_fp2_frombytes_be_nm( fd_bn254_fp2_t * r,
-                              uchar const      buf[64],
-                              int *            is_inf,
-                              int *            is_neg ) {
+fd_bn254_fp2_frombytes_nm( fd_bn254_fp2_t * r,
+                           uchar const      buf[64],
+                           int              big_endian,
+                           int *            is_inf,
+                           int *            is_neg ) {
   /* validate fp2.el[0] without flags */
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &r->el[0], &buf[32], NULL, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_nm( &r->el[0], &buf[ big_endian ? 32 : 0 ], big_endian, NULL, NULL ) ) ) {
     return NULL;
   }
   /* validate fp2.el[1] with flags */
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &r->el[1], &buf[0], is_inf, is_neg ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_nm( &r->el[1], &buf[ big_endian ? 0 : 32 ], big_endian, is_inf, is_neg ) ) ) {
     return NULL;
   }
   return r;
 }
 
 static inline uchar *
-fd_bn254_fp2_tobytes_be_nm( uchar                  buf[64],
-                            fd_bn254_fp2_t * const a ) {
-  fd_bn254_fp_tobytes_be_nm( &buf[ 0], &a->el[1] );
-  fd_bn254_fp_tobytes_be_nm( &buf[32], &a->el[0] );
+fd_bn254_fp2_tobytes_nm( uchar                  buf[64],
+                         fd_bn254_fp2_t * const a,
+                         int                    big_endian ) {
+  fd_bn254_fp_tobytes_nm( &buf[ 0], &a->el[ big_endian ? 1 : 0 ], big_endian );
+  fd_bn254_fp_tobytes_nm( &buf[32], &a->el[ big_endian ? 0 : 1 ], big_endian );
   return buf;
 }
 

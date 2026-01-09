@@ -8,24 +8,27 @@
 #include "./fd_bn254_scalar.h"
 
 #define FD_BN254_PAIRING_BATCH_MAX 16UL
+#define FD_BIG_ENDIAN_LIKELY FD_LIKELY
 
 FD_PROTOTYPES_BEGIN
 
 int
 fd_bn254_g1_add_syscall( uchar       out[64],
                          uchar const in[],
-                         ulong       in_sz );
+                         ulong       in_sz,
+                         int         big_endian );
 
 int
 fd_bn254_g1_scalar_mul_syscall( uchar       out[64],
                                 uchar const in[],
                                 ulong       in_sz,
-                                int         check_correct_sz );
+                                int         big_endian );
 
 int
 fd_bn254_pairing_is_one_syscall( uchar       out[32],
                                  uchar const in[],
                                  ulong       in_sz,
+                                 int         big_endian,
                                  int         check_len );
 
 /* fd_bn254_g1_compress compresses a point in G1.
@@ -37,7 +40,8 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
    Note: this function does NOT check that (x, y) is in G1. */
 uchar *
 fd_bn254_g1_compress( uchar       out[32],
-                      uchar const in [64] );
+                      uchar const in [64],
+                      int         big_endian );
 
 /* fd_bn254_g1_decompress decompresses a point in G1.
    Input in is a 32-byte big endian buffer representing the x coord of a point,
@@ -48,7 +52,8 @@ fd_bn254_g1_compress( uchar       out[32],
    (Success implies that (x, y) is in G1.) */
 uchar *
 fd_bn254_g1_decompress( uchar       out[64],
-                        uchar const in [32] );
+                        uchar const in [32],
+                        int         big_endian );
 
 /* fd_bn254_g2_compress compresses a point in G2.
    Same as fd_bn254_g1_compress, but x, y are in Fp2, so twice as long.
@@ -60,7 +65,8 @@ fd_bn254_g1_decompress( uchar       out[64],
    Note: this function does NOT check that (x, y) is in G2. */
 uchar *
 fd_bn254_g2_compress( uchar       out[64],
-                      uchar const in[128] );
+                      uchar const in[128],
+                      int         big_endian );
 
 /* fd_bn254_g2_decompress decompresses a point in G2.
    Same as fd_bn254_g1_decompress, but x, y are in Fp2, so twice as long.
@@ -73,7 +79,8 @@ fd_bn254_g2_compress( uchar       out[64],
    imply that). */
 uchar *
 fd_bn254_g2_decompress( uchar       out[128],
-                        uchar const in  [64] );
+                        uchar const in  [64],
+                        int         big_endian );
 
 FD_PROTOTYPES_END
 

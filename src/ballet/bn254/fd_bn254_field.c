@@ -65,14 +65,15 @@ fd_bn254_fp_is_neg_nm( fd_bn254_fp_t * x ) {
 }
 
 static inline fd_bn254_fp_t *
-fd_bn254_fp_frombytes_be_nm( fd_bn254_fp_t * r,
-                             uchar const     buf[32],
-                             int *           is_inf,
-                             int *           is_neg ) {
+fd_bn254_fp_frombytes_nm( fd_bn254_fp_t * r,
+                          uchar const     buf[32],
+                          int             big_endian,
+                          int *           is_inf,
+                          int *           is_neg ) {
   /* Flags (optional) */
   if( is_inf != NULL /* && is_neg != NULL */ ) {
-    *is_inf = !!(buf[0] & FLAG_INF);
-    *is_neg = !!(buf[0] & FLAG_NEG);
+    *is_inf = !!(buf[ big_endian ? 0 : 31 ] & FLAG_INF);
+    *is_neg = !!(buf[ big_endian ? 0 : 31 ] & FLAG_NEG);
     /* If both flags are set (bit 6, 7), return error.
        https://github.com/arkworks-rs/algebra/blob/v0.4.2/ec/src/models/short_weierstrass/serialization_flags.rs#L75 */
     if( FD_UNLIKELY( *is_inf && *is_neg ) ) {
@@ -81,9 +82,11 @@ fd_bn254_fp_frombytes_be_nm( fd_bn254_fp_t * r,
   }
 
   fd_memcpy( r, buf, 32 );
-  fd_uint256_bswap( r, r );
+  if( FD_BIG_ENDIAN_LIKELY( big_endian ) ) {
+    fd_uint256_bswap( r, r );
+  }
   if( is_inf != NULL ) {
-    r->buf[31] &= FLAG_MASK;
+    r->buf[ 31 ] &= FLAG_MASK;
   }
 
   /* Field element */
@@ -94,9 +97,12 @@ fd_bn254_fp_frombytes_be_nm( fd_bn254_fp_t * r,
 }
 
 static inline uchar *
-fd_bn254_fp_tobytes_be_nm( uchar           buf[32],
-                           fd_bn254_fp_t * a ) {
-  fd_uint256_bswap( a, a );
+fd_bn254_fp_tobytes_nm( uchar           buf[32],
+                        fd_bn254_fp_t * a,
+                        int             big_endian ) {
+  if( FD_BIG_ENDIAN_LIKELY( big_endian ) ) {
+    fd_uint256_bswap( a, a );
+  }
   fd_memcpy( buf, a, 32 );
   return buf;
 }

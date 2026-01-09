@@ -22,17 +22,20 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
   ulong output_sz = 0UL;
   switch( group_op ) {
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ;
     cost = FD_VM_ALT_BN128_ADDITION_COST;
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ;
     cost = FD_VM_ALT_BN128_MULTIPLICATION_COST;
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_OUTPUT_SZ;
     ulong elements_len = input_sz / FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_INPUT_EL_SZ;
     cost = FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_FIRST
@@ -68,29 +71,40 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
   uchar * call_result = call_result_query.haddr;
   uchar const * input = FD_VM_MEM_SLICE_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz );
 
+  int big_endian = ( group_op & FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG ) ? 0 : 1;
+
+  /* little endian is under feature gate (big endian is not) */
+  int is_active_alt_bn128_little_endian = FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, alt_bn128_little_endian );
+  if( FD_LIKELY( !is_active_alt_bn128_little_endian && !big_endian ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+    return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
+  }
+
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1567-L1598
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
   switch( group_op ) {
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_ADD_LE:
     /* Compute add */
-    if( FD_LIKELY( fd_bn254_g1_add_syscall( call_result, input, input_sz )==0 ) ) {
+    if( FD_LIKELY( fd_bn254_g1_add_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_MUL_LE:
     /* Compute scalar mul */
-    if( FD_LIKELY( fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz,
-                                                   FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, fix_alt_bn128_multiplication_input_length ) )==0 ) ) {
+    if( FD_LIKELY( fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_LE:
     /* Compute pairing with length check based on feature gate.
        https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.1.2/bn254/src/pairing.rs#L76-L82 */
-    if( FD_LIKELY( fd_bn254_pairing_is_one_syscall( call_result, input, input_sz,
+    if( FD_LIKELY( fd_bn254_pairing_is_one_syscall( call_result, input, input_sz, big_endian,
                                                     FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, fix_alt_bn128_pairing_length_check ) )==0 ) ) {
       ret = 0UL; /* success */
     }
@@ -118,22 +132,26 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
   ulong output_sz = 0UL;
   switch( op ) {
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ;
     cost = FD_VM_ALT_BN128_G1_COMPRESS;
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ;
     cost = FD_VM_ALT_BN128_G1_DECOMPRESS;
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ;
     cost = FD_VM_ALT_BN128_G2_COMPRESS;
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS_LE:
     output_sz = FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ;
     cost = FD_VM_ALT_BN128_G2_DECOMPRESS;
     break;
@@ -164,47 +182,60 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
   void const * input  = FD_VM_MEM_SLICE_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz );
 
   /* input and call_result may alias.  Therefore, buffer via out_buf */
-  uchar out_buf[128];
+  uchar FD_ALIGNED out_buf[128];
+
+  int big_endian = ( op & FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG ) ? 0 : 1;
+
+  /* little endian is under feature gate (big endian is not) */
+  int is_active_alt_bn128_little_endian = FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, alt_bn128_little_endian );
+  if( FD_LIKELY( !is_active_alt_bn128_little_endian && !big_endian ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+    return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1829-L1891
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
   switch( op ) {
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS_LE:
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g1_compress( out_buf, fd_type_pun_const(input) ) ) ) {
+    if( FD_LIKELY( fd_bn254_g1_compress( out_buf, fd_type_pun_const(input), big_endian ) ) ) {
       fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ );
       ret = 0UL; /* success */
     }
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS_LE:
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g1_decompress( out_buf, fd_type_pun_const(input) ) ) ) {
+    if( FD_LIKELY( fd_bn254_g1_decompress( out_buf, fd_type_pun_const(input), big_endian ) ) ) {
       fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ );
       ret = 0UL; /* success */
     }
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS_LE:
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g2_compress( out_buf, fd_type_pun_const(input) ) ) ) {
+    if( FD_LIKELY( fd_bn254_g2_compress( out_buf, fd_type_pun_const(input), big_endian ) ) ) {
       fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ );
       ret = 0UL; /* success */
     }
     break;
 
-  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS_BE:
+  case FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS_LE:
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g2_decompress( out_buf, fd_type_pun_const(input) ) ) ) {
+    if( FD_LIKELY( fd_bn254_g2_decompress( out_buf, fd_type_pun_const(input), big_endian ) ) ) {
       fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ );
       ret = 0UL; /* success */
     }
