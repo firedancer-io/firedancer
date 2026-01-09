@@ -10,6 +10,8 @@
 #include "../../disco/fd_txn_p.h"
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../discof/tower/fd_tower_tile.h"
+#include "../../choreo/tower/fd_tower.h"
+#include "../../choreo/voter/fd_voter.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/types/fd_types_custom.h"
 #include "../../util/fd_util_base.h"
@@ -503,8 +505,8 @@ struct fd_gui_slot {
   ulong parent_slot;
   ulong vote_slot;
   ulong reset_slot;
-  uint  max_compute_units;
   long  completed_time;
+  uint  max_compute_units;
   int   mine;
   int   skipped;
   int   must_republish;
@@ -518,6 +520,7 @@ struct fd_gui_slot {
   ulong priority_fee;
   ulong tips;
   uint  shred_cnt;
+  uchar vote_latency;
 
   /* Some slot info is only tracked for our own leader slots. These
      slots are kept in a separate buffer. */
@@ -663,6 +666,13 @@ struct fd_gui {
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
 
+    /* vote_latency_history is run-length encoded */
+    ulong vote_latency_history_cnt;
+    struct __attribute__((packed)) {
+      ulong slot;
+      uchar latency;
+    } vote_latency_history[ MAX_SLOTS_PER_EPOCH+1UL ];
+
     fd_gui_network_stats_t network_stats_current[ 1 ];
 
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
@@ -692,6 +702,9 @@ struct fd_gui {
 
   fd_gui_txn_t txs[ FD_GUI_TXN_HISTORY_SZ ][ 1 ];
   ulong pack_txn_idx; /* The pack index of the most recently received transaction */
+
+  ulong tower_cnt;
+  fd_voter_vote_v3_t tower[ FD_TOWER_VOTE_MAX ];
 
   struct {
     int has_block_engine;
