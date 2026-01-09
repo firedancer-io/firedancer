@@ -956,31 +956,30 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
-  fd_txn_account_t durable_nonce_rec[1];
+  fd_accdb_ro_t ro[1];
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
-  int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
-                                                    &txn_out->accounts.keys[ nonce_idx ],
-                                                    runtime->funk,
-                                                    &xid );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, ro, &xid, &txn_out->accounts.keys[ nonce_idx ] ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
   /* verify_nonce_account */
-  fd_pubkey_t const * owner_pubkey = fd_txn_account_get_owner( durable_nonce_rec );
+  fd_pubkey_t const * owner_pubkey = fd_accdb_ref_owner( ro );
   if( FD_UNLIKELY( memcmp( owner_pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
+    fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   fd_nonce_state_versions_t state[1];
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, state,
-      fd_txn_account_get_data( durable_nonce_rec ),
-      fd_txn_account_get_data_len( durable_nonce_rec ),
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ),
       NULL ) ) ) {
+    fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
+  fd_accdb_close_ro( runtime->accdb, ro );
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/nonce/state/mod.rs#L36-L53 */
   /* verify_recent_blockhash. This checks that the decoded nonce record is
