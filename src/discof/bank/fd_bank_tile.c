@@ -436,7 +436,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       /* If the bundle peer flag is not set, that means the transaction
          was at least partially sanitized/setup.  We have to cancel
          these txns as they will not be included in the block. */
-      if( !(txns[ i ].flags % ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24)) ) {
+      if( !(txns[ i ].flags&((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24)) ) {
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
       }
 
