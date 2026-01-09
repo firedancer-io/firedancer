@@ -5124,6 +5124,12 @@ fd_quic_handle_max_streams_frame(
   if( data->type == 0x13 ) {
     /* Only handle unidirectional streams */
     ulong type               = (ulong)conn->server | 2UL;
+    /* Receipt of a frame that permits opening of a stream larger than this limit (2^60)
+       MUST be treated as a connection error of type FRAME_ENCODING_ERROR. */
+    if( FD_UNLIKELY( data->max_streams > FD_QUIC_STREAM_COUNT_MAX ) ) {
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
     ulong peer_sup_stream_id = data->max_streams * 4UL + type;
     conn->tx_sup_stream_id = fd_ulong_max( peer_sup_stream_id, conn->tx_sup_stream_id );
   }
