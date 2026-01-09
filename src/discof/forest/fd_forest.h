@@ -16,6 +16,100 @@
    Forest constructs the ancestry tree backwards, and then repairs the
    tree forwards (using BFS). */
 
+/* Merkle root tracking.
+   For each FEC set in the slot, we track the first merkle root we have
+   received for that FEC set. It's stored in the merkle_roots array.
+   Then for any shred index that arrives after, the merkle root is
+   compared to the merkle root we have stored.
+
+   If they are the same  -> good.
+   If they are different -> we're going to mark this merkle root as
+                            incorrect. We do this by setting the merkle
+                            root to a null hash for later detection.
+
+  Note we don't verify the chain on each FEC arrival, because we can't
+  tell whether the CMR of the following FEC is incorrect or if the
+  current MR we have is incorrect.  We can only verify the chain when
+  we get a confirmation of a block_id.
+
+  Eventually one of two things happen:
+  1. We are able to complete version of the FEC with the merkle root we
+     have stored.  This is the regular case, and means we only saw one
+     version of the merkle root.
+
+  2. We are not able to complete any version of the FEC.
+     - Imagine we get shred 0-15 of FEC_A. then get shreds 16-31 of
+       FEC_B. We would have set the merkle root to the null hash for
+       that FEC set, but fec_resolver would not be able to complete the
+       FEC because from a shred index pov, we don't have anything we
+       need to repair (and we won't be making any new requests for that
+       FEC set).
+
+       We can't ignore shreds of FEC_B though, because it's difficult to
+       differentiate between a slot where we haven't finished repairing,
+       or a slot where we can't repair because the version we have is a
+       bad version and fake.  So merkle chaining verification can only
+       be performed on slots that have all the shreds received.
+
+  3. We receive some shreds from FEC_A, but get a completion for FEC_B.
+      - Could possibly happen during turbine, like we repair some data
+        shreds from FEC_A, but get a completion for FEC_B through
+        turbine.  At this point we'll take whatever we have completed
+        first, so overwrite our merkle root entry. It's likely being
+        overwritten from the null_hash to the FEC_B merkle root. TODO /
+        dbl check this case.
+
+  So unfortunately...because of case 2, we can no longer rely on the
+  condition that the slot will complete with all the FEC completions.
+  But we can still rely on that at lease some version of all the shreds
+  in the slot will arrive eventually.
+
+  As soon as we have a confirmed block id, we can verify the slot by
+  verifying the chain of merkle roots. backwards.  As the CMRs match,
+  the verified bit on each FEC set is set to 1. If it doesn't match, we
+  dump & repair that specific FEC set. For example, say the 2nd & 3rd
+  FEC set is incorrect. In this case, the merkle roots array and bitset
+  will look like this after one call of chain_verify(slot, confirmed_bid):
+                                actual last fec
+                                     |
+                                     v
+  merkle_roots    [ A, B', C', D, E, F, confirmed_bid] <- confirmed_bid stored for convenience
+  merkle_verified [ 0, 0,  0,  1, 1, 1, 1 ]
+
+  At this point, C' will be dumped and repaired.  Since D is verified,
+  and the cmr entry contains the correct version of C's merkle root, we
+  can now verify any shred of FEC set C that arrives and reject if the
+  merkle root doesn't match the cmr entry in D.
+
+  After C is successfully repaired, the after_fec call in repair_tile will
+  re-trigger chain_verify on the slot again.  After this call of chain_verify,
+  the merkle roots array and bitset will look like this:
+
+  merkle_roots    [ A, B', C, D, E, F, confirmed_bid] <- confirmed_bid stored for convenience
+  merkle_verified [ 0, 0,  1, 1, 1, 1, 1 ]
+
+  At this point, C is verified, but B' is detected as incorrect.  The same
+  dump and repair process is repeated for B'. Once that after_fec on B
+  is called, the merkle roots array and bitset will look like this:
+
+  merkle_roots    [ A, B, C, D, E, F, confirmed_bid] <- confirmed_bid stored for convenience
+  merkle_verified [ 1, 1,  1, 1, 1, 1, 1 ]
+  confirmed = 1
+
+  Not only for this slot, but the ancestors of this slots will also be
+  traversed until a confirmed slot is found, or another incorrect FEC is detected.
+  Note that because earlier confirmations may have confirmed ancestors,
+  and because there is once verification "in-progress at all times",
+  confirmations can look like:
+
+                slot 1 - slot 2 - slot 3 - slot 4 - slot 5 - slot 6 - slot 7 ....
+  confirmed:       1       1        0        0        0       1        1
+
+  i.e. there will be up to two contiguous chains of confirmed slots in
+  the forest, but not more. There can be unconfirmed slots after slot 7.
+  There may be forks as well, but only one fork can be confirmed.
+*/
+
 /* FD_FOREST_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
 
@@ -32,6 +126,11 @@
 
 #define SET_NAME fd_forest_blk_idxs
 #define SET_MAX  FD_SHRED_BLK_MAX
+#include "../../util/tmpl/fd_set.c"
+
+#define FD_FEC_BLK_MAX (FD_SHRED_BLK_MAX / 32UL) /* 1024 */
+#define SET_NAME fd_forest_merkle
+#define SET_MAX  FD_FEC_BLK_MAX + 1  /* +1 to mark verification on the block id*/
 #include "../../util/tmpl/fd_set.c"
 
 /* fd_forest_blk_t implements a left-child, right-sibling n-ary
@@ -60,6 +159,17 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   fd_forest_blk_idxs_t fecs[fd_forest_blk_idxs_word_cnt]; /* fec set idxs - 1, or the idx of the last shred in every FEC set */
   fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* data shred idxs */
   fd_forest_blk_idxs_t cmpl[fd_forest_blk_idxs_word_cnt]; /* last shred idx of every FEC set that has been completed by shred_tile */
+
+  struct {
+    fd_hash_t mr;
+    fd_hash_t cmr;
+  } merkle_roots[ FD_FEC_BLK_MAX + 1 ]; /* +1 -> .cmr will be populated when the block id is confirmed */
+  fd_forest_merkle_t    merkle_recvd[fd_forest_merkle_word_cnt];
+  fd_forest_merkle_t merkle_verified[fd_forest_merkle_word_cnt];
+
+  uchar confirmed; /* 1 if the slot has been confirmed, 0 otherwise */
+  uchar consumed;  /* 1 if the slot has been consumed (i.e., all shreds received, and parents are complete), 0 otherwise */
+  /* only consumed slots may be fec_chain_verified */
 
   /* i.e. when fecs == cmpl, the slot is truly complete and everything
   is contained in fec store. Look at fec_clear for more details.*/
@@ -625,8 +735,18 @@ fd_forest_blk_parent_update( fd_forest_t * forest, ulong slot, ulong parent_slot
    corresponding to the shred slot. */
 
 fd_forest_blk_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete, int ref_tick, int src );
+fd_forest_data_shred_insert( fd_forest_t * forest,
+                             ulong         slot,
+                             ulong         parent_slot,
+                             uint          shred_idx,
+                             uint          fec_set_idx,
+                             int           slot_complete,
+                             int           ref_tick,
+                             int           src,
+                             fd_hash_t *   mr,
+                             fd_hash_t *   cmr );
 
+/* TODO: Does merkle validation need to happen for coding shreds as well*/
 fd_forest_blk_t *
 fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
 
@@ -636,29 +756,50 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
    corresponding to the shred slot. */
 
 fd_forest_blk_t *
-fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick );
+fd_forest_fec_insert( fd_forest_t * forest,
+                      ulong slot,
+                      ulong parent_slot,
+                      uint last_shred_idx,
+                      uint fec_set_idx,
+                      int slot_complete,
+                      int ref_tick,
+                      fd_hash_t * mr,
+                      fd_hash_t * cmr );
 
 /* fd_forest_fec_clear clears the FEC set at the given slot and
    fec_set_idx.
-   Can fec_clear break requests frontier invariants? No. Why?
+   Can fec_clear break requests frontier invariants? No.
 
-   TODO: Update this comment with new requests map changes
+    2) If slot n is in scope of the forest root, then the shred
+       delivered to repair will trigger a data_shred_insert call
+       that does nothing, as repair already has record of that
+       shred.  Eventually the fec_completes or fec_clear msg will be
+       delivered to repair. fec_insert will do nothing. fec_clear
+       will remove the idxs for the shreds from the bitset, and
+       update the buffered_idx. This doesn't matter though! because
+       we already have moved past slot n on the requests frontier.
+       No need to request those shreds again.
 
-        2) If slot n is in scope of the forest root, then the shred
-           delivered to repair will trigger a data_shred_insert call
-           that does nothing, as repair already has record of that
-           shred.  Eventually the fec_completes or fec_clear msg will be
-           delivered to repair. fec_insert will do nothing. fec_clear
-           will remove the idxs for the shreds from the bitset, and
-           update the buffered_idx. This doesn't matter though! because
-           we already have moved past slot n on the requests frontier.
-           No need to request those shreds again.
-
-      Except 2) breaks a bit with in specific leader slot cases. See
-      fd_forest_fec_clear for more details. */
-
+  Except 2) breaks a bit with in specific leader slot cases. See
+  fd_forest_fec_clear for more details. */
 void
 fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx );
+
+/* fd_forest_fec_chain_verify verifies the chain of merkle roots for a given block.
+   Returns a pointer to the first slot that does not confirm, or NULL if the chain is valid. */
+fd_forest_blk_t *
+fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t const * mr );
+
+static inline uint
+fd_forest_merkle_last_incorrect_idx( fd_forest_blk_t * ele ) {
+  ulong first_verified_fec = fd_forest_merkle_first( ele->merkle_verified );
+  /* UNLIKELY because this is being called because we've detected an incorrect FEC */
+  if( FD_UNLIKELY( first_verified_fec == 0 ) ) return UINT_MAX;
+
+  uint bad_fec_idx = first_verified_fec == ULONG_MAX ? ele->complete_idx / 32UL /* last FEC is wrong */
+                                                     : (uint)first_verified_fec - 1;
+  return bad_fec_idx * 32UL;
+}
 
 /* fd_forest_publish publishes slot as the new forest root, setting
    the subtree beginning from slot as the new forest tree (ie. slot
