@@ -368,12 +368,13 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ i ];
     fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
 
+    txn_out->err.txn_err = FD_RUNTIME_EXECUTE_SUCCESS;
+
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
     if( execution_success==0 ) {
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24);
-
       continue;
     }
 
@@ -401,8 +402,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
-      fd_txn_in_t *  txn_in  = &ctx->txn_in[ i ];
-      fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
+      fd_txn_in_t *  txn_in    = &ctx->txn_in[ i ];
+      fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
       fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
@@ -442,7 +443,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       /* If the bundle peer flag is not set, that means the transaction
          was at least partially sanitized/setup.  We have to cancel
          these txns as they will not be included in the block. */
-      if( !(txns[ i ].flags&((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24)) ) {
+      if( txns[ i ].flags == ((txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-ctx->txn_out[i].err.txn_err)<<24)) ) {
         FD_LOG_DEBUG(("cancelling txn %lu", i));
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
       }
