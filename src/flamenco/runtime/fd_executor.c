@@ -521,7 +521,7 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    fd_account_meta_t * meta = txn_out->accounts.metas[i];
+    fd_account_meta_t * meta = txn_out->accounts.account[i].meta;
     uchar unknown_acc = !!(fd_runtime_get_account_at_index( txn_in, txn_out, i, fd_runtime_account_check_exists ) ||
                             meta->lamports==0UL);
 
@@ -573,7 +573,7 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
 
     /* Mimicking `load_account()` here with 0-lamport check as well.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L455-L462 */
-    fd_account_meta_t * program_meta = txn_out->accounts.metas[instr->program_id];
+    fd_account_meta_t * program_meta = txn_out->accounts.account[instr->program_id].meta;
     int err = fd_runtime_get_account_at_index( txn_in,
                                                txn_out,
                                                instr->program_id,
@@ -775,7 +775,7 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L642-L660 */
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    fd_account_meta_t * meta = txn_out->accounts.metas[i];
+    fd_account_meta_t * meta = txn_out->accounts.account[i].meta;
 
     uchar unknown_acc = !!(fd_runtime_get_account_at_index( txn_in, txn_out, i, fd_runtime_account_check_exists ) ||
                             meta->lamports==0UL);
@@ -829,7 +829,7 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
 
     /* Mimicking `load_account()` here with 0-lamport check as well.
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L663-L666 */
-    fd_account_meta_t * program_meta = txn_out->accounts.metas[ instr->program_id ];
+    fd_account_meta_t * program_meta = txn_out->accounts.account[instr->program_id].meta;
     int err = fd_runtime_get_account_at_index( txn_in,
                                                txn_out,
                                                instr->program_id,
@@ -966,7 +966,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
           if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], fee_payer_key ) && prev_txn_out->accounts.is_writable[j] ) {
-            meta = prev_txn_out->accounts.metas[ j ];
+            meta = prev_txn_out->accounts.account[j].meta;
             is_found = 1;
             break;
           }
@@ -1019,7 +1019,7 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
   }
 
   fd_pubkey_t *       fee_payer_key  = &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX];
-  fd_account_meta_t * fee_payer_meta = txn_out->accounts.metas[FD_FEE_PAYER_TXN_IDX];
+  fd_account_meta_t * fee_payer_meta = txn_out->accounts.account[FD_FEE_PAYER_TXN_IDX].meta;
 
   /* Calculate transaction fees
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L597-L606 */
@@ -1175,7 +1175,7 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
     refcnt++;
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L403-L406 */
-    fd_sysvar_instructions_update_current_instr_idx( txn_out->accounts.metas[idx], (ushort)runtime->instr.current_idx );
+    fd_sysvar_instructions_update_current_instr_idx( txn_out->accounts.account[idx].meta, (ushort)runtime->instr.current_idx );
     refcnt--;
   }
 
@@ -1257,7 +1257,7 @@ fd_instr_stack_pop( fd_runtime_t *          runtime,
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L367-L371 */
   for( ushort i=0; i<instr->acct_cnt; i++ ) {
     ushort idx_in_txn = instr->accounts[i].index_in_transaction;
-    fd_account_meta_t const * meta = txn_out->accounts.metas[ idx_in_txn ];
+    fd_account_meta_t const * meta = txn_out->accounts.account[ idx_in_txn ].meta;
     ulong refcnt = runtime->accounts.refcnt[idx_in_txn];
     if( FD_UNLIKELY( meta->executable && refcnt!=0UL ) ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING;
@@ -1333,7 +1333,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
   fd_exec_instr_fn_t native_prog_fn;
   uchar              is_precompile;
   int                err = fd_executor_lookup_native_program( &txn_out->accounts.keys[ instr->program_id ],
-                                                              txn_out->accounts.metas[ instr->program_id ],
+                                                              txn_out->accounts.account[ instr->program_id ].meta,
                                                               bank,
                                                               &native_prog_fn,
                                                               &is_precompile );
@@ -1412,9 +1412,10 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
   /* To setup a transaction account, we need to first retrieve a
      read-only handle to the account from the database. */
 
-  fd_pubkey_t * acc = &txn_out->accounts.keys[ idx ];
+  fd_pubkey_t *   address  = &txn_out->accounts.keys[ idx ];
+  fd_accdb_rw_t * ref_slot = &txn_out->accounts.account[ idx ];
 
-  fd_account_meta_t const * meta = NULL;
+  fd_accdb_rw_t * account = NULL;
   if( txn_in->bundle.is_bundle ) {
     /* If we are in a bundle, that means that the latest version of an
        account may be a transaction account from a previous transaction
@@ -1430,11 +1431,15 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
     int is_found = 0;
     for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
-      fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
+      fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
       for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-        if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], acc ) && prev_txn_out->accounts.is_writable[j] ) {
-          /* Found the account in a previous transaction */
-          meta = prev_txn_out->accounts.metas[ j ];
+        if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], address ) && prev_txn_out->accounts.is_writable[j] ) {
+          /* Found the account in a previous transaction.
+             Move ownership of reference from previous transaction to
+             this one. */
+          fd_memcpy( ref_slot, prev_txn_out->accounts.account[ j ].ref, sizeof(fd_accdb_rw_t) );
+          memset( prev_txn_out->accounts.account[ j ].ref, 0, sizeof(fd_accdb_rw_t) );
+          account  = ref_slot;
           is_found = 1;
           break;
         }
@@ -1442,16 +1447,12 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     }
   }
 
-  if( FD_LIKELY( !meta ) ) {
+  if( FD_LIKELY( !account ) ) {
     fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
-    meta = fd_funk_get_acc_meta_readonly(
-        runtime->funk,
-        &xid,
-        acc,
-        NULL );
+    account = (fd_accdb_rw_t *)fd_accdb_open_ro( runtime->accdb, ref_slot->ro, &xid, address );
+    /* creates a database reference, which is explicitly dropped here
+       or in commit/cancel */
   }
-
-  fd_account_meta_t * account_meta = NULL;
 
   if( txn_out->accounts.is_writable[ idx ] ) {
     /* If the account is writable or a fee payer, then we need to create
@@ -1459,39 +1460,44 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
        copy the account data into the staging area; otherwise, we need to
        initialize a new metadata. */
     uchar * new_raw_data = writable_accs_mem[ *writable_accs_idx_out ];
-    ulong   dlen         = !!meta ? meta->dlen : 0UL;
+    ulong   dlen         = !!account ? fd_accdb_ref_data_sz( (fd_accdb_ro_t *)account ) : 0UL;
     (*writable_accs_idx_out)++;
 
-    if( FD_LIKELY( meta ) ) {
-      /* Account exists, copy the data into the staging area */
-      fd_memcpy( new_raw_data, (uchar *)meta, sizeof(fd_account_meta_t)+dlen );
+    if( FD_LIKELY( account ) ) {
+      /* Create copy of account, release reference of original */
+      fd_memcpy( new_raw_data, account->meta, sizeof(fd_account_meta_t)+dlen );
+      fd_accdb_close_ro( runtime->accdb, (fd_accdb_ro_t *)account );
     } else {
       /* Account did not exist, set up metadata */
       fd_account_meta_init( (fd_account_meta_t *)new_raw_data );
     }
 
-    account_meta = (fd_account_meta_t *)new_raw_data;
+    account = fd_accdb_rw_init_nodb(
+        (fd_accdb_rw_t *)ref_slot,
+        address,
+        (fd_account_meta_t *)new_raw_data,
+        FD_RUNTIME_ACC_SZ_MAX
+    );
 
   } else {
     /* If the account is not writable, then we can simply initialize
        the txn account with the read-only accountsdb record. However,
        if the account does not exist, we need to initialize a new
        metadata. */
-
-    if( FD_UNLIKELY( fd_pubkey_eq( acc, &fd_sysvar_instructions_id ) ) ) {
-      account_meta = fd_type_pun( runtime->accounts.sysvar_instructions_mem );
-      fd_account_meta_init( account_meta );
-    } else if( FD_LIKELY( meta ) ) {
-      account_meta = (fd_account_meta_t *)meta;
+    if( FD_UNLIKELY( fd_pubkey_eq( address, &fd_sysvar_instructions_id ) ) ) {
+      fd_account_meta_t * meta = fd_account_meta_init( (void *)runtime->accounts.sysvar_instructions_mem );
+      account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, meta );
+    } else if( FD_LIKELY( account ) ) {
+      /* transfer ownership of reference to runtime struct
+         account is freed in cancel/commit */
     } else {
-      account_meta = (fd_account_meta_t *)&FD_ACCOUNT_META_DEFAULT;
+      account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, &FD_ACCOUNT_META_DEFAULT );
     }
   }
 
-  runtime->accounts.starting_lamports[idx] = account_meta->lamports;
-  runtime->accounts.starting_dlen[idx]     = account_meta->dlen;
+  runtime->accounts.starting_lamports[idx] = fd_accdb_ref_lamports( account->ro );
+  runtime->accounts.starting_dlen[idx]     = fd_accdb_ref_data_sz ( account->ro );
   runtime->accounts.refcnt[idx]            = 0UL;
-  txn_out->accounts.metas[idx]             = account_meta;
 }
 
 static void
@@ -1557,7 +1563,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   ushort executable_idx = 0U;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i, writable_accs_mem, &writable_accs_idx );
-    fd_account_meta_t * meta = txn_out->accounts.metas[ i ];
+    fd_account_meta_t * meta = txn_out->accounts.account[ i ].meta;
 
     if( FD_UNLIKELY( meta && memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
       fd_executor_setup_executable_account( runtime, bank, meta, &executable_idx );
@@ -1576,7 +1582,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( dump_elf_to_pb ) ) {
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       fd_txn_account_t txn_account[1];
-      txn_account->meta = txn_out->accounts.metas[i];
+      txn_account->meta = txn_out->accounts.account[i].meta;
       fd_memcpy( txn_account->pubkey, &txn_out->accounts.keys[i], sizeof(fd_pubkey_t) );
       fd_dump_elf_to_protobuf( runtime, bank, txn_in, txn_account );
     }
@@ -1618,7 +1624,7 @@ fd_executor_txn_check( fd_runtime_t * runtime,
   for( ulong idx = 0; idx < txn_out->accounts.cnt; idx++ ) {
     ulong               starting_lamports  = runtime->accounts.starting_lamports[idx];
     ulong               starting_dlen      = runtime->accounts.starting_dlen[idx];
-    fd_account_meta_t * meta               = txn_out->accounts.metas[idx];
+    fd_account_meta_t * meta               = txn_out->accounts.account[idx].meta;
     fd_pubkey_t *       pubkey             = &txn_out->accounts.keys[idx];
 
     // Was this account written to?

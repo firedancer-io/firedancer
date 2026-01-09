@@ -7,12 +7,6 @@
 #include "../fd_runtime.h"
 #include "../program/fd_bpf_loader_program.h"
 #include "../program/fd_loader_v4_program.h"
-#include "../sysvar/fd_sysvar.h"
-#include "../sysvar/fd_sysvar_clock.h"
-#include "../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../sysvar/fd_sysvar_recent_hashes.h"
-#include "../sysvar/fd_sysvar_rent.h"
-#include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../log_collector/fd_log_collector.h"
@@ -50,9 +44,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   ctx->txn_out = txn_out;
   ctx->txn_in  = txn_in;
 
-  memset( txn_out->accounts.metas, 0, sizeof(fd_account_meta_t) * MAX_TX_ACCOUNT_LOCKS );
+  memset( txn_out->accounts.account, 0, sizeof(fd_accdb_rw_t) * MAX_TX_ACCOUNT_LOCKS );
 
-  memset( txn_out->accounts.metas, 0, sizeof(fd_account_meta_t) * MAX_TX_ACCOUNT_LOCKS );
+  memset( txn_out->accounts.account, 0, sizeof(fd_accdb_rw_t) * MAX_TX_ACCOUNT_LOCKS );
 
   /* Bank manager */
   fd_banks_clear_bank( runner->banks, runner->bank, 4UL );
@@ -165,8 +159,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     meta->executable = test_ctx->accounts[j].executable;
     fd_memcpy( meta->owner, test_ctx->accounts[j].owner, sizeof(fd_pubkey_t) );
     metas[j] = meta;
-    txn_out->accounts.metas[j] = metas[j];
-    txn_out->accounts.keys[j]  = *acc_key;
+    fd_accdb_rw_init_nodb( &txn_out->accounts.account[j], acc_key, metas[j], FD_RUNTIME_ACC_SZ_MAX );
+    txn_out->accounts.keys[j] = *acc_key;
 
     if( !memcmp( acc_key, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       has_program_id = 1;
@@ -182,7 +176,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_account_meta_t * meta = fd_spad_alloc( runner->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
     fd_account_meta_init( meta );
 
-    txn_out->accounts.metas[test_ctx->accounts_count] = meta;
+    txn_out->accounts.account[test_ctx->accounts_count].meta = meta;
 
     info->program_id = (uchar)txn_out->accounts.cnt;
     txn_out->accounts.cnt++;
@@ -191,7 +185,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
 
-    fd_account_meta_t * meta = txn_out->accounts.metas[i];
+    fd_account_meta_t * meta = txn_out->accounts.account[i].meta;
     if( !fd_executor_pubkey_is_bpf_loader( fd_type_pun( meta->owner ) ) ) {
       continue;
     }
@@ -212,7 +206,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       meta = NULL;
       for( ulong j=0UL; j<test_ctx->accounts_count; j++ ) {
         if( !memcmp( test_ctx->accounts[j].address, programdata_acc, sizeof(fd_pubkey_t) ) ) {
-          meta = txn_out->accounts.metas[j];
+          meta = txn_out->accounts.account[j].meta;
           break;
         }
       }
@@ -226,7 +220,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       runtime->accounts.executable_cnt++;
     } else if( FD_UNLIKELY( !memcmp( meta->owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
                             !memcmp( meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-      meta = txn_out->accounts.metas[i];
+      meta = txn_out->accounts.account[i].meta;
     } else if( !memcmp( meta->owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
       int err;
       fd_loader_v4_state_t const * state = fd_loader_v4_get_state( fd_account_data( meta ), meta->dlen, &err );
@@ -238,7 +232,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( state ) ) ) {
         continue;
       }
-      meta = txn_out->accounts.metas[i];
+      meta = txn_out->accounts.account[i].meta;
     }
 
     uchar * scratch = fd_spad_alloc( runner->spad, FD_FUNK_REC_ALIGN, FD_RUNTIME_ACC_SZ_MAX );
@@ -264,12 +258,12 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore_from_metas( runner->bank,
-                                      txn_out->accounts.keys,
-                                      txn_out->accounts.metas,
-                                      txn_out->accounts.cnt );
+  fd_sysvar_cache_t * sysvar_cache = fd_bank_sysvar_cache_modify( runner->bank );
+  ctx->sysvar_cache = sysvar_cache;
+  for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
+    fd_sysvar_cache_restore_from_ref( sysvar_cache, txn_out->accounts.account[i].ro );
+  }
 
-  ctx->sysvar_cache = fd_bank_sysvar_cache_modify( runner->bank );
   ctx->runtime = runtime;
 
   fd_sol_sysvar_clock_t clock_[1];
@@ -429,7 +423,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
   for( ulong j=0UL; j < ctx->txn_out->accounts.cnt; j++ ) {
     fd_pubkey_t * acc_key = &ctx->txn_out->accounts.keys[j];
-    fd_account_meta_t * acc = ctx->txn_out->accounts.metas[j];
+    fd_account_meta_t * acc = ctx->txn_out->accounts.account[j].meta;
     if( !acc ) {
       continue;
     }

@@ -540,10 +540,10 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
          accounts */
       for( ulong j=0UL; j<txn_out->accounts.cnt; j++ ) {
         fd_pubkey_t *       pubkey   = &txn_out->accounts.keys[j];
-        fd_account_meta_t * meta     = txn_out->accounts.metas[j];
+        fd_account_meta_t * meta     = txn_out->accounts.account[j].meta;
 
         if( !( fd_runtime_account_is_writable_idx( txn_in, txn_out, runner->bank, (ushort)j ) || /* Capture writable accounts */
-               j==FD_FEE_PAYER_TXN_IDX ) ) {                                                               /* Capture the fee payer account */
+               j==FD_FEE_PAYER_TXN_IDX ) ) {                                                     /* Capture the fee payer account */
           continue;
         }
 
