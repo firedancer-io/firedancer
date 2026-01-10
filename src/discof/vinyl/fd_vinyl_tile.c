@@ -6,7 +6,6 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../vinyl/fd_vinyl.h"
 #include "../../vinyl/io/fd_vinyl_io_ur.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -21,14 +20,10 @@
 #define MAX_INS 8
 #define MAX_CLIENTS 8
 
-#define IN_KIND_GENESIS 1
-#define IN_KIND_SNAP    2
-
 #define IO_SPAD_MAX (32UL<<20)
 
 struct fd_vinyl_tile_ctx {
   fd_vinyl_t * vinyl;
-  uint         in_kind[ MAX_INS ];
   int          bstream_fd;
 
   void * io_mem;
@@ -39,7 +34,7 @@ struct fd_vinyl_tile_ctx {
   void * ele_mem;      ulong ele_footprint;
   void * obj_mem;      ulong obj_footprint;
 
-  ulong * snapin_manif_fseq;
+  ulong volatile const * snapin_state;
 
   struct io_uring * ring;
 # if FD_HAS_LIBURING
@@ -368,22 +363,18 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_vinyl_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  ulong manif_in_idx = fd_topo_find_tile_in_link( topo, tile, "snapin_manif", 0UL );
-  FD_TEST( manif_in_idx!=ULONG_MAX );
-  FD_TEST( manif_in_idx<MAX_INS );
-  ctx->in_kind[ manif_in_idx ] = IN_KIND_SNAP;
+  /* Find snapin tile status */
+  ulong snapin_tile_idx = fd_topo_find_tile( topo, "snapin", 0UL );
+  FD_TEST( snapin_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t const * snapin_tile = &topo->tiles[ snapin_tile_idx ];
+  FD_TEST( snapin_tile->metrics );
+  ctx->snapin_state = &fd_metrics_tile( snapin_tile->metrics )[ MIDX( GAUGE, TILE, STATUS ) ];
 
   /* Join a public CNC if provided (development only) */
   if( tile->vinyl.vinyl_cnc_obj_id!=ULONG_MAX ) {
     ctx->cnc_mem       = fd_topo_obj_laddr( topo, tile->vinyl.vinyl_cnc_obj_id );
     ctx->cnc_footprint = topo->objs[ tile->vinyl.vinyl_cnc_obj_id ].footprint;
   }
-
-  FD_TEST( tile->in_cnt==1UL );
-  fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
-  FD_TEST( in_link && 0==strcmp( in_link->name, "snapin_manif" ) );
-  if( FD_UNLIKELY( !tile->in_link_reliable[ 0 ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link 0 must be reliable" ));
-  ctx->snapin_manif_fseq = tile->in_link_fseq[ 0 ];
 
   /* Discover mapped clients */
   for( ulong i=0UL; i<(tile->uses_obj_cnt); i++ ) {
@@ -465,48 +456,25 @@ enter_vinyl_exec( fd_vinyl_tile_ctx_t * ctx ) {
 }
 
 static void
-on_genesis_ctrl( fd_vinyl_tile_ctx_t * ctx,
-                 ulong                 sig ) {
-  (void)ctx; (void)sig;
-  FD_LOG_ERR(( "Sorry, booting off vinyl is not yet supported" ));
-}
+during_housekeeping( fd_vinyl_tile_ctx_t * ctx ) {
 
-static void
-on_snap_ctrl( fd_vinyl_tile_ctx_t * ctx,
-              ulong                 sig ) {
-  ulong msg_type = fd_ssmsg_sig_message( sig );
-  if( msg_type==FD_SSMSG_DONE ) {
-    FD_LOG_INFO(( "Vinyl tile booting" ));
-    fd_fseq_update( ctx->snapin_manif_fseq, ULONG_MAX-1UL ); /* mark consumer as shut down */
+  ulong const snapin_state = FD_VOLATILE_CONST( *ctx->snapin_state );
+  if( snapin_state==2UL ) {
+    /* Once snapin tile exits, boot up vinyl */
+    FD_LOG_INFO(( "booting up vinyl tile" ));
     enter_vinyl_exec( ctx );
+    FD_LOG_CRIT(( "vinyl tile crashed" ));
   }
-}
 
-static inline void
-during_frag( fd_vinyl_tile_ctx_t * ctx,
-             ulong                 in_idx,
-             ulong                 seq,
-             ulong                 sig,
-             ulong                 chunk,
-             ulong                 sz     FD_PARAM_UNUSED,
-             ulong                 ctl    FD_PARAM_UNUSED ) {
-  (void)seq; (void)chunk;
-  switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_GENESIS:
-    on_genesis_ctrl( ctx, sig );
-    break;
-  case IN_KIND_SNAP:
-    on_snap_ctrl( ctx, sig );
-    break;
-  default:
-    FD_LOG_CRIT(( "Frag from unexpected in_idx %lu", in_idx ));
-  }
+  fd_log_sleep( 1e6 ); /* 1 ms */
+
 }
 
 #define STEM_BURST (1UL)
-#define STEM_CALLBACK_CONTEXT_TYPE  fd_vinyl_tile_ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN fd_vinyl_align()
-#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_LAZY (100000UL)
+#define STEM_CALLBACK_CONTEXT_TYPE        fd_vinyl_tile_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN       fd_vinyl_align()
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../disco/stem/fd_stem.c"
 

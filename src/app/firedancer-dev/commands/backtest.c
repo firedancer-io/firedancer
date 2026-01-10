@@ -268,7 +268,6 @@ backtest_topo( config_t * config ) {
     }
 
     fd_topob_wksp( topo, "vinyl_replay" );
-    fd_topob_tile_in( topo, "vinyl", 0UL, "metric_in", "snapin_manif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /**********************************************************************/
