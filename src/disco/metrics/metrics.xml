@@ -1200,4 +1200,33 @@ metric introduced.
     <counter name="BytesRead" summary="The total number of bytes read from all connections to the GUI service" />
 </tile>
 
+<enum name="VinylRequest">
+    <int value="0" name="Acquire" label="Acquire record" />
+    <int value="1" name="Release" label="Release record" />
+</enum>
+
+<enum name="VinylBlocks">
+    <int value="0" name="Pair" label="Record" />
+    <int value="1" name="Dead" label="Record deletion" />
+    <int value="2" name="Part" label="Partition/divider" />
+</enum>
+
+<enum name="BstreamSeq">
+    <int value="0" name="Ancient" label="blocks between ancient and past have been written and forgotten (no read, no write)" />
+    <int value="1" name="Past" label="blocks between past and present have been written (read only)" />
+    <int value="2" name="Present" label="blocks between present and future are being written (write only)" />
+    <int value="3" name="Future" label="blocks between future and ancient have not been written (no read, no write)" />
+</enum>
+
+<tile name="vinyl">
+    <gauge name="BstreamSeq" enum="BstreamSeq" summary="Current bstream sequence number" />
+    <counter name="RequestBatches" summary="Number of request batches processed" />
+    <counter name="Requests" enum="VinylRequest" summary="Number of requests processed" />
+    <counter name="Blocks" enum="VinylBlocks" summary="Number of blocks written to bstream" />
+    <gauge name="GarbageRecords" summary="Number of garbage records in bstream that have accumulated since last compaction" />
+    <gauge name="GarbageBytes" sumary="Number of garbage bytes in bstream that have accumulated since last compaction" />
+    <counter name="CumGcRecords" summary="Total number of records that were garbage collected" />
+    <counter name="CumGcBytes" summary="Total number of record bytes that were garbage collected" />
+</tile>
+
 </metrics>
