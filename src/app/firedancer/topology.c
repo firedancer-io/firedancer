@@ -1532,7 +1532,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->vinyl.vinyl_meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "vinyl.meta_map",  ULONG_MAX );
     tile->vinyl.vinyl_meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "vinyl.meta_pool", ULONG_MAX );
     tile->vinyl.vinyl_line_max         = config->firedancer.vinyl.max_cache_entries;
-    tile->vinyl.vinyl_cnc_obj_id       = fd_pod_query_ulong( config->topo.props, "vinyl.cnc",       ULONG_MAX );
     tile->vinyl.vinyl_data_obj_id      = fd_pod_query_ulong( config->topo.props, "vinyl.data",      ULONG_MAX );
     fd_cstr_ncpy( tile->vinyl.vinyl_bstream_path, config->paths.accounts, sizeof(tile->vinyl.vinyl_bstream_path) );
 
