@@ -218,8 +218,6 @@ snapshot_load_topo( config_t * config,
 
     fd_topob_tile_uses( topo, vinyl_tile, vinyl_cnc,  FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, vinyl_tile, vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-    fd_topob_tile_in( topo, "vinyl", 0UL, "metric_in", "snapin_manif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
