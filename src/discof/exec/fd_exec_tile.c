@@ -338,7 +338,7 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq"    );
     fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
     FD_TEST( fd_accdb_user_v2_init( ctx->accdb,
-        fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ),
+        fd_topo_obj_laddr( topo, tile->exec.funk_obj_id ),
         fd_topo_obj_laddr( topo, vinyl_rq->id ),
         topo->workspaces[ vinyl_data->wksp_id ].wksp,
         fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
