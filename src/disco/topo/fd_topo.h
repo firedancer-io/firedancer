@@ -624,7 +624,6 @@ struct fd_topo_tile {
       ulong vinyl_meta_map_obj_id;
       ulong vinyl_meta_pool_obj_id;
       ulong vinyl_line_max;
-      ulong vinyl_cnc_obj_id; /* optional */
       ulong vinyl_data_obj_id;
       char  vinyl_bstream_path[ PATH_MAX ];
 
