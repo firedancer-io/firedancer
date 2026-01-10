@@ -12,8 +12,6 @@
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../flamenco/accdb/fd_accdb_fsck.h"
 #include "../../../funk/fd_funk.h"
-#include "../../../vinyl/fd_vinyl.h"
-#include "../../../tango/cnc/fd_cnc.h"
 #include "../../../ballet/lthash/fd_lthash.h"
 
 #include <errno.h>
@@ -31,8 +29,7 @@ fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
-snapshot_load_topo( config_t * config,
-                    _Bool      vinyl_server ) {
+snapshot_load_topo( config_t * config ) {
   fd_topo_t * topo = &config->topo;
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -54,14 +51,6 @@ snapshot_load_topo( config_t * config,
 
   if( config->firedancer.vinyl.enabled ) {
     setup_topo_vinyl_meta( topo, &config->firedancer );
-  }
-
-  if( vinyl_server ) {
-    /* Create a workspace with 512 MiB of free space for clients to
-       create objects in. */
-    fd_topo_wksp_t * server_wksp = fd_topob_wksp( topo, "vinyl_server" );
-    server_wksp->min_part_max = 64UL;
-    server_wksp->min_loose_sz = 64UL<<20;
   }
 
   /* metrics tile *****************************************************/
@@ -201,27 +190,6 @@ snapshot_load_topo( config_t * config,
 
   snapin_tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
-  if( vinyl_server ) {
-    /* Allocate a public CNC, which allows the vinyl tile to map memory
-       allocated by other clients.  This is useful for flexibility
-       during development, but not something we'd run in production due
-       to security concerns. */
-    fd_topo_obj_t * vinyl_cnc = fd_topob_obj( topo, "cnc", "vinyl_server" );
-    fd_pod_insertf_ulong( topo->props, FD_VINYL_CNC_APP_SZ, "obj.%lu.app_sz", vinyl_cnc->id );
-    fd_pod_insertf_ulong( topo->props, FD_VINYL_CNC_TYPE,   "obj.%lu.type",   vinyl_cnc->id );
-    fd_pod_insert_ulong ( topo->props, "vinyl.cnc", vinyl_cnc->id );
-
-    fd_topo_obj_t * vinyl_data = setup_topo_vinyl_cache( topo, &config->firedancer );
-
-    fd_topob_wksp( topo, "vinyl_exec" );
-    fd_topo_tile_t * vinyl_tile = fd_topob_tile( topo, "vinyl", "vinyl_exec", "metric_in", ULONG_MAX, 0, 0 );
-
-    fd_topob_tile_uses( topo, vinyl_tile, vinyl_cnc,  FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, vinyl_tile, vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-    fd_topob_tile_in( topo, "vinyl", 0UL, "metric_in", "snapin_manif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
-
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     fd_topo_configure_tile( tile, config );
@@ -233,7 +201,7 @@ snapshot_load_topo( config_t * config,
 
 static void
 snapshot_load_topo1( config_t * config ) {
-  snapshot_load_topo( config, 0 );
+  snapshot_load_topo( config );
 }
 
 extern int * fd_log_private_shared_lock;
@@ -264,7 +232,6 @@ snapshot_load_args( int *    pargc,
       "  --accounts-hist      After loading, analyze account size distribution\n"
       "\n"
       "Vinyl database flags:\n"
-      "  --vinyl-server         After loading, indefinitely run a vinyl DB server\n"
       "  --vinyl-path <path>    Path to vinyl bstream file (overrides existing files!)\n"
       "  --vinyl-io <backend>   Vinyl I/O backend (default: bd)\n"
       "  --cache-sz <bytes>     DB cache size in bytes (e.g. 1e9 -> 1 GB)\n"
@@ -290,7 +257,6 @@ snapshot_load_args( int *    pargc,
   _Bool        fsck_lthash   = fd_env_strip_cmdline_contains( pargc, pargv, "--fsck-lthash"                )!=0;
   _Bool        lthash        = fd_env_strip_cmdline_contains( pargc, pargv, "--lthash"                     )!=0;
   _Bool        accounts_hist = fd_env_strip_cmdline_contains( pargc, pargv, "--accounts-hist"              )!=0;
-  _Bool        vinyl_server  = fd_env_strip_cmdline_contains( pargc, pargv, "--vinyl-server"               )!=0;
   char const * vinyl_path    = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--vinyl-path",   NULL, NULL   );
   char const * vinyl_io      = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--vinyl-io",     NULL, "bd"   );
   float        cache_sz      = fd_env_strip_cmdline_float   ( pargc, pargv, "--cache-sz",     NULL, 0.0f   );
@@ -304,7 +270,6 @@ snapshot_load_args( int *    pargc,
   args->snapshot_load.offline        = offline;
   args->snapshot_load.no_incremental = no_incremental;
   args->snapshot_load.no_watch       = no_watch;
-  args->snapshot_load.vinyl_server   = !!vinyl_server;
 
   if(      0==strcmp( db, "funk"  ) ) args->snapshot_load.is_vinyl = 0;
   else if( 0==strcmp( db, "vinyl" ) ) args->snapshot_load.is_vinyl = 1;
@@ -599,7 +564,7 @@ fixup_config( config_t *     config,
   /* FIXME Unfortunately, the fdctl boot procedure constructs the
            topology before parsing command-line arguments.  So, here,
            we construct the topology again (a third time ... sigh). */
-  snapshot_load_topo( config, args->snapshot_load.vinyl_server );
+  snapshot_load_topo( config );
 
   fd_topob_auto_layout( topo, 0 );
   fd_topob_finish( topo, CALLBACKS );
@@ -822,47 +787,6 @@ snapshot_load_cmd_fn( args_t *   args,
     else              accounts_hist_funk ( hist, config );
     FD_TEST( !accounts_hist_check( hist ) );
     accounts_hist_print( hist );
-  }
-
-  if( args->snapshot_load.vinyl_server ) {
-    /* Generate a config pod */
-    fd_wksp_t * server_wksp = topo->workspaces[ fd_topo_find_wksp( topo, "vinyl_server" ) ].wksp;
-    ulong const cfg_pod_sz = 8192UL;
-    ulong cfg_gaddr = fd_wksp_alloc( server_wksp, fd_pod_align(), fd_pod_footprint( cfg_pod_sz ), 1UL );
-    FD_TEST( cfg_gaddr );
-    uchar * cfg = fd_pod_join( fd_pod_new( fd_wksp_laddr( server_wksp, cfg_gaddr ), cfg_pod_sz ) );
-    FD_TEST( cfg );
-    char gaddr_tmp[ 256 ];
-#   define POD_ADD( key, obj_id ) do {                                 \
-      ulong _obj_id = (obj_id);                                        \
-      FD_TEST( _obj_id!=ULONG_MAX );                                   \
-      fd_topo_obj_t * _obj = &topo->objs[ _obj_id ];                   \
-      FD_TEST( fd_cstr_printf_check( gaddr_tmp, sizeof(gaddr_tmp), NULL, "%s_%s.wksp:%lu", topo->app_name, topo->workspaces[ _obj->wksp_id ].name, _obj->offset ) ); \
-      FD_TEST( fd_pod_insert_cstr( cfg, (key), gaddr_tmp )!=0UL );     \
-    } while(0)
-    POD_ADD( "cnc",  fd_pod_query_ulong( topo->props, "vinyl.cnc",       ULONG_MAX ) );
-    POD_ADD( "meta", fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ) );
-    POD_ADD( "ele",  fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ) );
-    POD_ADD( "obj",  fd_pod_query_ulong( topo->props, "vinyl.data",      ULONG_MAX ) );
-#   undef POD_ADD
-    fd_pod_leave( cfg );
-    FD_LOG_NOTICE(( "Wrote vinyl topology pod to %s_%s.wksp:%lu", topo->app_name, "vinyl_server", cfg_gaddr ));
-
-    /* Wait for vinyl tile to boot */
-    fd_cnc_t * cnc = fd_cnc_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "vinyl.cnc", ULONG_MAX )  ) );
-    FD_TEST( cnc );
-    ulong vinyl_status = fd_cnc_wait( cnc, FD_VINYL_CNC_SIGNAL_BOOT, LONG_MAX, NULL );
-    FD_TEST( vinyl_status==FD_VINYL_CNC_SIGNAL_RUN );
-    FD_LOG_NOTICE(( "Vinyl server running" ));
-    for(;;) {
-      vinyl_status = fd_cnc_wait( cnc, vinyl_status, LONG_MAX, NULL );
-      char cnc_signal_cstr[ FD_VINYL_CNC_SIGNAL_CSTR_BUF_MAX ];
-      fd_vinyl_cnc_signal_cstr( vinyl_status, cnc_signal_cstr );
-      FD_LOG_NOTICE(( "Vinyl CNC signal %s", cnc_signal_cstr ));
-      //if( vinyl_status==FD_VINYL_CNC_SIGNAL_BOOT ) break;
-    }
-    FD_LOG_NOTICE(( "Vinyl server shut down" ));
-    fd_cnc_leave( cnc );
   }
 }
 
