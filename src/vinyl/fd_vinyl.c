@@ -10,11 +10,6 @@ fd_vinyl_footprint( void ) {
   return sizeof(fd_vinyl_t);
 }
 
-static void
-fd_vinyl_housekeep_noop( void * ctx ) {
-  (void)ctx;
-}
-
 fd_vinyl_t *
 fd_vinyl_init( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
                void * _vinyl,
@@ -103,9 +98,6 @@ fd_vinyl_init( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
   vinyl->pair_max  = pair_max;
   vinyl->async_min = async_min;
   vinyl->async_max = async_max;
-
-  vinyl->housekeep     = fd_vinyl_housekeep_noop;
-  vinyl->housekeep_ctx = NULL;
 
   vinyl->part_thresh  = part_thresh;
   vinyl->gc_thresh    = gc_thresh;
