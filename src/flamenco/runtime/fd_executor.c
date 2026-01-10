@@ -991,6 +991,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
       fd_memcpy( fee_payer_data+sizeof(fd_account_meta_t),
                  fd_accdb_ref_data_const( fee_payer_ro ),
                  fd_accdb_ref_data_sz   ( fee_payer_ro ) );
+      fd_accdb_close_ro( runtime->accdb, fee_payer_ro );
     }
   }
 
@@ -1681,6 +1682,7 @@ fd_execute_txn( fd_runtime_t *      runtime,
                 fd_bank_t *         bank,
                 fd_txn_in_t const * txn_in,
                 fd_txn_out_t *      txn_out ) {
+  fd_accdb_user_t * accdb = runtime->accdb;
 
   bool dump_insn = runtime->log.capture_ctx && fd_bank_slot_get( bank ) >= runtime->log.capture_ctx->dump_proto_start_slot && runtime->log.capture_ctx->dump_instr_to_pb;
   (void)dump_insn;
@@ -1712,7 +1714,14 @@ fd_execute_txn( fd_runtime_t *      runtime,
     runtime->instr.current_idx = i;
 
     /* Execute the current instruction */
+    ulong account_refs_pre = accdb->base.ro_active + accdb->base.rw_active;
     int instr_exec_result = fd_execute_instr( runtime, bank, txn_in, txn_out, instr_info );
+    ulong account_refs_post = accdb->base.ro_active + accdb->base.rw_active;
+    if( FD_UNLIKELY( account_refs_post != account_refs_pre ) ) {
+      FD_BASE58_ENCODE_64_BYTES( fd_txn_get_signatures( txn, txn_in->txn->payload )[0], txn_b58 );
+      FD_LOG_CRIT(( "fd_execute_instr(txn=%s,instr_idx=%u) leaked %lu account references",
+                    txn_b58, i, account_refs_post-account_refs_pre ));
+    }
     if( FD_UNLIKELY( instr_exec_result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       if( txn_out->err.exec_err_idx==INT_MAX ) {
         txn_out->err.exec_err_idx = i;

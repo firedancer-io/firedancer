@@ -147,11 +147,9 @@ fd_accdb_user_v2_close_ro( fd_accdb_user_t * accdb_,
   /* Send a RELEASE request */
 
   ulong             batch_idx     = fd_vinyl_req_pool_acquire   ( accdb->vinyl_req_pool );
-  fd_vinyl_key_t *  req_key       = fd_vinyl_req_batch_key      ( accdb->vinyl_req_pool, batch_idx );
   ulong *           req_val_gaddr = fd_vinyl_req_batch_val_gaddr( accdb->vinyl_req_pool, batch_idx );
   schar *           req_err       = fd_vinyl_req_batch_err      ( accdb->vinyl_req_pool, batch_idx );
   fd_vinyl_comp_t * comp          = fd_vinyl_req_batch_comp     ( accdb->vinyl_req_pool, batch_idx );
-  fd_vinyl_key_init( req_key, ro->ref->address, 32UL );
   req_val_gaddr[0] = fd_wksp_gaddr_fast( accdb->vinyl_data_wksp, (void *)ro->meta );
   memset( comp, 0, sizeof(fd_vinyl_comp_t) );
   fd_vinyl_req_send_batch(
