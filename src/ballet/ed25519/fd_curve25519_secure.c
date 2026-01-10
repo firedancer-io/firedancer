@@ -5,6 +5,7 @@
 #else
 #include "ref/fd_curve25519_secure.c"
 #endif
+#ifndef FD_ED25519_UNIT_TESTS
 
 /* All the functions in this file are considered "secure", specifically:
 
@@ -142,3 +143,5 @@ fd_ed25519_scalar_mul_base_const_time( fd_ed25519_point_t * r,
 
   return r;
 }
+
+#endif
