@@ -194,6 +194,15 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
           fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out );
         }
 
+        if( FD_UNLIKELY( ctx->accdb->base.ro_active ||
+                         ctx->accdb->base.rw_active ) ) {
+          FD_LOG_HEXDUMP_NOTICE(( "txn", msg->txn.payload, msg->txn.payload_sz ));
+          FD_BASE58_ENCODE_64_BYTES( fd_txn_get_signatures( TXN( &msg->txn ), msg->txn.payload )[0], txn_b58 );
+          FD_LOG_CRIT(( "detected account leaks after executing txn=%s (commit=%d ro_active=%lu rw_active=%lu)",
+                        txn_b58, ctx->txn_out.err.is_committable,
+                        ctx->accdb->base.ro_active, ctx->accdb->base.rw_active ));
+        }
+
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
           /* Copy the txn signature to the signature out link so the
              dedup/pack tiles can drop already executed transactions. */
