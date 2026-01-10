@@ -59,8 +59,9 @@
 #define VOTE_TXN_SIG_MAX (2UL) /* validator identity and vote authority */
 
 struct notif {
-  ulong slot;
-  int   kind;
+  ulong     slot;
+  int       kind;
+  fd_hash_t block_id; /* for notar confirmations only */
 };
 typedef struct notif notif_t;
 
@@ -228,7 +229,7 @@ contiguous_confirm( ctx_t *             ctx,
   while( FD_UNLIKELY( ancestor > wmark ) ) {
     fd_tower_forks_t * fork = fd_forks_query( ctx->forks, ancestor );
     if( FD_UNLIKELY( !fork ) ) break; /* rooted past this ancestor */
-    if( FD_UNLIKELY( !notif_avail( ctx->notif ) ) ) FD_LOG_CRIT(( "attempted to confirm %lu slots more than slot max %lu", cnt, notif_max( ctx->notif ) ));
+    if( FD_UNLIKELY( !notif_avail( ctx->notif ) ) ) FD_LOG_CRIT(( "attempted to confirm %lu slots more than slot max %lu", cnt, notif_max( ctx->notif ) )); /* should be impossible */
     notif_push_tail( ctx->notif, (notif_t){ .slot = ancestor, .kind = kind } );
     cnt++;
     ancestor = fork->parent_slot;
@@ -237,8 +238,6 @@ contiguous_confirm( ctx_t *             ctx,
 
 static void
 notar_confirm( ctx_t *             ctx,
-               fd_stem_context_t * stem,
-               ulong               tsorig,
                fd_notar_blk_t *    notar_blk ) {
 
   /* Record any confirmations in our tower forks structure and also
@@ -247,15 +246,18 @@ notar_confirm( ctx_t *             ctx,
      See documentation in fd_tower_tile.h for guarantees. */
 
   if( FD_LIKELY( notar_blk->dup_conf && !notar_blk->dup_notif ) ) {
-    publish_slot_confirmed( ctx, stem, tsorig, notar_blk->slot, &notar_blk->block_id, ULONG_MAX, FD_TOWER_SLOT_CONFIRMED_DUPLICATE );
+    if( FD_UNLIKELY( !notif_avail( ctx->notif ) ) ) FD_LOG_CRIT(( "attempted to confirm more than slot max %lu", notif_max( ctx->notif ) )); /* should be impossible */
+    notif_push_head( ctx->notif, (notif_t){ .slot = notar_blk->slot, .kind = FD_TOWER_SLOT_CONFIRMED_DUPLICATE, .block_id = notar_blk->block_id } );
     notar_blk->dup_notif = 1;
+
     fd_tower_forks_t * fork = fd_forks_query( ctx->forks, notar_blk->slot ); /* ensure fork exists */
     if( FD_UNLIKELY( !fork ) ) return; /* a slot can be duplicate confirmed by gossip votes before replay */
     fd_forks_confirmed( fork, &notar_blk->block_id );
   }
   if( FD_LIKELY( notar_blk->opt_conf ) ) {
     if( FD_UNLIKELY( !notar_blk->opt_notif ) ) {
-      publish_slot_confirmed( ctx, stem, tsorig, notar_blk->slot, &notar_blk->block_id, ULONG_MAX, FD_TOWER_SLOT_CONFIRMED_CLUSTER ); /* a slot can be cluster confirmed by gossip votes before replay */
+      if( FD_UNLIKELY( !notif_avail( ctx->notif ) ) ) FD_LOG_CRIT(( "attempted to confirm more than slot max %lu", notif_max( ctx->notif ) )); /* should be impossible */
+      notif_push_head( ctx->notif, (notif_t){ .slot = notar_blk->slot, .kind = FD_TOWER_SLOT_CONFIRMED_CLUSTER, .block_id = notar_blk->block_id } );
       notar_blk->opt_notif = 1;
     }
     fd_tower_forks_t * fork = fd_forks_query( ctx->forks, notar_blk->slot );
@@ -268,8 +270,6 @@ notar_confirm( ctx_t *             ctx,
 
 static void
 count_vote_txn( ctx_t *             ctx,
-                fd_stem_context_t * stem,
-                ulong               tsorig,
                 fd_txn_t const *    txn,
                 uchar const *       payload ) {
 
@@ -348,7 +348,7 @@ count_vote_txn( ctx_t *             ctx,
   fd_hfork_count_vote( ctx->hfork, vote_acc, their_block_id, their_bank_hash, their_last_vote->slot, stake ? stake->stake : 0, total_stake, &ctx->metrics.hard_forks );
 
   fd_notar_blk_t * notar_blk   = fd_notar_count_vote( ctx->notar, total_stake, vote_acc, their_last_vote->slot, their_block_id );
-  if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, stem, tsorig, notar_blk );
+  if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, notar_blk );
 
   fd_tower_forks_t * fork = fd_tower_forks_query( ctx->forks->tower_forks, their_last_vote->slot, NULL );
   if( FD_UNLIKELY( !fork ) ) { ctx->metrics.vote_txn_ignored++; return; /* we haven't replayed this slot yet */ };
@@ -403,8 +403,8 @@ count_vote_txn( ctx_t *             ctx,
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L500 */
 
 
-    fd_notar_blk_t * notar_blk = fd_notar_count_vote( ctx->notar, total_stake, vote_acc, their_last_vote->slot, fd_forks_canonical_block_id( ctx->forks, their_intermediate_vote->slot ) );
-    if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, stem, tsorig, notar_blk );
+    fd_notar_blk_t * notar_blk = fd_notar_count_vote( ctx->notar, total_stake, vote_acc, their_intermediate_vote->slot, fd_forks_canonical_block_id( ctx->forks, their_intermediate_vote->slot ) );
+    if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, notar_blk );
   }
 }
 
@@ -697,7 +697,6 @@ replay_slot_completed( ctx_t *                      ctx,
 
     /* Update slot watermarks. */
 
-    ctx->conf_slot = out.root_slot;
     ctx->root_slot = out.root_slot;
   }
 
@@ -742,14 +741,25 @@ replay_slot_completed( ctx_t *                      ctx,
 static inline void
 after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in,
+              int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  while( FD_LIKELY( !notif_empty( ctx->notif ) ) ) {
+  if( FD_LIKELY( !notif_empty( ctx->notif ) ) ) {
+    /* Contiguous confirmations are pushed to tail in order from child
+       to ancestor, so we pop from tail to publish confirmations in
+       order from ancestor to child.  */
     notif_t             ancestor = notif_pop_tail( ctx->notif );
-    fd_tower_forks_t *  fork     = fd_tower_forks_query( ctx->forks->tower_forks, ancestor.slot, NULL );
-    if( FD_UNLIKELY( !fork ) ) FD_LOG_CRIT(( "missing fork for ancestor %lu", ancestor.slot ));
-    publish_slot_confirmed( ctx, stem, fd_frag_meta_ts_comp( fd_tickcount() ), ancestor.slot, fd_forks_canonical_block_id( ctx->forks, ancestor.slot ), fork->bank_idx, ancestor.kind );
-    *opt_poll_in = 0; /* drain the confirmations */
+    if( FD_UNLIKELY( ancestor.kind == FD_TOWER_SLOT_CONFIRMED_CLUSTER || ancestor.kind == FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
+      /* Duplicate confirmations and cluster confirmations were sourced
+         from notar (through gossip txns and replay txns) so we need to
+         use the block_id from the notif recorded at the time of the
+         confirmation */
+      publish_slot_confirmed( ctx, stem, fd_frag_meta_ts_comp( fd_tickcount() ), ancestor.slot, &ancestor.block_id, ULONG_MAX, ancestor.kind );
+    } else {
+      fd_tower_forks_t *  fork = fd_tower_forks_query( ctx->forks->tower_forks, ancestor.slot, NULL );
+      if( FD_UNLIKELY( !fork ) ) FD_LOG_CRIT(( "missing fork for ancestor %lu", ancestor.slot ));
+      publish_slot_confirmed( ctx, stem, fd_frag_meta_ts_comp( fd_tickcount() ), ancestor.slot, fd_forks_canonical_block_id( ctx->forks, ancestor.slot ), fork->bank_idx, ancestor.kind );
+    }
+    //*opt_poll_in = 0; /* drain the confirmations */
     *charge_busy = 1;
   }
 }
@@ -775,13 +785,13 @@ returnable_frag( ctx_t *             ctx,
     fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
     FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
     FD_TEST( txnm->txn_t_sz<=FD_TXN_MAX_SZ );
-    count_vote_txn( ctx, stem, tsorig, fd_txn_m_txn_t_const( txnm ), fd_txn_m_payload_const( txnm ) );
+    count_vote_txn( ctx, fd_txn_m_txn_t_const( txnm ), fd_txn_m_payload_const( txnm ) );
     return 0;
   }
   case IN_KIND_EXEC: {
     if( FD_LIKELY( (sig>>32)==FD_EXEC_TT_TXN_EXEC ) ) {
       fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-      count_vote_txn( ctx, stem, tsorig, TXN(&msg->txn), msg->txn.payload );
+      count_vote_txn( ctx, TXN(&msg->txn), msg->txn.payload );
     }
     return 0;
   }
@@ -949,7 +959,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (3UL) /* dup conf + cluster conf + slot_done */
+#define STEM_BURST (2UL) /* slot_conf AND (slot_done OR slot_ignored) */
+/* See explanation in fd_pack */
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE    ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN   alignof(ctx_t)
