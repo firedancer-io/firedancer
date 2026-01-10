@@ -146,7 +146,6 @@ union fdctl_args {
     uint no_incremental : 1;
     uint no_watch : 1;
     uint is_vinyl : 1;
-    uint vinyl_server : 1;
 
     char snapshot_dir[ PATH_MAX ];
     char vinyl_path  [ PATH_MAX ];
