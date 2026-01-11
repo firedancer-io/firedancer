@@ -221,6 +221,34 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
     key_pages = 5UL;
   }
 
+  if( !strcmp( tile->name, "net" ) ) {
+      /* net tile uses normal pages to hold xsk rings */
+
+      /* xdp_desc struct is in linux UAPI so its size can be
+         safely assumed */
+      ulong xdp_desc_sz_bytes    = 16UL;
+      ulong xsk_rings_sz_bytes   = 0UL;
+      ulong xdp_address_sz_bytes = sizeof(ulong);
+
+      /* rx ring */
+      xsk_rings_sz_bytes += tile->xdp.xdp_rx_queue_size * xdp_desc_sz_bytes;
+      /* tx ring */
+      xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_desc_sz_bytes;
+
+      /* completion ring */
+      xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_address_sz_bytes;
+      /* free ring */
+      xsk_rings_sz_bytes += tile->xdp.free_ring_depth   * xdp_address_sz_bytes;
+
+      key_pages += fd_ulong_align_up( xsk_rings_sz_bytes, FD_SHMEM_NORMAL_PAGE_SZ ) / FD_SHMEM_NORMAL_PAGE_SZ;
+
+      /* All 4 rings must store a ring header. This is 320 bytes
+         per ring as of linux v6.18.3, however could change in
+         the future so allow up to a full 4KB page per ring to
+         be safe. */
+      key_pages += 4UL;
+  }
+
   /* All tiles lock one normal page for the fd_log shared lock. */
   return key_pages+1UL;
 }
