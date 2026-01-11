@@ -80,7 +80,7 @@ fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t *   cache,
     if( 0==memcmp( fd_accdb_ref_address( ro ), fd_sysvar_key_tbl[ idx ].uc, sizeof(fd_pubkey_t) ) ) break;
   }
   if( FD_UNLIKELY( idx==FD_SYSVAR_CACHE_ENTRY_CNT ) ) return;
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro ) )==0UL ) return;
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) return;
 
   fd_sysvar_pos_t const * pos  = &fd_sysvar_pos_tbl[ idx ];
   fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
