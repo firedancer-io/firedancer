@@ -766,7 +766,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L455-L458 */
   if( FD_UNLIKELY( memcmp( state_of_next_version->authority_address_or_next_version.key, authority_address, sizeof(fd_pubkey_t) ) ) ) {
-    fd_log_collector_msg_literal( instr_ctx, "Next version has different authority" );
+    fd_log_collector_msg_literal( instr_ctx, "Next version has a different authority" );
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
   }
 
