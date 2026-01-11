@@ -116,27 +116,6 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
                        fd_funk_rec_key_t const * key,
                        fd_funk_rec_query_t *     query );
 
-/* fd_funk_rec_query_try_global is the same as fd_funk_rec_query_try but
-   will query txn's ancestors for key from youngest to oldest if key is
-   not part of txn.  As such, the txn of the returned record may not
-   match txn but will be the txn of most recent ancestor with the key
-   otherwise.   If xid_out!=NULLL, *xid_out is set to the XID in which
-   the record was created.
-
-   This is reasonably fast O(in_prep_ancestor_cnt).
-
-   Important safety tip!  This function can encounter records
-   that have the ERASE flag set (i.e. are tombstones of erased
-   records). fd_funk_rec_query_try_global will return a NULL in this case
-   but still set *txn_out to the relevant transaction. This behavior
-   differs from fd_funk_rec_query_try. */
-fd_funk_rec_t const *
-fd_funk_rec_query_try_global( fd_funk_t const *         funk,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_funk_rec_key_t const * key,
-                              fd_funk_txn_xid_t *       xid_out,
-                              fd_funk_rec_query_t *     query );
-
 /* fd_funk_rec_{pair,xid,key} returns a pointer in the local address
    space of the {(transaction id,record key) pair,transaction id,record
    key} of a live record.  Assumes rec points to a live record in the
