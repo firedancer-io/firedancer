@@ -92,51 +92,6 @@ fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
   return key;
 }
 
-/* Account Access from Funk APIs *************************************************/
-
-/* The following fd_funk_acc_mgr APIs translate between the runtime account DB abstraction
-   and the actual funk database.
-
-   ### Translation
-
-   Each runtime account is backed by a funk record.  However, not all
-   funk records contain an account.  Funk records may temporarily hold
-   "deleted accounts".
-
-   The memory layout of the account funk record data is
-   (fd_account_meta_t, padding, account data). */
-
-/* fd_funk_get_acc_meta_readonly requests a read-only handle to account data.
-   funk is the database handle.  txn is the database
-   transaction to query.  pubkey is the account key to query.
-
-   On success:
-   - loads the account data into in-memory cache
-   - returns a pointer to it in the caller's local address space
-
-   First byte of returned pointer is first byte of fd_account_meta_t.
-   To find data region of account, add sizeof(fd_account_meta_t).
-
-   Lifetime of returned fd_funk_rec_t and account record pointers ends
-   when user calls modify_data for same account, or tranasction ends.
-
-   If the account was not found, returns NULL.
-
-   It is always wrong to cast return value to a non-const pointer.
-   Instead, use fd_funk_get_acc_meta_mutable to acquire a mutable handle.
-
-   If xid_out is supplied (non-null), sets *xid_out to the xid in which
-   the found record was created.
-
-   IMPORTANT: fd_funk_get_acc_meta_readonly is only safe if it
-   is guaranteed there are no other modifying accesses to the account. */
-
-fd_account_meta_t const *
-fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
-                               fd_funk_txn_xid_t const * xid,
-                               fd_pubkey_t const *       pubkey,
-                               fd_funk_txn_xid_t *       xid_out );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_acc_mgr_h */

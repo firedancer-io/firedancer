@@ -1,5 +1,4 @@
 $(call add-hdrs,fd_acc_mgr.h)
-$(call add-objs,fd_acc_mgr,fd_flamenco)
 
 $(call add-hdrs,fd_blockhashes.h)
 $(call add-objs,fd_blockhashes,fd_flamenco)
