@@ -7,8 +7,28 @@
 // TODO set proper defaults, and delete DFT_UNKNOWN
 #define DFT_UNKNOWN 0
 
+/* QUIC VARINT bounds - RFC 9000 variable-length integers can encode up to 2^62-1 */
+#define FD_QUIC_VARINT_MAX ((1UL<<62)-1UL)
+#define FD_QUIC_VARINT_MIN 0UL
+
+/* RFC 9000 Section 19.11: Stream count maximum cannot exceed 2^60, as it is not possible to encode stream IDs larger than 2^62-1. */
+#define FD_QUIC_STREAM_COUNT_MAX (1UL<<60)
+
+/* RFC 9000 Section 18.2: ack_delay_exponent values above 20 are invalid */
+#define FD_QUIC_ACK_DELAY_EXPONENT_MAX 20UL
+
+/* RFC 9000 Section 18.2: max_ack_delay values of 2^14 or greater are invalid */
+#define FD_QUIC_MAX_ACK_DELAY_MAX ((1UL<<14)-1UL)
+
+/* RFC 9000 Section 18.2: max_udp_payload_size minimum is 1200 */
+#define FD_QUIC_MAX_UDP_PAYLOAD_SIZE_MIN 1200UL
+
+/* RFC 9000 Section 18.2: The value of the active_connection_id_limit parameter MUST be at least 2 */
+#define FD_QUIC_ACTIVE_CONNECTION_ID_LIMIT_MIN 2UL
+
 //23456789.123456789.123456789.123456789.123456789.123456789.123456789.123456789.123456789.123456789.123456789
 //........1.........2.........3.........4.........5.........6.........7.........8.........9.........0.........
+// Fields: NAME, ID, TYPE, DFT, DESC, MIN, MAX (MIN and MAX ignored except for VARINT types)
 #define FD_QUIC_TRANSPORT_PARAMS(X, ...)                                               \
 X( original_destination_connection_id,                                                 \
   0x00,                                                                                \
@@ -17,14 +37,16 @@ X( original_destination_connection_id,                                          
   "This parameter is the value of the Destination Connection ID field from the "       \
   "first Initial packet sent by the client; see Section 7.3. This transport "          \
   "parameter is only sent by a server.",                                               \
+  0, 0,                                                                                \
   __VA_ARGS__ )                                                                        \
-X( max_idle_timeout_ms,                                                                   \
+X( max_idle_timeout_ms,                                                                \
   0x01,                                                                                \
   VARINT,                                                                              \
   DFT_UNKNOWN,                                                                         \
   "The maximum idle timeout is a value in milliseconds that is encoded as an "         \
   "integer; see (Section 10.1). Idle timeout is disabled when both endpoints omit "    \
   "this transport parameter or specify a value of 0.",                                 \
+  FD_QUIC_VARINT_MIN, FD_QUIC_VARINT_MAX,                                              \
   __VA_ARGS__ )                                                                        \
 X( stateless_reset_token,                                                              \
   0x02,                                                                                \
@@ -35,6 +57,7 @@ X( stateless_reset_token,                                                       
   "NOT be sent by a client but MAY be sent by a server. A server that does not send "  \
   "this transport parameter cannot use stateless reset (Section 10.3) for the "        \
   "connection ID negotiated during the handshake.",                                    \
+  0, 0,                                                                                \
   __VA_ARGS__ )                                                                        \
 X( max_udp_payload_size,                                                               \
   0x03,                                                                                \
@@ -49,6 +72,7 @@ X( max_udp_payload_size,                                                        
   "as the path MTU, but it is a property of the endpoint and not the path; see "       \
   "Section 14. It is expected that this is the space an endpoint dedicates to "        \
   "holding incoming packets.",                                                         \
+  FD_QUIC_MAX_UDP_PAYLOAD_SIZE_MIN, FD_QUIC_VARINT_MAX,                                             \
   __VA_ARGS__ )                                                                        \
 X( initial_max_data,                                                                   \
   0x04,                                                                                \
@@ -58,6 +82,7 @@ X( initial_max_data,                                                            
   "value for the maximum amount of data that can be sent on the connection. This is "  \
   "equivalent to sending a MAX_DATA (Section 19.9) for the connection immediately "    \
   "after completing the handshake.",                                                   \
+  FD_QUIC_VARINT_MIN, FD_QUIC_VARINT_MAX,                                              \
   __VA_ARGS__ )                                                                        \
 X( initial_max_stream_data_bidi_local,                                                 \
   0x05,                                                                                \
@@ -69,6 +94,7 @@ X( initial_max_stream_data_bidi_local,                                          
   "In client transport parameters, this applies to streams with an identifier with "   \
   "the least significant two bits set to 0x00; in server transport parameters, this "  \
   "applies to streams with the least significant two bits set to 0x01.",               \
+  FD_QUIC_VARINT_MIN, FD_QUIC_VARINT_MAX,                                              \
   __VA_ARGS__ )                                                                        \
 X( initial_max_stream_data_bidi_remote,                                                \
   0x06,                                                                                \
@@ -81,6 +107,7 @@ X( initial_max_stream_data_bidi_remote,                                         
   "identifier with the least significant two bits set to 0x01; in server transport "   \
   "parameters, this applies to streams with the least significant two bits set to "    \
   "0x00.",                                                                             \
+  FD_QUIC_VARINT_MIN, FD_QUIC_VARINT_MAX,                                              \
   __VA_ARGS__ )                                                                        \
 X( initial_max_stream_data_uni,                                                        \
   0x07,                                                                                \
@@ -92,6 +119,7 @@ X( initial_max_stream_data_uni,                                                 
   "transport parameters, this applies to streams with an identifier with the least "   \
   "significant two bits set to 0x03; in server transport parameters, this applies "    \
   "to streams with the least significant two bits set to 0x02.",                       \
+  FD_QUIC_VARINT_MIN, FD_QUIC_VARINT_MAX,                                              \
   __VA_ARGS__ )                                                                        \
 X( initial_max_streams_bidi,                                                           \
   0x08,                                                                                \
@@ -103,6 +131,7 @@ X( initial_max_streams_bidi,                                                    
   "absent or zero, the peer cannot open bidirectional streams until a MAX_STREAMS "    \
   "frame is sent. Setting this parameter is equivalent to sending a MAX_STREAMS "      \
   "(Section 19.11) of the corresponding type with the same value.",                    \
+  FD_QUIC_VARINT_MIN, FD_QUIC_STREAM_COUNT_MAX,                                        \
   __VA_ARGS__ )                                                                        \
 X( initial_max_streams_uni,                                                            \
   0x09,                                                                                \
@@ -114,6 +143,7 @@ X( initial_max_streams_uni,                                                     
   "absent or zero, the peer cannot open unidirectional streams until a MAX_STREAMS "   \
   "frame is sent. Setting this parameter is equivalent to sending a MAX_STREAMS "      \
   "(Section 19.11) of the corresponding type with the same value.",                    \
+  FD_QUIC_VARINT_MIN, FD_QUIC_STREAM_COUNT_MAX,                                        \
   __VA_ARGS__ )                                                                        \
 X( ack_delay_exponent,                                                                 \
   0x0a,                                                                                \
@@ -123,6 +153,7 @@ X( ack_delay_exponent,                                                          
   "used to decode the ACK Delay field in the ACK frame (Section 19.3). If this "       \
   "value is absent, a default value of 3 is assumed (indicating a multiplier of 8).\n" \
   "Values above 20 are invalid.",                                                      \
+  FD_QUIC_VARINT_MIN, FD_QUIC_ACK_DELAY_EXPONENT_MAX,                                  \
   __VA_ARGS__ )                                                                        \
 X( max_ack_delay,                                                                      \
   0x0b,                                                                                \
@@ -135,6 +166,7 @@ X( max_ack_delay,                                                               
   "commonly fire up to 1ms late, then it should send a max_ack_delay of 6ms. If "      \
   "this value is absent, a default of 25 milliseconds is assumed. Values of 2^14 or "  \
   "greater are invalid.",                                                              \
+  FD_QUIC_VARINT_MIN, FD_QUIC_MAX_ACK_DELAY_MAX,                                       \
   __VA_ARGS__ )                                                                        \
 X( disable_active_migration,                                                           \
   0x0c,                                                                                \
@@ -147,6 +179,7 @@ X( disable_active_migration,                                                    
   "during the handshake. This transport parameter does not prohibit connection "       \
   "migration after a client has acted on a preferred_address transport parameter.\n"   \
   "This parameter is a zero-length value.",                                            \
+  0, 0,                                                                                \
   __VA_ARGS__ )                                                                        \
 X( preferred_address,                                                                  \
   0x0d,                                                                                \
@@ -165,6 +198,7 @@ X( preferred_address,                                                           
   "16-byte Stateless Reset Token field includes the stateless reset token "            \
   "associated with the connection ID. The format of this transport parameter is "      \
   "shown in Figure 22 below.",                                                         \
+  0, 0,                                                                                \
   __VA_ARGS__ )                                                                        \
 X( active_connection_id_limit,                                                         \
   0x0e,                                                                                \
@@ -180,6 +214,7 @@ X( active_connection_id_limit,                                                  
   "absent, a default of 2 is assumed. If an endpoint issues a zero-length "            \
   "connection ID, it will never send a NEW_CONNECTION_ID frame and therefore "         \
   "ignores the active_connection_id_limit value received from its peer.",              \
+  FD_QUIC_ACTIVE_CONNECTION_ID_LIMIT_MIN, FD_QUIC_VARINT_MAX,                          \
   __VA_ARGS__ )                                                                        \
 X( initial_source_connection_id,                                                       \
   0x0f,                                                                                \
@@ -187,6 +222,7 @@ X( initial_source_connection_id,                                                
   DFT_UNKNOWN,                                                                         \
   "This is the value that the endpoint included in the Source Connection ID field "    \
   "of the first Initial packet it sends for the connection; see Section 7.3.",         \
+  0, 0,                                                                                \
   __VA_ARGS__ )                                                                        \
 X( retry_source_connection_id,                                                         \
   0x10,                                                                                \
@@ -195,6 +231,7 @@ X( retry_source_connection_id,                                                  
   "This is the value that the server included in the Source Connection ID field of "   \
   "a Retry packet; see Section 7.3. This transport parameter is only sent by a "       \
   "server.",                                                                           \
+  0, 0,                                                                                \
   __VA_ARGS__ )
 
 #define FD_QUIC_PREFERRED_ADDRESS_SZ_MAX (61)
