@@ -1841,8 +1841,8 @@ int
 fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
                                         ushort                idx,
                                         fd_pubkey_t const * * key ) {
-  /* Return a NotEnoughAccountKeys error if idx is out of bounds.
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L218 */
+  /* Return a MissingAccount error if idx is out of bounds.
+     https://github.com/anza-xyz/agave/blob/v3.1.4/transaction-context/src/lib.rs#L187 */
   if( FD_UNLIKELY( idx>=txn_out->accounts.cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
