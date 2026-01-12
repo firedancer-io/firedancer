@@ -1271,10 +1271,11 @@ FD_SPAD_FRAME_BEGIN( spad ) {
 }
 
 void
-fd_dump_elf_to_protobuf( fd_runtime_t *      runtime,
-                         fd_bank_t *         bank,
-                         fd_txn_in_t const * txn_in,
-                         fd_txn_account_t *  program_acc ) {
+fd_dump_elf_to_protobuf( fd_runtime_t *            runtime,
+                         fd_bank_t *               bank,
+                         fd_txn_in_t const *       txn_in,
+                         fd_pubkey_t const *       acc_pubkey,
+                         fd_account_meta_t const * acc_meta ) {
 fd_spad_t * spad = fd_spad_join( fd_spad_new( runtime->log.dumping_mem, 1UL<<28UL ) );
 
 FD_SPAD_FRAME_BEGIN( spad ) {
@@ -1282,13 +1283,13 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   fd_accdb_ro_t program_acc_ro[1];
-  fd_accdb_ro_init_nodb( program_acc_ro, program_acc->pubkey, program_acc->meta );
+  fd_accdb_ro_init_nodb( program_acc_ro, acc_pubkey, acc_meta );
 
   /* Get the programdata for the account */
   ulong           program_data_off = 0UL;
   ulong           program_data_len = 0UL;
   fd_accdb_ro_t * program_data =
-      fd_prog_load_elf( runtime->accdb, &xid, program_acc_ro, program_acc->pubkey, &program_data_off );
+      fd_prog_load_elf( runtime->accdb, &xid, program_acc_ro, acc_pubkey, &program_data_off );
   if( program_data==NULL ) {
     return;
   }
@@ -1299,7 +1300,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   char encoded_signature[FD_BASE58_ENCODED_64_SZ];
   fd_base58_encode_64( signature, NULL, encoded_signature );
 
-  FD_BASE58_ENCODE_32_BYTES( program_acc->pubkey->uc, program_acc_b58 );
+  FD_BASE58_ENCODE_32_BYTES( acc_pubkey->uc, program_acc_b58 );
   char filename[ PATH_MAX ];
   snprintf( filename,
           PATH_MAX,

@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 #define HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 
-#include "../fd_txn_account.h"
 #include "../fd_executor_err.h"
 #include "../fd_runtime_const.h"
 #include "../../../ballet/txn/fd_txn.h"
