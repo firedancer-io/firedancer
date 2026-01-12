@@ -108,10 +108,10 @@ rd_tile_exec( int     argc,
       FD_LOG_ERR(( "fread failed (%i-%s)", err, fd_io_strerror( err ) ));
     }
 
-    if( FD_UNLIKELY( memcmp( tar->hdr.magic, FD_TAR_MAGIC, 5UL ) ) ) {
+    if( FD_UNLIKELY( memcmp( tar->hdr.magic, FD_TAR_MAGIC, FD_TAR_MAGIC_SZ ) ) ) {
       int not_zero = 0;
       for( ulong i=0UL; i<512UL; i++ ) not_zero |= tar->buf[i];
-      if( FD_UNLIKELY( not_zero ) ) FD_LOG_ERR(( "invalid tar header magic `%s`", tar->hdr.magic ));
+      if( FD_UNLIKELY( not_zero ) ) FD_LOG_ERR(( "invalid tar header magic `%." FD_EXPAND_THEN_STRINGIFY(FD_TAR_MAGIC_SZ) "s`", tar->hdr.magic ));
 
       /* EOF marker reached */
 
