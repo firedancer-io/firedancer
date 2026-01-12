@@ -13,6 +13,7 @@
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../../../ballet/nanopb/pb_decode.h"
 #include "../../accdb/fd_accdb_admin.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 
 #include "generated/block.pb.h"
@@ -276,10 +277,10 @@ register_stake_delegation_from_db( fd_accdb_user_t *         accdb,
 
 /* Helper: Load accounts from protobuf into funk */
 static void
-load_accounts_from_proto( fd_accdb_user_t * accdb,
-                          fd_funk_txn_xid_t const * xid,
+load_accounts_from_proto( fd_accdb_user_t *                 accdb,
+                          fd_funk_txn_xid_t const *         xid,
                           fd_exec_test_acct_state_t const * acct_states,
-                          pb_size_t acct_states_count ) {
+                          pb_size_t                         acct_states_count ) {
   for( pb_size_t i=0U; i<acct_states_count; i++ ) {
     fd_exec_test_acct_state_t const * state = &acct_states[i];
 
@@ -290,27 +291,13 @@ load_accounts_from_proto( fd_accdb_user_t * accdb,
     fd_pubkey_t pubkey[1];
     fd_memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
-    /* Create account in funk */
-    fd_funk_rec_prepare_t prepare = {0};
-    fd_txn_account_t acc[1];
-
-    int ok = !!fd_txn_account_init_from_funk_mutable( acc, pubkey, accdb, xid, 1, size, &prepare );
-    if( FD_UNLIKELY( !ok ) ) {
-      continue;
-    }
-
-    /* Set account data */
-    if( state->data && size ) {
-      fd_txn_account_set_data( acc, state->data->bytes, size );
-    }
-
-    /* Set account metadata */
-    fd_txn_account_set_lamports( acc, state->lamports );
-    fd_txn_account_set_executable( acc, state->executable );
-    fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );
-    fd_txn_account_set_readonly( acc );
-
-    fd_txn_account_mutable_fini( acc, accdb, &prepare );
+    fd_accdb_rw_t rw[1];
+    fd_accdb_open_rw( accdb, rw, xid, pubkey, size, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE );
+    fd_accdb_ref_data_set    ( accdb, rw, state->data->bytes, size );
+    fd_accdb_ref_lamports_set( rw, state->lamports );
+    fd_accdb_ref_exec_bit_set( rw, state->executable );
+    fd_accdb_ref_owner_set   ( rw, state->owner );
+    fd_accdb_close_rw( accdb, rw );
   }
 }
 

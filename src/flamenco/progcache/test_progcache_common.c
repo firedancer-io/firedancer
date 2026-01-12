@@ -2,8 +2,8 @@
 #include "fd_progcache_admin.h"
 #include "fd_progcache_user.h"
 #include "../accdb/fd_accdb_admin.h"
+#include "../accdb/fd_accdb_sync.h"
 #include "../accdb/fd_accdb_impl_v1.h"
-#include "../runtime/fd_txn_account.h"
 #include "../features/fd_features.h"
 
 struct test_env {
@@ -115,34 +115,18 @@ test_key( ulong x ) {
 /* create_test_account creates an account in the account database. */
 
 static void
-create_test_account( test_env_t * env,
+create_test_account( test_env_t *              env,
                      fd_funk_txn_xid_t const * xid,
-                     void const * pubkey_,
-                     void const * owner_,
-                     void const * data,
-                     ulong        data_len,
-                     uchar        executable ) {
-  fd_pubkey_t pubkey = FD_LOAD( fd_pubkey_t, pubkey_ );
-  fd_pubkey_t owner  = FD_LOAD( fd_pubkey_t, owner_ ) ;
-
-  fd_txn_account_t acc[1];
-  fd_funk_rec_prepare_t prepare = {0};
-  int ok = !!fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
-                                                   /* pubkey      */ &pubkey,
-                                                   /* funk        */ env->accdb,
-                                                   /* xid         */ xid,
-                                                   /* do_create   */ 1,
-                                                   /* min_data_sz */ data_len,
-                                                   /* prepare     */ &prepare );
-  FD_TEST( ok );
-
-  if( data ) {
-    fd_txn_account_set_data( acc, data, data_len );
-  }
-
-  fd_txn_account_set_lamports( acc, 1UL );
-  fd_txn_account_set_executable( acc, executable );
-  fd_txn_account_set_owner( acc, &owner );
-
-  fd_txn_account_mutable_fini( acc, env->accdb, &prepare );
+                     void const *              pubkey,
+                     void const *              owner,
+                     void const *              data,
+                     ulong                     data_len,
+                     uchar                     executable ) {
+  fd_accdb_rw_t rw[1];
+  fd_accdb_open_rw( env->accdb, rw, xid, pubkey, data_len, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE );
+  fd_accdb_ref_data_set( env->accdb, rw, data, data_len );
+  fd_accdb_ref_lamports_set( rw, 1UL );
+  fd_accdb_ref_exec_bit_set( rw, executable );
+  fd_accdb_ref_owner_set   ( rw, owner );
+  fd_accdb_close_rw( env->accdb, rw );
 }
