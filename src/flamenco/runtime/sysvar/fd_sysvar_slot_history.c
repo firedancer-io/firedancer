@@ -1,6 +1,7 @@
 #include "fd_sysvar_slot_history.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 /* FIXME These constants should be header defines */
 

@@ -2,6 +2,7 @@
 
 #include "../../../util/bits/fd_sat.h"
 #include "../../../util/bits/fd_uwide.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"

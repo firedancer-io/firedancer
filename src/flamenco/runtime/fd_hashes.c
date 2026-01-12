@@ -1,12 +1,10 @@
 #include "fd_hashes.h"
-#include "fd_acc_mgr.h"
 #include "fd_bank.h"
 #include "../capture/fd_capture_ctx.h"
 #include "../capture/fd_solcap_writer.h"
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "fd_txn_account.h"
 
 void
 fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,

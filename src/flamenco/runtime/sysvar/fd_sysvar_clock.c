@@ -2,10 +2,9 @@
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
 #include "../fd_runtime_stack.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../program/fd_program_util.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 /* Syvar Clock Possible Values:
   slot:

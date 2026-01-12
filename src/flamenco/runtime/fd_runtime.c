@@ -1,7 +1,6 @@
 #include "fd_runtime.h"
 #include "../capture/fd_capture_ctx.h"
 #include "../types/fd_cast.h"
-#include "fd_acc_mgr.h"
 #include "fd_alut_interp.h"
 #include "fd_bank.h"
 #include "fd_executor_err.h"
@@ -19,6 +18,7 @@
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
+#include "../accdb/fd_accdb_sync.h"
 #include "../progcache/fd_progcache_user.h"
 
 #include "program/fd_stake_program.h"

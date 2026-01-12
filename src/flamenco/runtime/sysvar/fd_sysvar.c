@@ -2,8 +2,8 @@
 #include "../fd_system_ids.h"
 #include "../fd_hashes.h"
 #include "../fd_runtime.h"
-
 #include "fd_sysvar_rent.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1813 */
 void

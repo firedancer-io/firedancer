@@ -1,4 +1,5 @@
 #include "fd_prog_load.h"
+#include "../accdb/fd_accdb_sync.h"
 #include "../runtime/program/fd_bpf_loader_program.h"
 #include "../runtime/program/fd_loader_v4_program.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"

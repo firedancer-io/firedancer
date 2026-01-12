@@ -4,6 +4,7 @@
 #include "fd_sysvar.h"
 #include "fd_sysvar_cache.h"
 #include "fd_sysvar_cache_private.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 static int
 sysvar_data_fill( fd_sysvar_cache_t *       cache,

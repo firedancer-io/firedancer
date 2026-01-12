@@ -17,8 +17,7 @@
 #include "../accdb/fd_accdb_admin.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../features/fd_features.h"
-#include "../../funk/fd_funk.h"
-#include "../../funk/fd_funk_rec.h"
+#include "../accdb/fd_accdb_sync.h"
 
 /* Values before deprecate_rent_exemption_threshold is activated */
 #define TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR (3480UL)

@@ -1,7 +1,5 @@
 #include "fd_txn_account.h"
 #include "fd_runtime.h"
-#include "../accdb/fd_accdb_sync.h"
-#include "../accdb/fd_accdb_impl_v1.h"
 #include "program/fd_program_util.h"
 
 void *
@@ -113,80 +111,6 @@ fd_txn_account_delete( void * mem ) {
   txn_account->magic = 0UL;
 
   return mem;
-}
-
-fd_account_meta_t *
-fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
-                                       fd_pubkey_t const *       pubkey,
-                                       fd_accdb_user_t *         accdb,
-                                       fd_funk_txn_xid_t const * xid,
-                                       int                       do_create,
-                                       ulong                     min_data_sz,
-                                       fd_funk_rec_prepare_t *   prepare_out ) {
-  memset( prepare_out, 0, sizeof(fd_funk_rec_prepare_t) );
-
-  fd_accdb_rw_t rw[1];
-  int flags = do_create ? FD_ACCDB_FLAG_CREATE : 0;
-  if( FD_UNLIKELY( !fd_accdb_open_rw( accdb, rw, xid, pubkey->uc, min_data_sz, flags ) ) ) {
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
-        acct,
-        pubkey,
-        (fd_account_meta_t *)rw->meta,
-        1 ) ) ) ) {
-    FD_LOG_CRIT(( "Failed to join txn account" ));
-  }
-
-  /* HACKY: Convert accdb_rw writable reference into txn_account.
-     In the future, use fd_accdb_modify_publish instead */
-  accdb->base.rw_active--;
-  fd_accdb_user_v1_t * accdb_v1 = fd_type_pun( accdb );
-  fd_funk_txn_t * txn = accdb_v1->funk->txn_pool->ele + accdb_v1->tip_txn_idx;
-  if( FD_UNLIKELY( !fd_funk_txn_xid_eq( &txn->xid, xid ) ) ) FD_LOG_CRIT(( "accdb_user corrupt: not joined to the expected transaction" ));
-  fd_funk_rec_t * rec = (fd_funk_rec_t *)rw->ref->user_data;
-  if( !rec->pub ) {
-    *prepare_out = (fd_funk_rec_prepare_t) {
-      .rec          = rec,
-      .rec_head_idx = &txn->rec_head_idx,
-      .rec_tail_idx = &txn->rec_tail_idx
-    };
-  } else {
-    memset( prepare_out, 0, sizeof(fd_funk_rec_prepare_t) );
-  }
-
-  return rw->meta;
-}
-
-void
-fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
-                             fd_accdb_user_t *       accdb,
-                             fd_funk_rec_prepare_t * prepare ) {
-  fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
-  fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
-
-  /* Check that the prepared record is still valid -
-     if these invariants are broken something is very wrong. */
-  if( prepare->rec ) {
-    /* Check that the prepared record is not the Funk null value */
-    if( !prepare->rec->val_gaddr ) {
-      FD_BASE58_ENCODE_32_BYTES( acct->pubkey->uc, acct_pubkey_b58 );
-      FD_LOG_CRIT(( "invalid prepared record for %s: unexpected NULL funk record value. the record might have been modified by another thread",
-                    acct_pubkey_b58 ));
-    }
-
-    /* Ensure that the prepared record key still matches our key. */
-    if( FD_UNLIKELY( memcmp( prepare->rec->pair.key, &key, sizeof(fd_funk_rec_key_t) )!=0 ) ) {
-      FD_BASE58_ENCODE_32_BYTES( acct->pubkey->uc, acct_pubkey_b58 );
-      FD_LOG_CRIT(( "invalid prepared record for %s: the record might have been modified by another thread",
-                    acct_pubkey_b58 ));
-    }
-
-    /* Crashes the app if this key already exists in funk (conflicting
-       write) */
-    fd_funk_rec_publish( funk, prepare );
-  }
 }
 
 fd_pubkey_t const *

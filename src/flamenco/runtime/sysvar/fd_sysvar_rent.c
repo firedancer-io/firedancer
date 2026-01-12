@@ -2,6 +2,7 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "fd_sysvar_base.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 #include <assert.h>
 

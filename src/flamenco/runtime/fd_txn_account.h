@@ -1,12 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_txn_account_h
 #define HEADER_fd_src_flamenco_runtime_fd_txn_account_h
 
-#include "../accdb/fd_accdb_sync.h"
 #include "../types/fd_types.h"
-#include "../../funk/fd_funk_rec.h"
-
-struct fd_acc_mgr;
-typedef struct fd_acc_mgr fd_acc_mgr_t;
 
 /* fd_txn_account_t is a wrapper around a database record. It is used to
    provide an interface for an account during transaction execution
@@ -82,36 +77,6 @@ fd_txn_account_leave( fd_txn_account_t * acct );
 
 void *
 fd_txn_account_delete( void * mem );
-
-/* Factory constructors from funk.
-   TODO: These need to be removed when a new db is introduced and either
-   replaced with a new factory constructor or removed entirely in favor
-   of the generic constructors defined above. */
-
-/* fd_txn_account_init_from_funk_mutable initializes a fd_txn_account_t
-   object with a mutable handle into its funk record.
-
-   IMPORTANT: Cannot be called in the executor tile. */
-
-fd_account_meta_t *
-fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
-                                       fd_pubkey_t const *       pubkey,
-                                       fd_accdb_user_t *         accdb,
-                                       fd_funk_txn_xid_t const * xid,
-                                       int                       do_create,
-                                       ulong                     min_data_sz,
-                                       fd_funk_rec_prepare_t *   prepare_out );
-
-/* Publishes the record contents of a mutable fd_txn_account_t object
-   obtained from fd_txn_account_init_from_funk_mutable into funk
-   if the record does not yet exist in the current funk txn.
-   ie. the record was created / cloned from an ancestor funk txn
-   by fd_txn_account_init_from_funk_mutable. */
-
-void
-fd_txn_account_mutable_fini( fd_txn_account_t *        acct,
-                             fd_accdb_user_t *         funk,
-                             fd_funk_rec_prepare_t *   prepare );
 
 /* Simple accesssors and mutators. */
 

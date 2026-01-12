@@ -2,7 +2,7 @@
 #include "fd_precompiles.h"
 #include "../fd_system_ids.h"
 #include "../fd_system_ids_pp.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 #define BUILTIN_PROGRAM(program_id, name, feature_offset, migration_config) \
     {                                                                       \
