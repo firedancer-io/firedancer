@@ -2,6 +2,7 @@
 #include "generated/context.pb.h"
 #include "../fd_runtime.h"
 #include "../../features/fd_features.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include <assert.h>
 
 int
@@ -9,12 +10,8 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
                             fd_accdb_user_t *                 accdb,
                             fd_funk_txn_xid_t const *         xid,
                             fd_exec_test_acct_state_t const * state,
-                            uchar                             reject_zero_lamports,
-                            ulong                             acc_idx,
-                            fd_account_meta_t * *             meta_out ) {
-  if( reject_zero_lamports && state->lamports==0UL ) {
-    return 0;
-  }
+                            ulong                             acc_idx ) {
+  if( state->lamports==0UL ) return 0;
 
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
@@ -28,39 +25,17 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
     return 0;
   }
 
-  /* TODO: break the txn account dependency completely from the
-     harnesses. */
-
-  fd_funk_rec_prepare_t prepare = {0};
-
-  fd_txn_account_t acc[1];
-
-  int ok = !!fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
-                                                    /* pubkey      */ pubkey,
-                                                    /* funk        */ accdb,
-                                                    /* xid         */ xid,
-                                                    /* do_create   */ 1,
-                                                    /* min_data_sz */ size,
-                                                    /* prepare     */ &prepare );
-  assert( ok );
-  if( meta_out ) {
-    *meta_out = acc->meta;
-  }
-
+  fd_accdb_rw_t rw[1];
+  fd_accdb_open_rw( accdb, rw, xid, pubkey, size, FD_ACCDB_FLAG_CREATE );
   if( state->data ) {
-    fd_txn_account_set_data( acc, state->data->bytes, size );
+    fd_accdb_ref_data_set( accdb, rw, state->data->bytes, size );
   }
-
-  runtime->accounts.starting_lamports[acc_idx] = state->lamports;
-  runtime->accounts.starting_dlen[acc_idx]     = size;
-  fd_txn_account_set_lamports( acc, state->lamports );
-  fd_txn_account_set_executable( acc, state->executable );
-  fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );
-
-  /* make the account read-only by default */
-  fd_txn_account_set_readonly( acc );
-
-  fd_txn_account_mutable_fini( acc, accdb, &prepare );
+  runtime->accounts.starting_lamports[ acc_idx ] = state->lamports;
+  runtime->accounts.starting_dlen    [ acc_idx ] = size;
+  fd_accdb_ref_lamports_set( rw, state->lamports   );
+  fd_accdb_ref_exec_bit_set( rw, state->executable );
+  fd_accdb_ref_owner_set   ( rw, state->owner      );
+  fd_accdb_close_rw( accdb, rw );
 
   return 1;
 }
