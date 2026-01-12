@@ -230,42 +230,6 @@ fd_write_builtin_account( fd_bank_t  *              bank,
   fd_accdb_close_rw( accdb, rw );
 }
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L74 */
-/* TODO: move this somewhere more appropiate */
-static void
-write_inline_spl_native_mint_program_account( fd_accdb_user_t *         accdb,
-                                              fd_funk_txn_xid_t const * xid ) {
-
-  if( true ) {
-    /* FIXME: This is a hack that corresponds to the cluster type field
-       in Agave. This needs to get implemented properly in Firedancer. */
-    return;
-  }
-
-  fd_pubkey_t const * key  = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
-  fd_txn_account_t rec[1];
-
-  /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
-  static uchar const data[] = {
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-
-  fd_funk_rec_prepare_t prepare = {0};
-  int ok = !!fd_txn_account_init_from_funk_mutable( rec, key, accdb, xid, 1, sizeof(data), &prepare );
-  FD_TEST( ok );
-
-  fd_txn_account_set_lamports( rec, 1000000000UL );
-  fd_txn_account_set_executable( rec, 0 );
-  fd_txn_account_set_owner( rec, &fd_solana_spl_token_id );
-  fd_txn_account_set_data( rec, data, sizeof(data) );
-
-  fd_txn_account_mutable_fini( rec, accdb, &prepare );
-}
-
-// <rant> Why are these not in the genesis block themselves?! the hackery to deal with subtle solana variants
-//        because of the "special knowledge" required for these accounts is counter productive... </rant>
-
 void
 fd_builtin_programs_init( fd_bank_t *               bank,
                           fd_accdb_user_t *         accdb,
@@ -293,9 +257,6 @@ fd_builtin_programs_init( fd_bank_t *               bank,
   if( FD_FEATURE_ACTIVE_BANK( bank, enable_secp256r1_precompile ) ) {
     fd_write_builtin_account( bank, accdb, xid, capture_ctx, fd_solana_secp256r1_program_id, "", 0 );
   }
-
-  /* Inline SPL token mint program ("inlined to avoid an external dependency on the spl-token crate") */
-  write_inline_spl_native_mint_program_account( accdb, xid );
 }
 
 fd_builtin_program_t const *
