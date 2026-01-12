@@ -60,13 +60,7 @@
 
    txn_out (committable)     --> fd_runtime_commit_txn()
    txn_out (not committable) --> fd_runtime_cancel_txn()
-
-    txn_out->err.is_committable==1 --> fd_runtime_commit_txn() should be called.
-
-
-
-
-   */
+*/
 
 struct fd_runtime {
   fd_accdb_user_t * accdb;
