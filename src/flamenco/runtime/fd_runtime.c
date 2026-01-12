@@ -1091,7 +1091,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   }
 
   if( FD_UNLIKELY( runtime->outstanding_txn==0 ) ) {
-    FD_LOG_CRIT(( "fd_runtime_cancel_txn: can't cancel a transaction when there is no outstanding transaction" ));
+    FD_LOG_CRIT(( "fd_runtime_commit_txn: can't commit a transaction when there is no outstanding transaction" ));
   }
 
   runtime->outstanding_txn = 0;
