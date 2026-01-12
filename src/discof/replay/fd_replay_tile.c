@@ -1177,34 +1177,34 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   fd_bank_t *       bank = prepare_leader_bank( ctx, ctx->next_leader_slot, now_nanos, &ctx->reset_block_id, stem );
   fd_funk_txn_xid_t xid  = { .ul = { ctx->next_leader_slot, ctx->leader_bank->data->idx } };
 
-  fd_bundle_crank_tip_payment_config_t config[1]             = { 0 };
-  fd_acct_addr_t                       tip_receiver_owner[1] = { 0 };
+  fd_bundle_crank_tip_payment_config_t config[1] = { 0 };
+  fd_pubkey_t tip_receiver_owner = {0};
 
   if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     fd_acct_addr_t tip_payment_config[1];
     fd_acct_addr_t tip_receiver[1];
     fd_bundle_crank_get_addresses( ctx->bundle.gen, fd_bank_epoch_get( bank ), tip_payment_config, tip_receiver );
 
-    fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
-    fd_txn_account_t tip_config_acc[1];
-    int err = fd_txn_account_init_from_funk_readonly( tip_config_acc,
-                                                      (fd_hash_t *)tip_payment_config->b,
-                                                      funk,
-                                                      &xid );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_CRIT(( "failed to initialize tip payment config account: err=%d", err ));
+    fd_accdb_ro_t tip_config_acc[1];
+    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, tip_config_acc, &xid, tip_payment_config ) ) ) {
+      /* FIXME This should not crash the validator */
+      FD_BASE58_ENCODE_32_BYTES( tip_payment_config->b, tip_config_acc_b58 );
+      FD_LOG_CRIT(( "tip payment config account %s does not exist", tip_config_acc_b58 ));
     }
-    memcpy( config, fd_txn_account_get_data( tip_config_acc ), sizeof(fd_bundle_crank_tip_payment_config_t) );
+    ulong tip_cfg_sz = fd_accdb_ref_data_sz( tip_config_acc );
+    if( FD_UNLIKELY( tip_cfg_sz < sizeof(fd_bundle_crank_tip_payment_config_t) ) ) {
+      /* FIXME This should not crash the validator */
+      FD_LOG_HEXDUMP_CRIT(( "invalid tip payment config account data", fd_accdb_ref_data_const( tip_config_acc ), tip_cfg_sz ));
+    }
+    memcpy( config, fd_accdb_ref_data_const( tip_config_acc ), sizeof(fd_bundle_crank_tip_payment_config_t) );
+    fd_accdb_close_ro( ctx->accdb, tip_config_acc );
 
     /* It is possible that the tip receiver account does not exist yet
        if it is the first time in an epoch. */
-    fd_txn_account_t tip_receiver_acc[1];
-    err = fd_txn_account_init_from_funk_readonly( tip_receiver_acc,
-                                                  (fd_hash_t *)tip_receiver->b,
-                                                  funk,
-                                                  &xid );
-    if( FD_LIKELY( !err ) ) {
-      memcpy( tip_receiver_owner, tip_receiver_acc->meta->owner, sizeof(fd_acct_addr_t) );
+    fd_accdb_ro_t tip_receiver_acc[1];
+    if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, tip_receiver_acc, &xid, tip_receiver ) ) ) {
+      tip_receiver_owner = FD_LOAD( fd_pubkey_t, fd_accdb_ref_owner( tip_receiver_acc ) );
+      fd_accdb_close_ro( ctx->accdb, tip_receiver_acc );
     }
   }
 
@@ -1219,9 +1219,8 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
   msg->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
   msg->bundle->config[0]       = config[0];
-  memcpy( msg->bundle->last_blockhash,     (fd_hash_t *)fd_bank_poh_query( bank )->hash, 32UL );
-  memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner,                           32UL );
-
+  memcpy( msg->bundle->last_blockhash,     fd_bank_poh_query( bank )->hash, sizeof(fd_hash_t)   );
+  memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc,           sizeof(fd_pubkey_t) );
 
   if( FD_UNLIKELY( msg->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
