@@ -71,7 +71,6 @@ fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
     fd_vote_state_ele_t * vote_state_prev_prev = fd_vote_states_query( vote_states_prev_prev, &vote_state->vote_account );
     ulong t_2_stake = !!vote_state_prev_prev ? vote_state_prev_prev->stake : 0UL;
     vote_state->stake_t_2 = epoch>=2UL ? t_2_stake : vote_state->stake;
-    vote_state->stake_t_2 = vote_state->stake;
   }
 
   /* Set stake_t_1 for the vote accounts in the vote states cache. */
@@ -82,7 +81,6 @@ fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
     fd_vote_state_ele_t * vote_state_prev = fd_vote_states_query( vote_states_prev, &vote_state->vote_account );
     ulong t_1_stake = !!vote_state_prev ? vote_state_prev->stake : 0UL;
     vote_state->stake_t_1 = epoch>=1UL ? t_1_stake : vote_state->stake;
-    vote_state->stake_t_1 = vote_state->stake;
   }
 }
 
