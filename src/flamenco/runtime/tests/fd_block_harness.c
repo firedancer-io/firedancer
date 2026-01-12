@@ -91,72 +91,49 @@ fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
    entry is derived from the current present account state.  This
    function also registers a vote timestamp for the vote account. */
 static void
-fd_solfuzz_block_register_vote_account( fd_funk_t  *              funk,
+fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
                                         fd_funk_txn_xid_t const * xid,
                                         fd_vote_states_t *        vote_states,
                                         fd_pubkey_t *             pubkey ) {
-  fd_txn_account_t acc[1];
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
-    return;
-  }
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) return;
 
-  /* Account must be owned by the vote program */
-  if( memcmp( fd_txn_account_get_owner( acc ), fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return;
-  }
-
-  /* Account must have > 0 lamports */
-  if( fd_txn_account_get_lamports( acc )==0UL ) {
-    return;
-  }
-
-  /* Account must be initialized correctly */
-  if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( acc->meta ) ) ) {
+  if( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_vote_program_id ) ||
+      fd_accdb_ref_lamports( ro )==0UL ||
+      !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return;
   }
 
   fd_vote_states_update_from_account(
       vote_states,
-      acc->pubkey,
-      fd_txn_account_get_data( acc ),
-      fd_txn_account_get_data_len( acc ) );
+      fd_accdb_ref_address( ro ),
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ) );
+  fd_accdb_close_ro( accdb, ro );
 }
 
 /* Stores an entry in the stake delegations cache for the given vote
    account.  Deserializes and uses the present account state to derive
    delegation information. */
 static void
-fd_solfuzz_block_register_stake_delegation( fd_funk_t *               funk,
+fd_solfuzz_block_register_stake_delegation( fd_accdb_user_t *         accdb,
                                             fd_funk_txn_xid_t const * xid,
                                             fd_stake_delegations_t *  stake_delegations,
                                             fd_pubkey_t *             pubkey ) {
- fd_txn_account_t acc[1];
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
-    return;
-  }
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) return;
 
-  /* Account must be owned by the stake program */
-  if( memcmp( fd_txn_account_get_owner( acc ), fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return;
-  }
-
-  /* Account must have > 0 lamports */
-  if( fd_txn_account_get_lamports( acc )==0UL ) {
-    return;
-  }
-
-  /* Stake state must exist and be initialized correctly */
   fd_stake_state_v2_t stake_state;
-  if( FD_UNLIKELY( fd_stake_get_state( acc->meta, &stake_state ) || !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+  if( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_stake_program_id ) ||
+      fd_accdb_ref_lamports( ro )==0UL ||
+      0!=fd_stake_get_state( ro->meta, &stake_state ) ||
+      !fd_stake_state_v2_is_stake( &stake_state ) ||
+      stake_state.inner.stake.stake.delegation.stake==0UL ) {
+    fd_accdb_close_ro( accdb, ro );
     return;
   }
 
-  /* Skip 0-stake accounts */
-  if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
-    return;
-  }
-
-  /* Nothing to do if the account already exists in the cache */
   fd_stake_delegations_update(
       stake_delegations,
       pubkey,
@@ -166,6 +143,7 @@ fd_solfuzz_block_register_stake_delegation( fd_funk_t *               funk,
       stake_state.inner.stake.stake.delegation.deactivation_epoch,
       stake_state.inner.stake.stake.credits_observed,
       stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
+  fd_accdb_close_ro( accdb, ro );
 }
 
 /* Common helper method for populating a previous epoch's vote cache. */
@@ -255,7 +233,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                 ulong *                              out_txn_cnt,
                                 fd_hash_t *                          poh ) {
   fd_accdb_user_t * accdb = runner->accdb;
-  fd_funk_t *       funk  = fd_accdb_user_v1_funk( runner->accdb );
   fd_bank_t *       bank  = runner->bank;
   fd_banks_t *      banks = runner->banks;
 
@@ -344,13 +321,13 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_pubkey_t pubkey;
     memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
     fd_solfuzz_block_register_vote_account(
-        funk,
+        accdb,
         xid,
         vote_states,
         &pubkey );
 
     /* Update the stake delegations cache for epoch T */
-    fd_solfuzz_block_register_stake_delegation( funk, xid, stake_delegations, &pubkey );
+    fd_solfuzz_block_register_stake_delegation( accdb, xid, stake_delegations, &pubkey );
   }
 
   /* Zero out vote stakes to avoid leakage across tests */
