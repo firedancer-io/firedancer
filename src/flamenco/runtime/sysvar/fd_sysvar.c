@@ -17,19 +17,16 @@ fd_sysvar_account_update( fd_bank_t *               bank,
   fd_rent_t const * rent    = fd_bank_rent_query( bank );
   ulong     const   min_bal = fd_rent_exempt_minimum_balance( rent, sz );
 
-  fd_txn_account_t rec[1];
-  fd_funk_rec_prepare_t prepare = {0};
-  fd_txn_account_init_from_funk_mutable( rec, address, accdb, xid, 1, sz, &prepare );
+  fd_accdb_rw_t rw[1];
+  fd_accdb_open_rw( accdb, rw, xid, address, sz, FD_ACCDB_FLAG_CREATE );
   fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( address, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
+  fd_hashes_account_lthash( address, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
 
-  ulong const slot            = fd_bank_slot_get( bank );
-  ulong const lamports_before = fd_txn_account_get_lamports( rec );
+  ulong const lamports_before = fd_accdb_ref_lamports( rw->ro );
   ulong const lamports_after  = fd_ulong_max( lamports_before, min_bal );
-  fd_txn_account_set_lamports( rec, lamports_after      );
-  fd_txn_account_set_owner   ( rec, &fd_sysvar_owner_id );
-  fd_txn_account_set_slot    ( rec, slot                );
-  fd_txn_account_set_data    ( rec, data, sz );
+  fd_accdb_ref_lamports_set( rw, lamports_after      );
+  fd_accdb_ref_owner_set   ( rw, &fd_sysvar_owner_id );
+  fd_accdb_ref_data_set    ( accdb, rw, data, sz );
 
   ulong lamports_minted;
   if( FD_UNLIKELY( __builtin_usubl_overflow( lamports_after, lamports_before, &lamports_minted ) ) ) {
@@ -41,19 +38,15 @@ fd_sysvar_account_update( fd_bank_t *               bank,
   if( lamports_minted ) {
     ulong cap = fd_bank_capitalization_get( bank );
     fd_bank_capitalization_set( bank, cap+lamports_minted );
-  } else if( lamports_before==lamports_after ) {
-    /* no balance change */
-  } else {
-    __builtin_unreachable();
   }
 
-  fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
-  fd_txn_account_mutable_fini( rec, accdb, &prepare );
+  fd_hashes_update_lthash( fd_accdb_ref_address( rw->ro ), rw->meta, prev_hash, bank, capture_ctx );
+  fd_accdb_close_rw( accdb, rw );
 
   if( FD_UNLIKELY( fd_log_level_logfile()<=0 || fd_log_level_stderr()<=0 ) ) {
     char name[ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( address->uc, NULL, name );
-    FD_LOG_DEBUG(( "Updated sysvar: address=%s data_sz=%lu slot=%lu lamports=%lu lamports_minted=%lu",
-                   name, sz, slot, lamports_after, lamports_minted ));
+    FD_LOG_DEBUG(( "Updated sysvar: address=%s data_sz=%lu lamports=%lu lamports_minted=%lu",
+                   name, sz, lamports_after, lamports_minted ));
   }
 }
 
