@@ -500,31 +500,21 @@ fd_feature_activate( fd_bank_t *               bank,
   } else {
     FD_LOG_DEBUG(( "Feature %s not activated at %lu, activating", addr_b58, feature->activated_at ));
 
-    fd_txn_account_t modify_acct_rec[1];
-    fd_funk_rec_prepare_t modify_acct_prepare = {0};
-    int ok = !!fd_txn_account_init_from_funk_mutable( modify_acct_rec, addr, accdb, xid, 0, 0UL, &modify_acct_prepare );
-    if( FD_UNLIKELY( !ok ) ) return;
-
+    fd_accdb_rw_t rw[1];
+    if( FD_UNLIKELY( !fd_accdb_open_rw( accdb, rw, xid, addr, 0UL, 0 ) ) ) return;
     fd_lthash_value_t prev_hash[1];
-    fd_hashes_account_lthash(
-      addr,
-      fd_txn_account_get_meta( modify_acct_rec ),
-      fd_txn_account_get_data( modify_acct_rec ),
-      prev_hash );
-
+    fd_hashes_account_lthash( addr, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
     feature->has_activated_at = 1;
     feature->activated_at     = fd_bank_slot_get( bank );
     fd_bincode_encode_ctx_t encode_ctx = {
-      .data    = fd_txn_account_get_data_mut( modify_acct_rec ),
-      .dataend = fd_txn_account_get_data_mut( modify_acct_rec ) + fd_txn_account_get_data_len( modify_acct_rec ),
+      .data    = fd_accdb_ref_data( rw ),
+      .dataend = (uchar *)fd_accdb_ref_data( rw ) + fd_accdb_ref_data_sz( rw->ro ),
     };
-    int encode_err = fd_feature_encode( feature, &encode_ctx );
-    if( FD_UNLIKELY( encode_err != FD_BINCODE_SUCCESS ) ) {
-      FD_LOG_ERR(( "Failed to encode feature account %s (%d)", addr_b58, decode_err ));
+    if( FD_UNLIKELY( fd_feature_encode( feature, &encode_ctx ) != FD_BINCODE_SUCCESS ) ) {
+      FD_LOG_CRIT(( "failed to encode feature account %s (account too small)", addr_b58 ));
     }
-
-    fd_hashes_update_lthash( modify_acct_rec->pubkey, modify_acct_rec->meta, prev_hash, bank, capture_ctx );
-    fd_txn_account_mutable_fini( modify_acct_rec, accdb, &modify_acct_prepare );
+    fd_hashes_update_lthash( addr, rw->meta, prev_hash, bank, capture_ctx );
+    fd_accdb_close_rw( accdb, rw );
   }
 }
 
