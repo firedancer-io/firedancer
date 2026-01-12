@@ -456,22 +456,6 @@ struct fd_topo_tile {
     } repair;
 
     struct {
-      char  slots_pending[PATH_MAX];
-
-      ulong expected_shred_version;
-
-      /* non-config */
-
-      char  identity_key_path[ PATH_MAX ];
-      char  shred_cap_archive[ PATH_MAX ];
-      char  shred_cap_replay[ PATH_MAX ];
-      ulong shred_cap_end_slot;
-
-      char  blockstore_file[ PATH_MAX ];
-      char  blockstore_restore[ PATH_MAX ];
-    } store_int;
-
-    struct {
       ushort  send_src_port;
 
       /* non-config */

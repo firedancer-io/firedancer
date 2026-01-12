@@ -91,8 +91,6 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
         enabled = false
     [tiles.rpc]
         enabled = false
-[store]
-    max_completed_shred_sets = 32768
 [funk]
     heap_size_gib = 1
     max_account_records = 2000000
