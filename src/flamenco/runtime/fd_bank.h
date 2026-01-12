@@ -418,7 +418,8 @@ struct fd_banks_locks {
 
   /* These pools are shared between each fd_bank_t and fd_banks_t.
      These locks are used to guard against concurrent access to the
-     pools (e.g. acquires and releases). */
+     pools (e.g. acquires and releases).  These locks are currently just
+     write locks and have no readers. */
   fd_rwlock_t epoch_rewards_pool_lock;
   fd_rwlock_t epoch_leaders_pool_lock;
   fd_rwlock_t vote_states_pool_lock;
@@ -426,7 +427,8 @@ struct fd_banks_locks {
   fd_rwlock_t vote_states_prev_prev_pool_lock;
 
   /* These locks are per bank and are used to atomically update their
-     corresponding fields in the bank locks. */
+     corresponding fields in each bank.  The locks are indexed by the
+     bank index. */
   fd_rwlock_t lthash_lock[ FD_BANKS_MAX_BANKS ];
   fd_rwlock_t cost_tracker_lock[ FD_BANKS_MAX_BANKS ];
   fd_rwlock_t stake_delegations_delta_lock[ FD_BANKS_MAX_BANKS ];
@@ -436,7 +438,7 @@ struct fd_banks_locks {
 typedef struct fd_banks_locks fd_banks_locks_t;
 
 struct fd_bank {
-  fd_bank_data_t *  data;
+  fd_bank_data_t *   data;
   fd_banks_locks_t * locks;
 };
 typedef struct fd_bank fd_bank_t;
