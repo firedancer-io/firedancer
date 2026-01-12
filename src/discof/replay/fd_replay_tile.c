@@ -817,8 +817,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* If enabled, dump the block to a file and reset the dumping
      context state */
   if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
-    fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
-    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, funk, ctx->capture_ctx );
+    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb, ctx->capture_ctx );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
 # endif

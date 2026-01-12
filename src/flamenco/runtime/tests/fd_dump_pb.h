@@ -202,7 +202,7 @@ void
 fd_dump_block_to_protobuf( fd_block_dump_ctx_t *     dump_ctx,
                            fd_banks_t *              banks,
                            fd_bank_t *               bank,
-                           fd_funk_t *               funk,
+                           fd_accdb_user_t *         accdb,
                            fd_capture_ctx_t const *  capture_ctx );
 
 void
