@@ -545,25 +545,6 @@ user = ""
         # is not recommended to change this setting.
         mean_cache_entry_size = 131072
 
-[store]
-    # Similar to max_pending_shred_sets, this parameter configures the
-    # maximum number of shred sets that can be buffered.  However, this
-    # parameter configures completed sets rather than pending ones (ie.
-    # fully validated shred sets).
-    #
-    # This buffer needs to be at least as big as Replay needs until the
-    # Tower consensus algorithm indicates a new "root", which allows
-    # pruning shred sets that do not descend from this root.
-    #
-    # To compute an approximate value, multiply the maximum number of
-    # unrooted banks by the maximum number of shred sets (this value is
-    # currently 32768 but can be reduced to 1024 once shred sets are
-    # restricted to always be size 32).  The default is approximately
-    # 1000 banks with this calculation (rounded to nearest power-of-2).
-    #
-    # This value will be rounded up to the nearest power-of-2.
-    max_completed_shred_sets = 1_048_576
-
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
 # run on which cores and for how long, Firedancer overrides most of this

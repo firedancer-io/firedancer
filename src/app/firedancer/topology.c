@@ -1060,14 +1060,21 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ], fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
 
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.store.max_completed_shred_sets, (uint)shred_tile_cnt );
+   /* The Store fec_max parameter is the max number of FEC sets that can
+      be retained before the Tower consensus algorithm indicates a new
+      "root", which allows pruning FECs.
+
+      The default value is from multiplying max_live_slots by the
+      maximum number of FEC sets in a block (currently 32768 but can be
+      reduced to 1024 once FECs are restricted to always be size 32,
+      given the current consensus limit of 32768 shreds per block). */
+
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX, (uint)shred_tile_cnt );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
-  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
-      config->firedancer.runtime.max_live_slots,
-      fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( snapshots_enabled ) ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1279,6 +1286,35 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
+    /* Please maintain same field order as fd_topo.h */
+
+    tile->replay.fec_max = config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX;
+    tile->replay.max_vote_accounts = config->firedancer.runtime.max_vote_accounts;
+
+    tile->replay.funk_obj_id      = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX ); FD_TEST( tile->replay.funk_obj_id     !=ULONG_MAX );
+
+    tile->replay.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->replay.txncache_obj_id !=ULONG_MAX );
+    tile->replay.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->replay.progcache_obj_id!=ULONG_MAX );
+
+    strncpy( tile->replay.identity_key_path, config->paths.identity_key, sizeof(tile->replay.identity_key_path) );
+    tile->replay.ip_addr = config->net.ip_addr;
+    strncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );
+
+    tile->replay.expected_shred_version = config->consensus.expected_shred_version;
+
+    tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
+
+    strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
+
+    tile->replay.larger_max_cost_per_block = config->development.bench.larger_max_cost_per_block;
+
+    /* not specified by [tiles.replay] */
+
+    tile->replay.capture_start_slot = config->capture.capture_start_slot;
+    strncpy( tile->replay.solcap_capture, config->capture.solcap_capture, sizeof(tile->replay.solcap_capture) );
+    strncpy( tile->replay.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->replay.dump_proto_dir) );
+    tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
+
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
 #define PARSE_PUBKEY( _tile, f ) \
       if( FD_UNLIKELY( !fd_base58_decode_32( config->tiles.bundle.f, tile->_tile.bundle.f ) ) )  \
@@ -1290,35 +1326,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else {
       fd_memset( &tile->replay.bundle, '\0', sizeof(tile->replay.bundle) );
     }
-
-    tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
-    tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
-    tile->replay.max_vote_accounts = config->firedancer.runtime.max_vote_accounts;
-
-    tile->replay.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->replay.txncache_obj_id !=ULONG_MAX );
-    tile->replay.funk_obj_id      = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX ); FD_TEST( tile->replay.funk_obj_id     !=ULONG_MAX );
-    tile->replay.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->replay.progcache_obj_id!=ULONG_MAX );
-
-    tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
-
-    tile->replay.expected_shred_version = config->consensus.expected_shred_version;
-
-    tile->replay.larger_max_cost_per_block = config->development.bench.larger_max_cost_per_block;
-
-    strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
-
-    /* not specified by [tiles.replay] */
-
-    strncpy( tile->replay.identity_key_path, config->paths.identity_key, sizeof(tile->replay.identity_key_path) );
-    tile->replay.ip_addr = config->net.ip_addr;
-    strncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );
-
-    tile->replay.capture_start_slot = config->capture.capture_start_slot;
-    strncpy( tile->replay.solcap_capture, config->capture.solcap_capture, sizeof(tile->replay.solcap_capture) );
-    strncpy( tile->replay.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->replay.dump_proto_dir) );
-    tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
-
-    FD_TEST( tile->replay.funk_obj_id == fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX ) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "exec" ) ) ) {
 

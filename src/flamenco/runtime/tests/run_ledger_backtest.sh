@@ -236,8 +236,6 @@ echo "
         enabled = false
     [tiles.rpc]
         enabled = false
-[store]
-    max_completed_shred_sets = 32768
 [funk]
     heap_size_gib = $FUNK_PAGES
     max_account_records = $INDEX_MAX

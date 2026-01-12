@@ -166,10 +166,6 @@ struct fd_configf {
   } development;
 
   struct {
-    ulong max_completed_shred_sets;
-  } store;
-
-  struct {
     char path[ PATH_MAX ];
   } capctx;
 };
@@ -470,13 +466,6 @@ struct fd_config {
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
-
-    struct {
-      char  slots_pending[PATH_MAX];
-      char  shred_cap_archive[ PATH_MAX ];
-      char  shred_cap_replay[ PATH_MAX ];
-      ulong shred_cap_end_slot;
-    } store_int;
 
     struct {
       int   enabled;
