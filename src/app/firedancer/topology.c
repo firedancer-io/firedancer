@@ -411,6 +411,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossip_out"   );
 
   fd_topob_wksp( topo, "shred_out"    );
+  fd_topob_wksp( topo, "repair_shred" );
   fd_topob_wksp( topo, "replay_stake" );
   fd_topob_wksp( topo, "replay_exec"  );
   fd_topob_wksp( topo, "replay_out"   );
@@ -608,7 +609,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    shred_depth,                              FD_SHRED_OUT_MTU,              3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_out",    shred_depth,                              sizeof(fd_ed25519_sig_t),      1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "repair_shred", shred_depth,                              sizeof(fd_ed25519_sig_t),      1UL );
   /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    16384,                                    sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
   /**/                 fd_topob_link( topo, "send_out",     "send_out",     128UL,                                    FD_TPU_RAW_MTU,                1UL );
 
@@ -1148,7 +1149,8 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
-    fd_topob_wksp( topo, "gui" );
+    fd_topob_wksp( topo, "gui"        );
+    fd_topob_wksp( topo, "gui_replay" );
 
     /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
 
@@ -1157,7 +1159,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
     /* release ownership of banks */
-    /**/                 fd_topob_link( topo, "gui_replay", "gui", 128, 0UL,2UL ); /* burst==2 since a bank and its parent may be sent in one burst */
+    /**/                 fd_topob_link( topo, "gui_replay", "gui_replay", 128, 0UL,2UL ); /* burst==2 since a bank and its parent may be sent in one burst */
 
     /**/                 fd_topob_tile_out( topo, "gui",    0UL,                        "gui_replay", 0UL                                                );
     /**/                 fd_topob_tile_in ( topo, "replay", 0UL,           "metric_in", "gui_replay", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
