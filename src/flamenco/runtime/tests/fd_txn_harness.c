@@ -352,7 +352,6 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
   }
 
   runtime->accdb           = runner->accdb;
-  runtime->funk            = fd_accdb_user_v1_funk( runner->accdb );
   runtime->progcache       = runner->progcache;
   runtime->status_cache    = NULL;
   runtime->log.tracing_mem = tracing_mem;
