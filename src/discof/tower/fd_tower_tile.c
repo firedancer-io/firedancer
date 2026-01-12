@@ -476,6 +476,10 @@ replay_slot_completed( ctx_t *                      ctx,
     ctx->conf_slot = slot_completed->slot;
   }
 
+    if( FD_UNLIKELY( 0==memcmp( &slot_completed->block_id.uc, &hash_null, sizeof(fd_hash_t) ) ) ) {
+      FD_LOG_CRIT(( "replay_slot_completed slot %lu block id is null", slot_completed->slot ));
+    }
+
   /* This is a temporary patch for equivocation. */
 
   if( FD_UNLIKELY( fd_forks_query( ctx->forks, slot_completed->slot ) ) ) {
@@ -533,16 +537,20 @@ replay_slot_completed( ctx_t *                      ctx,
   if( FD_UNLIKELY( slot_completed->slot       ==ctx->init_slot ) ) parent_block_id = NULL;
 
   if( FD_UNLIKELY( parent_block_id && !fd_ghost_query( ctx->ghost, parent_block_id ) ) ) {
+
     /* Rare occurrence where replay executes a block down a minority fork
        that we have pruned.  Due to a race in reading frags, replay may
        believe the minority fork exists and is still executable,  and
        executes the block and delivers it to tower.  Tower should ignore
        this block as it's parent no longer exists. */
+
     FD_BASE58_ENCODE_32_BYTES( parent_block_id->uc, parent_block_id_cstr );
     FD_LOG_WARNING(( "replay likely lagging tower publish, executed slot %lu is missing parent block id %s, excluding from ghost", slot_completed->slot, parent_block_id_cstr ));
     ctx->metrics.slot_ignored++;
 
-    /* Still need to return a message to replay so the refcnt on the bank is decremented. */
+    /* Still need to return a message to replay so the refcnt on the
+       bank is decremented. */
+
     fd_tower_slot_ignored_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     msg->slot     = slot_completed->slot;
     msg->bank_idx = slot_completed->bank_idx;
@@ -662,6 +670,10 @@ replay_slot_completed( ctx_t *                      ctx,
   /* Publish according structures if there is a root */
 
   if( FD_UNLIKELY( out.root_slot!=ULONG_MAX ) ) {
+
+    if( FD_UNLIKELY( 0==memcmp( &out.root_block_id, &hash_null, sizeof(fd_hash_t) ) ) ) {
+      FD_LOG_CRIT(( "invariant violation: root block id is null at slot %lu", out.root_slot ));
+    }
 
     /* forks */
 
