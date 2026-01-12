@@ -456,17 +456,10 @@ fd_gui_printf_skipped_history_cluster( fd_gui_t * gui ) {
 void
 fd_gui_printf_vote_latency_history( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "slot", "vote_latency_history" );
-    jsonp_open_object( gui->http, "value" );
-      jsonp_open_array( gui->http, "slot" );
-        if( FD_LIKELY( gui->summary.vote_latency_history_cnt ) ) for( ulong i=0UL; i<gui->summary.vote_latency_history_cnt+1UL; i++ ) jsonp_ulong( gui->http, NULL, gui->summary.vote_latency_history[ i ].slot );
+      jsonp_open_array( gui->http, "value" );
+        FD_TEST( gui->summary.late_votes_sz % 2UL == 0UL );
+        for( ulong i=0UL; i<gui->summary.late_votes_sz; i++ ) jsonp_ulong( gui->http, NULL, gui->summary.late_votes[ i ] );
       jsonp_close_array( gui->http );
-      jsonp_open_array( gui->http, "latency" );
-        for( ulong i=0UL; i<gui->summary.vote_latency_history_cnt; i++ ) {
-          if( FD_LIKELY( gui->summary.vote_latency_history[ i ].latency!=UCHAR_MAX ) ) jsonp_ulong( gui->http, NULL, gui->summary.vote_latency_history[ i ].latency );
-          else                                                                         jsonp_null( gui->http, NULL );
-        }
-      jsonp_close_array( gui->http );
-    jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }
 

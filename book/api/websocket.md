@@ -1865,24 +1865,23 @@ included skipped slots will not become unskipped as a later slot has
 rooted.
 
 #### `slot.vote_latency_history`
-| frequency | type                     | example |
-|-----------|--------------------------|---------|
-| *Once*    | `SlotVoteLatencyHistory` | below   |
+| frequency | type       | example |
+|-----------|------------|---------|
+| *Once*    | `number[]` | below   |
 
-A history of all slot latencies for this epoch. Published once at
-validator startup, or, if the validator is running, immediatley when the
-WebSocket connection opens. The slot and latency arrays are run-length
-encoded. For example
+A collection of slots from this epoch for which this validator voted
+late or not at all. Specifically, the following slots are included
+- rooted slots with a vote latency > 1
+- rooted slots that were never voted for that were not skipped
+
+The slot and latency arrays are run-length encoded. For example
 
 ```
-"slot": [ a, b, c, d, e ]
-"latency": [ 1, 2, null, 1 ]
+[ a, b, c, d, e, f ]
 ```
 
-means that slots `[a, b)` have a latency of 1, slots `[b, c)` have a
-latency of 2, slots `[c, d)` did not get votes, and slots `[d, e)`
-have a latency of 1. A latency of `null` means that there were no votes
-recorded for that slot range.
+means that slots `[a, b]`, slots `[c, d]`, and slots `[e, f]` all
+recieved late or non-existent votes.
 
 :::details Example
 
@@ -1890,10 +1889,7 @@ recorded for that slot range.
 {
 	"topic": "slot",
 	"key": "vote_latency_history",
-	"value": {
-        "slot": [286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027],
-        "latency": [1, 2, 1, null, 1, 2]
-    }
+	"value": [286576808, 286576808, 286576810, 286576811, 286625025, 286625026]
 }
 ```
 
