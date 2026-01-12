@@ -442,8 +442,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
 
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
 
-      runner->runtime->outstanding_txn = 1;
-      txn_out->err.is_committable      = 0;
+      txn_out->err.is_committable = 0;
       fd_runtime_cancel_txn( runner->runtime, txn_out );
       fd_solfuzz_txn_ctx_destroy( runner );
 
@@ -559,8 +558,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-    runner->runtime->outstanding_txn = 1;
-    txn_out->err.is_committable      = 0;
+    txn_out->err.is_committable = 0;
     fd_runtime_cancel_txn( runner->runtime, txn_out );
     fd_solfuzz_txn_ctx_destroy( runner );
 

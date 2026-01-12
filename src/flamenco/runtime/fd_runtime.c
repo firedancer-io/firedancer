@@ -1090,12 +1090,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     FD_LOG_CRIT(( "fd_runtime_commit_txn: transaction is not committable" ));
   }
 
-  if( FD_UNLIKELY( runtime->outstanding_txn==0 ) ) {
-    FD_LOG_CRIT(( "fd_runtime_commit_txn: can't commit a transaction when there is no outstanding transaction" ));
-  }
-
-  runtime->outstanding_txn = 0;
-
   txn_out->details.commit_start_timestamp = fd_tickcount();
 
   /* Release executable accounts */
@@ -1261,12 +1255,6 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
     FD_LOG_CRIT(( "fd_runtime_cancel_txn: transaction is committable" ));
   }
 
-  if( FD_UNLIKELY( runtime->outstanding_txn==0 ) ) {
-    FD_LOG_CRIT(( "fd_runtime_cancel_txn: can't cancel a transaction when there is no outstanding transaction" ));
-  }
-
-  runtime->outstanding_txn = 0;
-
   if( !txn_out->accounts.is_setup ) {
     return;
   }
@@ -1288,8 +1276,6 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
 
 static inline void
 fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
-  FD_CRIT( runtime->outstanding_txn==0, "can't start executing a transaction when there is an outstanding cancel/commit" );
-  runtime->outstanding_txn         = 1;
   runtime->instr.stack_sz          = 0;
   runtime->instr.trace_length      = 0UL;
   runtime->accounts.executable_cnt = 0UL;
