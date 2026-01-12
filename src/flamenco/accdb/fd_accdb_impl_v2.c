@@ -182,12 +182,69 @@ fd_accdb_user_v2_close_ro( fd_accdb_user_t * accdb_,
   accdb->base.ro_active--;
 }
 
+fd_accdb_rw_t *
+fd_accdb_user_v2_open_rw( fd_accdb_user_t *         accdb,
+                          fd_accdb_rw_t *           rw,
+                          fd_funk_txn_xid_t const * xid,
+                          void const *              address,
+                          ulong                     data_max,
+                          int                       flags ) {
+  fd_accdb_user_v2_t * v2 = (fd_accdb_user_v2_t *)accdb;
+  fd_accdb_user_v1_t * v1 = &v2->v1;
+
+  int const flag_truncate = !!( flags & FD_ACCDB_FLAG_TRUNCATE );
+  if( FD_UNLIKELY( flags & ~(FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE) ) ) {
+    FD_LOG_CRIT(( "invalid flags for open_rw: %#02x", (uint)flags ));
+  }
+
+  /* If this account exists in funk, modify it there */
+
+  fd_accdb_rw_t * rw_funk =
+      fd_accdb_user_v1_open_rw( accdb, rw, xid, address, data_max, (flags & ~FD_ACCDB_FLAG_CREATE) );
+  if( rw_funk ) return rw_funk;
+
+  /* Otherwise, query it from vinyl */
+
+  fd_accdb_ro_t ro_vinyl[1];
+  if( !fd_accdb_user_v2_open_ro( accdb, ro_vinyl, xid, address ) ) {
+    /* Account truly does not exist */
+    return fd_accdb_user_v1_open_rw( accdb, rw, xid, address, data_max, flags );
+  }
+
+  /* Account exists, copy it to funk */
+
+  ulong  acc_orig_sz = fd_accdb_ref_data_sz( ro_vinyl );
+  ulong  val_sz_min  = sizeof(fd_account_meta_t)+fd_ulong_max( data_max, acc_orig_sz );
+  ulong  acc_sz      = flag_truncate ? 0UL : acc_orig_sz;
+  ulong  val_sz      = sizeof(fd_account_meta_t)+acc_sz;
+  ulong  val_max     = 0UL;
+  void * val         = fd_alloc_malloc_at_least( v1->funk->alloc, 16UL, val_sz_min, &val_max );
+  if( FD_UNLIKELY( !val ) ) {
+    FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", acc_orig_sz ));
+  }
+
+  fd_account_meta_t * meta            = val;
+  uchar *             data            = (uchar *)( meta+1 );
+  ulong               data_max_actual = val_max - sizeof(fd_account_meta_t);
+  if( flag_truncate ) fd_accdb_v1_copy_truncated( meta,       ro_vinyl );
+  else                fd_accdb_v1_copy_account  ( meta, data, ro_vinyl );
+  if( acc_orig_sz<data_max_actual ) {
+    /* Zero out trailing data */
+    uchar * tail    = data           +acc_orig_sz;
+    ulong   tail_sz = data_max_actual-acc_orig_sz;
+    fd_memset( tail, 0, tail_sz );
+  }
+  fd_accdb_user_v2_close_ro( accdb, ro_vinyl );
+
+  return fd_accdb_v1_prep_create( rw, v1, xid, address, val, val_sz, val_max );
+}
+
 fd_accdb_user_vt_t const fd_accdb_user_v2_vt = {
   .fini           = fd_accdb_user_v2_fini,
   .peek           = fd_accdb_user_v2_peek,
   .open_ro        = fd_accdb_user_v2_open_ro,
   .close_ro       = fd_accdb_user_v2_close_ro,
-  .open_rw        = fd_accdb_user_v1_open_rw,
+  .open_rw        = fd_accdb_user_v2_open_rw,
   .close_rw       = fd_accdb_user_v1_close_rw,
   .rw_data_max    = fd_accdb_user_v1_rw_data_max,
   .rw_data_sz_set = fd_accdb_user_v1_rw_data_sz_set
