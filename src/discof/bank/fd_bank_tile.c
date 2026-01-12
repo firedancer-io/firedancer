@@ -612,7 +612,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->progcache                = progcache;
   ctx->runtime->status_cache             = txncache;
   ctx->runtime->acc_pool                 = acc_pool;
-
+  ctx->runtime->outstanding_txn          = 0;
   ctx->runtime->log.log_collector        = ctx->log_collector;
   ctx->runtime->log.enable_log_collector = 0;
   ctx->runtime->log.capture_ctx          = NULL;

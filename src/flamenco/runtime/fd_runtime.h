@@ -37,13 +37,38 @@
    Execution is done via fd_runtime_prepare_and_execute_txn.  If a
    transaction is committable, it should be committed via
    fd_runtime_commit_txn.  If a transaction is not committable, it
-   should be canceled via fd_runtime_cancel_txn.  */
+   should be canceled via fd_runtime_cancel_txn.
+
+   TLDR: The runtime is a state machine that executes transactions and
+   produces results that are applied to various data structures
+   including the bank, account database, and status cache.  The
+   transaction is executed via a call to
+   fd_runtime_prepare_and_execute_txn.  If the transaction is
+   committable, it should be committed via fd_runtime_commit_txn.  If
+   the transaction is not committable (txn_out->err.is_committable is 0),
+   it should be canceled via fd_runtime_cancel_txn.  Two calls to
+   fd_runtime_prepare_and_execute_txn without a call to
+   fd_runtime_commit_txn or fd_runtime_cancel_txn in between are not
+   allowed.
+
+               input                                  output
+   fd_runtime_t ->
+   fd_txn_in_t  -> fd_runtime_prepare_and_execute_txn() -> fd_txn_out_t
+   fd_bank_t    ->
+
+   fd_txn_out_t is the state transition output of a transaction.
+
+   txn_out (committable)     --> fd_runtime_commit_txn()
+   txn_out (not committable) --> fd_runtime_cancel_txn()
+*/
 
 struct fd_runtime {
   fd_accdb_user_t * accdb;
   fd_txncache_t *   status_cache;
   fd_progcache_t *  progcache;
   fd_acc_pool_t *   acc_pool;
+
+  int outstanding_txn;
 
   struct {
     uchar               stack_sz;                                /* Current depth of the instruction execution stack. */
