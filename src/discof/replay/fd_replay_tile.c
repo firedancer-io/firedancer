@@ -1054,17 +1054,13 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
         !fd_vote_states_iter_done( iter );
         fd_vote_states_iter_next( iter ) ) {
       fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
-      fd_accdb_peek_t peek[1];
-
-      for(;;) {
-        if( FD_UNLIKELY( !fd_accdb_peek( ctx->accdb, peek, &xid, &vote_state->vote_account ) ) ) {
-          ctx->runtime_stack.vote_accounts.stale_accs[ stale_vote_acc_cnt++ ] = vote_state->vote_account;
-          FD_BASE58_ENCODE_32_BYTES( vote_state->vote_account.uc, acc_cstr );
-          FD_LOG_DEBUG(( "vote account %s from manifest is stale", acc_cstr ));
-          break;
-        }
-        if( FD_LIKELY( fd_accdb_peek_test( peek ) ) ) break;
-        FD_SPIN_PAUSE();
+      fd_accdb_ro_t ro[1];
+      if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, &vote_state->vote_account ) ) ) {
+        ctx->runtime_stack.vote_accounts.stale_accs[ stale_vote_acc_cnt++ ] = vote_state->vote_account;
+        FD_BASE58_ENCODE_32_BYTES( vote_state->vote_account.uc, acc_cstr );
+        FD_LOG_DEBUG(( "vote account %s from manifest is stale", acc_cstr ));
+      } else {
+        fd_accdb_close_ro( ctx->accdb, ro );
       }
     }
 
