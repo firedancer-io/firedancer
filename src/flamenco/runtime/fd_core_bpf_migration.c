@@ -51,31 +51,18 @@ tmp_account_store( fd_tmp_account_t *        acc,
     FD_LOG_ERR(( "Attempted to write to the system program account" ));
   }
 
-  /* FIXME usage of "txn_account" */
-  fd_txn_account_t rec[1];
-  fd_funk_rec_prepare_t prepare = {0};
-  int ok = !!fd_txn_account_init_from_funk_mutable(
-      rec,
-      &acc->addr,
-      accdb,
-      xid,
-      1,
-      acc->data_sz,
-      &prepare );
-  if( FD_UNLIKELY( !ok ) ) {
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_mutable failed" ));
-  }
-
+  fd_accdb_rw_t rw[1];
+  fd_accdb_open_rw( accdb, rw, xid, &acc->addr, acc->data_sz, FD_ACCDB_FLAG_CREATE );
   fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( &acc->addr, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
+  fd_hashes_account_lthash( &acc->addr, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
 
-  fd_txn_account_set_executable( rec, acc->meta.executable    );
-  fd_txn_account_set_owner     ( rec, fd_type_pun_const( acc->meta.owner ) );
-  fd_txn_account_set_lamports  ( rec, acc->meta.lamports      );
-  fd_txn_account_set_data      ( rec, acc->data, acc->data_sz );
+  fd_accdb_ref_exec_bit_set( rw, acc->meta.executable );
+  fd_accdb_ref_owner_set   ( rw, acc->meta.owner      );
+  fd_accdb_ref_lamports_set( rw, acc->meta.lamports   );
+  fd_accdb_ref_data_set    ( accdb, rw, acc->data, acc->data_sz );
 
-  fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
-  fd_txn_account_mutable_fini( rec, accdb, &prepare );
+  fd_hashes_update_lthash( &acc->addr, rw->meta, prev_hash, bank, capture_ctx );
+  fd_accdb_close_rw( accdb, rw );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.2/runtime/src/bank/builtins/core_bpf_migration/target_core_bpf.rs#L12 */
