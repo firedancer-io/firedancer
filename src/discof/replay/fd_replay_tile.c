@@ -753,6 +753,10 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   slot_info->is_leader = is_leader;
 
+  FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->data->idx ].block_id.uc, block_id_cstr );
+  FD_BASE58_ENCODE_32_BYTES( fd_bank_bank_hash_query( bank )->uc, bank_hash_cstr );
+  FD_LOG_DEBUG(( "publish_slot_completed: bank_idx=%lu slot=%lu bank_hash=%s block_id=%s", bank->data->idx, slot, bank_hash_cstr, block_id_cstr ));
+
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }

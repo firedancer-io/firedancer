@@ -68,8 +68,6 @@ struct fd_runtime {
   fd_progcache_t *  progcache;
   fd_acc_pool_t *   acc_pool;
 
-  int outstanding_txn;
-
   struct {
     uchar               stack_sz;                                /* Current depth of the instruction execution stack. */
     fd_exec_instr_ctx_t stack[ FD_MAX_INSTRUCTION_STACK_DEPTH ]; /* Instruction execution stack. */
