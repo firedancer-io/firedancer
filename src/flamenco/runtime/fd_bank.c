@@ -60,7 +60,7 @@ fd_bank_epoch_rewards_modify( fd_bank_t * bank ) {
 }
 
 fd_epoch_leaders_t const *
-fd_bank_epoch_leaders_query( fd_bank_t * bank ) {
+fd_bank_epoch_leaders_query( fd_bank_t const * bank ) {
   /* If the pool element hasn't been setup yet, then return NULL */
   fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank->data );
   if( FD_UNLIKELY( epoch_leaders_pool==NULL ) ) {

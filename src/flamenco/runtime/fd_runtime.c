@@ -11,7 +11,6 @@
 #include "fd_acc_pool.h"
 #include "fd_genesis_parse.h"
 #include "fd_executor.h"
-#include "fd_txn_account.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -20,7 +19,6 @@
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
-#include "../accdb/fd_accdb_impl_v1.h"
 #include "../progcache/fd_progcache_user.h"
 
 #include "program/fd_stake_program.h"
@@ -159,21 +157,14 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 /* Various Private Runtime Helpers                                            */
 /******************************************************************************/
 
-/* fee to be deposited should be > 0
-   Returns 0 if validation succeeds
-   Returns the amount to burn(==fee) on failure */
-static ulong
-fd_runtime_validate_fee_collector( fd_bank_t *              bank,
-                                   fd_txn_account_t const * collector,
-                                   ulong                    fee ) {
-  if( FD_UNLIKELY( fee<=0UL ) ) {
-    FD_LOG_ERR(( "expected fee(%lu) to be >0UL", fee ));
-  }
+static int
+fd_runtime_validate_fee_collector( fd_bank_t const *     bank,
+                                   fd_accdb_ro_t const * collector,
+                                   ulong                 fee ) {
+  if( FD_UNLIKELY( !fee ) ) FD_LOG_CRIT(( "invariant violation: fee>0" ));
 
-  if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( collector ), fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
-    FD_LOG_WARNING(( "cannot pay a non-system-program owned account (%s)", _out_key ));
-    return fee;
+  if( FD_UNLIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( collector ), &fd_solana_system_program_id ) ) ) {
+    return 0;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.23/runtime/src/bank/fee_distribution.rs#L111
@@ -199,14 +190,19 @@ fd_runtime_validate_fee_collector( fd_bank_t *              bank,
      So TLDR we just check if the account is rent exempt.
    */
   fd_rent_t const * rent = fd_bank_rent_query( bank );
-  ulong minbal = fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( collector ) );
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( collector )+fee<minbal ) ) {
-    FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
-    FD_LOG_WARNING(("cannot pay a rent paying account (%s)", _out_key ));
-    return fee;
+  ulong minbal  = fd_rent_exempt_minimum_balance( rent, fd_accdb_ref_data_sz( collector ) );
+  ulong balance = fd_accdb_ref_lamports( collector );
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( balance, fee, &balance ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_address( collector ), addr_b58 );
+    FD_LOG_EMERG(( "integer overflow while crediting %lu fee reward lamports to %s (previous balance %lu)",
+                   fee, addr_b58, fd_accdb_ref_lamports( collector ) ));
+  }
+  if( FD_UNLIKELY( balance<minbal ) ) {
+    /* fee collector not rent exempt after payout */
+    return 0;
   }
 
-  return 0UL;
+  return 1;
 }
 
 static void
@@ -234,6 +230,56 @@ fd_runtime_run_incinerator( fd_bank_t *               bank,
   fd_accdb_close_rw( accdb, rw );
 }
 
+/* fd_runtime_settle_fees settles transaction fees accumulated during a
+   slot.  A portion is burnt, another portion is credited to the fee
+   collector (typically leader). */
+
+static void
+fd_runtime_settle_fees( fd_bank_t *               bank,
+                        fd_accdb_user_t *         accdb,
+                        fd_funk_txn_xid_t const * xid,
+                        fd_capture_ctx_t *        capture_ctx ) {
+
+  ulong slot           = fd_bank_slot_get( bank );
+  ulong execution_fees = fd_bank_execution_fees_get( bank );
+  ulong priority_fees  = fd_bank_priority_fees_get( bank );
+
+  ulong burn = execution_fees / 2;
+  ulong fees = fd_ulong_sat_add( priority_fees, execution_fees - burn );
+
+  if( FD_UNLIKELY( !fees ) ) return;
+
+  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank );
+  if( FD_UNLIKELY( !leaders ) ) FD_LOG_CRIT(( "fd_bank_epoch_leaders_query returned NULL" ));
+
+  fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, fd_bank_slot_get( bank ) );
+  if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", fd_bank_slot_get( bank ) ));
+
+  /* Credit fee collector, creating it if necessary */
+  fd_accdb_rw_t rw[1];
+  fd_accdb_open_rw( accdb, rw, xid, leader, 0UL, 0 );
+  fd_lthash_value_t prev_hash[1];
+  fd_hashes_account_lthash( leader, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
+
+  if( FD_UNLIKELY( !fd_runtime_validate_fee_collector( bank, rw->ro, fees ) ) ) {  /* validation failed */
+    burn = fd_ulong_sat_add( burn, fees );
+    FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", fd_bank_slot_get( bank ), fees ));
+    fd_accdb_close_rw( accdb, rw );
+    return;
+  }
+
+  /* Guaranteed to not overflow, checked above */
+  fd_accdb_ref_lamports_set( rw, fd_accdb_ref_lamports( rw->ro ) + fees );
+
+  fd_hashes_update_lthash( fd_accdb_ref_address( rw->ro ), rw->meta, prev_hash, bank, capture_ctx );
+  fd_accdb_close_rw( accdb, rw );
+
+  ulong old = fd_bank_capitalization_get( bank );
+  fd_bank_capitalization_set( bank, fd_ulong_sat_sub( old, burn ) );
+  FD_LOG_INFO(( "slot %lu: burn %lu, capitalization %lu->%lu",
+                slot, burn, old, fd_bank_capitalization_get( bank ) ));
+}
+
 static void
 fd_runtime_freeze( fd_bank_t *         bank,
                    fd_accdb_user_t *   accdb,
@@ -247,74 +293,7 @@ fd_runtime_freeze( fd_bank_t *         bank,
 
   fd_sysvar_slot_history_update( bank, accdb, &xid, capture_ctx );
 
-  ulong execution_fees = fd_bank_execution_fees_get( bank );
-  ulong priority_fees  = fd_bank_priority_fees_get( bank );
-
-  ulong burn = execution_fees / 2;
-  ulong fees = fd_ulong_sat_add( priority_fees, execution_fees - burn );
-
-  if( FD_LIKELY( fees ) ) {
-    // Look at collect_fees... I think this was where I saw the fee payout..
-    fd_txn_account_t rec[1];
-
-    do {
-      /* do_create=1 because we might wanna pay fees to a leader
-         account that we've purged due to 0 balance. */
-
-      fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank );
-      if( FD_UNLIKELY( !leaders ) ) {
-        FD_LOG_CRIT(( "fd_runtime_freeze: leaders not found" ));
-        break;
-      }
-
-      fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, fd_bank_slot_get( bank ) );
-      if( FD_UNLIKELY( !leader ) ) {
-        FD_LOG_CRIT(( "fd_runtime_freeze: leader not found" ));
-        break;
-      }
-
-      fd_funk_rec_prepare_t prepare = {0};
-      int ok = !!fd_txn_account_init_from_funk_mutable(
-          rec,
-          leader,
-          accdb,
-          &xid,
-          1,
-          0UL,
-          &prepare );
-      if( FD_UNLIKELY( !ok ) ) {
-        FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
-        FD_LOG_WARNING(( "fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for leader (%s) failed", leader_b58 ));
-        burn = fd_ulong_sat_add( burn, fees );
-        break;
-      }
-
-      fd_lthash_value_t prev_hash[1];
-      fd_hashes_account_lthash( leader, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
-
-      ulong _burn;
-      if( FD_UNLIKELY( _burn=fd_runtime_validate_fee_collector( bank, rec, fees ) ) ) {
-        if( FD_UNLIKELY( _burn!=fees ) ) {
-          FD_LOG_ERR(( "expected _burn(%lu)==fees(%lu)", _burn, fees ));
-        }
-        burn = fd_ulong_sat_add( burn, fees );
-        FD_LOG_WARNING(("fd_runtime_freeze: burned %lu", fees ));
-        break;
-      }
-
-      /* TODO: is it ok to not check the overflow error here? */
-      fd_txn_account_checked_add_lamports( rec, fees );
-      fd_txn_account_set_slot( rec, fd_bank_slot_get( bank ) );
-
-      fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
-      fd_txn_account_mutable_fini( rec, accdb, &prepare );
-
-    } while(0);
-
-    ulong old = fd_bank_capitalization_get( bank );
-    fd_bank_capitalization_set( bank, fd_ulong_sat_sub( old, burn ) );
-    FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, fd_bank_capitalization_get( bank ) ));
-  }
+  fd_runtime_settle_fees( bank, accdb, &xid, capture_ctx );
 
   /* jito collects a 3% fee at the end of the block + 3% fee at
      distribution time. */
