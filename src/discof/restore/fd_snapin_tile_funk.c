@@ -284,8 +284,8 @@ fd_snapin_read_account_funk( fd_snapin_tile_t *  ctx,
   ulong data_sz = fd_accdb_ref_data_sz( peek->acc );
   if( FD_UNLIKELY( data_sz>data_max ) ) {
     FD_BASE58_ENCODE_32_BYTES( acct_addr, acct_addr_b58 );
-    FD_LOG_WARNING(( "failed to read account %s: account data size (%lu bytes) exceeds buffer size (%lu bytes)",
-                     acct_addr_b58, (ulong)meta->dlen, data_max ));
+    FD_LOG_CRIT(( "failed to read account %s: account data size (%lu bytes) exceeds buffer size (%lu bytes)",
+                  acct_addr_b58, data_sz, data_max ));
   }
 
   memcpy( meta->owner, fd_accdb_ref_owner( peek->acc ), sizeof(fd_pubkey_t) );
