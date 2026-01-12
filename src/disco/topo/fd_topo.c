@@ -531,6 +531,18 @@ fd_topo_print_log( int         stdout,
     }
     PRINT( "]" );
 
+#if 0
+    PRINT( "  wksps=[" );
+    for( ulong j=0UL; j<topo->wksp_cnt; j++ ) {
+      int mode = tile_needs_wksp( topo, tile, j );
+      if( FD_UNLIKELY( -1!=mode ) ) {
+        if( FD_LIKELY( j!=0 ) ) PRINT( " " );
+        PRINT( "%s:%s", topo->workspaces[ j ].name, mode==FD_SHMEM_JOIN_MODE_READ_WRITE?"rw":"ro" );
+      }
+    }
+    PRINT( "]" );
+#endif
+
     if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }
 
