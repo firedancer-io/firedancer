@@ -662,14 +662,11 @@ cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
 static ulong
 get_identity_balance( fd_replay_tile_t * ctx, fd_funk_txn_xid_t xid ) {
   ulong identity_balance = ULONG_MAX;
-  fd_txn_account_t identity_acc[1];
-  fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
-  int err = fd_txn_account_init_from_funk_readonly( identity_acc,
-                                                    ctx->identity_pubkey,
-                                                    funk,
-                                                    &xid );
-  if( FD_LIKELY( !err && identity_acc->meta ) ) identity_balance = identity_acc->meta->lamports;
-
+  fd_accdb_ro_t identity_acc[1];
+  if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, identity_acc, &xid, ctx->identity_pubkey ) ) ) {
+    identity_balance = identity_acc->meta->lamports;
+    fd_accdb_close_ro( ctx->accdb, identity_acc );
+  }
   return identity_balance;
 }
 
