@@ -24,4 +24,14 @@
 
 </category>
 
+<category name="db">
+
+    <event name="vinyl_acquire" type="INSTANT" />
+
+    <event name="vinyl_release" type="INSTANT" />
+
+    <event name="vinyl_wait" type="DURATION" />
+
+</category>
+
 </traces>

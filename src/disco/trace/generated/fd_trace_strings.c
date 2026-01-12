@@ -13,5 +13,9 @@ char const * fd_trace_strtab[] = {
   "exec_commit",
   "exec_instr",
   "vm_interp",
+  "db",
+  "vinyl_acquire",
+  "vinyl_release",
+  "vinyl_wait",
   NULL
 };

@@ -2,6 +2,7 @@
 #include "fd_accdb_sync.h"
 #include "fd_accdb_batch.h"
 #include "fd_vinyl_req_pool.h"
+#include "../../disco/trace/generated/fd_trace_db.h"
 
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v2_t)<=alignof(fd_accdb_user_t), layout );
 FD_STATIC_ASSERT( sizeof (fd_accdb_user_v2_t)<=sizeof(fd_accdb_user_t),  layout );
@@ -96,10 +97,13 @@ fd_accdb_user_v2_open_ro( fd_accdb_user_t *         accdb_,
       1UL, /* batch_cnt */
       0UL  /* val_max */
   );
+  fd_trace_vinyl_acquire();
 
   /* Poll for completion */
 
+  fd_trace_vinyl_wait_enter();
   while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
+  fd_trace_vinyl_wait_exit();
   FD_COMPILER_MFENCE();
   int comp_err = FD_VOLATILE_CONST( comp->err );
   if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
@@ -166,10 +170,13 @@ fd_accdb_user_v2_close_ro( fd_accdb_user_t * accdb_,
       1UL, /* batch_cnt */
       0UL  /* val_max */
   );
+  fd_trace_vinyl_release();
 
   /* Poll for completion */
 
+  fd_trace_vinyl_wait_enter();
   while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
+  fd_trace_vinyl_wait_exit();
   FD_COMPILER_MFENCE();
   int comp_err = FD_VOLATILE_CONST( comp->err );
   if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
