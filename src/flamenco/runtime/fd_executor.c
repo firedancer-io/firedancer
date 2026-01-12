@@ -1438,7 +1438,6 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
              Move ownership of reference from previous transaction to
              this one. */
           fd_memcpy( ref_slot, prev_txn_out->accounts.account[ j ].ref, sizeof(fd_accdb_rw_t) );
-          memset( prev_txn_out->accounts.account[ j ].ref, 0, sizeof(fd_accdb_rw_t) );
           account  = ref_slot;
           is_found = 1;
           break;

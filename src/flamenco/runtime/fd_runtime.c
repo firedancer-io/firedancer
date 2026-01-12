@@ -1159,10 +1159,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       fd_pubkey_t const * pubkey  = &txn_out->accounts.keys[i];
       fd_accdb_rw_t *     account = &txn_out->accounts.account[i];
 
-      if( FD_UNLIKELY( !account->meta ) ) {
-        continue;
-      }
-
       /* Tips for bundles are collected in the bank: a user submitting a
          bundle must include a instruction that transfers lamports to
          a specific tip account.  Tips accumulated through the slot. */
