@@ -41,7 +41,6 @@
 
 struct fd_runtime {
   fd_accdb_user_t * accdb;
-  fd_funk_t *       funk;
   fd_txncache_t *   status_cache;
   fd_progcache_t *  progcache;
   fd_acc_pool_t *   acc_pool;

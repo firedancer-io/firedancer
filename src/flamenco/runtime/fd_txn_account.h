@@ -88,22 +88,6 @@ fd_txn_account_delete( void * mem );
    replaced with a new factory constructor or removed entirely in favor
    of the generic constructors defined above. */
 
-/* fd_txn_account_init_from_funk_readonly initializes a fd_txn_account_t
-   object with a readonly handle into its funk record.
-
-   IMPORTANT: When we access the account metadata and data pointer later
-   on in the execution pipeline, we assume that nothing else will change
-   these.
-
-   This is safe because we assume that we hold a read lock on the
-   account, since we are inside a Solana transaction. */
-
-int
-fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
-                                        fd_pubkey_t const *       pubkey,
-                                        fd_funk_t const *         funk,
-                                        fd_funk_txn_xid_t const * xid );
-
 /* fd_txn_account_init_from_funk_mutable initializes a fd_txn_account_t
    object with a mutable handle into its funk record.
 

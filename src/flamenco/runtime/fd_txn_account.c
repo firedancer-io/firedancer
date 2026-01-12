@@ -115,37 +115,6 @@ fd_txn_account_delete( void * mem ) {
   return mem;
 }
 
-/* Factory constructors from funk */
-
-int
-fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
-                                        fd_pubkey_t const *       pubkey,
-                                        fd_funk_t const *         funk,
-                                        fd_funk_txn_xid_t const * xid ) {
-  fd_accdb_user_t accdb[1];
-  fd_accdb_user_v1_init( accdb, funk->shmem );
-
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) {
-    fd_accdb_user_fini( accdb );
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  }
-
-  /* HACKY: Convert accdb_rw writable reference into txn_account.
-     In the future, use fd_accdb_modify_publish instead */
-  accdb->base.ro_active--;
-  if( FD_UNLIKELY( !fd_txn_account_new(
-        acct,
-        pubkey,
-        (fd_account_meta_t *)ro->meta,
-        0 ) ) ) {
-    FD_LOG_CRIT(( "Failed to join txn account" ));
-  }
-  fd_accdb_user_fini( accdb );
-
-  return FD_ACC_MGR_SUCCESS;
-}
-
 fd_account_meta_t *
 fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
                                        fd_pubkey_t const *       pubkey,

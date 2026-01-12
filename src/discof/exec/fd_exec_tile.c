@@ -430,7 +430,6 @@ unprivileged_init( fd_topo_t *      topo,
   /********************************************************************/
 
   ctx->runtime->accdb                    = ctx->accdb;
-  ctx->runtime->funk                     = fd_accdb_user_v1_funk( ctx->accdb );
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;
   ctx->runtime->acc_pool                 = ctx->acc_pool;

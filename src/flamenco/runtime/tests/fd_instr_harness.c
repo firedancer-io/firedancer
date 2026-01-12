@@ -8,7 +8,6 @@
 #include "../program/fd_bpf_loader_program.h"
 #include "../program/fd_loader_v4_program.h"
 #include "../fd_system_ids.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../log_collector/fd_log_collector.h"
 #include <assert.h>
 
@@ -19,8 +18,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                 bool                                 is_syscall ) {
 
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
-
-  fd_funk_t * funk = fd_accdb_user_v1_funk( runner->accdb );
 
   /* Generate unique ID for funk txn */
 
@@ -84,7 +81,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     .data_sz  = (ushort)txn->payload_sz,
   };
 
-  runtime->funk                     = funk;
   runtime->log.enable_log_collector = 0;
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );

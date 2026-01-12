@@ -150,7 +150,6 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   fd_bank_epoch_set( env->bank, 0UL );
 
   env->runtime->accdb        = env->accdb;
-  env->runtime->funk         = fd_accdb_user_v1_funk( env->accdb );
   env->runtime->status_cache = NULL;
   env->runtime->progcache    = env->progcache;
   env->runtime->acc_pool     = env->acc_pool;
