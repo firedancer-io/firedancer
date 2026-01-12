@@ -190,7 +190,7 @@ advance_tar( fd_ssparse_t *                ssparse,
     int not_zero = 0;
     for( ulong i=0UL; i<512UL; i++ ) not_zero |= ssparse->tar.header[ i ];
     if( FD_UNLIKELY( not_zero ) ) {
-      FD_LOG_WARNING(( "invalid tar header magic `%s`", hdr->magic ));
+      FD_LOG_WARNING(( "invalid tar header magic `%.*s`", (int)sizeof(hdr->magic), hdr->magic ));
       return FD_SSPARSE_ADVANCE_ERROR;
     }
 
@@ -243,7 +243,7 @@ advance_tar( fd_ssparse_t *                ssparse,
     desired_state = FD_SSPARSE_STATE_ACCOUNT_HEADER;
     ulong id, slot;
     if( FD_UNLIKELY( sscanf( hdr->name, "accounts/%lu.%lu", &slot, &id )!=2 ) ) {
-      FD_LOG_WARNING(( "invalid account append vec name %s", hdr->name ));
+      FD_LOG_WARNING(( "invalid account append vec name %.*s", FD_TAR_NAME_SZ, hdr->name ));
       return FD_SSPARSE_ADVANCE_ERROR;
     }
 
@@ -265,7 +265,7 @@ advance_tar( fd_ssparse_t *                ssparse,
   else if( FD_LIKELY( !strncmp( hdr->name, "snapshots/", 10UL ) ) ) {
     desired_state = FD_SSPARSE_STATE_MANIFEST;
   } else {
-    FD_LOG_WARNING(( "unexpected tar header name %s", hdr->name ));
+    FD_LOG_WARNING(( "unexpected tar header name `%.*s`", FD_TAR_NAME_SZ, hdr->name ));
     return FD_SSPARSE_ADVANCE_ERROR;
   }
 
@@ -336,7 +336,7 @@ advance_version( fd_ssparse_t *                ssparse,
   FD_TEST( ssparse->tar.file_bytes_consumed==5UL );
 
   if( FD_UNLIKELY( memcmp( ssparse->version, "1.2.0", 5UL ) ) ) {
-    FD_LOG_WARNING(( "invalid version file %s", ssparse->version ));
+    FD_LOG_WARNING(( "invalid version file %.*s", 5, ssparse->version ));
     return FD_SSPARSE_ADVANCE_ERROR;
   }
 

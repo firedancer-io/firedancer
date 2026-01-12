@@ -111,7 +111,7 @@ rd_tile_exec( int     argc,
     if( FD_UNLIKELY( memcmp( tar->hdr.magic, FD_TAR_MAGIC, 5UL ) ) ) {
       int not_zero = 0;
       for( ulong i=0UL; i<512UL; i++ ) not_zero |= tar->buf[i];
-      if( FD_UNLIKELY( not_zero ) ) FD_LOG_ERR(( "invalid tar header magic `%s`", tar->hdr.magic ));
+      if( FD_UNLIKELY( not_zero ) ) FD_LOG_ERR(( "invalid tar header magic `%.*s`", (int)sizeof(tar->hdr.magic), tar->hdr.magic ));
 
       /* EOF marker reached */
 
