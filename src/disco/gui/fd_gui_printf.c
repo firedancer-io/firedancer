@@ -1125,6 +1125,8 @@ fd_gui_printf_peer( fd_gui_t *    gui,
           }
         jsonp_close_object( gui->http );
 
+        jsonp_null( gui->http, "country_code" );
+
       jsonp_close_object( gui->http );
     }
 
