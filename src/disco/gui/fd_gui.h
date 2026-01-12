@@ -655,23 +655,19 @@ struct fd_gui {
     fd_gui_ephemeral_slot_t slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL ];
     fd_gui_ephemeral_slot_t slots_max_repair [ FD_GUI_REPAIR_SLOT_HISTORY_SZ +1UL ];
 
-    /* catchup_* is run-length encoded. i.e. adjacent pairs represent
-      contiguous runs */
+    /* catchup_* and late_votes are run-length encoded. i.e. adjacent
+       pairs represent contiguous runs */
     ulong catch_up_turbine[ FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ ];
     ulong catch_up_turbine_sz;
 
     ulong catch_up_repair[ FD_GUI_REPAIR_CATCH_UP_HISTORY_SZ ];
     ulong catch_up_repair_sz;
 
+    ulong late_votes[ MAX_SLOTS_PER_EPOCH ];
+    ulong late_votes_sz;
+
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
-
-    /* vote_latency_history is run-length encoded */
-    ulong vote_latency_history_cnt;
-    struct __attribute__((packed)) {
-      ulong slot;
-      uchar latency;
-    } vote_latency_history[ MAX_SLOTS_PER_EPOCH+1UL ];
 
     fd_gui_network_stats_t network_stats_current[ 1 ];
 
