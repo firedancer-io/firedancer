@@ -237,10 +237,10 @@ fd_accdb_user_v1_peek( fd_accdb_user_t *         accdb,
   return peek;
 }
 
-static void
-fd_accdb_copy_account( fd_account_meta_t *   out_meta,
-                       void *                out_data,
-                       fd_accdb_ro_t const * acc ) {
+void
+fd_accdb_v1_copy_account( fd_account_meta_t *   out_meta,
+                         void *                out_data,
+                         fd_accdb_ro_t const * acc ) {
   memset( out_meta, 0, sizeof(fd_account_meta_t) );
   out_meta->lamports = fd_accdb_ref_lamports( acc );
   if( FD_LIKELY( out_meta->lamports ) ) {
@@ -251,9 +251,9 @@ fd_accdb_copy_account( fd_account_meta_t *   out_meta,
   }
 }
 
-static void
-fd_accdb_copy_truncated( fd_account_meta_t *   out_meta,
-                         fd_accdb_ro_t const * acc ) {
+void
+fd_accdb_v1_copy_truncated( fd_account_meta_t *   out_meta,
+                            fd_accdb_ro_t const * acc ) {
   memset( out_meta, 0, sizeof(fd_account_meta_t) );
   out_meta->lamports = fd_accdb_ref_lamports( acc );
   if( FD_LIKELY( out_meta->lamports ) ) {
@@ -263,17 +263,17 @@ fd_accdb_copy_truncated( fd_account_meta_t *   out_meta,
   }
 }
 
-/* fd_accdb_prep_create preps a writable handle for a newly created
+/* fd_accdb_v1_prep_create preps a writable handle for a newly created
    account. */
 
-static fd_accdb_rw_t *
-fd_accdb_prep_create( fd_accdb_rw_t *           rw,
-                      fd_accdb_user_v1_t *      accdb,
-                      fd_funk_txn_xid_t const * xid,
-                      void const *              address,
-                      void *                    val,
-                      ulong                     val_sz,
-                      ulong                     val_max ) {
+fd_accdb_rw_t *
+fd_accdb_v1_prep_create( fd_accdb_rw_t *           rw,
+                         fd_accdb_user_v1_t *      accdb,
+                         fd_funk_txn_xid_t const * xid,
+                         void const *              address,
+                         void *                    val,
+                         ulong                     val_sz,
+                         ulong                     val_max ) {
   FD_CRIT( val_sz >=sizeof(fd_account_meta_t), "invalid val_sz"  );
   FD_CRIT( val_max>=sizeof(fd_account_meta_t), "invalid val_max" );
   FD_CRIT( val_sz<=val_max, "invalid val_max" );
@@ -409,7 +409,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
       FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", data_max ));
     }
     memset( val, 0, sizeof(fd_account_meta_t) );
-    return fd_accdb_prep_create( rw, v1, xid, address, val, sizeof(fd_account_meta_t), val_max );
+    return fd_accdb_v1_prep_create( rw, v1, xid, address, val, sizeof(fd_account_meta_t), val_max );
 
   }
 
@@ -445,8 +445,8 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
     fd_account_meta_t * meta            = val;
     uchar *             data            = (uchar *)( meta+1 );
     ulong               data_max_actual = val_max - sizeof(fd_account_meta_t);
-    if( flag_truncate ) fd_accdb_copy_truncated( meta,       peek->acc );
-    else                fd_accdb_copy_account  ( meta, data, peek->acc );
+    if( flag_truncate ) fd_accdb_v1_copy_truncated( meta,       peek->acc );
+    else                fd_accdb_v1_copy_account  ( meta, data, peek->acc );
     if( acc_orig_sz<data_max_actual ) {
       /* Zero out trailing data */
       uchar * tail    = data           +acc_orig_sz;
@@ -457,7 +457,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
       FD_LOG_CRIT(( "Failed to modify account: data race detected, account was removed while being read" ));
     }
 
-    return fd_accdb_prep_create( rw, v1, xid, address, val, val_sz, val_max );
+    return fd_accdb_v1_prep_create( rw, v1, xid, address, val, val_sz, val_max );
 
   }
 }
