@@ -4,6 +4,7 @@ $(call add-objs,fd_accdb_admin,fd_flamenco)
 
 # User API
 $(call add-hdrs,fd_accdb_user.h fd_accdb_sync.h)
+$(call add-hdrs,fd_accdb_ref.h)
 
 # Minimal database
 $(call add-hdrs,fd_accdb_impl_v0.h)

@@ -209,38 +209,29 @@ fd_runtime_validate_fee_collector( fd_bank_t *              bank,
   return 0UL;
 }
 
-static int
+static void
 fd_runtime_run_incinerator( fd_bank_t *               bank,
                             fd_accdb_user_t *         accdb,
                             fd_funk_txn_xid_t const * xid,
                             fd_capture_ctx_t *        capture_ctx ) {
-  fd_txn_account_t rec[1];
-  fd_funk_rec_prepare_t prepare = {0};
-
-  int ok = !!fd_txn_account_init_from_funk_mutable(
-      rec,
-      &fd_sysvar_incinerator_id,
-      accdb,
-      xid,
-      0,
-      0UL,
-      &prepare );
-  if( FD_UNLIKELY( !ok ) ) {
-    // TODO: not really an error! This is fine!
-    return -1;
+  fd_pubkey_t const * address = &fd_sysvar_incinerator_id;
+  fd_accdb_rw_t rw[1];
+  if( !fd_accdb_open_rw( accdb, rw, xid, address, 0UL, 0 ) ) {
+    /* Incinerator account does not exist, nothing to do */
+    return;
   }
 
   fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( rec->pubkey, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
+  fd_hashes_account_lthash( address, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
 
-  ulong new_capitalization = fd_ulong_sat_sub( fd_bank_capitalization_get( bank ), fd_txn_account_get_lamports( rec ) );
+  /* Deleting account reduces capitalization */
+  ulong new_capitalization = fd_ulong_sat_sub( fd_bank_capitalization_get( bank ), fd_accdb_ref_lamports( rw->ro ) );
   fd_bank_capitalization_set( bank, new_capitalization );
 
-  fd_txn_account_set_lamports( rec, 0UL );
-  fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
-  fd_txn_account_mutable_fini( rec, accdb, &prepare );
-
-  return 0;
+  /* Delete incinerator account */
+  fd_accdb_ref_lamports_set( rw, 0UL );
+  fd_hashes_update_lthash( address, rw->meta, prev_hash, bank, capture_ctx );
+  fd_accdb_close_rw( accdb, rw );
 }
 
 static void
