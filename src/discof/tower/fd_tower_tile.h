@@ -145,4 +145,17 @@ typedef union fd_tower_msg fd_tower_msg_t;
 
 extern fd_topo_run_tile_t fd_tile_tower;
 
+/* The danger of the circular reliable link between tower and replay is
+   that if tower backpressures replay, and happens to have backed-up
+   confirmations to publish in after_credit, then tower_out link will
+   become full.  If tower doesn't drain from replay_exec in the next
+   returnable_frag call, this will cause a credit starvation loop
+   between tower and replay, which causes both tiles to stall
+   completely.
+
+   Since there's no way to guarantee tower read from a specific link,
+   (and no way to guarantee replay will read from a specific link), so
+   we just make sure tower_out is large enough that the likelihood that
+   the link is close to full and the above scenario happens is low. */
+
 #endif /* HEADER_fd_src_discof_tower_fd_tower_tile_h */
