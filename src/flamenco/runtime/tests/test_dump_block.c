@@ -216,68 +216,48 @@ restore_features_from_proto( fd_features_t * features, fd_exec_test_feature_set_
   return 1;
 }
 
-/* Helper: Register a vote account from an account in funk */
 static void
-register_vote_account_from_funk( fd_funk_t *               funk,
-                                 fd_funk_txn_xid_t const * xid,
-                                 fd_vote_states_t *        vote_states,
-                                 fd_pubkey_t *             pubkey ) {
-  fd_txn_account_t acc[1];
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
-    return;
-  }
+register_vote_account_from_db( fd_accdb_user_t *         accdb,
+                               fd_funk_txn_xid_t const * xid,
+                               fd_vote_states_t *        vote_states,
+                               fd_pubkey_t *             pubkey ) {
 
-  /* Account must be owned by the vote program */
-  if( memcmp( fd_txn_account_get_owner( acc ), fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return;
-  }
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) return;
 
-  /* Account must have > 0 lamports */
-  if( fd_txn_account_get_lamports( acc )==0UL ) {
-    return;
-  }
+  if( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_vote_program_id ) ||
+      fd_accdb_ref_lamports( ro )==0UL ||
+      !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) {
 
-  /* Account must be initialized correctly */
-  if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( acc->meta ) ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return;
   }
 
   fd_vote_states_update_from_account(
       vote_states,
-      acc->pubkey,
-      fd_txn_account_get_data( acc ),
-      fd_txn_account_get_data_len( acc ) );
+      fd_accdb_ref_address   ( ro ),
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ) );
+  fd_accdb_close_ro( accdb, ro );
 }
 
 /* Helper: Register a stake delegation from an account in funk */
 static void
-register_stake_delegation_from_funk( fd_funk_t *               funk,
-                                     fd_funk_txn_xid_t const * xid,
-                                     fd_stake_delegations_t *  stake_delegations,
-                                     fd_pubkey_t *             pubkey ) {
-  fd_txn_account_t acc[1];
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
-    return;
-  }
+register_stake_delegation_from_db( fd_accdb_user_t *         accdb,
+                                   fd_funk_txn_xid_t const * xid,
+                                   fd_stake_delegations_t *  stake_delegations,
+                                   fd_pubkey_t *             pubkey ) {
 
-  /* Account must be owned by the stake program */
-  if( memcmp( fd_txn_account_get_owner( acc ), fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return;
-  }
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) return;
 
-  /* Account must have > 0 lamports */
-  if( fd_txn_account_get_lamports( acc )==0UL ) {
-    return;
-  }
-
-  /* Stake state must exist and be initialized correctly */
   fd_stake_state_v2_t stake_state;
-  if( FD_UNLIKELY( fd_stake_get_state( acc->meta, &stake_state ) || !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-    return;
-  }
-
-  /* Skip 0-stake accounts */
-  if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
+  if( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_stake_program_id ) ||
+      fd_accdb_ref_lamports( ro )==0UL ||
+      0!=fd_stake_get_state( ro->meta, &stake_state ) ||
+      !fd_stake_state_v2_is_stake( &stake_state ) ||
+      stake_state.inner.stake.stake.delegation.stake==0UL ) {
+    fd_accdb_close_ro( accdb, ro );
     return;
   }
 
@@ -291,6 +271,7 @@ register_stake_delegation_from_funk( fd_funk_t *               funk,
       stake_state.inner.stake.stake.delegation.deactivation_epoch,
       stake_state.inner.stake.stake.credits_observed,
       stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
+  fd_accdb_close_ro( accdb, ro );
 }
 
 /* Helper: Load accounts from protobuf into funk */
@@ -468,7 +449,6 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   fd_funk_txn_xid_t root_xid;
   fd_funk_txn_xid_set_root( &root_xid );
   fd_accdb_attach_child( test_ctx->accdb_admin, &root_xid, &test_ctx->parent_xid );
-  fd_funk_t * funk = fd_accdb_user_v1_funk( test_ctx->accdb );
 
   /* Load accounts into Funk */
   load_accounts_from_proto( test_ctx->accdb, &test_ctx->parent_xid, input_ctx.acct_states, input_ctx.acct_states_count );
@@ -485,10 +465,10 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     fd_memcpy( &pubkey, input_ctx.acct_states[i].address, sizeof(fd_pubkey_t) );
 
     /* Register vote account in current epoch */
-    register_vote_account_from_funk( funk, &test_ctx->parent_xid, vote_states_current, &pubkey );
+    register_vote_account_from_db( test_ctx->accdb, &test_ctx->parent_xid, vote_states_current, &pubkey );
 
     /* Register stake delegation */
-    register_stake_delegation_from_funk( funk, &test_ctx->parent_xid, stake_delegations, &pubkey );
+    register_stake_delegation_from_db( test_ctx->accdb, &test_ctx->parent_xid, stake_delegations, &pubkey );
   }
 
   fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
@@ -540,7 +520,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
       test_ctx->dump_ctx,
       test_ctx->banks,
       test_ctx->child_bank,
-      funk,
+      test_ctx->accdb,
       test_ctx->capture_ctx
   );
 
