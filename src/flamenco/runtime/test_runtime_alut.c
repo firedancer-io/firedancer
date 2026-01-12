@@ -2,7 +2,6 @@
 
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
-#include "fd_txn_account.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../accdb/fd_accdb_sync.h"
 #include "program/fd_address_lookup_table_program.h"

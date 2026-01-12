@@ -1581,10 +1581,9 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                        runtime->log.capture_ctx->dump_elf_to_pb;
   if( FD_UNLIKELY( dump_elf_to_pb ) ) {
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-      fd_txn_account_t txn_account[1];
-      txn_account->meta = txn_out->accounts.account[i].meta;
-      fd_memcpy( txn_account->pubkey, &txn_out->accounts.keys[i], sizeof(fd_pubkey_t) );
-      fd_dump_elf_to_protobuf( runtime, bank, txn_in, txn_account );
+      fd_account_meta_t * acc_meta = txn_out->accounts.account[i].meta;
+      fd_pubkey_t *       acc_pubkey = &txn_out->accounts.keys[i];
+      fd_dump_elf_to_protobuf( runtime, bank, txn_in, acc_pubkey, acc_meta );
     }
   }
 # endif

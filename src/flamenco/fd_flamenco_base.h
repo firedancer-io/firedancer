@@ -35,9 +35,6 @@ typedef struct fd_capture_ctx fd_capture_ctx_t;
 struct fd_borrowed_account;
 typedef struct fd_borrowed_account fd_borrowed_account_t;
 
-struct fd_txn_account;
-typedef struct fd_txn_account fd_txn_account_t;
-
 union fd_features;
 typedef union fd_features fd_features_t;
 
