@@ -1,5 +1,4 @@
 #include "fd_executor.h"
-#include "fd_acc_mgr.h"
 #include "fd_bank.h"
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
@@ -24,6 +23,7 @@
 #include "sysvar/fd_sysvar_slot_history.h"
 #include "tests/fd_dump_pb.h"
 
+#include "../accdb/fd_accdb_sync.h"
 #include "../log_collector/fd_log_collector.h"
 
 #include "../../ballet/base58/fd_base58.h"

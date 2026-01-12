@@ -18,6 +18,7 @@
 #include "../../discof/replay/fd_exec.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
+#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../util/pod/fd_pod.h"
 

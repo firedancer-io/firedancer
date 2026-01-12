@@ -5,6 +5,7 @@
 #include "fd_pubkey_utils.h"
 #include "fd_system_ids.h"
 #include "fd_hashes.h"
+#include "../accdb/fd_accdb_sync.h"
 #include <assert.h>
 
 static fd_pubkey_t

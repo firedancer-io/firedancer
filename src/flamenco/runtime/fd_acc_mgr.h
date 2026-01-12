@@ -3,7 +3,8 @@
 
 /* fd_acc_mgr provides APIs for the Solana account database. */
 
-#include "fd_txn_account.h"
+#include "../../funk/fd_funk_base.h"
+#include "../types/fd_types_custom.h"
 
 #if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"
@@ -78,18 +79,6 @@ fd_account_meta_get_data_const( fd_account_meta_t const * m ) {
 static inline ulong
 fd_account_meta_get_record_sz( fd_account_meta_t const * m ) {
   return sizeof(fd_account_meta_t) + m->dlen;
-}
-
-/* Funk key handling **************************************************/
-
-/* fd_acc_funk_key returns a fd_funk database key given an account
-   address. */
-
-FD_FN_PURE static inline fd_funk_rec_key_t
-fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
-  fd_funk_rec_key_t key = {0};
-  memcpy( key.uc, pubkey, sizeof(fd_pubkey_t) );
-  return key;
 }
 
 FD_PROTOTYPES_END

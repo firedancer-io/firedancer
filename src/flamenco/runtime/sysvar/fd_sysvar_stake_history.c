@@ -1,9 +1,7 @@
 #include "fd_sysvar_stake_history.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../fd_txn_account.h"
-#include "../fd_acc_mgr.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 /* Ensure that the size declared by our header matches the minimum size
    of the corresponding fd_types entry. */

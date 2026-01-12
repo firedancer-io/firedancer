@@ -11,7 +11,6 @@
 #include "fd_bank.h"
 #include "fd_system_ids.h"
 #include "fd_acc_pool.h"
-#include "fd_acc_mgr.h"
 #include "program/fd_builtin_programs.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -81,7 +80,7 @@ init_fee_payer( test_env_t * env ) {
   fd_memset( &env->fee_payer, 0x01, sizeof(fd_pubkey_t) );
 
   fd_funk_t * funk = fd_accdb_user_v1_funk( env->accdb );
-  fd_funk_rec_key_t rec_key = fd_funk_acc_key( &env->fee_payer );
+  fd_funk_rec_key_t rec_key = FD_LOAD( fd_funk_rec_key_t, env->fee_payer.uc );
   fd_funk_rec_prepare_t prepare[1];
   fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, &env->xid, &rec_key, prepare, NULL );
   FD_TEST( rec );

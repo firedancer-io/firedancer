@@ -1,8 +1,7 @@
 #include "fd_sysvar_last_restart_slot.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../fd_acc_mgr.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 void
 fd_sysvar_last_restart_slot_write(

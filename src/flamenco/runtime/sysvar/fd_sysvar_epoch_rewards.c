@@ -1,9 +1,7 @@
 #include "fd_sysvar_epoch_rewards.h"
 #include "fd_sysvar.h"
-#include "../fd_acc_mgr.h"
-#include "../fd_txn_account.h"
 #include "../fd_system_ids.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 static void
 write_epoch_rewards( fd_bank_t *                 bank,

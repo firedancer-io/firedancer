@@ -1,7 +1,7 @@
 #include "fd_features.h"
 #include "../runtime/fd_bank.h"
-#include "../runtime/fd_acc_mgr.h"
 #include "../runtime/fd_system_ids.h"
+#include "../accdb/fd_accdb_sync.h"
 
 void
 fd_features_enable_all( fd_features_t * f ) {

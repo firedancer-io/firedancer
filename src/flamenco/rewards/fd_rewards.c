@@ -9,6 +9,7 @@
 #include "../capture/fd_capture_ctx.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_runtime.h"
+#include "../accdb/fd_accdb_sync.h"
 #include "fd_epoch_rewards.h"
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */

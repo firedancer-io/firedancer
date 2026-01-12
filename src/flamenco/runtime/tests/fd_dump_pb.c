@@ -8,6 +8,7 @@
 #include "../fd_runtime.h"
 #include "../program/fd_address_lookup_table_program.h"
 #include "../../../ballet/nanopb/pb_encode.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include "../../progcache/fd_prog_load.h"
 
 #include <stdio.h> /* fopen */

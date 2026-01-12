@@ -1,7 +1,5 @@
 #include "fd_stake_delegations.h"
-#include "../../funk/fd_funk_base.h"
-#include "../runtime/fd_txn_account.h"
-#include "../runtime/fd_acc_mgr.h"
+#include "../accdb/fd_accdb_sync.h"
 #include "../runtime/program/fd_stake_program.h"
 
 #define POOL_NAME fd_stake_delegation_pool

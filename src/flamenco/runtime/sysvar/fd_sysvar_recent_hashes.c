@@ -1,7 +1,7 @@
 #include "fd_sysvar_recent_hashes.h"
-#include "../fd_acc_mgr.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 /* Skips fd_types encoding preflight checks and directly serializes the
    blockhash queue into a buffer representing account data for the

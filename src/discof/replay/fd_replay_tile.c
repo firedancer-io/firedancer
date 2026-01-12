@@ -22,6 +22,7 @@
 #include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v2.h"
+#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_vinyl_req_pool.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
@@ -918,13 +919,6 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   ulong curr_slot = fd_bank_slot_get( ctx->leader_bank );
 
   fd_sched_block_add_done( ctx->sched, ctx->leader_bank->data->idx, ctx->leader_bank->data->parent_idx, curr_slot );
-
-  /* Do hashing and other end-of-block processing */
-  fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( funk );
-  if( FD_UNLIKELY( !txn_map->map ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction map" ));
-  }
 
   fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx );
 
