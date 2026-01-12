@@ -210,29 +210,24 @@ fd_write_builtin_account( fd_bank_t  *              bank,
                           char const *              data,
                           ulong                     sz ) {
 
-  fd_txn_account_t rec[1];
-  fd_funk_rec_prepare_t prepare = {0};
-
-  int ok = !!fd_txn_account_init_from_funk_mutable( rec, &pubkey, accdb, xid, 1, sz, &prepare );
-  FD_TEST( ok );
+  fd_accdb_rw_t rw[1];
+  fd_accdb_open_rw( accdb, rw, xid, &pubkey, sz, FD_ACCDB_FLAG_CREATE );
 
   fd_lthash_value_t prev_hash[1];
   fd_hashes_account_lthash(
     &pubkey,
-    fd_txn_account_get_meta( rec ),
-    fd_txn_account_get_data( rec ),
+    rw->meta,
+    fd_accdb_ref_data_const( rw->ro ),
     prev_hash );
 
-  fd_txn_account_set_data( rec, data, sz );
-  fd_txn_account_set_lamports( rec, 1UL );
-  fd_txn_account_set_executable( rec, 1 );
-  fd_txn_account_set_owner( rec, &fd_solana_native_loader_id );
+  fd_accdb_ref_data_set( accdb, rw, data, sz );
+  fd_accdb_ref_lamports_set( rw, 1UL );
+  fd_accdb_ref_exec_bit_set( rw, 1 );
+  fd_accdb_ref_owner_set( rw, &fd_solana_native_loader_id );
 
-  fd_hashes_update_lthash( rec->pubkey, rec->meta, prev_hash, bank, capture_ctx );
-
-  fd_txn_account_mutable_fini( rec, accdb, &prepare );
-
+  fd_hashes_update_lthash( &pubkey, rw->meta, prev_hash, bank, capture_ctx );
   fd_bank_capitalization_set( bank, fd_bank_capitalization_get( bank ) + 1UL );
+  fd_accdb_close_rw( accdb, rw );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L74 */
