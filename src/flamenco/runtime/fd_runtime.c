@@ -1288,7 +1288,7 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
 
 static inline void
 fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
-  FD_CRIT( runtime->outstanding_txn==0, "can't start executing a transaction when there is an outstanding cancel/commit1" );
+  FD_CRIT( runtime->outstanding_txn==0, "can't start executing a transaction when there is an outstanding cancel/commit" );
   runtime->outstanding_txn         = 1;
   runtime->instr.stack_sz          = 0;
   runtime->instr.trace_length      = 0UL;
