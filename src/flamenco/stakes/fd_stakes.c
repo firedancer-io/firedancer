@@ -153,23 +153,6 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
 }
 
-int
-write_stake_state( fd_txn_account_t *    stake_acc_rec,
-                   fd_stake_state_v2_t * stake_state ) {
-
-  ulong encoded_stake_state_size = fd_stake_state_v2_size(stake_state);
-
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = fd_txn_account_get_data_mut( stake_acc_rec ),
-    .dataend = fd_txn_account_get_data_mut( stake_acc_rec ) + encoded_stake_state_size,
-  };
-  if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx ) != FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_ERR(( "fd_stake_state_encode failed" ));
-  }
-
-  return 0;
-}
-
 void
 fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_account_meta_t const * meta,

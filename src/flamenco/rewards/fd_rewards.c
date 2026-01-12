@@ -1,7 +1,6 @@
 #include "fd_rewards.h"
 #include <math.h>
 
-#include "../runtime/fd_acc_mgr.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
@@ -11,7 +10,6 @@
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_runtime.h"
 #include "fd_epoch_rewards.h"
-#include "../accdb/fd_accdb_impl_v1.h"
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
@@ -829,43 +827,29 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
                                       fd_pubkey_t *             stake_pubkey,
                                       ulong                     reward_lamports,
                                       ulong                     new_credits_observed ) {
-  fd_txn_account_t stake_acc_rec[1];
-  fd_funk_rec_prepare_t prepare = {0};
-  if( FD_UNLIKELY( !fd_txn_account_init_from_funk_mutable( stake_acc_rec,
-                                                          stake_pubkey,
-                                                          accdb,
-                                                          xid,
-                                                          0,
-                                                          0UL,
-                                                          &prepare ) ) ) {
-    FD_LOG_ERR(( "Unable to modify stake account" ));
+
+  fd_accdb_rw_t rw[1];
+  if( FD_UNLIKELY( !fd_accdb_open_rw( accdb, rw, xid, stake_pubkey, 0UL, 0 ) ) ) {
+    return 1;  /* account does not exist */
   }
 
   fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash(
-    stake_pubkey,
-    fd_txn_account_get_meta( stake_acc_rec ),
-    fd_txn_account_get_data( stake_acc_rec ),
-    prev_hash );
-
-  fd_txn_account_set_slot( stake_acc_rec, fd_bank_slot_get( bank ) );
-
+  fd_hashes_account_lthash( stake_pubkey, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
   fd_stake_state_v2_t stake_state[1] = {0};
-  if( fd_stake_get_state( stake_acc_rec->meta, stake_state ) != 0 ) {
-    FD_BASE58_ENCODE_32_BYTES( stake_pubkey->key, stake_pubkey_b58 );
-    FD_LOG_DEBUG(( "failed to read stake state for %s", stake_pubkey_b58 ));
-    return 1;
+  if( 0!=fd_stake_get_state( rw->meta, stake_state ) ||
+      !fd_stake_state_v2_is_stake( stake_state ) ) {
+    fd_accdb_close_rw( accdb, rw );
+    return 1;  /* not a valid stake account */
   }
 
-  if ( !fd_stake_state_v2_is_stake( stake_state ) ) {
-    FD_LOG_DEBUG(( "non-stake stake account, this should never happen" ));
-    return 1;
+  /* Credit rewards to stake account */
+  ulong acc_lamports = fd_accdb_ref_lamports( rw->ro );
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( acc_lamports, reward_lamports, &acc_lamports ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( stake_pubkey->key, addr_b58 );
+    FD_LOG_EMERG(( "integer overflow while crediting %lu stake reward lamports to %s (previous balance %lu)",
+                    reward_lamports, addr_b58, fd_accdb_ref_lamports( rw->ro ) ));
   }
-
-  if( fd_txn_account_checked_add_lamports( stake_acc_rec, reward_lamports ) ) {
-    FD_LOG_DEBUG(( "failed to add lamports to stake account" ));
-    return 1;
-  }
+  fd_accdb_ref_lamports_set( rw, acc_lamports );
 
   ulong old_credits_observed                      = stake_state->inner.stake.stake.credits_observed;
   stake_state->inner.stake.stake.credits_observed = new_credits_observed;
@@ -886,25 +870,26 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
       stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
   fd_bank_stake_delegations_delta_end_locking_modify( bank );
 
-  if ( capture_ctx && capture_ctx->capture ) {
+  if( capture_ctx && capture_ctx->capture ) {
     fd_capture_link_write_stake_account_payout( capture_ctx,
-                                                    fd_bank_slot_get( bank ),
-                                                    *stake_pubkey,
-                                                    fd_bank_slot_get( bank ),
-                                                    fd_txn_account_get_lamports( stake_acc_rec ),
-                                                    (long)reward_lamports,
-                                                    new_credits_observed,
-                                                    (long)( new_credits_observed - old_credits_observed ),
-                                                    stake_state->inner.stake.stake.delegation.stake,
-                                                    (long)reward_lamports );
+                                                fd_bank_slot_get( bank ),
+                                                *stake_pubkey,
+                                                fd_bank_slot_get( bank ),
+                                                acc_lamports,
+                                                (long)reward_lamports,
+                                                new_credits_observed,
+                                                (long)( new_credits_observed - old_credits_observed ),
+                                                stake_state->inner.stake.stake.delegation.stake,
+                                                (long)reward_lamports );
   }
 
-  if( FD_UNLIKELY( write_stake_state( stake_acc_rec, stake_state ) != 0 ) ) {
-    FD_LOG_ERR(( "write_stake_state failed" ));
+  fd_bincode_encode_ctx_t ctx = { .data=fd_accdb_ref_data( rw ), .dataend=(uchar *)fd_accdb_ref_data( rw )+fd_accdb_ref_data_sz( rw->ro ) };
+  if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx )!=FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_stake_state_encode failed" ));
   }
 
-  fd_hashes_update_lthash( stake_acc_rec->pubkey, stake_acc_rec->meta, prev_hash, bank, capture_ctx );
-  fd_txn_account_mutable_fini( stake_acc_rec, accdb, &prepare );
+  fd_hashes_update_lthash( stake_pubkey, rw->meta, prev_hash, bank, capture_ctx );
+  fd_accdb_close_rw( accdb, rw );
 
   return 0;
 }
