@@ -231,15 +231,16 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       meta = txn_out->accounts.account[i].meta;
     }
 
-    uchar * scratch = fd_spad_alloc( runner->spad, FD_FUNK_REC_ALIGN, FD_RUNTIME_ACC_SZ_MAX );
-    fd_progcache_inject_rec( runner->progcache_admin,
-                              &txn_out->accounts.keys[i],
-                              meta,
-                              features,
-                              fd_bank_slot_get( runner->bank ),
-                              scratch,
-                              FD_RUNTIME_ACC_SZ_MAX );
-
+    FD_SPAD_FRAME_BEGIN( runner->spad ) {
+      uchar * scratch = fd_spad_alloc( runner->spad, FD_FUNK_REC_ALIGN, meta->dlen );
+      fd_progcache_inject_rec( runner->progcache_admin,
+                                &txn_out->accounts.keys[i],
+                                meta,
+                                features,
+                                fd_bank_slot_get( runner->bank ),
+                                scratch,
+                                meta->dlen );
+    } FD_SPAD_FRAME_END;
   }
 
   fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ fd_bank_slot_get( runner->bank ), runner->bank->data->idx } }};
