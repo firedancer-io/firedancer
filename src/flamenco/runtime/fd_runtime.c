@@ -257,7 +257,7 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
 
   /* Credit fee collector, creating it if necessary */
   fd_accdb_rw_t rw[1];
-  fd_accdb_open_rw( accdb, rw, xid, leader, 0UL, 0 );
+  fd_accdb_open_rw( accdb, rw, xid, leader, 0UL, FD_ACCDB_FLAG_CREATE );
   fd_lthash_value_t prev_hash[1];
   fd_hashes_account_lthash( leader, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
 
