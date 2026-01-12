@@ -3236,25 +3236,28 @@ static void
 write_stake_config( fd_accdb_user_t *         accdb,
                     fd_funk_txn_xid_t const * xid,
                     fd_stake_config_t const * stake_config ) {
-  ulong                   data_sz  = fd_stake_config_size( stake_config );
-  fd_pubkey_t const *     acc_key  = &fd_solana_stake_program_config_id;
+  ulong               data_sz = fd_stake_config_size( stake_config );
+  fd_pubkey_t const * address = &fd_solana_stake_program_config_id;
 
-  fd_txn_account_t rec[1];
-  fd_funk_rec_prepare_t prepare = {0};
-  FD_TEST( fd_txn_account_init_from_funk_mutable( rec, acc_key, accdb, xid, 1, data_sz, &prepare ) );
+  fd_accdb_rw_t rw[1];
+  fd_accdb_open_rw( accdb, rw, xid, address, data_sz, FD_ACCDB_FLAG_CREATE );
 
-  fd_txn_account_set_lamports( rec, 960480UL );
-  fd_txn_account_set_executable( rec, 0 );
+  /* FIXME update capitalization? */
+  /* FIXME set owner to Config program? */
+  /* FIXME Agave reflink? */
+  /* FIXME derive lamport balance from rent instead of hardcoding */
 
-  fd_bincode_encode_ctx_t ctx3;
-  ctx3.data    = fd_txn_account_get_data_mut( rec );
-  ctx3.dataend = fd_txn_account_get_data_mut( rec ) + data_sz;
-  if( fd_stake_config_encode( stake_config, &ctx3 ) )
+  fd_accdb_ref_lamports_set( rw, 960480UL );
+  fd_accdb_ref_exec_bit_set( rw, 0 );
+  fd_accdb_ref_data_sz_set( accdb, rw, data_sz, 0 );
+  fd_bincode_encode_ctx_t ctx = {
+    .data    = fd_accdb_ref_data( rw ),
+    .dataend = (uchar *)fd_accdb_ref_data( rw ) + data_sz
+  };
+  if( fd_stake_config_encode( stake_config, &ctx ) )
     FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
 
-  fd_txn_account_set_data( rec, stake_config, data_sz );
-
-  fd_txn_account_mutable_fini( rec, accdb, &prepare );
+  fd_accdb_close_rw( accdb, rw );
 }
 
 void
