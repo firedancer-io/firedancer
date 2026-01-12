@@ -909,7 +909,7 @@ fd_gui_try_insert_catch_up_slot( ulong * slots, ulong capacity, ulong * slots_sz
     }
   }
 
-  if( FD_UNLIKELY( (*slots_sz)>removed+capacity-2UL ) ) {
+  if( FD_UNLIKELY( (*slots_sz)>=removed+capacity-2UL ) ) {
     /* We are at capacity, start coalescing earlier intervals. */
     slots[ 1 ] = ULONG_MAX;
     slots[ 2 ] = ULONG_MAX;
