@@ -56,20 +56,33 @@ fd_curve25519_scalar_reduce( uchar       out[ 32 ],
 
 static inline uchar const *
 fd_curve25519_scalar_validate( uchar const s[ 32 ] ) {
-  ulong s0 = fd_ulong_load_8_fast( s      );
-  ulong s1 = fd_ulong_load_8_fast( s +  8 );
-  ulong s2 = fd_ulong_load_8_fast( s + 16 );
-  ulong s3 = fd_ulong_load_8_fast( s + 24 );
-  ulong l0 = *(ulong *)(&fd_curve25519_scalar_minus_one[  0 ]);
-  ulong l1 = *(ulong *)(&fd_curve25519_scalar_minus_one[  8 ]);
-  ulong l2 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 16 ]);
-  ulong l3 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 24 ]);
-  return (
-    (s3 < l3)
-    || ((s3 == l3) && (s2 < l2))
-    || ((s3 == l3) && (s2 == l2) && (s1 < l1))
-    || ((s3 == l3) && (s2 == l2) && (s1 == l1) && (s0 <= l0))
-  ) ? s : NULL;
+  /* If none of the top 4 bits are set, then the scalar fits into S \in [0, 2^252),
+     which is a tighter range than [0, L), which is about [0, 2^252.2). In this case
+     we can "succeed-fast" and skip the full canonical check. */
+  if ( FD_UNLIKELY( s[31] & 0xF0 ) ) {
+    /* Assuming canonical and IID scalars, the chance of the 252nd bit being
+       set is roughly 1/2^128 or log2(1 - (2^252 - 1) / L). */
+
+    /* If any of the top 3 bits are set, the scalar representation must be invalid. */
+    if ( FD_LIKELY( s[31] & 0xE0 ) ) return NULL;
+
+    /* Nothing left for us to do except determine if `s` is between [2^252, L) or not. */
+    ulong s0 = fd_ulong_load_8_fast( s      );
+    ulong s1 = fd_ulong_load_8_fast( s +  8 );
+    ulong s2 = fd_ulong_load_8_fast( s + 16 );
+    ulong s3 = fd_ulong_load_8_fast( s + 24 );
+    ulong l0 = *(ulong *)(&fd_curve25519_scalar_minus_one[  0 ]);
+    ulong l1 = *(ulong *)(&fd_curve25519_scalar_minus_one[  8 ]);
+    ulong l2 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 16 ]);
+    ulong l3 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 24 ]);
+    return (
+      (s3 < l3)
+      || ((s3 == l3) && (s2 < l2))
+      || ((s3 == l3) && (s2 == l2) && (s1 < l1))
+      || ((s3 == l3) && (s2 == l2) && (s1 == l1) && (s0 <= l0))
+    ) ? s : NULL;
+  }
+  return s;
 }
 
 /* fd_curve25519_scalar_muladd computes s = (a*b+c) mod l where a, b and c
