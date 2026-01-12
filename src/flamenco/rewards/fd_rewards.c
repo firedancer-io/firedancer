@@ -783,37 +783,22 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
       continue;
     }
 
+    /* Credit rewards to vote account (creating a new system account if
+       it does not exist) */
     fd_pubkey_t const * vote_pubkey = &vote_state->vote_account;
-    fd_txn_account_t vote_rec[1];
-    fd_funk_rec_prepare_t prepare = {0};
-
-    if( FD_UNLIKELY( !fd_txn_account_init_from_funk_mutable(
-        vote_rec,
-        vote_pubkey,
-        accdb,
-        xid,
-        1,
-        0UL,
-        &prepare
-    ) ) ) {
-      FD_LOG_ERR(( "Unable to modify vote account" ));
-    }
-
+    fd_accdb_rw_t rw[1];
+    fd_accdb_open_rw( accdb, rw, xid, vote_pubkey, 0UL, FD_ACCDB_FLAG_CREATE );
     fd_lthash_value_t prev_hash[1];
-    fd_hashes_account_lthash(
-      vote_pubkey,
-      fd_txn_account_get_meta( vote_rec ),
-      fd_txn_account_get_data( vote_rec ),
-      prev_hash );
-
-    fd_txn_account_set_slot( vote_rec, fd_bank_slot_get( bank ) );
-
-    if( FD_UNLIKELY( fd_txn_account_checked_add_lamports( vote_rec, rewards ) ) ) {
-      FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
+    fd_hashes_account_lthash( vote_pubkey, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
+    ulong acc_lamports = fd_accdb_ref_lamports( rw->ro );
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( acc_lamports, rewards, &acc_lamports ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( vote_pubkey->key, addr_b58 );
+      FD_LOG_EMERG(( "integer overflow while crediting %lu vote reward lamports to %s (previous balance %lu)",
+                     rewards, addr_b58, fd_accdb_ref_lamports( rw->ro ) ));
     }
-
-    fd_hashes_update_lthash( vote_rec->pubkey, vote_rec->meta, prev_hash,bank, capture_ctx );
-    fd_txn_account_mutable_fini( vote_rec, accdb, &prepare );
+    fd_accdb_ref_lamports_set( rw, acc_lamports );
+    fd_hashes_update_lthash( vote_pubkey, rw->meta, prev_hash,bank, capture_ctx );
+    fd_accdb_close_rw( accdb, rw );
 
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
   }
