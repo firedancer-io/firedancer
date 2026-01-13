@@ -228,11 +228,13 @@ void
 make_vote_account( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_tower_accts_t * out ) {
   fd_voter_t voter = {
     .kind = FD_VOTER_V3,
-    .node_pubkey = *pubkey,
-    .votes_cnt = 1,
-    .votes_v3 = {
-      { .slot = vote, .conf = conf },
-    },
+    .v3 = {
+      .node_pubkey = *pubkey,
+      .votes_cnt = 1,
+      .votes = {
+        { .slot = vote, .conf = conf },
+      },
+    }
   };
 
   memcpy( out->data, &voter, sizeof(fd_voter_t) );

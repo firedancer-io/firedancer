@@ -5,6 +5,7 @@
 
 #include "fd_tower.h"
 #include "../voter/fd_voter.h"
+#include "../voter/fd_voter_private.h"
 #include "fd_tower_forks.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
@@ -668,9 +669,13 @@ fd_tower_reconcile( fd_tower_t  * tower,
     fd_tower_remove_all( tower );
     fd_voter_t const * voter = (fd_voter_t const *)fd_type_pun_const( vote_account_data );
     uint               kind  = fd_uint_load_4_fast( vote_account_data ); /* skip node_pubkey */
-    for( ulong i=0; i<voter->votes_cnt; i++ ) {
-      if( FD_LIKELY( kind==FD_VOTER_V3 ) ) fd_tower_push_tail( tower, (fd_tower_t){ .slot = voter->votes_v3[i].slot, .conf = voter->votes_v3[i].conf } );
-      if( FD_LIKELY( kind==FD_VOTER_V2 ) ) fd_tower_push_tail( tower, (fd_tower_t){ .slot = voter->votes_v2[i].slot, .conf = voter->votes_v2[i].conf } );
+    for( ulong i=0; i<fd_voter_votes_cnt( vote_account_data ); i++ ) {
+      switch( kind ) {
+      case FD_VOTER_V4: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
+      case FD_VOTER_V3: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
+      case FD_VOTER_V2: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
+      default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
+      }
     }
 
     /* Fast forward our tower to tower_root by retaining only votes >
@@ -689,23 +694,31 @@ fd_tower_from_vote_acc( fd_tower_t   * tower,
                         uchar  const * vote_acc ) {
   fd_voter_t const * voter = (fd_voter_t const *)fd_type_pun_const( vote_acc );
   uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
-  for( ulong i=0; i<voter->votes_cnt; i++ ) {
-    if( FD_LIKELY( kind==FD_VOTER_V3 ) ) fd_tower_push_tail( tower, (fd_tower_t){ .slot = voter->votes_v3[i].slot, .conf = voter->votes_v3[i].conf } );
-    if( FD_LIKELY( kind==FD_VOTER_V2 ) ) fd_tower_push_tail( tower, (fd_tower_t){ .slot = voter->votes_v2[i].slot, .conf = voter->votes_v2[i].conf } );
+  for( ulong i=0; i<fd_voter_votes_cnt( vote_acc ); i++ ) {
+    switch( kind ) {
+    case FD_VOTER_V4: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
+    case FD_VOTER_V3: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
+    case FD_VOTER_V2: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
+    default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
+    }
   }
 }
 
 ulong
-fd_tower_with_lat_from_vote_acc( fd_voter_vote_v3_t tower[ static FD_TOWER_VOTE_MAX ],
+fd_tower_with_lat_from_vote_acc( fd_voter_vote_t tower[ static FD_TOWER_VOTE_MAX ],
                                  uchar const *      vote_acc ) {
   fd_voter_t const * voter = (fd_voter_t const *)fd_type_pun_const( vote_acc );
   uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
-  for( ulong i=0; i<voter->votes_cnt; i++ ) {
-    if( FD_LIKELY( kind==FD_VOTER_V3 ) ) tower[ i ] = (fd_voter_vote_v3_t){ .latency = voter->votes_v3[i].latency, .slot = voter->votes_v3[i].slot, .conf = voter->votes_v3[i].conf };
-    if( FD_LIKELY( kind==FD_VOTER_V2 ) ) tower[ i ] = (fd_voter_vote_v3_t){ .latency = UCHAR_MAX, .slot = voter->votes_v2[i].slot, .conf = voter->votes_v2[i].conf };
+  for( ulong i=0; i<fd_voter_votes_cnt( vote_acc ); i++ ) {
+    switch( kind ) {
+    case FD_VOTER_V4: tower[ i ] = (fd_voter_vote_t){ .latency = v4_off( voter )[i].latency, .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf }; break;
+    case FD_VOTER_V3: tower[ i ] = (fd_voter_vote_t){ .latency = voter->v3.votes[i].latency, .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf }; break;
+    case FD_VOTER_V2: tower[ i ] = (fd_voter_vote_t){ .latency = UCHAR_MAX,                  .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf }; break;
+    default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
+    }
   }
 
-  return voter->votes_cnt;
+  return fd_voter_votes_cnt( vote_acc );
 }
 
 void

@@ -77,7 +77,7 @@ struct fd_tower_slot_done {
 
   /* Our current on-chain tower with vote latencies optionally included. */
   ulong tower_cnt;
-  fd_voter_vote_v3_t tower[ FD_TOWER_VOTE_MAX ];
+  fd_voter_vote_t tower[ FD_TOWER_VOTE_MAX ];
 };
 typedef struct fd_tower_slot_done fd_tower_slot_done_t;
 

@@ -8,5 +8,6 @@ ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_tower,test_tower,fd_choreo fd_flamenco fd_tango fd_ballet fd_util,$(SECP256K1_LIBS))
 $(call make-unit-test,test_tower_forks,test_tower_forks,fd_choreo fd_flamenco fd_tango fd_ballet fd_util,$(SECP256K1_LIBS))
 $(call run-unit-test,test_tower)
+$(call run-unit-test,test_tower_forks)
 endif
 endif

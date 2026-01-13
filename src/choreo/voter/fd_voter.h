@@ -39,57 +39,72 @@ FD_STATIC_ASSERT( FD_VOTER_V4==fd_vote_state_versioned_enum_v4,       FD_VOTER_V
 
    The binary layout begins with metadata in the vote account, followed by the voter's votes (tower), and terminates with the root. */
 
-struct __attribute__((packed)) fd_voter_vote_v3 {
+struct __attribute__((packed)) fd_voter_vote {
   uchar latency;
   ulong slot;
   uint  conf;
 };
-typedef struct fd_voter_vote_v3 fd_voter_vote_v3_t;
+typedef struct fd_voter_vote fd_voter_vote_t;
+
 struct __attribute__((packed)) fd_voter {
-  uint        kind;
-  fd_pubkey_t node_pubkey;
-  fd_pubkey_t authorized_withdrawer;
-  uchar       commission;
-  ulong       votes_cnt;
-  union {
+  uint kind;
+  union __attribute__((packed)) {
     struct __attribute__((packed)) {
-      ulong slot;
-      uint  conf;
-    } votes_v2[31]; /* variable-length */
-    fd_voter_vote_v3_t votes_v3[31]; /* variable-length */
-    /* uchar root_option */
-    /* ulong root */
+      fd_pubkey_t node_pubkey;
+      fd_pubkey_t authorized_withdrawer;
+      uchar       commission;
+      ulong       votes_cnt;
+      struct __attribute__((packed)) {
+        ulong slot;
+        uint  conf;
+      } votes[31]; /* variable-length */
+      /* uchar root_option */
+      /* ulong root */
+    } v2;
+
+    struct __attribute__((packed)) {
+      fd_pubkey_t        node_pubkey;
+      fd_pubkey_t        authorized_withdrawer;
+      uchar              commission;
+      ulong              votes_cnt;
+      fd_voter_vote_t    votes[31]; /* variable-length */
+      /* uchar root_option */
+      /* ulong root */
+    } v3;
+
+    struct __attribute__((packed)) {
+      fd_pubkey_t     node_pubkey;
+      fd_pubkey_t     authorized_withdrawer;
+      fd_pubkey_t     inflation_rewards_collector;
+      fd_pubkey_t     block_revenue_collector;
+      ushort          inflation_rewards_commission_bps;
+      ushort          block_revenue_commission_bps;
+      ulong           pending_delegator_rewards;
+      uchar           has_bls_pubkey_compressed;
+      uchar           bls_pubkey_compressed[48];
+      /* ulong           votes_cnt; */
+      /* fd_voter_vote_t votes[31]; */
+      /* uchar root_option */
+      /* ulong root */
+    } v4;
   };
 };
 typedef struct fd_voter fd_voter_t;
+
+FD_FN_PURE ulong
+fd_voter_votes_cnt( uchar const * vote_account_data );
 
 /* fd_voter_vote_slot takes a voter's vote account data and returns the
    voter's most recent vote slot in the tower.  Returns ULONG_MAX if
    they have an empty tower. */
 
-static inline ulong
-fd_voter_vote_slot( uchar const * vote_account_data ) {
-  fd_voter_t const * voter = (fd_voter_t const *)fd_type_pun_const( vote_account_data );
-  ulong              cnt   = voter->votes_cnt;
-  switch( voter->kind ) {
-  case FD_VOTER_V3: return cnt ? voter->votes_v3[cnt-1].slot : ULONG_MAX;
-  case FD_VOTER_V2: return cnt ? voter->votes_v2[cnt-1].slot : ULONG_MAX;
-  default: FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
-  }
-}
+FD_FN_PURE ulong
+fd_voter_vote_slot( uchar const * vote_account_data );
 
 /* fd_voter_root_slot takes a voter's vote account data and returns the
    voter's root slot.  Returns ULONG_MAX if they don't have a root. */
 
-static inline ulong
-fd_voter_root_slot( uchar const * vote_account_data ) {
-  fd_voter_t const * voter = (fd_voter_t const *)fd_type_pun_const( vote_account_data );
-  ulong              cnt   = voter->votes_cnt;
-  switch( voter->kind ) {
-  case FD_VOTER_V3: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->votes_v3[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->votes_v3[cnt] + 1UL ) : ULONG_MAX; }
-  case FD_VOTER_V2: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->votes_v2[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->votes_v2[cnt] + 1UL ) : ULONG_MAX; }
-  default: FD_LOG_CRIT(( "unhandled kind %u", voter->kind ));
-  }
-}
+FD_FN_PURE ulong
+fd_voter_root_slot( uchar const * vote_account_data );
 
 #endif /* HEADER_fd_src_choreo_voter_fd_voter_h */

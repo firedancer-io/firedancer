@@ -704,7 +704,7 @@ struct fd_gui {
   ulong pack_txn_idx; /* The pack index of the most recently received transaction */
 
   ulong tower_cnt;
-  fd_voter_vote_v3_t tower[ FD_TOWER_VOTE_MAX ];
+  fd_voter_vote_t tower[ FD_TOWER_VOTE_MAX ];
 
   struct {
     int has_block_engine;

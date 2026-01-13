@@ -526,7 +526,7 @@ fd_tower_from_vote_acc( fd_tower_t  * tower,
 
    Returns the number of copied elements. */
 ulong
-fd_tower_with_lat_from_vote_acc( fd_voter_vote_v3_t tower[ static FD_TOWER_VOTE_MAX ],
+fd_tower_with_lat_from_vote_acc( fd_voter_vote_t tower[ static FD_TOWER_VOTE_MAX ],
                                  uchar const *      vote_acc );
 
 /* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
