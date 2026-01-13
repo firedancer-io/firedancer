@@ -1,5 +1,6 @@
 #include "fd_stake_delegations.h"
 #include "../accdb/fd_accdb_sync.h"
+#include "../accdb/fd_accdb_batch.h"
 #include "../runtime/program/fd_stake_program.h"
 
 #define POOL_NAME fd_stake_delegation_pool
@@ -338,62 +339,58 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
                               fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid ) {
 
-  fd_stake_delegation_map_t * stake_delegation_map = fd_stake_delegations_get_map( stake_delegations );
-  if( FD_UNLIKELY( !stake_delegation_map ) ) {
+  fd_stake_delegation_map_t * map = fd_stake_delegations_get_map( stake_delegations );
+  if( FD_UNLIKELY( !map ) ) {
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation map" ));
   }
-
-  fd_stake_delegation_t * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
-  if( FD_UNLIKELY( !stake_delegation_pool ) ) {
+  fd_stake_delegation_t * pool = fd_stake_delegations_get_pool( stake_delegations );
+  if( FD_UNLIKELY( !pool ) ) {
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));
   }
 
-  for( ulong i=0UL; i<stake_delegations->max_stake_accounts_; i++ ) {
+  fd_accdb_ro_pipe_t ro_pipe[1];
+  fd_accdb_ro_pipe_init( ro_pipe, accdb, xid );
+  ulong const job_cnt = stake_delegations->max_stake_accounts_;
+  for( ulong i=0UL; i<job_cnt; i++ ) {
 
-    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele( fd_stake_delegations_get_pool( stake_delegations ), i );
-
-    if( !fd_stake_delegation_map_ele_query_const(
-            fd_stake_delegations_get_map( stake_delegations ),
-            &stake_delegation->stake_account,
-            NULL,
-            fd_stake_delegations_get_pool( stake_delegations ) ) ) {
-      /* This means that the stake delegation is not in the map, so we
-         can skip it. */
-      continue;
+    /* stream out read requests */
+    fd_accdb_ro_pipe_enqueue( ro_pipe, &pool[ i ].stake_account );
+    if( FD_UNLIKELY( i+1UL==job_cnt ) ) {
+      fd_accdb_ro_pipe_flush( ro_pipe );
     }
 
-    fd_accdb_ro_t ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &stake_delegation->stake_account ) ) ) {
-      fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
-      fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
-      continue;
-    }
+    /* handle a batch of completions */
+    fd_accdb_ro_t * ro;
+    while( (ro = fd_accdb_ro_pipe_poll( ro_pipe )) ) {
+      fd_pubkey_t const * address = fd_accdb_ref_address( ro );
+      fd_stake_delegation_t * delegation =
+          fd_stake_delegation_map_ele_query( map, address, NULL, pool );
+      if( FD_UNLIKELY( !delegation ) ) continue;
 
-    fd_stake_state_v2_t stake_state;
-    int err = fd_stake_get_state( ro->meta, &stake_state );
-    if( FD_UNLIKELY( err ) ) {
-      fd_accdb_close_ro( accdb, ro );
-      fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
-      fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
-    }
+      if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) goto remove;
 
-    if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-      fd_accdb_close_ro( accdb, ro );
-      fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
-      fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
-    }
+      fd_stake_state_v2_t stake;
+      int err = fd_stake_get_state( ro->meta, &stake );
+      if( FD_UNLIKELY( err ) ) goto remove;
+      if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake ) ) ) goto remove;
 
-    fd_stake_delegations_update(
-        stake_delegations,
-        &stake_delegation->stake_account,
-        &stake_state.inner.stake.stake.delegation.voter_pubkey,
-        stake_state.inner.stake.stake.delegation.stake,
-        stake_state.inner.stake.stake.delegation.activation_epoch,
-        stake_state.inner.stake.stake.delegation.deactivation_epoch,
-        stake_state.inner.stake.stake.credits_observed,
-        stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
-    fd_accdb_close_ro( accdb, ro );
+      fd_stake_delegations_update(
+          stake_delegations,
+          address,
+          &stake.inner.stake.stake.delegation.voter_pubkey,
+          stake.inner.stake.stake.delegation.stake,
+          stake.inner.stake.stake.delegation.activation_epoch,
+          stake.inner.stake.stake.delegation.deactivation_epoch,
+          stake.inner.stake.stake.credits_observed,
+          stake.inner.stake.stake.delegation.warmup_cooldown_rate );
+      continue; /* ok */
+
+    remove:
+      fd_stake_delegation_map_idx_remove( map, address, ULONG_MAX, pool );
+      fd_stake_delegation_pool_ele_release( pool, delegation );
+    }
   }
+  fd_accdb_ro_pipe_fini( ro_pipe, accdb );
 }
 
 fd_stake_delegation_t const *

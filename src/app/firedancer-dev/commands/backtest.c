@@ -413,9 +413,9 @@ backtest_topo( config_t * config ) {
   }
 
   if( vinyl_enabled ) {
-    fd_topob_vinyl_rq( topo, "replay", 0UL, "vinyl_replay", "replay", 128UL, 1UL, 128UL );
+    fd_topob_vinyl_rq( topo, "replay", 0UL, "vinyl_replay", "replay", 4UL, 1024UL, 1024UL );
     for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
-      fd_topob_vinyl_rq( topo, "exec", i, "vinyl_exec", "exec", 128UL, 1UL, 128UL );
+      fd_topob_vinyl_rq( topo, "exec", i, "vinyl_exec", "exec", 4UL, 1024UL, 1024UL );
     }
   }
 
