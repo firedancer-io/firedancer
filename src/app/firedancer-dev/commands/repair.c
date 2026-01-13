@@ -776,6 +776,16 @@ repair_cmd_fn_catchup( args_t *   args,
   }
 }
 
+/* Tests equivocation detection & repair path. */
+static void
+repair_cmd_fn_eqvoc( args_t *   args,
+                     config_t * config ) {
+  ctx_t *          repair_ctx;
+  fd_topo_wksp_t * repair_wksp;
+  repair_ctx_wksp( args, config, &repair_ctx, &repair_wksp );
+
+}
+
 static void
 repair_cmd_fn_forest( args_t *   args,
                            config_t * config ) {
@@ -976,6 +986,7 @@ static const char * HELP =
   "positional arguments:\n"
   "  {catchup,forest,inflight,requests,waterfall}\n"
   "    catchup             runs Firedancer with a reduced topology that only repairs slots until catchup\n"
+  "    eqvoc               tests equivocation detection & repair path\n"
   "    forest              prints the repair forest\n"
   "    inflight            prints the inflight repairs\n"
   "    requests            prints the queued repair requests\n"
@@ -999,6 +1010,13 @@ static const char * CATCHUP_HELP =
   "  --iptable-path IPTABLE_PATH\n"
   "                        path to iptable file\n"
   "  --sort-by-slot        sort results by slot\n";
+
+static const char * EQVOC_HELP =
+  "\n\n"
+  "usage: repair eqvoc [-h] [--manifest-path MANIFEST_PATH] \n"
+  "\n"
+  "optional arguments:\n"
+  "  -h, --help            show this help message and exit\n";
 
 static const char * FOREST_HELP =
   "\n\n"
@@ -1042,6 +1060,7 @@ void
 repair_cmd_help( char const * arg ) {
   if      ( FD_LIKELY( !arg                        ) ) FD_LOG_NOTICE(( "%s", HELP           ));
   else if ( FD_LIKELY( !strcmp( arg, "catchup"   ) ) ) FD_LOG_NOTICE(( "%s", CATCHUP_HELP   ));
+  else if ( FD_LIKELY( !strcmp( arg, "eqvoc"     ) ) ) FD_LOG_NOTICE(( "%s", EQVOC_HELP     ));
   else if ( FD_LIKELY( !strcmp( arg, "forest"    ) ) ) FD_LOG_NOTICE(( "%s", FOREST_HELP    ));
   else if ( FD_LIKELY( !strcmp( arg, "inflight"  ) ) ) FD_LOG_NOTICE(( "%s", INFLIGHT_HELP  ));
   else if ( FD_LIKELY( !strcmp( arg, "requests"  ) ) ) FD_LOG_NOTICE(( "%s", REQUESTS_HELP  ));
@@ -1103,6 +1122,7 @@ repair_cmd_fn( args_t *   args,
   }
 
   if     ( !strcmp( args->repair.pos_arg, "catchup"   ) ) repair_cmd_fn_catchup  ( args, config );
+  else if( !strcmp( args->repair.pos_arg, "eqvoc"     ) ) repair_cmd_fn_eqvoc    ( args, config );
   else if( !strcmp( args->repair.pos_arg, "forest"    ) ) repair_cmd_fn_forest   ( args, config );
   else if( !strcmp( args->repair.pos_arg, "inflight"  ) ) repair_cmd_fn_inflight ( args, config );
   else if( !strcmp( args->repair.pos_arg, "requests"  ) ) repair_cmd_fn_requests ( args, config );

@@ -767,14 +767,13 @@ after_confirmed( ctx_t           * ctx,
 
   confirmed_t * confirmed = confirmed_slots_insert( ctx->confirmed, slot );
   confirmed->block_id     = *confirmed_bid;
-  FD_LOG_NOTICE(( "repair received confirmed slot %lu", slot ));
 
   fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
   if( FD_UNLIKELY( !blk ) ) return; /* No effect */
 
-  if( FD_UNLIKELY( !blk->confirmed
-                    && blk->complete_idx != UINT_MAX && blk->buffered_idx==blk->complete_idx
-                    && 0==memcmp( blk->cmpl, blk->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) ) ) {
+  if( FD_LIKELY( !blk->confirmed
+                  && blk->complete_idx != UINT_MAX && blk->buffered_idx==blk->complete_idx
+                  && 0==memcmp( blk->cmpl, blk->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) ) ) {
     if( FD_LIKELY( fd_forest_ancestry_ele_query( fd_forest_ancestry( ctx->forest ), &blk->slot, NULL, fd_forest_pool( ctx->forest ) ) ||
                    fd_forest_frontier_ele_query( fd_forest_frontier( ctx->forest ), &blk->slot, NULL, fd_forest_pool( ctx->forest ) ) ) ) {
       // for now only verify if the slot is in the ancestry or frontier because then
@@ -891,11 +890,19 @@ after_frag( ctx_t * ctx,
 
   if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
     if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
+      ulong old_root = fd_forest_root_slot( ctx->forest );
       fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( ctx->buffer );
-      if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) fd_forest_publish( ctx->forest, msg->root_slot );
+      if( FD_LIKELY( msg->root_slot==ULONG_MAX ) ) return;
+
+      fd_forest_publish( ctx->forest, msg->root_slot );
+      for( ulong slot = old_root; slot < msg->root_slot; slot++ ) {
+        confirmed_t *  confirmed =   confirmed_slots_query ( ctx->confirmed, slot, NULL );
+        if( FD_LIKELY( confirmed ) ) confirmed_slots_remove( ctx->confirmed, confirmed );
+      }
+
     } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
       fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( ctx->buffer );
-      if( msg->kind == FD_TOWER_SLOT_CONFIRMED_CLUSTER || msg->kind == FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) {
+      if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->kind == FD_TOWER_SLOT_CONFIRMED_CLUSTER || msg->kind == FD_TOWER_SLOT_CONFIRMED_DUPLICATE || msg->kind == FD_TOWER_SLOT_CONFIRMED_ROOTED) ) {
         /* the other two messages (rooted / optimistic) mean we have already
            received and replayed the correct version */
         after_confirmed( ctx, msg->slot, &msg->block_id );
