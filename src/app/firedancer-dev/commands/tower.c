@@ -102,22 +102,6 @@ print_all_forks( fd_wksp_t * wksp, ctx_t * tower_ctx, fd_forks_t * forks ) {
   printf( "\n" );
 }
 
-static void
-tower_cmd_fn_forks( args_t *   args,
-                    config_t * config ) {
-  ctx_t *          tower_ctx;
-  fd_topo_wksp_t * tower_wksp;
-  tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
-
-  ulong forks_laddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->forks );
-  fd_forks_t * forks = (fd_forks_t *)fd_wksp_laddr( tower_wksp->wksp, forks_laddr );
-
-  for( ;; ) {
-    print_all_forks( tower_wksp->wksp, tower_ctx, forks );
-    sleep( 1 );
-  }
-}
-
 static const char * HELP =
   "\n\n"
   "usage: tower [-h] {forks}\n"
@@ -125,6 +109,8 @@ static const char * HELP =
   "positional arguments:\n"
   "  {forks}\n"
   "    forks              prints the tower forks tree structure and leaves\n"
+  "    ghost              prints the ghost fork choice structure\n"
+  "    tower              prints the local tower\n"
   "\n"
   "optional arguments:\n"
   "  -h, --help            show this help message and exit\n";
@@ -136,11 +122,77 @@ static const char * FORKS_HELP =
   "optional arguments:\n"
   "  -h, --help            show this help message and exit\n";
 
+static const char * GHOST_HELP =
+  "\n\n"
+  "usage: tower ghost [-h]\n"
+  "\n"
+  "optional arguments:\n"
+  "  -h, --help            show this help message and exit\n";
+
+static const char * TOWER_HELP =
+  "\n\n"
+  "usage: tower tower [-h]\n"
+  "\n"
+  "optional arguments:\n"
+  "  -h, --help            show this help message and exit\n";
+
 void
 tower_cmd_help( char const * arg ) {
   if      ( FD_LIKELY( !arg                    ) ) FD_LOG_NOTICE(( "%s", HELP           ));
   else if ( FD_LIKELY( !strcmp( arg, "forks" ) ) ) FD_LOG_NOTICE(( "%s", FORKS_HELP    ));
-  else                                                 FD_LOG_NOTICE(( "%s", HELP           ));
+  else if ( FD_LIKELY( !strcmp( arg, "ghost" ) ) ) FD_LOG_NOTICE(( "%s", GHOST_HELP    ));
+  else if ( FD_LIKELY( !strcmp( arg, "tower" ) ) ) FD_LOG_NOTICE(( "%s", TOWER_HELP    ));
+  else                                             FD_LOG_NOTICE(( "%s", HELP           ));
+}
+
+static void
+tower_cmd_fn_forks( args_t *   args,
+                    config_t * config ) {
+  ctx_t *          tower_ctx;
+  fd_topo_wksp_t * tower_wksp;
+  tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
+
+  ulong forks_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->forks );
+  fd_forks_t * forks = (fd_forks_t *)fd_wksp_laddr( tower_wksp->wksp, forks_gaddr );
+
+  for( ;; ) {
+    print_all_forks( tower_wksp->wksp, tower_ctx, forks );
+    sleep( 1 );
+  }
+}
+
+static void
+tower_cmd_fn_ghost( args_t *   args,
+                    config_t * config ) {
+  ctx_t *          tower_ctx;
+  fd_topo_wksp_t * tower_wksp;
+  tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
+
+  ulong ghost_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->ghost );
+  fd_ghost_t * ghost = (fd_ghost_t *)fd_wksp_laddr( tower_wksp->wksp, ghost_gaddr );
+  fd_ghost_root( ghost );
+  FD_LOG_NOTICE(( "root slot %lu", fd_ghost_root( ghost )->slot ));
+
+  for( ;; ) {
+    fd_ghost_print( ghost, fd_ghost_root( ghost ) );
+    sleep( 1 );
+  }
+}
+
+static void
+tower_cmd_fn_tower( args_t    * args,
+                     config_t * config ) {
+  ctx_t *          tower_ctx;
+  fd_topo_wksp_t * tower_wksp;
+  tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
+
+  ulong tower_laddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->tower );
+  fd_tower_t * tower = (fd_tower_t *)fd_wksp_laddr( tower_wksp->wksp, tower_laddr );
+
+  for( ;; ) {
+    fd_tower_print( tower, ULONG_MAX );
+    sleep( 1 );
+  }
 }
 
 void
@@ -172,7 +224,9 @@ tower_cmd_fn( args_t *   args,
   }
 
   if     ( !strcmp( args->tower.pos_arg, "forks" ) ) tower_cmd_fn_forks( args, config );
-  else                                                    tower_cmd_help( NULL );
+  else if( !strcmp( args->tower.pos_arg, "ghost" ) ) tower_cmd_fn_ghost( args, config );
+  else if( !strcmp( args->tower.pos_arg, "tower" ) ) tower_cmd_fn_tower( args, config );
+  else                                               tower_cmd_help( NULL );
 }
 
 action_t fd_action_tower = {

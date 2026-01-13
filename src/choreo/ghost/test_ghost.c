@@ -1,11 +1,9 @@
 #include "fd_ghost.h"
 #include "fd_ghost_private.h"
-#include "../voter/fd_voter.h"
-#include <stdarg.h>
 
-// void setup_block_ids( fd_hash_t * block_ids, ulong cnt ) {
-//   for( ulong i = 0; i < cnt; i++ ) block_ids[i] = (fd_hash_t){ .ul = { i } };
-// }
+void setup_block_ids( fd_hash_t * block_ids, ulong cnt ) {
+  for( ulong i = 0; i < cnt; i++ ) block_ids[i] = (fd_hash_t){ .ul = { i } };
+}
 
 /*
          slot 0
@@ -20,26 +18,26 @@
             slot 6
 */
 
-// fd_ghost_t *
-// setup_ghost( fd_wksp_t * wksp, ulong blk_max, ulong vtr_max ) {
-//   void       * mem   = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( blk_max, vtr_max ), 42UL );
-//   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, blk_max, vtr_max, 42UL ) );
-//   FD_TEST( ghost );
-//   fd_hash_t block_ids[7]; setup_block_ids( block_ids, 7 );
-//   fd_ghost_insert( ghost, &block_ids[0], NULL         , 0 );
-//   fd_ghost_insert( ghost, &block_ids[1], &block_ids[0], 1 );
-//   fd_ghost_insert( ghost, &block_ids[2], &block_ids[1], 2 );
-//   fd_ghost_insert( ghost, &block_ids[3], &block_ids[1], 3 );
-//   fd_ghost_insert( ghost, &block_ids[4], &block_ids[2], 4 );
-//   fd_ghost_insert( ghost, &block_ids[5], &block_ids[3], 5 );
-//   fd_ghost_insert( ghost, &block_ids[6], &block_ids[5], 6 );
-//   return ghost;
-// }
+fd_ghost_t *
+setup_ghost( fd_wksp_t * wksp, ulong blk_max, ulong vtr_max ) {
+  void       * mem   = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( blk_max, vtr_max ), 42UL );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, blk_max, vtr_max, 42UL ) );
+  FD_TEST( ghost );
+  fd_hash_t block_ids[7]; setup_block_ids( block_ids, 7 );
+  fd_ghost_insert( ghost, &block_ids[0], NULL         , 0 );
+  fd_ghost_insert( ghost, &block_ids[1], &block_ids[0], 1 );
+  fd_ghost_insert( ghost, &block_ids[2], &block_ids[1], 2 );
+  fd_ghost_insert( ghost, &block_ids[3], &block_ids[1], 3 );
+  fd_ghost_insert( ghost, &block_ids[4], &block_ids[2], 4 );
+  fd_ghost_insert( ghost, &block_ids[5], &block_ids[3], 5 );
+  fd_ghost_insert( ghost, &block_ids[6], &block_ids[5], 6 );
+  return ghost;
+}
 
-// void
-// teardown_ghost( fd_ghost_t * ghost ) {
-//   fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ghost ) ) );
-// }
+void
+teardown_ghost( fd_ghost_t * ghost ) {
+  fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ghost ) ) );
+}
 
 // fd_tower_accts_t *
 // setup_tower_accts( fd_wksp_t * wksp, ulong max, ... ) {
@@ -72,20 +70,20 @@
 //   fd_wksp_free_laddr( fd_tower_accts_delete( fd_tower_accts_leave( accts ) ) );
 // }
 
-// void
-// test_simple( fd_wksp_t * wksp ) {
-//   fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
-//   fd_hash_t    block_ids[7]; setup_block_ids( block_ids, 7 );
+void
+test_simple( fd_wksp_t * wksp ) {
+  fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
+  fd_hash_t    block_ids[7]; setup_block_ids( block_ids, 7 );
 
-//   fd_ghost_blk_t const * root = fd_ghost_root_const( ghost );
-//   FD_TEST( root );
-//   FD_TEST( 0==memcmp( &root->key, &block_ids[0], sizeof(fd_hash_t) ) );
-//   FD_TEST( fd_ghost_best   ( ghost, root )==fd_ghost_query( ghost, &block_ids[6] ) );
-//   FD_TEST( fd_ghost_deepest( ghost, root )==fd_ghost_query( ghost, &block_ids[6] ) );
-//   FD_TEST( !fd_ghost_verify( ghost ) );
+  fd_ghost_blk_t * root = fd_ghost_root( ghost );
+  FD_TEST( root );
+  FD_TEST( 0==memcmp( &root->id, &block_ids[0], sizeof(fd_hash_t) ) );
+  FD_TEST( fd_ghost_best   ( ghost, root )==fd_ghost_query( ghost, &block_ids[4] ) );
+  FD_TEST( fd_ghost_deepest( ghost, root )==fd_ghost_query( ghost, &block_ids[6] ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
-//   teardown_ghost( ghost );
-// }
+  teardown_ghost( ghost );
+}
 
 /*
          slot 0
@@ -106,33 +104,33 @@
          slot 4
 */
 
-// void
-// test_publish_left( fd_wksp_t * wksp ) {
-//   fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
-//   fd_hash_t    block_ids[7]; setup_block_ids( block_ids, 7 );
+void
+test_publish_left( fd_wksp_t * wksp ) {
+  fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
+  fd_hash_t    block_ids[7]; setup_block_ids( block_ids, 7 );
 
-//   fd_ghost_blk_t * blk2 = fd_ghost_query( ghost, &block_ids[2] );
-//   FD_TEST( blk2 );
-//   fd_ghost_publish( ghost, blk2 );
+  fd_ghost_blk_t * blk2 = fd_ghost_query( ghost, &block_ids[2] );
+  FD_TEST( blk2 );
+  fd_ghost_publish( ghost, blk2 );
 
-//   FD_TEST( !fd_ghost_query( ghost, &block_ids[0] ) );
-//   FD_TEST( !fd_ghost_query( ghost, &block_ids[1] ) );
-//   FD_TEST( !fd_ghost_query( ghost, &block_ids[3] ) );
-//   FD_TEST( !fd_ghost_query( ghost, &block_ids[5] ) );
-//   FD_TEST( !fd_ghost_query( ghost, &block_ids[6] ) );
-//   FD_TEST(  fd_ghost_query( ghost, &block_ids[2] ) );
-//   FD_TEST(  fd_ghost_query( ghost, &block_ids[4] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[0] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[1] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[3] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[5] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[6] ) );
+  FD_TEST(  fd_ghost_query( ghost, &block_ids[2] ) );
+  FD_TEST(  fd_ghost_query( ghost, &block_ids[4] ) );
 
-//   fd_ghost_blk_t * root = fd_ghost_root( ghost );
-//   FD_TEST( root==fd_ghost_query( ghost, &block_ids[2] ) );
-//   FD_TEST( fd_ghost_child( ghost, root )->slot == 4 );
-//   FD_TEST( fd_ghost_best   ( ghost, root )==fd_ghost_query( ghost, &block_ids[4] ) );
-//   FD_TEST( fd_ghost_deepest( ghost, root )==fd_ghost_query( ghost, &block_ids[4] ) );
-//   FD_TEST( !fd_ghost_verify( ghost ) );
-//   FD_TEST( pool_free( ghost->pool )==pool_max( ghost->pool ) - 2 );
+  fd_ghost_blk_t * root = fd_ghost_root( ghost );
+  FD_TEST( root==fd_ghost_query( ghost, &block_ids[2] ) );
+  FD_TEST( blk_pool_ele( blk_pool( ghost ), root->child )->slot == 4 );
+  FD_TEST( fd_ghost_best   ( ghost, root )==fd_ghost_query( ghost, &block_ids[4] ) );
+  FD_TEST( fd_ghost_deepest( ghost, root )==fd_ghost_query( ghost, &block_ids[4] ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+  FD_TEST( blk_pool_free( blk_pool( ghost ) )==blk_pool_max( blk_pool( ghost ) ) - 2 );
 
-//   teardown_ghost( ghost );
-// }
+  teardown_ghost( ghost );
+}
 
 /*
          slot 0
@@ -155,67 +153,69 @@
          slot 6
 */
 
-// void
-// test_publish_right( fd_wksp_t * wksp ) {
-//   fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
-//   fd_hash_t block_ids[7]; setup_block_ids( block_ids, 7 );
+void
+test_publish_right( fd_wksp_t * wksp ) {
+  fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
+  fd_hash_t block_ids[7]; setup_block_ids( block_ids, 7 );
 
-//   fd_ghost_blk_t * blk3 = fd_ghost_query( ghost, &block_ids[3] );
-//   FD_TEST( blk3 );
-//   fd_ghost_publish( ghost, blk3 );
+  fd_ghost_blk_t * blk3 = fd_ghost_query( ghost, &block_ids[3] );
+  FD_TEST( blk3 );
+  fd_ghost_publish( ghost, blk3 );
 
-//   FD_TEST( !fd_ghost_query( ghost, &block_ids[0] ) );
-//   FD_TEST( !fd_ghost_query( ghost, &block_ids[1] ) );
-//   FD_TEST( !fd_ghost_query( ghost, &block_ids[2] ) );
-//   FD_TEST( !fd_ghost_query( ghost, &block_ids[4] ) );
-//   FD_TEST( !fd_ghost_query( ghost, &block_ids[3] ) );
-//   FD_TEST(  fd_ghost_query( ghost, &block_ids[5] ) );
-//   FD_TEST(  fd_ghost_query( ghost, &block_ids[6] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[0] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[1] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[2] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[4] ) );
+  FD_TEST(  fd_ghost_query( ghost, &block_ids[3] ) );
+  FD_TEST(  fd_ghost_query( ghost, &block_ids[5] ) );
+  FD_TEST(  fd_ghost_query( ghost, &block_ids[6] ) );
 
-//   fd_ghost_blk_t * root = fd_ghost_root( ghost );
-//   FD_TEST( root==fd_ghost_query( ghost, &block_ids[3] ) );
-//   FD_TEST( fd_ghost_child( ghost, root )->slot == 5 );
-//   FD_TEST( fd_ghost_child( ghost, fd_ghost_child( ghost, root ) )->slot == 6 );
-//   FD_TEST( fd_ghost_best   ( ghost, root )==fd_ghost_query( ghost, &block_ids[4] ) );
-//   FD_TEST( fd_ghost_deepest( ghost, root )==fd_ghost_query( ghost, &block_ids[4] ) );
-//   FD_TEST( !fd_ghost_verify( ghost ) );
-//   FD_TEST( pool_free( ghost->pool )==pool_max( ghost->pool ) - 3 );
+  fd_ghost_blk_t * root = fd_ghost_root( ghost );
+  FD_TEST( root==fd_ghost_query( ghost, &block_ids[3] ) );
+  FD_TEST( blk_pool_ele( blk_pool( ghost ), root->child )->slot == 5 );
+  FD_TEST( blk_pool_ele( blk_pool( ghost ), blk_pool_ele( blk_pool( ghost ), root->child )->child )->slot == 6 );
+  FD_TEST( fd_ghost_best   ( ghost, root )==fd_ghost_query( ghost, &block_ids[6] ) );
+  FD_TEST( fd_ghost_deepest( ghost, root )==fd_ghost_query( ghost, &block_ids[6] ) );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+  FD_TEST( blk_pool_free( blk_pool( ghost ) )==blk_pool_max( blk_pool( ghost ) ) - 3 );
 
-//   teardown_ghost( ghost );
-// }
+  teardown_ghost( ghost );
+}
 
-// void
-// test_best( fd_wksp_t * wksp ){
-//   fd_ghost_t *       ghost  = setup_ghost( wksp, 8, 8 );
-//   fd_tower_accts_t * accts2 = setup_tower_accts( wksp, 'a', 50, 2 );
-//   fd_tower_accts_t * accts3 = setup_tower_accts( wksp, 'b', 100, 3 );
-//   fd_hash_t block_ids[7]; setup_block_ids( block_ids, 7 );
+void
+test_best( fd_wksp_t * wksp ){
+  fd_ghost_t *       ghost  = setup_ghost( wksp, 8, 8 );
+  fd_hash_t block_ids[7]; setup_block_ids( block_ids, 7 );
 
-//   fd_ghost_count_votes( ghost, fd_ghost_query( ghost, &block_ids[4] ), accts2 );
-//   fd_ghost_count_votes( ghost, fd_ghost_query( ghost, &block_ids[5] ), accts3 );
+  fd_pubkey_t a = { .ul = { 0xa } };
+  fd_pubkey_t b = { .ul = { 0xb } };
 
-//   FD_TEST( fd_ghost_query( ghost, &block_ids[2] )->stake==50 );
-//   FD_TEST( fd_ghost_query( ghost, &block_ids[3] )->stake==100 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[2] ), &a, 50,  2 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[3] ), &b, 100, 3 );
 
-//   FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot==6 );
-//   FD_TEST( fd_ghost_deepest( ghost, fd_ghost_root( ghost ) )->slot==6 );
-//   FD_TEST( !fd_ghost_verify( ghost ) );
+  FD_TEST( fd_ghost_query( ghost, &block_ids[2] )->stake==50 );
+  FD_TEST( fd_ghost_query( ghost, &block_ids[3] )->stake==100 );
 
-//   teardown_tower_accts( accts2 );
-//   teardown_tower_accts( accts3 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot==6 );
+  FD_TEST( fd_ghost_deepest( ghost, fd_ghost_root( ghost ) )->slot==6 );
+  FD_TEST( !fd_ghost_verify( ghost ) );
 
-//   accts2 = setup_tower_accts( wksp, 'a', 50, 3 ); /* both switched */
-//   accts3 = setup_tower_accts( wksp, 'b', 100, 2 );
+  /* Both a and b switched forks. */
 
-//   fd_ghost_count_votes( ghost, fd_ghost_query( ghost, &block_ids[4] ), accts2 );
-//   fd_ghost_count_votes( ghost, fd_ghost_query( ghost, &block_ids[5] ), accts3 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[4] ), &a, 100, 4 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[5] ), &b, 50,  5 );
 
-//   FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot==4 );
-//   FD_TEST( fd_ghost_deepest( ghost, fd_ghost_root( ghost ) )->slot==6 );
-//   FD_TEST( !fd_ghost_verify( ghost ) );
+  FD_TEST( fd_ghost_query( ghost, &block_ids[2] )->stake==100 );
+  FD_TEST( fd_ghost_query( ghost, &block_ids[4] )->stake==100 );
+  FD_TEST( fd_ghost_query( ghost, &block_ids[3] )->stake==50 );
+  FD_TEST( fd_ghost_query( ghost, &block_ids[5] )->stake==50 );
 
-//   teardown_ghost( ghost );
-// }
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot==4 );
+  FD_TEST( fd_ghost_deepest( ghost, fd_ghost_root( ghost ) )->slot==6 );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  teardown_ghost( ghost );
+}
 
 // void
 // test_vote_leaves( fd_wksp_t * wksp ) {
@@ -848,19 +848,18 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  // test_duplicate_simple( wksp );
-  // test_many_duplicates( wksp );
   // // test_print( wksp );
-  // test_simple( wksp );
-  // test_publish_left( wksp );
-  // test_publish_right( wksp );
-  // test_gca( wksp );
+  test_simple( wksp );
+  test_publish_left( wksp );
+  test_publish_right( wksp );
+  test_best( wksp );
   // test_vote_leaves( wksp );
   // test_best_full_tree( wksp );
-  // test_best( wksp );
   // test_rooted_vote( wksp );
   // test_old_vote_pruned( wksp );
   // test_best_valid( wksp );
+  // test_duplicate_simple( wksp );
+  // test_many_duplicates( wksp );
 
   // test_duplicate_after_frozen( wksp );
   // test_duplicate_blk_inserted( wksp );

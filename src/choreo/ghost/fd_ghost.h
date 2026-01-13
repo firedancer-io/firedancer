@@ -118,6 +118,17 @@ struct __attribute__((aligned(128UL))) fd_ghost_blk {
 };
 typedef struct fd_ghost_blk fd_ghost_blk_t;
 
+/* fd_ghost_vtr_t keeps track of what a voter's previously voted for. */
+
+struct __attribute__((aligned(128UL))) fd_ghost_vtr {
+  fd_pubkey_t addr;          /* map key, vote account address */
+  ulong       next;          /* reserved for internal use by fd_pool and fd_map_chain */
+  ulong       prev_stake;    /* previous vote stake (vote can be from prior epoch) */
+  ulong       prev_slot;     /* previous vote slot */
+  fd_hash_t   prev_block_id; /* previous vote block_id  */
+};
+typedef struct fd_ghost_vtr fd_ghost_vtr_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* Constructors */
@@ -170,6 +181,11 @@ void *
 fd_ghost_delete( void * ghost );
 
 /* Accessors */
+
+/* fd_ghost_gaddr returns the gaddr of ghost in the backing wksp. */
+
+ulong
+fd_ghost_gaddr( fd_ghost_t const * ghost );
 
 /* fd_ghost_{root,parent,child,sibling} returns a pointer in the
    caller's address space to the {root,parent,left-child,right-sibling}.
