@@ -25,6 +25,7 @@ DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
 DISABLE_LTHASH_VERIFICATION=true
+DB=${DB:="funk"}
 
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
@@ -116,6 +117,10 @@ while [[ $# -gt 0 ]]; do
         ;;
     -lt|--lthash-verification)
         DISABLE_LTHASH_VERIFICATION=false
+        shift
+        ;;
+    --vinyl)
+        DB=vinyl
         shift
         ;;
     -*|--*)
@@ -210,7 +215,9 @@ chmod -R 0700 $DUMP/$LEDGER
 if [[ -n "$GENESIS" ]]; then
   HAS_INCREMENTAL="false"
 fi
-echo "
+
+CONFIG_FILE="$DUMP_DIR/${LEDGER}_backtest.toml"
+cat <<EOF > ${CONFIG_FILE}
 [snapshots]
     incremental_snapshots = $HAS_INCREMENTAL
     [snapshots.sources]
@@ -227,30 +234,51 @@ echo "
     [tiles.archiver]
         enabled = true
         end_slot = $END_SLOT
-        rocksdb_path = \"$DUMP/$LEDGER/rocksdb\"
-        shredcap_path = \"$DUMP/$LEDGER/shreds.pcapng.zst\"
-        ingest_mode = \"$INGEST_MODE\"
+        rocksdb_path = "$DUMP/$LEDGER/rocksdb"
+        shredcap_path = "$DUMP/$LEDGER/shreds.pcapng.zst"
+        ingest_mode = "$INGEST_MODE"
     [tiles.replay]
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
         enabled = false
     [tiles.rpc]
         enabled = false
-[funk]
-    heap_size_gib = $FUNK_PAGES
-    max_account_records = $INDEX_MAX
-    max_database_transactions = 64
 [runtime]
     max_live_slots = 32
     max_fork_width = 4
 [log]
-    level_stderr = \"$LOG_LEVEL_STDERR\"
-    path = \"$LOG\"
+    level_stderr = "$LOG_LEVEL_STDERR"
+    path = "$LOG"
 [paths]
-    snapshots = \"$DUMP/$LEDGER\"
+    snapshots = "$DUMP/$LEDGER"
 [development]
     [development.snapshots]
-        disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION" > $DUMP_DIR/${LEDGER}_backtest.toml
+        disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION
+EOF
+
+if [[ "$DB" == "funk" ]]; then
+  cat <<EOF >> ${CONFIG_FILE}
+[funk]
+    heap_size_gib = $FUNK_PAGES
+    max_account_records = $INDEX_MAX
+    max_database_transactions = 64
+EOF
+elif [[ "$DB" == "vinyl" ]]; then
+  cat <<EOF >> ${CONFIG_FILE}
+[funk]
+    heap_size_gib = 2
+    max_account_records = 100000
+    max_database_transactions = 64
+[vinyl]
+    enabled = true
+    max_account_records = $INDEX_MAX
+    file_size_gib = $FUNK_PAGES
+    max_cache_entries = 100000
+    cache_size_gib = 10
+    [vinyl.io_uring]
+        enabled = true
+EOF
+fi
 
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]
