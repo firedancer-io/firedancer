@@ -126,6 +126,10 @@ union fdctl_args {
   } metrics;
 
   struct {
+    char topo[ 64 ];
+  } mem;
+
+  struct {
     char  topo[ 64 ];
     ulong interval_ns;
 
