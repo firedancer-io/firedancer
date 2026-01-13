@@ -37,12 +37,12 @@ struct fd_tower_forks {
 };
 typedef struct fd_tower_forks fd_tower_forks_t;
 
-#define MAP_NAME     fd_tower_forks
-#define MAP_T        fd_tower_forks_t
-#define MAP_KEY      slot
-#define MAP_KEY_NULL ULONG_MAX
+#define MAP_NAME           fd_tower_forks
+#define MAP_T              fd_tower_forks_t
+#define MAP_KEY            slot
+#define MAP_KEY_NULL       ULONG_MAX
 #define MAP_KEY_INVAL(key) ((key)==ULONG_MAX)
-#define MAP_MEMOIZE  0
+#define MAP_MEMOIZE        0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 /* using map chain for ease of threading a linkedlist through the leaves
