@@ -1069,7 +1069,7 @@ fd_topo_initialize( config_t * config ) {
       reduced to 1024 once FECs are restricted to always be size 32,
       given the current consensus limit of 32768 shreds per block). */
 
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX, (uint)shred_tile_cnt );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX / 4 /* FIXME temporary hack to run on 512 gb boxes */, (uint)shred_tile_cnt );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
@@ -1288,7 +1288,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     /* Please maintain same field order as fd_topo.h */
 
-    tile->replay.fec_max = config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX;
+    tile->replay.fec_max = config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX / 4; /* FIXME temporary hack to run on 512 gb boxes */
     tile->replay.max_vote_accounts = config->firedancer.runtime.max_vote_accounts;
 
     tile->replay.funk_obj_id      = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX ); FD_TEST( tile->replay.funk_obj_id     !=ULONG_MAX );
