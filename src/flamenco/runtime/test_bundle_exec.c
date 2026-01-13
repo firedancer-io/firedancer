@@ -24,7 +24,7 @@
 #define TEST_SLOTS_PER_EPOCH         (3UL)
 #define TEST_FEATURE_ACTIVATION_SLOT (TEST_SLOTS_PER_EPOCH * 2)
 
-#define TEST_ACC_POOL_ACCOUNT_CNT (16UL)
+#define TEST_ACC_POOL_ACCOUNT_CNT (32UL)
 
 struct test_env {
   fd_wksp_t *          wksp;
@@ -239,15 +239,15 @@ process_slot( test_env_t * env,
 
 
 ulong
-fd_txn_serialize( uchar *          txn_raw_begin,
-                  ulong            signatures_cnt,
-                  fd_signature_t * signatures,
-                  ulong            num_required_signatures,
-                  ulong            num_readonly_signed_accounts,
-                  ulong            num_readonly_unsigned_accounts,
-                  ulong            account_keys_cnt,
-                  fd_pubkey_t *    account_keys,
-                  fd_hash_t *      recent_blockhash ) {
+txn_serialize( uchar *          txn_raw_begin,
+               ulong            signatures_cnt,
+               fd_signature_t * signatures,
+               ulong            num_required_signatures,
+               ulong            num_readonly_signed_accounts,
+               ulong            num_readonly_unsigned_accounts,
+               ulong            account_keys_cnt,
+               fd_pubkey_t *    account_keys,
+               fd_hash_t *      recent_blockhash ) {
   uchar * txn_raw_cur_ptr = txn_raw_begin;
 
   /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
@@ -322,13 +322,14 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   fd_pubkey_t account_keys[3] = { pubkey1, pubkey2, pubkey3 };
 
   /* First test: successful execution of bundle where we reuse a
-     writable account */
+     writable account.
+     rw -> rw */
 
   /* Execute first transaction in bundle.  There are no instructions in
      the transaction, so we execute an empty transaction and mock a
      lamports change to the second account. */
   fd_txn_p_t txn_p = {0};
-  ulong sz = fd_txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
+  ulong sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
   FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
 
   ulong starting_ro_active = env->accdb->base.ro_active;
@@ -408,19 +409,20 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   /* Second Test: successful execution of bundle where we reuse an
      writable account as a readonly account in a following transaction.
      We use this account as writable a second time in a third
-     transaction. */
+     transaction and once again as readonly in a fourth transaction.
+     rw -> ro -> rw -> ro */
   FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
 
-  sz = fd_txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
   FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
 
   /* Execute a first transaction where the second account is writable
      and the balance is incremented by 1. */
 
   env->txn_in.txn              = &txn_p;
-  env->txn_in.bundle.is_bundle = 0;
+  env->txn_in.bundle.is_bundle = 1;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
   FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
@@ -432,7 +434,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
 
   /* Execute a second transaction in the bundle where an account is
      reused but as read-only. */
-  sz = fd_txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 1UL, 2UL, account_keys, &dummy_hash );
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 1UL, 2UL, account_keys, &dummy_hash );
   FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
   env->txn_in.txn                     = &txn_p;
   env->txn_in.bundle.is_bundle        = 1;
@@ -449,7 +451,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
 
   /* A third bundle transaction where the account is reused as
      writable again. */
-  sz = fd_txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
   FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
   env->txn_in.txn                     = &txn_p;
   env->txn_in.bundle.is_bundle        = 1;
@@ -469,7 +471,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   /* A fourth transaction where the second account is once again
      passed in as read-only.  Make sure that the right version of the
      account is being reussed. */
-  sz = fd_txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
   FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
   env->txn_in.txn                     = &txn_p;
   env->txn_in.bundle.is_bundle        = 1;
@@ -496,8 +498,140 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
 
-  /* Third Test: bundles fail */
+  /* Test 3: Bundle fails */
 
+  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
+  FD_TEST( starting_ro_active == env->accdb->base.ro_active );
+  FD_TEST( starting_rw_active == env->accdb->base.rw_active );
+
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
+  FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+
+  /* Execute a first transaction where the second account is writable
+     and the balance is incremented by 1. */
+
+  env->txn_in.txn              = &txn_p;
+  env->txn_in.bundle.is_bundle = 1;
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+  FD_TEST( env->txn_out[0].err.is_committable );
+  FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( !memcmp( &env->txn_out[0].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &env->txn_out[0].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
+  FD_TEST( env->txn_out[0].accounts.is_writable[0] == 1 );
+  FD_TEST( env->txn_out[0].accounts.is_writable[1] == 1 );
+  FD_TEST( env->txn_out[0].accounts.account[1].meta->lamports == 2000011UL );
+  env->txn_out[0].accounts.account[1].meta->lamports = 2000021UL;
+  env->txn_out[0].err.is_committable = 0;
+  fd_runtime_cancel_txn( env->runtime, &env->txn_out[0] );
+
+  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
+  FD_TEST( starting_ro_active == env->accdb->base.ro_active );
+  FD_TEST( starting_rw_active == env->accdb->base.rw_active );
+
+  /* Test 4: Bundle fails with last transaction failing. */
+
+  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
+  FD_TEST( starting_ro_active == env->accdb->base.ro_active );
+  FD_TEST( starting_rw_active == env->accdb->base.rw_active );
+
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
+  FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+
+  /* Execute a first transaction where the second account is writable
+     and the balance is incremented by 1. */
+
+  env->txn_in.txn              = &txn_p;
+  env->txn_in.bundle.is_bundle = 1;
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+  FD_TEST( env->txn_out[0].err.is_committable );
+  FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( !memcmp( &env->txn_out[0].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &env->txn_out[0].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
+  FD_TEST( env->txn_out[0].accounts.is_writable[0] == 1 );
+  FD_TEST( env->txn_out[0].accounts.is_writable[1] == 1 );
+  FD_TEST( env->txn_out[0].accounts.account[1].meta->lamports == 2000011UL );
+  env->txn_out[0].accounts.account[1].meta->lamports = 2000021UL;
+
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 1;
+  env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
+  FD_TEST( env->txn_out[1].err.is_committable );
+  FD_TEST( env->txn_out[1].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( !memcmp( &env->txn_out[1].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &env->txn_out[1].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
+  FD_TEST( env->txn_out[1].accounts.is_writable[0] == 1 );
+  FD_TEST( env->txn_out[1].accounts.is_writable[1] == 1 );
+  FD_TEST( env->txn_out[1].accounts.account[1].meta->lamports == 2000021UL );
+  env->txn_out[1].accounts.account[1].meta->lamports = 2000031UL;
+
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 2;
+  env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+  env->txn_in.bundle.prev_txn_outs[1] = &env->txn_out[1];
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
+  FD_TEST( env->txn_out[2].err.is_committable );
+  FD_TEST( env->txn_out[2].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( !memcmp( &env->txn_out[2].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &env->txn_out[2].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
+  FD_TEST( env->txn_out[2].accounts.is_writable[0] == 1 );
+  FD_TEST( env->txn_out[2].accounts.is_writable[1] == 1 );
+  FD_TEST( env->txn_out[2].accounts.account[1].meta->lamports == 2000031UL );
+  env->txn_out[2].accounts.account[1].meta->lamports = 2000041UL;
+
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 1UL, 2UL, account_keys, &dummy_hash );
+  FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 3;
+  env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+  env->txn_in.bundle.prev_txn_outs[1] = &env->txn_out[1];
+  env->txn_in.bundle.prev_txn_outs[2] = &env->txn_out[2];
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[3] );
+  FD_TEST( env->txn_out[3].err.is_committable );
+  FD_TEST( env->txn_out[3].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( !memcmp( &env->txn_out[3].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &env->txn_out[3].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
+  FD_TEST( env->txn_out[3].accounts.is_writable[0] == 1 );
+  FD_TEST( env->txn_out[3].accounts.is_writable[1] == 0 );
+  FD_TEST( env->txn_out[3].accounts.account[1].meta->lamports == 2000041UL );
+
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
+  FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 4;
+  env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+  env->txn_in.bundle.prev_txn_outs[1] = &env->txn_out[1];
+  env->txn_in.bundle.prev_txn_outs[2] = &env->txn_out[2];
+  env->txn_in.bundle.prev_txn_outs[3] = &env->txn_out[3];
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[4] );
+  FD_TEST( env->txn_out[4].err.is_committable );
+  FD_TEST( env->txn_out[4].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( !memcmp( &env->txn_out[4].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &env->txn_out[4].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
+  FD_TEST( env->txn_out[4].accounts.is_writable[0] == 1 );
+  FD_TEST( env->txn_out[4].accounts.is_writable[1] == 1 );
+  FD_TEST( env->txn_out[4].accounts.account[1].meta->lamports == 2000041UL );
+  env->txn_out[4].err.txn_err = FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+
+  env->txn_out[0].err.is_committable = 0;
+  env->txn_out[1].err.is_committable = 0;
+  env->txn_out[2].err.is_committable = 0;
+  env->txn_out[3].err.is_committable = 0;
+  env->txn_out[4].err.is_committable = 0;
+
+  fd_runtime_cancel_txn( env->runtime, &env->txn_out[0] );
+  fd_runtime_cancel_txn( env->runtime, &env->txn_out[1] );
+  fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
+  fd_runtime_cancel_txn( env->runtime, &env->txn_out[3] );
+  fd_runtime_cancel_txn( env->runtime, &env->txn_out[4] );
+
+  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
+  FD_TEST( starting_ro_active == env->accdb->base.ro_active );
+  FD_TEST( starting_rw_active == env->accdb->base.rw_active );
 }
 
 int
