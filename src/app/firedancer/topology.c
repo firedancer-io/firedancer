@@ -366,6 +366,10 @@ fd_topo_initialize( config_t * config ) {
 
   int solcap_enabled = strlen( config->capture.solcap_capture ) > 0;
 
+  if( vinyl_enabled ) {
+    setup_topo_vinyl_meta( topo, &config->firedancer );
+  }
+
   /*             topo, name */
   fd_topob_wksp( topo, "metric"       );
   fd_topob_wksp( topo, "genesi"       );
@@ -645,6 +649,19 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( solcap_enabled ) ) {
     fd_topob_wksp( topo, "solcap" );
     fd_topob_tile( topo, "solcap", "solcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  }
+
+  if( FD_LIKELY( snapshots_enabled ) ) {
+    if( vinyl_enabled ) {
+      ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
+      ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+
+      fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
+      fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
+
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    }
   }
 
   /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
