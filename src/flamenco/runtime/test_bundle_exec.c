@@ -175,7 +175,6 @@ init_rent_sysvar( test_env_t * env,
     fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_acc_pool_new( acc_pool_mem, TEST_ACC_POOL_ACCOUNT_CNT ) );
     FD_TEST( acc_pool );
 
-
     env->runtime->accdb                    = &env->accdb[0];
     env->runtime->progcache                = NULL;
     env->runtime->status_cache             = NULL;
@@ -186,7 +185,6 @@ init_rent_sysvar( test_env_t * env,
     env->runtime->log.enable_vm_tracing    = 0;
     env->runtime->log.tracing_mem          = NULL;
     env->runtime->log.capture_ctx          = NULL;
-
 
     return env;
   }
