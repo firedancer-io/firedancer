@@ -78,7 +78,6 @@ fd_inflights_request_remove( fd_inflights_t * table, ulong nonce, fd_pubkey_t * 
 
     *peer_out = inflight_req->pubkey;
     /* Remove the element from the inflight table */
-    fd_inflight_map_ele_remove  ( table->map, &nonce, NULL, table->pool );
     fd_inflight_dlist_ele_remove( table->dlist, inflight_req, table->pool );
     fd_inflight_pool_ele_release( table->pool, inflight_req );
     return rtt;

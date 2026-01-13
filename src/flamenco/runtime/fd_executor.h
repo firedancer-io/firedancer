@@ -104,10 +104,10 @@ void
 fd_executor_reclaim_account( fd_account_meta_t * meta,
                              ulong               slot );
 
-/* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
-   human readable cstr.  The lifetime of the returned pointer is
-   infinite and the call itself is thread safe.  The returned pointer is
-   always to a non-NULL cstr. */
+/* fd_executor_instr_strerror converts an FD_EXECUTOR_INSTR_ERR_{...}
+   code into a human readable cstr.  The lifetime of the returned
+   pointer is infinite and the call itself is thread safe.  The
+   returned pointer is always to a non-NULL cstr. */
 
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );

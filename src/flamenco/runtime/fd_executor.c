@@ -1279,7 +1279,7 @@ fd_instr_stack_pop( fd_runtime_t *          runtime,
    return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 /* This function mimics Agave's `.and(self.pop())` functionality,
