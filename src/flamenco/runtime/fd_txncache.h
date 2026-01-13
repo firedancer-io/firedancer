@@ -3,7 +3,7 @@
 
 /* A txn cache is a concurrent set storing the message hashes of
    transactions which have already executed.  Note the structure is
-   keyed by message hash, not signature, otherwiwe a double spend might
+   keyed by message hash, not signature, otherwise a double spend might
    be possible due to signature malleability.
 
    The txn cache is designed to do two operations fast,
@@ -18,10 +18,10 @@
          blocks do not contain duplicate transactions.
 
    Both of these operations are concurrent and lockless, assuming there
-   are no other (non-insert/query) operations occuring on the txn cache.
-   Most other operations lock the entire structure and will prevent both
-   insertion and query from proceeding, but are rare (once per slot) so
-   it's OK.
+   are no other (non-insert/query) operations occurring on the txn
+   cache. Most other operations lock the entire structure and will
+   prevent both insertion and query from proceeding, but are rare
+   (once per slot) so it's OK.
 
    The txn cache is somewhat CPU and memory sensitive.  To store message
    hashes requires 20 bytes (only the first 20 of the 32 bytes of the
@@ -118,33 +118,34 @@ typedef struct fd_txncache_private fd_txncache_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_txncache_{align,footprint} give the needed alignment and
-   footprint of a memory region suitable to hold a txn cache.
-   fd_txncache_{align,footprint} return the same value as
-   FD_TXNCACHE_{ALIGN,FOOTPRINT}.
+/* fd_txncache_align gives the needed alignment of the caller-provided
+   local join region (ljoin).  This returns FD_TXNCACHE_ALIGN.
 
-   fd_txncache_new formats memory region with suitable alignment and
-   footprint suitable for holding a txn cache.  Assumes shmem points
-   on the caller to the first byte of the memory region owned by the
-   caller to use.  Returns shmem on success and NULL on failure (logs
-   details).  The memory region will be owned by the state on successful
-   return.  The caller is not joined on return.
+   fd_txncache_footprint gives the needed footprint of the local join
+   region for a txn cache configured for max_live_slots live slots
 
-   Max live slots is global value for the validator, indicating the
-   maximum number of forks which can be active at any one time.  It
-   should be the same as "max active banks" in the replay system.  This
-   number counts any unrooted banks, plus one for the most recent root
-   bank.
+   A txn cache uses two backing regions:
 
-   Max transactions per slot should be some consensus derived upper
-   bound on the number of transactions that can appear in a slot.  This
-   value must be valid else it is a security issue, where an attacker
-   can cause the txn cache to run out of space and abort the program.
+     (1) Shared memory region, formatted by fd_txncache_shmem_new and
+         joined as an fd_txncache_shmem_t * (see
+         fd_txncache_shmem_{align,footprint}).
 
-   fd_txncache_join joins the caller to a txn cache. Assumes shtc points
-   to the first byte of the memory region holding the state.  Returns a
-   local handle to the join on success (this is not necessarily a simple
-   cast of the address) and NULL on failure (logs details). */
+     (2) Local join region, formatted by fd_txncache_new and joined via
+         fd_txncache_join.
+
+   fd_txncache_new formats the caller-provided local join region ljoin
+   and attaches it to the shared region shmem.  Assumes ljoin points to
+   the first byte of a memory region owned by the caller with suitable
+   alignment and footprint.  Assumes shmem is a valid joined txn cache
+   shared-memory region (typically from fd_txncache_shmem_join) created
+   with a matching max_live_slots.  Returns ljoin on success and NULL
+   on failure (logs details).  The caller is not joined on return.
+
+   fd_txncache_join joins the caller to a txn cache.  Assumes ljoin
+   points to the first byte of the local join region holding the state.
+   Returns a local handle to the join on success (this is not
+   necessarily a simple cast of the address) and NULL on failure (logs
+   details). */
 
 FD_FN_CONST ulong
 fd_txncache_align( void );
@@ -193,7 +194,7 @@ fd_txncache_finalize_fork( fd_txncache_t *       tc,
                            uchar const *         blockhash );
 
 /* fd_txncache_advance_root is called when the root slot of the chain
-   has advanced, in which case old message hashes (referncing
+   has advanced, in which case old message hashes (referencing
    blockhashes that could no longer be valid) can be removed from the
    cache.
 
