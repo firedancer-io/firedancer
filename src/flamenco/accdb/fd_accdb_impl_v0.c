@@ -1,4 +1,5 @@
 #include "fd_accdb_impl_v0.h"
+#include "fd_accdb_batch.h"
 
 FD_FN_CONST ulong
 fd_accdb_v0_align( void ) {
@@ -324,12 +325,17 @@ fd_accdb_user_v0_rw_data_sz_set( fd_accdb_user_t * accdb,
 }
 
 fd_accdb_user_vt_t const fd_accdb_user_v0_vt = {
-  .fini           = fd_accdb_user_v0_fini,
-  .peek           = fd_accdb_user_v0_peek,
-  .open_ro        = fd_accdb_user_v0_open_ro,
-  .close_ro       = fd_accdb_user_v0_close_ro,
-  .open_rw        = fd_accdb_user_v0_open_rw,
-  .close_rw       = fd_accdb_user_v0_close_rw,
-  .rw_data_max    = fd_accdb_user_v0_rw_data_max,
-  .rw_data_sz_set = fd_accdb_user_v0_rw_data_sz_set
+  .fini            = fd_accdb_user_v0_fini,
+  .peek            = fd_accdb_user_v0_peek,
+  .open_ro         = fd_accdb_user_v0_open_ro,
+  .close_ro        = fd_accdb_user_v0_close_ro,
+  .open_rw         = fd_accdb_user_v0_open_rw,
+  .close_rw        = fd_accdb_user_v0_close_rw,
+  .rw_data_max     = fd_accdb_user_v0_rw_data_max,
+  .rw_data_sz_set  = fd_accdb_user_v0_rw_data_sz_set,
+  .ro_pipe_init    = fd_accdb_ro_pipe1_init,
+  .ro_pipe_fini    = fd_accdb_ro_pipe1_fini,
+  .ro_pipe_enqueue = fd_accdb_ro_pipe1_enqueue,
+  .ro_pipe_flush   = fd_accdb_ro_pipe1_flush,
+  .ro_pipe_poll    = fd_accdb_ro_pipe1_poll
 };

@@ -32,7 +32,7 @@ fd_vinyl_req_pool_footprint( ulong batch_max,
   l = FD_LAYOUT_APPEND( l, FD_VINYL_REQ_POOL_ALIGN, req_max*sizeof(fd_vinyl_key_t)  );
   l = FD_LAYOUT_APPEND( l, FD_VINYL_REQ_POOL_ALIGN, req_max*sizeof(ulong)           );
   l = FD_LAYOUT_APPEND( l, FD_VINYL_REQ_POOL_ALIGN, req_max*sizeof(schar)           );
-  l = FD_LAYOUT_APPEND( l, FD_VINYL_REQ_POOL_ALIGN, req_max*sizeof(fd_vinyl_comp_t) );
+  l = FD_LAYOUT_APPEND( l, FD_VINYL_REQ_POOL_ALIGN,         sizeof(fd_vinyl_comp_t) );
   return FD_LAYOUT_FINI( l, FD_VINYL_REQ_POOL_ALIGN );
 }
 
@@ -68,7 +68,7 @@ fd_vinyl_req_pool_new( void * shmem,
   fd_vinyl_key_t *      key0       = FD_SCRATCH_ALLOC_APPEND( l, FD_VINYL_REQ_POOL_ALIGN, req_max*sizeof(fd_vinyl_key_t)  );
   ulong *               val_gaddr0 = FD_SCRATCH_ALLOC_APPEND( l, FD_VINYL_REQ_POOL_ALIGN, req_max*sizeof(ulong)           );
   schar *               err0       = FD_SCRATCH_ALLOC_APPEND( l, FD_VINYL_REQ_POOL_ALIGN, req_max*sizeof(schar)           );
-  fd_vinyl_comp_t *     comp0      = FD_SCRATCH_ALLOC_APPEND( l, FD_VINYL_REQ_POOL_ALIGN, req_max*sizeof(fd_vinyl_comp_t) );
+  fd_vinyl_comp_t *     comp0      = FD_SCRATCH_ALLOC_APPEND( l, FD_VINYL_REQ_POOL_ALIGN,         sizeof(fd_vinyl_comp_t) );
   ulong obj1 = FD_SCRATCH_ALLOC_FINI( l, FD_VINYL_REQ_POOL_ALIGN );
   FD_TEST( obj1-(ulong)shmem == fd_vinyl_req_pool_footprint( batch_max, batch_key_max ) );
 

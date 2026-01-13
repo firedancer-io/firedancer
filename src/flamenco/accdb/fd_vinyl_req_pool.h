@@ -205,14 +205,14 @@ fd_vinyl_req_batch_err_gaddr( fd_vinyl_req_pool_t * pool,
   return fd_wksp_gaddr_fast( wksp, fd_vinyl_req_batch_err( pool, batch_idx ) );
 }
 
-/* fd_vinyl_req_batch_comp returns a pointer to the array of completion
-   objects for a request batch. */
+/* fd_vinyl_req_batch_comp returns a pointer to the completion object of
+   a request batch. */
 
 static inline fd_vinyl_comp_t *
 fd_vinyl_req_batch_comp( fd_vinyl_req_pool_t * pool,
                          ulong                 batch_idx ) {
   fd_vinyl_comp_t * comp0 = (fd_vinyl_comp_t *)( (ulong)pool + pool->comp_off );
-  return comp0 + (batch_idx * pool->batch_key_max);
+  return comp0 + batch_idx;
 }
 
 /* fd_vinyl_req_batch_comp_gaddr returns the 'comp_gaddr' parameter for

@@ -20,6 +20,8 @@ struct fd_accdb_user_vt {
   void
   (* fini)( fd_accdb_user_t * accdb );
 
+  /* Query APIs */
+
   fd_accdb_peek_t *
   (* peek)( fd_accdb_user_t *         accdb,
             fd_accdb_peek_t *         peek,
@@ -48,6 +50,8 @@ struct fd_accdb_user_vt {
   (* close_rw)( fd_accdb_user_t * accdb,
                 fd_accdb_rw_t *   write );
 
+  /* Resize APIs */
+
   ulong
   (* rw_data_max)( fd_accdb_user_t *     accdb,
                    fd_accdb_rw_t const * rw );
@@ -57,6 +61,26 @@ struct fd_accdb_user_vt {
                       fd_accdb_rw_t *   rw,
                       ulong             data_sz,
                       int               flags );
+
+  /* Pipelined read API */
+
+  fd_accdb_ro_pipe_t *
+  (* ro_pipe_init)( fd_accdb_ro_pipe_t *      pipe,
+                    fd_accdb_user_t *         accdb,
+                    fd_funk_txn_xid_t const * xid );
+
+  void
+  (* ro_pipe_fini)( fd_accdb_ro_pipe_t * pipe );
+
+  void
+  (* ro_pipe_enqueue)( fd_accdb_ro_pipe_t * pipe,
+                       void const *         address );
+
+  void
+  (* ro_pipe_flush)( fd_accdb_ro_pipe_t * pipe );
+
+  fd_accdb_ro_t *
+  (* ro_pipe_poll)( fd_accdb_ro_pipe_t * pipe );
 
 };
 

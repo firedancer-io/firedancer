@@ -1,6 +1,7 @@
 #include "fd_accdb_impl_v0.h"
 #include "fd_accdb_ref.h"
 #include "fd_accdb_sync.h"
+#include "fd_accdb_batch.h"
 #include <stdlib.h> /* aligned_alloc */
 
 FD_FN_CONST static fd_pubkey_t
@@ -34,13 +35,16 @@ test_accdb_v0_logic( void ) {
 
   fd_accdb_ro_t ro0[1];
   fd_accdb_rw_t rw0[1];
+  fd_accdb_ro_t * ro_tmp;
+
+  fd_pubkey_t const k0 = {0};
+  fd_pubkey_t const k1 = key( 1UL );
+  fd_pubkey_t const k2 = key( 2UL );
 
   /* Non-existent accounts */
 
-  fd_pubkey_t const k0 = {0};
   FD_TEST( !fd_accdb_open_ro( user, ro0, NULL, &k0 ) );
   FD_TEST( !fd_accdb_open_rw( user, rw0, NULL, &k0, 0UL, 0 ) );
-  fd_pubkey_t const k1 = key( 1UL );
   FD_TEST( !fd_accdb_open_ro( user, ro0, NULL, &k1 ) );
   FD_TEST( !fd_accdb_open_rw( user, rw0, NULL, &k1, 0UL, 0 ) );
   FD_TEST( user_v0->base.rw_active==0 );
@@ -92,6 +96,40 @@ test_accdb_v0_logic( void ) {
   fd_accdb_close_rw( user, rw0 );
   FD_TEST( user_v0->base.rw_active==0 );
   FD_TEST( !fd_accdb_open_ro( user, ro0, NULL, &k0 ) );
+
+  /* Test batch API */
+
+  fd_accdb_ro_pipe_t pipe[1];
+  fd_funk_txn_xid_t xid = {0};
+  FD_TEST( fd_accdb_ro_pipe_init( pipe, user, &xid )==pipe );
+  fd_accdb_ro_pipe_fini( pipe, user );
+  FD_TEST( fd_accdb_open_rw( user, rw0, NULL, &k0, 0UL, FD_ACCDB_FLAG_CREATE )==rw0 );
+  fd_accdb_ref_lamports_set( rw0, 10UL );
+  fd_accdb_close_rw( user, rw0 );
+  FD_TEST( fd_accdb_open_rw( user, rw0, NULL, &k1, 0UL, FD_ACCDB_FLAG_CREATE )==rw0 );
+  fd_accdb_ref_lamports_set( rw0, 20UL );
+  fd_accdb_close_rw( user, rw0 );
+  FD_TEST( fd_accdb_ro_pipe_init( pipe, user, &xid )==pipe );
+
+  fd_accdb_ro_pipe_enqueue( pipe, &k0 );
+  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( fd_pubkey_eq( fd_accdb_ref_address( ro_tmp ), &k0 ) );
+  FD_TEST( ro_tmp->meta->lamports == 10UL );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+
+  fd_accdb_ro_pipe_enqueue( pipe, &k2 );
+  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( fd_pubkey_eq( fd_accdb_ref_address( ro_tmp ), &k2 ) );
+  FD_TEST( ro_tmp->meta->lamports == 0UL );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+
+  fd_accdb_ro_pipe_enqueue( pipe, &k1 );
+  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( fd_pubkey_eq( fd_accdb_ref_address( ro_tmp ), &k1 ) );
+  FD_TEST( ro_tmp->meta->lamports == 20UL );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+
+  fd_accdb_ro_pipe_fini( pipe, user );
 
   /* Clean up */
 
