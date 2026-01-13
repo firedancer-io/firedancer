@@ -6,6 +6,9 @@
 struct fd_accdb_user;
 typedef struct fd_accdb_user fd_accdb_user_t;
 
+struct fd_accdb_ro_pipe;
+typedef struct fd_accdb_ro_pipe fd_accdb_ro_pipe_t;
+
 #define FD_ACCDB_TYPE_V0   (80U) /* minimal single chain */
 #define FD_ACCDB_TYPE_V1    (1U) /* funk */
 #define FD_ACCDB_TYPE_V2    (2U) /* read-only vinyl + read-write funk */

@@ -6,6 +6,10 @@ $(call add-objs,fd_accdb_admin,fd_flamenco)
 $(call add-hdrs,fd_accdb_user.h fd_accdb_sync.h)
 $(call add-hdrs,fd_accdb_ref.h)
 
+# User batch API
+$(call add-hdrs,fd_accdb_batch.h)
+$(call add-objs,fd_accdb_batch,fd_flamenco)
+
 # Minimal database
 $(call add-hdrs,fd_accdb_impl_v0.h)
 $(call add-objs,fd_accdb_impl_v0,fd_flamenco)
