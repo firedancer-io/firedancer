@@ -1455,7 +1455,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
   if( txn_out->accounts.is_writable[ idx ] ) {
     /* If the account is writable or a fee payer, then we need to create
-       staging regions for the account. If the account exists, copy the
+       staging regions for the account.  If the account exists, copy the
        account data into the staging area; otherwise, initialize a new
        metadata. */
     uchar * new_raw_data = writable_accs_mem[ *writable_accs_idx_out ];
@@ -1480,7 +1480,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
   } else {
     /* If the account is not writable, then we can simply initialize
-       the txn account with the read-only accountsdb record. However,
+       the txn account with the read-only accountsdb record.  However,
        if the account does not exist, we need to initialize a new
        metadata. */
     if( FD_UNLIKELY( fd_pubkey_eq( address, &fd_sysvar_instructions_id ) ) ) {
