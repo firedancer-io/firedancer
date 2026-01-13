@@ -13,6 +13,7 @@
 #include "../../vinyl/fd_vinyl_base.h"
 #include "../../vinyl/io/fd_vinyl_io_ur.h"
 #include "../../util/pod/fd_pod_format.h"
+#include "../../disco/trace/generated/fd_trace_db_server.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -26,7 +27,7 @@
 
 #define IO_SPAD_MAX (32UL<<20)
 
-#define FD_VINYL_CLIENT_MAX (8UL)
+#define FD_VINYL_CLIENT_MAX (32UL)
 #define FD_VINYL_REQ_MAX (1024UL)
 
 struct fd_vinyl_client {
@@ -676,6 +677,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
   /* Execute received requests */
 
   for( ulong exec_rem=fd_ulong_min( ctx->req_tail-ctx->req_head, ctx->exec_max ); exec_rem; exec_rem-- ) {
+    fd_trace_request_batch_enter();
     fd_vinyl_req_t * req = ctx->_req + ((ctx->req_head++) & (FD_VINYL_REQ_MAX-1UL));
 
     /* Determine the client that sent this request and unpack the
@@ -739,7 +741,9 @@ before_credit( fd_vinyl_tile_t *   ctx,
 
     for( ; read_cnt; read_cnt-- ) {
       fd_vinyl_io_rd_t * _rd; /* avoid pointer escape */
+      fd_trace_io_poll_enter();
       fd_vinyl_io_poll( io, &_rd, FD_VINYL_IO_FLAG_BLOCKING );
+      fd_trace_io_poll_exit();
       fd_vinyl_io_rd_t * rd = _rd;
 
       fd_vinyl_data_obj_t *     obj      = (fd_vinyl_data_obj_t *)    rd->ctx;
@@ -849,6 +853,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
     FD_MCNT_INC( VINYL, BLOCKS_PAIR, append_cnt - dead_cnt );
     FD_MCNT_INC( VINYL, BLOCKS_DEAD, dead_cnt );
 
+    fd_trace_request_batch_exit();
   }
 
   ctx->accum_dead_cnt    = accum_dead_cnt;

@@ -2,6 +2,7 @@
 #include "../accdb/fd_accdb_sync.h"
 #include "../accdb/fd_accdb_batch.h"
 #include "../runtime/program/fd_stake_program.h"
+#include "../../disco/trace/generated/fd_trace_replay.h"
 
 #define POOL_NAME fd_stake_delegation_pool
 #define POOL_T    fd_stake_delegation_t
@@ -348,6 +349,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));
   }
 
+  fd_trace_stake_delegations_refresh_enter();
   fd_accdb_ro_pipe_t ro_pipe[1];
   fd_accdb_ro_pipe_init( ro_pipe, accdb, xid );
   ulong const job_cnt = stake_delegations->max_stake_accounts_;
@@ -391,6 +393,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
     }
   }
   fd_accdb_ro_pipe_fini( ro_pipe, accdb );
+  fd_trace_stake_delegations_refresh_exit();
 }
 
 fd_stake_delegation_t const *

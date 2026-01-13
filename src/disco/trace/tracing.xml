@@ -8,6 +8,8 @@
 
     <event name="replay_block_end" type="DURATION" />
 
+    <event name="stake_delegations_refresh" type="DURATION" />
+
 </category>
 
 <category name="exec">
@@ -24,13 +26,27 @@
 
 </category>
 
-<category name="db">
+<category name="db_client">
 
-    <event name="vinyl_acquire" type="INSTANT" />
+    <event name="open_ro" type="DURATION" />
 
-    <event name="vinyl_release" type="INSTANT" />
+    <event name="close_ro" type="DURATION" />
 
-    <event name="vinyl_wait" type="DURATION" />
+    <event name="open_rw" type="DURATION" />
+
+    <event name="vinyl_acquire" type="DURATION" />
+
+    <event name="vinyl_release" type="DURATION" />
+
+</category>
+
+<category name="db_server">
+
+    <event name="request_batch" type="DURATION" />
+
+    <event name="io_read" type="DURATION" />
+
+    <event name="io_poll" type="DURATION" />
 
 </category>
 

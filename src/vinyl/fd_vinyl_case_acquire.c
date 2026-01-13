@@ -286,7 +286,9 @@
 
           cobj->rd_err = req_err + batch_idx;
 
+          fd_trace_io_read_enter();
           fd_vinyl_io_read( io, cobj->rd );
+          fd_trace_io_read_exit();
           read_cnt++;
 
           quota_rem--;

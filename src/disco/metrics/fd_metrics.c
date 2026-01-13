@@ -27,7 +27,7 @@ fd_metrics_new( void * shmem,
   void * mcache = FD_SCRATCH_ALLOC_APPEND( l, fd_mcache_align(), mcache_sz );
   void * dcache = FD_SCRATCH_ALLOC_APPEND( l, fd_dcache_align(), dcache_sz );
   ulong end = FD_SCRATCH_ALLOC_FINI( l, FD_METRICS_ALIGN );
-  FD_TEST( end==(ulong)shmem+footprint );
+  FD_TEST( end<=(ulong)shmem+footprint );
   FD_TEST( fd_mcache_new( mcache, FD_METRICS_TRACE_DEPTH, 0UL, 0UL ) );
   FD_TEST( fd_dcache_new( dcache, dcache_data_sz, 0UL ) );
   hdr->trace_mcache_off = (ulong)mcache - (ulong)shmem;

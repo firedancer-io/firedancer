@@ -4,94 +4,90 @@
 #include "../fd_trace_target.h"
 
 static inline void
-fd_trace_replay_block_start_enter( ulong slot ) {
-  ulong const words[] = {
-    fd_fxt_rec_event_hdr(
-      /* rec_sz     */ 32UL,
-      /* event_type */ FD_FXT_EVENT_DURATION_BEGIN,
-      /* arg_cnt    */ 1UL,
-      /* thread_ref */ fd_fxt_pub_cur->thread_id,
-      /* cat_ref    */ 0UL,
-      /* name_ref   */ 1UL ),
-    (ulong)fd_tickcount(),
-    /* Argument 'ulong slot' */
-    (FD_FXT_ARG_U64) | (128<<4) | (2<<16),
-    slot,
-  };
-  memcpy( fd_fxt_pub_rec_prepare( fd_fxt_pub_cur ), words, sizeof(words) );
-  fd_fxt_pub_rec_publish( fd_fxt_pub_cur, sizeof(words) );
-}
-
-static inline void
-fd_trace_replay_block_start_exit( void ) {
-  ulong const words[] = {
-    fd_fxt_rec_event_hdr(
-      /* rec_sz     */ 16UL,
-      /* event_type */ FD_FXT_EVENT_DURATION_END,
-      /* arg_cnt    */ 0UL,
-      /* thread_ref */ fd_fxt_pub_cur->thread_id,
-      /* cat_ref    */ 0UL,
-      /* name_ref   */ 1UL ),
-    (ulong)fd_tickcount(),
-  };
-  fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
-}
-
-static inline void
-fd_trace_replay_block_end_enter( void ) {
+fd_trace_request_batch_enter( void ) {
   ulong const words[] = {
     fd_fxt_rec_event_hdr(
       /* rec_sz     */ 16UL,
       /* event_type */ FD_FXT_EVENT_DURATION_BEGIN,
       /* arg_cnt    */ 0UL,
       /* thread_ref */ fd_fxt_pub_cur->thread_id,
-      /* cat_ref    */ 0UL,
-      /* name_ref   */ 3UL ),
+      /* cat_ref    */ 17UL,
+      /* name_ref   */ 18UL ),
     (ulong)fd_tickcount(),
   };
   fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
 }
 
 static inline void
-fd_trace_replay_block_end_exit( void ) {
+fd_trace_request_batch_exit( void ) {
   ulong const words[] = {
     fd_fxt_rec_event_hdr(
       /* rec_sz     */ 16UL,
       /* event_type */ FD_FXT_EVENT_DURATION_END,
       /* arg_cnt    */ 0UL,
       /* thread_ref */ fd_fxt_pub_cur->thread_id,
-      /* cat_ref    */ 0UL,
-      /* name_ref   */ 3UL ),
+      /* cat_ref    */ 17UL,
+      /* name_ref   */ 18UL ),
     (ulong)fd_tickcount(),
   };
   fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
 }
 
 static inline void
-fd_trace_stake_delegations_refresh_enter( void ) {
+fd_trace_io_read_enter( void ) {
   ulong const words[] = {
     fd_fxt_rec_event_hdr(
       /* rec_sz     */ 16UL,
       /* event_type */ FD_FXT_EVENT_DURATION_BEGIN,
       /* arg_cnt    */ 0UL,
       /* thread_ref */ fd_fxt_pub_cur->thread_id,
-      /* cat_ref    */ 0UL,
-      /* name_ref   */ 4UL ),
+      /* cat_ref    */ 17UL,
+      /* name_ref   */ 19UL ),
     (ulong)fd_tickcount(),
   };
   fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
 }
 
 static inline void
-fd_trace_stake_delegations_refresh_exit( void ) {
+fd_trace_io_read_exit( void ) {
   ulong const words[] = {
     fd_fxt_rec_event_hdr(
       /* rec_sz     */ 16UL,
       /* event_type */ FD_FXT_EVENT_DURATION_END,
       /* arg_cnt    */ 0UL,
       /* thread_ref */ fd_fxt_pub_cur->thread_id,
-      /* cat_ref    */ 0UL,
-      /* name_ref   */ 4UL ),
+      /* cat_ref    */ 17UL,
+      /* name_ref   */ 19UL ),
+    (ulong)fd_tickcount(),
+  };
+  fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
+}
+
+static inline void
+fd_trace_io_poll_enter( void ) {
+  ulong const words[] = {
+    fd_fxt_rec_event_hdr(
+      /* rec_sz     */ 16UL,
+      /* event_type */ FD_FXT_EVENT_DURATION_BEGIN,
+      /* arg_cnt    */ 0UL,
+      /* thread_ref */ fd_fxt_pub_cur->thread_id,
+      /* cat_ref    */ 17UL,
+      /* name_ref   */ 20UL ),
+    (ulong)fd_tickcount(),
+  };
+  fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
+}
+
+static inline void
+fd_trace_io_poll_exit( void ) {
+  ulong const words[] = {
+    fd_fxt_rec_event_hdr(
+      /* rec_sz     */ 16UL,
+      /* event_type */ FD_FXT_EVENT_DURATION_END,
+      /* arg_cnt    */ 0UL,
+      /* thread_ref */ fd_fxt_pub_cur->thread_id,
+      /* cat_ref    */ 17UL,
+      /* name_ref   */ 20UL ),
     (ulong)fd_tickcount(),
   };
   fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );

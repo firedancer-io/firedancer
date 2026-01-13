@@ -1,5 +1,6 @@
 #include "fd_vinyl.h"
 #include "../util/pod/fd_pod.h"
+#include "../disco/trace/generated/fd_trace_db_server.h"
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
