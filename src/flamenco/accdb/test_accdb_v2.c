@@ -1,6 +1,7 @@
 #include "fd_accdb_impl_v2.h"
 #include "fd_accdb_admin.h"
 #include "fd_accdb_sync.h"
+#include "fd_accdb_batch.h"
 #include "../../vinyl/fd_vinyl.h"
 
 #define WKSP_TAG (1UL)
@@ -156,6 +157,64 @@ run_tests( fd_accdb_user_t * accdb ) {
   FD_TEST( !fd_accdb_open_ro( accdb, ro, xid, s_key_d ) );
 
   FD_TEST( !fd_accdb_open_ro( accdb, ro, xid, s_key_e ) );
+
+  /* Test ro_pipe API.  Read [d, b, c, a], expect results to arrive in
+     order [d, c, b, a] */
+
+  fd_accdb_ro_t * ro_tmp;
+  fd_accdb_ro_pipe_t pipe[1];
+  FD_TEST( fd_accdb_ro_pipe_init( pipe, accdb, xid ) );
+
+  fd_accdb_ro_pipe_enqueue( pipe, s_key_d );
+  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_NONE ); /* tombstone */
+  FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_d, 32UL ) );
+  FD_TEST( ro_tmp->meta->lamports==0UL );
+  FD_TEST( accdb->base.ro_active==0UL ); /* tombstone */
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+  FD_TEST( accdb->base.ro_active==0UL );
+
+  fd_accdb_ro_pipe_enqueue( pipe, s_key_b );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+
+  fd_accdb_ro_pipe_enqueue( pipe, s_key_c );
+  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_V1 );
+  FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_c, 32UL ) );
+  FD_TEST( ro_tmp->meta->lamports==20000UL );
+  FD_TEST( accdb->base.ro_active==1UL );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+  FD_TEST( accdb->base.ro_active==0UL );
+
+  fd_accdb_ro_pipe_enqueue( pipe, s_key_e );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+
+  fd_accdb_ro_pipe_enqueue( pipe, s_key_a );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+
+  fd_accdb_ro_pipe_flush( pipe );
+  /* result for b */
+  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_V2 );
+  FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_b, 32UL ) );
+  FD_TEST( accdb->base.ro_active==1UL );
+  FD_TEST( ro_tmp->meta->lamports==0UL );
+  /* result for e (tombstone) */
+  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_NONE );
+  FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_e, 32UL ) );
+  FD_TEST( ro_tmp->meta->lamports==0UL );
+  FD_TEST( accdb->base.ro_active==1UL );
+  /* result for a */
+  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_V2 );
+  FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_a, 32UL ) );
+  FD_TEST( ro_tmp->meta->lamports==10000UL );
+  FD_TEST( accdb->base.ro_active==2UL );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+  FD_TEST( accdb->base.ro_active==0UL );
+
+  fd_accdb_ro_pipe_fini( pipe, accdb );
 }
 
 int
@@ -199,7 +258,7 @@ main( int     argc,
   ulong        cq_max      = fd_env_strip_cmdline_ulong( &argc, &argv, "--cq-max",      NULL,                   32UL );
   ulong        link_id     = fd_env_strip_cmdline_ulong( &argc, &argv, "--link-id",     NULL,                 2345UL );
   ulong        burst_max   = fd_env_strip_cmdline_ulong( &argc, &argv, "--burst-max",   NULL,                    1UL );
-  ulong        quota_max   = fd_env_strip_cmdline_ulong( &argc, &argv, "--quota-max",   NULL,                    2UL );
+  ulong        quota_max   = fd_env_strip_cmdline_ulong( &argc, &argv, "--quota-max",   NULL,                    4UL );
 
   /* Funk (in-memory DB) parameters */
   ulong        txn_max     = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",     NULL,                   32UL );
@@ -275,11 +334,11 @@ main( int     argc,
   FD_TEST( shfunk );
   FD_TEST( fd_funk_new( shfunk, tag, funk_seed, txn_max, rec_max ) );
 
-  ulong req_pool_footprint = fd_vinyl_req_pool_footprint( 1UL, 1UL );
+  ulong req_pool_footprint = fd_vinyl_req_pool_footprint( 1UL, 4UL );
   FD_TEST( req_pool_footprint );
   void * _req_pool = fd_wksp_alloc_laddr( wksp, fd_vinyl_req_pool_align(), req_pool_footprint, tag );
   FD_TEST( _req_pool );
-  void * req_pool = fd_vinyl_req_pool_new( _req_pool, 1UL, 1UL );
+  void * req_pool = fd_vinyl_req_pool_new( _req_pool, 1UL, 4UL );
   FD_TEST( req_pool );
 
   FD_LOG_NOTICE(( "Connecting client to vinyl" ));
