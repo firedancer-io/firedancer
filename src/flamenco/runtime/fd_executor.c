@@ -1438,7 +1438,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
              Move ownership of reference from previous transaction to
              this one. */
           fd_memcpy( ref_slot, prev_txn_out->accounts.account[ j ].ref, sizeof(fd_accdb_rw_t) );
-          account  = ref_slot;
+          account = ref_slot;
           is_found_in_bundle = 1;
           break;
         }
@@ -1455,9 +1455,9 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
   if( txn_out->accounts.is_writable[ idx ] ) {
     /* If the account is writable or a fee payer, then we need to create
-       staging regions for the account. If the account exists, we need to
-       copy the account data into the staging area; otherwise, we need to
-       initialize a new metadata. */
+       staging regions for the account. If the account exists, copy the
+       account data into the staging area; otherwise, initialize a new
+       metadata. */
     uchar * new_raw_data = writable_accs_mem[ *writable_accs_idx_out ];
     ulong   dlen         = !!account ? fd_accdb_ref_data_sz( (fd_accdb_ro_t *)account ) : 0UL;
     (*writable_accs_idx_out)++;
@@ -1490,7 +1490,8 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
       /* transfer ownership of reference to runtime struct
          account is freed in cancel/commit */
     } else if( FD_LIKELY( account && is_found_in_bundle ) ) {
-      /* If the account is found in the bundle, we need to create a new reference to the account */
+      /* If the account is found in the bundle, we need to create a new
+      reference to the account */
       account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, account->meta );
     } else {
       account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, &FD_ACCOUNT_META_DEFAULT );
