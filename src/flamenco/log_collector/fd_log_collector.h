@@ -63,6 +63,7 @@ FD_PROTOTYPES_BEGIN
 /* fd_log_collector_init initializes a log collector. */
 static inline void
 fd_log_collector_init( fd_log_collector_t * log, int enabled ) {
+  if( !enabled ) return;
   log->buf_sz = 0;
   log->log_sz = 0;
   log->warn = 0;

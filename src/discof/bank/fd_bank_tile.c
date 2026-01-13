@@ -438,6 +438,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     FD_TEST( failed_idx != ULONG_MAX );
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
+      ctx->txn_out[ i ].err.is_committable = 0;
+
       /* If the bundle peer flag is not set, that means the transaction
          was at least partially sanitized/setup.  We have to cancel
          these txns as they will not be included in the block. */
