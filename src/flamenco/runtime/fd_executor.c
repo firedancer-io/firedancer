@@ -1699,7 +1699,7 @@ fd_execute_txn( fd_runtime_t *      runtime,
   fd_txn_t const * txn = TXN( txn_in->txn );
 
   /* Initialize log collection. */
-  fd_log_collector_init( runtime->log.log_collector, runtime->log.enable_log_collector );
+  if( !!runtime->log.log_collector ) fd_log_collector_init( runtime->log.log_collector, runtime->log.enable_log_collector );
 
   for( ushort i=0; i<TXN( txn_in->txn )->instr_cnt; i++ ) {
     /* Set up the instr info for the current instruction */
