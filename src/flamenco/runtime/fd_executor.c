@@ -1490,8 +1490,9 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
       /* transfer ownership of reference to runtime struct
          account is freed in cancel/commit */
     } else if( FD_LIKELY( account && is_found_in_bundle ) ) {
-      /* If the account is found in the bundle, we need to create a new
-      reference to the account */
+      /* If the account is found in the bundle and marked read-only we
+         just need to initialize a reference to the account that doesn't
+         reference the database. */
       account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, account->meta );
     } else {
       account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, &FD_ACCOUNT_META_DEFAULT );
