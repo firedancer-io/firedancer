@@ -134,10 +134,12 @@ typedef struct fd_notar_blk fd_notar_blk_t;
 
 /* TODO map key DOS */
 
-#define MAP_NAME    fd_notar_slot
-#define MAP_T       fd_notar_slot_t
-#define MAP_KEY     slot
-#define MAP_MEMOIZE 0
+#define MAP_NAME           fd_notar_slot
+#define MAP_T              fd_notar_slot_t
+#define MAP_KEY            slot
+#define MAP_KEY_NULL       ULONG_MAX
+#define MAP_KEY_INVAL(key) ((key)==ULONG_MAX)
+#define MAP_MEMOIZE        0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_notar_vtr {

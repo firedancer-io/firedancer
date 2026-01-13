@@ -77,10 +77,12 @@ struct fd_epoch_stakes_slot {
 };
 typedef struct fd_epoch_stakes_slot fd_epoch_stakes_slot_t;
 
-#define MAP_NAME    fd_epoch_stakes_slot_map
-#define MAP_T       fd_epoch_stakes_slot_t
-#define MAP_KEY     slot
-#define MAP_MEMOIZE 0
+#define MAP_NAME           fd_epoch_stakes_slot_map
+#define MAP_T              fd_epoch_stakes_slot_t
+#define MAP_KEY            slot
+#define MAP_KEY_NULL       ULONG_MAX
+#define MAP_KEY_INVAL(key) ((key)==ULONG_MAX)
+#define MAP_MEMOIZE        0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_epoch_stakes {
