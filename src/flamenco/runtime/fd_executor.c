@@ -1416,6 +1416,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
   fd_accdb_rw_t * ref_slot = &txn_out->accounts.account[ idx ];
 
   fd_accdb_rw_t * account = NULL;
+  int is_found_in_bundle = 0;
   if( txn_in->bundle.is_bundle ) {
     /* If we are in a bundle, that means that the latest version of an
        account may be a transaction account from a previous transaction
@@ -1429,8 +1430,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
        from pubkey to the bundle transaction index and only inserting
        or updating when the account is writable. */
 
-    int is_found = 0;
-    for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
+    for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found_in_bundle; i-- ) {
       fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
       for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
         if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], address ) && prev_txn_out->accounts.is_writable[j] ) {
@@ -1439,7 +1439,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
              this one. */
           fd_memcpy( ref_slot, prev_txn_out->accounts.account[ j ].ref, sizeof(fd_accdb_rw_t) );
           account  = ref_slot;
-          is_found = 1;
+          is_found_in_bundle = 1;
           break;
         }
       }
@@ -1486,9 +1486,12 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( fd_pubkey_eq( address, &fd_sysvar_instructions_id ) ) ) {
       fd_account_meta_t * meta = fd_account_meta_init( (void *)runtime->accounts.sysvar_instructions_mem );
       account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, meta );
-    } else if( FD_LIKELY( account ) ) {
+    } else if( FD_LIKELY( account && !is_found_in_bundle ) ) {
       /* transfer ownership of reference to runtime struct
          account is freed in cancel/commit */
+    } else if( FD_LIKELY( account && is_found_in_bundle ) ) {
+      /* If the account is found in the bundle, we need to create a new reference to the account */
+      account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, account->meta );
     } else {
       account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, &FD_ACCOUNT_META_DEFAULT );
     }
