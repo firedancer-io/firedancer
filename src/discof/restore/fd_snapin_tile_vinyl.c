@@ -755,8 +755,8 @@ fd_snapin_read_account_vinyl( fd_snapin_tile_t *  ctx,
   }
   if( FD_UNLIKELY( meta->dlen > data_max ) ) {
     FD_BASE58_ENCODE_32_BYTES( acct_addr, acct_addr_b58 );
-    FD_LOG_WARNING(( "failed to read account %s: account data size (%lu bytes) exceeds buffer size (%lu bytes)",
-                     acct_addr_b58, (ulong)meta->dlen, data_max ));
+    FD_LOG_CRIT(( "failed to read account %s: account data size (%lu bytes) exceeds buffer size (%lu bytes)",
+                  acct_addr_b58, (ulong)meta->dlen, data_max ));
   }
   memcpy( data, mmio+seq_data, meta->dlen );
 }
