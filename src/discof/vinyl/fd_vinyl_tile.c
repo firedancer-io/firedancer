@@ -26,8 +26,8 @@
 
 #define IO_SPAD_MAX (32UL<<20)
 
-#define FD_VINYL_CLIENT_MAX (8UL)
-#define FD_VINYL_REQ_MAX (1024UL)
+#define FD_VINYL_CLIENT_MAX (1024UL)
+#define FD_VINYL_REQ_MAX    (1024UL)
 
 struct fd_vinyl_client {
   fd_vinyl_rq_t * rq;        /* Channel for requests from this client (could be shared by multiple vinyl instances) */
