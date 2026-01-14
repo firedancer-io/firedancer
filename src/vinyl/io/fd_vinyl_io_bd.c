@@ -650,16 +650,16 @@ fd_vinyl_io_bd_init( void *       mem,
 
   }
 
-  FD_LOG_NOTICE(( "IO config"
-                  "\n\ttype     bd"
-                  "\n\tspad_max %lu bytes"
-                  "\n\tdev_sz   %lu bytes"
-                  "\n\treset    %i"
-                  "\n\tinfo     \"%s\" (info_sz %lu%s)"
-                  "\n\tio_seed  0x%016lx%s",
-                  spad_max, dev_sz, reset,
-                  info ? (char const *)info : "", info_sz, reset ? "" : ", discovered",
-                  io_seed, reset ? "" : " (discovered)" ));
+  FD_LOG_INFO(( "IO config"
+                "\n\ttype     bd"
+                "\n\tspad_max %lu bytes"
+                "\n\tdev_sz   %lu bytes"
+                "\n\treset    %i"
+                "\n\tinfo     \"%s\" (info_sz %lu%s)"
+                "\n\tio_seed  0x%016lx%s",
+                spad_max, dev_sz, reset,
+                info ? (char const *)info : "", info_sz, reset ? "" : ", discovered",
+                io_seed, reset ? "" : " (discovered)" ));
 
   return bd->base;
 }
