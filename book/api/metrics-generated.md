@@ -757,7 +757,6 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">send_&#8203;leader_&#8203;not_&#8203;found</span> | counter | Total number of times slot leader not found |
 | <span class="metrics-name">send_&#8203;unstaked_&#8203;ci</span> | counter | Total number of times we received contact info for an unstaked node |
 | <span class="metrics-name">send_&#8203;ci_&#8203;removed</span> | counter | Total number of times we removed contact info |
 | <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info_&#8203;quic_&#8203;vote</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">unroutable</span>"} | counter | Total number of contact infos received and handled for QUIC Vote port (Skipped (unroutable)) |
