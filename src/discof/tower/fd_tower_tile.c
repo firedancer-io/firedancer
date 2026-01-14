@@ -757,7 +757,7 @@ done_vote_iter:
 
   fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
   fd_txn_p_t          txn[1];
-  fd_tower_to_vote_txn( ctx->tower, ctx->root_slot, lockouts, &slot_completed->bank_hash, &slot_completed->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_account, txn );
+  fd_tower_to_vote_txn( ctx->tower, ctx->root_slot, lockouts, &slot_completed->bank_hash, &slot_completed->block_hash, ctx->identity_key, 1, ctx->identity_key, ctx->vote_account, txn );
   FD_TEST( !fd_tower_empty( ctx->tower ) );
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
   fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
