@@ -189,9 +189,8 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( FD_PARAM_UNUSED fd_topo_tile_t const * tile ) {
-  ulong slot_max     = tile->tower.max_live_slots;
-  FD_LOG_DEBUG(( "hfork footprint %lu", fd_hfork_footprint( slot_max, FD_VOTER_MAX ) ));
-  ulong l = FD_LAYOUT_INIT;
+  ulong slot_max = tile->tower.max_live_slots;
+  ulong l        = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                        );
   l = FD_LAYOUT_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint()                          );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
