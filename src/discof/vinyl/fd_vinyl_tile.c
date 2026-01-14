@@ -621,6 +621,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
   ulong accum_dead_cnt    = ctx->accum_dead_cnt;
   ulong accum_garbage_cnt = ctx->accum_garbage_cnt;
   ulong accum_garbage_sz  = ctx->accum_garbage_sz;
+  ulong accum_cache_hit   = 0UL;
 
   /* Enqueue up to burst_max requests from this client into the
      local request queue.  Using burst_max << FD_VINYL_REQ_MAX
@@ -855,6 +856,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
   ctx->accum_dead_cnt    = accum_dead_cnt;
   ctx->accum_garbage_cnt = accum_garbage_cnt;
   ctx->accum_garbage_sz  = accum_garbage_sz;
+  FD_MCNT_INC( VINYL, CACHE_HITS, accum_cache_hit );
 }
 
 #define STEM_BURST (1UL)

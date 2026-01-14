@@ -69,7 +69,13 @@
 #define FD_METRICS_COUNTER_VINYL_CUM_GC_BYTES_DESC "Total number of record bytes that were garbage collected"
 #define FD_METRICS_COUNTER_VINYL_CUM_GC_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_VINYL_TOTAL (14UL)
+#define FD_METRICS_COUNTER_VINYL_CACHE_HITS_OFF  (30UL)
+#define FD_METRICS_COUNTER_VINYL_CACHE_HITS_NAME "vinyl_cache_hits"
+#define FD_METRICS_COUNTER_VINYL_CACHE_HITS_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_VINYL_CACHE_HITS_DESC "Total number of cache hits"
+#define FD_METRICS_COUNTER_VINYL_CACHE_HITS_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_VINYL_TOTAL (15UL)
 extern const fd_metrics_meta_t FD_METRICS_VINYL[FD_METRICS_VINYL_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_vinyl_h */
