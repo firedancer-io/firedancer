@@ -193,6 +193,7 @@ scratch_footprint( FD_PARAM_UNUSED fd_topo_tile_t const * tile ) {
   FD_LOG_DEBUG(( "hfork footprint %lu", fd_hfork_footprint( slot_max, FD_VOTER_MAX ) ));
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                        );
+  l = FD_LAYOUT_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint()                          );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
   l = FD_LAYOUT_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )         );
   l = FD_LAYOUT_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead ) );
@@ -934,7 +935,7 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
-  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint() ); (void)av_map;
+  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
@@ -990,7 +991,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch      = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                        );
-  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint()                          ); (void)av_map;
+  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint()                          );
   void  * ghost  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
   void  * hfork  = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )         );
   void  * notar  = FD_SCRATCH_ALLOC_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead ) );
@@ -1002,16 +1003,20 @@ unprivileged_init( fd_topo_t *      topo,
   void  * notif  = FD_SCRATCH_ALLOC_APPEND( l, notif_align(),           notif_footprint( slot_max )                          );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
-  ctx->wksp        = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
-  ctx->ghost       = fd_ghost_join       ( fd_ghost_new       ( ghost, 2*slot_max, FD_VOTER_MAX, 42UL ) ); /* FIXME seed */
-  ctx->hfork       = fd_hfork_join       ( fd_hfork_new       ( hfork, slot_max, FD_VOTER_MAX, ctx->seed, tile->tower.hard_fork_fatal ) );
-  ctx->notar       = fd_notar_join       ( fd_notar_new       ( notar, tile->tower.max_vote_lookahead ) );
-  ctx->tower       = fd_tower_join       ( fd_tower_new       ( tower                                 ) );
-  ctx->tower_accts = fd_tower_accts_join ( fd_tower_accts_new ( accts, FD_VOTER_MAX                   ) );
-  ctx->forks       = fd_forks_join       ( fd_forks_new       ( forks, slot_max, FD_VOTER_MAX         ) );
-  ctx->tower_spare = fd_tower_join       ( fd_tower_new       ( spare                                 ) );
-  ctx->slot_stakes = fd_epoch_stakes_join( fd_epoch_stakes_new( stake, slot_max                       ) );
-  ctx->notif       = notif_join          ( notif_new          ( notif, slot_max                       ) );
+  /* The auth key map was already joined and setup in privileged_init.
+     Just verify the join is still valid. */
+  FD_TEST( ctx->auth_key_map == fd_auth_key_map_join( fd_auth_key_map_new( av_map ) ) );
+
+  ctx->wksp         = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
+  ctx->ghost        = fd_ghost_join       ( fd_ghost_new       ( ghost, 2*slot_max, FD_VOTER_MAX, 42UL ) ); /* FIXME seed */
+  ctx->hfork        = fd_hfork_join       ( fd_hfork_new       ( hfork, slot_max, FD_VOTER_MAX, ctx->seed, tile->tower.hard_fork_fatal ) );
+  ctx->notar        = fd_notar_join       ( fd_notar_new       ( notar, tile->tower.max_vote_lookahead ) );
+  ctx->tower        = fd_tower_join       ( fd_tower_new       ( tower                                 ) );
+  ctx->tower_accts  = fd_tower_accts_join ( fd_tower_accts_new ( accts, FD_VOTER_MAX                   ) );
+  ctx->forks        = fd_forks_join       ( fd_forks_new       ( forks, slot_max, FD_VOTER_MAX         ) );
+  ctx->tower_spare  = fd_tower_join       ( fd_tower_new       ( spare                                 ) );
+  ctx->slot_stakes  = fd_epoch_stakes_join( fd_epoch_stakes_new( stake, slot_max                       ) );
+  ctx->notif        = notif_join          ( notif_new          ( notif, slot_max                       ) );
   FD_TEST( ctx->ghost );
   FD_TEST( ctx->hfork );
   FD_TEST( ctx->notar );
