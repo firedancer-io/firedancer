@@ -1247,6 +1247,7 @@
 | <span class="metrics-name">vinyl_&#8203;garbage_&#8203;bytes</span> | gauge |  |
 | <span class="metrics-name">vinyl_&#8203;cum_&#8203;gc_&#8203;records</span> | counter | Total number of records that were garbage collected |
 | <span class="metrics-name">vinyl_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
+| <span class="metrics-name">vinyl_&#8203;cache_&#8203;hits</span> | counter | Total number of cache hits |
 
 </div>
 

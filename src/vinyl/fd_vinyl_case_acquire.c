@@ -68,6 +68,8 @@
           /* At this point, pair key is cached.  Get the cache info for
              line line_idx. */
 
+          accum_cache_hit++;
+
           FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
 
           fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
