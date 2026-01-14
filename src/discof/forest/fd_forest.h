@@ -97,7 +97,7 @@
 
 #define FD_FEC_BLK_MAX (FD_SHRED_BLK_MAX / 32UL) /* 1024 */
 #define SET_NAME fd_forest_merkle
-#define SET_MAX  FD_FEC_BLK_MAX
+#define SET_MAX  FD_FEC_BLK_MAX + 1  /* +1 to mark verification on the block id*/
 #include "../../util/tmpl/fd_set.c"
 
 /* fd_forest_blk_t implements a left-child, right-sibling n-ary
@@ -130,7 +130,7 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   struct {
     fd_hash_t mr;
     fd_hash_t cmr;
-  } merkle_roots[ FD_FEC_BLK_MAX ];
+  } merkle_roots[ FD_FEC_BLK_MAX + 1 ]; /* +1 -> .cmr will be populated when the block id is confirmed */
   fd_forest_merkle_t    merkle_recvd[fd_forest_merkle_word_cnt];
   fd_forest_merkle_t merkle_verified[fd_forest_merkle_word_cnt];
 
@@ -708,7 +708,8 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              int           slot_complete,
                              int           ref_tick,
                              int           src,
-                             fd_hash_t *   mr );
+                             fd_hash_t *   mr,
+                             fd_hash_t *   cmr );
 
 /* TODO: Does merkle validation need to happen for coding shreds as well*/
 fd_forest_blk_t *

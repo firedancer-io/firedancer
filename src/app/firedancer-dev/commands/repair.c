@@ -135,6 +135,8 @@ repair_topo( config_t * config ) {
   fd_topob_wksp( topo, "slot_fseqs"   ); /* fseqs for marked slots eg. turbine slot */
   fd_topob_wksp( topo, "genesi_out"   ); /* mock genesi_out for ipecho */
 
+  fd_topob_wksp( topo, "tower_out"    ); /* mock tower_out for confirmation msgs. Not needed for any topo except eqvoc. */
+
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
   ulong pending_fec_shreds_depth = fd_ulong_min( fd_ulong_pow2_up( config->tiles.shred.max_pending_shred_sets * FD_REEDSOL_DATA_SHREDS_MAX ), USHORT_MAX + 1 /* dcache max */ );
@@ -164,6 +166,7 @@ repair_topo( config_t * config ) {
   /**/                 fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,                                      sizeof(fd_snapshot_manifest_t), 1UL );
 
   /**/                 fd_topob_link( topo, "genesi_out",  "genesi_out",    2UL,                                        128,     1UL );
+  /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,                                   sizeof(fd_tower_msg_t),         1UL );
 
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
@@ -265,6 +268,7 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_tile_in ( topo, "gossip", 0UL,           "metric_in", "sign_gossip",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_in ( topo, "ipecho", 0UL,           "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
   if( 1 ) {
     fd_topob_wksp( topo, "scap" );
@@ -289,7 +293,8 @@ repair_topo( config_t * config ) {
   FD_TEST( fd_link_permit_no_producers( topo, "poh_shred"    ) == 1UL           );
   FD_TEST( fd_link_permit_no_producers( topo, "send_out"     ) == 1UL           );
   FD_TEST( fd_link_permit_no_producers( topo, "genesi_out"   ) == 1UL           );
-  FD_TEST( fd_link_permit_no_consumers( topo, "net_quic"     ) == net_tile_cnt );
+  FD_TEST( fd_link_permit_no_producers( topo, "tower_out"    ) == 1UL           );
+  FD_TEST( fd_link_permit_no_consumers( topo, "net_quic"     ) == net_tile_cnt  );
 
   config->tiles.send.send_src_port = 0; /* disable send */
 
@@ -780,10 +785,71 @@ repair_cmd_fn_catchup( args_t *   args,
 static void
 repair_cmd_fn_eqvoc( args_t *   args,
                      config_t * config ) {
-  ctx_t *          repair_ctx;
-  fd_topo_wksp_t * repair_wksp;
-  repair_ctx_wksp( args, config, &repair_ctx, &repair_wksp );
+  memset( &config->topo, 0, sizeof(config->topo) );
+  repair_topo( config );
 
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
+    if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
+      /* This is not part of the config, and it must be set manually
+          on purpose as a safety mechanism. */
+      tile->shredcap.enable_publish_stake_weights = 1;
+      strncpy( tile->shredcap.manifest_path, args->repair.manifest_path, PATH_MAX );
+    }
+    if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
+      tile->repair.end_slot = args->repair.end_slot;
+    }
+  }
+
+  FD_LOG_NOTICE(( "Repair eqvoc testing init" ));
+  fd_topo_print_log( 1, &config->topo );
+
+  args_t configure_args = { .configure.command = CONFIGURE_CMD_INIT, };
+  for( ulong i=0UL; STAGES[ i ]; i++ ) configure_args.configure.stages[ i ] = STAGES[ i ];
+  configure_cmd_fn( &configure_args, config );
+  if( 0==strcmp( config->net.provider, "xdp" ) ) fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
+
+  run_firedancer_init( config, 1, 0 );
+  fd_log_private_shared_lock[ 1 ] = 0;
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_fill( &config->topo );
+  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
+  fd_topo_tile_t * repair_tile = &config->topo.tiles[ repair_tile_idx ];
+  volatile ulong * repair_metrics = fd_metrics_tile( repair_tile->metrics );
+
+
+  void * scratch = fd_topo_obj_laddr( &config->topo, repair_tile->tile_obj_id );
+  if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "Failed to access repair tile scratch memory" ));
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  ctx_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  (void)repair_ctx;
+
+  /* read tower_out mcache dcache */
+  ulong tower_out_link_idx = fd_topo_find_link( &config->topo, "tower_out", 0UL );
+  FD_TEST( tower_out_link_idx!=ULONG_MAX );
+  fd_topo_link_t * tower_out_link = &config->topo.links[ tower_out_link_idx ];
+  fd_frag_meta_t * tower_out_mcache = tower_out_link->mcache;
+  fd_wksp_t * tower_out_mem = config->topo.workspaces[ config->topo.objs[ tower_out_link->dcache_obj_id ].wksp_id ].wksp;
+  ulong tower_out_chunk0 = fd_dcache_compact_chunk0( tower_out_mem, tower_out_link->dcache );
+  ulong tower_out_wmark = fd_dcache_compact_wmark( tower_out_mem, tower_out_link->dcache, tower_out_link->mtu );
+  ulong tower_out_chunk = tower_out_chunk0;
+
+  fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run );
+  int confirmed = 0;
+  for(;;) {
+    /* publish a confirmation on tower_out */
+    if( FD_UNLIKELY( !confirmed && repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] != 0 ) ) {
+      fd_tower_slot_confirmed_t * msg = fd_chunk_to_laddr( tower_out_mem, tower_out_chunk );
+      msg->slot     = 381777395;
+      msg->block_id = (fd_hash_t){ .ul = { 1 } };
+      msg->kind     = FD_TOWER_SLOT_CONFIRMED_DUPLICATE;
+      FD_LOG_NOTICE(( "publishing confirmation for slot %lu", msg->slot ));
+      fd_mcache_publish( tower_out_mcache, tower_out_link->depth, 0, FD_TOWER_SIG_SLOT_CONFIRMED, tower_out_chunk, sizeof(fd_tower_slot_confirmed_t), 0, 0, 0 );
+      tower_out_chunk = fd_dcache_compact_next( tower_out_chunk, sizeof(fd_tower_slot_confirmed_t), tower_out_chunk0, tower_out_wmark );
+      confirmed = 1;
+    }
+    sleep( 1 );
+  }
 }
 
 static void
