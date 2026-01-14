@@ -104,6 +104,17 @@ user = ""
     # to inside the base directory, under path `vote-account.json`.
     vote_account = ""
 
+    # List of absolute paths to authorized-voter keypairs for the vote
+    # account.  This is not needed if no vote account is specified.
+    # If a vote account is specified and this is empty, the identity
+    # account will be used as the authorized-voter account.
+    #
+    # Two substitutions will be performed on each string in this list.
+    # If "{user}" is present it will be replaced with the user running
+    # Firedancer, as above, and "{name}" will be replaced with the
+    # name of the Firedancer instance.
+    authorized_voter_paths = []
+
     # Absolute directory path for storing snapshots.  If no path is
     # provided, it defaults to the `snapshot` subdirectory of the
     # base firedancer path option `[paths.base]`.
