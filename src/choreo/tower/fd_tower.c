@@ -726,12 +726,9 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
                       fd_hash_t const *     bank_hash,
                       fd_hash_t const *     recent_blockhash,
                       fd_pubkey_t const *   validator_identity,
-                      ulong                 vote_authority_cnt,
                       fd_pubkey_t const *   vote_authority,
                       fd_pubkey_t const *   vote_acc,
                       fd_txn_p_t *          vote_txn ) {
-
-  (void)vote_authority_cnt;
 
   fd_compact_vote_state_update_t tower_sync;
   tower_sync.root          = fd_ulong_if( root == ULONG_MAX, 0UL, root );

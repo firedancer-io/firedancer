@@ -77,6 +77,8 @@ fd_config_extract_podh( uchar *        pod,
 fd_configf_t *
 fd_config_extract_podf( uchar *        pod,
                         fd_configf_t * config ) {
+  CFG_POP_ARRAY( cstr,   paths.authorized_voter_paths );
+
   CFG_POP      ( cstr,   gossip.host                                         );
 
   CFG_POP      ( uint,   layout.exec_tile_count                              );

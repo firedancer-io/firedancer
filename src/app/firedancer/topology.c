@@ -1529,6 +1529,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->exec.dump_elf_to_pb = config->capture.dump_elf_to_pb;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
+    /* Copy over authorized voters if any */
+    tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
+    for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
+      strncpy( tile->tower.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->tower.authorized_voter_paths[ i ]) );
+      FD_LOG_NOTICE(("%s", tile->tower.authorized_voter_paths[ i ]));
+    }
 
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;

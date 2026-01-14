@@ -86,6 +86,8 @@ typedef struct {
   int         restore_fd;
   fd_pubkey_t identity_key[1];
   fd_pubkey_t vote_account[1];
+  ulong       authorized_voters_cnt;
+  fd_pubkey_t authorized_voters[16];
   uchar       our_vote_acct[FD_VOTE_STATE_DATA_MAX]; /* buffer for reading back our own vote acct data */
 
   /* structures owned by tower tile */
@@ -452,6 +454,41 @@ query_acct_stake_from_bank( fd_tower_accts_t *  tower_accts_deque,
   return total_stake;
 }
 
+static fd_pubkey_t *
+get_authority( ctx_t * ctx,
+               ulong   epoch ) {
+  fd_bincode_decode_ctx_t decode_ctx = {
+    .data    = ctx->our_vote_acct,
+    .dataend = ctx->our_vote_acct + FD_VOTE_STATE_DATA_MAX,
+  };
+
+  uchar __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN))) vote_state_versioned[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
+
+  fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( vote_state_versioned, &decode_ctx );
+  if( FD_UNLIKELY( vsv==NULL ) ) {
+    FD_LOG_CRIT(( "unable to decode vote state versioned" ));
+  }
+  if( FD_UNLIKELY( vsv->discriminant!=fd_vote_state_versioned_enum_v3 )) {
+    FD_LOG_CRIT(( "invariant violation: vote state versioned discriminant is not v3" ));
+  }
+
+  fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_ele_query( vsv->inner.v3.authorized_voters.treap, epoch, vsv->inner.v3.authorized_voters.pool );
+  if( FD_UNLIKELY( !ele ) ) {
+    FD_LOG_CRIT(( "unable to get authorized voter for epoch %lu", epoch ));
+  }
+
+  if( FD_LIKELY( fd_pubkey_eq( &ele->pubkey, ctx->identity_key ) ) ) {
+    return ctx->identity_key;
+  }
+
+  for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
+    if( fd_pubkey_eq( &ele->pubkey, &ctx->authorized_voters[ i ] ) ) {
+      return &ctx->authorized_voters[ i ];
+    }
+  }
+  return NULL;
+}
+
 static void
 replay_slot_completed( ctx_t *                      ctx,
                        fd_replay_slot_completed_t * slot_completed,
@@ -755,9 +792,22 @@ done_vote_iter:
 
      TODO only do this on refresh_last_vote? */
 
+  fd_pubkey_t * authority = get_authority( ctx, slot_completed->epoch );
+  if( FD_UNLIKELY( !authority ) ) {
+    return;
+  }
+
   fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
   fd_txn_p_t          txn[1];
-  fd_tower_to_vote_txn( ctx->tower, ctx->root_slot, lockouts, &slot_completed->bank_hash, &slot_completed->block_hash, ctx->identity_key, 1, ctx->identity_key, ctx->vote_account, txn );
+  fd_tower_to_vote_txn( ctx->tower,
+                        ctx->root_slot,
+                        lockouts,
+                        &slot_completed->bank_hash,
+                        &slot_completed->block_hash,
+                        ctx->identity_key,
+                        authority,
+                        ctx->vote_account,
+                        txn );
   FD_TEST( !fd_tower_empty( ctx->tower ) );
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
   fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
@@ -872,6 +922,12 @@ privileged_init( fd_topo_t *      topo,
 
   uchar * vote_key = fd_base58_decode_32( tile->tower.vote_account, ctx->vote_account->uc );
   if( FD_UNLIKELY( !vote_key ) ) ctx->vote_account[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.vote_account, /* pubkey only: */ 1 ) );
+
+  /* Load in all of the authorized voters */
+  ctx->authorized_voters_cnt = tile->tower.authorized_voter_paths_cnt;
+  for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
+    ctx->authorized_voters[ i ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) );
+  }
 
   /* The tower file is used to checkpt and restore the state of the
      local tower. */

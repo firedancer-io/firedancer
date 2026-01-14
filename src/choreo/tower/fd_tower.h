@@ -540,7 +540,6 @@ fd_tower_to_vote_txn( fd_tower_t    const * tower,
                       fd_hash_t     const * bank_hash,
                       fd_hash_t     const * recent_blockhash,
                       fd_pubkey_t   const * validator_identity,
-                      ulong                 vote_authority_cnt,
                       fd_pubkey_t   const * vote_authority,
                       fd_pubkey_t   const * vote_account,
                       fd_txn_p_t *          vote_txn );

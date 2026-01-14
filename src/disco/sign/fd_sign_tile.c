@@ -183,6 +183,7 @@ after_frag_sensitive( void *              _ctx,
 
   switch( sign_type ) {
   case FD_KEYGUARD_SIGN_TYPE_ED25519: {
+    FD_BASE58_ENCODE_32_BYTES( ctx->public_key, pubkey);
     fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
