@@ -17,7 +17,7 @@ init( config_t const * config ) {
     FD_LOG_ERR(( "fd_file_util_mkdir_all(`%s`) failed (%i-%s)", config->paths.accounts, errno, fd_io_strerror( errno ) ));
   }
 
-  int vinyl_fd = open( config->paths.accounts, O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  int vinyl_fd = open( config->paths.accounts, O_RDWR|O_CREAT|O_CLOEXEC, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( vinyl_fd<0 ) ) {
     FD_LOG_ERR(( "open(`%s`,O_RDWR|O_CREAT|O_CLOEXEC,S_IRUSR|S_IWUSR) failed (%i-%s)", config->paths.accounts, errno, fd_io_strerror( errno ) ));
   }
@@ -29,10 +29,16 @@ init( config_t const * config ) {
   if( FD_UNLIKELY( fchmod( vinyl_fd, S_IRUSR|S_IWUSR )<0 ) ) {
     FD_LOG_ERR(( "chmod(`%s`,S_IRUSR|S_IWUSR) failed (%i-%s)", config->paths.accounts, errno, fd_io_strerror( errno ) ));
   }
+  struct stat st;
+  if( FD_UNLIKELY( 0!=fstat( vinyl_fd, &st ) ) ) {
+    FD_LOG_ERR(( "fstat(`%s`) failed (%i-%s)", config->paths.accounts, errno, fd_io_strerror( errno ) ));
+  }
 
   ulong bstream_sz = config->firedancer.vinyl.file_size_gib<<30;
-  if( FD_UNLIKELY( 0!=ftruncate( vinyl_fd, (long)bstream_sz ) ) ) {
-    FD_LOG_ERR(( "ftruncate(`%s`,%lu bytes) failed (%i-%s)", config->paths.accounts, bstream_sz, errno, fd_io_strerror( errno ) ));
+  if( (ulong)st.st_size < bstream_sz ) {
+    if( FD_UNLIKELY( 0!=ftruncate( vinyl_fd, (long)bstream_sz ) ) ) {
+      FD_LOG_ERR(( "ftruncate(`%s`,%lu bytes) failed (%i-%s)", config->paths.accounts, bstream_sz, errno, fd_io_strerror( errno ) ));
+    }
   }
 
   if( FD_UNLIKELY( close( vinyl_fd )<0 ) ) {
@@ -60,7 +66,7 @@ check( config_t const * config,
   }
 
   ulong bstream_sz = config->firedancer.vinyl.file_size_gib<<30;
-  if( FD_UNLIKELY( (ulong)st.st_size!=bstream_sz ) )
+  if( FD_UNLIKELY( (ulong)st.st_size < bstream_sz ) )
     NOT_CONFIGURED( "`%s` needs to be resized (have %lu bytes, want %lu bytes)", config->paths.accounts, (ulong)st.st_size, bstream_sz );
 
   CHECK( check_file( config->paths.accounts, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
