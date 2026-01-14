@@ -768,15 +768,17 @@ fd_vinyl_io_ur_init( void *            mem,
   ur->base->seq_present = seq_present;
   ur->base->seq_future  = seq_present;
 
-  FD_LOG_NOTICE(( "IO config"
-                  "\n\ttype     ur"
-                  "\n\tspad_max %lu bytes"
-                  "\n\tdev_sz   %lu bytes"
-                  "\n\tinfo     \"%s\" (info_sz %lu, discovered)"
-                  "\n\tio_seed  0x%016lx (discovered)",
-                  spad_max, dev_sz,
-                  (char const *)info, info_sz,
-                  io_seed ));
+  FD_LOG_INFO(( "IO config"
+                "\n\ttype     ur"
+                "\n\tspad_max %lu bytes"
+                "\n\tdev_sz   %lu bytes"
+                "\n\tinfo     \"%s\" (info_sz %lu, discovered)"
+                "\n\tio_seed  0x%016lx (discovered)"
+                "\n\tsq depth %u entries",
+                spad_max, dev_sz,
+                (char const *)info, info_sz,
+                io_seed,
+                ring->sq.ring_entries ));
 
   return ur->base;
 }
