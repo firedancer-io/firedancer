@@ -303,16 +303,16 @@ fd_accdb_publish_recs( fd_accdb_admin_t * accdb,
     uint next = rec->next_idx;
     fd_account_meta_t const * meta = fd_funk_val( rec, funk_wksp );
     FD_CRIT( meta && rec->val_sz>=sizeof(fd_account_meta_t), "invalid funk record value" );
-    if( FD_LIKELY( meta->lamports ) ) {
+    if( !meta->lamports && accdb->enable_reclaims ) {
+      /* Remove record */
+      fd_accdb_chain_reclaim( accdb, rec );
+    } else {
       /* Migrate record to root */
       rec->prev_idx = FD_FUNK_REC_IDX_NULL;
       rec->next_idx = FD_FUNK_REC_IDX_NULL;
       fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
       fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
       accdb->metrics.root_cnt++;
-    } else {
-      /* Remove record */
-      fd_accdb_chain_reclaim( accdb, rec );
     }
 
     head = next; /* next record */

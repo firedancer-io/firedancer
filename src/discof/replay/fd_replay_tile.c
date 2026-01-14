@@ -2533,6 +2533,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
   if( !vinyl_data ) {
     FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) );
+    ctx->accdb_admin->enable_reclaims = 1;
   } else {
     fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq" );
     fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
