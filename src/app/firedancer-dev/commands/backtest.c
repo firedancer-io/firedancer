@@ -65,17 +65,13 @@ backtest_topo( config_t * config ) {
 
   ulong cpu_idx = 0;
 
+  fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
+  fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0 );
 
-  /**********************************************************************/
-  /* Add the backtest tile to topo                                      */
-  /**********************************************************************/
   fd_topob_wksp( topo, "backt" );
   fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", cpu_idx++, 0, 0 );
 
-  /**********************************************************************/
-  /* Add the replay tile to topo                                        */
-  /**********************************************************************/
   fd_topob_wksp( topo, "replay" );
   fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 0 );
 
