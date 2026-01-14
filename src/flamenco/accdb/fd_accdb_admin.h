@@ -6,6 +6,8 @@
 struct fd_accdb_admin {
   fd_funk_t funk[1];
 
+  uint enable_reclaims : 1;
+
   struct {
     ulong root_cnt;     /* moved to database root */
     ulong reclaim_cnt;  /* 0 lamport account removed while rooting */
