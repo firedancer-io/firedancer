@@ -275,7 +275,7 @@ elif [[ "$DB" == "vinyl" ]]; then
 [vinyl]
     enabled = true
     max_account_records = $INDEX_MAX
-    file_size_gib = $FUNK_PAGES
+    file_size_gib = $((FUNK_PAGES * 2))
     max_cache_entries = 100000
     cache_size_gib = 10
     [vinyl.io_uring]
