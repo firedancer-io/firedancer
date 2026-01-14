@@ -264,10 +264,13 @@ if [[ "$DB" == "funk" ]]; then
     max_database_transactions = 64
 EOF
 elif [[ "$DB" == "vinyl" ]]; then
+  if [[ "$INDEX_MAX" -lt "1000000" ]]; then
+    INDEX_MAX=1000000
+  fi
   cat <<EOF >> ${CONFIG_FILE}
 [funk]
     heap_size_gib = 2
-    max_account_records = 100000
+    max_account_records = 1000000
     max_database_transactions = 64
 [vinyl]
     enabled = true

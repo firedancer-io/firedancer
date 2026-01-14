@@ -1563,6 +1563,23 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
         FD_VINYL_IO_TYPE_UR : FD_VINYL_IO_TYPE_BD;
     tile->vinyl.uring_depth = config->firedancer.vinyl.io_uring.queue_depth;
 
+    /* Minimum bound for cache entry count */
+    ulong required_cache_entries = 0UL;
+    for( ulong i=0UL; i<(tile->uses_obj_cnt); i++ ) {
+      ulong rq_obj_id = tile->uses_obj_id[ i ];
+      fd_topo_obj_t const * rq_obj = &config->topo.objs[ rq_obj_id ];
+      if( strcmp( rq_obj->name, "vinyl_rq" ) ) continue;
+
+      ulong quota_max;
+      FD_TEST( (quota_max = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "obj.%lu.quota_max", rq_obj_id ))!=ULONG_MAX );
+      required_cache_entries += quota_max;
+    }
+    if( FD_UNLIKELY( required_cache_entries > tile->vinyl.vinyl_line_max ) ) {
+      FD_LOG_WARNING(( "insufficient [vinyl.max_cache_entries] (%lu) for config, increasing cache entry limit to %lu and continuing",
+                       tile->vinyl.vinyl_line_max, required_cache_entries ));
+      tile->vinyl.vinyl_line_max = required_cache_entries;
+    }
+
   } else if( FD_UNLIKELY( !strcmp( tile->name, "solcap" ) ) ) {
 
     tile->solcap.capture_start_slot = config->capture.capture_start_slot;
