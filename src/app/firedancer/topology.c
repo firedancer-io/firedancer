@@ -1533,7 +1533,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
     for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
       strncpy( tile->tower.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->tower.authorized_voter_paths[ i ]) );
-      FD_LOG_NOTICE(("%s", tile->tower.authorized_voter_paths[ i ]));
     }
 
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;

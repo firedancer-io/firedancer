@@ -793,9 +793,7 @@ done_vote_iter:
      TODO only do this on refresh_last_vote? */
 
   fd_pubkey_t * authority = get_authority( ctx, slot_completed->epoch );
-  if( FD_UNLIKELY( !authority ) ) {
-    return;
-  }
+  if( FD_UNLIKELY( !authority ) ) return;
 
   fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
   fd_txn_p_t          txn[1];
