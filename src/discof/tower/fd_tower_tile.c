@@ -86,7 +86,7 @@ typedef struct fd_auth_key fd_auth_key_t;
 #define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
 #define MAP_KEY_INVAL(k)       (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
 #define MAP_KEY_EQUAL_IS_SLOW  1
-#define MAP_KEY_HASH(key)      ((key).ui[3])
+#define MAP_KEY_HASH(k)        ((uint)fd_ulong_hash( fd_ulong_load_8( (k).uc ) ))
 #include "../../util/tmpl/fd_map.c"
 
 static const fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
