@@ -366,7 +366,8 @@ unprivileged_init( fd_topo_t *      topo,
     }
 
     if( FD_UNLIKELY( quota_max > fd_ulong_min( quota_free, FD_VINYL_COMP_QUOTA_MAX ) ) ) {
-      FD_LOG_ERR(( "too large quota_max (increase line_cnt or decrease quota_max)" ));
+      FD_LOG_ERR(( "too large quota_max (increase line_cnt (currently %lu, free %lu) or decrease quota_max (currently %lu))",
+                   vinyl->line_cnt, quota_free, quota_max ));
     }
 
     for( ulong client_idx=0UL; client_idx<ctx->client_cnt; client_idx++ ) {
