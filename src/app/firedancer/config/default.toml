@@ -84,7 +84,7 @@ user = ""
     # if one is not provided (or has not already been generated) and
     # place it in this path.  If no path is provided, it is defaulted
     # to inside the base directory, under path `identity.json`.
-    identity_key = ""
+    identity_key = "/home/ibhatt/keys/identity.json"
 
     # Absolute path to a `keypair.json` containing the  voting account
     # of the validator.  If no voting account is provided, voting will
@@ -102,7 +102,7 @@ user = ""
     # if one is not provided (or has not already been generated) and
     # place it in this path.  If no path is provided, it is defaulted
     # to inside the base directory, under path `vote-account.json`.
-    vote_account = ""
+    vote_account = "/home/ibhatt/keys/keypair.json"
 
     # List of absolute paths to authorized-voter keypairs for the vote
     # account.  This is not needed if no vote account is specified.

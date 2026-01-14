@@ -52,6 +52,8 @@
    block_id when possible to interface with the protocol but otherwise
    falling back to slot number when block_id is unsupported. */
 
+static const fd_pubkey_t DEFAULT_AUTHORITY = {0};
+
 #define IN_KIND_DEDUP   (0)
 #define IN_KIND_EXEC    (1)
 #define IN_KIND_REPLAY  (2)
@@ -69,6 +71,24 @@ typedef struct notif notif_t;
 #define DEQUE_T    notif_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
+struct fd_auth_key {
+  fd_pubkey_t key;
+  uint        hash;
+};
+typedef struct fd_auth_key fd_auth_key_t;
+
+#define MAP_NAME               fd_auth_key_map
+#define MAP_T                  fd_auth_key_t
+#define MAP_LG_SLOT_CNT        4
+#define MAP_KEY                key
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_KEY_NULL           (fd_pubkey_t){0}
+#define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
+#define MAP_KEY_INVAL(k)       (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_KEY_HASH(key)      ((key).ui[3])
+#include "../../util/tmpl/fd_map.c"
+
 static const fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
 
 typedef struct {
@@ -81,14 +101,13 @@ typedef struct {
 typedef struct {
   fd_wksp_t * wksp; /* workspace */
 
-  ulong       seed; /* map seed */
-  int         checkpt_fd;
-  int         restore_fd;
-  fd_pubkey_t identity_key[1];
-  fd_pubkey_t vote_account[1];
-  ulong       authorized_voters_cnt;
-  fd_pubkey_t authorized_voters[16];
-  uchar       our_vote_acct[FD_VOTE_STATE_DATA_MAX]; /* buffer for reading back our own vote acct data */
+  ulong           seed; /* map seed */
+  int             checkpt_fd;
+  int             restore_fd;
+  fd_pubkey_t     identity_key[1];
+  fd_pubkey_t     vote_account[1];
+  fd_auth_key_t * auth_key_map;
+  uchar           our_vote_acct[FD_VOTE_STATE_DATA_MAX]; /* buffer for reading back our own vote acct data */
 
   /* structures owned by tower tile */
 
@@ -454,9 +473,13 @@ query_acct_stake_from_bank( fd_tower_accts_t *  tower_accts_deque,
   return total_stake;
 }
 
-static fd_pubkey_t *
+static fd_pubkey_t const *
 get_authority( ctx_t * ctx,
-               ulong   epoch ) {
+               ulong   epoch,
+               int     vote_acc_found ) {
+
+  if( FD_UNLIKELY( !vote_acc_found ) ) return &DEFAULT_AUTHORITY;
+
   fd_bincode_decode_ctx_t decode_ctx = {
     .data    = ctx->our_vote_acct,
     .dataend = ctx->our_vote_acct + FD_VOTE_STATE_DATA_MAX,
@@ -465,28 +488,32 @@ get_authority( ctx_t * ctx,
   uchar __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN))) vote_state_versioned[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
   fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( vote_state_versioned, &decode_ctx );
-  if( FD_UNLIKELY( vsv==NULL ) ) {
-    FD_LOG_CRIT(( "unable to decode vote state versioned" ));
-  }
-  if( FD_UNLIKELY( vsv->discriminant!=fd_vote_state_versioned_enum_v3 )) {
-    FD_LOG_CRIT(( "invariant violation: vote state versioned discriminant is not v3" ));
+  FD_CRIT( !vsv, "unable to decode vote state versioned" );
+
+  fd_pubkey_t const * auth_voter = NULL;
+  switch( vsv->discriminant ) {
+    case fd_vote_state_versioned_enum_v0_23_5:
+      auth_voter = &vsv->inner.v0_23_5.authorized_voter;
+      break;
+    case fd_vote_state_versioned_enum_v1_14_11:
+      auth_voter = &fd_vote_authorized_voters_treap_ele_query( vsv->inner.v1_14_11.authorized_voters.treap, epoch, vsv->inner.v1_14_11.authorized_voters.pool )->pubkey;
+      break;
+    case fd_vote_state_versioned_enum_v3:
+     auth_voter = &fd_vote_authorized_voters_treap_ele_query( vsv->inner.v3.authorized_voters.treap, epoch, vsv->inner.v3.authorized_voters.pool )->pubkey;
+      break;
+    case fd_vote_state_versioned_enum_v4:
+      auth_voter = &fd_vote_authorized_voters_treap_ele_query( vsv->inner.v4.authorized_voters.treap, epoch, vsv->inner.v4.authorized_voters.pool )->pubkey;
+      break;
+    default:
+      FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", vsv->discriminant ));
   }
 
-  fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_ele_query( vsv->inner.v3.authorized_voters.treap, epoch, vsv->inner.v3.authorized_voters.pool );
-  if( FD_UNLIKELY( !ele ) ) {
-    FD_LOG_CRIT(( "unable to get authorized voter for epoch %lu", epoch ));
+  if( FD_LIKELY( fd_pubkey_eq( auth_voter, ctx->identity_key ) ||
+                 fd_auth_key_map_query( ctx->auth_key_map, *auth_voter, NULL ) ) ) {
+    return auth_voter;
   }
 
-  if( FD_LIKELY( fd_pubkey_eq( &ele->pubkey, ctx->identity_key ) ) ) {
-    return ctx->identity_key;
-  }
-
-  for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
-    if( fd_pubkey_eq( &ele->pubkey, &ctx->authorized_voters[ i ] ) ) {
-      return &ctx->authorized_voters[ i ];
-    }
-  }
-  return NULL;
+  return &DEFAULT_AUTHORITY;
 }
 
 static void
@@ -546,6 +573,8 @@ replay_slot_completed( ctx_t *                      ctx,
     fd_tower_vote_t const * last_vote = fd_tower_peek_tail_const( ctx->tower );
     FD_TEST( !last_vote || fd_forks_query( ctx->forks, last_vote->slot ) );
   }
+
+  fd_pubkey_t const * authority = get_authority( ctx, slot_completed->epoch, found );
 
   /* Insert the vote acct addrs and stakes from the bank into accts. */
 
@@ -792,9 +821,6 @@ done_vote_iter:
 
      TODO only do this on refresh_last_vote? */
 
-  fd_pubkey_t * authority = get_authority( ctx, slot_completed->epoch );
-  if( FD_UNLIKELY( !authority ) ) return;
-
   fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
   fd_txn_p_t          txn[1];
   fd_tower_to_vote_txn( ctx->tower,
@@ -907,7 +933,8 @@ privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint() ); (void)av_map;
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
@@ -922,9 +949,10 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !vote_key ) ) ctx->vote_account[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.vote_account, /* pubkey only: */ 1 ) );
 
   /* Load in all of the authorized voters */
-  ctx->authorized_voters_cnt = tile->tower.authorized_voter_paths_cnt;
-  for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
-    ctx->authorized_voters[ i ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) );
+
+  ctx->auth_key_map = fd_auth_key_map_join( fd_auth_key_map_new( av_map ) );
+  for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
+    fd_auth_key_map_insert( ctx->auth_key_map, *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) ) );
   }
 
   /* The tower file is used to checkpt and restore the state of the
@@ -961,16 +989,17 @@ unprivileged_init( fd_topo_t *      topo,
   ulong  slot_max     = tile->tower.max_live_slots;
   void * scratch      = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),           sizeof(ctx_t)                                        );
-  void  * ghost = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
-  void  * hfork = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( slot_max, FD_VOTER_MAX )         );
-  void  * notar = FD_SCRATCH_ALLOC_APPEND( l, fd_notar_align(),         fd_notar_footprint( tile->tower.max_vote_lookahead ) );
-  void  * tower = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint()                                 );
-  void  * accts = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_accts_align(),   fd_tower_accts_footprint( FD_VOTER_MAX )             );
-  void  * forks = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(),         fd_forks_footprint( slot_max, FD_VOTER_MAX )         );
-  void  * spare = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint()                                 );
-  void  * stake = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stakes_align(),  fd_epoch_stakes_footprint( slot_max )                 );
-  void  * notif = FD_SCRATCH_ALLOC_APPEND( l, notif_align(),            notif_footprint( slot_max )                          );
+  ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                        );
+  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint()                          ); (void)av_map;
+  void  * ghost  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
+  void  * hfork  = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )         );
+  void  * notar  = FD_SCRATCH_ALLOC_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead ) );
+  void  * tower  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                 );
+  void  * accts  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_accts_align(),  fd_tower_accts_footprint( FD_VOTER_MAX )             );
+  void  * forks  = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(),        fd_forks_footprint( slot_max, FD_VOTER_MAX )         );
+  void  * spare  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                 );
+  void  * stake  = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stakes_align(), fd_epoch_stakes_footprint( slot_max )                );
+  void  * notif  = FD_SCRATCH_ALLOC_APPEND( l, notif_align(),           notif_footprint( slot_max )                          );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   ctx->wksp        = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
