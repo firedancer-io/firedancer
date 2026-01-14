@@ -446,7 +446,7 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   /* sign the txn */
   uchar *       signature   = signed_vote_txn + txn->signature_off;
   uchar const * message     = signed_vote_txn + txn->message_off;
-  ulong         message_sz  = vote_txn_sz - txn->message_off;
+  ulong         message_sz  = vote_txn_sz     - txn->message_off;
   fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   ulong poh_slot  = vote_slot+1;
@@ -835,7 +835,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
   FD_MCNT_SET(         SEND, PKT_UNDERSZ,                 ctx->quic->metrics.pkt_undersz_cnt         );
   FD_MCNT_SET(         SEND, PKT_OVERSZ,                  ctx->quic->metrics.pkt_oversz_cnt          );
   FD_MCNT_SET(         SEND, PKT_VERNEG,                  ctx->quic->metrics.pkt_verneg_cnt          );
-  FD_MCNT_ENUM_COPY(   SEND, PKT_RETRANSMISSIONS,         ctx->quic->metrics.pkt_retransmissions_cnt            );
+  FD_MCNT_ENUM_COPY(   SEND, PKT_RETRANSMISSIONS,         ctx->quic->metrics.pkt_retransmissions_cnt );
 
   FD_MCNT_SET(         SEND, HANDSHAKES_CREATED,          ctx->quic->metrics.hs_created_cnt          );
   FD_MCNT_SET(         SEND, HANDSHAKE_ERROR_ALLOC_FAIL,  ctx->quic->metrics.hs_err_alloc_fail_cnt   );
