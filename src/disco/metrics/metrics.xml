@@ -286,8 +286,6 @@ metric introduced.
 </enum>
 
 <tile name="send">
-
-    <counter name="LeaderNotFound" summary="Total number of times slot leader not found" />
     <counter name="UnstakedCi" summary="Total number of times we received contact info for an unstaked node" />
     <counter name="CiRemoved" summary="Total number of times we removed contact info" />
 

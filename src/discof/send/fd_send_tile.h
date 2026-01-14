@@ -144,8 +144,6 @@ struct fd_send_tile_ctx {
   long             recal_next;     /* next recalibration time (ns) */
 
   struct {
-    ulong leader_not_found;
-
     /* Contact info */
     ulong unstaked_ci_rcvd;
     ulong new_contact_info[FD_SEND_PORT_CNT][FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_CNT];

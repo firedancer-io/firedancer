@@ -456,13 +456,8 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   for( ulong i=0UL; i<FD_SEND_TARGET_LEADER_CNT; i++ ) {
     ulong target_slot = poh_slot + i*FD_EPOCH_SLOTS_PER_ROTATION;
     fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
-    if( FD_LIKELY( leader ) ) {
-      leader_send( ctx, leader, signed_vote_txn, vote_txn_sz );
-    } else {
-      /* TODO: eventually make this CRIT, rm metrics */
-      ctx->metrics.leader_not_found++;
-      FD_LOG_DEBUG(("Failed to get leader contact for slot %lu", target_slot));
-    }
+    FD_CRIT( !leader, "leader not found for slot %lu" );
+    leader_send( ctx, leader, signed_vote_txn, vote_txn_sz );
   }
 
   for( ulong i=0; i<FD_SEND_CONNECT_AHEAD_LEADER_CNT; i++ ) {
@@ -786,7 +781,6 @@ static void
 metrics_write( fd_send_tile_ctx_t * ctx ) {
 
   /* Basic counters */
-  FD_MCNT_SET(       SEND, LEADER_NOT_FOUND,             ctx->metrics.leader_not_found                             );
   FD_MCNT_SET(       SEND, UNSTAKED_CI,                  ctx->metrics.unstaked_ci_rcvd                             );
   FD_MCNT_SET(       SEND, CI_REMOVED,                   ctx->metrics.ci_removed                                   );
 
