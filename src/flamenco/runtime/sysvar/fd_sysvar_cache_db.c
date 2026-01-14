@@ -25,6 +25,7 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
 
   /* Work around instruction fuzzer quirk */
   if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0 ) ) {
+    fd_accdb_close_ro( accdb, ro );
     if( log_fails ) FD_LOG_WARNING(( "Skipping sysvar %s: zero balance", pos->name ));
     return 0;
   }
@@ -35,6 +36,7 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
   uchar * data = (uchar *)cache+pos->data_off;
   fd_memcpy( data, fd_accdb_ref_data_const( ro ), data_sz );
   desc->data_sz = (uint)data_sz;
+  fd_accdb_close_ro( accdb, ro );
 
   /* Recover object cache entry from data cache entry */
   return fd_sysvar_obj_restore( cache, desc, pos );
