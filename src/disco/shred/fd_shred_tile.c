@@ -276,7 +276,7 @@ typedef struct {
 
    Note that this function does not currently handle warmup epochs (i.e.,
    local clusters).  This limitation is acceptable for now, as it only
-   affects thetransition period during which a feature is being
+   affects the transition period during which a feature is being
    implemented and activated. */
 static inline ulong
 fd_shred_get_feature_activation_slot0( ulong feature_slot, fd_shred_ctx_t * ctx ) {

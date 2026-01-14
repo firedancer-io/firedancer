@@ -116,7 +116,7 @@ fd_chacha_rng_delete( void * shrng );
    return, rng will have the state of a new in-progress calculation).
 
    The param algo is expected to be FD_CHACHA_RNG_ALGO_CHACHA20 or
-   FD_CHACHA_RNG_ALGO_CHACH8. If invalid, it defaults to chacha20.
+   FD_CHACHA_RNG_ALGO_CHACHA8. If invalid, it defaults to chacha20.
 
    Compatible with Rust fn rand_chacha::ChaCha20Rng::from_seed
    https://docs.rs/rand_chacha/latest/rand_chacha/struct.ChaCha20Rng.html#method.from_seed

@@ -20,9 +20,6 @@
 struct fd_wsample_private;
 typedef struct fd_wsample_private fd_wsample_t;
 
-#define FD_WSAMPLE_RNG_CHACHA20 (0U)
-#define FD_WSAMPLE_RNG_CHACHA8  (1U)
-
 #define FD_WSAMPLE_ALIGN (64UL)
 /* fd_leaders really wants a compile time-compatible footprint... The
    internal count is 1/8 * (9^ceil(log_9(ele_cnt)) - 1) */
@@ -134,9 +131,6 @@ void * fd_wsample_new_init( void            * shmem,
                             int               opt_hint );
 void * fd_wsample_new_add ( void * shmem, ulong weight          );
 void * fd_wsample_new_fini( void * shmem, ulong poisoned_weight );
-
-/* fd_wsample_get_rng returns the value provided for rng in new. */
-fd_chacha_rng_t * fd_wsample_get_rng( fd_wsample_t * sampler );
 
 /* fd_wsample_seed_rng seeds the ChaCha rng with the provided seed in
    preparation for sampling.  This function is compatible with Solana's
