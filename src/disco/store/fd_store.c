@@ -247,11 +247,8 @@ fd_store_publish( fd_store_t *      store,
     }
     fd_store_fec_t * next = fd_store_pool_ele( &pool, head->next ); /* pophead */
     int err = fd_store_pool_release( &pool, head, BLOCKING );       /* release */
-    if( FD_UNLIKELY( err != FD_POOL_SUCCESS ) ) {
-      FD_LOG_WARNING(( "failed to release fec %s", fd_store_pool_strerror( err ) ));
-      return NULL;
-    }
-    head = next;                                                    /* advance */
+    if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "failed to release fec %s", fd_store_pool_strerror( err ) ));
+    head = next; /* advance */
   }
   newr->parent = null;                             /* unlink old root */
   store->root  = fd_store_pool_idx( &pool, newr ); /* replace with new root */

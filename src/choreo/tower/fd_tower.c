@@ -177,11 +177,10 @@ lockout_check( fd_tower_t const * tower,
   ulong cnt = simulate_vote( tower, slot ); /* pop off votes that would be expired */
   if( FD_UNLIKELY( !cnt ) ) return 1;       /* tower is empty after popping expired votes */
 
-  fd_tower_t const * vote = fd_tower_peek_index_const( tower, cnt - 1 ); /* newly top-of-tower */
-# if LOGGING
-  FD_LOG_NOTICE(( "[%s] lockout_check for slot %lu against vote slot %lu", __func__, slot, vote->slot ));
-# endif
-  return fd_forks_is_slot_descendant( forks, vote->slot, slot );   /* check if on same fork */
+  fd_tower_t const * vote    = fd_tower_peek_index_const( tower, cnt - 1 );            /* newly top-of-tower */
+  int                lockout = fd_forks_is_slot_descendant( forks, vote->slot, slot ); /* check if on same fork */
+  FD_LOG_INFO(( "[%s] lockout? %d. last_vote_slot: %lu. slot: %lu", __func__, lockout, vote->slot, slot ));
+  return lockout;
 }
 
 /* switch_check checks if we can switch to the fork of `slot`.  Returns
@@ -288,7 +287,7 @@ switch_check( fd_tower_t const  * tower,
             switch_stake += voter_stake->stake;
             if( FD_LIKELY( (double)switch_stake >= (double)total_stake * SWITCH_RATIO ) ) {
               fd_used_acc_scratch_null( epoch_stakes->used_acc_scratch );
-              FD_LOG_INFO(( "[%s] switch check from slot %lu to slot %lu passed with percentage: %.0lf%%", __func__, last_vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
+              FD_LOG_INFO(( "[%s] switch? 1. last_vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, last_vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
               return 1;
             }
           }
@@ -297,7 +296,7 @@ switch_check( fd_tower_t const  * tower,
     }
   }
   fd_used_acc_scratch_null( epoch_stakes->used_acc_scratch );
-  FD_LOG_INFO(( "[%s] switch check from slot %lu to slot %lu failed with percentage: %.0lf%%", __func__, last_vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
+  FD_LOG_INFO(( "[%s] switch? 0. last_vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, last_vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
   return 0;
 }
 
@@ -379,10 +378,9 @@ threshold_check( fd_tower_t       const * tower,
   }
 
   double threshold_pct = (double)threshold_stake / (double)total_stake;
-# if LOGGING
-  FD_LOG_NOTICE(( "[%s] ok? %d. top: %lu. threshold: %lu. stake: %.0lf%%.", __func__, threshold_pct > THRESHOLD_RATIO, fd_tower_peek_tail_const( tower )->slot, threshold_slot, threshold_pct * 100.0 ));
-# endif
-  return threshold_pct > THRESHOLD_RATIO;
+  int    threshold     = threshold_pct > THRESHOLD_RATIO;
+  FD_LOG_INFO(( "[%s] threshold? %d. top: %lu. threshold: %lu. pct: %.0lf%%.", __func__, threshold, fd_tower_peek_tail_const( tower )->slot, threshold_slot, threshold_pct * 100.0 ));
+  return threshold;
 }
 
 int
@@ -487,7 +485,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
        different fork from prev vote (same as non-duplicate case). */
   }
 
-  /* Case 3: if our prev vote slot is an ancestor of the best slot, then
+  /* Case 2: if our prev vote slot is an ancestor of the best slot, then
      they are on the same fork and we can both reset to it.  We can also
      vote for it if we pass the can_vote checks.
 
@@ -499,7 +497,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
     vote_blk  = best_blk;
   }
 
-  /* Case 4: if our prev vote is not an ancestor of the best block, then
+  /* Case 3: if our prev vote is not an ancestor of the best block, then
      it is on a different fork.  If we pass the switch check, we can
      reset to it.  If we additionally pass the lockout check, we can
      also vote for it.
@@ -517,7 +515,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
     vote_blk  = best_blk;
   }
 
-  /* Case 5: same as case 4 but we didn't pass the switch check.  In
+  /* Case 4: same as case 3 but we didn't pass the switch check.  In
      this case we reset to either ghost_best or ghost_deepest beginning
      from our prev vote blk.
 
@@ -541,7 +539,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
   else {
 
-    /* Case 5a: failed switch check, duplicate.
+    /* Case 4a: failed switch check and last vote's fork is invalid.
 
       https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/heaviest_subtree_fork_choice.rs#L1187 */
 
@@ -550,7 +548,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
       reset_blk = fd_ghost_deepest( ghost, prev_vote_blk );
     }
 
-    /* Case 5b: failed switch check, non-duplicate.
+    /* Case 4b: failed switch check and last vote's fork is valid.
 
       https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L200 */
 
@@ -633,10 +631,10 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
     }
   }
 
-# if LOGGING
-  FD_LOG_NOTICE(( "[%s] code: %d. reset_slot: %lu. vote_slot: %lu. root_slot: %lu.", __func__, out.code, out.reset_slot, out.vote_slot, out.root_slot ));
-# endif
-
+  FD_BASE58_ENCODE_32_BYTES( out.reset_block_id.uc, reset_block_id );
+  FD_BASE58_ENCODE_32_BYTES( out.vote_block_id.uc,  vote_block_id  );
+  FD_BASE58_ENCODE_32_BYTES( out.root_block_id.uc,  root_block_id  );
+  FD_LOG_INFO(( "[%s] flags: %d. reset_slot: %lu (%s). vote_slot: %lu (%s). root_slot: %lu (%s).", __func__, out.flags, out.reset_slot, reset_block_id, out.vote_slot, vote_block_id, out.root_slot, root_block_id ));
   return out;
 }
 
