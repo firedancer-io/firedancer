@@ -1474,10 +1474,34 @@ dynamic_port_range = "8900-9000"
     # disabled, core dumps are always produced and this option has no
     # effect.
     #
-    # This option can be enabled in production if a crash cannot be
-    # easily reproduced, but it decreases security and should not be
-    # enabled during routine running of the validator.
-    core_dump = false
+    # This option controls whether core dumps are produced when the
+    # sandbox is enabled, and what is in them.  The option can be
+    # enabled in production although it is not always recommended as it
+    # removes some minor security protections from the sandbox.  The
+    # possible options are,
+    #
+    #  "disabled" (default)
+    #   No core dumps are produced.
+    #
+    #  "minimal"
+    #   Core dumps are produced, but they contain only stack memory,
+    #   registers, and other core process state.  No heap memory or
+    #   workspaces are included.
+    #
+    #  "regular"
+    #   Core dumps are produced including most useful process state,
+    #   including heap memory and important workspaces mapped into the
+    #   process.  Certain large workspaces that are typically not useful
+    #   will not be included, such as the accounts database and
+    #   blockstore.
+    #
+    #  "full"
+    #   Core dumps are with almost all process memory, including things
+    #   like the accounts database.  The only memory which will not be
+    #   in the dump are sensitive pages containing private key material
+    #   from the running validator.  These dumps can be extremely large
+    #   and it is not recommended to use this option.
+    core_dump = "disabled"
 
     # Firedancer currently hosts a Agave client as a child process
     # when it starts up, to provide functionality that has not yet been

@@ -24,11 +24,12 @@ fd_topo_obj_laddr( fd_topo_t const * topo,
 void
 fd_topo_join_workspace( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
-                        int              mode ) {
+                        int              mode,
+                        int              dump ) {
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
-  wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, NULL, NULL, NULL ) );
+  wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, dump, NULL, NULL, NULL ) );
   if( FD_UNLIKELY( !wksp->wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
 }
 
@@ -45,20 +46,24 @@ tile_needs_wksp( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong wksp
 
 void
 fd_topo_join_tile_workspaces( fd_topo_t *      topo,
-                              fd_topo_tile_t * tile ) {
+                              fd_topo_tile_t * tile,
+                              int              core_dump_level ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     int needs_wksp = tile_needs_wksp( topo, tile, i );
     if( FD_LIKELY( -1!=needs_wksp ) ) {
-      fd_topo_join_workspace( topo, &topo->workspaces[ i ], needs_wksp );
+      int dump = core_dump_level >= topo->workspaces[ i ].core_dump_level ? 1 : 0;
+      fd_topo_join_workspace( topo, &topo->workspaces[ i ], needs_wksp, dump );
     }
   }
 }
 
 void
 fd_topo_join_workspaces( fd_topo_t * topo,
-                         int         mode ) {
+                         int         mode,
+                         int         core_dump_level ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    fd_topo_join_workspace( topo, &topo->workspaces[ i ], mode );
+    int dump = core_dump_level >= topo->workspaces[ i ].core_dump_level ? 1 : 0;
+    fd_topo_join_workspace( topo, &topo->workspaces[ i ], mode, dump  );
   }
 }
 
@@ -101,7 +106,7 @@ fd_topo_create_workspace( fd_topo_t *      topo,
   if( FD_UNLIKELY( err && errno==ENOMEM ) ) return -1;
   else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
 
-  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
+  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, 0, NULL, NULL, NULL ); /* logs details */
 
   void * wkspmem = fd_wksp_new( shmem, name, 0U, wksp->part_max, wksp->total_footprint ); /* logs details */
   if( FD_UNLIKELY( !wkspmem ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));

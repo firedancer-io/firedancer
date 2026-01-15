@@ -66,7 +66,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
                   int                  sandbox,
                   int                  keep_controlling_terminal,
-                  int                  dumpable,
+                  int                  core_dump_level,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
@@ -84,7 +84,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   initialize_logging( tile->name, tile->kind_id, tid );
 
   /* preload shared memory before sandboxing, so it is already mapped */
-  fd_topo_join_tile_workspaces( topo, tile );
+  fd_topo_join_tile_workspaces( topo, tile, core_dump_level );
 
   if( FD_UNLIKELY( tile_run->privileged_init ) )
     tile_run->privileged_init( topo, tile );
@@ -119,6 +119,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   }
 
   if( FD_LIKELY( sandbox ) ) {
+    int dumpable = core_dump_level == FD_TOPO_CORE_DUMP_LEVEL_DISABLED ? 0 : 1;
     fd_sandbox_enter( uid,
                       gid,
                       tile_run->keep_host_networking,
@@ -235,7 +236,8 @@ fd_topo_tile_stack_join( char const * app_name,
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", app_name, tile_name, tile_kind_id ) );
 
-  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL );
+  int dump = strcmp( tile_name, "sign" ) ? 1 : 0; /* avoid core dumps of sign tile stacks */
+  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, dump, NULL, NULL, NULL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
 
   /* Make space for guard lo and guard hi */

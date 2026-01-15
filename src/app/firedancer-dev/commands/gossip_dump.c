@@ -23,7 +23,7 @@ gossip_dump_cmd_fn( args_t *   args,
   FD_TEST( wksp_id!=ULONG_MAX );
   fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_id ];
 
-  fd_topo_join_workspace( topo, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspace( topo, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   fd_gossip_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile_obj_id );
 

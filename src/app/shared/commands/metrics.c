@@ -55,7 +55,7 @@ metrics_cmd_fn( args_t *   args,
     .outgoing_buffer_sz    = (1UL<<28UL), /* 256MiB */
   };
 
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 
   void * mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );

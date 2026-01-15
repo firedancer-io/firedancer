@@ -130,6 +130,7 @@ static ulong                fd_shmem_private_map_cnt;                           
 void *
 fd_shmem_join( char const *               name,
                int                        mode,
+               int                        dump,
                fd_shmem_joinleave_func_t  join_func,
                void *                     context,
                fd_shmem_join_info_t *     opt_info ) {
@@ -241,9 +242,11 @@ fd_shmem_join( char const *               name,
     FD_LOG_WARNING(( "fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
                     path, sz>>10, errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
-    FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
-                     path, sz>>10, errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( !dump ) ) {
+    if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
+      FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
+                      path, sz>>10, errno, fd_io_strerror( errno ) ));
+  }
 
   /* We have mapped the region.  Try to complete the join.  Note:
      map_query above and map_insert could be combined to improve

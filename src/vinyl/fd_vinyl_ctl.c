@@ -153,7 +153,7 @@ fd_vinyl_main( int     argc,
         bstream_type = 1;
 
         fd_shmem_join_info_t info[1];
-        mmio = fd_shmem_join( path, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info );
+        mmio = fd_shmem_join( path, FD_SHMEM_JOIN_MODE_READ_WRITE, 0, NULL, NULL, info );
         TEST( mmio, "fd_shmem_join failed" );
         mmio_sz = info->page_sz * info->page_cnt;
 

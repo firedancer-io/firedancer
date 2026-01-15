@@ -542,7 +542,7 @@ repair_ctx_wksp( args_t *          args,
   ulong tile_id = fd_topo_find_tile( topo, "repair", 0UL );
   if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "repair tile not found" ));
 
-  fd_topo_join_workspace( topo, _repair_wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspace( topo, _repair_wksp, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   /* Access the repair tile scratch memory where repair_tile_ctx is stored */
   fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
@@ -593,7 +593,7 @@ repair_cmd_fn_catchup( args_t *   args,
   run_firedancer_init( config, 1, 0 );
 
   fd_log_private_shared_lock[ 1 ] = 0;
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   fd_topo_fill( &config->topo );
 
@@ -604,7 +604,7 @@ repair_cmd_fn_catchup( args_t *   args,
   ulong wksp_id = fd_topo_find_wksp( &config->topo, "repair" );
   if( FD_UNLIKELY( wksp_id==ULONG_MAX ) ) FD_LOG_ERR(( "repair workspace not found" ));
   fd_topo_wksp_t * repair_wksp = &config->topo.workspaces[ wksp_id ];
-  fd_topo_join_workspace( &config->topo, repair_wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspace( &config->topo, repair_wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   ulong shred_tile_idx = fd_topo_find_tile( &config->topo, "shred", 0UL );
   FD_TEST( shred_tile_idx!=ULONG_MAX );
@@ -860,7 +860,7 @@ repair_cmd_fn_waterfall( args_t *   args,
   ulong       wksp_id = fd_topo_find_wksp( topo, "repair" );
   if( FD_UNLIKELY( wksp_id==ULONG_MAX ) ) FD_LOG_ERR(( "repair workspace not found" ));
   fd_topo_wksp_t * repair_wksp = &topo->workspaces[ wksp_id ];
-  fd_topo_join_workspace( topo, repair_wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspace( topo, repair_wksp, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   /* Access the repair tile scratch memory where repair_tile_ctx is stored */
   ulong tile_id = fd_topo_find_tile( topo, "repair", 0UL );

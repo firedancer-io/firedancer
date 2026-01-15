@@ -18,7 +18,8 @@ setup_xdp_tile( fd_topo_t *             topo,
                 ulong const *           tile_to_cpu,
                 fd_config_net_t const * net_cfg,
                 char const *            if_phys,
-                ulong                   if_queue ) {
+                ulong                   if_queue,
+                int                     xsk_core_dump ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "net", "net", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
   fd_topob_tile_in(  topo, "netlnk", 0UL, "metric_in", "net_netlnk", tile_kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -49,6 +50,8 @@ setup_xdp_tile( fd_topo_t *             topo,
   tile->xdp.fib4_local_obj_id      = netlink_tile->netlink.fib4_local_obj_id;
   tile->xdp.neigh4_obj_id          = netlink_tile->netlink.neigh4_obj_id;
 
+  tile->xdp.xsk_core_dump = xsk_core_dump;
+
   /* Allocate free ring */
 
   tile->xdp.free_ring_depth = tile->xdp.xdp_tx_queue_size;
@@ -78,6 +81,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
                     ulong                   netlnk_max_routes,
                     ulong                   netlnk_max_peer_routes,
                     ulong                   netlnk_max_neighbors,
+                    int                     xsk_core_dump,
                     ulong const             tile_to_cpu[ FD_TILE_MAX ] ) {
   /* net_umem: Packet buffers */
   fd_topob_wksp( topo, "net_umem" );
@@ -136,7 +140,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
         FD_LOG_ERR(( "error initializing network stack: if_indextoname(%u) failed (try disabling [net.xdp.native_bond]?)", i ));
       }
       for( ulong j=0UL; j<dev_queue_cnt; j++ ) {
-        setup_xdp_tile( topo, tile_kind_id++, netlink_tile, tile_to_cpu, net_cfg, if_name, (uint)j );
+        setup_xdp_tile( topo, tile_kind_id++, netlink_tile, tile_to_cpu, net_cfg, if_name, (uint)j, xsk_core_dump );
       }
     }
     FD_TEST( tile_kind_id==net_tile_cnt );

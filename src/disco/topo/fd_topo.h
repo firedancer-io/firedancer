@@ -29,6 +29,11 @@
 /* Maximum number of additional destinations for leader shreds and for retransmitted shreds */
 #define FD_TOPO_ADTL_DESTS_MAX ( 32UL)
 
+#define FD_TOPO_CORE_DUMP_LEVEL_DISABLED (0)
+#define FD_TOPO_CORE_DUMP_LEVEL_MINIMAL  (1)
+#define FD_TOPO_CORE_DUMP_LEVEL_REGULAR  (2)
+#define FD_TOPO_CORE_DUMP_LEVEL_FULL     (3)
+#define FD_TOPO_CORE_DUMP_LEVEL_NEVER    (4)
 
 /* A workspace is a Firedancer specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
@@ -47,6 +52,8 @@ typedef struct {
     ulong page_sz;  /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */
     ulong page_cnt; /* The number of pages that must be mapped to this workspace to store all the data needed by consumers. */
     ulong part_max; /* The maximum number of partitions in the underlying workspace.  There can only be this many allocations made at any one time. */
+
+    int core_dump_level; /* The core dump level required to be set in the application configuration to have this workspace appear in core dumps. */
 
     fd_wksp_t * wksp;            /* The workspace memory in the local process. */
     ulong       known_footprint; /* Total size in bytes of all data in Firedancer that will be stored in this workspace at startup. */
@@ -180,6 +187,8 @@ struct fd_topo_tile {
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
       ulong neigh4_obj_id;         /* neigh4 hash map */
+
+      int xsk_core_dump;
     } xdp;
 
     struct {
@@ -945,17 +954,22 @@ fd_topo_find_tile_obj( fd_topo_t const *      topo,
    sandboxed we can no longer map any memory. */
 void
 fd_topo_join_tile_workspaces( fd_topo_t *      topo,
-                              fd_topo_tile_t * tile );
+                              fd_topo_tile_t * tile,
+                              int              core_dump_level );
 
 /* Join (map into the process) the shared memory (huge/gigantic pages)
    for the given workspace.  Mode is one of
    FD_SHMEM_JOIN_MODE_READ_WRITE or FD_SHMEM_JOIN_MODE_READ_ONLY and
    determines the prot argument that will be passed to mmap when mapping
-   the pages in (PROT_WRITE or PROT_READ respectively). */
+   the pages in (PROT_WRITE or PROT_READ respectively).
+
+   Dump should be set to 1 if the workspace memory should be dumpable
+   when the process crashes, or 0 if not. */
 void
 fd_topo_join_workspace( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
-                        int              mode );
+                        int              mode,
+                        int              dump );
 
 /* Join (map into the process) all shared memory (huge/gigantic pages)
    needed by all tiles in the topology.  Mode is one of
@@ -964,7 +978,8 @@ fd_topo_join_workspace( fd_topo_t *      topo,
    mapping the pages in (PROT_WRITE or PROT_READ respectively). */
 void
 fd_topo_join_workspaces( fd_topo_t *  topo,
-                         int          mode );
+                         int          mode,
+                         int          core_dump_level );
 
 /* Leave (unmap from the process) the shared memory needed for the
    given workspace in the topology, if it was previously mapped.

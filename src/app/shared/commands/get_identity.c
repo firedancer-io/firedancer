@@ -27,7 +27,7 @@ get_identity_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
   ulong shred_wksp_id = shred_obj->wksp_id;
 
   /* Join the workspace in read-only mode */
-  fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ shred_wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ shred_wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   /* Cast to shred context structure */
   fd_shred_ctx_t const * shred_ctx = fd_topo_obj_laddr( &config->topo, shred_tile->tile_obj_id );

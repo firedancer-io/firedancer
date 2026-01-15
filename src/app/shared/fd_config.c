@@ -53,6 +53,15 @@ parse_log_level( char const * level ) {
   return -1;
 }
 
+FD_FN_CONST static inline int
+parse_core_dump_level( char const * level ) {
+  if( FD_UNLIKELY( !strcmp( level, "disabled" ) ) )       return FD_TOPO_CORE_DUMP_LEVEL_DISABLED;
+  if( FD_UNLIKELY( !strcmp( level, "minimal"  ) ) )       return FD_TOPO_CORE_DUMP_LEVEL_MINIMAL;
+  if( FD_UNLIKELY( !strcmp( level, "regular"  ) ) )       return FD_TOPO_CORE_DUMP_LEVEL_REGULAR;
+  if( FD_UNLIKELY( !strcmp( level, "full"     ) ) )       return FD_TOPO_CORE_DUMP_LEVEL_FULL;
+  return -1;
+}
+
 void
 fd_config_load_buf( fd_config_t * out,
                     char const *  buf,
@@ -330,6 +339,9 @@ fd_config_fill( fd_config_t * config,
   if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_stderr ));
   if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_flush ));
 
+  config->development.core_dump_level = parse_core_dump_level( config->development.core_dump );
+  if( FD_UNLIKELY( -1==config->development.core_dump_level ) ) FD_LOG_ERR(( "unrecognized [development.core_dump] `%s`", config->development.core_dump ));
+
   replace( config->paths.base, "{user}", config->user );
   replace( config->paths.base, "{name}", config->name );
 
@@ -584,6 +596,7 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( development.netns.interface1 );
   CFG_HAS_NON_EMPTY( development.netns.interface1_mac );
   CFG_HAS_NON_EMPTY( development.netns.interface1_addr );
+  CFG_HAS_NON_EMPTY( development.core_dump );
 
   CFG_HAS_NON_ZERO( development.genesis.target_tick_duration_micros );
   CFG_HAS_NON_ZERO( development.genesis.ticks_per_slot );

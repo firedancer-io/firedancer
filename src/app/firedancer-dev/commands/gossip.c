@@ -781,7 +781,7 @@ gossip_cmd_fn( args_t *   args,
 
   int const is_xdp = ( 0==strcmp( config->net.provider, "xdp" ) );
   if( is_xdp ) fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 
   ulong gossip_tile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );

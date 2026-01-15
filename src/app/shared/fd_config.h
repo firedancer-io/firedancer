@@ -293,10 +293,12 @@ struct fd_config {
   struct {
     int sandbox;
     int no_clone;
-    int core_dump;
     int no_agave;
     int bootstrap;
     uint debug_tile;
+
+    char core_dump[ 16 ];
+    int core_dump_level;
 
     struct {
       int  enabled;
