@@ -50,7 +50,7 @@ jobs:
 
       - uses: ./.github/actions/deps
         with:
-          extras: +dev
+          extras: "+dev +uring"
 
       - uses: ./.github/actions/hugepages
         with:
