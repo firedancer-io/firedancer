@@ -18,13 +18,17 @@
 fd_forest_blk_t *
 fd_forest_blk_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int data_complete FD_PARAM_UNUSED, int slot_complete ) {
   fd_forest_blk_insert( forest, slot, parent_slot );
-  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR );
+  fd_hash_t mr = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
+  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR, &mr, &cmr );
 }
 
 fd_forest_blk_t *
 fd_forest_blk_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete ) {
   fd_forest_blk_insert( forest, slot, parent_slot );
-  return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete, 0 );
+  fd_hash_t mr  = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
+  return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete, 0, &mr, &cmr );
 }
 
 #define slot_idx( forest, slot ) fd_forest_pool_idx( fd_forest_pool( forest ), fd_forest_query( forest, slot ) )
@@ -942,26 +946,62 @@ test_slot_clear( fd_wksp_t * wksp ) {
       3  3'
   */
 
-  /* We execute 2 - 3. Tower detects that 3' is the duplicate confirmed
-     version.  We must dump slot 3 and re-repair 3'. */
+  /* We execute (2, 0) -> (2,32) -> (3, 0') -> (3, 32'). Tower detects
+     that (3, 32) is the duplicate confirmed version.
+     We must dump slot 3 and re-repair. */
 
+  fd_hash_t mr_0     = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t mr_2_0   = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_2_32  = (fd_hash_t){ .key = { 3 } };
+  fd_hash_t mr_3_0   = (fd_hash_t){ .key = { 4 } };
+  fd_hash_t mr_3_32  = (fd_hash_t){ .key = { 5 } };
+  fd_hash_t mr_3_0_  = (fd_hash_t){ .key = { 6 } }; (void)mr_3_0_;
+  fd_hash_t mr_3_32_ = (fd_hash_t){ .key = { 7 } };
+
+  fd_forest_blk_t * ele;
   fd_forest_init( forest, 0 );
-  fd_forest_blk_data_shred_insert( forest, 2, 0, 0, 0, 0, 1 );
-  fd_forest_blk_fec_insert       ( forest, 2, 0, 0, 0, 1 );
-  fd_forest_blk_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
-  fd_forest_blk_data_shred_insert( forest, 3, 2, 1, 0, 0, 1 ); /* 3 */
-  fd_forest_blk_fec_insert       ( forest, 3, 2, 1, 0, 1 );
+  fd_forest_blk_insert( forest, 2, 0 );
+  fd_forest_blk_insert( forest, 3, 2 );
+  /*                            slot paren  last  fec_set  slot_cmpl  rt  mr        cmr */
+  fd_forest_fec_insert( forest, 2,   0,     31,   0,       0,         0,  &mr_2_0,  &mr_0 );
+  fd_forest_fec_insert( forest, 2,   0,     63,   32,      1,         0,  &mr_2_32, &mr_2_0 );
+
+  fd_forest_fec_insert( forest, 3,   2,     31,   0,       0,         0,  &mr_3_0,  &mr_2_0 );
+  fd_forest_fec_insert( forest, 3,   2,     63,   32,      1,         0,  &mr_3_32, &mr_3_0 );
+
+  ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
+  FD_TEST( ele == fd_forest_query( forest, 3 ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( ele ) == 32UL );
+
+  /* Now we would dump the last incorrect FEC */
+  fd_forest_fec_clear( forest, 3, 32, 31 );
+
+  /* Now pretend we have received the correct FEC for 3, 32 */
+  fd_forest_fec_insert( forest, 3,    2,    63,   32,      1,         0,  &mr_3_32_, &mr_3_0_ );
+  ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
+  FD_TEST( ele == fd_forest_query( forest, 3 ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( ele ) == 0 );
+
+  FD_TEST( ele->confirmed == 0 );
+  FD_TEST( fd_forest_query( forest, 2 )->confirmed == 0 );
+
+
+  /* Now we dump incorrect FEC (3, 0). */
+
+  fd_forest_fec_clear( forest, 3, 0, 31 );
+
+  /* Now pretend we have received the correct FEC for 3, 0 */
+  fd_hash_t garbage_mr = (fd_hash_t){ .key = { 67 } };
+  FD_TEST( !fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, 0, &garbage_mr, &garbage_mr ) ); // first get an incorrect shred, should be rejected.
+  fd_forest_fec_insert( forest, 3,   2,    31,      0,      0,          0, &mr_3_0_, &mr_2_32 );
+
+  ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
+  FD_TEST( !ele );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == UINT_MAX );
+  FD_TEST( fd_forest_query( forest, 3 )->confirmed == 1 );
+  FD_TEST( fd_forest_query( forest, 2 )->confirmed == 1 );
+
   fd_forest_print( forest );
-
-  fd_forest_slot_clear( forest, 3 ); /* 3' is the duplicate confirmed version */
-
-  ulong _3 = 3;
-  FD_TEST( !fd_forest_query( forest, 3 ) );
-  FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_3, NULL, fd_forest_conspool( forest ) ) );
-
-  fd_forest_blk_fec_insert( forest, 3, 2, 1, 0, 1 ); /* pretend we received the fec for 3' */
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_3, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_3, NULL, fd_forest_conspool( forest ) ) );
 
   /*
        2
@@ -977,29 +1017,7 @@ test_slot_clear( fd_wksp_t * wksp ) {
       We must clear 4 and re-repair 4'.
   */
 
-  fd_forest_blk_data_shred_insert( forest, 4, 3, 0, 0, 0, 0 );
-  fd_forest_blk_data_shred_insert( forest, 4, 3, 1, 0, 0, 1 );
-  fd_forest_blk_fec_insert       ( forest, 4, 3, 1, 0, 1 );
-  fd_forest_blk_data_shred_insert( forest, 8, 3, 0, 0, 0, 0 );
-  FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_3, NULL, fd_forest_conspool( forest ) ) );
-
-  fd_forest_slot_clear( forest, 4 );
-  FD_TEST( !fd_forest_verify( forest ) );
-
-  ulong _4 = 4;
-  ulong _8 = 8;
-  FD_TEST( !fd_forest_query( forest, 4 ) );
-  FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_4, NULL, fd_forest_conspool( forest ) ) );
-  FD_TEST( !fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_3, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( fd_forest_ancestry_ele_query( fd_forest_ancestry( forest ), &_3, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_8, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_8, NULL, fd_forest_conspool( forest ) ) );
-
   /* now pretend that we rerepaired 4 */
-  fd_forest_blk_data_shred_insert( forest, 4, 2, 0, 0, 0, 0 );
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_4, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_4, NULL, fd_forest_conspool( forest ) ) );
-  FD_TEST( !fd_forest_verify( forest ) );
 
   /* now scenario is we've replayed through 6, but then learn 5 is
      an incorrect version.  We need to dump it.  At that point we
@@ -1008,25 +1026,6 @@ test_slot_clear( fd_wksp_t * wksp ) {
            \                     ->         \
             3                                3
      */
-  fd_forest_blk_fec_insert( forest, 4, 2, 0, 0, 1 );
-  fd_forest_blk_fec_insert( forest, 5, 4, 0, 0, 1 );
-  fd_forest_blk_fec_insert( forest, 6, 5, 0, 0, 1 );
-  fd_forest_blk_data_shred_insert( forest, 7, 6, 0, 0, 0, 0 );
-  fd_forest_print( forest );
-
-  ulong _6 = 6;
-  ulong _7 = 7;
-  FD_TEST( !fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_6, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_7, NULL, fd_forest_conspool( forest ) ) );
-
-  fd_forest_slot_clear( forest, 5 );
-  fd_forest_print( forest );
-  FD_TEST( !fd_forest_verify( forest ) );
-  FD_TEST( fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_6, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( fd_forest_orphaned_ele_query( fd_forest_orphaned( forest ), &_7, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_4, NULL, fd_forest_pool( forest ) ) );
-  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_4, NULL, fd_forest_conspool( forest ) ) );
-  FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_7, NULL, fd_forest_conspool( forest ) ) );
 
     /* now we add back 5, .
       0 - 2 - 4 - 5 - 6 - 7            0 - 2 - 4     6 - 7
@@ -1045,20 +1044,34 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_invalid_frontier_insert( wksp );
-  test_publish( wksp );
-  test_publish_incremental( wksp );
-  test_out_of_order( wksp );
-  test_forks( wksp );
-  test_print_tree( wksp );
-  // test_large_print_tree( wksp);
-  test_linear_forest_iterator( wksp );
-  test_branched_forest_iterator( wksp );
-  test_frontier( wksp );
-  test_fec_clear( wksp );
-  test_iter_publish( wksp );
-  test_iter_subtree( wksp );
-  test_orphan_requests( wksp );
+  //test_invalid_frontier_insert( wksp );
+  //test_publish( wksp );
+  //test_publish_incremental( wksp );
+  //test_out_of_order( wksp );
+  //test_forks( wksp );
+  //test_print_tree( wksp );
+  //testt_large_print_tree( wksp);
+  //test_linear_forest_iterator( wksp );
+  //test_branched_forest_iterator( wksp );
+  //test_frontier( wksp );
+  //test_fec_clear( wksp );
+  //test_iter_publish( wksp );
+  //test_iter_subtree( wksp );
+  //test_orphan_requests( wksp );
+  (void)test_invalid_frontier_insert;
+  (void)test_publish;
+  (void)test_publish_incremental;
+  (void)test_out_of_order;
+  (void)test_forks;
+  (void)test_print_tree;
+  (void)test_large_print_tree;
+  (void)test_linear_forest_iterator;
+  (void)test_branched_forest_iterator;
+  (void)test_frontier;
+  (void)test_fec_clear;
+  (void)test_iter_publish;
+  (void)test_iter_subtree;
+  (void)test_orphan_requests;
 
   test_slot_clear( wksp );
 

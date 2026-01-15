@@ -758,6 +758,17 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
 fd_forest_blk_t *
 fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t * mr );
 
+static inline uint
+fd_forest_merkle_last_incorrect_idx( fd_forest_blk_t * ele ) {
+  ulong first_verified_fec = fd_forest_merkle_first( ele->merkle_verified );
+  /* UNLIKELY because this is being called because we've detected an incorrect FEC */
+  if( FD_UNLIKELY( first_verified_fec == 0 ) ) return UINT_MAX;
+
+  uint bad_fec_idx = first_verified_fec == ULONG_MAX ? ele->complete_idx / 32UL /* last FEC is wrong */
+                                                     : (uint)first_verified_fec - 1;
+  return bad_fec_idx * 32UL;
+}
+
 /* fd_forest_slot_clear is used to clear a slot from the forest.
    It is called when we receive a duplicate confirmed message for a version
    of a slot we do not have.  We need to clear the slot from the forest
@@ -783,8 +794,8 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
    That's why instead of maintaining the blk element and just clearing
    out the shred idxs, we instead just get rid of the block entirely. */
 
-void
-fd_forest_slot_clear( fd_forest_t * forest, ulong slot );
+//void
+//fd_forest_slot_clear( fd_forest_t * forest, ulong slot );
 
 /* fd_forest_publish publishes slot as the new forest root, setting
    the subtree beginning from slot as the new forest tree (ie. slot

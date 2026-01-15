@@ -681,12 +681,10 @@ slot_completes_duplicate_verify( ctx_t * ctx, fd_forest_blk_t * blk ) {
   }
 
   if( FD_LIKELY( !bad_blk ) ) return; /* WE ARE GOOD!!! :DDDD */
-  ulong first_verified_fec = fd_forest_merkle_first( bad_blk->merkle_verified );
-  uint bad_fec_idx = first_verified_fec == ULONG_MAX ? bad_blk->complete_idx / 32UL /* last FEC is wrong */
-                                                     : (uint)first_verified_fec - 1 ;
+  uint bad_fec_idx = fd_forest_merkle_last_incorrect_idx( bad_blk );
   // TODO: equivocating across slots not supported yet, watch for uint underflow
 
-  FD_LOG_WARNING(( "slot %lu is complete but has incorrect FECs. bad blk %lu. last verified fec %lu", blk->slot, bad_blk->slot, fd_forest_merkle_first( bad_blk->merkle_verified ) ));
+  FD_LOG_WARNING(( "slot %lu is complete but has incorrect FECs. bad blk %lu. last verified fec %u", blk->slot, bad_blk->slot, bad_fec_idx ));
 
   /* If we have a bad block, we need to dump and repair backwards from
      the point where the merkle root is incorrect.
@@ -695,7 +693,7 @@ slot_completes_duplicate_verify( ctx_t * ctx, fd_forest_blk_t * blk ) {
      recompletes, this function will trigger again and we will dump the
      second to last incorrect FEC. */
 
-  fd_forest_fec_clear( ctx->forest, bad_blk->slot, bad_fec_idx, bad_blk->complete_idx );
+  fd_forest_fec_clear( ctx->forest, bad_blk->slot, bad_fec_idx, 31UL );
 
   /* ok lets say we fec clear. then we rerequest. and we get the good
      fec */

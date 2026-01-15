@@ -747,7 +747,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   fd_bank_t parent_bank[1];
   if( FD_LIKELY( fd_banks_get_parent( parent_bank, ctx->banks, bank ) && ctx->gui_enabled ) ) {
     parent_bank->data->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu", parent_bank->data->idx, slot, parent_bank->data->refcnt ));
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu", parent_bank->data->idx, fd_bank_slot_get( parent_bank ), parent_bank->data->refcnt ));
     slot_info->parent_bank_idx = parent_bank->data->idx;
   }
 
