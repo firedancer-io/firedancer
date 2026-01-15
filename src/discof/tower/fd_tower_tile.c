@@ -756,22 +756,26 @@ after_credit( ctx_t *             ctx,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
   if( FD_LIKELY( !notif_empty( ctx->notif ) ) ) {
+
     /* Contiguous confirmations are pushed to tail in order from child
        to ancestor, so we pop from tail to publish confirmations in
        order from ancestor to child.  */
-    notif_t             ancestor = notif_pop_tail( ctx->notif );
+
+    notif_t ancestor = notif_pop_tail( ctx->notif );
     if( FD_UNLIKELY( ancestor.kind == FD_TOWER_SLOT_CONFIRMED_CLUSTER || ancestor.kind == FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
+
       /* Duplicate confirmations and cluster confirmations were sourced
          from notar (through gossip txns and replay txns) so we need to
          use the block_id from the notif recorded at the time of the
          confirmation */
+
       publish_slot_confirmed( ctx, stem, fd_frag_meta_ts_comp( fd_tickcount() ), ancestor.slot, &ancestor.block_id, ULONG_MAX, ancestor.kind );
     } else {
-      fd_tower_forks_t *  fork = fd_tower_forks_query( ctx->forks->tower_forks, ancestor.slot, NULL );
+      fd_tower_forks_t * fork = fd_tower_forks_query( ctx->forks->tower_forks, ancestor.slot, NULL );
       if( FD_UNLIKELY( !fork ) ) FD_LOG_CRIT(( "missing fork for ancestor %lu", ancestor.slot ));
       publish_slot_confirmed( ctx, stem, fd_frag_meta_ts_comp( fd_tickcount() ), ancestor.slot, fd_forks_canonical_block_id( ctx->forks, ancestor.slot ), fork->bank_idx, ancestor.kind );
     }
-    //*opt_poll_in = 0; /* drain the confirmations */
+    *opt_poll_in = 0; /* drain the confirmations */
     *charge_busy = 1;
   }
 }
