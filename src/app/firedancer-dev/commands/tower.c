@@ -34,7 +34,7 @@ tower_ctx_wksp( args_t *          args,
   if( FD_UNLIKELY( scratch_wksp_id>=topo->wksp_cnt ) ) FD_LOG_ERR(( "invalid workspace id %lu for tile scratch", scratch_wksp_id ));
 
   fd_topo_wksp_t * _tower_wksp = &topo->workspaces[ scratch_wksp_id ];
-  fd_topo_join_workspace( topo, _tower_wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspace( topo, _tower_wksp, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   /* Access the tower tile scratch memory where tower_tile_ctx is stored */
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );

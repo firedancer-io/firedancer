@@ -82,7 +82,7 @@ bundle_client_cmd_fn( args_t *   args,
   bundle_client_topo( config );
   initialize_workspaces( config );
   initialize_stacks( config );
-  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
 

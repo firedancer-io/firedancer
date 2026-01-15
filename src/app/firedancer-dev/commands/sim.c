@@ -176,7 +176,7 @@ sim_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   initialize_workspaces( config );
   initialize_stacks( config );
   fd_topo_t * topo = &config->topo;
-  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   /* FIXME: there's no PoH tile in this mini-topology,
    *        but replay tile waits for `poh_slot!=ULONG_MAX` before starting to vote

@@ -1,11 +1,11 @@
 #define _GNU_SOURCE
-#include "run/run.h"
+#include "../fd_config.h"
+#include "../fd_action.h"
 
 #include "../../platform/fd_cap_chk.h"
+#include "../../../disco/topo/fd_topo.h"
 #include "../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../disco/keyguard/fd_keyload.h"
-#include "../../../tango/fd_tango.h"
-#include "../../../util/fd_util.h"
 
 #include <strings.h>
 #include <unistd.h>
@@ -362,7 +362,7 @@ set_identity( args_t *   args,
     fd_topo_obj_t * obj = &config->topo.objs[ i ];
     if( FD_LIKELY( strcmp( obj->name, "keyswitch" ) ) ) continue;
 
-    fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ obj->wksp_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ obj->wksp_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   }
 
   int has_error = 0;

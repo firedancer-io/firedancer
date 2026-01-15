@@ -78,7 +78,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "poh"          );
   fd_topob_wksp( topo, "shred"        );
   fd_topob_wksp( topo, "store"        );
-  fd_topob_wksp( topo, "sign"         );
+  fd_topob_wksp( topo, "sign"         )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
   fd_topob_wksp( topo, "metric"       );
   fd_topob_wksp( topo, "cswtch"       );
 
@@ -139,7 +139,8 @@ fd_topo_initialize( config_t * config ) {
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
 
-  fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
+  int xsk_core_dump = config->development.core_dump_level >= FD_TOPO_CORE_DUMP_LEVEL_REGULAR ? 1 : 0;
+  fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, xsk_core_dump, tile_to_cpu );
 
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",  i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred", i, config->net.ingress_buffer_size );

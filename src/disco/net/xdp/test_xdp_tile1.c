@@ -338,7 +338,9 @@ mock_privileged_init( fd_topo_t      * topo,
 
     .umem_addr = umem,
     .frame_sz  = umem_frame_sz,
-    .umem_sz   = umem_sz
+    .umem_sz   = umem_sz,
+
+    .core_dump = 0
   };
 
   /* Mimicking fd_xsk_init()*/

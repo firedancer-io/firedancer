@@ -637,7 +637,7 @@ initialize_workspaces( config_t * config ) {
                    "the system is using pages from the same mount.",
                    wksp->name, path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
     }
-    fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 );
     fd_topo_wksp_new( &config->topo, wksp, CALLBACKS );
     fd_topo_leave_workspace( &config->topo, wksp );
   }

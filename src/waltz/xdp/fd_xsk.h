@@ -216,6 +216,9 @@ struct fd_xsk_params {
 
   /* sockaddr_xdp.sxdp_flags additional params, e.g. XDP_ZEROCOPY */
   uint bind_flags;
+
+  /* whether the xsk memory should be included in core dumps */
+  int core_dump;
 };
 
 typedef struct fd_xsk_params fd_xsk_params_t;

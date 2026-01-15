@@ -8,7 +8,7 @@ ready_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   ulong wksp_id = fd_topo_find_wksp( &config->topo, "metric_in" );
   FD_TEST( wksp_id!=ULONG_MAX );
 
-  fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_workspace_fill( &config->topo, &config->topo.workspaces[ wksp_id ] );
 
   for( ulong i=0; i<config->topo.tile_cnt; i++) {

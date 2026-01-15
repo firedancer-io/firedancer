@@ -191,7 +191,7 @@ bench_cmd_fn( args_t *   args,
   }
 
   fd_log_private_shared_lock[ 1 ] = 0;
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   if( watch ) {
     int pipefd[2];

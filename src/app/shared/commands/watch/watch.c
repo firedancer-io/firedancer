@@ -675,7 +675,7 @@ watch_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( args->watch.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->watch.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   struct sock_filter seccomp_filter[ 128UL ];
   uint drain_output_fd = args->watch.drain_output_fd >= 0 ? (uint)args->watch.drain_output_fd : (uint)-1;

@@ -41,6 +41,7 @@ fd_topob_wksp( fd_topo_t *  topo,
   fd_topo_wksp_t * wksp = &topo->workspaces[ topo->wksp_cnt ];
   strncpy( wksp->name, name, sizeof(wksp->name) );
   wksp->id = topo->wksp_cnt;
+  wksp->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_REGULAR;
   topo->wksp_cnt++;
   return wksp;
 }

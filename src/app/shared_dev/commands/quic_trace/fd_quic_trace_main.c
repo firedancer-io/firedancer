@@ -185,7 +185,7 @@ void
 quic_trace_cmd_fn( args_t *   args,
                    config_t * config ) {
   fd_topo_t * topo = &config->topo;
-  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( topo );
 
   int trace_send = args->quic_trace.trace_send;

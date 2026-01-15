@@ -139,7 +139,7 @@ run_firedancer_threaded( config_t * config,
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, config->development.core_dump_level );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
 
   if( FD_UNLIKELY( agave_main && !config->development.no_agave ) ) {

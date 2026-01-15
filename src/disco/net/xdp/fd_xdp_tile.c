@@ -1288,7 +1288,9 @@ privileged_init( fd_topo_t *      topo,
 
     .umem_addr = umem,
     .frame_sz  = umem_frame_sz,
-    .umem_sz   = umem_sz
+    .umem_sz   = umem_sz,
+
+    .core_dump = tile->xdp.xsk_core_dump,
   };
 
   /* Re-derive XDP file descriptors */

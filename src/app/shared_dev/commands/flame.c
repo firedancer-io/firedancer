@@ -58,7 +58,7 @@ flame_cmd_fn( args_t *   args,
               config_t * config ) {
   install_parent_signals();
 
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 
   int sandbox = fd_pod_query_int( config->topo.props, "sandbox", 0 );

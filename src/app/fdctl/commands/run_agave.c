@@ -25,7 +25,7 @@ clone_labs_memory_space_tiles( config_t * config ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
     if( FD_LIKELY( !strcmp( wksp->name, "pack_bank" ) ||
                    !strcmp( wksp->name, "shred_store" ) ) ) {
-      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
+      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY, 0 );
     } else if( FD_LIKELY( !strcmp( wksp->name, "bank_poh" ) ||
                           !strcmp( wksp->name, "bank_pack" ) ||
                           !strcmp( wksp->name, "bank_busy" ) ||
@@ -36,7 +36,7 @@ clone_labs_memory_space_tiles( config_t * config ) {
                           !strcmp( wksp->name, "bank" ) ||
                           !strcmp( wksp->name, "poh" ) ||
                           !strcmp( wksp->name, "store" ) ) ) {
-      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 );
     }
   }
 
