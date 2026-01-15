@@ -62,6 +62,7 @@ test_accdb_v0_logic( void ) {
 
   FD_TEST( fd_accdb_open_ro( user, ro0, NULL, &k0 )==ro0 );
   FD_TEST( ro0->ref->accdb_type==FD_ACCDB_TYPE_V0 );
+  FD_TEST( ro0->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( ro0->ref->user_data==0UL );
   FD_TEST( user_v0->base.ro_active==1 );
   FD_TEST( fd_pubkey_eq( fd_accdb_ref_address( ro0 ), &k0 ) );
@@ -74,6 +75,7 @@ test_accdb_v0_logic( void ) {
   FD_TEST( user_v0->base.ro_active==0 );
 
   FD_TEST( fd_accdb_open_rw( user, rw0, NULL, &k0, 0UL, 0 )==rw0 );
+  FD_TEST( rw0->ref->ref_type==FD_ACCDB_REF_RW );
   fd_accdb_close_rw( user, rw0 );
 
   FD_TEST( !fd_accdb_open_ro( user, ro0, NULL, &k1 ) );
@@ -83,6 +85,7 @@ test_accdb_v0_logic( void ) {
 
   FD_TEST( fd_accdb_open_rw( user, rw0, NULL, &k1, 0UL, FD_ACCDB_FLAG_CREATE )==rw0 );
   FD_TEST( user_v0->base.rw_active==1 );
+  FD_TEST( rw0->ref->ref_type==FD_ACCDB_REF_RW );
   fd_accdb_close_rw( user, rw0 );
   FD_TEST( user_v0->base.rw_active==0 );
   FD_TEST( !fd_accdb_open_rw( user, rw0, NULL, &k1, 0UL, 0 ) );
@@ -92,6 +95,7 @@ test_accdb_v0_logic( void ) {
 
   FD_TEST( fd_accdb_open_rw( user, rw0, NULL, &k0, 0UL, 0 )==rw0 );
   FD_TEST( user_v0->base.rw_active==1 );
+  FD_TEST( rw0->ref->ref_type==FD_ACCDB_REF_RW );
   fd_accdb_ref_lamports_set( rw0, 0UL );
   fd_accdb_close_rw( user, rw0 );
   FD_TEST( user_v0->base.rw_active==0 );
@@ -104,15 +108,18 @@ test_accdb_v0_logic( void ) {
   FD_TEST( fd_accdb_ro_pipe_init( pipe, user, &xid )==pipe );
   fd_accdb_ro_pipe_fini( pipe, user );
   FD_TEST( fd_accdb_open_rw( user, rw0, NULL, &k0, 0UL, FD_ACCDB_FLAG_CREATE )==rw0 );
+  FD_TEST( rw0->ref->ref_type==FD_ACCDB_REF_RW );
   fd_accdb_ref_lamports_set( rw0, 10UL );
   fd_accdb_close_rw( user, rw0 );
   FD_TEST( fd_accdb_open_rw( user, rw0, NULL, &k1, 0UL, FD_ACCDB_FLAG_CREATE )==rw0 );
+  FD_TEST( rw0->ref->ref_type==FD_ACCDB_REF_RW );
   fd_accdb_ref_lamports_set( rw0, 20UL );
   fd_accdb_close_rw( user, rw0 );
   FD_TEST( fd_accdb_ro_pipe_init( pipe, user, &xid )==pipe );
 
   fd_accdb_ro_pipe_enqueue( pipe, &k0 );
   FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( fd_pubkey_eq( fd_accdb_ref_address( ro_tmp ), &k0 ) );
   FD_TEST( ro_tmp->meta->lamports == 10UL );
   FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );

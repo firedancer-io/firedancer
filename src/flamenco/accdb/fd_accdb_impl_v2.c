@@ -6,16 +6,6 @@
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v2_t)<=alignof(fd_accdb_user_t), layout );
 FD_STATIC_ASSERT( sizeof (fd_accdb_user_v2_t)<=sizeof(fd_accdb_user_t),  layout );
 
-fd_accdb_peek_t *
-fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
-                    fd_accdb_peek_t *         peek,
-                    fd_funk_txn_xid_t const * xid,
-                    void const *              address );
-
-void
-fd_accdb_load_fork_slow( fd_accdb_user_v1_t *      accdb,
-                         fd_funk_txn_xid_t const * xid );
-
 static inline void
 fd_accdb_load_fork( fd_accdb_user_v1_t *      accdb,
                     fd_funk_txn_xid_t const * xid ) {
@@ -49,7 +39,7 @@ fd_accdb_user_v2_peek( fd_accdb_user_t *         accdb,
   return fd_accdb_user_v1_peek( accdb, peek, xid, address );
 }
 
-void
+static void
 fd_accdb_user_v2_close_ro( fd_accdb_user_t * accdb_,
                            fd_accdb_ro_t *   ro );
 
@@ -124,6 +114,7 @@ fd_accdb_user_v2_open_ro( fd_accdb_user_t *         accdb_,
   *ro = (fd_accdb_ro_t) {0};
   memcpy( ro->ref->address, address, 32UL );
   ro->ref->accdb_type = FD_ACCDB_TYPE_V2;
+  ro->ref->ref_type   = FD_ACCDB_REF_RO;
   ro->meta            = meta;
 
   /* Hide tombstones */
@@ -136,7 +127,7 @@ fd_accdb_user_v2_open_ro( fd_accdb_user_t *         accdb_,
   return ro;
 }
 
-void
+static void
 fd_accdb_user_v2_close_ro( fd_accdb_user_t * accdb_,
                            fd_accdb_ro_t *   ro ) {
   fd_accdb_user_v2_t * accdb = (fd_accdb_user_v2_t *)accdb_;
@@ -240,6 +231,21 @@ fd_accdb_user_v2_open_rw( fd_accdb_user_t *         accdb,
 
   fd_accdb_rw_t * res = fd_accdb_v1_prep_create( rw, v1, xid, address, val, val_sz, val_max );
   return res;
+}
+
+void
+fd_accdb_user_v2_close_ref( fd_accdb_user_t * accdb,
+                            fd_accdb_ref_t *  ref ) {
+  switch( ref->ref_type ) {
+  case FD_ACCDB_REF_RO:
+    fd_accdb_user_v2_close_ro( accdb, (fd_accdb_ro_t *)ref );
+    break;
+  case FD_ACCDB_REF_RW:
+    fd_accdb_user_v1_close_rw( accdb, (fd_accdb_rw_t *)ref );
+    break;
+  default:
+    FD_LOG_CRIT(( "invalid ref_type %u in fd_accdb_user_v2_close_ref", (uint)ref->ref_type ));
+  }
 }
 
 /* ro_pipe state machine
@@ -351,6 +357,7 @@ fd_accdb_user_v2_ro_pipe_enqueue( fd_accdb_ro_pipe_t * pipe_,
   if( fd_accdb_peek_funk( &accdb->v1, peek, &pipe->xid, address ) ) {
     if( !peek->acc->meta->lamports ) { /* tombstone */
       ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+      ro->ref->ref_type   = FD_ACCDB_REF_RO;
       memcpy( ro->ref->address, address, 32UL );
       ro->meta = &fd_account_meta_zero;
     } else {
@@ -521,11 +528,13 @@ fd_accdb_user_v2_ro_pipe_poll( fd_accdb_ro_pipe_t * pipe_ ) {
   if( err==FD_VINYL_ERR_KEY ) {  /* not found */
 
     ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+    ro->ref->ref_type   = FD_ACCDB_REF_RO;
     ro->meta = &fd_account_meta_zero;
 
   } else if( err==FD_VINYL_SUCCESS ) {
 
     ro->ref->accdb_type = FD_ACCDB_TYPE_V2;
+    ro->ref->ref_type   = FD_ACCDB_REF_RO;
     ro->meta            = fd_wksp_laddr_fast( data_wksp, val_gaddr );
     accdb->base.ro_active++;
     pipe->quota_used++;
@@ -552,9 +561,8 @@ fd_accdb_user_vt_t const fd_accdb_user_v2_vt = {
   .fini            = fd_accdb_user_v2_fini,
   .peek            = fd_accdb_user_v2_peek,
   .open_ro         = fd_accdb_user_v2_open_ro,
-  .close_ro        = fd_accdb_user_v2_close_ro,
   .open_rw         = fd_accdb_user_v2_open_rw,
-  .close_rw        = fd_accdb_user_v1_close_rw,
+  .close_ref       = fd_accdb_user_v2_close_ref,
   .rw_data_max     = fd_accdb_user_v1_rw_data_max,
   .rw_data_sz_set  = fd_accdb_user_v1_rw_data_sz_set,
   .ro_pipe_init    = fd_accdb_user_v2_ro_pipe_init,
