@@ -180,6 +180,10 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ 0 ];
     fd_txn_out_t * txn_out = &ctx->txn_out[ 0 ];
 
+    uchar * signature = (uchar *)txn->payload + TXN( txn )->signature_off;
+    FD_BASE58_ENCODE_64_BYTES( signature, sig_b58 );
+    FD_LOG_INFO(( "executing txn %s is_bundle_tpu %d flags %u", sig_b58, txn->source_tpu, txn->flags ));
+
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
 
@@ -367,6 +371,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_txn_p_t *   txn     = &txns[ i ];
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ i ];
     fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
+
+    uchar * signature = (uchar *)txn->payload + TXN( txn )->signature_off;
+    FD_BASE58_ENCODE_64_BYTES( signature, sig_b58 );
+    FD_LOG_INFO(( "executing txn %s is_bundle_tpu %d flags %u", sig_b58, txn->source_tpu, txn->flags ));
 
     txn_out->err.txn_err = FD_RUNTIME_EXECUTE_SUCCESS;
 
