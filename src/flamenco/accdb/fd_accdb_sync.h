@@ -69,7 +69,14 @@ static inline void
 fd_accdb_close_ro( fd_accdb_user_t * accdb,
                    fd_accdb_ro_t *   ro ) {
   if( FD_UNLIKELY( ro->ref->accdb_type==FD_ACCDB_TYPE_NONE ) ) return;
-  accdb->base.vt->close_ro( accdb, ro );
+  accdb->base.vt->close_ref( accdb, ro->ref );
+}
+
+static inline void
+fd_accdb_close_ref( fd_accdb_user_t * accdb,
+                    fd_accdb_ref_t *  ref ) {
+  if( FD_UNLIKELY( ref->accdb_type==FD_ACCDB_TYPE_NONE ) ) return;
+  accdb->base.vt->close_ref( accdb, ref );
 }
 
 /* In-place transactional write APIs **********************************/
@@ -119,7 +126,7 @@ static inline void
 fd_accdb_close_rw( fd_accdb_user_t * accdb,
                    fd_accdb_rw_t *   rw ) { /* destroyed */
   if( FD_UNLIKELY( rw->ref->accdb_type==FD_ACCDB_TYPE_NONE ) ) return;
-  accdb->base.vt->close_rw( accdb, rw );
+  accdb->base.vt->close_ref( accdb, rw->ref );
 }
 
 /* fd_accdb_ref_data_max returns the data capacity of an account. */

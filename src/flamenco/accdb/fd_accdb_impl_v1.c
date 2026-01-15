@@ -219,6 +219,7 @@ fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
   };
   memcpy( peek->acc->ref->address, address, 32UL );
   peek->acc->ref->accdb_type = FD_ACCDB_TYPE_V1;
+  peek->acc->ref->ref_type   = FD_ACCDB_REF_RO;
   peek->acc->ref->user_data  = (ulong)rec;
   peek->acc->meta            = fd_funk_val( rec, funk->wksp );
   return peek;
@@ -302,6 +303,7 @@ fd_accdb_v1_prep_create( fd_accdb_rw_t *           rw,
   memcpy( rw->ref->address, address, 32UL );
   rw->ref->accdb_type = FD_ACCDB_TYPE_V1;
   rw->ref->user_data  = (ulong)rec;
+  rw->ref->ref_type   = FD_ACCDB_REF_RW;
   rw->meta            = meta;
   return rw;
 }
@@ -320,8 +322,10 @@ fd_accdb_prep_inplace( fd_accdb_rw_t *      rw,
   accdb->base.rw_active++;
   *rw = (fd_accdb_rw_t) {0};
   memcpy( rw->ref->address, rec->pair.key->uc, 32UL );
-  rw->ref->user_data = (ulong)rec;
-  rw->meta           = fd_funk_val( rec, accdb->funk->wksp );
+  rw->ref->accdb_type = FD_ACCDB_TYPE_V1;
+  rw->ref->user_data  = (ulong)rec;
+  rw->ref->ref_type   = FD_ACCDB_REF_RW;
+  rw->meta            = fd_funk_val( rec, accdb->funk->wksp );
   if( FD_UNLIKELY( !rw->meta->lamports ) ) {
     memset( rw->meta, 0, sizeof(fd_account_meta_t) );
   }
@@ -352,7 +356,7 @@ fd_accdb_user_v1_open_ro( fd_accdb_user_t *         accdb,
   return ro;
 }
 
-void
+static void
 fd_accdb_user_v1_close_ro( fd_accdb_user_t * accdb,
                            fd_accdb_ro_t *   ro ) {
   fd_accdb_user_v1_t * v1 = (fd_accdb_user_v1_t *)accdb;
@@ -491,6 +495,21 @@ fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
   v1->base.rw_active--;
 }
 
+void
+fd_accdb_user_v1_close_ref( fd_accdb_user_t * accdb,
+                            fd_accdb_ref_t *  ref ) {
+  switch( ref->ref_type ) {
+  case FD_ACCDB_REF_RO:
+    fd_accdb_user_v1_close_ro( accdb, (fd_accdb_ro_t *)ref );
+    break;
+  case FD_ACCDB_REF_RW:
+    fd_accdb_user_v1_close_rw( accdb, (fd_accdb_rw_t *)ref );
+    break;
+  default:
+    FD_LOG_CRIT(( "invalid ref_type %u in fd_accdb_user_v1_close_ref", (uint)ref->ref_type ));
+  }
+}
+
 ulong
 fd_accdb_user_v1_rw_data_max( fd_accdb_user_t *     accdb,
                               fd_accdb_rw_t const * rw ) {
@@ -537,9 +556,8 @@ fd_accdb_user_vt_t const fd_accdb_user_v1_vt = {
   .fini            = fd_accdb_user_v1_fini,
   .peek            = fd_accdb_user_v1_peek,
   .open_ro         = fd_accdb_user_v1_open_ro,
-  .close_ro        = fd_accdb_user_v1_close_ro,
   .open_rw         = fd_accdb_user_v1_open_rw,
-  .close_rw        = fd_accdb_user_v1_close_rw,
+  .close_ref       = fd_accdb_user_v1_close_ref,
   .rw_data_max     = fd_accdb_user_v1_rw_data_max,
   .rw_data_sz_set  = fd_accdb_user_v1_rw_data_sz_set,
   /* FIXME could ship a parallel map query (ILP gather) */

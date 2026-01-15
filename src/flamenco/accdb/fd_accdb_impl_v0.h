@@ -76,10 +76,6 @@ fd_accdb_user_v0_open_ro( fd_accdb_user_t *         accdb,
                           fd_funk_txn_xid_t const * xid,
                           void const *              address );
 
-void
-fd_accdb_user_v0_close_ro( fd_accdb_user_t * accdb,
-                           fd_accdb_ro_t *   ro );
-
 fd_accdb_rw_t *
 fd_accdb_user_v0_open_rw( fd_accdb_user_t *         accdb,
                           fd_accdb_rw_t *           rw,
@@ -88,8 +84,8 @@ fd_accdb_user_v0_open_rw( fd_accdb_user_t *         accdb,
                           ulong                     data_max,
                           int                       flags );
 void
-fd_accdb_user_v0_close_rw( fd_accdb_user_t * accdb,
-                           fd_accdb_rw_t *   write );
+fd_accdb_user_v0_close_ref( fd_accdb_user_t * accdb,
+                            fd_accdb_ref_t *  write );
 
 
 ulong

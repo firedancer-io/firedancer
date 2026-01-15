@@ -145,12 +145,14 @@ run_tests( fd_accdb_user_t * accdb ) {
   fd_accdb_ro_t ro[1];
 
   FD_TEST( fd_accdb_open_ro( accdb, ro, xid, s_key_a ) );
+  FD_TEST( ro->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( fd_accdb_ref_lamports( ro )==10000UL );
   fd_accdb_close_ro( accdb, ro );
 
   FD_TEST( !fd_accdb_open_ro( accdb, ro, xid, s_key_b ) );
 
   FD_TEST( fd_accdb_open_ro( accdb, ro, xid, s_key_c ) );
+  FD_TEST( ro->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( fd_accdb_ref_lamports( ro )==20000UL );
   fd_accdb_close_ro( accdb, ro );
 
@@ -167,6 +169,7 @@ run_tests( fd_accdb_user_t * accdb ) {
 
   fd_accdb_ro_pipe_enqueue( pipe, s_key_d );
   FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_NONE ); /* tombstone */
   FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_d, 32UL ) );
   FD_TEST( ro_tmp->meta->lamports==0UL );
@@ -179,6 +182,7 @@ run_tests( fd_accdb_user_t * accdb ) {
 
   fd_accdb_ro_pipe_enqueue( pipe, s_key_c );
   FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_V1 );
   FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_c, 32UL ) );
   FD_TEST( ro_tmp->meta->lamports==20000UL );
@@ -195,6 +199,7 @@ run_tests( fd_accdb_user_t * accdb ) {
   fd_accdb_ro_pipe_flush( pipe );
   /* result for b */
   FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_V2 );
   FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_b, 32UL ) );
   FD_TEST( accdb->base.ro_active==1UL );
@@ -229,7 +234,7 @@ main( int     argc,
   char const * _page_sz    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",     NULL,             "gigantic" );
   ulong        page_cnt    = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",    NULL,                    8UL );
   ulong        near_cpu    = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",    NULL,        fd_log_cpu_id() );
-  ulong        tag         = fd_env_strip_cmdline_ulong( &argc, &argv, "--tag",         NULL,                 WKSP_TAG );
+  ulong        tag         = fd_env_strip_cmdline_ulong( &argc, &argv, "--tag",         NULL,               WKSP_TAG );
 
   /* Vinyl I/O parameters */
   ulong        spad_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--spad-max",    NULL, fd_vinyl_io_spad_est() );

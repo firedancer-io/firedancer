@@ -24,6 +24,7 @@ struct fd_accdb_ref {
   ulong user_data;
   uchar address[32];
   uint  accdb_type;  /* FD_ACCDB_TYPE_* */
+  uchar ref_type;    /* FD_ACCDB_REF_* */
 };
 typedef struct fd_accdb_ref fd_accdb_ref_t;
 
@@ -51,6 +52,7 @@ fd_accdb_ro_init_nodb( fd_accdb_ro_t *           ro,
   ro->ref->user_data = 0UL;
   memcpy( ro->ref->address, address, 32UL );
   ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+  ro->ref->ref_type   = FD_ACCDB_REF_RO;
   return ro;
 }
 

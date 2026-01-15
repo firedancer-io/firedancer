@@ -34,10 +34,6 @@ struct fd_accdb_user_vt {
                fd_funk_txn_xid_t const * xid,
                void const *              address );
 
-  void
-  (* close_ro)( fd_accdb_user_t * accdb,
-                fd_accdb_ro_t *   ro );
-
   fd_accdb_rw_t *
   (* open_rw)( fd_accdb_user_t *         accdb,
                fd_accdb_rw_t *           rw,
@@ -47,8 +43,8 @@ struct fd_accdb_user_vt {
                int                       flags );
 
   void
-  (* close_rw)( fd_accdb_user_t * accdb,
-                fd_accdb_rw_t *   write );
+  (* close_ref)( fd_accdb_user_t * accdb,
+                 fd_accdb_ref_t *  ref );
 
   /* Resize APIs */
 

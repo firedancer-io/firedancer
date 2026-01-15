@@ -15,4 +15,7 @@ typedef struct fd_accdb_ro_pipe fd_accdb_ro_pipe_t;
 #define FD_ACCDB_TYPE_V2    (2U) /* read-only vinyl + read-write funk */
 #define FD_ACCDB_TYPE_NONE (79U) /* marks an account as not managed by accdb */
 
+#define FD_ACCDB_REF_RO 1
+#define FD_ACCDB_REF_RW 2
+
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_base_h */

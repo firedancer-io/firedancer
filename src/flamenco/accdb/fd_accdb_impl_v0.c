@@ -175,6 +175,7 @@ fd_accdb_user_v0_open_ro( fd_accdb_user_t *         accdb_,
     *ro = (fd_accdb_ro_t) {0};
     FD_STORE( fd_pubkey_t, ro->ref->address, rec->key );
     ro->ref->accdb_type = FD_ACCDB_TYPE_V0;
+    ro->ref->ref_type   = FD_ACCDB_REF_RO;
     ro->ref->user_data  = 0UL;
     ro->meta            = &rec->meta;
 
@@ -186,7 +187,7 @@ fd_accdb_user_v0_open_ro( fd_accdb_user_t *         accdb_,
   return found;
 }
 
-void
+static void
 fd_accdb_user_v0_close_ro( fd_accdb_user_t * accdb,
                            fd_accdb_ro_t *   ro ) {
   fd_accdb_user_v0_t * user = (fd_accdb_user_v0_t *)accdb;
@@ -253,6 +254,7 @@ fd_accdb_user_v0_open_rw( fd_accdb_user_t *         accdb_,
   *rw = (fd_accdb_rw_t) {0};
   memcpy( rw->ref->address, address, sizeof(fd_pubkey_t) );
   rw->ref->accdb_type = FD_ACCDB_TYPE_V0;
+  rw->ref->ref_type   = FD_ACCDB_REF_RW;
   rw->ref->user_data  = 0UL;
   rw->meta            = &rec->meta;
 
@@ -261,7 +263,7 @@ beach:
   return rw;
 }
 
-void
+static void
 fd_accdb_user_v0_close_rw( fd_accdb_user_t * accdb,
                            fd_accdb_rw_t *   rw ) {
   fd_accdb_user_v0_t * user = (fd_accdb_user_v0_t *)accdb;
@@ -287,6 +289,21 @@ fd_accdb_user_v0_close_rw( fd_accdb_user_t * accdb,
   if( rec->meta.lamports==0UL ) remove_rec( v0, idx );
 
   fd_rwlock_unwrite( &v0->lock );
+}
+
+void
+fd_accdb_user_v0_close_ref( fd_accdb_user_t * accdb,
+                            fd_accdb_ref_t *  ref ) {
+  switch( ref->ref_type ) {
+  case FD_ACCDB_REF_RO:
+    fd_accdb_user_v0_close_ro( accdb, (fd_accdb_ro_t *)ref );
+    break;
+  case FD_ACCDB_REF_RW:
+    fd_accdb_user_v0_close_rw( accdb, (fd_accdb_rw_t *)ref );
+    break;
+  default:
+    FD_LOG_CRIT(( "invalid ref_type %u in fd_accdb_user_v0_close_ref", (uint)ref->ref_type ));
+  }
 }
 
 ulong
@@ -328,9 +345,8 @@ fd_accdb_user_vt_t const fd_accdb_user_v0_vt = {
   .fini            = fd_accdb_user_v0_fini,
   .peek            = fd_accdb_user_v0_peek,
   .open_ro         = fd_accdb_user_v0_open_ro,
-  .close_ro        = fd_accdb_user_v0_close_ro,
   .open_rw         = fd_accdb_user_v0_open_rw,
-  .close_rw        = fd_accdb_user_v0_close_rw,
+  .close_ref       = fd_accdb_user_v0_close_ref,
   .rw_data_max     = fd_accdb_user_v0_rw_data_max,
   .rw_data_sz_set  = fd_accdb_user_v0_rw_data_sz_set,
   .ro_pipe_init    = fd_accdb_ro_pipe1_init,
