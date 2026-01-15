@@ -116,6 +116,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.max_full_snapshots_to_keep                );
   CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
   CFG_POP      ( uint,   snapshots.full_effective_age_cancel_threshold       );
+  CFG_POP      ( uint,   snapshots.max_retry_abort                           );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
 

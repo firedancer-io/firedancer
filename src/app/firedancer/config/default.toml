@@ -346,6 +346,16 @@ user = ""
     # over would be preferable.
     full_effective_age_cancel_threshold = 20_000
 
+    # Controls how many times the validator will retry loading a full or
+    # incremental snapshot before aborting.  Reasons for retrying a
+    # snapshot load include snapshot corruption, slow download speed,
+    # server availability, and snapshot age.  A peer that is serving us
+    # a snapshot may go offline, or network congestion may cause slow
+    # download speeds.  While downloading a snapshot, a newer snapshot
+    # may be available and we may cancel and retry the snapshot download
+    # if the full_effective_age_cancel_threshold is met.
+    max_retry_abort = 5
+
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
     # gossip peers that advertise RPC server addresses, or from external

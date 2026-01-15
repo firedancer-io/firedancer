@@ -599,6 +599,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
         ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
+
+        fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
+        fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
+        fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
       }
       break;
 
@@ -606,13 +610,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       if( ctx->state!=FD_SNAPSHOT_STATE_IDLE ) {
         ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-        if( !ctx->use_vinyl ) {
-          if( ctx->full ) {
-            fd_accdb_clear( ctx->accdb_admin );
-          } else {
-            fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
-            fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
-          }
+        if( !ctx->use_vinyl && ctx->full ) {
+          fd_accdb_clear( ctx->accdb_admin );
+        }
+
+        if( !ctx->full ) {
+          fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
+          fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
         }
       }
       break;
@@ -631,10 +635,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
       ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
-
-      fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
-      fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
-      fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
       break;
     }
 

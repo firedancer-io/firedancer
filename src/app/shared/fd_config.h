@@ -160,6 +160,7 @@ struct fd_configf {
     uint max_full_snapshots_to_keep;
     uint max_incremental_snapshots_to_keep;
     uint full_effective_age_cancel_threshold;
+    uint max_retry_abort;
   } snapshots;
 
   struct {
