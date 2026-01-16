@@ -1,16 +1,17 @@
+#include "fd_accdb_base.h"
 #include "fd_accdb_impl_v2.h"
 #include "fd_accdb_admin.h"
 #include "fd_accdb_sync.h"
-#include "fd_accdb_batch.h"
+#include "fd_accdb_pipe.h"
 #include "../../vinyl/fd_vinyl.h"
 
 #define WKSP_TAG (1UL)
 
-static uchar s_key_a[ 32 ] = { 1 };  /* exist (funk) */
-static uchar s_key_b[ 32 ] = { 2 };  /* tombstone, funk */
-static uchar s_key_c[ 32 ] = { 3 };  /* exist (vinyl) */
-static uchar s_key_d[ 32 ] = { 4 };  /* tombstone, vinyl */
-static uchar s_key_e[ 32 ] = { 5 };  /* missing */
+static uchar const s_key_a[ 32 ] = { 1 };  /* a: present in vinyl, account exists */
+static uchar const s_key_b[ 32 ] = { 2 };  /* b: present in vinyl, tombstone */
+static uchar const s_key_c[ 32 ] = { 3 };  /* c: present in funk,  account exists */
+static uchar const s_key_d[ 32 ] = { 4 };  /* d: present in funk,  tombstone*/
+static uchar const s_key_e[ 32 ] = { 5 };  /* e: not found */
 
 static int
 fd_vinyl_tile( int     argc,
@@ -131,9 +132,31 @@ add_account_funk( fd_accdb_user_t * accdb_,
 }
 
 static void
+test_account_creation( fd_accdb_user_t *         accdb,
+                       fd_funk_txn_xid_t const * xid2,
+                       void const *              addr,
+                       ulong                     lamports ) {
+  fd_accdb_rw_t rw[1];
+  fd_accdb_ro_t ro[1];
+  FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, addr, 16UL, FD_ACCDB_FLAG_CREATE ) );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==1 );
+  fd_accdb_ref_lamports_set( rw, lamports );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+  FD_TEST( fd_accdb_open_ro( accdb, ro, xid2, addr ) );
+  FD_TEST( fd_accdb_ref_lamports( ro )==lamports );
+  fd_accdb_close_ro( accdb, ro );
+  FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, addr, 16UL, 0 ) );
+  fd_accdb_ref_lamports_set( rw, 0UL ); /* delete */
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( !fd_accdb_open_ro( accdb, ro, xid2, addr ) );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+}
+
+static void
 run_tests( fd_accdb_user_t * accdb ) {
-  (void)s_key_a; (void)s_key_b; (void)s_key_c; (void)s_key_d; (void)s_key_e;
-  (void)add_account_funk;
+  fd_accdb_user_v2_t *  v2       = (fd_accdb_user_v2_t *)accdb;
+  fd_vinyl_req_pool_t * req_pool = v2->vinyl_req_pool;
 
   add_account_vinyl( accdb, s_key_a, 10000UL );
   add_account_vinyl( accdb, s_key_b,     0UL );
@@ -145,81 +168,123 @@ run_tests( fd_accdb_user_t * accdb ) {
   fd_accdb_ro_t ro[1];
 
   FD_TEST( fd_accdb_open_ro( accdb, ro, xid, s_key_a ) );
+  FD_TEST( ro->ref->accdb_type==FD_ACCDB_TYPE_V2 );
   FD_TEST( ro->ref->ref_type==FD_ACCDB_REF_RO );
+  FD_TEST( accdb->base.ro_active==1UL );
   FD_TEST( fd_accdb_ref_lamports( ro )==10000UL );
   fd_accdb_close_ro( accdb, ro );
+  FD_TEST( accdb->base.ro_active==0UL );
+  FD_TEST( req_pool->free_cnt==2UL );
 
   FD_TEST( !fd_accdb_open_ro( accdb, ro, xid, s_key_b ) );
 
   FD_TEST( fd_accdb_open_ro( accdb, ro, xid, s_key_c ) );
+  FD_TEST( accdb->base.ro_active==1UL );
   FD_TEST( ro->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( fd_accdb_ref_lamports( ro )==20000UL );
   fd_accdb_close_ro( accdb, ro );
+  FD_TEST( accdb->base.ro_active==0UL );
+  FD_TEST( req_pool->free_cnt==2UL );
 
   FD_TEST( !fd_accdb_open_ro( accdb, ro, xid, s_key_d ) );
 
   FD_TEST( !fd_accdb_open_ro( accdb, ro, xid, s_key_e ) );
 
-  /* Test ro_pipe API.  Read [d, b, c, a], expect results to arrive in
-     order [d, c, b, a] */
+  /* Test ro_pipe API */
 
   fd_accdb_ro_t * ro_tmp;
   fd_accdb_ro_pipe_t pipe[1];
   FD_TEST( fd_accdb_ro_pipe_init( pipe, accdb, xid ) );
+  FD_TEST( pipe->req_cnt==0UL );
+  FD_TEST( pipe->req_max==4UL );
+  FD_TEST( req_pool->free_cnt==2UL );
 
+  /* first batch: d, b, c, e */
   fd_accdb_ro_pipe_enqueue( pipe, s_key_d );
-  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
-  FD_TEST( ro_tmp->ref->ref_type==FD_ACCDB_REF_RO );
-  FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_NONE ); /* tombstone */
-  FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_d, 32UL ) );
-  FD_TEST( ro_tmp->meta->lamports==0UL );
-  FD_TEST( accdb->base.ro_active==0UL ); /* tombstone */
+  FD_TEST( req_pool->free_cnt==2UL );
+  FD_TEST( pipe->req_cnt==1UL );
   FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
-  FD_TEST( accdb->base.ro_active==0UL );
-
   fd_accdb_ro_pipe_enqueue( pipe, s_key_b );
   FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
-
   fd_accdb_ro_pipe_enqueue( pipe, s_key_c );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+  fd_accdb_ro_pipe_enqueue( pipe, s_key_e );
+  FD_TEST( req_pool->free_cnt==2UL );
+
+  /* result for d */
+  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->ref_type==FD_ACCDB_REF_RO );
+  FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_NONE );
+  FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_d, 32UL ) );
+  FD_TEST( ro_tmp->meta->lamports==0UL );
+  FD_TEST( accdb->base.ro_active==3UL );
+
+  /* result for b (tombstone) */
+  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
+  FD_TEST( ro_tmp->ref->ref_type==FD_ACCDB_REF_RO );
+  FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_NONE );
+  FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_b, 32UL ) );
+  FD_TEST( ro_tmp->meta->lamports==0UL );
+
+  /* result for c */
   FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
   FD_TEST( ro_tmp->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_V1 );
   FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_c, 32UL ) );
   FD_TEST( ro_tmp->meta->lamports==20000UL );
-  FD_TEST( accdb->base.ro_active==1UL );
-  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
-  FD_TEST( accdb->base.ro_active==0UL );
 
-  fd_accdb_ro_pipe_enqueue( pipe, s_key_e );
-  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
-
-  fd_accdb_ro_pipe_enqueue( pipe, s_key_a );
-  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
-
-  fd_accdb_ro_pipe_flush( pipe );
-  /* result for b */
-  FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
-  FD_TEST( ro_tmp->ref->ref_type==FD_ACCDB_REF_RO );
-  FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_V2 );
-  FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_b, 32UL ) );
-  FD_TEST( accdb->base.ro_active==1UL );
-  FD_TEST( ro_tmp->meta->lamports==0UL );
   /* result for e (tombstone) */
   FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
   FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_NONE );
   FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_e, 32UL ) );
   FD_TEST( ro_tmp->meta->lamports==0UL );
-  FD_TEST( accdb->base.ro_active==1UL );
+  FD_TEST( accdb->base.ro_active==3UL );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+  FD_TEST( accdb->base.ro_active==0UL );
+
   /* result for a */
+  fd_accdb_ro_pipe_enqueue( pipe, s_key_a );
+  FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
+  fd_accdb_ro_pipe_flush( pipe );
   FD_TEST( (ro_tmp = fd_accdb_ro_pipe_poll( pipe )) );
   FD_TEST( ro_tmp->ref->accdb_type==FD_ACCDB_TYPE_V2 );
   FD_TEST( 0==memcmp( fd_accdb_ref_address( ro_tmp ), s_key_a, 32UL ) );
   FD_TEST( ro_tmp->meta->lamports==10000UL );
-  FD_TEST( accdb->base.ro_active==2UL );
+  FD_TEST( accdb->base.ro_active==1UL );
   FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
   FD_TEST( accdb->base.ro_active==0UL );
 
-  fd_accdb_ro_pipe_fini( pipe, accdb );
+  fd_accdb_ro_pipe_fini( pipe );
+
+  fd_accdb_rw_t rw[1];
+  fd_funk_txn_xid_t xid2[1] = {{ .ul={ 1UL, 2UL } }};
+  fd_accdb_admin_t admin[1];
+  fd_accdb_admin_join( admin, v2->v1.funk->shmem );
+  fd_accdb_attach_child( admin, xid, xid2 );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+
+  /* vinyl tombstone */
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, xid2, s_key_b, 16UL, 0 ) );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+  test_account_creation( accdb, xid2, s_key_b, 1UL );
+
+  /* funk tombstone, vinyl exist */
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, xid2, s_key_d, 16UL, 0 ) );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+  test_account_creation( accdb, xid2, s_key_d, 2UL );
+
+  /* missing account */
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, xid2, s_key_e, 16UL, 0 ) );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+  test_account_creation( accdb, xid2, s_key_e, 4UL );
+
+  /* repeatedly delete and recreate the same account */
+  for( ulong i=0UL; i<1024UL; i++ ) {
+    test_account_creation( accdb, xid2, s_key_e, 4UL );
+  }
+
+  fd_accdb_cancel( admin, xid2 );
+  fd_accdb_admin_leave( admin, NULL );
 }
 
 int
@@ -339,11 +404,11 @@ main( int     argc,
   FD_TEST( shfunk );
   FD_TEST( fd_funk_new( shfunk, tag, funk_seed, txn_max, rec_max ) );
 
-  ulong req_pool_footprint = fd_vinyl_req_pool_footprint( 1UL, 4UL );
+  ulong req_pool_footprint = fd_vinyl_req_pool_footprint( 2UL, 4UL );
   FD_TEST( req_pool_footprint );
   void * _req_pool = fd_wksp_alloc_laddr( wksp, fd_vinyl_req_pool_align(), req_pool_footprint, tag );
   FD_TEST( _req_pool );
-  void * req_pool = fd_vinyl_req_pool_new( _req_pool, 1UL, 4UL );
+  void * req_pool = fd_vinyl_req_pool_new( _req_pool, 2UL, 4UL );
   FD_TEST( req_pool );
 
   FD_LOG_NOTICE(( "Connecting client to vinyl" ));

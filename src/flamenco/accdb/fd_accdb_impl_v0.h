@@ -70,34 +70,6 @@ fd_accdb_user_v0_init( fd_accdb_user_t * ljoin,
 void
 fd_accdb_user_v0_fini( fd_accdb_user_t * accdb );
 
-fd_accdb_ro_t *
-fd_accdb_user_v0_open_ro( fd_accdb_user_t *         accdb,
-                          fd_accdb_ro_t *           ro,
-                          fd_funk_txn_xid_t const * xid,
-                          void const *              address );
-
-fd_accdb_rw_t *
-fd_accdb_user_v0_open_rw( fd_accdb_user_t *         accdb,
-                          fd_accdb_rw_t *           rw,
-                          fd_funk_txn_xid_t const * xid,
-                          void const *              address,
-                          ulong                     data_max,
-                          int                       flags );
-void
-fd_accdb_user_v0_close_ref( fd_accdb_user_t * accdb,
-                            fd_accdb_ref_t *  write );
-
-
-ulong
-fd_accdb_user_v0_rw_data_max( fd_accdb_user_t *     accdb,
-                              fd_accdb_rw_t const * rw );
-
-void
-fd_accdb_user_v0_rw_data_sz_set( fd_accdb_user_t * accdb,
-                                 fd_accdb_rw_t *   rw,
-                                 ulong             data_sz,
-                                 int               flags );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_impl_v0_h */

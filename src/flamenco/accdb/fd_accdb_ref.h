@@ -56,6 +56,22 @@ fd_accdb_ro_init_nodb( fd_accdb_ro_t *           ro,
   return ro;
 }
 
+/* fd_accdb_ro_init_empty creates a read-only account reference to a
+   non-existent account. */
+
+extern fd_account_meta_t const fd_accdb_meta_empty;
+
+static inline fd_accdb_ro_t *
+fd_accdb_ro_init_empty( fd_accdb_ro_t * ro,
+                        void const *    address ) {
+  ro->meta = &fd_accdb_meta_empty;
+  ro->ref->user_data = 0UL;
+  memcpy( ro->ref->address, address, 32UL );
+  ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+  ro->ref->ref_type   = FD_ACCDB_REF_RO;
+  return ro;
+}
+
 static inline void const *
 fd_accdb_ref_address( fd_accdb_ro_t const * ro ) {
   return ro->ref->address;

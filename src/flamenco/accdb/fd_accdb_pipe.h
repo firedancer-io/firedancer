@@ -1,10 +1,7 @@
-#ifndef HEADER_fd_src_flamenco_accdb_fd_accdb_batch_h
-#define HEADER_fd_src_flamenco_accdb_fd_accdb_batch_h
+#ifndef HEADER_fd_src_flamenco_accdb_fd_accdb_pipe_h
+#define HEADER_fd_src_flamenco_accdb_fd_accdb_pipe_h
 
-/* fd_accdb_batch.h provides streaming APIs for bulk account accesses.
-   These amortize I/O wait time if paired with an asynchronous database
-   I/O engine (e.g. vinyl_io_ur).  Mostly useful for reads of accounts
-   that are not in memory cache. */
+/* fd_accdb_pipe.h provides APIs for fast bulk account access. */
 
 #include "fd_accdb_base.h"
 #include "fd_accdb_ref.h"
@@ -12,9 +9,9 @@
 
 /* fd_accdb_ro_pipe_t is an API for pipelining account read requests.
 
-   This API flexibly adapts to the style of underlying I/O API (batch or
-   true async) and queue depths without requiring the caller to know
-   database config specifics.
+   This API flexibly adapts to the style of underlying I/O backend and
+   queue depths without requiring the caller to know database config
+   specifics.
 
    General usage as follows:
 
@@ -41,45 +38,53 @@
    results as they become available.  The loop blocks as appropriate
    when backpressured. */
 
-struct __attribute__((aligned(16))) fd_accdb_ro_pipe {
-  fd_accdb_user_t * user;
-  uchar             impl[ 120 ];
+#define FD_ACCDB_RO_PIPE_MAX (1024UL)
+
+struct fd_accdb_ro_pipe {
+  fd_accdb_user_t * accdb;
+  fd_funk_txn_xid_t xid;
+
+  ulong batch_idx;  /* index of req batch */
+  uint  req_max;
+  uint  req_cnt;    /* batch element count */
+  uint  req_comp;   /* index of next completion */
+  uint  state;
+
+  fd_accdb_ro_t ro_nx[1]; /* ro describing a not-found record */
+
+  uchar         addr[ FD_ACCDB_RO_PIPE_MAX ][ 32 ];
+  fd_accdb_ro_t ro  [ FD_ACCDB_RO_PIPE_MAX ];
 };
+
+typedef struct fd_accdb_ro_pipe fd_accdb_ro_pipe_t;
 
 FD_PROTOTYPES_BEGIN
 
-static inline fd_accdb_ro_pipe_t *
+/* fd_accdb_ro_pipe_init creates a new ro_pipe.  */
+
+fd_accdb_ro_pipe_t *
 fd_accdb_ro_pipe_init( fd_accdb_ro_pipe_t *      pipe,
                        fd_accdb_user_t *         accdb,
-                       fd_funk_txn_xid_t const * xid ) {
-  return accdb->base.vt->ro_pipe_init( pipe, accdb, xid );
-}
+                       fd_funk_txn_xid_t const * xid );
 
-static inline void
-fd_accdb_ro_pipe_fini( fd_accdb_ro_pipe_t * pipe,
-                       fd_accdb_user_t *    accdb ) {
-  accdb->base.vt->ro_pipe_fini( pipe );
-}
+void
+fd_accdb_ro_pipe_fini( fd_accdb_ro_pipe_t * pipe );
 
 /* fd_accdb_ro_pipe_enqueue asynchronously enqueues a read request.
    May block internally if queues are full.  The user must drain all
    completions (fd_accdb_ro_pipe_poll) before calling enqueue. */
 
-static inline void
+void
 fd_accdb_ro_pipe_enqueue( fd_accdb_ro_pipe_t * pipe,
-                          void const *         address ) {
-  pipe->user->base.vt->ro_pipe_enqueue( pipe, address );
-}
+                          void const *         address );
 
 /* fd_accdb_ro_pipe_flush dispatches all enqueued read requests and
    blocks until all results become available.  (All calls made to poll
    after the flush are guaranteed to return non-NULL for requests
    enqueued before the flush.) */
 
-static inline void
-fd_accdb_ro_pipe_flush( fd_accdb_ro_pipe_t * pipe ) {
-  pipe->user->base.vt->ro_pipe_flush( pipe );
-}
+void
+fd_accdb_ro_pipe_flush( fd_accdb_ro_pipe_t * pipe );
 
 /* fd_accdb_ro_pipe_poll polls for the next read completion.  Returns an
    ro handle if a request completed.  Returns NULL if no completion is
@@ -98,20 +103,9 @@ fd_accdb_ro_pipe_flush( fd_accdb_ro_pipe_t * pipe ) {
    NOTE: If an account was not found, returns a non-NULL ro (to a dummy
    account with zero lamports), which differs from fd_accdb_open_ro. */
 
-static inline fd_accdb_ro_t *
-fd_accdb_ro_pipe_poll( fd_accdb_ro_pipe_t * pipe ) {
-  return pipe->user->base.vt->ro_pipe_poll( pipe );
-}
-
-/* fd_accdb_ro_pipe1 is a fallback implementation of fd_accdb_ro_pipe
-   that is based on fd_accdb_open_ro. */
-
-fd_accdb_ro_pipe_t * fd_accdb_ro_pipe1_init   ( fd_accdb_ro_pipe_t *, fd_accdb_user_t *, fd_funk_txn_xid_t const * );
-void                 fd_accdb_ro_pipe1_fini   ( fd_accdb_ro_pipe_t * );
-void                 fd_accdb_ro_pipe1_enqueue( fd_accdb_ro_pipe_t *, void const * );
-void                 fd_accdb_ro_pipe1_flush  ( fd_accdb_ro_pipe_t * );
-fd_accdb_ro_t *      fd_accdb_ro_pipe1_poll   ( fd_accdb_ro_pipe_t * );
+fd_accdb_ro_t *
+fd_accdb_ro_pipe_poll( fd_accdb_ro_pipe_t * pipe );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_batch_h */
+#endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_pipe_h */

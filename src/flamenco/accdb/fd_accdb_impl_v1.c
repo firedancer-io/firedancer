@@ -1,7 +1,6 @@
 #include "fd_accdb_impl_v1.h"
 #include "fd_accdb_base.h"
 #include "fd_accdb_sync.h"
-#include "fd_accdb_batch.h"
 
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v1_t)<=alignof(fd_accdb_user_t), layout );
 FD_STATIC_ASSERT( sizeof (fd_accdb_user_v1_t)<=sizeof(fd_accdb_user_t),  layout );
@@ -225,6 +224,12 @@ fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
   return peek;
 }
 
+static ulong
+fd_accdb_user_v1_batch_max( fd_accdb_user_t * accdb ) {
+  (void)accdb;
+  return ULONG_MAX;
+}
+
 fd_accdb_peek_t *
 fd_accdb_user_v1_peek( fd_accdb_user_t *         accdb,
                        fd_accdb_peek_t *         peek,
@@ -240,27 +245,28 @@ fd_accdb_user_v1_peek( fd_accdb_user_t *         accdb,
 }
 
 void
-fd_accdb_v1_copy_account( fd_account_meta_t *   out_meta,
-                         void *                out_data,
-                         fd_accdb_ro_t const * acc ) {
+fd_accdb_v1_copy_account( fd_account_meta_t *       out_meta,
+                          void *                    out_data,
+                          fd_account_meta_t const * src_meta,
+                          void const *              src_data ) {
   memset( out_meta, 0, sizeof(fd_account_meta_t) );
-  out_meta->lamports = fd_accdb_ref_lamports( acc );
+  out_meta->lamports = src_meta->lamports;
   if( FD_LIKELY( out_meta->lamports ) ) {
-    memcpy( out_meta->owner, fd_accdb_ref_owner( acc ), 32UL );
-    out_meta->executable = !!fd_accdb_ref_exec_bit( acc );
-    out_meta->dlen       = (uint)fd_accdb_ref_data_sz( acc );
-    fd_memcpy( out_data, fd_accdb_ref_data_const( acc ), out_meta->dlen );
+    memcpy( out_meta->owner, src_meta->owner, 32UL );
+    out_meta->executable = !!src_meta->executable;
+    out_meta->dlen       = (uint)src_meta->dlen;
+    fd_memcpy( out_data, src_data, out_meta->dlen );
   }
 }
 
 void
-fd_accdb_v1_copy_truncated( fd_account_meta_t *   out_meta,
-                            fd_accdb_ro_t const * acc ) {
+fd_accdb_v1_copy_truncated( fd_account_meta_t *       out_meta,
+                            fd_account_meta_t const * src_meta ) {
   memset( out_meta, 0, sizeof(fd_account_meta_t) );
-  out_meta->lamports = fd_accdb_ref_lamports( acc );
+  out_meta->lamports = src_meta->lamports;
   if( FD_LIKELY( out_meta->lamports ) ) {
-    memcpy( out_meta->owner, fd_accdb_ref_owner( acc ), 32UL );
-    out_meta->executable = !!fd_accdb_ref_exec_bit( acc );
+    memcpy( out_meta->owner, src_meta->owner, 32UL );
+    out_meta->executable = !!src_meta->executable;
     out_meta->dlen       = 0;
   }
 }
@@ -339,21 +345,25 @@ fd_accdb_user_v1_fini( fd_accdb_user_t * accdb ) {
   if( FD_UNLIKELY( !fd_funk_leave( user->funk, NULL ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
 }
 
-fd_accdb_ro_t *
-fd_accdb_user_v1_open_ro( fd_accdb_user_t *         accdb,
-                          fd_accdb_ro_t *           ro,
-                          fd_funk_txn_xid_t const * xid,
-                          void const *              address ) {
+void
+fd_accdb_user_v1_open_ro_multi( fd_accdb_user_t *         accdb,
+                                fd_accdb_ro_t *           ro,
+                                fd_funk_txn_xid_t const * xid,
+                                void const *              address,
+                                ulong                     cnt ) {
   fd_accdb_user_v1_t * v1 = (fd_accdb_user_v1_t *)accdb;
   fd_accdb_load_fork( v1, xid );
-
-  fd_accdb_peek_t peek[1];
-  if( !fd_accdb_peek_funk( v1, peek, xid, address ) ) return NULL;
-  if( FD_UNLIKELY( !peek->acc->meta->lamports ) ) return NULL;
-
-  v1->base.ro_active++;
-  *ro = *peek->acc;
-  return ro;
+  ulong addr_laddr = (ulong)address;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    void const *    addr_i = (void const *)( (ulong)addr_laddr + i*32UL );
+    fd_accdb_peek_t peek[1];
+    if( !fd_accdb_peek_funk( v1, peek, xid, addr_i ) ) {
+      fd_accdb_ro_init_empty( &ro[i], addr_i );
+    } else {
+      ro[i] = *peek->acc;
+      v1->base.ro_active++;
+    }
+  }
 }
 
 static void
@@ -365,6 +375,22 @@ fd_accdb_user_v1_close_ro( fd_accdb_user_t * accdb,
   (void)ro;
 }
 
+static fd_accdb_rw_t *
+fd_accdb_v1_create( fd_accdb_user_v1_t *      v1,
+                    fd_accdb_rw_t *           rw,
+                    fd_funk_txn_xid_t const * xid,
+                    void const *              address,
+                    ulong                     data_max ) {
+  ulong  val_sz_min = sizeof(fd_account_meta_t)+data_max;
+  ulong  val_max    = 0UL;
+  void * val        = fd_alloc_malloc_at_least( v1->funk->alloc, 16UL, val_sz_min, &val_max );
+  if( FD_UNLIKELY( !val ) ) {
+    FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", data_max ));
+  }
+  memset( val, 0, sizeof(fd_account_meta_t) );
+  return fd_accdb_v1_prep_create( rw, v1, xid, address, val, sizeof(fd_account_meta_t), val_max );
+}
+
 fd_accdb_rw_t *
 fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
                           fd_accdb_rw_t *           rw,
@@ -374,9 +400,10 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
                           int                       flags ) {
   fd_accdb_user_v1_t * v1  = (fd_accdb_user_v1_t *)accdb;
 
-  int const flag_create   = !!( flags & FD_ACCDB_FLAG_CREATE   );
-  int const flag_truncate = !!( flags & FD_ACCDB_FLAG_TRUNCATE );
-  if( FD_UNLIKELY( flags & ~(FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE) ) ) {
+  int const flag_create    = !!( flags & FD_ACCDB_FLAG_CREATE       );
+  int const flag_truncate  = !!( flags & FD_ACCDB_FLAG_TRUNCATE     );
+  int const flag_tombstone = !!( flags & FD_ACCDB_FLAG_V1_TOMBSTONE );
+  if( FD_UNLIKELY( flags & ~(FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE|FD_ACCDB_FLAG_V1_TOMBSTONE) ) ) {
     FD_LOG_CRIT(( "invalid flags for open_rw: %#02x", (uint)flags ));
   }
 
@@ -404,18 +431,17 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
 
   fd_accdb_peek_t peek[1];
   if( FD_UNLIKELY( !fd_accdb_peek_funk( v1, peek, xid, address ) ) ) {
-
     /* Record not found */
-    if( !flag_create ) return NULL;
-    ulong  val_sz_min = sizeof(fd_account_meta_t)+data_max;
-    ulong  val_max    = 0UL;
-    void * val        = fd_alloc_malloc_at_least( v1->funk->alloc, 16UL, val_sz_min, &val_max );
-    if( FD_UNLIKELY( !val ) ) {
-      FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", data_max ));
-    }
-    memset( val, 0, sizeof(fd_account_meta_t) );
-    return fd_accdb_v1_prep_create( rw, v1, xid, address, val, sizeof(fd_account_meta_t), val_max );
+    if( flag_create ) return fd_accdb_v1_create( v1, rw, xid, address, data_max );
+    return NULL;
+  }
 
+  if( !peek->acc->meta->lamports ) {
+    /* If the 'tombstone' flag was requested, treat non-existent
+       accounts and zero-lamport accounts differently. */
+    if( flag_tombstone ) return (fd_accdb_rw_t *)fd_accdb_ro_init_empty( rw->ro, address );
+    /* Record previously deleted */
+    if( !flag_create ) return NULL;
   }
 
   fd_funk_rec_t * rec = (fd_funk_rec_t *)peek->acc->ref->user_data;
@@ -450,8 +476,8 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
     fd_account_meta_t * meta            = val;
     uchar *             data            = (uchar *)( meta+1 );
     ulong               data_max_actual = val_max - sizeof(fd_account_meta_t);
-    if( flag_truncate ) fd_accdb_v1_copy_truncated( meta,       peek->acc );
-    else                fd_accdb_v1_copy_account  ( meta, data, peek->acc );
+    if( flag_truncate ) fd_accdb_v1_copy_truncated( meta,       peek->acc->meta );
+    else                fd_accdb_v1_copy_account  ( meta, data, peek->acc->meta, fd_account_data( peek->acc->meta ) );
     if( acc_orig_sz<data_max_actual ) {
       /* Zero out trailing data */
       uchar * tail    = data           +acc_orig_sz;
@@ -468,11 +494,32 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
 }
 
 void
+fd_accdb_user_v1_open_rw_multi( fd_accdb_user_t *         accdb,
+                                fd_accdb_rw_t *           rw,
+                                fd_funk_txn_xid_t const * xid,
+                                void const *              address,
+                                ulong const *             data_max,
+                                int                       flags,
+                                ulong                     cnt ) {
+  ulong addr_laddr = (ulong)address;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    void const *    addr_i = (void const *)( (ulong)addr_laddr + i*32UL );
+    ulong           dmax_i = data_max[i];
+    fd_accdb_rw_t * rw_i   = fd_accdb_user_v1_open_rw( accdb, &rw[i], xid, addr_i, dmax_i, flags );
+    if( !rw_i ) memset( &rw[i], 0, sizeof(fd_accdb_rw_t) );
+  }
+}
+
+void
 fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
                            fd_accdb_rw_t *   write ) {
   if( FD_UNLIKELY( !accdb ) ) FD_LOG_CRIT(( "NULL accdb" ));
   fd_accdb_user_v1_t * v1  = (fd_accdb_user_v1_t *)accdb;
   fd_funk_rec_t *      rec = (fd_funk_rec_t *)write->ref->user_data;
+
+  if( FD_UNLIKELY( write->ref->accdb_type!=FD_ACCDB_TYPE_V1 ) ) {
+    FD_LOG_CRIT(( "invalid accdb_type %u in fd_accdb_user_v1_close_rw", (uint)write->ref->accdb_type ));
+  }
 
   if( FD_UNLIKELY( !v1->base.rw_active ) ) {
     FD_LOG_CRIT(( "Failed to modify account: ref count underflow" ));
@@ -496,17 +543,21 @@ fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
 }
 
 void
-fd_accdb_user_v1_close_ref( fd_accdb_user_t * accdb,
-                            fd_accdb_ref_t *  ref ) {
-  switch( ref->ref_type ) {
-  case FD_ACCDB_REF_RO:
-    fd_accdb_user_v1_close_ro( accdb, (fd_accdb_ro_t *)ref );
-    break;
-  case FD_ACCDB_REF_RW:
-    fd_accdb_user_v1_close_rw( accdb, (fd_accdb_rw_t *)ref );
-    break;
-  default:
-    FD_LOG_CRIT(( "invalid ref_type %u in fd_accdb_user_v1_close_ref", (uint)ref->ref_type ));
+fd_accdb_user_v1_close_ref_multi( fd_accdb_user_t * accdb,
+                                  fd_accdb_ref_t *  ref0,
+                                  ulong             cnt ) {
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( ref0[ i ].accdb_type==FD_ACCDB_TYPE_NONE ) continue;
+    switch( ref0[ i ].ref_type ) {
+    case FD_ACCDB_REF_RO:
+      fd_accdb_user_v1_close_ro( accdb, (fd_accdb_ro_t *)ref0+i );
+      break;
+    case FD_ACCDB_REF_RW:
+      fd_accdb_user_v1_close_rw( accdb, (fd_accdb_rw_t *)ref0+i );
+      break;
+    default:
+      FD_LOG_CRIT(( "invalid ref_type %u in fd_accdb_user_v1_close_ref", (uint)ref0[ i ].ref_type ));
+    }
   }
 }
 
@@ -554,18 +605,13 @@ fd_accdb_user_v1_rw_data_sz_set( fd_accdb_user_t * accdb,
 
 fd_accdb_user_vt_t const fd_accdb_user_v1_vt = {
   .fini            = fd_accdb_user_v1_fini,
+  .batch_max       = fd_accdb_user_v1_batch_max,
   .peek            = fd_accdb_user_v1_peek,
-  .open_ro         = fd_accdb_user_v1_open_ro,
-  .open_rw         = fd_accdb_user_v1_open_rw,
-  .close_ref       = fd_accdb_user_v1_close_ref,
+  .open_ro_multi   = fd_accdb_user_v1_open_ro_multi,
+  .open_rw_multi   = fd_accdb_user_v1_open_rw_multi,
+  .close_ref_multi = fd_accdb_user_v1_close_ref_multi,
   .rw_data_max     = fd_accdb_user_v1_rw_data_max,
-  .rw_data_sz_set  = fd_accdb_user_v1_rw_data_sz_set,
-  /* FIXME could ship a parallel map query (ILP gather) */
-  .ro_pipe_init    = fd_accdb_ro_pipe1_init,
-  .ro_pipe_fini    = fd_accdb_ro_pipe1_fini,
-  .ro_pipe_enqueue = fd_accdb_ro_pipe1_enqueue,
-  .ro_pipe_flush   = fd_accdb_ro_pipe1_flush,
-  .ro_pipe_poll    = fd_accdb_ro_pipe1_poll
+  .rw_data_sz_set  = fd_accdb_user_v1_rw_data_sz_set
 };
 
 fd_accdb_user_t *
