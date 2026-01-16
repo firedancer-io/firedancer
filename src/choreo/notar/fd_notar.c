@@ -143,6 +143,7 @@ fd_notar_count_vote( fd_notar_t *        notar,
     notar_blk->stake     = 0;
     notar_blk->dup_conf  = 0;
     notar_blk->opt_conf  = 0;
+    notar_blk->sup_conf  = 0;
     notar_blk->dup_notif = 0;
     notar_blk->opt_notif = 0;
     notar_slot->block_ids[notar_slot->block_ids_cnt++] = *vote_block_id;
@@ -150,6 +151,7 @@ fd_notar_count_vote( fd_notar_t *        notar,
   notar_blk->stake   += vtr->stake;
   notar_blk->dup_conf = ((double)notar_blk->stake / (double)total_stake) > 0.52;
   notar_blk->opt_conf = ((double)notar_blk->stake / (double)total_stake) > (2.0/3.0);
+  notar_blk->sup_conf = ((double)notar_blk->stake / (double)total_stake) > (4.0/5.0);
   return notar_blk;
 }
 
