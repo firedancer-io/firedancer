@@ -384,6 +384,7 @@ struct fd_topo_tile {
       char  vote_account_path[ PATH_MAX ];
 
       ushort expected_shred_version;
+      int    wait_for_vote_to_start_leader;
 
       ulong heap_size_gib;
       ulong max_live_slots;

@@ -259,6 +259,8 @@ struct fd_config {
   struct {
     ushort expected_shred_version;
     char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
+
+    int wait_for_vote_to_start_leader;
   } consensus;
 
   struct {

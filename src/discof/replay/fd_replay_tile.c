@@ -156,10 +156,9 @@ struct fd_replay_tile {
   /* This flag is 1 If we have seen a vote signature that our node has
      sent out get rooted at least one time.  The value is 0 otherwise.
      We can't become leader and pack blocks until this flag has been
-     set.  This parallels the Agave 'has_new_vote_been_rooted'.
-
-     TODO: Add a flag to the toml to make this optional. */
+     set.  This parallels the Agave 'has_new_vote_been_rooted'. */
   int has_identity_vote_rooted;
+  int wait_for_vote_to_start_leader;
 
   ulong        reasm_seed;
   fd_reasm_t * reasm;
@@ -1109,7 +1108,7 @@ static inline int
 maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
-  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || !ctx->has_identity_vote_rooted || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
+  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->has_identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
@@ -2594,6 +2593,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->vote_tracker );
 
   ctx->has_identity_vote_rooted = 0;
+  ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
   FD_TEST( ctx->mleaders );
