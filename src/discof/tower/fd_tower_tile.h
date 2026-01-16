@@ -94,18 +94,22 @@ typedef struct fd_tower_slot_done fd_tower_slot_done_t;
    - cluster: same as optimistic, but may not have replayed / can be
      delivered out of order.
 
+   - super: same as optimistic, but the stake threshold is 4/5
+     of stake.
+
    - rooted: a block is rooted if it or any of its descendants reach max
      lockout per TowerBFT rules.
 
-   For optimistic and rooted confirmations, the tower tile guarantees
-   that we have already replayed the block.  This is not the case for
-   duplicate and cluster confirmations (a block can get duplicate or
-   cluster confirmed before it has been replayed).  Optimistic and
-   rooted confirmations are also guaranteed to be delivered in-order
-   with no gaps from tower.  That is, if we receive a rooted frag for
-   slot N, we will have already received rooted frags for any ancestor
-   slots N - 1, N - 2, ... (if they are not skipped / on a different
-   fork) and likewise for optimistic.
+   For optimistic, super, and rooted confirmations, the tower tile
+   guarantees that we have already replayed the block.  This is not the
+   case for duplicate and cluster confirmations (a block can get
+   duplicate or cluster confirmed before it has been replayed).
+   Optimistic, super, and rooted confirmations are also
+   guaranteed to be delivered in-order with no gaps from tower.  That
+   is, if we receive a rooted frag for slot N, we will have already
+   received rooted frags for any ancestor slots N - 1, N - 2, ... (if
+   they are not skipped / on a different fork) and likewise for
+   optimistic.
 
    Note even if tower never actually voted on a slot (and therefore the
    slot never became a tower root), tower will still send a rooted
@@ -120,7 +124,8 @@ typedef struct fd_tower_slot_done fd_tower_slot_done_t;
 #define FD_TOWER_SLOT_CONFIRMED_DUPLICATE  0
 #define FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC 1
 #define FD_TOWER_SLOT_CONFIRMED_CLUSTER    2
-#define FD_TOWER_SLOT_CONFIRMED_ROOTED     3
+#define FD_TOWER_SLOT_CONFIRMED_SUPER      3
+#define FD_TOWER_SLOT_CONFIRMED_ROOTED     4
 
 struct fd_tower_slot_confirmed {
   ulong     slot;

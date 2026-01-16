@@ -118,6 +118,7 @@ typedef struct {
   ulong init_slot; /* initial slot from genesis or snapshot */
   ulong root_slot; /* monotonically increasing contiguous tower root slot */
   ulong conf_slot; /* monotonically increasing contiguous confirmed slot */
+  ulong supc_slot; /* monotonically increasing contiguous super slot */
 
   /* in/out link setup */
 
@@ -277,6 +278,13 @@ notar_confirm( ctx_t *             ctx,
     if( FD_UNLIKELY( fork && notar_blk->slot > ctx->conf_slot ) ) {
       contiguous_confirm( ctx, notar_blk->slot, ctx->conf_slot, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC );
       ctx->conf_slot = notar_blk->slot;
+    }
+  }
+  if( FD_LIKELY( notar_blk->sup_conf ) ) {
+    fd_tower_forks_t * fork = fd_forks_query( ctx->forks, notar_blk->slot );
+    if( FD_UNLIKELY( fork && notar_blk->slot > ctx->supc_slot ) ) {
+      contiguous_confirm( ctx, notar_blk->slot, ctx->supc_slot, FD_TOWER_SLOT_CONFIRMED_SUPER );
+      ctx->supc_slot = notar_blk->slot;
     }
   }
 }
@@ -456,6 +464,7 @@ replay_slot_completed( ctx_t *                      ctx,
     ctx->init_slot = slot_completed->slot;
     ctx->root_slot = slot_completed->slot;
     ctx->conf_slot = slot_completed->slot;
+    ctx->supc_slot = slot_completed->slot;
   }
 
     if( FD_UNLIKELY( 0==memcmp( &slot_completed->block_id.uc, &hash_null, sizeof(fd_hash_t) ) ) ) {
@@ -711,13 +720,14 @@ done_vote_iter:
     fd_notar_advance_wmark( ctx->notar, out.root_slot );
 
     /* Rooting implies optimistic confirmation in the Firedancer API, so
-       we need to make sure to publish the optimistic frags before the
-       rooted frags.  In most cases this is a no-op because gossip votes
-       already triggered optimistic confirmation.
+       we need to make sure to publish weaker confirmation levels before
+       publishing stronger ones.  In most cases this is a no-op because
+       gossip votes already triggered optimistic confirmation.
 
        TODO include replay votes in optimistic conf vote counting. */
 
     contiguous_confirm( ctx, out.root_slot, ctx->conf_slot, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC );
+    contiguous_confirm( ctx, out.root_slot, ctx->supc_slot, FD_TOWER_SLOT_CONFIRMED_SUPER      );
     contiguous_confirm( ctx, out.root_slot, ctx->root_slot, FD_TOWER_SLOT_CONFIRMED_ROOTED     );
 
     /* Update slot watermarks. */
@@ -938,6 +948,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->init_slot = ULONG_MAX;
   ctx->root_slot = ULONG_MAX;
   ctx->conf_slot = ULONG_MAX;
+  ctx->supc_slot = ULONG_MAX;
 
   memset( &ctx->metrics, 0, sizeof( struct ctx_metrics_t ) );
 

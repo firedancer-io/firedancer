@@ -116,6 +116,7 @@ struct fd_notar_blk {
   ulong     stake;     /* sum of stake that has voted for this block_id */
   int       dup_conf;  /* whether this block has reached 52% of stake */
   int       opt_conf;  /* whether this block has reached 2/3 of stake */
+  int       sup_conf;  /* whether this block has reached 4/5 of stake */
   int       dup_notif; /* set by caller, whether we've notified consumers this is duplicate confirmed */
   int       opt_notif; /* set by caller, whether we've notified consumers this is optimistically confirmed */
 };

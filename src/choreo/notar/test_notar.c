@@ -41,6 +41,7 @@ test_advance_epoch( fd_wksp_t * wksp ) {
   // blk->pro_conf        = 0;
   // blk->dup_conf        = 0;
   // blk->opt_conf        = 0;
+  // blk->sup_conf        = 0;
 
   // fd_pubkey_t pubkeys[4] = { { .key = { 1 } },
   //                            { .key = { 2 } },
