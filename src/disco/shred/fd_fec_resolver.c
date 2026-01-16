@@ -753,6 +753,18 @@ fd_fec_resolver_done_contains( fd_fec_resolver_t      * resolver,
 }
 
 int
+fd_fec_resolver_done_remove( fd_fec_resolver_t      * resolver,
+                             fd_ed25519_sig_t const * signature ) {
+  wrapped_sig_t * w_sig     = (wrapped_sig_t *)signature;
+  if( FD_UNLIKELY( ctx_map_key_inval( *w_sig ) ) ) return 0;
+
+  set_ctx_t * ctx = ctx_map_query( resolver->done_map, *w_sig, NULL );
+  if( FD_UNLIKELY( !ctx ) ) return 0;
+  ctx_map_remove( resolver->done_map, ctx_ll_remove( ctx ) );
+  return 1;
+}
+
+int
 fd_fec_resolver_shred_query( fd_fec_resolver_t      * resolver,
                              fd_ed25519_sig_t const * signature,
                              uint                     shred_idx,

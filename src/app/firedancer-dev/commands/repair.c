@@ -799,6 +799,11 @@ repair_cmd_fn_eqvoc( args_t *   args,
     if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
       tile->repair.end_slot = args->repair.end_slot;
     }
+    if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
+      tile->shred.eqvoc_test             = 1;
+      tile->shred.eqvoc_test_slot        = args->repair.end_slot - 1;
+      tile->shred.eqvoc_test_fec_set_idx = 320;
+    }
   }
 
   FD_LOG_NOTICE(( "Repair eqvoc testing init" ));
@@ -819,9 +824,6 @@ repair_cmd_fn_eqvoc( args_t *   args,
 
   void * scratch = fd_topo_obj_laddr( &config->topo, repair_tile->tile_obj_id );
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "Failed to access repair tile scratch memory" ));
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
-  (void)repair_ctx;
 
   /* read tower_out mcache dcache */
   ulong tower_out_link_idx = fd_topo_find_link( &config->topo, "tower_out", 0UL );
@@ -834,11 +836,24 @@ repair_cmd_fn_eqvoc( args_t *   args,
   ulong tower_out_chunk = tower_out_chunk0;
 
   fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run );
+
   int confirmed = 0;
   for(;;) {
+
     /* publish a confirmation on tower_out */
-    if( FD_UNLIKELY( !confirmed && repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] != 0 ) ) {
+    if( FD_UNLIKELY( !confirmed && repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] >= args->repair.end_slot - 1 ) ) {
+      ctx_t * repair_ctx; fd_topo_wksp_t * repair_wksp;
+      repair_ctx_wksp( args, config, &repair_ctx, &repair_wksp );
+      ulong         forest_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->forest );
+      fd_forest_t * forest       = (fd_forest_t *)fd_wksp_laddr( repair_wksp->wksp, forest_gaddr );
+      FD_TEST( forest );
+
       fd_tower_slot_confirmed_t * msg = fd_chunk_to_laddr( tower_out_mem, tower_out_chunk );
+      fd_forest_blk_t * blk = fd_forest_query( forest, args->repair.end_slot );
+
+      msg->slot     = args->repair.end_slot;
+      msg->block_id = blk->merkle_roots[blk->complete_idx / 32].mr;
+      msg->kind     = FD_TOWER_SLOT_CONFIRMED_DUPLICATE;
       FD_LOG_NOTICE(( "publishing confirmation for slot %lu", msg->slot ));
       fd_mcache_publish( tower_out_mcache, tower_out_link->depth, 0, FD_TOWER_SIG_SLOT_CONFIRMED, tower_out_chunk, sizeof(fd_tower_slot_confirmed_t), 0, 0, 0 );
       tower_out_chunk = fd_dcache_compact_next( tower_out_chunk, sizeof(fd_tower_slot_confirmed_t), tower_out_chunk0, tower_out_wmark );
@@ -1075,7 +1090,10 @@ static const char * CATCHUP_HELP =
 
 static const char * EQVOC_HELP =
   "\n\n"
-  "usage: repair eqvoc [-h] [--manifest-path MANIFEST_PATH] \n"
+  "note: the requirements to run this test for most direct testing: 1 shred tile, "
+  "end slot must be a rooted slot, end_slot - 1 must be a rooted slot, "
+  "and end_slot - 1 must have at least 2 FEC sets.\n"
+  "usage: repair eqvoc [-h] [--manifest-path MANIFEST_PATH] [--end-slot END_SLOT]\n"
   "\n"
   "optional arguments:\n"
   "  -h, --help            show this help message and exit\n";

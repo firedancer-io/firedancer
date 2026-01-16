@@ -260,6 +260,10 @@ typedef struct {
   uchar * chained_merkle_root;
   fd_bmtree_node_t out_merkle_roots[ FD_SHRED_BATCH_FEC_SETS_MAX ];
   uchar block_ids[ BLOCK_IDS_TABLE_CNT ][ FD_SHRED_MERKLE_ROOT_SZ ];
+
+  int eqvoc_test;
+  ulong eqvoc_test_slot;
+  ulong eqvoc_test_fec_set_idx;
 } fd_shred_ctx_t;
 
 /* shred features are generally considered active at the epoch *following*
@@ -933,6 +937,10 @@ after_frag( fd_shred_ctx_t *    ctx,
     int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec, 1 /* enforce_fixed_fec */ );
     add_shred_timing      +=  fd_tickcount();
 
+    if( shred->slot == ctx->eqvoc_test_slot && ( shred->fec_set_idx == ctx->eqvoc_test_fec_set_idx || shred->fec_set_idx == ctx->eqvoc_test_fec_set_idx+32UL ) ) {
+      FD_LOG_NOTICE(( "add shred fec_set_idx %u, idx %u, rv %d", shred->fec_set_idx, shred->idx, rv ));
+    }
+
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
     ctx->metrics->shred_processing_result[ rv + FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ]++;
 
@@ -986,6 +994,15 @@ after_frag( fd_shred_ctx_t *    ctx,
 
         FD_STORE(uint, fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, nonce );
         sz += 4UL;
+
+        if( FD_UNLIKELY( ctx->eqvoc_test && shred->slot == ctx->eqvoc_test_slot &&
+                       ( shred->fec_set_idx == ctx->eqvoc_test_fec_set_idx || shred->fec_set_idx == ctx->eqvoc_test_fec_set_idx+32UL ) ) ) {
+          /* eqvoc test */
+          fd_hash_t fake_mr  = { .ul = { 1 } };
+          fd_hash_t fake_cmr = { .ul = { 2 } };
+          fd_memcpy( (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + fd_shred_header_sz( shred->variant ), &fake_mr, FD_SHRED_MERKLE_ROOT_SZ );
+          fd_memcpy( (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + fd_shred_header_sz( shred->variant ) + FD_SHRED_MERKLE_ROOT_SZ, &fake_cmr, FD_SHRED_MERKLE_ROOT_SZ );
+        }
 
         ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
         fd_stem_publish( stem, ctx->shred_out_idx, _sig, ctx->shred_out_chunk, sz, 0UL, ctx->tsorig, tspub );
@@ -1130,6 +1147,27 @@ after_frag( fd_shred_ctx_t *    ctx,
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                                 ctx->out_merkle_roots[fset_k].hash,                  FD_SHRED_MERKLE_ROOT_SZ );
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ +  FD_SHRED_MERKLE_ROOT_SZ,      (uchar *)last + fd_shred_chain_off( last->variant ), FD_SHRED_MERKLE_ROOT_SZ );
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ + (FD_SHRED_MERKLE_ROOT_SZ*2UL), &is_leader_fec,                                      sizeof(int));
+
+      if( ctx->eqvoc_test == 3 ) {
+        ctx->eqvoc_test = 0;
+      }
+      if( FD_UNLIKELY( ctx->eqvoc_test &&
+                       last->slot==ctx->eqvoc_test_slot && ( last->fec_set_idx==ctx->eqvoc_test_fec_set_idx || last->fec_set_idx==ctx->eqvoc_test_fec_set_idx+32UL ) ) ) {
+        /* eqvoc test */
+        fd_hash_t fake_mr  = { .ul = { 1 } };
+        fd_hash_t fake_cmr = { .ul = { 2 } };
+        fd_memcpy( (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + FD_SHRED_DATA_HEADER_SZ, &fake_mr, FD_SHRED_MERKLE_ROOT_SZ );
+        fd_memcpy( (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ, &fake_cmr, FD_SHRED_MERKLE_ROOT_SZ );
+        ctx->eqvoc_test++;
+        FD_LOG_NOTICE(("SENT FIRST fec: %d, slot %lu, fec_set_idx %u", ctx->eqvoc_test, ctx->eqvoc_test_slot, last->fec_set_idx ));
+
+        /* remove the sig key in the ctx done map so that the FEC set can come in again */
+        FD_TEST( fd_fec_resolver_done_remove( ctx->resolver, &last->signature ) );
+
+      } else if( FD_UNLIKELY( last->slot == ctx->eqvoc_test_slot &&
+                              ( last->fec_set_idx == ctx->eqvoc_test_fec_set_idx || last->fec_set_idx == ctx->eqvoc_test_fec_set_idx+32UL ) ) ) {
+        FD_LOG_NOTICE(("SENT SECOND fec: %d, slot %lu, fec_set_idx %u", ctx->eqvoc_test, ctx->eqvoc_test_slot, last->fec_set_idx ));
+      }
 
       ulong sz    = FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int);
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -1494,6 +1532,10 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   memset( ctx->block_ids, 0, sizeof(ctx->block_ids) );
+  ctx->eqvoc_test             = tile->shred.eqvoc_test;
+  ctx->eqvoc_test_slot        = tile->shred.eqvoc_test_slot;
+  ctx->eqvoc_test_fec_set_idx = tile->shred.eqvoc_test_fec_set_idx;
+  FD_LOG_NOTICE(("eqvoc test: %d, slot %lu, fec_set_idx %lu", ctx->eqvoc_test, ctx->eqvoc_test_slot, ctx->eqvoc_test_fec_set_idx));
 }
 
 static ulong

@@ -702,9 +702,12 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
   if( FD_UNLIKELY( fd_forest_merkle_test( ele->merkle_verified, fec_idx + 1 ) ) ) { /* if the cmr pointing to this FEC has been verified, then... */
     if( FD_UNLIKELY( !fd_hash_eq( &ele->merkle_roots[fec_idx + 1].cmr, mr ) ) ) {
       /* merkle root doesn't match the verified CMR  */
+      FD_LOG_NOTICE(( "CMR mismatch for verfied fec_set_idx %u", fec_set_idx ));
+
       return NULL; /* do not accept this shred. */
     } else {
       fd_forest_merkle_insert( ele->merkle_recvd, fec_idx );
+      FD_LOG_NOTICE(( "CMR matches for verfied fec_set_idx %u", fec_set_idx ));
       ele->merkle_roots[fec_idx].mr = *mr;
       ele->merkle_roots[fec_idx].cmr = *cmr;
     }

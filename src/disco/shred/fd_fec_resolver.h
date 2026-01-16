@@ -233,6 +233,10 @@ int
 fd_fec_resolver_done_contains( fd_fec_resolver_t      * resolver,
                                fd_ed25519_sig_t const * signature );
 
+int
+fd_fec_resolver_done_remove( fd_fec_resolver_t      * resolver,
+                             fd_ed25519_sig_t const * signature );
+
 /* fd_fec_resolver_shred_query returns the data shred in the FEC set
    with signature at shred_idx. The return shred is copied to the region
    of memory pointed to by out_shred, and will copy only up to

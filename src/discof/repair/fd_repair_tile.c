@@ -680,9 +680,16 @@ after_confirmed( ctx_t           * ctx,
                  ulong             slot,
                  fd_hash_t const * confirmed_bid ) {
 
-  fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
-  if( FD_UNLIKELY( !blk ) ) return; /* No effect */
+  FD_BASE58_ENCODE_32_BYTES( confirmed_bid->key, confirmed_bid_b58 );
 
+  fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
+  FD_COMPILER_MFENCE();
+  if( FD_UNLIKELY( !blk ) ) {
+    return; /* No effect */
+  }
+
+
+  FD_LOG_NOTICE(( "after_confirmed: blk %lu is in the forest", slot ));
   if( FD_LIKELY( !blk->confirmed && blk->consumed ) ) {
     /* The above conditions say that all the shreds of the block have arrived. */
     fd_forest_blk_t * bad_blk = fd_forest_fec_chain_verify( ctx->forest, blk, confirmed_bid );
@@ -690,7 +697,7 @@ after_confirmed( ctx_t           * ctx,
       /* reset state */
       ctx->last_incorrect_fec->slot        = 0;
       ctx->last_incorrect_fec->fec_set_idx = 0;
-      FD_LOG_INFO(( "chain verified successfully from slot %lu to root", slot ));
+      FD_LOG_NOTICE(( "chain verified successfully from slot %lu to root", slot ));
       return;
     }
     uint bad_fec_idx = fd_forest_merkle_last_incorrect_idx( bad_blk );
@@ -739,7 +746,7 @@ after_fec( ctx_t      * ctx,
     long start_ts = ele->first_req_ts == 0 || ele->slot >= ctx->turbine_slot0 ? ele->first_shred_ts : ele->first_req_ts;
     ulong duration_ticks = (ulong)(now - start_ts);
     fd_histf_sample( ctx->metrics->slot_compl_time, duration_ticks );
-    fd_repair_metrics_add_slot( ctx->slot_metrics, ele->slot, start_ts, now, ele->repair_cnt, ele->turbine_cnt );
+  fd_repair_metrics_add_slot( ctx->slot_metrics, ele->slot, start_ts, now, ele->repair_cnt, ele->turbine_cnt );
     FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt, ele->recovered_cnt, (double)fd_metrics_convert_ticks_to_nanoseconds(duration_ticks) / 1e6 ));
   }
 
@@ -747,6 +754,7 @@ after_fec( ctx_t      * ctx,
      re-trigger continuation of chained merkle verification. */
   if( FD_UNLIKELY( ctx->last_incorrect_fec->slot == ele->slot && ctx->last_incorrect_fec->fec_set_idx == shred->fec_set_idx ) ) {
     fd_forest_blk_t * ele = fd_forest_query( ctx->forest, ctx->last_incorrect_fec->slot );
+    // TODO: not sure we can assume ele->complete_idx is correct (eqvoc might be on last FEC)
     FD_TEST( fd_forest_merkle_test( ele->merkle_verified, (ele->complete_idx / 32UL) + 1 ) ); /* we should have verified this FEC block id at least */
     after_confirmed( ctx, ele->slot, &ele->merkle_roots[ (ele->complete_idx / 32UL) + 1 ].cmr );
   }
