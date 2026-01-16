@@ -482,6 +482,20 @@ user = ""
     # abort with an error.
     expected_genesis_hash = ""
 
+    # Indicates if the client should wait for a vote published from this
+    # node to land in a rooted slot before publishing any leader slots.
+    # This check should be enabled to prevent a backup / failover node
+    # from accidentally equivocating (i.e. publishing two slots with the
+    # same slot number but different blockhash) in cases where the
+    # primary node may still be alive.
+    #
+    # If `wait_for_supermajority` is set to True, then the node is
+    # starting during a cluster restart and this option will be ignored
+    # and forcibly interpreted as `false` by the client. Otherwise, the
+    # chain would be unable to proceed since every node would be
+    # deadlocked waiting on their votes to land.
+    wait_for_vote_to_start_leader = true
+
 # This section configures the "funk" account database.  Currently, funk
 # stores all Solana accounts.  In future versions of Firedancer, most
 # accounts will be offloaded to the "groove" database.
