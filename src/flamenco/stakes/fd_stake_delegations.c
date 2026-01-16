@@ -1,6 +1,5 @@
 #include "fd_stake_delegations.h"
-#include "../accdb/fd_accdb_sync.h"
-#include "../accdb/fd_accdb_batch.h"
+#include "../accdb/fd_accdb_pipe.h"
 #include "../runtime/program/fd_stake_program.h"
 
 #define POOL_NAME fd_stake_delegation_pool
@@ -390,7 +389,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
       fd_stake_delegation_pool_ele_release( pool, delegation );
     }
   }
-  fd_accdb_ro_pipe_fini( ro_pipe, accdb );
+  fd_accdb_ro_pipe_fini( ro_pipe );
 }
 
 fd_stake_delegation_t const *

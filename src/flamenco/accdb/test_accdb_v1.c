@@ -200,6 +200,7 @@ test_truncate_inplace( fd_accdb_admin_t * admin,
   ulong data_sz_0 = 56UL;
   FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_0, FD_ACCDB_FLAG_CREATE ) );
   FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  fd_accdb_ref_lamports_set( rw, 32UL );
   fd_accdb_ref_data_set( accdb, rw, "hello", 5UL );
   fd_funk_rec_t * rec = (void *)rw->ref->user_data;
   FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t)+5UL );
@@ -231,6 +232,7 @@ test_truncate_copy( fd_accdb_admin_t * admin,
   fd_accdb_rw_t rw[1];
   FD_TEST( fd_accdb_open_rw( accdb, rw, &xid1, &key, 56UL, FD_ACCDB_FLAG_CREATE ) );
   FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  fd_accdb_ref_lamports_set( rw, 32UL );
   fd_accdb_ref_data_set( accdb, rw, "hello", 5UL );
   fd_funk_rec_t * rec = (void *)rw->ref->user_data;
   FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t)+5UL );
@@ -254,7 +256,102 @@ test_truncate_copy( fd_accdb_admin_t * admin,
 }
 
 static void
-test_truncate( fd_wksp_t * wksp ) {
+add_account_funk( fd_accdb_user_t * accdb_,
+                  uchar const *     key,
+                  ulong             lamports ) {
+  fd_accdb_user_v1_t * accdb = (fd_accdb_user_v1_t *)accdb_;
+  fd_funk_t * funk = accdb->funk;
+
+  fd_funk_rec_map_t *  rec_map  = funk->rec_map;
+  fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
+
+  fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( rec_pool, NULL, 1, NULL );
+  FD_TEST( rec );
+  *rec = (fd_funk_rec_t) {
+    .next_idx = UINT_MAX,
+    .prev_idx = UINT_MAX
+  };
+  fd_funk_txn_xid_set_root( rec->pair.xid );
+  memcpy( rec->pair.key->uc, key, 32UL );
+
+  ulong val_sz = sizeof(fd_account_meta_t) + 32UL;
+  fd_account_meta_t * meta = fd_funk_val_truncate( rec, funk->alloc, funk->wksp, 16UL, val_sz, NULL );
+  FD_TEST( meta ); memset( meta, 0, val_sz );
+  uchar * data = (uchar *)( meta+1 );
+
+  meta->lamports = lamports;
+  meta->dlen     = 32U;
+  memcpy( data, key, 32UL );
+
+  FD_TEST( fd_funk_rec_map_insert( rec_map, rec, 0 )==FD_MAP_SUCCESS );
+}
+
+static void
+test_account_creation( fd_accdb_user_t *         accdb,
+                       fd_funk_txn_xid_t const * xid2,
+                       void const *              addr,
+                       ulong                     lamports ) {
+  fd_accdb_rw_t rw[1];
+  fd_accdb_ro_t ro[1];
+  FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, addr, 16UL, FD_ACCDB_FLAG_CREATE ) );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==1 );
+  fd_accdb_ref_lamports_set( rw, lamports );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+  FD_TEST( fd_accdb_open_ro( accdb, ro, xid2, addr ) );
+  FD_TEST( fd_accdb_ref_lamports( ro )==lamports );
+  fd_accdb_close_ro( accdb, ro );
+  FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, addr, 16UL, 0 ) );
+  fd_accdb_ref_lamports_set( rw, 0UL ); /* delete */
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( !fd_accdb_open_ro( accdb, ro, xid2, addr ) );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+}
+
+static void
+test_tombstone( fd_accdb_admin_t * admin,
+                fd_accdb_user_t *  accdb ) {
+
+  static uchar const s_key_a[ 32 ] = { 1 };
+  static uchar const s_key_b[ 32 ] = { 2 };
+  static uchar const s_key_c[ 32 ] = { 3 };
+  static uchar const s_key_d[ 32 ] = { 4 };
+  static uchar const s_key_e[ 32 ] = { 5 };
+
+  add_account_funk( accdb, s_key_a, 10000UL );
+  add_account_funk( accdb, s_key_b,     0UL );
+  add_account_funk( accdb, s_key_d, 40000UL );
+  add_account_funk( accdb, s_key_c, 20000UL );
+  add_account_funk( accdb, s_key_d,     0UL );
+
+  fd_accdb_rw_t rw[1];
+  fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_copy( xid, fd_funk_last_publish( admin->funk ) );
+  fd_funk_txn_xid_t xid2[1] = {{ .ul={ 1UL, 2UL } }};
+  fd_accdb_attach_child( admin, xid, xid2 );
+
+  FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, s_key_a, 16UL, 0 ) );
+  fd_accdb_ref_lamports_set( rw, 0UL );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, xid2, s_key_a, 16UL, 0 ) );
+
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, xid2, s_key_b, 16UL, 0 ) );
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, xid2, s_key_d, 16UL, 0 ) );
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, xid2, s_key_e, 16UL, 0 ) );
+
+  test_account_creation( accdb, xid2, s_key_b, 1UL );
+  test_account_creation( accdb, xid2, s_key_d, 2UL );
+  test_account_creation( accdb, xid2, s_key_e, 4UL );
+
+  /* repeatedly delete and recreate the same account */
+  for( ulong i=0UL; i<1024UL; i++ ) {
+    test_account_creation( accdb, xid2, s_key_e, 4UL );
+  }
+
+  fd_accdb_cancel( admin, xid2 );
+}
+
+static void
+test_simple( fd_wksp_t * wksp ) {
   ulong txn_max =  4UL;
   ulong rec_max = 32UL;
   ulong funk_footprint = fd_funk_footprint( txn_max, rec_max );
@@ -272,7 +369,11 @@ test_truncate( fd_wksp_t * wksp ) {
   test_truncate_inplace ( admin, accdb );
   test_truncate_copy    ( admin, accdb );
 
+  fd_accdb_clear( admin );
+  test_tombstone( admin, accdb );
+
   fd_accdb_user_fini( accdb );
+  fd_accdb_clear( admin );
   fd_accdb_admin_leave( admin, NULL );
   fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
 }
@@ -427,7 +528,7 @@ main( int     argc,
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
-  test_truncate( wksp );
+  test_simple( wksp );
   test_random_ops( wksp, rng, txn_max, rec_max, iter_max );
 
   /* FIXME leak check */

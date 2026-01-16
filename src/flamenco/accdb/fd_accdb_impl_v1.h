@@ -45,11 +45,12 @@ fd_accdb_user_v1_peek( fd_accdb_user_t *         accdb,
 void
 fd_accdb_user_v1_fini( fd_accdb_user_t * accdb );
 
-fd_accdb_ro_t *
-fd_accdb_user_v1_open_ro( fd_accdb_user_t *         accdb,
-                          fd_accdb_ro_t *           ro,
-                          fd_funk_txn_xid_t const * xid,
-                          void const *              address );
+void
+fd_accdb_user_v1_open_ro_multi( fd_accdb_user_t *         accdb,
+                                fd_accdb_ro_t *           ro0,
+                                fd_funk_txn_xid_t const * xid0,
+                                void const *              addr0,
+                                ulong                     cnt );
 
 fd_accdb_rw_t *
 fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
@@ -60,12 +61,20 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
                           int                       flags );
 
 void
-fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
-                           fd_accdb_rw_t *   write );
+fd_accdb_user_v1_open_rw_multi( fd_accdb_user_t *         accdb,
+                                fd_accdb_rw_t *           rw,
+                                fd_funk_txn_xid_t const * xid,
+                                void const *              address,
+                                ulong const *             data_max,
+                                int                       flags,
+                                ulong                     cnt );
+
+#define FD_ACCDB_FLAG_V1_TOMBSTONE (0x8000)
 
 void
-fd_accdb_user_v1_close_ref( fd_accdb_user_t * accdb,
-                            fd_accdb_ref_t *  write );
+fd_accdb_user_v1_close_ref_multi( fd_accdb_user_t * accdb,
+                                  fd_accdb_ref_t *  write,
+                                  ulong             cnt );
 
 ulong
 fd_accdb_user_v1_rw_data_max( fd_accdb_user_t *     accdb,
@@ -89,13 +98,14 @@ fd_accdb_v1_prep_create( fd_accdb_rw_t *           rw,
                          ulong                     val_max );
 
 void
-fd_accdb_v1_copy_account( fd_account_meta_t *   out_meta,
-                          void *                out_data,
-                          fd_accdb_ro_t const * acc );
+fd_accdb_v1_copy_account( fd_account_meta_t *       out_meta,
+                          void *                    out_data,
+                          fd_account_meta_t const * src_meta,
+                          void const *              src_data );
 
 void
-fd_accdb_v1_copy_truncated( fd_account_meta_t *   out_meta,
-                            fd_accdb_ro_t const * acc );
+fd_accdb_v1_copy_truncated( fd_account_meta_t *       out_meta,
+                            fd_account_meta_t const * src_meta );
 
 fd_accdb_peek_t *
 fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,

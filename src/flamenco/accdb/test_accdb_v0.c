@@ -1,7 +1,7 @@
 #include "fd_accdb_impl_v0.h"
 #include "fd_accdb_ref.h"
 #include "fd_accdb_sync.h"
-#include "fd_accdb_batch.h"
+#include "fd_accdb_pipe.h"
 #include <stdlib.h> /* aligned_alloc */
 
 FD_FN_CONST static fd_pubkey_t
@@ -106,7 +106,7 @@ test_accdb_v0_logic( void ) {
   fd_accdb_ro_pipe_t pipe[1];
   fd_funk_txn_xid_t xid = {0};
   FD_TEST( fd_accdb_ro_pipe_init( pipe, user, &xid )==pipe );
-  fd_accdb_ro_pipe_fini( pipe, user );
+  fd_accdb_ro_pipe_fini( pipe );
   FD_TEST( fd_accdb_open_rw( user, rw0, NULL, &k0, 0UL, FD_ACCDB_FLAG_CREATE )==rw0 );
   FD_TEST( rw0->ref->ref_type==FD_ACCDB_REF_RW );
   fd_accdb_ref_lamports_set( rw0, 10UL );
@@ -136,7 +136,7 @@ test_accdb_v0_logic( void ) {
   FD_TEST( ro_tmp->meta->lamports == 20UL );
   FD_TEST( !fd_accdb_ro_pipe_poll( pipe ) );
 
-  fd_accdb_ro_pipe_fini( pipe, user );
+  fd_accdb_ro_pipe_fini( pipe );
 
   /* Clean up */
 

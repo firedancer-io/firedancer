@@ -1,5 +1,6 @@
 #include "fd_accdb_impl_v0.h"
-#include "fd_accdb_batch.h"
+
+fd_account_meta_t const fd_accdb_meta_empty = {0};
 
 FD_FN_CONST ulong
 fd_accdb_v0_align( void ) {
@@ -142,6 +143,12 @@ push_rec( fd_accdb_v0_t * v0,
   return idx;
 }
 
+static ulong
+fd_accdb_user_v0_batch_max( fd_accdb_user_t * accdb ) {
+  (void)accdb;
+  return 1UL;
+}
+
 fd_accdb_peek_t *
 fd_accdb_user_v0_peek( fd_accdb_user_t *         accdb,
                        fd_accdb_peek_t *         peek,
@@ -152,7 +159,7 @@ fd_accdb_user_v0_peek( fd_accdb_user_t *         accdb,
   return NULL;
 }
 
-fd_accdb_ro_t *
+static fd_accdb_ro_t *
 fd_accdb_user_v0_open_ro( fd_accdb_user_t *         accdb_,
                           fd_accdb_ro_t *           ro,
                           fd_funk_txn_xid_t const * xid,
@@ -160,7 +167,6 @@ fd_accdb_user_v0_open_ro( fd_accdb_user_t *         accdb_,
   (void)xid;
   fd_accdb_user_v0_t * accdb = (fd_accdb_user_v0_t *)accdb_;
   fd_accdb_v0_t *      v0    = accdb->v0;
-  fd_rwlock_write( &v0->lock );
 
   long idx = find_key( v0, address );
   fd_accdb_ro_t * found = NULL;
@@ -179,12 +185,30 @@ fd_accdb_user_v0_open_ro( fd_accdb_user_t *         accdb_,
     ro->ref->user_data  = 0UL;
     ro->meta            = &rec->meta;
 
+      FD_LOG_NOTICE(( "open v0 ro" ));
     accdb->base.ro_active++;
     found = ro;
   }
 
-  fd_rwlock_unwrite( &v0->lock );
   return found;
+}
+
+void
+fd_accdb_user_v0_open_ro_multi( fd_accdb_user_t *         accdb_,
+                                fd_accdb_ro_t *           ro,
+                                fd_funk_txn_xid_t const * xid,
+                                void const *              address,
+                                ulong                     cnt ) {
+  fd_accdb_user_v0_t * accdb = (fd_accdb_user_v0_t *)accdb_;
+  fd_accdb_v0_t *      v0    = accdb->v0;
+  fd_rwlock_write( &v0->lock );
+  ulong addr_laddr = (ulong)address;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    void const *    addr_i = (void const *)( (ulong)addr_laddr + i*32UL );
+    fd_accdb_ro_t * ro_i   = fd_accdb_user_v0_open_ro( accdb_, &ro[i], xid, addr_i );
+    if( !ro_i ) fd_accdb_ro_init_empty( &ro[i], addr_i );
+  }
+  fd_rwlock_unwrite( &v0->lock );
 }
 
 static void
@@ -192,8 +216,6 @@ fd_accdb_user_v0_close_ro( fd_accdb_user_t * accdb,
                            fd_accdb_ro_t *   ro ) {
   fd_accdb_user_v0_t * user = (fd_accdb_user_v0_t *)accdb;
   fd_accdb_v0_t *      v0   = user->v0;
-
-  fd_rwlock_write( &v0->lock );
 
   long idx = find_key( v0, ro->ref->address );
   if( FD_UNLIKELY( idx<0L ) ) {
@@ -208,11 +230,9 @@ fd_accdb_user_v0_close_ro( fd_accdb_user_t * accdb,
   }
   rec->reader_cnt--;
   user->base.ro_active--;
-
-  fd_rwlock_unwrite( &v0->lock );
 }
 
-fd_accdb_rw_t *
+static fd_accdb_rw_t *
 fd_accdb_user_v0_open_rw( fd_accdb_user_t *         accdb_,
                           fd_accdb_rw_t *           rw_,
                           fd_funk_txn_xid_t const * xid,
@@ -235,11 +255,9 @@ fd_accdb_user_v0_open_rw( fd_accdb_user_t *         accdb_,
     FD_LOG_CRIT(( "invalid data_max %lu", data_max ));
   }
 
-  fd_rwlock_write( &v0->lock );
-
   long idx = find_key( v0, address );
   if( idx<0L ) {
-    if( !flag_create ) goto beach;
+    if( !flag_create ) return NULL;
     idx = push_rec( v0, address );
     if( FD_UNLIKELY( idx<0L ) ) FD_LOG_CRIT(( "accdb_user_v0_open_rw failed: cannot create account, out of memory" ));
   }
@@ -258,9 +276,28 @@ fd_accdb_user_v0_open_rw( fd_accdb_user_t *         accdb_,
   rw->ref->user_data  = 0UL;
   rw->meta            = &rec->meta;
 
-beach:
-  fd_rwlock_unwrite( &v0->lock );
   return rw;
+}
+
+void
+fd_accdb_user_v0_open_rw_multi( fd_accdb_user_t *         accdb_,
+                                fd_accdb_rw_t *           rw,
+                                fd_funk_txn_xid_t const * xid,
+                                void const *              address,
+                                ulong const *             data_max,
+                                int                       flags,
+                                ulong                     cnt ) {
+  fd_accdb_user_v0_t * accdb = (fd_accdb_user_v0_t *)accdb_;
+  fd_accdb_v0_t *      v0    = accdb->v0;
+  fd_rwlock_write( &v0->lock );
+  ulong addr_laddr = (ulong)address;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    void const *    addr_i = (void const *)( (ulong)addr_laddr + i*32UL );
+    ulong           dmax_i = data_max[i];
+    fd_accdb_rw_t * rw_i   = fd_accdb_user_v0_open_rw( accdb_, &rw[i], xid, addr_i, dmax_i, flags );
+    if( !rw_i ) memset( &rw[i], 0, sizeof(fd_accdb_rw_t) );
+  }
+  fd_rwlock_unwrite( &v0->lock );
 }
 
 static void
@@ -268,8 +305,6 @@ fd_accdb_user_v0_close_rw( fd_accdb_user_t * accdb,
                            fd_accdb_rw_t *   rw ) {
   fd_accdb_user_v0_t * user = (fd_accdb_user_v0_t *)accdb;
   fd_accdb_v0_t *      v0   = user->v0;
-
-  fd_rwlock_write( &v0->lock );
 
   long idx = find_key( v0, rw->ref->address );
   if( FD_UNLIKELY( idx<0L ) ) {
@@ -287,13 +322,12 @@ fd_accdb_user_v0_close_rw( fd_accdb_user_t * accdb,
   user->base.rw_active--;
 
   if( rec->meta.lamports==0UL ) remove_rec( v0, idx );
-
-  fd_rwlock_unwrite( &v0->lock );
 }
 
-void
+static void
 fd_accdb_user_v0_close_ref( fd_accdb_user_t * accdb,
                             fd_accdb_ref_t *  ref ) {
+  if( ref->accdb_type==FD_ACCDB_TYPE_NONE ) return;
   switch( ref->ref_type ) {
   case FD_ACCDB_REF_RO:
     fd_accdb_user_v0_close_ro( accdb, (fd_accdb_ro_t *)ref );
@@ -304,6 +338,20 @@ fd_accdb_user_v0_close_ref( fd_accdb_user_t * accdb,
   default:
     FD_LOG_CRIT(( "invalid ref_type %u in fd_accdb_user_v0_close_ref", (uint)ref->ref_type ));
   }
+}
+
+void
+fd_accdb_user_v0_close_ref_multi( fd_accdb_user_t * accdb_,
+                                  fd_accdb_ref_t *  ref,
+                                  ulong             cnt ) {
+  fd_accdb_user_v0_t * accdb = (fd_accdb_user_v0_t *)accdb_;
+  fd_accdb_v0_t *      v0    = accdb->v0;
+  fd_rwlock_write( &v0->lock );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_accdb_ref_t * ref_i = &ref[i];
+    fd_accdb_user_v0_close_ref( accdb_, ref_i );
+  }
+  fd_rwlock_unwrite( &v0->lock );
 }
 
 ulong
@@ -343,15 +391,11 @@ fd_accdb_user_v0_rw_data_sz_set( fd_accdb_user_t * accdb,
 
 fd_accdb_user_vt_t const fd_accdb_user_v0_vt = {
   .fini            = fd_accdb_user_v0_fini,
+  .batch_max       = fd_accdb_user_v0_batch_max,
   .peek            = fd_accdb_user_v0_peek,
-  .open_ro         = fd_accdb_user_v0_open_ro,
-  .open_rw         = fd_accdb_user_v0_open_rw,
-  .close_ref       = fd_accdb_user_v0_close_ref,
+  .open_ro_multi   = fd_accdb_user_v0_open_ro_multi,
+  .open_rw_multi   = fd_accdb_user_v0_open_rw_multi,
+  .close_ref_multi = fd_accdb_user_v0_close_ref_multi,
   .rw_data_max     = fd_accdb_user_v0_rw_data_max,
-  .rw_data_sz_set  = fd_accdb_user_v0_rw_data_sz_set,
-  .ro_pipe_init    = fd_accdb_ro_pipe1_init,
-  .ro_pipe_fini    = fd_accdb_ro_pipe1_fini,
-  .ro_pipe_enqueue = fd_accdb_ro_pipe1_enqueue,
-  .ro_pipe_flush   = fd_accdb_ro_pipe1_flush,
-  .ro_pipe_poll    = fd_accdb_ro_pipe1_poll
+  .rw_data_sz_set  = fd_accdb_user_v0_rw_data_sz_set
 };
