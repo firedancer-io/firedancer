@@ -59,25 +59,37 @@
 
    https://doc.rust-lang.org/std/primitive.u64.html#method.wrapping_shl
  */
-#define FD_RUST_ULONG_WRAPPING_SHL( a, b ) (a << ( b & ( 63 ) ))
+#define FD_RUST_ULONG_WRAPPING_SHL( a, b ) ((a) << ( (b) & ( 63 ) ))
 
 /* u64::wrapping_shr: a.unchecked_shr(b & (64 - 1))
 
    https://doc.rust-lang.org/std/primitive.u64.html#method.wrapping_shr
  */
-#define FD_RUST_ULONG_WRAPPING_SHR( a, b ) (a >> ( b & ( 63 ) ))
+#define FD_RUST_ULONG_WRAPPING_SHR( a, b ) ((a) >> ( (b) & ( 63 ) ))
 
 /* u32::wrapping_shl: a.unchecked_shl(b & (32 - 1))
 
    https://doc.rust-lang.org/std/primitive.u32.html#method.wrapping_shl
  */
-#define FD_RUST_UINT_WRAPPING_SHL( a, b ) (a << ( b & ( 31 ) ))
+#define FD_RUST_UINT_WRAPPING_SHL( a, b ) ((a) << ( (b) & ( 31 ) ))
 
 /* u32::wrapping_shr: a.unchecked_shr(b & (32 - 1))
 
    https://doc.rust-lang.org/std/primitive.u32.html#method.wrapping_shr
  */
-#define FD_RUST_UINT_WRAPPING_SHR( a, b ) (a >> ( b & ( 31 ) ))
+#define FD_RUST_UINT_WRAPPING_SHR( a, b ) ((a) >> ( (b) & ( 31 ) ))
+
+/* i32::wrapping_shr: a.unchecked_shr(b & (32 - 1))
+
+   https://doc.rust-lang.org/std/primitive.i32.html#method.wrapping_shr
+ */
+#define FD_RUST_INT_WRAPPING_SHR( a, b ) ((a) >> ( (b) & ( 31 ) ))
+
+/* i64::wrapping_shr: a.unchecked_shr(b & (64 - 1))
+
+   https://doc.rust-lang.org/std/primitive.i64.html#method.wrapping_shr
+ */
+#define FD_RUST_LONG_WRAPPING_SHR( a, b ) ((a) >> ( (b) & ( 63 ) ))
 
 
 # define FD_VM_INTERP_INSTR_EXEC                                                                 \
@@ -976,7 +988,7 @@ interp_exec:
   /* 0xc0 - 0xcf ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0xc4) /* FD_SBPF_OP_ARSH_IMM */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst >> imm ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)(uint)( FD_RUST_INT_WRAPPING_SHR( (int)reg_dst, imm ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xc5) /* FD_SBPF_OP_JSLT_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
@@ -989,11 +1001,11 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xc7) /* FD_SBPF_OP_ARSH64_IMM */
-    reg[ dst ] = (ulong)( (long)reg_dst >> imm ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)( FD_RUST_LONG_WRAPPING_SHR( (long)reg_dst, imm ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xcc) /* FD_SBPF_OP_ARSH_REG */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst >> (uint)reg_src ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)(uint)( FD_RUST_INT_WRAPPING_SHR( (int)reg_dst, (uint)reg_src ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xcd) /* FD_SBPF_OP_JSLT_REG */
@@ -1007,7 +1019,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xcf) /* FD_SBPF_OP_ARSH64_REG */
-    reg[ dst ] = (ulong)( (long)reg_dst >> reg_src ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)( FD_RUST_LONG_WRAPPING_SHR( (long)reg_dst, reg_src ) );
   FD_VM_INTERP_INSTR_END;
 
   /* 0xd0 - 0xdf ******************************************************/

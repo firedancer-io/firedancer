@@ -224,3 +224,84 @@ $ op=67 dst=6 src=2 off=8000 r6=5a5a5a5a00000002 imm=ffffffff : vfy
 $ op=67 dst=9 src=b                                           : vfy # invalid src
 $ op=67 dst=a src=1                                           : vfy # invalid dst
 $ op=67 dst=b src=1                                           : vfy # invalid dst
+
+# arsh32 reg, imm
+$ op=c4 dst=0 src=a off=0000 r0=               0 imm=       0 : ok  r0=               0  # zero
+$ op=c4 dst=1 src=9 off=0000 r1=ffffffff00000000 imm=       0 : ok  r1=               0  # truncate upper, zero result
+$ op=c4 dst=2 src=8 off=0000 r2=ffffffff00000001 imm=       0 : ok  r2=               1  # positive stays positive
+$ op=c4 dst=3 src=7 off=0000 r3=        80000000 imm=       0 : ok  r3=        80000000  # negative, no shift
+$ op=c4 dst=4 src=6 off=0000 r4=        80000000 imm=       1 : ok  r4=        c0000000  # negative, sign extends
+$ op=c4 dst=5 src=5 off=0000 r5=        80000000 imm=       2 : ok  r5=        e0000000
+$ op=c4 dst=6 src=4 off=0000 r6=        80000000 imm=       3 : ok  r6=        f0000000
+$ op=c4 dst=7 src=3 off=0000 r7=        80000000 imm=       4 : ok  r7=        f8000000
+$ op=c4 dst=8 src=2 off=0000 r8=        80000000 imm=      1f : ok  r8=        ffffffff  # all 1s
+$ op=c4 dst=9 src=1 off=0000 r9=        7fffffff imm=       1 : ok  r9=        3fffffff  # positive, zero fills
+$ op=c4 dst=0 src=0 off=0000 r0=        7fffffff imm=      1e : ok  r0=               1
+$ op=c4 dst=1 src=a off=0000 r1=        7fffffff imm=      1f : ok  r1=               0  # shifted to zero
+$ op=c4 dst=2 src=9 off=0000 r2=        ffffffff imm=       1 : ok  r2=        ffffffff  # -1 stays -1
+$ op=c4 dst=3 src=8 off=0000 r3=        80000000 imm=      20 : vfy
+$ op=c4 dst=4 src=7 off=0000 r4=        80000000 imm=      21 : vfy
+$ op=c4 dst=5 src=6 off=0000 r5=        80000000 imm=      3f : vfy
+$ op=c4 dst=6 src=5 off=0000 r6=        80000000 imm=      40 : vfy
+$ op=c4 dst=7 src=4 off=0000 r7=        80000000 imm=7fffffff : vfy
+$ op=c4 dst=8 src=3 off=0000 r8=        80000000 imm=ffffffff : vfy
+$ op=c4 dst=9 src=2 off=0000 r9=        7fffffff imm=ffffffff : vfy
+$ op=c4 dst=9 src=b                                           : vfy
+$ op=c4 dst=a src=1                                           : vfy
+$ op=c4 dst=b src=1                                           : vfy
+
+# arsh32 reg, reg
+$ op=cc dst=0 src=a off=0000 r0=               0 r10=       0 : ok  r0=               0  # zero
+$ op=cc dst=1 src=9 off=0000 r1=        80000000 r9 =       0 : ok  r1=        80000000  # no shift
+$ op=cc dst=2 src=8 off=0000 r2=        80000000 r8 =       1 : ok  r2=        c0000000  # sign extends
+$ op=cc dst=3 src=7 off=0000 r3=        80000000 r7 =      1f : ok  r3=        ffffffff  # all 1s
+$ op=cc dst=4 src=6 off=0000 r4=        7fffffff r6 =       1 : ok  r4=        3fffffff  # positive
+$ op=cc dst=5 src=6 off=0000 r5=        ffffffff r6 =       1 : ok  r5=        ffffffff  # -1 stays -1
+# arsh32 reg wrapping tests (shift amount masked with 31)
+$ op=cc dst=6 src=4 off=0000 r6=        80000000 r4 =      20 : ok  r6=        80000000  # 32 & 31 = 0
+$ op=cc dst=7 src=3 off=0000 r7=        80000000 r3 =      21 : ok  r7=        c0000000  # 33 & 31 = 1
+$ op=cc dst=8 src=2 off=0000 r8=        80000000 r2 =7fffffff : ok  r8=        ffffffff  # 0x7fffffff & 31 = 31
+$ op=cc dst=9 src=1 off=0000 r9=        80000000 r1 =ffffffff : ok  r9=        ffffffff  # 0xffffffff & 31 = 31
+$ op=cc dst=0 src=a off=0000 r0=        80000000 r10=ffffffffffffffff : ok  r0=        ffffffff  # lower 32 bits used, & 31
+$ op=cc dst=9 src=b                                           : vfy
+$ op=cc dst=a src=1                                           : vfy
+$ op=cc dst=b src=1                                           : vfy
+
+# arsh64 reg, imm
+$ op=c7 dst=0 src=a off=0000 r0=               0 imm=       0 : ok  r0=               0  # zero
+$ op=c7 dst=1 src=9 off=0000 r1=8000000000000000 imm=       0 : ok  r1=8000000000000000  # negative, no shift
+$ op=c7 dst=2 src=8 off=0000 r2=8000000000000000 imm=       1 : ok  r2=c000000000000000  # sign extends
+$ op=c7 dst=3 src=7 off=0000 r3=8000000000000000 imm=       2 : ok  r3=e000000000000000
+$ op=c7 dst=4 src=6 off=0000 r4=8000000000000000 imm=       3 : ok  r4=f000000000000000
+$ op=c7 dst=5 src=5 off=0000 r5=8000000000000000 imm=       4 : ok  r5=f800000000000000
+$ op=c7 dst=6 src=4 off=0000 r6=8000000000000000 imm=      3f : ok  r6=ffffffffffffffff  # all 1s
+$ op=c7 dst=7 src=3 off=0000 r7=7fffffffffffffff imm=       1 : ok  r7=3fffffffffffffff  # positive
+$ op=c7 dst=8 src=2 off=0000 r8=7fffffffffffffff imm=      3e : ok  r8=               1
+$ op=c7 dst=9 src=1 off=0000 r9=7fffffffffffffff imm=      3f : ok  r9=               0  # shifted to zero
+$ op=c7 dst=0 src=0 off=0000 r0=ffffffffffffffff imm=       1 : ok  r0=ffffffffffffffff  # -1 stays -1
+$ op=c7 dst=1 src=a off=0000 r1=8000000000000000 imm=      40 : vfy
+$ op=c7 dst=2 src=9 off=0000 r2=8000000000000000 imm=      41 : vfy
+$ op=c7 dst=3 src=8 off=0000 r3=8000000000000000 imm=      7f : vfy
+$ op=c7 dst=4 src=7 off=0000 r4=8000000000000000 imm=      80 : vfy
+$ op=c7 dst=5 src=6 off=0000 r5=8000000000000000 imm=7fffffff : vfy
+$ op=c7 dst=6 src=5 off=0000 r6=8000000000000000 imm=ffffffff : vfy
+$ op=c7 dst=7 src=4 off=0000 r7=7fffffffffffffff imm=ffffffff : vfy
+$ op=c7 dst=9 src=b                                           : vfy
+$ op=c7 dst=a src=1                                           : vfy
+$ op=c7 dst=b src=1                                           : vfy
+
+# arsh64 reg, reg
+$ op=cf dst=0 src=a off=0000 r0=               0 r10=       0 : ok  r0=               0  # zero
+$ op=cf dst=1 src=9 off=0000 r1=8000000000000000 r9 =       0 : ok  r1=8000000000000000  # no shift
+$ op=cf dst=2 src=8 off=0000 r2=8000000000000000 r8 =       1 : ok  r2=c000000000000000  # sign extends
+$ op=cf dst=3 src=7 off=0000 r3=8000000000000000 r7 =      3f : ok  r3=ffffffffffffffff  # all 1s
+$ op=cf dst=4 src=6 off=0000 r4=7fffffffffffffff r6 =       1 : ok  r4=3fffffffffffffff  # positive
+$ op=cf dst=5 src=6 off=0000 r5=ffffffffffffffff r6 =       1 : ok  r5=ffffffffffffffff  # -1 stays -1
+$ op=cf dst=6 src=4 off=0000 r6=8000000000000000 r4 =      40 : ok  r6=8000000000000000  # 64 & 63 = 0
+$ op=cf dst=7 src=3 off=0000 r7=8000000000000000 r3 =      41 : ok  r7=c000000000000000  # 65 & 63 = 1
+$ op=cf dst=8 src=2 off=0000 r8=8000000000000000 r2 =7fffffff : ok  r8=ffffffffffffffff  # 0x7fffffff & 63 = 63
+$ op=cf dst=9 src=1 off=0000 r9=8000000000000000 r1 =ffffffff : ok  r9=ffffffffffffffff  # 0xffffffff & 63 = 63
+$ op=cf dst=0 src=a off=0000 r0=8000000000000000 r10=ffffffffffffffff : ok  r0=ffffffffffffffff  # lower bits used, & 63
+$ op=cf dst=9 src=b                                           : vfy
+$ op=cf dst=a src=1                                           : vfy
+$ op=cf dst=b src=1                                           : vfy
