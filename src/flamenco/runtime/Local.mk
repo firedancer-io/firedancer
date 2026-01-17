@@ -37,9 +37,6 @@ $(call add-objs,fd_compute_budget_details,fd_flamenco)
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
 
-$(call add-hdrs,fd_acc_pool.h)
-$(call add-objs,fd_acc_pool,fd_flamenco)
-
 $(call add-hdrs,fd_genesis_parse.h)
 $(call add-objs,fd_genesis_parse,fd_flamenco)
 
