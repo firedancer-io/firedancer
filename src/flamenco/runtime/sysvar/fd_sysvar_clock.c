@@ -77,27 +77,27 @@ fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
                       fd_funk_txn_xid_t const * xid,
                       fd_sol_sysvar_clock_t *   clock ) {
-  FD_ACCDB_RO_BEGIN( accdb, acc, xid, &fd_sysvar_clock_id ) {
-
-    /* This check is needed as a quirk of the fuzzer. If a sysvar account
-       exists in the accounts database, but doesn't have any lamports,
-       this means that the account does not exist. This wouldn't happen
-       in a real execution environment. */
-    if( FD_UNLIKELY( fd_accdb_ref_lamports( acc )==0UL ) ) {
-      return NULL;
-    }
-
-    return fd_bincode_decode_static(
-        sol_sysvar_clock, clock,
-        fd_accdb_ref_data_const( acc ),
-        fd_accdb_ref_data_sz   ( acc ),
-        NULL );
-
-  } FD_ACCDB_RO_NOT_FOUND {
-
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_clock_id ) ) ) {
     return NULL;
+  }
 
-  } FD_ACCDB_RO_END;
+  /* This check is needed as a quirk of the fuzzer. If a sysvar account
+     exists in the accounts database, but doesn't have any lamports,
+     this means that the account does not exist. This wouldn't happen
+     in a real execution environment. */
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+    fd_accdb_close_ro( accdb, ro );
+    return NULL;
+  }
+
+  fd_sol_sysvar_clock_t * res = fd_bincode_decode_static(
+      sol_sysvar_clock, clock,
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ),
+      NULL );
+  fd_accdb_close_ro( accdb, ro );
+  return res;
 }
 
 void

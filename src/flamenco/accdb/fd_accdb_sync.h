@@ -72,51 +72,6 @@ fd_accdb_close_ro( fd_accdb_user_t * accdb,
   accdb->base.vt->close_ro( accdb, ro );
 }
 
-/* FD_ACDB_RO_{BEGIN,END} provides RAII-style safe macros for
-   fd_accdb_{open,close}_ro.
-
-   Typical usage like:
-
-     FD_ACCDB_RO_BEGIN( accdb, ro, xid, address ) {
-       FD_LOG_NOTICE(( "Account has %lu lamports", fd_accdb_ref_lamports( ro ) ));
-     }
-     FD_ACCDB_RO_NOT_FOUND {
-       FD_LOG_NOTICE(( "Account does not exist" ));
-     }
-     FD_ACCDB_RO_END; */
-
-struct fd_accdb_ro_scope_guard {
-  fd_accdb_user_t * accdb;
-  fd_accdb_ro_t *   ro;
-};
-typedef struct fd_accdb_ro_scope_guard fd_accdb_ro_scope_guard_t;
-
-FD_FN_UNUSED static inline void
-fd_accdb_ro_scope_exit( fd_accdb_ro_scope_guard_t * guard ) {
-  fd_accdb_close_ro( guard->accdb, guard->ro );
-}
-
-#define FD_ACCDB_RO_BEGIN( accdb__, handle, xid, address)              \
-  {                                                                    \
-    fd_accdb_ro_t     handle[1];                                       \
-    fd_accdb_user_t * accdb_ = (accdb__);                              \
-    void const *      addr_ = (address);                               \
-    if( fd_accdb_open_ro( accdb, handle, (xid), addr_ ) ) {            \
-      fd_accdb_ro_scope_guard_t __attribute__((cleanup(fd_accdb_ro_scope_exit))) guard_ = \
-        { .accdb=accdb_, .ro=handle };                                 \
-      (void)guard_;                                                    \
-      {                                                                \
-        /* User-provided account found snippet */
-#define FD_ACCDB_RO_NOT_FOUND                                          \
-      }                                                                \
-    } else {                                                           \
-      {                                                                \
-        /* User-provided account not found snippet */
-#define FD_ACCDB_RO_END                                                \
-      }                                                                \
-    }                                                                  \
-  }
-
 /* In-place transactional write APIs **********************************/
 
 FD_PROTOTYPES_BEGIN
