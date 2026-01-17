@@ -6,7 +6,7 @@
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/accdb/fd_acc_pool.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v2.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
