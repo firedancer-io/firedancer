@@ -185,7 +185,6 @@ fd_accdb_user_v0_open_ro( fd_accdb_user_t *         accdb_,
     ro->ref->user_data  = 0UL;
     ro->meta            = &rec->meta;
 
-      FD_LOG_NOTICE(( "open v0 ro" ));
     accdb->base.ro_active++;
     found = ro;
   }

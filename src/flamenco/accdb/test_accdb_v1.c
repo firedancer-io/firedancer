@@ -1,4 +1,4 @@
-#include "fd_accdb_admin.h"
+#include "fd_accdb_admin_v1.h"
 #include "fd_accdb_sync.h"
 #include "fd_accdb_impl_v1.h"
 #include "../../funk/test_funk_common.h"
@@ -65,9 +65,9 @@ visit_rec( fd_funk_rec_t * rec ) {
 }
 
 static void
-verify_recs_empty( fd_accdb_admin_t * admin ) {
+verify_recs_empty( fd_funk_t * funk ) {
   /* Verify that all hash chains are empty and unlocked */
-  fd_funk_rec_map_t * rec_map = admin->funk->rec_map;
+  fd_funk_rec_map_t * rec_map = funk->rec_map;
   ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
   fd_funk_rec_map_shmem_private_chain_t * chains = fd_funk_rec_map_shmem_private_chain( rec_map->map, 0UL );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
@@ -77,7 +77,7 @@ verify_recs_empty( fd_accdb_admin_t * admin ) {
   }
 
   /* Verify that all elements are in object pool */
-  fd_funk_rec_pool_t * rec_pool = admin->funk->rec_pool;
+  fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
   fd_funk_rec_t *      rec_tbl  = rec_pool->ele;
   ulong                rec_max  = rec_pool->ele_max;
   for( ulong i=0UL; i<rec_max; i++ ) rec_tbl[ i ].tag = 0;
@@ -103,9 +103,9 @@ verify_recs_empty( fd_accdb_admin_t * admin ) {
 }
 
 static void
-verify_txns_empty( fd_accdb_admin_t * admin ) {
+verify_txns_empty( fd_funk_t * funk ) {
   /* Verify that all hash chains are empty and unlocked */
-  fd_funk_txn_map_t * txn_map = admin->funk->txn_map;
+  fd_funk_txn_map_t * txn_map = funk->txn_map;
   ulong chain_cnt = fd_funk_txn_map_chain_cnt( txn_map );
   fd_funk_txn_map_shmem_private_chain_t * chains = fd_funk_txn_map_shmem_private_chain( txn_map->map, 0UL );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
@@ -115,10 +115,10 @@ verify_txns_empty( fd_accdb_admin_t * admin ) {
   }
 
   /* Verify that all elements are in object pool */
-  fd_funk_txn_t * txn_pool = admin->funk->txn_pool->ele;
-  ulong txn_max = admin->funk->txn_pool->ele_max;
+  fd_funk_txn_t * txn_pool = funk->txn_pool->ele;
+  ulong txn_max = funk->txn_pool->ele_max;
   for( ulong i=0UL; i<txn_max; i++ ) txn_pool[ i ].tag = 0;
-  fd_funk_txn_t * txn = fd_funk_txn_pool_peek( admin->funk->txn_pool );
+  fd_funk_txn_t * txn = fd_funk_txn_pool_peek( funk->txn_pool );
   while( txn ) {
     /* Validate that empty item is valid initialized */
     FD_TEST( txn>=txn_pool && txn<(txn_pool+txn_max) );
@@ -140,9 +140,10 @@ verify_txns_empty( fd_accdb_admin_t * admin ) {
 
 static void
 verify_accdb_empty( fd_accdb_admin_t * admin ) {
-  verify_recs_empty( admin );
-  verify_txns_empty( admin );
-  FD_TEST( fd_alloc_is_empty( admin->funk->alloc ) );
+  fd_funk_t * funk = fd_accdb_admin_v1_funk( admin );
+  verify_recs_empty( funk );
+  verify_txns_empty( funk );
+  FD_TEST( fd_alloc_is_empty( funk->alloc ) );
 }
 
 /* test_truncate verifies open_rw behavior with the TRUNCATE flag set.
@@ -155,7 +156,7 @@ verify_accdb_empty( fd_accdb_admin_t * admin ) {
 static void
 test_truncate_create( fd_accdb_admin_t * admin,
                       fd_accdb_user_t *  accdb ) {
-  fd_funk_txn_xid_t root = *fd_funk_last_publish( admin->funk );
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
   fd_funk_txn_xid_t xid = { .ul={ 1UL, 0UL } };
   fd_accdb_attach_child( admin, &root, &xid );
 
@@ -170,13 +171,13 @@ test_truncate_create( fd_accdb_admin_t * admin,
   fd_accdb_close_rw( accdb, rw );
 
   fd_accdb_advance_root( admin, &xid );
-  fd_accdb_clear( admin );
+  fd_accdb_v1_clear( admin );
 }
 
 static void
 test_truncate_nonexist( fd_accdb_admin_t * admin,
                         fd_accdb_user_t *  accdb ) {
-  fd_funk_txn_xid_t root = *fd_funk_last_publish( admin->funk );
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
   fd_funk_txn_xid_t xid = { .ul={ 2UL, 0UL } };
   fd_accdb_attach_child( admin, &root, &xid );
 
@@ -185,13 +186,13 @@ test_truncate_nonexist( fd_accdb_admin_t * admin,
   FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, &key, 42UL, FD_ACCDB_FLAG_TRUNCATE ) );
 
   fd_accdb_advance_root( admin, &xid );
-  fd_accdb_clear( admin );
+  fd_accdb_v1_clear( admin );
 }
 
 static void
 test_truncate_inplace( fd_accdb_admin_t * admin,
                        fd_accdb_user_t *  accdb ) {
-  fd_funk_txn_xid_t root = *fd_funk_last_publish( admin->funk );
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
   fd_funk_txn_xid_t xid = { .ul={ 3UL, 0UL } };
   fd_accdb_attach_child( admin, &root, &xid );
 
@@ -218,13 +219,13 @@ test_truncate_inplace( fd_accdb_admin_t * admin,
   fd_accdb_close_rw( accdb, rw );
 
   fd_accdb_advance_root( admin, &xid );
-  fd_accdb_clear( admin );
+  fd_accdb_v1_clear( admin );
 }
 
 static void
 test_truncate_copy( fd_accdb_admin_t * admin,
                     fd_accdb_user_t *  accdb ) {
-  fd_funk_txn_xid_t root = *fd_funk_last_publish( admin->funk );
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
   fd_funk_txn_xid_t xid1 = { .ul={ 4UL, 0UL } };
   fd_accdb_attach_child( admin, &root, &xid1 );
 
@@ -252,7 +253,7 @@ test_truncate_copy( fd_accdb_admin_t * admin,
 
   fd_accdb_advance_root( admin, &xid1 );
   fd_accdb_advance_root( admin, &xid2 );
-  fd_accdb_clear( admin );
+  fd_accdb_v1_clear( admin );
 }
 
 static void
@@ -325,9 +326,9 @@ test_tombstone( fd_accdb_admin_t * admin,
   add_account_funk( accdb, s_key_d,     0UL );
 
   fd_accdb_rw_t rw[1];
-  fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_copy( xid, fd_funk_last_publish( admin->funk ) );
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
   fd_funk_txn_xid_t xid2[1] = {{ .ul={ 1UL, 2UL } }};
-  fd_accdb_attach_child( admin, xid, xid2 );
+  fd_accdb_attach_child( admin, &root, xid2 );
 
   FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, s_key_a, 16UL, 0 ) );
   fd_accdb_ref_lamports_set( rw, 0UL );
@@ -360,7 +361,7 @@ test_simple( fd_wksp_t * wksp ) {
   FD_TEST( fd_funk_new( shfunk, WKSP_TAG, 0UL, txn_max, rec_max ) );
   init_funk( shfunk );
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_join( admin, shfunk ) );
+  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk, 1 ) );
   fd_accdb_user_t accdb[1];
   FD_TEST( fd_accdb_user_v1_init( accdb, shfunk ) );
 
@@ -369,12 +370,12 @@ test_simple( fd_wksp_t * wksp ) {
   test_truncate_inplace ( admin, accdb );
   test_truncate_copy    ( admin, accdb );
 
-  fd_accdb_clear( admin );
+  fd_accdb_v1_clear( admin );
   test_tombstone( admin, accdb );
 
   fd_accdb_user_fini( accdb );
-  fd_accdb_clear( admin );
-  fd_accdb_admin_leave( admin, NULL );
+  fd_accdb_v1_clear( admin );
+  fd_accdb_admin_fini( admin );
   fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
 }
 
@@ -402,7 +403,7 @@ test_random_ops( fd_wksp_t * wksp,
   funk_t * ref = funk_new();
 
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_join( admin, shfunk ) );
+  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk, 1 ) );
   fd_accdb_user_t accdb[1];
   FD_TEST( fd_accdb_user_v1_init( accdb, shfunk ) );
   verify_accdb_empty( admin );
@@ -414,7 +415,7 @@ test_random_ops( fd_wksp_t * wksp,
   for( ulong iter=0UL; iter<iter_max; iter++ ) {
     if( !(iter & 16383UL) ) {
       FD_LOG_NOTICE(( "Iter %7lu (txn_cnt %3lu rec_cnt %3lu)", iter, ref->txn_cnt, ref->rec_cnt ));
-      fd_accdb_verify( admin );
+      fd_accdb_v1_verify( admin );
     }
 
     uint r = fd_rng_uint( rng );
@@ -492,13 +493,13 @@ test_random_ops( fd_wksp_t * wksp,
 
   }
 
-  fd_accdb_verify( admin );
-  fd_accdb_clear( admin );
+  fd_accdb_v1_verify( admin );
+  fd_accdb_v1_clear( admin );
   verify_accdb_empty( admin );
-  fd_accdb_verify( admin );
+  fd_accdb_v1_verify( admin );
 
   fd_accdb_user_fini( accdb );
-  fd_accdb_admin_leave( admin, NULL );
+  fd_accdb_admin_fini( admin );
   fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
 
   funk_delete( ref );

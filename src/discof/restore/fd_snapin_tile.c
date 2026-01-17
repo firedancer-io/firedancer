@@ -6,6 +6,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/gui/fd_gui_config_parse.h"
+#include "../../flamenco/accdb/fd_accdb_admin_v1.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
@@ -611,12 +612,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
         if( !ctx->use_vinyl && ctx->full ) {
-          fd_accdb_clear( ctx->accdb_admin );
+          fd_accdb_v1_clear( ctx->accdb_admin );
         }
 
         if( !ctx->full ) {
           fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
-          fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
+          fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
         }
       }
       break;
@@ -657,19 +658,19 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       /* Publish any remaining funk txn */
-      if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->accdb_admin->funk ) ) ) {
-        ctx->accdb_admin->metrics.gc_root_cnt = 0UL;
-        ctx->accdb_admin->metrics.reclaim_cnt = 0UL;
+      if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) {
+        ctx->accdb_admin->base.gc_root_cnt = 0UL;
+        ctx->accdb_admin->base.reclaim_cnt = 0UL;
         fd_accdb_advance_root( ctx->accdb_admin, ctx->xid );
-        ctx->metrics.accounts_replaced += ctx->accdb_admin->metrics.gc_root_cnt;
+        ctx->metrics.accounts_replaced += ctx->accdb_admin->base.gc_root_cnt;
         /* If an incremental snapshot 'reclaims' (deletes) an account,
            this removes both the full snapshot's original account, and
            the incremental snapshot's tombstone record.  Thus account
            for twice in metrics. */
-        ctx->metrics.accounts_loaded   -= ctx->accdb_admin->metrics.reclaim_cnt;
-        ctx->metrics.accounts_replaced += ctx->accdb_admin->metrics.reclaim_cnt;
+        ctx->metrics.accounts_loaded   -= ctx->accdb_admin->base.reclaim_cnt;
+        ctx->metrics.accounts_replaced += ctx->accdb_admin->base.reclaim_cnt;
       }
-      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->accdb_admin->funk ) );
+      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
 
       /* Make 'Last published' XID equal the restored slot number */
       fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };
@@ -817,9 +818,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->boot_timestamp = fd_log_wallclock();
 
-  FD_TEST( fd_accdb_admin_join  ( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb,       fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
-  fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->accdb_admin->funk ) );
+  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ), 1 ) );
+  FD_TEST( fd_accdb_user_v1_init ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
+  ctx->funk = fd_accdb_user_v1_funk( ctx->accdb );
+  fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->funk ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

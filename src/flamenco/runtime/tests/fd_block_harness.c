@@ -9,6 +9,8 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../../accdb/fd_accdb_admin_v1.h"
+#include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../accdb/fd_accdb_sync.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
@@ -214,13 +216,13 @@ fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *           
 
 static void
 fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  fd_accdb_clear( runner->accdb_admin );
+  fd_accdb_v1_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache_admin );
 
   /* In order to check for leaks in the workspace, we need to compact the
      allocators. Without doing this, empty superblocks may be retained
      by the fd_alloc instance, which mean we cannot check for leaks. */
-  fd_alloc_compact( runner->accdb_admin->funk->alloc );
+  fd_alloc_compact( fd_accdb_user_v1_funk( runner->accdb )->alloc );
   fd_alloc_compact( runner->progcache_admin->funk->alloc );
 }
 

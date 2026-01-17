@@ -60,6 +60,7 @@ struct fd_snapin_tile {
 
   fd_accdb_admin_t accdb_admin[1];
   fd_accdb_user_t  accdb[1];
+  fd_funk_t *      funk;
 
   fd_txncache_t * txncache;
   uchar *         acc_data;

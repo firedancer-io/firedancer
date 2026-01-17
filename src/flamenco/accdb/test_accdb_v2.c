@@ -1,4 +1,5 @@
 #include "fd_accdb_base.h"
+#include "fd_accdb_admin_v1.h" /* FIXME admin_v2 not yet implemented */
 #include "fd_accdb_impl_v2.h"
 #include "fd_accdb_admin.h"
 #include "fd_accdb_sync.h"
@@ -259,7 +260,7 @@ run_tests( fd_accdb_user_t * accdb ) {
   fd_accdb_rw_t rw[1];
   fd_funk_txn_xid_t xid2[1] = {{ .ul={ 1UL, 2UL } }};
   fd_accdb_admin_t admin[1];
-  fd_accdb_admin_join( admin, v2->v1.funk->shmem );
+  fd_accdb_admin_v1_init( admin, v2->v1.funk->shmem, 0 );
   fd_accdb_attach_child( admin, xid, xid2 );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
 
@@ -284,7 +285,7 @@ run_tests( fd_accdb_user_t * accdb ) {
   }
 
   fd_accdb_cancel( admin, xid2 );
-  fd_accdb_admin_leave( admin, NULL );
+  fd_accdb_admin_fini( admin );
 }
 
 int
@@ -426,9 +427,9 @@ main( int     argc,
   FD_LOG_NOTICE(( "Cleaning up" ));
 
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_join( admin, shfunk ) );
-  fd_accdb_clear( admin );
-  fd_accdb_admin_leave( admin, NULL );
+  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk, 0 ) );
+  fd_accdb_v1_clear( admin );
+  fd_accdb_admin_fini( admin );
 
   fd_accdb_user_fini( accdb );
 

@@ -16,7 +16,7 @@
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "sysvar/fd_sysvar_stake_history.h"
-#include "../accdb/fd_accdb_admin.h"
+#include "../accdb/fd_accdb_admin_v1.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../progcache/fd_progcache_admin.h"
 #include "../progcache/fd_progcache_user.h"
@@ -111,7 +111,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   env->funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), env->tag );
   FD_TEST( env->funk_mem );
   FD_TEST( fd_funk_new( env->funk_mem, env->tag, funk_seed, txn_max, rec_max ) );
-  FD_TEST( fd_accdb_admin_join( env->accdb_admin, env->funk_mem ) );
+  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem, 1 ) );
   FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem ) );
 
   env->pcache_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), env->tag );
@@ -180,11 +180,10 @@ test_env_destroy( test_env_t * env ) {
   fd_wksp_free_laddr( fd_funk_delete( pcache_funk ) );
   fd_wksp_free_laddr( env->progcache_scratch );
 
-  fd_alloc_compact( fd_funk_alloc( env->accdb_admin->funk ) );
-  void * funk_mem = NULL;
-  fd_accdb_admin_leave( env->accdb_admin, &funk_mem );
+  void * accdb_shfunk = fd_accdb_admin_v1_funk( env->accdb_admin )->shmem;
+  fd_accdb_admin_fini( env->accdb_admin );
   fd_accdb_user_fini( env->accdb );
-  fd_wksp_free_laddr( fd_funk_delete( funk_mem ) );
+  fd_wksp_free_laddr( fd_funk_delete( accdb_shfunk ) );
 
   fd_memset( env, 0, sizeof(test_env_t) );
 }

@@ -3,6 +3,9 @@
 
 #include "../../util/fd_util_base.h"
 
+struct fd_accdb_admin;
+typedef struct fd_accdb_admin fd_accdb_admin_t;
+
 struct fd_accdb_user;
 typedef struct fd_accdb_user fd_accdb_user_t;
 
@@ -14,5 +17,10 @@ typedef struct fd_accdb_user fd_accdb_user_t;
 #define FD_ACCDB_REF_INVAL 0 /* not a valid reference */
 #define FD_ACCDB_REF_RO    1 /* read only */
 #define FD_ACCDB_REF_RW    2 /* read write */
+
+/* FD_ACCDB_DEPTH_MAX specifies the max non-rooted fork depth.
+   FIXME removing this limit is important for outage resilience */
+
+#define FD_ACCDB_DEPTH_MAX (128UL)
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_base_h */

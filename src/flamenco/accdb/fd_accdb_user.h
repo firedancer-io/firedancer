@@ -4,10 +4,6 @@
 #include "fd_accdb_base.h"
 #include "fd_accdb_ref.h"
 
-/* FD_ACCDB_DEPTH_MAX specifies the max non-rooted fork depth. */
-
-#define FD_ACCDB_DEPTH_MAX (128UL)
-
 #define FD_ACCDB_FLAG_CREATE   (1)
 #define FD_ACCDB_FLAG_TRUNCATE (2)
 #define FD_ACCDB_FLAG_DONTZERO (3)

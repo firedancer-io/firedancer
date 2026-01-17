@@ -3,7 +3,7 @@
 #include "test_sysvar_cache_util.h"
 #include "../fd_system_ids.h"
 #include "../fd_bank.h"
-#include "../../accdb/fd_accdb_admin.h"
+#include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include <errno.h>
 
@@ -39,9 +39,10 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->data->non_cow.sysvar_cache ) );
 
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_join( admin, funk_mem ) );
-  fd_accdb_attach_child( admin, fd_funk_last_publish( admin->funk ), &env->xid );
-  fd_accdb_admin_leave( admin, NULL );
+  FD_TEST( fd_accdb_admin_v1_init( admin, funk_mem, 1 ) );
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_accdb_attach_child( admin, &root, &env->xid );
+  fd_accdb_admin_fini( admin );
 
   return env;
 }
