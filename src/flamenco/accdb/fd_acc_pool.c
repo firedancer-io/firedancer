@@ -1,5 +1,5 @@
 #include "fd_acc_pool.h"
-#include "fd_runtime_const.h"
+#include "../runtime/fd_runtime_const.h"
 #include "../fd_rwlock.h"
 
 #define FD_ACC_POOL_MAGIC (0xF17EDA2CEACC6001UL) /* FIREDANCE ACC POOL */
@@ -124,7 +124,7 @@ fd_acc_pool_join( void * mem ) {
   return acc_pool;
 }
 
-int
+static int
 fd_acc_pool_try_acquire( fd_acc_pool_t * acc_pool,
                          ulong           request_cnt,
                          uchar * *       accounts_out ) {

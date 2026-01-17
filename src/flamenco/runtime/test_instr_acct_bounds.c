@@ -10,7 +10,7 @@
 #include "fd_runtime.h"
 #include "fd_bank.h"
 #include "fd_system_ids.h"
-#include "fd_acc_pool.h"
+#include "../accdb/fd_acc_pool.h"
 #include "program/fd_builtin_programs.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
