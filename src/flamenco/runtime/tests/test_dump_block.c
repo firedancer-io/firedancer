@@ -14,6 +14,7 @@
 #include "../../../ballet/nanopb/pb_decode.h"
 #include "../../accdb/fd_accdb_admin.h"
 #include "../../accdb/fd_accdb_sync.h"
+#include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 
 #include "generated/block.pb.h"
@@ -89,8 +90,8 @@ test_ctx_setup( void ) {
   /* Initialize funk */
   void * shfunk = fd_funk_new( funk_mem, wksp_tag, 42UL, TEST_FUNK_TXN_MAX, TEST_FUNK_REC_MAX );
   FD_TEST( shfunk );
-  FD_TEST( fd_accdb_admin_join  ( test_ctx->accdb_admin, funk_mem ) );
-  FD_TEST( fd_accdb_user_v1_init( test_ctx->accdb,       funk_mem ) );
+  FD_TEST( fd_accdb_admin_v1_init( test_ctx->accdb_admin, funk_mem, 1 ) );
+  FD_TEST( fd_accdb_user_v1_init ( test_ctx->accdb,       funk_mem ) );
 
   /* Allocate memory for banks */
   ulong  banks_footprint = fd_banks_footprint( TEST_BANK_MAX, TEST_FORK_MAX );
@@ -185,10 +186,10 @@ test_ctx_teardown( test_ctx_t * test_ctx ) {
   fd_wksp_free_laddr( test_ctx->banks->locks );
 
   /* Clean up funk */
+  void * shfunk = fd_accdb_admin_v1_funk( test_ctx->accdb_admin )->shmem;
   fd_accdb_user_fini( test_ctx->accdb );
-  void * shfunk = NULL;
-  fd_accdb_admin_leave( test_ctx->accdb_admin, &shfunk );
-  if( shfunk ) fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
+  fd_accdb_admin_fini( test_ctx->accdb_admin );
+  fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
 
   /* Delete test context */
   fd_wksp_free_laddr( test_ctx );
@@ -321,7 +322,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   ulong child_slot  = input_ctx.slot_ctx.slot;
 
   /* Cancel existing funk transactions from the previous test */
-  fd_accdb_clear( test_ctx->accdb_admin );
+  fd_accdb_v1_clear( test_ctx->accdb_admin );
 
   /* Reuse existing parent bank */
   FD_TEST( test_ctx->parent_bank != NULL );

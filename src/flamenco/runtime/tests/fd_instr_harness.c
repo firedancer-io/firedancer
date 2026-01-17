@@ -8,6 +8,7 @@
 #include "../program/fd_bpf_loader_program.h"
 #include "../program/fd_loader_v4_program.h"
 #include "../fd_system_ids.h"
+#include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../log_collector/fd_log_collector.h"
 #include <assert.h>
 
@@ -344,13 +345,13 @@ void
 fd_solfuzz_pb_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                  fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
-  fd_accdb_clear( runner->accdb_admin );
+  fd_accdb_v1_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache_admin );
 
   /* In order to check for leaks in the workspace, we need to compact the
      allocators. Without doing this, empty superblocks may be retained
      by the fd_alloc instance, which mean we cannot check for leaks. */
-  fd_alloc_compact( runner->accdb_admin->funk->alloc );
+  fd_alloc_compact( fd_accdb_admin_v1_funk( runner->accdb_admin )->alloc );
   fd_alloc_compact( runner->progcache_admin->funk->alloc );
 }
 

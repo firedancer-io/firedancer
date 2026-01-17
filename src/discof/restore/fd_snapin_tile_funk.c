@@ -2,11 +2,12 @@
 
 #include "fd_snapin_tile_private.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
+#include "../../funk/fd_funk.h"
 
 int
 fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
                                        fd_ssparse_advance_result_t * result ) {
-  fd_funk_t * funk = ctx->accdb_admin->funk;
+  fd_funk_t * funk = ctx->funk;
 
   fd_funk_rec_key_t id = FD_LOAD( fd_funk_rec_key_t, result->account_header.pubkey );
   fd_funk_rec_query_t query[1];
@@ -96,7 +97,7 @@ streamlined_insert( fd_snapin_tile_t * ctx,
   uchar owner[32];   memcpy( owner, frame+0x40UL, 32UL );
   _Bool executable = !!frame[ 0x60UL ];
 
-  fd_funk_t * funk = ctx->accdb_admin->funk;
+  fd_funk_t * funk = ctx->funk;
   if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
   fd_funk_val_flush( rec, funk->alloc, funk->wksp );
   ulong const alloc_sz = sizeof(fd_account_meta_t)+data_len;
@@ -132,7 +133,7 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
                                       buffered_account_batch_t *    buffered_batch ) {
   int early_exit  = 0;
   ulong start_idx = result ? 0 : buffered_batch->remaining_idx;
-  fd_funk_t *         funk    = ctx->accdb_admin->funk;
+  fd_funk_t *         funk    = ctx->funk;
   fd_funk_rec_map_t * rec_map = funk->rec_map;
   fd_funk_rec_t *     rec_tbl = funk->rec_pool->ele;
   fd_funk_rec_map_shmem_private_chain_t * chain_tbl = fd_funk_rec_map_shmem_private_chain( rec_map->map, 0UL );

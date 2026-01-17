@@ -6,6 +6,7 @@
 #include "../fd_runtime_stack.h"
 #include "../fd_runtime.h"
 #include "../fd_acc_pool.h"
+#include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include <errno.h>
 #include <sys/mman.h>
@@ -110,8 +111,8 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   if( FD_UNLIKELY( !shfunk   ) ) goto bail1;
   if( FD_UNLIKELY( !shpcache ) ) goto bail1;
 
-  if( FD_UNLIKELY( !fd_accdb_admin_join  ( runner->accdb_admin, funk_mem ) ) ) goto bail2;
-  if( FD_UNLIKELY( !fd_accdb_user_v1_init( runner->accdb,       funk_mem ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_accdb_admin_v1_init( runner->accdb_admin, funk_mem, 1 ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_accdb_user_v1_init ( runner->accdb,       funk_mem    ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_admin_join( runner->progcache_admin, pcache_mem ) ) ) goto bail2;
 
@@ -166,10 +167,10 @@ bail1:
 void
 fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
 
+  void * shfunk = fd_accdb_user_v1_funk( runner->accdb )->shmem;
   fd_accdb_user_fini( runner->accdb );
-  void * shfunk = NULL;
-  fd_accdb_admin_leave( runner->accdb_admin, &shfunk );
-  if( shfunk ) fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
+  fd_accdb_admin_fini( runner->accdb_admin );
+  fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
 
   fd_progcache_leave( runner->progcache, NULL );
   void * shpcache = NULL;
@@ -192,7 +193,8 @@ fd_solfuzz_runner_leak_check( fd_solfuzz_runner_t * runner ) {
     FD_LOG_CRIT(( "leaked spad frame" ));
   }
 
-  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->accdb_admin->funk->shmem->child_head_cidx ) ) ) ) {
+  fd_funk_t * accdb_funk = fd_accdb_admin_v1_funk( runner->accdb_admin );
+  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( accdb_funk->shmem->child_head_cidx ) ) ) ) {
     FD_LOG_CRIT(( "leaked a funk txn in accdb" ));
   }
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->progcache_admin->funk->shmem->child_head_cidx ) ) ) ) {

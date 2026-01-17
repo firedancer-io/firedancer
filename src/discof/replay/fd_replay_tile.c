@@ -19,7 +19,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../util/pod/fd_pod.h"
-#include "../../flamenco/accdb/fd_accdb_admin.h"
+#include "../../flamenco/accdb/fd_accdb_admin_v1.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v2.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
@@ -502,11 +502,11 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  ctx->progcache_admin->metrics.root_cnt );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, ctx->progcache_admin->metrics.gc_root_cnt );
 
-  FD_MCNT_SET( REPLAY, ACCDB_CREATED,   ctx->accdb->base.created_cnt          );
-  FD_MCNT_SET( REPLAY, ACCDB_REVERTED,  ctx->accdb_admin->metrics.revert_cnt  );
-  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,    ctx->accdb_admin->metrics.root_cnt    );
-  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,   ctx->accdb_admin->metrics.gc_root_cnt );
-  FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED, ctx->accdb_admin->metrics.reclaim_cnt );
+  FD_MCNT_SET( REPLAY, ACCDB_CREATED,   ctx->accdb->base.created_cnt       );
+  FD_MCNT_SET( REPLAY, ACCDB_REVERTED,  ctx->accdb_admin->base.revert_cnt  );
+  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,    ctx->accdb_admin->base.root_cnt    );
+  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,   ctx->accdb_admin->base.gc_root_cnt );
+  FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED, ctx->accdb_admin->base.reclaim_cnt );
 }
 
 static inline ulong
@@ -997,7 +997,7 @@ init_funk( fd_replay_tile_t * ctx,
            ulong              bank_slot ) {
   /* Ensure that the loaded bank root corresponds to the account
      database's root. */
-  fd_funk_t * funk = ctx->accdb_admin->funk;
+  fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
   if( FD_UNLIKELY( !funk->shmem ) ) {
     FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to database shared memory objects" ));
   }
@@ -1021,8 +1021,10 @@ init_funk( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to program cache" ));
   }
   fd_progcache_clear( ctx->progcache_admin );
-  fd_progcache_txn_attach_child( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), fd_funk_last_publish( ctx->accdb_admin->funk ) );
-  fd_progcache_txn_advance_root( ctx->progcache_admin,                                             fd_funk_last_publish( ctx->accdb_admin->funk ) );
+
+  fd_funk_txn_xid_t last_publish = fd_accdb_root_get( ctx->accdb_admin );
+  fd_progcache_txn_attach_child( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), &last_publish );
+  fd_progcache_txn_advance_root( ctx->progcache_admin,                                             &last_publish );
 }
 
 static void
@@ -1811,7 +1813,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->slot                   = reasm_fec->slot;
   sched_fec->parent_slot            = reasm_fec->slot - reasm_fec->parent_off;
   sched_fec->is_first_in_block      = reasm_fec->fec_set_idx==0U;
-  fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
+  fd_funk_txn_xid_t const root = fd_accdb_root_get( ctx->accdb_admin );
+  fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, &root );
   sched_fec->alut_ctx->accdb[0]     = ctx->accdb[0];
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
 
@@ -2527,13 +2530,14 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<tile->replay.enable_features_cnt; i++ ) one_off_features[ i ] = tile->replay.enable_features[i];
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
 
-  FD_TEST( fd_accdb_admin_join    ( ctx->accdb_admin,     fd_topo_obj_laddr( topo, tile->replay.funk_obj_id      ) ) );
+  fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
+  int enable_reclaims = !vinyl_data;
+
+  FD_TEST( fd_accdb_admin_v1_init ( ctx->accdb_admin,     fd_topo_obj_laddr( topo, tile->replay.funk_obj_id      ), enable_reclaims ) );
   FD_TEST( fd_progcache_admin_join( ctx->progcache_admin, fd_topo_obj_laddr( topo, tile->replay.progcache_obj_id ) ) );
 
-  fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
   if( !vinyl_data ) {
     FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) );
-    ctx->accdb_admin->enable_reclaims = 1;
   } else {
     fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq" );
     fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );

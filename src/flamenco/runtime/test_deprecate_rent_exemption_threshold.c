@@ -14,7 +14,7 @@
 #include "sysvar/fd_sysvar_stake_history.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_cache.h"
-#include "../accdb/fd_accdb_admin.h"
+#include "../accdb/fd_accdb_admin_v1.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../features/fd_features.h"
 #include "../accdb/fd_accdb_sync.h"
@@ -109,7 +109,7 @@ test_env_create( test_env_t * env,
   FD_TEST( env->funk_mem );
   FD_TEST( fd_funk_new( env->funk_mem, env->tag, funk_seed, txn_max, rec_max ) );
 
-  FD_TEST( fd_accdb_admin_join( env->accdb_admin, env->funk_mem ) );
+  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem, 1 ) );
   FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem ) );
 
   fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
@@ -157,12 +157,10 @@ test_env_destroy( test_env_t * env ) {
   fd_wksp_free_laddr( env->runtime_stack );
   fd_wksp_free_laddr( env->banks->data );
   fd_wksp_free_laddr( env->banks->locks );
-  fd_alloc_compact( fd_funk_alloc( env->accdb_admin->funk ) );
 
-  void * funk_mem = NULL;
-  fd_accdb_admin_leave( env->accdb_admin, &funk_mem );
+  fd_accdb_admin_fini( env->accdb_admin );
   fd_accdb_user_fini( env->accdb );
-  fd_wksp_free_laddr( fd_funk_delete( funk_mem ) );
+  fd_wksp_free_laddr( fd_funk_delete( env->funk_mem ) );
 
   fd_wksp_usage_t usage[1];
   fd_wksp_usage( env->wksp, &env->tag, 1UL, usage );

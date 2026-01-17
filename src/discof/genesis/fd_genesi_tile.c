@@ -5,7 +5,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/runtime/fd_genesis_parse.h"
-#include "../../flamenco/accdb/fd_accdb_admin.h"
+#include "../../flamenco/accdb/fd_accdb_admin_v1.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/runtime/fd_hashes.h"
@@ -448,8 +448,8 @@ unprivileged_init( fd_topo_t *      topo,
                            FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
   void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
 
-  FD_TEST( fd_accdb_admin_join( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ), 1 ) );
+  FD_TEST( fd_accdb_user_v1_init ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
 
   fd_lthash_zero( ctx->lthash );
 

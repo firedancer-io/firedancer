@@ -1,9 +1,9 @@
 
 #include "fd_progcache_admin.h"
 #include "fd_progcache_user.h"
-#include "../accdb/fd_accdb_admin.h"
-#include "../accdb/fd_accdb_sync.h"
+#include "../accdb/fd_accdb_admin_v1.h"
 #include "../accdb/fd_accdb_impl_v1.h"
+#include "../accdb/fd_accdb_sync.h"
 #include "../features/fd_features.h"
 
 struct test_env {
@@ -44,7 +44,7 @@ test_env_create( fd_wksp_t * wksp ) {
   env->wksp = wksp;
   FD_TEST( fd_progcache_admin_join( env->progcache_admin, progcache_mem ) );
   FD_TEST( fd_progcache_join      ( env->progcache, progcache_mem, env->scratch, sizeof(env->scratch) ) );
-  FD_TEST( fd_accdb_admin_join    ( env->accdb_admin, accdb_mem ) );
+  FD_TEST( fd_accdb_admin_v1_init ( env->accdb_admin, accdb_mem, 1 ) );
   FD_TEST( fd_accdb_user_v1_init  ( env->accdb,       accdb_mem ) );
 
   return env;
@@ -61,10 +61,10 @@ test_env_destroy( test_env_t * env ) {
   FD_TEST( fd_progcache_leave      ( env->progcache,       &progcache_mem ) );
   fd_wksp_free_laddr( fd_funk_delete( progcache_mem ) );
 
-  void * accdb_mem = NULL;
-  FD_TEST( fd_accdb_admin_leave( env->accdb_admin, &accdb_mem ) );
+  void * accdb_funk = fd_accdb_user_v1_funk( env->accdb )->shmem;
+  fd_accdb_admin_fini( env->accdb_admin );
   fd_accdb_user_fini( env->accdb );
-  fd_wksp_free_laddr( fd_funk_delete( accdb_mem ) );
+  fd_wksp_free_laddr( fd_funk_delete( accdb_funk ) );
 
   fd_wksp_free_laddr( env );
 }

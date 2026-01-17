@@ -5,7 +5,6 @@
 /* ro_pipe state machine
 
    BATCH: generating request batch
-   WAIT:  ACQUIRE batch sent, waiting for completion
    DRAIN: waiting for user to poll responses
 
    On creation, ro_pipe is in BATCH state.

@@ -8,7 +8,7 @@
 #include "sysvar/fd_sysvar_stake_history.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_cache.h"
-#include "../accdb/fd_accdb_admin.h"
+#include "../accdb/fd_accdb_admin_v1.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../features/fd_features.h"
 #include "../accdb/fd_accdb_sync.h"
@@ -131,7 +131,7 @@ init_rent_sysvar( test_env_t * env,
     FD_TEST( env->funk_mem );
     FD_TEST( fd_funk_new( env->funk_mem, env->tag, funk_seed, txn_max, rec_max ) );
 
-    FD_TEST( fd_accdb_admin_join( env->accdb_admin, env->funk_mem ) );
+    FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem, 1 ) );
     FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem ) );
 
     fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );

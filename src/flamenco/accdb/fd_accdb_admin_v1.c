@@ -1,10 +1,33 @@
-#include "fd_accdb_admin.h"
+#include "fd_accdb_admin_v1.h"
 #include "../fd_flamenco_base.h"
+#include "../../funk/fd_funk.h"
+
+struct fd_accdb_admin_v1 {
+  fd_accdb_admin_base_t base;
+
+  uint enable_reclaims : 1;
+
+  /* Funk client */
+  fd_funk_t funk[1];
+
+  /* Current fork cache */
+  fd_funk_txn_xid_t fork[ FD_ACCDB_DEPTH_MAX ];
+  ulong             fork_depth;
+
+  /* Current funk txn cache */
+  ulong tip_txn_idx; /* ==ULONG_MAX if tip is root */
+};
+
+typedef struct fd_accdb_admin_v1 fd_accdb_admin_v1_t;
+
+FD_STATIC_ASSERT( alignof(fd_accdb_admin_v1_t)<=alignof(fd_accdb_admin_t), layout );
+FD_STATIC_ASSERT( sizeof (fd_accdb_admin_v1_t)<=sizeof(fd_accdb_admin_t),  layout );
 
 fd_accdb_admin_t *
-fd_accdb_admin_join( fd_accdb_admin_t * ljoin,
-                     void *             shfunk ) {
-  if( FD_UNLIKELY( !ljoin ) ) {
+fd_accdb_admin_v1_init( fd_accdb_admin_t * admin_,
+                        void *             shfunk,
+                        int                enable_reclaims ) {
+  if( FD_UNLIKELY( !admin_ ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
   }
@@ -13,22 +36,47 @@ fd_accdb_admin_join( fd_accdb_admin_t * ljoin,
     return NULL;
   }
 
-  memset( ljoin, 0, sizeof(fd_accdb_admin_t) );
-  if( FD_UNLIKELY( !fd_funk_join( ljoin->funk, shfunk ) ) ) {
+  fd_accdb_admin_v1_t * admin = (fd_accdb_admin_v1_t *)admin_;
+  memset( admin, 0, sizeof(fd_accdb_admin_t) );
+  admin->base.accdb_type = FD_ACCDB_TYPE_V1;
+  admin->base.vt         = &fd_accdb_admin_v1_vt;
+
+  if( FD_UNLIKELY( !fd_funk_join( admin->funk, shfunk ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
+  admin->enable_reclaims = !!enable_reclaims;
 
-  return ljoin;
+  return admin_;
 }
 
-void *
-fd_accdb_admin_leave( fd_accdb_admin_t * admin,
-                      void **            opt_shfunk ) {
-  if( FD_UNLIKELY( !admin ) ) FD_LOG_CRIT(( "NULL ljoin" ));
+static fd_accdb_admin_v1_t *
+downcast( fd_accdb_admin_t * admin ) {
+  if( FD_UNLIKELY( !admin ) ) {
+    FD_LOG_CRIT(( "NULL admin" ));
+  }
+  if( FD_UNLIKELY( admin->base.accdb_type!=FD_ACCDB_TYPE_V1 ) ) {
+    FD_LOG_CRIT(( "corrupt accdb_admin handle" ));
+  }
+  return (fd_accdb_admin_v1_t *)admin;
+}
 
-  if( FD_UNLIKELY( !fd_funk_leave( admin->funk, opt_shfunk ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
+void
+fd_accdb_admin_v1_fini( fd_accdb_admin_t * admin_ ) {
+  fd_accdb_admin_v1_t * admin = downcast( admin_ );
+  if( FD_UNLIKELY( !fd_funk_leave( admin->funk, NULL ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
+  memset( admin, 0, sizeof(fd_accdb_admin_base_t) );
+}
 
-  return admin;
+fd_funk_t *
+fd_accdb_admin_v1_funk( fd_accdb_admin_t * admin ) {
+  fd_accdb_admin_v1_t * a = downcast( admin );
+  return a->funk;
+}
+
+fd_funk_txn_xid_t
+fd_accdb_v1_root_get( fd_accdb_admin_t const * admin_ ) {
+  fd_accdb_admin_v1_t const * admin = (fd_accdb_admin_v1_t const *)admin_;
+  return *fd_funk_last_publish( admin->funk );
 }
 
 /* Begin transaction-level operations.  It is assumed that funk_txn data
@@ -36,9 +84,10 @@ fd_accdb_admin_leave( fd_accdb_admin_t * admin,
    txn_map. */
 
 void
-fd_accdb_attach_child( fd_accdb_admin_t *        db,
-                       fd_funk_txn_xid_t const * xid_parent,
-                       fd_funk_txn_xid_t const * xid_new ) {
+fd_accdb_v1_attach_child( fd_accdb_admin_t *        db_,
+                          fd_funk_txn_xid_t const * xid_parent,
+                          fd_funk_txn_xid_t const * xid_new ) {
+  fd_accdb_admin_v1_t * db = downcast( db_ );
   FD_LOG_INFO(( "accdb txn xid %lu:%lu: created with parent %lu:%lu",
                 xid_new   ->ul[0], xid_new   ->ul[1],
                 xid_parent->ul[0], xid_parent->ul[1] ));
@@ -46,8 +95,8 @@ fd_accdb_attach_child( fd_accdb_admin_t *        db,
 }
 
 static void
-fd_accdb_txn_cancel_one( fd_accdb_admin_t * admin,
-                         fd_funk_txn_t *    txn ) {
+fd_accdb_txn_cancel_one( fd_accdb_admin_v1_t * admin,
+                         fd_funk_txn_t *       txn ) {
   FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: cancel", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
 
   if( FD_UNLIKELY( txn->state!=FD_FUNK_TXN_STATE_ACTIVE ) ) {
@@ -111,7 +160,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_t * admin,
     rec_idx = next_idx;
     rec_cnt++;
   }
-  admin->metrics.revert_cnt += rec_cnt;
+  admin->base.revert_cnt += rec_cnt;
   FD_LOG_INFO(( "accdb freed %lu records while cancelling txn %lu:%lu",
                 rec_cnt, txn->xid.ul[0], txn->xid.ul[1] ));
 
@@ -157,8 +206,8 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_t * admin,
 /* Cancels txn and all children */
 
 static void
-fd_accdb_txn_cancel_tree( fd_accdb_admin_t * accdb,
-                          fd_funk_txn_t *    txn ) {
+fd_accdb_txn_cancel_tree( fd_accdb_admin_v1_t * accdb,
+                          fd_funk_txn_t *       txn ) {
   for(;;) {
     ulong child_idx = fd_funk_txn_idx( txn->child_head_cidx );
     if( fd_funk_txn_idx_is_null( child_idx ) ) break;
@@ -171,8 +220,8 @@ fd_accdb_txn_cancel_tree( fd_accdb_admin_t * accdb,
 /* Cancels all left/right siblings */
 
 static void
-fd_accdb_txn_cancel_prev_list( fd_accdb_admin_t * accdb,
-                               fd_funk_txn_t *    txn ) {
+fd_accdb_txn_cancel_prev_list( fd_accdb_admin_v1_t * accdb,
+                               fd_funk_txn_t *       txn ) {
   ulong self_idx = (ulong)( txn - accdb->funk->txn_pool->ele );
   for(;;) {
     ulong prev_idx = fd_funk_txn_idx( txn->sibling_prev_cidx );
@@ -184,8 +233,8 @@ fd_accdb_txn_cancel_prev_list( fd_accdb_admin_t * accdb,
 }
 
 static void
-fd_accdb_txn_cancel_next_list( fd_accdb_admin_t * accdb,
-                               fd_funk_txn_t *    txn ) {
+fd_accdb_txn_cancel_next_list( fd_accdb_admin_v1_t * accdb,
+                               fd_funk_txn_t *       txn ) {
   ulong self_idx = (ulong)( txn - accdb->funk->txn_pool->ele );
   for(;;) {
     ulong next_idx = fd_funk_txn_idx( txn->sibling_next_cidx );
@@ -197,9 +246,10 @@ fd_accdb_txn_cancel_next_list( fd_accdb_admin_t * accdb,
 }
 
 void
-fd_accdb_cancel( fd_accdb_admin_t *        accdb,
-                 fd_funk_txn_xid_t const * xid ) {
-  fd_funk_t * funk = accdb->funk;
+fd_accdb_v1_cancel( fd_accdb_admin_t *        accdb_,
+                    fd_funk_txn_xid_t const * xid ) {
+  fd_accdb_admin_v1_t * accdb = downcast( accdb_ );
+  fd_funk_t *           funk  = accdb->funk;
 
   /* Assume no concurrent access to txn_map */
 
@@ -219,8 +269,8 @@ fd_accdb_cancel( fd_accdb_admin_t *        accdb,
    its underlying record. */
 
 static void
-fd_accdb_chain_reclaim( fd_accdb_admin_t * accdb,
-                        fd_funk_rec_t *    rec ) {
+fd_accdb_chain_reclaim( fd_accdb_admin_v1_t * accdb,
+                        fd_funk_rec_t *       rec ) {
   fd_funk_t * funk = accdb->funk;
 
   /* Phase 1: Remove record from map */
@@ -242,14 +292,14 @@ fd_accdb_chain_reclaim( fd_accdb_admin_t * accdb,
   old_rec->map_next = FD_FUNK_REC_IDX_NULL;
   fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
   fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
-  accdb->metrics.reclaim_cnt++;
+  accdb->base.reclaim_cnt++;
 }
 
 /* fd_accdb_chain_gc_root cleans up a stale "rooted" version of a
    record. */
 
 static void
-fd_accdb_chain_gc_root( fd_accdb_admin_t *             accdb,
+fd_accdb_chain_gc_root( fd_accdb_admin_v1_t *          accdb,
                         fd_funk_xid_key_pair_t const * pair ) {
   fd_funk_t * funk = accdb->funk;
 
@@ -272,7 +322,7 @@ fd_accdb_chain_gc_root( fd_accdb_admin_t *             accdb,
   old_rec->map_next = FD_FUNK_REC_IDX_NULL;
   fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
   fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
-  accdb->metrics.gc_root_cnt++;
+  accdb->base.gc_root_cnt++;
 }
 
 /* fd_accdb_publish_recs moves all records in a transaction to the DB
@@ -283,8 +333,8 @@ fd_accdb_chain_gc_root( fd_accdb_admin_t *             accdb,
    users. */
 
 static void
-fd_accdb_publish_recs( fd_accdb_admin_t * accdb,
-                       fd_funk_txn_t *    txn ) {
+fd_accdb_publish_recs( fd_accdb_admin_v1_t * accdb,
+                       fd_funk_txn_t *       txn ) {
   /* Iterate record list */
   uint head = txn->rec_head_idx;
   txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
@@ -312,7 +362,7 @@ fd_accdb_publish_recs( fd_accdb_admin_t * accdb,
       rec->next_idx = FD_FUNK_REC_IDX_NULL;
       fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
       fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
-      accdb->metrics.root_cnt++;
+      accdb->base.root_cnt++;
     }
 
     head = next; /* next record */
@@ -323,8 +373,8 @@ fd_accdb_publish_recs( fd_accdb_admin_t * accdb,
    parent is the last published, into the parent. */
 
 static void
-fd_accdb_txn_publish_one( fd_accdb_admin_t * accdb,
-                          fd_funk_txn_t *    txn ) {
+fd_accdb_txn_publish_one( fd_accdb_admin_v1_t * accdb,
+                          fd_funk_txn_t *       txn ) {
   fd_funk_t * funk = accdb->funk;
 
   /* Phase 1: Mark transaction as "last published" */
@@ -383,9 +433,10 @@ fd_accdb_txn_publish_one( fd_accdb_admin_t * accdb,
 }
 
 void
-fd_accdb_advance_root( fd_accdb_admin_t *        accdb,
-                       fd_funk_txn_xid_t const * xid ) {
-  fd_funk_t * funk = accdb->funk;
+fd_accdb_v1_advance_root( fd_accdb_admin_t *        accdb_,
+                          fd_funk_txn_xid_t const * xid ) {
+  fd_accdb_admin_v1_t * accdb = downcast( accdb_ );
+  fd_funk_t *           funk  = accdb->funk;
 
   /* Assume no concurrent access to txn_map */
 
@@ -489,13 +540,23 @@ clear_txn_list( fd_funk_t * funk,
 }
 
 void
-fd_accdb_clear( fd_accdb_admin_t * cache ) {
-  fd_funk_t * funk = cache->funk;
+fd_accdb_v1_clear( fd_accdb_admin_t * accdb_ ) {
+  fd_accdb_admin_v1_t * accdb = downcast( accdb_ );
+  fd_funk_t *           funk  = accdb->funk;
   clear_txn_list( funk, fd_funk_txn_idx( funk->shmem->child_head_cidx ) );
   reset_rec_map( funk );
 }
 
 void
-fd_accdb_verify( fd_accdb_admin_t * admin ) {
-  FD_TEST( fd_funk_verify( admin->funk )==FD_FUNK_SUCCESS );
+fd_accdb_v1_verify( fd_accdb_admin_t * accdb_ ) {
+  fd_accdb_admin_v1_t * accdb = downcast( accdb_ );
+  FD_TEST( fd_funk_verify( accdb->funk )==FD_FUNK_SUCCESS );
 }
+
+fd_accdb_admin_vt_t const fd_accdb_admin_v1_vt = {
+  .fini          = fd_accdb_admin_v1_fini,
+  .root_get      = fd_accdb_v1_root_get,
+  .attach_child  = fd_accdb_v1_attach_child,
+  .advance_root  = fd_accdb_v1_advance_root,
+  .cancel        = fd_accdb_v1_cancel
+};
