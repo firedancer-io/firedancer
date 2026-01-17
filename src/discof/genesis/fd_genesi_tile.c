@@ -7,6 +7,7 @@
 #include "../../flamenco/runtime/fd_genesis_parse.h"
 #include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
+#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../util/archive/fd_tar.h"
 
@@ -114,34 +115,30 @@ should_shutdown( fd_genesi_tile_t * ctx ) {
 static void
 initialize_accdb( fd_genesi_tile_t * ctx ) {
   /* Insert accounts at root */
+  fd_genesis_t *    genesis = fd_type_pun( ctx->genesis );
+  fd_accdb_user_t * accdb   = ctx->accdb;
+
   fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
+  fd_funk_txn_xid_t xid = { .ul={ LONG_MAX, LONG_MAX } };
+  fd_accdb_attach_child( ctx->accdb_admin, &root_xid, &xid );
 
-  fd_genesis_t * genesis = fd_type_pun( ctx->genesis );
-
-  fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
   for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
     fd_genesis_account_t * account = fd_type_pun( (uchar *)genesis + genesis->accounts_off[ i ] );
 
-    /* FIXME: use accdb API */
-    fd_funk_rec_prepare_t prepare[1];
-    fd_funk_rec_key_t key[1]; memcpy( key->uc, account->pubkey, sizeof(fd_pubkey_t) );
-    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, &root_xid, key, prepare, NULL );
-    FD_TEST( rec );
-    fd_account_meta_t * meta = fd_funk_val_truncate( rec, funk->alloc, funk->wksp, 16UL, sizeof(fd_account_meta_t)+account->meta.dlen, NULL );
-    FD_TEST( meta );
-    void * data = (void *)( meta+1 );
-    fd_memcpy( meta->owner, account->meta.owner, sizeof(fd_pubkey_t) );
-    meta->lamports = account->meta.lamports;
-    meta->slot = 0UL;
-    meta->executable = !!account->meta.executable;
-    meta->dlen = (uint)account->meta.dlen;
-    fd_memcpy( data, account->data, account->meta.dlen );
-    fd_funk_rec_publish( funk, prepare );
+    fd_accdb_rw_t rw[1];
+    fd_accdb_open_rw( ctx->accdb, rw, &xid, account->pubkey, account->meta.dlen, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_DONTZERO );
+    fd_accdb_ref_owner_set   ( rw, account->meta.owner        );
+    fd_accdb_ref_lamports_set( rw, account->meta.lamports     );
+    fd_accdb_ref_exec_bit_set( rw, !!account->meta.executable );
+    fd_accdb_ref_data_set    ( accdb, rw, account->data, account->meta.dlen );
+    fd_accdb_close_rw( ctx->accdb, rw );
 
     fd_lthash_value_t new_hash[1];
-    fd_hashes_account_lthash( fd_type_pun( account->pubkey ), meta, data, new_hash );
+    fd_hashes_account_lthash( fd_type_pun( account->pubkey ), rw->meta, account->data, new_hash );
     fd_lthash_add( ctx->lthash, new_hash );
   }
+
+  fd_accdb_advance_root( ctx->accdb_admin, &xid );
 }
 
 static inline void
@@ -451,8 +448,8 @@ unprivileged_init( fd_topo_t *      topo,
                            FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
   void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
 
-  FD_TEST( fd_accdb_admin_join  ( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb,       fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_admin_join( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
 
   fd_lthash_zero( ctx->lthash );
 
