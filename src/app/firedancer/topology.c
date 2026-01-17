@@ -27,7 +27,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
-#include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/accdb/fd_acc_pool.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 #include "../../vinyl/io/fd_vinyl_io.h" /* FD_VINYL_IO_TYPE_* */
 

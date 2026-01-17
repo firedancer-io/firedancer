@@ -8,7 +8,7 @@
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/accdb/fd_acc_pool.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"

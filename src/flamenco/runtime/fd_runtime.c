@@ -7,7 +7,7 @@
 #include "fd_hashes.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_stack.h"
-#include "fd_acc_pool.h"
+#include "../accdb/fd_acc_pool.h"
 #include "fd_genesis_parse.h"
 #include "fd_executor.h"
 #include "sysvar/fd_sysvar_cache.h"
