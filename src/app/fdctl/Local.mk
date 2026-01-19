@@ -32,7 +32,7 @@ ifdef FD_HAS_THREADS
 
 .PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool rust solana check-agave-hash
 
-# fdctl comands
+# fdctl commands
 $(call add-objs,commands/run_agave,fd_fdctl)
 
 # version
