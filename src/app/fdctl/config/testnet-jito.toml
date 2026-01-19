@@ -1,5 +1,3 @@
-scratch_directory = "/data/fd1"
-
 [gossip]
     entrypoints = [
         "entrypoint.testnet.solana.com:8001",
@@ -39,9 +37,9 @@ scratch_directory = "/data/fd1"
 [tiles.bundle]
     enabled = true
     url = "https://testnet.block-engine.jito.wtf"
-    tip_distribution_program_addr = "F2Zu7QZiTYUhPd7u9ukRVwxh7B71oA3NMJcHuCHc29P2"
+    tip_distribution_program_addr = "DzvGET57TAgEDxvm3ERUM4GNcsAJdqjDLCne9sdfY4wf"
     tip_payment_program_addr = "GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy"
-    tip_distribution_authority = "B1mrQSpdeMU9gCvkJ6VsXVVoYjRGkNA7TtjMyqxrhecH"
+    tip_distribution_authority = "7heQNXEtxSv3wV8sNbuQsDN5xNGbbpLvHGiyXuJxEf7n"
 
 [tiles.gui]
     gui_listen_address = "0.0.0.0"
