@@ -2,14 +2,21 @@
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_impl_v2_h
 
 /* fd_accdb_impl_v2.h implements a basic disk/in-memory hybrid of
-   Firedancer's account database.  It consists in-memory DB (funk)
-   overlaid onto a read-only disk-based DB (vinyl). */
+   Firedancer's account database.
 
-#include "fd_accdb_impl_v1.h"
+   This database engine stores non-rooted records in "funk" (fork-aware
+   in-memory key-value store), and rooted records in "vinyl" (disk
+   backed key-value store).
+
+   New records are inserted into funk.  Eventually records migrate from
+   funk to vinyl. */
+
 #include "../../vinyl/cq/fd_vinyl_cq.h"
 #include "../../vinyl/rq/fd_vinyl_rq.h"
 #include "fd_accdb_user.h"
+#include "fd_accdb_lineage.h"
 #include "fd_vinyl_req_pool.h"
+#include "../../funk/fd_funk.h"
 
 struct fd_accdb_vinyl_req {
   struct {
@@ -26,10 +33,12 @@ struct fd_accdb_vinyl_req {
 typedef struct fd_accdb_vinyl_req fd_accdb_vinyl_req_t;
 
 struct fd_accdb_user_v2 {
-  union {
-    fd_accdb_user_base_t base;
-    fd_accdb_user_v1_t   v1;
-  };
+  fd_accdb_user_base_t base;
+
+  /* Funk client */
+  fd_funk_t funk[1];
+
+  fd_accdb_lineage_t lineage[1];
 
   /* Vinyl client */
   ulong                 vinyl_req_id;

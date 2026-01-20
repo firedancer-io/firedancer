@@ -818,7 +818,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->boot_timestamp = fd_log_wallclock();
 
-  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ), 1 ) );
+  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   FD_TEST( fd_accdb_user_v1_init ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   ctx->funk = fd_accdb_user_v1_funk( ctx->accdb );
   fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->funk ) );

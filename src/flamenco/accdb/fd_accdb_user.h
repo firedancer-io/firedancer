@@ -3,6 +3,7 @@
 
 #include "fd_accdb_base.h"
 #include "fd_accdb_ref.h"
+#include "../../funk/fd_funk_base.h"
 
 #define FD_ACCDB_FLAG_CREATE   (1)
 #define FD_ACCDB_FLAG_TRUNCATE (2)
@@ -30,12 +31,6 @@ struct fd_accdb_user_vt {
   (* batch_max)( fd_accdb_user_t * accdb );
 
   /* Query APIs */
-
-  fd_accdb_peek_t *
-  (* peek)( fd_accdb_user_t *         accdb,
-            fd_accdb_peek_t *         peek,
-            fd_funk_txn_xid_t const * xid,
-            void const *              address );
 
   /* open_ro_multi opens a batch of accounts for read.  ro[i] is
      initialized with an account handle.  xid is the fork ID.

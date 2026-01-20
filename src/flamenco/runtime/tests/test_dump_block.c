@@ -90,7 +90,7 @@ test_ctx_setup( void ) {
   /* Initialize funk */
   void * shfunk = fd_funk_new( funk_mem, wksp_tag, 42UL, TEST_FUNK_TXN_MAX, TEST_FUNK_REC_MAX );
   FD_TEST( shfunk );
-  FD_TEST( fd_accdb_admin_v1_init( test_ctx->accdb_admin, funk_mem, 1 ) );
+  FD_TEST( fd_accdb_admin_v1_init( test_ctx->accdb_admin, funk_mem ) );
   FD_TEST( fd_accdb_user_v1_init ( test_ctx->accdb,       funk_mem ) );
 
   /* Allocate memory for banks */

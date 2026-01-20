@@ -149,16 +149,6 @@ fd_accdb_user_v0_batch_max( fd_accdb_user_t * accdb ) {
   return 1UL;
 }
 
-fd_accdb_peek_t *
-fd_accdb_user_v0_peek( fd_accdb_user_t *         accdb,
-                       fd_accdb_peek_t *         peek,
-                       fd_funk_txn_xid_t const * xid,
-                       void const *              address ) {
-  /* No true concurrency, therefore no speculative accesses */
-  (void)accdb; (void)peek; (void)xid; (void)address;
-  return NULL;
-}
-
 static fd_accdb_ro_t *
 fd_accdb_user_v0_open_ro( fd_accdb_user_t *         accdb_,
                           fd_accdb_ro_t *           ro,
@@ -391,7 +381,6 @@ fd_accdb_user_v0_rw_data_sz_set( fd_accdb_user_t * accdb,
 fd_accdb_user_vt_t const fd_accdb_user_v0_vt = {
   .fini            = fd_accdb_user_v0_fini,
   .batch_max       = fd_accdb_user_v0_batch_max,
-  .peek            = fd_accdb_user_v0_peek,
   .open_ro_multi   = fd_accdb_user_v0_open_ro_multi,
   .open_rw_multi   = fd_accdb_user_v0_open_rw_multi,
   .close_ref_multi = fd_accdb_user_v0_close_ref_multi,
