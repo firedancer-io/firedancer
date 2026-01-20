@@ -19,6 +19,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
+#include "../../flamenco/accdb/fd_accdb_pipe.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../util/pod/fd_pod.h"
 
@@ -431,37 +432,6 @@ query_acct_stake_from_bank( fd_tower_accts_t *  tower_accts_deque,
   return total_stake;
 }
 
-/* query accdb for the vote state (vote account data) of the given vote
-   account address as of xid.  Returns 1 if found, 0 otherwise.
-
-   If opt_acc_bal is not NULL, it will be set to the account balance in
-   lamports of the queried account, if found. */
-
-static int
-query_vote_state_from_accdb( fd_accdb_user_t *         accdb,
-                             fd_funk_txn_xid_t const * xid,
-                             fd_pubkey_t const *       vote_acc,
-                             ulong *                   opt_acc_bal,
-                             uchar                     buf[static FD_VOTE_STATE_DATA_MAX] ) {
-  for(;;) {
-    fd_accdb_peek_t peek[1];
-    if( FD_UNLIKELY( !fd_accdb_peek( accdb, peek, xid, vote_acc->uc ) ) ) return 0;
-
-    ulong data_sz = fd_accdb_ref_data_sz( peek->acc );
-    if( FD_UNLIKELY( data_sz > FD_VOTE_STATE_DATA_MAX ) ) {
-      FD_BASE58_ENCODE_32_BYTES( vote_acc->uc, acc_cstr );
-      FD_LOG_CRIT(( "vote account %s exceeds FD_VOTE_STATE_DATA_MAX. dlen %lu > %lu", acc_cstr, data_sz, FD_VOTE_STATE_DATA_MAX ));
-    }
-    fd_memcpy( buf, fd_accdb_ref_data_const( peek->acc ), data_sz );
-
-    fd_ulong_store_if( !!opt_acc_bal, opt_acc_bal, fd_accdb_ref_lamports( peek->acc ) );
-
-    if( FD_LIKELY( fd_accdb_peek_test( peek ) ) ) break;
-    FD_SPIN_PAUSE();
-  }
-  return 1;
-}
-
 static void
 replay_slot_completed( ctx_t *                      ctx,
                        fd_replay_slot_completed_t * slot_completed,
@@ -503,8 +473,16 @@ replay_slot_completed( ctx_t *                      ctx,
   /* Query our on-chain vote acct and reconcile with our local tower. */
 
   ulong our_vote_acct_bal = ULONG_MAX;
-  int found = query_vote_state_from_accdb( ctx->accdb, &xid, ctx->vote_account, &our_vote_acct_bal, ctx->our_vote_acct );
-  if( FD_LIKELY( found ) ) {
+  int found = 0;
+  fd_accdb_ro_t ro[1];
+  if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, ro, &xid, ctx->vote_account ) ) ) {
+    /* Copy account data */
+    found = 1;
+    ulong data_sz = fd_ulong_min( fd_accdb_ref_data_sz( ro ), FD_VOTE_STATE_DATA_MAX );
+    our_vote_acct_bal = fd_accdb_ref_lamports( ro );
+    fd_memcpy( ctx->our_vote_acct, fd_accdb_ref_data_const( ro ), data_sz );
+    fd_accdb_close_ro( ctx->accdb, ro );
+
     fd_tower_reconcile( ctx->tower, ctx->root_slot, ctx->our_vote_acct );
     /* Sanity check that most recent vote in tower exists in tower forks */
     fd_tower_vote_t const * last_vote = fd_tower_peek_tail_const( ctx->tower );
@@ -565,48 +543,69 @@ replay_slot_completed( ctx_t *                      ctx,
 
   /* Iterate vote accounts. */
 
-  for( fd_tower_accts_iter_t iter = fd_tower_accts_iter_init( ctx->tower_accts       );
-                                   !fd_tower_accts_iter_done( ctx->tower_accts, iter );
-                             iter = fd_tower_accts_iter_next( ctx->tower_accts, iter ) ) {
-    fd_tower_accts_t *  acct     = fd_tower_accts_iter_ele( ctx->tower_accts, iter );
-    fd_pubkey_t const * vote_acc = &acct->addr;
-
-    if( FD_UNLIKELY( !query_vote_state_from_accdb( ctx->accdb, &xid, vote_acc, NULL, acct->data ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( vote_acc->uc, acc_cstr );
-      FD_LOG_CRIT(( "vote account in bank->vote_states not found. slot %lu address: %s", slot_completed->slot, acc_cstr ));
-    };
-
-    /* 1. Update forks with lockouts. */
-
-    fd_forks_lockouts_add( ctx->forks, slot_completed->slot, &acct->addr, acct );
-
-    /* 2. Count the last vote slot in the vote state towards ghost. */
-
-    ulong vote_slot = fd_voter_vote_slot( acct->data );
-    if( FD_UNLIKELY( vote_slot==ULONG_MAX                          ) ) continue; /* hasn't voted */
-    if( FD_UNLIKELY( vote_slot < fd_ghost_root( ctx->ghost )->slot ) ) continue; /* vote too old */
-
-    /* We search up the ghost ancestry to find the ghost block for this
-       vote slot.  In Agave, they look this value up using a hashmap of
-       slot->block_id ("fork progress"), but that approach only works
-       because they dump and repair (so there's only ever one canonical
-       block id).  We retain multiple block ids, both the original and
-       confirmed one. */
-
-    fd_ghost_blk_t * ancestor_blk = fd_ghost_slot_ancestor( ctx->ghost, ghost_blk, vote_slot ); /* FIXME potentially slow */
-
-    /* It is impossible for ancestor to be missing, because these are
-       vote accounts on a given fork, not vote txns across forks.  So we
-       know these towers must contain slots we know about (as long as
-       they are >= root, which we checked above). */
-
-    if( FD_UNLIKELY( !ancestor_blk ) ) {
-      FD_BASE58_ENCODE_32_BYTES( acct->addr.key, pubkey_b58 );
-      FD_LOG_CRIT(( "missing ancestor. replay slot %lu vote slot %lu voter %s", slot_completed->slot, vote_slot, pubkey_b58 ));
+  fd_tower_accts_t * tower_accts = ctx->tower_accts;
+  fd_accdb_ro_pipe_t ro_pipe[1];
+  fd_accdb_ro_pipe_init( ro_pipe, ctx->accdb, &xid );
+  fd_tower_accts_iter_t iter_head = fd_tower_accts_iter_init( tower_accts );
+  fd_tower_accts_iter_t iter_tail = fd_tower_accts_iter_init( tower_accts );
+  for(;;) {
+    if( FD_UNLIKELY( fd_tower_accts_iter_done( tower_accts, iter_head ) ) ) {
+      fd_accdb_ro_pipe_flush( ro_pipe );
     }
 
-    fd_ghost_count_vote( ctx->ghost, ancestor_blk, &acct->addr, acct->stake, vote_slot );
+    fd_accdb_ro_t * ro;
+    while( (ro = fd_accdb_ro_pipe_poll( ro_pipe )) ) {
+      fd_tower_accts_t * acct = fd_tower_accts_iter_ele( tower_accts, iter_tail );
+      if( FD_UNLIKELY( !fd_accdb_ref_lamports( ro ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( acct->addr.key, pubkey_b58 );
+        FD_LOG_CRIT(( "vote account in bank->vote_states not found. slot %lu address %s", slot_completed->slot, pubkey_b58 ));
+      }
+      ulong data_sz = fd_ulong_min( fd_accdb_ref_data_sz( ro ), FD_VOTE_STATE_DATA_MAX );
+      fd_memcpy( acct->data, fd_accdb_ref_data_const( ro ), data_sz );
+
+      /* 1. Update forks with lockouts. */
+
+      fd_forks_lockouts_add( ctx->forks, slot_completed->slot, &acct->addr, acct );
+
+      /* 2. Count the last vote slot in the vote state towards ghost. */
+
+      ulong vote_slot = fd_voter_vote_slot( acct->data );
+      if( FD_LIKELY( vote_slot!=ULONG_MAX && /* has voted */
+                     vote_slot>=fd_ghost_root( ctx->ghost )->slot ) ) { /* vote not too old */
+        /* We search up the ghost ancestry to find the ghost block for this
+           vote slot.  In Agave, they look this value up using a hashmap of
+           slot->block_id ("fork progress"), but that approach only works
+           because they dump and repair (so there's only ever one canonical
+           block id).  We retain multiple block ids, both the original and
+           confirmed one. */
+
+        fd_ghost_blk_t * ancestor_blk = fd_ghost_slot_ancestor( ctx->ghost, ghost_blk, vote_slot ); /* FIXME potentially slow */
+
+        /* It is impossible for ancestor to be missing, because these are
+           vote accounts on a given fork, not vote txns across forks.  So we
+           know these towers must contain slots we know about (as long as
+           they are >= root, which we checked above). */
+
+        if( FD_UNLIKELY( !ancestor_blk ) ) {
+          FD_BASE58_ENCODE_32_BYTES( acct->addr.key, pubkey_b58 );
+          FD_LOG_CRIT(( "missing ancestor. replay slot %lu vote slot %lu voter %s", slot_completed->slot, vote_slot, pubkey_b58 ));
+        }
+
+        fd_ghost_count_vote( ctx->ghost, ancestor_blk, &acct->addr, acct->stake, vote_slot );
+      }
+
+      if( FD_UNLIKELY( fd_tower_accts_iter_done( tower_accts, iter_tail ) ) ) {
+        goto done_vote_iter;
+      }
+      iter_tail = fd_tower_accts_iter_next( tower_accts, iter_tail );
+    }
+
+    if( FD_UNLIKELY( fd_tower_accts_iter_done( tower_accts, iter_head ) ) ) break;
+    fd_accdb_ro_pipe_enqueue( ro_pipe, fd_tower_accts_iter_ele( ctx->tower_accts, iter_head )->addr.key );
+    iter_head = fd_tower_accts_iter_next( ctx->tower_accts, iter_head );
   }
+done_vote_iter:
+  fd_accdb_ro_pipe_fini( ro_pipe );
 
   /* Insert the just replayed block into hard fork detector. */
 
