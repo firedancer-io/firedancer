@@ -11,10 +11,10 @@
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_bank.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
+#include "../../discof/fd_accdb_topo.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector.h"
 
@@ -585,10 +585,7 @@ unprivileged_init( fd_topo_t *      topo,
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
 
-  void * shfunk = fd_topo_obj_laddr( topo, tile->bank.funk_obj_id );
-  FD_TEST( shfunk );
-  fd_accdb_user_t * accdb = fd_accdb_user_v1_init( ctx->accdb, shfunk );
-  FD_TEST( accdb );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
 
   void * shprogcache = fd_topo_obj_laddr( topo, tile->bank.progcache_obj_id );
   FD_TEST( shprogcache );
@@ -610,7 +607,7 @@ unprivileged_init( fd_topo_t *      topo,
     for( ulong j=0UL; j<i; j++ ) ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
   }
 
-  ctx->runtime->accdb                    = accdb;
+  ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = progcache;
   ctx->runtime->status_cache             = txncache;
   ctx->runtime->acc_pool                 = acc_pool;

@@ -2,13 +2,12 @@
 #include "generated/fd_exec_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../discof/fd_accdb_topo.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v2.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -340,19 +339,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join banks" ));
   }
 
-  fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
-  if( !vinyl_data ) {
-    FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, tile->exec.funk_obj_id ) ) );
-  } else {
-    fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq"    );
-    fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
-    FD_TEST( fd_accdb_user_v2_init( ctx->accdb,
-        fd_topo_obj_laddr( topo, tile->exec.funk_obj_id ),
-        fd_topo_obj_laddr( topo, vinyl_rq->id ),
-        topo->workspaces[ vinyl_data->wksp_id ].wksp,
-        fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
-        vinyl_rq->id ) );
-  }
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
 
   void * shprogcache = fd_topo_obj_laddr( topo, tile->exec.progcache_obj_id );
   if( FD_UNLIKELY( !fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
