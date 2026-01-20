@@ -349,7 +349,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
 
   fd_accdb_ro_pipe_t ro_pipe[1];
   fd_accdb_ro_pipe_init( ro_pipe, accdb, xid );
-  ulong const job_cnt = stake_delegations->max_stake_accounts_;
+  ulong const job_cnt = fd_stake_delegations_cnt( stake_delegations );
   for( ulong i=0UL; i<job_cnt; i++ ) {
 
     /* stream out read requests */
