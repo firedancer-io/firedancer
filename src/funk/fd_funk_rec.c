@@ -138,7 +138,6 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
   }
   fd_funk_rec_key_copy( rec->pair.key, key );
   rec->tag      = 0;
-  rec->pub      = 0;
   rec->prev_idx = FD_FUNK_REC_IDX_NULL;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
   fd_funk_rec_txn_release( txn_query );
@@ -221,7 +220,6 @@ fd_funk_rec_publish( fd_funk_t *             funk,
   fd_funk_rec_t * rec = prepare->rec;
   rec->prev_idx = FD_FUNK_REC_IDX_NULL;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
-  rec->pub      = 1;
 
   if( prepare->rec_head_idx ) {
     fd_funk_rec_push_tail( funk, prepare );
