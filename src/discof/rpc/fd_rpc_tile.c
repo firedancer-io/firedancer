@@ -433,7 +433,6 @@ X( fd_rpc_tile_t * ctx,                                \
   return (fd_http_server_response_t){ .status = 501 }; \
 }
 
-UNIMPLEMENTED(getBalance) // TODO: Used by solana-exporter
 UNIMPLEMENTED(getBlock) // TODO: Used by solana-exporter
 UNIMPLEMENTED(getBlockCommitment)
 
@@ -592,6 +591,83 @@ getAccountInfo( fd_rpc_tile_t * ctx,
 
   fd_http_server_response_t response = { .content_type = "application/json", .status = 200 };
   if( fd_http_server_stage_body( ctx->http, &response ) ) response.status = 500;
+  return response;
+}
+
+static fd_http_server_response_t
+getBalance( fd_rpc_tile_t * ctx,
+            ulong           request_id,
+            cJSON const *   params ) {
+  int param_cnt = cJSON_GetArraySize( params );
+  if( param_cnt<1 || param_cnt>2 ) {
+    return (fd_http_server_response_t){ .status = 400 };
+  }
+
+  cJSON const * address_node = cJSON_GetArrayItem( params, 0 );
+  cJSON const * config       = cJSON_GetArrayItem( params, 1 );
+  if( FD_UNLIKELY( !cJSON_IsString( address_node ) ) ) {
+    return (fd_http_server_response_t){ .status = 400 };
+  }
+  if( FD_UNLIKELY( config && !cJSON_IsNull( config ) && !cJSON_IsString( config ) ) ) {
+    return (fd_http_server_response_t){ .status = 400 };
+  }
+
+  ulong bank_idx = ULONG_MAX;
+  char const * commitment = cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "commitment" ) );
+  if( !commitment ) commitment = "confirmed";
+  if( 0==strcmp( commitment, "confirmed" ) ) {
+    bank_idx = ctx->confirmed_idx;
+  } else if( 0==strcmp( commitment, "processed" ) ) {
+    bank_idx = ctx->processed_idx;
+  } else if( 0==strcmp( commitment, "finalized" ) ) {
+    bank_idx = ctx->finalized_idx;
+  } else {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+  if( FD_UNLIKELY( bank_idx==ULONG_MAX ) ) {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: cannot resolve slot for '%s' commitment level\"},\"id\":%lu}\n", commitment, request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+
+  ulong minContextSlot = 0UL;
+  cJSON const * _minContextSlot = cJSON_GetObjectItemCaseSensitive( config, "minContextSlot" );
+  if( FD_UNLIKELY( _minContextSlot && !cJSON_IsNull( _minContextSlot ) ) ) {
+    if( FD_UNLIKELY( !cJSON_IsNumber( _minContextSlot ) || _minContextSlot->valueulong==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 400 };
+    minContextSlot = _minContextSlot->valueulong;
+  }
+
+  bank_info_t const * info = &ctx->banks[ bank_idx ];
+  if( info->slot < minContextSlot ) {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, info->slot, request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+
+  uchar address[ 32 ];
+  if( FD_UNLIKELY( !fd_base58_decode_32( cJSON_GetStringValue( address_node ), address ) ) ) {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: address is not a valid Base58 encoding\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+
+  ulong balance = 0UL;
+  fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( fd_accdb_open_ro( ctx->accdb, ro, &xid, address ) ) ) {
+    balance = fd_accdb_ref_lamports( ro );
+    fd_accdb_close_ro( ctx->accdb, ro );
+  }
+
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":%lu},\"id\":%lu}\n", info->slot, balance, request_id );
+  fd_http_server_response_t response = { .content_type = "application/json", .status = 200 };
+  FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
 }
 
