@@ -39,7 +39,7 @@
     url = "https://testnet.block-engine.jito.wtf"
     tip_distribution_program_addr = "DzvGET57TAgEDxvm3ERUM4GNcsAJdqjDLCne9sdfY4wf"
     tip_payment_program_addr = "GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy"
-    tip_distribution_authority = "7heQNXEtxSv3wV8sNbuQsDN5xNGbbpLvHGiyXuJxEf7n"
+    tip_distribution_authority = "7T4inmPmtNBX3MhLwJ9hFsSMnGJYYkKioVABSNTWVRuS"
 
 [tiles.gui]
     gui_listen_address = "0.0.0.0"
