@@ -109,7 +109,7 @@ test_env_create( test_env_t * env,
   FD_TEST( env->funk_mem );
   FD_TEST( fd_funk_new( env->funk_mem, env->tag, funk_seed, txn_max, rec_max ) );
 
-  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem, 1 ) );
+  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem ) );
   FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem ) );
 
   fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
@@ -192,12 +192,12 @@ verify_rent_values( test_env_t * env,
 }
 
 static int
-rent_was_modified_in_txn( test_env_t *                env,
-                          fd_funk_txn_xid_t const *   xid ) {
-  fd_accdb_peek_t peek[1];
-  FD_TEST( fd_accdb_peek( env->accdb, peek, xid, &fd_sysvar_rent_id ) );
-  fd_funk_rec_t * rec = (void *)peek->acc->ref->user_data;
-  return fd_funk_txn_xid_eq( rec->pair.xid, xid );
+rent_was_modified_in_txn( test_env_t *              env,
+                          fd_funk_txn_xid_t const * xid ) {
+  fd_funk_t * funk = fd_accdb_user_v1_funk( env->accdb );
+  fd_funk_rec_query_t query[1];
+  fd_funk_rec_key_t key = FD_LOAD( fd_funk_rec_key_t, fd_sysvar_rent_id.uc );
+  return fd_funk_rec_query_try( funk, xid, &key, query )!=NULL;
 }
 
 static int

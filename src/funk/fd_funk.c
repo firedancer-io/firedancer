@@ -112,6 +112,9 @@ fd_funk_new( void * shmem,
     fd_rwlock_new( txn_join->ele[ i ].lock );
     txn_join->ele[ i ].state = FD_FUNK_TXN_STATE_FREE;
   }
+  for( ulong i=0UL; i<rec_max; i++ ) {
+    rec_ele[ i ].ver_lock = 0UL;
+  }
 
   fd_funk_txn_xid_set_root( funk->root         );
   fd_funk_txn_xid_set_root( funk->last_publish );

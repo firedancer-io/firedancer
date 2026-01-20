@@ -28,10 +28,11 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
 
   /* These fields are managed by the user */
 
-  uchar user[ 12 ];
+  uchar user[ 4 ];
 
-  /* These fields are managed by funk.  TODO: Consider using record
-     index compression here (much more debatable than in txn itself). */
+  /* These fields are managed by funk */
+
+  ulong ver_lock;  /* Record version and lock bits */
 
   uint  next_idx;  /* Record map index of next record in its transaction */
   uint  prev_idx;  /* Record map index of previous record in its transaction */
@@ -52,6 +53,12 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
 typedef struct fd_funk_rec fd_funk_rec_t;
 
 FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 3U*FD_FUNK_REC_ALIGN, record size is wrong );
+
+#define FD_FUNK_REC_PAIR_FMT "xid=%lu:%lu,key=%016lx:%016lx:%016lx:%016lx"
+#define FD_FUNK_REC_PAIR_FMT_ARGS(p) \
+  (p).xid->ul[0], (p).xid->ul[1], \
+  fd_ulong_bswap( (p).key->ul[0] ), fd_ulong_bswap( (p).key->ul[1] ), \
+  fd_ulong_bswap( (p).key->ul[2] ), fd_ulong_bswap( (p).key->ul[3] )
 
 /* fd_funk_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and
@@ -162,6 +169,67 @@ fd_funk_rec_publish( fd_funk_t *             funk,
 
 int
 fd_funk_rec_verify( fd_funk_t * funk );
+
+/* Record locking ******************************************************
+
+   The funk_rec 'ver_lock' field synchronizes record accesses via atomic
+   CAS.  There exist three access types:
+   - 'read':  read-only record access
+   - 'write': record creation or modification
+   - 'admin': record destruction (during rooting)
+
+   Record locking has two goals:
+   - Delay destruction of records until other accesses complete
+   - Detect usage bugs (e.g. conflicting write attempts to the same
+     record)
+
+   'ver_lock' is encoded as two integers packed into a 64-bit ulong:
+   - 'ver':  version counter incremented on every record destruction
+             and creation (lsb=0 implies record is dead, lsb=1 implies
+             record is alive)
+   - 'lock': max implies record is write locked.  Otherwise, equals
+             the number of active read locks.
+
+   There further exist the following transitions:
+   - 'write lock acquire': lock=0   --> lock=max
+   - 'write lock release': lock=max --> lock=0
+   - 'read lock acquire':  lock=n   --> lock=n+1
+   - 'read lock release':  lock=n+1 --> lock=n
+   - 'destroy':            ver=n    --> ver=n+1  (where n%2 == 0)
+   - 'create':             ver=n    --> ver=n+1  (where n%2 == 1)
+
+***********************************************************************/
+
+#define FD_FUNK_REC_LOCK_BIT_CNT (11)
+#define FD_FUNK_REC_LOCK_MASK    ( (1UL<<FD_FUNK_REC_LOCK_BIT_CNT)-1UL )
+#define FD_FUNK_REC_VER_BIT_CNT  (64 - FD_FUNK_REC_LOCK_BIT_CNT)
+#define FD_FUNK_REC_VER_MASK     ( (1UL<<FD_FUNK_REC_VER_BIT_CNT)-1UL )
+
+FD_FN_CONST static inline ulong
+fd_funk_rec_ver_lock( ulong ver,
+                      ulong lock ) {
+  return ver<<FD_FUNK_REC_LOCK_BIT_CNT | lock;
+}
+
+FD_FN_CONST static inline ulong
+fd_funk_rec_ver_bits( ulong ver_lock ) {
+  return ver_lock >> FD_FUNK_REC_LOCK_BIT_CNT;
+}
+
+FD_FN_CONST static inline ulong
+fd_funk_rec_ver_inc( ulong ver ) {
+  return (ver+1UL) & FD_FUNK_REC_VER_MASK;
+}
+
+FD_FN_CONST static inline ulong
+fd_funk_rec_lock_bits( ulong ver_lock ) {
+  return ver_lock & ( (1UL<<FD_FUNK_REC_LOCK_BIT_CNT)-1UL );
+}
+
+FD_FN_CONST static inline int
+fd_funk_rec_ver_alive( ulong ver ) {
+  return !!( ver & 1UL );
+}
 
 FD_PROTOTYPES_END
 

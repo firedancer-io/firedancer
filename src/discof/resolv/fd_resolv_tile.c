@@ -167,7 +167,6 @@ typedef struct {
     ulong blockhash_expired;
     ulong bundle_peer_failure;
     ulong stash[ FD_METRICS_COUNTER_RESOLV_STASH_OPERATION_CNT ];
-    ulong db_race;
   } metrics;
 
   fd_resolv_in_ctx_t in[ 64UL ];
@@ -198,7 +197,6 @@ metrics_write( fd_resolv_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( RESOLF, LUT_RESOLVED,                    ctx->metrics.lut );
   FD_MCNT_ENUM_COPY( RESOLF, STASH_OPERATION,                 ctx->metrics.stash );
   FD_MCNT_SET(       RESOLF, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure );
-  FD_MCNT_SET(       RESOLF, DB_RACES,                        ctx->metrics.db_race );
 }
 
 static int
@@ -254,44 +252,25 @@ peek_alut( fd_resolv_ctx_t *  ctx,
            ulong              alut_idx ) {
   fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
 
-  ulong ro_indir_cnt_old = interp->ro_indir_cnt;
-  ulong rw_indir_cnt_old = interp->rw_indir_cnt;
-  ulong alut_idx_old     = interp->alut_idx;
-
   fd_txn_t const * txn         = fd_txn_m_txn_t_const  ( txnm );
   uchar const *    txn_payload = fd_txn_m_payload_const( txnm );
   fd_txn_acct_addr_lut_t const * addr_lut =
       &fd_txn_get_address_tables_const( txn )[ alut_idx ];
   fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, txn_payload+addr_lut->addr_off );
 
-  int err = 0;
-  for(;;) {
-    fd_accdb_peek_t _peek[1];
-    fd_accdb_peek_t * peek = fd_accdb_peek(
-        ctx->accdb, _peek, &xid, &addr_lut_acc );
-    if( FD_UNLIKELY( !peek ) ) {
-      err = FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
-      break;
-    }
-
-    err = fd_alut_interp_next(
-        interp,
-        &addr_lut_acc,
-        fd_accdb_ref_owner     ( peek->acc ),
-        fd_accdb_ref_data_const( peek->acc ),
-        fd_accdb_ref_data_sz   ( peek->acc ) );
-
-    int peek_ok = fd_accdb_peek_test( peek );
-    fd_accdb_peek_drop( peek );
-    if( FD_LIKELY( peek_ok ) ) break;
-
-    /* Restore old interp state and retry */
-    FD_SPIN_PAUSE();
-    ctx->metrics.db_race++;
-    interp->ro_indir_cnt = ro_indir_cnt_old;
-    interp->rw_indir_cnt = rw_indir_cnt_old;
-    interp->alut_idx     = alut_idx_old;
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, &addr_lut_acc ) ) ) {
+    return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
   }
+
+  int err = fd_alut_interp_next(
+      interp,
+      &addr_lut_acc,
+      fd_accdb_ref_owner     ( ro ),
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ) );
+
+  fd_accdb_close_ro( ctx->accdb, ro );
 
   return err;
 }

@@ -430,7 +430,6 @@ metric introduced.
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
     <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
-    <counter name="DbRaces" summary="Number of database races encountered (diagnostic counter, not indicative of issues)" />
 </tile>
 
 <tile name="resolv">

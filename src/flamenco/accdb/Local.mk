@@ -12,20 +12,26 @@ $(call add-hdrs,fd_accdb_sync.h)
 $(call add-hdrs,fd_accdb_pipe.h)
 $(call add-objs,fd_accdb_pipe,fd_flamenco)
 
-# Minimal database
+# Mock database
 $(call add-hdrs,fd_accdb_impl_v0.h)
 $(call add-objs,fd_accdb_impl_v0,fd_flamenco)
 $(call make-unit-test,test_accdb_v0,test_accdb_v0,fd_flamenco fd_ballet fd_util)
 
-# Funk-based database
+# In-memory only database
+$(call add-hdrs,fd_accdb_funk.h)
+$(call add-objs,fd_accdb_funk,fd_flamenco)
+$(call add-hdrs,fd_accdb_lineage.h)
+$(call add-objs,fd_accdb_lineage,fd_flamenco)
 $(call add-hdrs,fd_accdb_admin_v1.h fd_accdb_impl_v1.h)
 $(call add-objs,fd_accdb_admin_v1   fd_accdb_impl_v1,fd_flamenco)
 
-# Vinyl/funk prototype
-$(call add-hdrs,fd_accdb_impl_v2.h)
-$(call add-objs,fd_accdb_impl_v2,fd_flamenco)
+# Production database
+ifdef FD_HAS_ATOMIC
+$(call add-hdrs,fd_accdb_admin_v2.h fd_accdb_impl_v2.h)
+$(call add-objs,fd_accdb_admin_v2   fd_accdb_impl_v2,fd_flamenco)
 $(call add-hdrs,fd_vinyl_req_pool.h)
 $(call add-objs,fd_vinyl_req_pool,fd_flamenco)
+endif
 
 # Debug APIs
 $(call add-hdrs,fd_accdb_fsck.h)

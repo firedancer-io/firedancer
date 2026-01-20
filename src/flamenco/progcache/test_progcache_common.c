@@ -44,7 +44,7 @@ test_env_create( fd_wksp_t * wksp ) {
   env->wksp = wksp;
   FD_TEST( fd_progcache_admin_join( env->progcache_admin, progcache_mem ) );
   FD_TEST( fd_progcache_join      ( env->progcache, progcache_mem, env->scratch, sizeof(env->scratch) ) );
-  FD_TEST( fd_accdb_admin_v1_init ( env->accdb_admin, accdb_mem, 1 ) );
+  FD_TEST( fd_accdb_admin_v1_init ( env->accdb_admin, accdb_mem ) );
   FD_TEST( fd_accdb_user_v1_init  ( env->accdb,       accdb_mem ) );
 
   return env;

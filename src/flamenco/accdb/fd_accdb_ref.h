@@ -14,8 +14,6 @@
 
 #include "fd_accdb_base.h"
 #include "../fd_flamenco_base.h"
-#include "../../funk/fd_funk_rec.h"
-#include "../../funk/fd_funk_val.h"
 
 /* fd_accdb_ref_t is an opaque account database handle. */
 
@@ -184,45 +182,5 @@ FD_PROTOTYPES_END
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_ref_t)==sizeof(fd_accdb_ro_t), layout );
 FD_STATIC_ASSERT( sizeof(fd_accdb_ref_t)==sizeof(fd_accdb_rw_t), layout );
-
-/* fd_accdb_spec_t tracks a speculative access to a shared resource.
-   Destroying this guard object marks the end of a speculative access. */
-
-struct fd_accdb_spec {
-  fd_funk_rec_key_t * keyp;       /* shared key */
-  fd_funk_rec_key_t   key;        /* expected key */
-};
-
-typedef struct fd_accdb_spec fd_accdb_spec_t;
-
-/* fd_accdb_spec_test returns 1 if the shared resources has not been
-   invalidated up until now.  Returns 0 if the speculative access may
-   have possibly seen a conflict (e.g. a torn read, a use-after-free,
-   etc). */
-
-static inline int
-fd_accdb_spec_test( fd_accdb_spec_t const * spec ) {
-  fd_funk_rec_key_t key_found = FD_VOLATILE_CONST( *spec->keyp );
-  return !!fd_funk_rec_key_eq( &key_found, &spec->key );
-}
-
-/* fd_accdb_spec_drop marks the end of a speculative access. */
-
-static inline void
-fd_accdb_spec_drop( fd_accdb_spec_t * spec ) {
-  /* Speculative accesses do not need central synchronization, so no
-     need to inform the holder of the resource of this drop. */
-  (void)spec;
-}
-
-/* fd_accdb_peek_t is an ephemeral lock-free read-only pointer to an
-   account in database cache. */
-
-struct fd_accdb_peek {
-  fd_accdb_ro_t   acc[1];
-  fd_accdb_spec_t spec[1];
-};
-
-typedef struct fd_accdb_peek fd_accdb_peek_t;
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_ref_h */

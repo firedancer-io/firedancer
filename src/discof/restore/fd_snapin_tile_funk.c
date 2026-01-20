@@ -18,10 +18,7 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
 
   int early_exit = 0;
   if( !ctx->full && !existing_rec ) {
-    fd_accdb_peek_t peek[1];
-    if( fd_accdb_peek( ctx->accdb, peek, ctx->xid, result->account_header.pubkey ) ) {
-      existing_rec = (fd_funk_rec_t *)peek->acc->ref->user_data;
-    }
+    existing_rec = fd_funk_rec_query_try( funk, fd_funk_root( funk ), &id, query );
   }
   if( FD_UNLIKELY( existing_rec ) ) {
     fd_account_meta_t * meta = fd_funk_val( existing_rec, funk->wksp );
@@ -194,11 +191,17 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
     if( FD_LIKELY( !r ) ) {  /* optimize for new account */
       r = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 0, NULL );
       FD_TEST( r );
-      memset( r, 0, sizeof(fd_funk_rec_t) );
+
       fd_funk_txn_xid_copy( r->pair.xid, ctx->xid );
       fd_funk_rec_key_copy( r->pair.key, &key );
-      r->prev_idx = UINT_MAX;
-      r->next_idx = UINT_MAX;
+      r->map_next  = 0U;
+      r->ver_lock  = fd_funk_rec_ver_lock( 1UL, 0UL );
+      r->next_idx  = UINT_MAX;
+      r->prev_idx  = UINT_MAX;
+      r->val_sz    = 0;
+      r->val_max   = 0;
+      r->tag       = 0;
+      r->val_gaddr = 0UL;
 
       /* Insert to hash map.  In theory, a key could appear twice in the
          same batch.  All accounts in a batch are guaranteed to be from
@@ -277,24 +280,24 @@ fd_snapin_read_account_funk( fd_snapin_tile_t *  ctx,
      It is assumed that no conflicting database accesses take place
      while the account is being read from funk. */
 
-  fd_accdb_peek_t peek_[1];
-  fd_accdb_peek_t * peek = fd_accdb_peek( ctx->accdb, peek_, ctx->xid, acct_addr );
-  if( FD_UNLIKELY( !peek ) ) return;
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, ctx->xid, acct_addr ) ) ) {
+    return;
+  }
 
-  ulong data_sz = fd_accdb_ref_data_sz( peek->acc );
+  ulong data_sz = fd_accdb_ref_data_sz( ro );
   if( FD_UNLIKELY( data_sz>data_max ) ) {
     FD_BASE58_ENCODE_32_BYTES( acct_addr, acct_addr_b58 );
     FD_LOG_CRIT(( "failed to read account %s: account data size (%lu bytes) exceeds buffer size (%lu bytes)",
                   acct_addr_b58, data_sz, data_max ));
   }
 
-  memcpy( meta->owner, fd_accdb_ref_owner( peek->acc ), sizeof(fd_pubkey_t) );
-  meta->lamports   = fd_accdb_ref_lamports( peek->acc );
-  meta->slot       = fd_accdb_ref_slot( peek->acc );
+  memcpy( meta->owner, fd_accdb_ref_owner( ro ), sizeof(fd_pubkey_t) );
+  meta->lamports   = fd_accdb_ref_lamports( ro );
+  meta->slot       = fd_accdb_ref_slot( ro );
   meta->dlen       = (uint)data_sz;
-  meta->executable = !!fd_accdb_ref_exec_bit( peek->acc );
-  fd_memcpy( data, fd_accdb_ref_data_const( peek->acc ), data_sz );
+  meta->executable = !!fd_accdb_ref_exec_bit( ro );
+  fd_memcpy( data, fd_accdb_ref_data_const( ro ), data_sz );
 
-  FD_CRIT( fd_accdb_peek_test( peek ), "invalid read" );
-  fd_accdb_peek_drop( peek );
+  fd_accdb_close_ro( ctx->accdb, ro );
 }

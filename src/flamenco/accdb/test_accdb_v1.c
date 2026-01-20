@@ -361,7 +361,7 @@ test_simple( fd_wksp_t * wksp ) {
   FD_TEST( fd_funk_new( shfunk, WKSP_TAG, 0UL, txn_max, rec_max ) );
   init_funk( shfunk );
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk, 1 ) );
+  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk ) );
   fd_accdb_user_t accdb[1];
   FD_TEST( fd_accdb_user_v1_init( accdb, shfunk ) );
 
@@ -403,7 +403,7 @@ test_random_ops( fd_wksp_t * wksp,
   funk_t * ref = funk_new();
 
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk, 1 ) );
+  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk ) );
   fd_accdb_user_t accdb[1];
   FD_TEST( fd_accdb_user_v1_init( accdb, shfunk ) );
   verify_accdb_empty( admin );
