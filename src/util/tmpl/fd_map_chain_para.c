@@ -1525,6 +1525,7 @@ MAP_(iter)( MAP_(t) const * join,
 
 FD_FN_CONST static inline int MAP_(iter_done)( MAP_(iter_t) iter ) { return MAP_(private_idx_is_null)( iter.ele_idx ); }
 
+__attribute__((warn_unused_result))
 FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_(iter_t) iter ) {
   MAP_ELE_T const * ele = iter.ele + iter.ele_idx;

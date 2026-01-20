@@ -529,7 +529,7 @@ MAP_(iter_done)( MAP_(iter_t)      iter,
   return !iter.chain_rem;
 }
 
-FD_FN_PURE static inline MAP_(iter_t)
+__attribute__((warn_unused_result)) FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_(iter_t)      iter,
                  MAP_(t) const *   join,
                  MAP_ELE_T const * pool ) {

@@ -214,6 +214,7 @@ FD_FN_CONST static inline SET_(t) SET_(if)( int c, SET_(t) t, SET_(t) f ) { retu
 
 FD_FN_CONST static inline SET_(iter_t) SET_(iter_init)( SET_(t)      set  ) { return set;                             }
 FD_FN_CONST static inline SET_(iter_t) SET_(iter_done)( SET_(iter_t) iter ) { return !iter;                           }
+__attribute__((warn_unused_result))
 FD_FN_CONST static inline SET_(iter_t) SET_(iter_next)( SET_(iter_t) iter ) { return SET_POP_LSB(  iter );            }
 FD_FN_CONST static inline SET_IDX_T    SET_(iter_idx) ( SET_(iter_t) iter ) { return (SET_IDX_T)SET_FIND_LSB( iter ); }
 

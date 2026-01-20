@@ -406,7 +406,7 @@ SLIST_(iter_done)( SLIST_(iter_t)      iter,
   return SLIST_(private_idx_is_null)( iter );
 }
 
-FD_FN_PURE static inline SLIST_(iter_t)
+__attribute__((warn_unused_result)) FD_FN_PURE static inline SLIST_(iter_t)
 SLIST_(iter_next)( SLIST_(iter_t)      iter,
                        SLIST_(t) const *   join,
                        SLIST_ELE_T const * pool ) {

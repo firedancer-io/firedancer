@@ -953,6 +953,7 @@ BPLUS_(iter_eq_nul)( BPLUS_(t) const * join,
   return !iter.leaf_off;
 }
 
+__attribute__((warn_unused_result))
 static inline BPLUS_(iter_t)
 BPLUS_(iter_next)( BPLUS_(t) const * join,
                    BPLUS_(iter_t)    iter ) {
@@ -974,6 +975,7 @@ BPLUS_(iter_next)( BPLUS_(t) const * join,
   return iter;
 }
 
+__attribute__((warn_unused_result))
 static inline BPLUS_(iter_t)
 BPLUS_(iter_prev)( BPLUS_(t) const * join,
                    BPLUS_(iter_t)    iter ) {
