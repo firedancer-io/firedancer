@@ -735,8 +735,8 @@ fd_topo_initialize( config_t * config ) {
       fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
       fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
 
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwm", 0UL ) ], vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwm", 0UL ) ], vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
   }
 
