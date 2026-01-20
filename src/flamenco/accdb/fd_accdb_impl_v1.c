@@ -275,13 +275,13 @@ fd_accdb_v1_copy_truncated( fd_account_meta_t *       out_meta,
    account. */
 
 fd_accdb_rw_t *
-fd_accdb_v1_prep_create( fd_accdb_rw_t *           rw,
-                         fd_accdb_user_v1_t *      accdb,
-                         fd_funk_txn_xid_t const * xid,
-                         void const *              address,
-                         void *                    val,
-                         ulong                     val_sz,
-                         ulong                     val_max ) {
+fd_accdb_v1_prep_create( fd_accdb_rw_t *       rw,
+                         fd_accdb_user_v1_t *  accdb,
+                         fd_funk_txn_t const * txn,
+                         void const *          address,
+                         void *                val,
+                         ulong                 val_sz,
+                         ulong                 val_max ) {
   FD_CRIT( val_sz >=sizeof(fd_account_meta_t), "invalid val_sz"  );
   FD_CRIT( val_max>=sizeof(fd_account_meta_t), "invalid val_max" );
   FD_CRIT( val_sz<=val_max, "invalid val_max" );
@@ -295,20 +295,20 @@ fd_accdb_v1_prep_create( fd_accdb_rw_t *           rw,
   rec->val_sz    = (uint)( fd_ulong_min( val_sz,  FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
   rec->val_max   = (uint)( fd_ulong_min( val_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
   memcpy( rec->pair.key->uc, address, 32UL );
-  fd_funk_txn_xid_copy( rec->pair.xid, xid );
+  fd_funk_txn_xid_copy( rec->pair.xid, &txn->xid );
   rec->tag      = 0;
-  rec->pub      = 0;
   rec->prev_idx = FD_FUNK_REC_IDX_NULL;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
 
   fd_account_meta_t * meta = val;
-  meta->slot = xid->ul[0];
+  meta->slot = txn->xid.ul[0];
 
   accdb->base.rw_active++;
   *rw = (fd_accdb_rw_t){0};
   memcpy( rw->ref->address, address, 32UL );
   rw->ref->accdb_type = FD_ACCDB_TYPE_V1;
   rw->ref->user_data  = (ulong)rec;
+  rw->ref->user_data2 = (ulong)txn;
   rw->ref->ref_type   = FD_ACCDB_REF_RW;
   rw->meta            = meta;
   return rw;
@@ -376,11 +376,11 @@ fd_accdb_user_v1_close_ro( fd_accdb_user_t * accdb,
 }
 
 static fd_accdb_rw_t *
-fd_accdb_v1_create( fd_accdb_user_v1_t *      v1,
-                    fd_accdb_rw_t *           rw,
-                    fd_funk_txn_xid_t const * xid,
-                    void const *              address,
-                    ulong                     data_max ) {
+fd_accdb_v1_create( fd_accdb_user_v1_t *  v1,
+                    fd_accdb_rw_t *       rw,
+                    fd_funk_txn_t const * txn,
+                    void const *          address,
+                    ulong                 data_max ) {
   ulong  val_sz_min = sizeof(fd_account_meta_t)+data_max;
   ulong  val_max    = 0UL;
   void * val        = fd_alloc_malloc_at_least( v1->funk->alloc, 16UL, val_sz_min, &val_max );
@@ -388,7 +388,7 @@ fd_accdb_v1_create( fd_accdb_user_v1_t *      v1,
     FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", data_max ));
   }
   memset( val, 0, sizeof(fd_account_meta_t) );
-  return fd_accdb_v1_prep_create( rw, v1, xid, address, val, sizeof(fd_account_meta_t), val_max );
+  return fd_accdb_v1_prep_create( rw, v1, txn, address, val, sizeof(fd_account_meta_t), val_max );
 }
 
 fd_accdb_rw_t *
@@ -432,7 +432,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
   fd_accdb_peek_t peek[1];
   if( FD_UNLIKELY( !fd_accdb_peek_funk( v1, peek, xid, address ) ) ) {
     /* Record not found */
-    if( flag_create ) return fd_accdb_v1_create( v1, rw, xid, address, data_max );
+    if( flag_create ) return fd_accdb_v1_create( v1, rw, txn, address, data_max );
     return NULL;
   }
 
@@ -488,7 +488,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
       FD_LOG_CRIT(( "Failed to modify account: data race detected, account was removed while being read" ));
     }
 
-    return fd_accdb_v1_prep_create( rw, v1, xid, address, val, val_sz, val_max );
+    return fd_accdb_v1_prep_create( rw, v1, txn, address, val, val_sz, val_max );
 
   }
 }
@@ -525,18 +525,17 @@ fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
     FD_LOG_CRIT(( "Failed to modify account: ref count underflow" ));
   }
 
-  if( !rec->pub ) {
+  if( write->ref->user_data2 ) {
     if( FD_UNLIKELY( v1->tip_txn_idx==ULONG_MAX ) ) {
       FD_LOG_CRIT(( "accdb_user corrupt: not joined to a transaction" ));
     }
-    fd_funk_txn_t * txn = v1->funk->txn_pool->ele + v1->tip_txn_idx;
+    fd_funk_txn_t * txn = (fd_funk_txn_t *)write->ref->user_data2;
     fd_funk_rec_prepare_t prepare = {
       .rec          = rec,
       .rec_head_idx = &txn->rec_head_idx,
       .rec_tail_idx = &txn->rec_tail_idx
     };
     fd_funk_rec_publish( v1->funk, &prepare );
-    rec->pub = 1;
   }
 
   v1->base.rw_active--;

@@ -556,7 +556,6 @@ fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
   fd_funk_val_init( funk_rec );
 
   funk_rec->tag = 0;
-  funk_rec->pub = 1;
   funk_rec->prev_idx = FD_FUNK_REC_IDX_NULL;
   funk_rec->next_idx = FD_FUNK_REC_IDX_NULL;
   memcpy( funk_rec->pair.key, prog_addr, 32UL );

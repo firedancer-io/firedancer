@@ -199,7 +199,6 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
       fd_funk_rec_key_copy( r->pair.key, &key );
       r->prev_idx = UINT_MAX;
       r->next_idx = UINT_MAX;
-      r->pub      = 1;
 
       /* Insert to hash map.  In theory, a key could appear twice in the
          same batch.  All accounts in a batch are guaranteed to be from
