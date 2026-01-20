@@ -1285,6 +1285,20 @@ fd_http_ws_compress_maybe( fd_http_server_t * http ) {
 #endif
 }
 
+uchar *
+fd_http_server_append_start( fd_http_server_t * http,
+                             ulong              len ) {
+  fd_http_server_reserve( http, len );
+  if( FD_UNLIKELY( http->stage_err ) ) return NULL;
+  return http->oring+(http->stage_off%http->oring_sz)+http->stage_len;
+}
+
+void
+fd_http_server_append_end( fd_http_server_t * http,
+                           ulong              len ) {
+  http->stage_len += len;
+}
+
 int
 fd_http_server_ws_send( fd_http_server_t * http,
                         ulong              ws_conn_id ) {

@@ -380,6 +380,22 @@ fd_http_server_memcpy( fd_http_server_t * http,
                        uchar const *      data,
                        ulong              data_len );
 
+/* fd_http_server_append_start starts an in-place append operation.
+   len is the amount of buffer space to reserve.  Returns a pointer to
+   len bytes to which the user should write the message to, on success.
+   On failure (insufficient buffer space), returns NULL. */
+
+uchar *
+fd_http_server_append_start( fd_http_server_t * http,
+                             ulong              len );
+
+/* fd_http_server_append_end finishes an earlier started in-place
+   append.  len is the number of bytes that were acutally written. */
+
+void
+fd_http_server_append_end( fd_http_server_t * http,
+                           ulong              len );
+
 /* fd_http_server_unstage unstages any data written into the staging
    buffer, clearing its contents.  It does not advance the ring buffer
    usage, and no clients will be evicted. */
