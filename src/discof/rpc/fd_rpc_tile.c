@@ -3,6 +3,8 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../discof/fd_accdb_topo.h"
+#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../waltz/http/fd_http_server.h"
@@ -186,6 +188,8 @@ struct fd_rpc_tile {
   fd_rpc_in_t in[ 64UL ];
 
   fd_rpc_out_t replay_out[1];
+
+  fd_accdb_user_t accdb[1];
 };
 
 typedef struct fd_rpc_tile fd_rpc_tile_t;
@@ -1049,6 +1053,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   *ctx->replay_out = out1( topo, tile, "rpc_replay" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
+
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
