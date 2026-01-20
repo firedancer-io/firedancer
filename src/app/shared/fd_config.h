@@ -489,6 +489,7 @@ struct fd_config {
 
     struct {
       ulong max_vote_lookahead;
+      int   debug_logging;
     } tower;
 
   } tiles;

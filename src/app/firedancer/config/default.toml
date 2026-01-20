@@ -1408,6 +1408,13 @@ user = ""
         # Firedancer will ignore a value where this is not the case.
         max_vote_lookahead = 4096
 
+        # Whether to enable debug logging for the tower tile.  If
+        # enabled, the tower tile will write a fork tree and tower
+        # information to `base/tower-debug.log` once per slot.  Can
+        # produce a lot of log data, so it is recommended to put it on a
+        # `logrotate`, see [log] for more details.
+        debug_logging = false
+
     [tiles.send]
         # The port the send tile uses for QUIC, to send votes and other
         # transactions. It also uses this as the UDP src port.

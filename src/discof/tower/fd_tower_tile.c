@@ -25,6 +25,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 /* The tower tile is responsible for two things:
 
@@ -50,8 +51,6 @@
    numbers for blocks.  So the tile (and relevant modules) will use
    block_id when possible to interface with the protocol but otherwise
    falling back to slot number when block_id is unsupported. */
-
-#define LOGGING 0
 
 #define IN_KIND_DEDUP   (0)
 #define IN_KIND_EXEC    (1)
@@ -153,6 +152,12 @@ typedef struct {
 
     fd_hfork_metrics_t hfork;
   } metrics;
+
+  /* debug logging */
+  int debug_fd;
+  fd_io_buffered_ostream_t debug_ostream;
+  uchar debug_buf[4096];
+
 } ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -720,6 +725,8 @@ done_vote_iter:
     ctx->root_slot = out.root_slot;
   }
 
+  ctx->metrics.reset_slot = out.reset_slot;
+
   /* Publish a slot_done frag to tower_out. */
 
   fd_tower_slot_done_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -752,10 +759,12 @@ done_vote_iter:
   fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_DONE, ctx->out_chunk, sizeof(fd_tower_slot_done_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_done_t), ctx->out_chunk0, ctx->out_wmark );
 
-# if LOGGING
-  fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ) );
-  fd_tower_print( ctx->tower, fd_ghost_root( ctx->ghost )->slot );
-# endif
+  if( FD_UNLIKELY( ctx->debug_fd!=-1 ) ) {
+    /* standard buf_sz used by below prints is ~3400 bytes, so buf_max of
+       4096 is sufficient to keep the debug file mostly up to date */
+    fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ), &ctx->debug_ostream );
+    fd_tower_print( ctx->tower, fd_ghost_root( ctx->ghost )->slot, &ctx->debug_ostream );
+  }
 }
 
 static inline void
@@ -866,6 +875,20 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", tile->tower.base_path, identity_key_b58 ) );
   ctx->restore_fd = open( path, O_RDONLY );
   if( FD_UNLIKELY( -1==ctx->restore_fd && errno!=ENOENT ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_LIKELY( tile->tower.debug_logging ) ) {
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-debug.log", tile->tower.base_path ) );
+    ctx->debug_fd = open( path, O_WRONLY|O_CREAT|O_APPEND, 0644 );
+    if( FD_UNLIKELY( -1==ctx->debug_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+    if( FD_LIKELY( ctx->debug_fd!=-1 ) ) {
+      int err = ftruncate( ctx->debug_fd, 0UL );
+      if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "failed to truncate file (%i-%s)", errno, fd_io_strerror( errno ) ));
+      FD_TEST( fd_io_buffered_ostream_init( &ctx->debug_ostream, ctx->debug_fd, ctx->debug_buf, sizeof(ctx->debug_buf) ) );
+    }
+  } else {
+    ctx->debug_fd = -1;
+  }
 }
 
 static void

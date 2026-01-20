@@ -317,11 +317,14 @@ fd_ghost_verify( fd_ghost_t * ghost );
    fd_ghost_print( ghost, fd_ghost_parent( fd_ghost_parent( ele ) ) )
    ```
 
+   If ostream_opt is non-NULL, the print output will be written to the stream instead of stdout.
+
    Callers should add null-checks as appropriate in actual usage. */
 
 void
-fd_ghost_print( fd_ghost_t const *     ghost,
-                fd_ghost_blk_t const * root );
+fd_ghost_print( fd_ghost_t const *         ghost,
+                fd_ghost_blk_t const *     root,
+                fd_io_buffered_ostream_t * ostream_opt );
 
 FD_PROTOTYPES_END
 

@@ -431,25 +431,28 @@ fd_ghost_verify( fd_ghost_t * ghost ) {
 
 #include <stdio.h>
 
+#define PRINT( fmt, ... ) do { if( FD_LIKELY( ostream_opt ) ) { snprintf( buf, sizeof(buf), fmt, ##__VA_ARGS__ ); fd_io_buffered_ostream_write( ostream_opt, buf, strlen(buf) ); } else { printf( fmt, ##__VA_ARGS__ ); } } while(0)
+#define PRINT_STR( str )  do { if( FD_LIKELY( ostream_opt ) ) { fd_io_buffered_ostream_write( ostream_opt, str, strlen(str) ); } else { printf( str ); } } while(0)
 static void
-print( fd_ghost_t const * ghost, fd_ghost_blk_t const * ele, ulong total_stake, int space, const char * prefix ) {
+print( fd_ghost_t const * ghost, fd_ghost_blk_t const * ele, ulong total_stake, int space, const char * prefix, fd_io_buffered_ostream_t * ostream_opt ) {
   fd_ghost_blk_t const * pool = blk_pool_const( ghost );
+  char buf[1024];
 
   if( FD_UNLIKELY( ele == NULL ) ) return;
 
-  if( FD_LIKELY( space > 0 ) ) printf( "\n" );
+  if( FD_LIKELY( space > 0 ) ) PRINT_STR( "\n" );
   for( int i = 0; i < space; i++ )
-    printf( " " );
+    PRINT_STR( " " );
   if( FD_UNLIKELY( ele->stake > 100 ) ) {
   }
   if( FD_UNLIKELY( total_stake == 0 ) ) {
-    printf( "%s%lu (%lu)", prefix, ele->slot, ele->stake );
+    PRINT( "%s%lu (%lu)", prefix, ele->slot, ele->stake );
   } else {
     double pct = ( (double)ele->stake / (double)total_stake ) * 100;
     if( FD_UNLIKELY( pct < 0.99 )) {
-      printf( "%s%lu (%.0lf%%, %lu)", prefix, ele->slot, pct, ele->stake );
+      PRINT( "%s%lu (%.0lf%%, %lu)", prefix, ele->slot, pct, ele->stake );
     } else {
-      printf( "%s%lu (%.0lf%%)", prefix, ele->slot, pct );
+      PRINT( "%s%lu (%.0lf%%)", prefix, ele->slot, pct );
     }
   }
 
@@ -458,10 +461,10 @@ print( fd_ghost_t const * ghost, fd_ghost_blk_t const * ele, ulong total_stake, 
   while( curr ) {
     if( FD_UNLIKELY( blk_pool_ele_const( pool, curr->sibling ) ) ) {
       sprintf( new_prefix, "├── " ); /* branch indicating more siblings follow */
-      print( ghost, curr, total_stake, space + 4, new_prefix );
+      print( ghost, curr, total_stake, space + 4, new_prefix, ostream_opt );
     } else {
       sprintf( new_prefix, "└── " ); /* end branch */
-      print( ghost, curr, total_stake, space + 4, new_prefix );
+      print( ghost, curr, total_stake, space + 4, new_prefix, ostream_opt );
     }
     curr = blk_pool_ele_const( pool, curr->sibling );
   }
@@ -469,8 +472,11 @@ print( fd_ghost_t const * ghost, fd_ghost_blk_t const * ele, ulong total_stake, 
 
 void
 fd_ghost_print( fd_ghost_t const *     ghost,
-                fd_ghost_blk_t const * root ) {
-  FD_LOG_NOTICE( ( "\n\n[Ghost]" ) );
-  print( ghost, root, root->total_stake, 0, "" );
-  printf( "\n\n" );
+                fd_ghost_blk_t const * root,
+                fd_io_buffered_ostream_t * ostream_opt ) {
+  if( FD_LIKELY( ostream_opt ) ) PRINT_STR( "\n\n[Ghost]\n" );
+  else                           FD_LOG_NOTICE( ( "\n\n[Ghost]" ) );
+  print( ghost, root, root->total_stake, 0, "", ostream_opt );
+  PRINT_STR( "\n\n" );
 }
+#undef PRINT
