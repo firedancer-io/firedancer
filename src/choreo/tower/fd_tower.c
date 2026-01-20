@@ -492,7 +492,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1057 */
 
-  else if( FD_LIKELY( fd_forks_is_slot_ancestor( forks, best_blk->slot, prev_vote_slot ) ) ) {
+  else if( FD_LIKELY( best_blk->slot == prev_vote_slot || fd_forks_is_slot_ancestor( forks, best_blk->slot, prev_vote_slot ) ) ) {
     flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SAME_FORK );
     reset_blk = best_blk;
     vote_blk  = best_blk;
@@ -836,9 +836,12 @@ fd_tower_verify( fd_tower_t const * tower ) {
 
 #include <stdio.h>
 
+#define PRINT( fmt, ... ) do { if( FD_LIKELY( ostream_opt ) ) { snprintf( buf, sizeof(buf), fmt, ##__VA_ARGS__ ); fd_io_buffered_ostream_write( ostream_opt, buf, strlen(buf) ); } else { printf( fmt, ##__VA_ARGS__ ); } } while(0)
+#define PRINT_STR( str )  do { if( FD_LIKELY( ostream_opt ) ) { fd_io_buffered_ostream_write( ostream_opt, str, strlen(str) ); } else { printf( str ); } } while(0)
 void
-fd_tower_print( fd_tower_t const * tower, ulong root ) {
-  FD_LOG_NOTICE( ( "\n\n[Tower]" ) );
+fd_tower_print( fd_tower_t const * tower, ulong root, fd_io_buffered_ostream_t * ostream_opt ) {
+  if( FD_LIKELY( ostream_opt ) ) PRINT_STR( "\n\n[Tower]\n" );
+  else                           FD_LOG_NOTICE( ( "\n\n[Tower]" ) );
 
   if( FD_UNLIKELY( fd_tower_empty( tower ) ) ) return;
 
@@ -855,27 +858,23 @@ fd_tower_print( fd_tower_t const * tower, ulong root ) {
 
   /* Calculate the number of digits in the maximum slot value. */
 
-  int           digit_cnt = 0;
-  unsigned long rem       = max_slot;
-  do {
-    rem /= 10;
-    ++digit_cnt;
-  } while( rem > 0 );
+  int           digit_cnt = (int)fd_ulong_base10_dig_cnt(max_slot);
 
   /* Print the column headers. */
 
-  printf( "slot%*s | %s\n", digit_cnt - (int)strlen("slot"), "", "confirmation count" );
+  char buf[1024];
+  PRINT( "slot%*s | %s\n", digit_cnt - (int)strlen("slot"), "", "confirmation count" );
 
   /* Print the divider line. */
 
   for( int i = 0; i < digit_cnt; i++ ) {
-    printf( "-" );
+    PRINT_STR( "-" );
   }
-  printf( " | " );
+  PRINT_STR( " | " );
   for( ulong i = 0; i < strlen( "confirmation count" ); i++ ) {
-    printf( "-" );
+    PRINT_STR( "-" );
   }
-  printf( "\n" );
+  PRINT_STR( "\n" );
 
   /* Print each vote as a table. */
 
@@ -884,13 +883,15 @@ fd_tower_print( fd_tower_t const * tower, ulong root ) {
                        iter = fd_tower_iter_prev    ( tower, iter ) ) {
 
     fd_tower_t const * vote = fd_tower_iter_ele_const( tower, iter );
-    printf( "%*lu | %lu\n", digit_cnt, vote->slot, vote->conf );
+    PRINT( "%*lu | %lu\n", digit_cnt, vote->slot, vote->conf );
     max_slot = fd_ulong_max( max_slot, fd_tower_iter_ele_const( tower, iter )->slot );
   }
   if( FD_UNLIKELY( root==ULONG_MAX ) ) {
-    printf( "%*s | root\n", digit_cnt, "NULL" );
+    PRINT( "%*s | root\n", digit_cnt, "NULL" );
   } else {
-    printf( "%*lu | root\n", digit_cnt, root );
+    PRINT( "%*lu | root\n", digit_cnt, root );
   }
-  printf( "\n" );
+  PRINT_STR( "\n" );
 }
+#undef PRINT
+#undef PRINT_STR

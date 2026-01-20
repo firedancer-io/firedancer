@@ -174,7 +174,7 @@ tower_cmd_fn_ghost( args_t *   args,
   FD_LOG_NOTICE(( "root slot %lu", fd_ghost_root( ghost )->slot ));
 
   for( ;; ) {
-    fd_ghost_print( ghost, fd_ghost_root( ghost ) );
+    fd_ghost_print( ghost, fd_ghost_root( ghost ), NULL );
     sleep( 1 );
   }
 }
@@ -190,7 +190,7 @@ tower_cmd_fn_tower( args_t    * args,
   fd_tower_t * tower = (fd_tower_t *)fd_wksp_laddr( tower_wksp->wksp, tower_laddr );
 
   for( ;; ) {
-    fd_tower_print( tower, ULONG_MAX );
+    fd_tower_print( tower, ULONG_MAX, NULL );
     sleep( 1 );
   }
 }

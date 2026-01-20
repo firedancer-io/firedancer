@@ -1487,6 +1487,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->tower.max_vote_lookahead = config->tiles.tower.max_vote_lookahead;
+    tile->tower.debug_logging      = config->tiles.tower.debug_logging;
     strncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     strncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
     strncpy( tile->tower.base_path, config->paths.base, sizeof(tile->tower.base_path) );
