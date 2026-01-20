@@ -365,6 +365,7 @@ fd_topo_initialize( config_t * config ) {
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
   int vinyl_enabled     = !!config->firedancer.vinyl.enabled;
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
+  int rpc_enabled       = config->tiles.rpc.enabled;
 
   fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
 
@@ -697,6 +698,12 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
   FOR(sign_tile_cnt)   fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
 
+  if( FD_UNLIKELY( rpc_enabled ) ) {
+    fd_topob_wksp( topo, "rpc" );
+    fd_topob_wksp( topo, "rpc_replay" );
+    fd_topob_tile( topo, "rpc", "rpc", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
+  }
+
   if( vinyl_enabled ) {
     setup_topo_vinyl_meta( topo, &config->firedancer );
 
@@ -714,12 +721,16 @@ fd_topo_initialize( config_t * config ) {
     }
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    if( rpc_enabled ) {
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    }
 
     fd_topob_wksp( topo, "vinyl_replay" );
     fd_topob_wksp( topo, "vinyl_exec" );
     fd_topob_wksp( topo, "vinyl_bank" );
     fd_topob_wksp( topo, "vinyl_tower" );
     fd_topob_wksp( topo, "vinyl_resolv" );
+    if( config->tiles.rpc.enabled ) fd_topob_wksp( topo, "vinyl_rpc" );
   }
 
   if( FD_UNLIKELY( solcap_enabled ) ) {
@@ -1030,12 +1041,8 @@ fd_topo_initialize( config_t * config ) {
     /* No default fd_topob_tile_in connection to stake_out */
   }
 
-  int rpc_enabled = config->tiles.rpc.enabled;
   if( FD_UNLIKELY( rpc_enabled ) ) {
-    fd_topob_wksp( topo, "rpc" );
-    fd_topob_wksp( topo, "rpc_replay" );
     fd_topob_link( topo, "rpc_replay", "rpc_replay", 4UL, 0UL, 1UL );
-    fd_topob_tile( topo, "rpc",  "rpc",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
     fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
     fd_topob_tile_in( topo, "rpc",  0UL, "metric_in", "replay_out",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "rpc",  0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -1203,8 +1210,8 @@ fd_topo_initialize( config_t * config ) {
   if( FD_LIKELY( snapshots_enabled ) ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   if( FD_UNLIKELY( rpc_enabled ) ) {
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
@@ -1219,6 +1226,9 @@ fd_topo_initialize( config_t * config ) {
     }
     fd_topob_vinyl_rq( topo, "tower", 0UL, "vinyl_tower", "tower", 4UL, 128UL, 128UL );
     fd_topob_vinyl_rq( topo, "resolv", 0UL, "vinyl_resolv", "resolv", 4UL, 1UL, 1UL );
+    if( rpc_enabled ) {
+      fd_topob_vinyl_rq( topo, "rpc", 0UL, "vinyl_rpc", "rpc", 4UL, 1UL, 1UL );
+    }
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) fd_topo_configure_tile( &topo->tiles[ i ], config );
