@@ -146,9 +146,12 @@ typedef struct {
     ulong threshold_fail;
     ulong propagated_fail;
 
+    ulong root_slot;
+    ulong vote_slot;
+    ulong reset_slot;
     ulong slot_ignored;
 
-    fd_hfork_metrics_t hard_forks;
+    fd_hfork_metrics_t hfork;
   } metrics;
 } ctx_t;
 
@@ -190,11 +193,15 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( TOWER, THRESHOLD_FAIL,    ctx->metrics.threshold_fail    );
   FD_MCNT_SET( TOWER, PROPAGATED_FAIL,   ctx->metrics.propagated_fail   );
 
-  FD_MCNT_SET( TOWER, SLOT_IGNORED,        ctx->metrics.slot_ignored      );
-  FD_MCNT_SET( TOWER, HARD_FORKS_SEEN,     ctx->metrics.hard_forks.seen   );
-  FD_MCNT_SET( TOWER, HARD_FORKS_PRUNED,   ctx->metrics.hard_forks.pruned );
+  FD_MCNT_SET  ( TOWER, HARD_FORKS_SEEN,      ctx->metrics.hfork.seen      );
+  FD_MCNT_SET  ( TOWER, HARD_FORKS_PRUNED,    ctx->metrics.hfork.pruned    );
+  FD_MGAUGE_SET( TOWER, HARD_FORKS_ACTIVE,    ctx->metrics.hfork.active    );
+  FD_MGAUGE_SET( TOWER, HARD_FORKS_MAX_WIDTH, ctx->metrics.hfork.max_width );
 
-  FD_MGAUGE_SET( TOWER, HARD_FORKS_ACTIVE, ctx->metrics.hard_forks.active    );
+  FD_MGAUGE_SET( TOWER, ROOT_SLOT,    ctx->metrics.root_slot    );
+  FD_MGAUGE_SET( TOWER, VOTE_SLOT,    ctx->metrics.vote_slot    );
+  FD_MGAUGE_SET( TOWER, RESET_SLOT,   ctx->metrics.reset_slot   );
+  FD_MCNT_SET  ( TOWER, SLOT_IGNORED, ctx->metrics.slot_ignored );
 }
 
 static void
@@ -346,7 +353,7 @@ count_vote_txn( ctx_t *             ctx,
   fd_voter_stake_key_t stake_key = { .vote_account = *vote_acc, .slot = ctx->root_slot };
   fd_voter_stake_t *   stake     = fd_voter_stake_map_ele_query( ctx->slot_stakes->voter_stake_map, &stake_key, NULL, ctx->slot_stakes->voter_stake_pool );
 
-  fd_hfork_count_vote( ctx->hfork, vote_acc, their_block_id, their_bank_hash, their_last_vote->slot, stake ? stake->stake : 0, total_stake, &ctx->metrics.hard_forks );
+  fd_hfork_count_vote( ctx->hfork, vote_acc, their_block_id, their_bank_hash, their_last_vote->slot, stake ? stake->stake : 0, total_stake, &ctx->metrics.hfork );
 
   fd_notar_blk_t * notar_blk   = fd_notar_count_vote( ctx->notar, total_stake, vote_acc, their_last_vote->slot, their_block_id );
   if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, notar_blk );
@@ -661,6 +668,7 @@ done_vote_iter:
   /* Update forks if there is a vote slot. */
 
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) {
+    ctx->metrics.vote_slot = out.vote_slot;
     fd_tower_forks_t * fork = fd_forks_query( ctx->forks, out.vote_slot );
     FD_TEST( fork ); /* we must have replayed every slot we voted for */
     fd_forks_voted( fork, &out.vote_block_id );
@@ -669,6 +677,7 @@ done_vote_iter:
   /* Publish according structures if there is a root */
 
   if( FD_UNLIKELY( out.root_slot!=ULONG_MAX ) ) {
+    ctx->metrics.root_slot = out.root_slot;
 
     if( FD_UNLIKELY( 0==memcmp( &out.root_block_id, &hash_null, sizeof(fd_hash_t) ) ) ) {
       FD_LOG_CRIT(( "invariant violation: root block id is null at slot %lu", out.root_slot ));
