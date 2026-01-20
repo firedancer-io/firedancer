@@ -22,6 +22,12 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks_locks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
 extern fd_topo_obj_callbacks_t fd_obj_cb_acc_pool;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta_ele;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_data;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_req_pool;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_rq;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_cq;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
@@ -40,6 +46,12 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_banks_locks,
   &fd_obj_cb_funk,
   &fd_obj_cb_acc_pool,
+  &fd_obj_cb_vinyl_meta,
+  &fd_obj_cb_vinyl_meta_ele,
+  &fd_obj_cb_vinyl_data,
+  &fd_obj_cb_vinyl_req_pool,
+  &fd_obj_cb_vinyl_rq,
+  &fd_obj_cb_vinyl_cq,
   NULL,
 };
 
@@ -94,12 +106,14 @@ extern fd_topo_run_tile_t fd_tile_snapct;
 extern fd_topo_run_tile_t fd_tile_snapld;
 extern fd_topo_run_tile_t fd_tile_snapdc;
 extern fd_topo_run_tile_t fd_tile_snapin;
+extern fd_topo_run_tile_t fd_tile_snapwm;
 extern fd_topo_run_tile_t fd_tile_snapwh;
 extern fd_topo_run_tile_t fd_tile_snapwr;
 extern fd_topo_run_tile_t fd_tile_snapla;
 extern fd_topo_run_tile_t fd_tile_snapls;
 extern fd_topo_run_tile_t fd_tile_snaplh;
 extern fd_topo_run_tile_t fd_tile_snaplv;
+extern fd_topo_run_tile_t fd_tile_vinyl;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -131,6 +145,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapld,
   &fd_tile_snapdc,
   &fd_tile_snapin,
+  &fd_tile_snapwm,
   &fd_tile_snapwh,
   &fd_tile_snapwr,
   &fd_tile_snapla,
@@ -142,6 +157,7 @@ fd_topo_run_tile_t * TILES[] = {
 # endif
   &fd_tile_ipecho,
   &fd_tile_solcap,
+  &fd_tile_vinyl,
   NULL,
 };
 
