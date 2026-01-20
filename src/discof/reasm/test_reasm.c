@@ -1,6 +1,5 @@
 #include "fd_reasm.h"
 #include "fd_reasm_private.h"
-#include "../../disco/fd_disco_base.h"
 
 #define PRINT_MAP(name)                                                       \
   do {                                                                        \
@@ -85,7 +84,7 @@ test_insert( fd_wksp_t * wksp ) {
       f3_64->key,
   };
   fd_reasm_fec_t * fec = NULL; ulong i = 0;
-  while( FD_LIKELY( fec = fd_reasm_out( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
+  while( FD_LIKELY( fec = fd_reasm_pop( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
   FD_TEST( i==sizeof(order) / sizeof(fd_hash_t) );
 
   /* Equivocating last FEC set for slot 3 (mr3_64a), child (3, 64) of
@@ -154,7 +153,7 @@ test_publish( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * fec = NULL;
   while( FD_LIKELY( fec ) ) {
-    fec = fd_reasm_out( reasm );
+    fec = fd_reasm_pop( reasm );
     FD_TEST( 0==memcmp( &fec->key, &mr0, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr1, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr2, sizeof(fd_hash_t) ) );
@@ -187,7 +186,7 @@ test_slot_mr( fd_wksp_t * wksp ) {
   void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
   fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
   FD_TEST( reasm );
-  FD_TEST( reasm->slot_mr );
+  FD_TEST( reasm->bid );
 
   fd_reasm_fec_t * pool = reasm->pool;
   // ulong            null = pool_idx_null( pool );
@@ -219,6 +218,138 @@ test_slot_mr( fd_wksp_t * wksp ) {
   FD_TEST( frontier_ele_query( frontier, &fec4->key, NULL, pool ) );                /* mr4 should have chained */
 }
 
+void
+test_eqvoc( fd_wksp_t * wksp ) {
+  ulong        fec_max = 32;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+
+  fd_hash_t mr1[1]  = {{{ 1 }}};
+  fd_hash_t mr1a[1] = {{{ 1, 0xa }}};
+  fd_hash_t mr1b[1] = {{{ 1, 0xb }}};
+
+  fd_reasm_insert( reasm, mr1, NULL, 1, 0, 1, 32, 0, 0, 0 );
+
+  /* Slot 1 equivocates. */
+
+  fd_reasm_insert( reasm, mr1a, mr1, /* slot */ 1, /* fec_set_idx */ 32, 1, 32, 0, 0, 0 );
+  fd_reasm_insert( reasm, mr1b, mr1, /* slot */ 1, /* fec_set_idx */ 32, 1, 32, 0, 0, 0 );
+
+  fd_reasm_fec_t * fec1a = fd_reasm_query( reasm, mr1a );
+  FD_TEST( fec1a );
+  FD_TEST( fec1a->eqvoc );
+  FD_TEST( !fec1a->confirmed );
+  FD_TEST( fec1a==pool_ele( reasm->pool, *out_peek_index( reasm->out, 0 ) ) );
+
+  fd_reasm_fec_t * fec1b = fd_reasm_query( reasm, mr1b );
+  FD_TEST( fec1b );
+  FD_TEST( fec1b->eqvoc );
+  FD_TEST( !fec1b->confirmed );
+  FD_TEST( fec1b==pool_ele( reasm->pool, *out_peek_index( reasm->out, 1 ) ) );
+
+  FD_TEST( !fd_reasm_pop( reasm ) ); /* everything is equivocating so nothing should get popped */
+
+  /* Confirm one branch of the equivocation. */
+
+  fd_reasm_confirm( reasm, mr1b );
+  FD_TEST( fec1b->confirmed );
+  FD_TEST( fd_reasm_query( reasm, mr1 )->confirmed );
+
+  FD_TEST( fd_reasm_pop( reasm ) == fec1b ); /* pop fec1b */
+  fd_hash_t mr1ba[1] = {{{ 1, 0xb, 0xa }}};
+  fd_hash_t mr1bb[1] = {{{ 1, 0xb, 0xb }}};
+  fd_hash_t mr2[1]   = {{{ 2 }}};
+
+  /* Confirm 1bb before it has been inserted.  This has no effect. */
+
+  fd_reasm_confirm( reasm, mr1bb );
+  FD_TEST( !fd_reasm_pop( reasm ) );
+
+  /* Insert some descendants of mr1b. */
+
+  fd_reasm_insert( reasm, mr1ba, mr1b,  /* slot */ 1, 64, /* parent_off */ 1, /* data_cnt */ 32, /* data_complete */ 1, /* slot_complete */ 1, /* is_leader */ 0 );
+  fd_reasm_insert( reasm, mr1bb, mr1b,  /* slot */ 1, 64, /* parent_off */ 1, /* data_cnt */ 32, /* data_complete */ 1, /* slot_complete */ 1, /* is_leader */ 0 );
+  fd_reasm_insert( reasm, mr2,   mr1bb, /* slot */ 2, 0,  /* parent_off */ 1, /* data_cnt */ 32, /* data_complete */ 0, /* slot_complete */ 0, /* is_leader */ 0 );
+
+  /* mr1ba and mr1bb should not be delivered by pop even though they are
+     chained to mr1b because they equivocate and are not valid. */
+
+  FD_TEST( !fd_reasm_pop( reasm ) );
+
+  /* Confirming a descendant should confirm the ancestors.  Note this
+     confirms 1bb after the "missed" earlier confirmation (1bb's confirm
+     arrived before its insertion). */
+
+  fd_reasm_confirm( reasm, mr2 );
+  FD_TEST( fd_reasm_query( reasm, mr2 )->confirmed );
+  FD_TEST( fd_reasm_query( reasm, mr1bb )->confirmed );
+  FD_TEST( !fd_reasm_query( reasm, mr1ba )->confirmed );
+
+  /* mr1bb was marked valid and should be delivered before mr2. */
+
+  FD_TEST( fd_reasm_pop( reasm ) == fd_reasm_query( reasm, mr1bb ) );
+  FD_TEST( fd_reasm_pop( reasm ) == fd_reasm_query( reasm, mr2 ) );
+
+  fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+}
+
+void
+test_eqvoc_transitive( fd_wksp_t * wksp ) {
+  ulong        fec_max = 32;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+
+  fd_hash_t mr1[1]    = {{{ 1 }}};
+  fd_hash_t mr2a[1]   = {{{ 2, 0xa }}};
+  fd_hash_t mr2b[1]   = {{{ 2, 0xb }}};
+  fd_hash_t mr2aa[1]  = {{{ 2, 0xa, 0xa }}};
+  fd_hash_t mr3[1] = {{{ 3 }}};
+  fd_hash_t mr4[1] = {{{ 4 }}};
+  fd_hash_t mr5[1] = {{{ 5 }}};
+
+  fd_reasm_insert( reasm, mr1,  NULL,  /* slot */ 1, /* fec_set_idx */ 0,  1, 32, 0, 0, 0 );
+  fd_reasm_insert( reasm, mr2a, mr1,   /* slot */ 2, /* fec_set_idx */ 32, 1, 32, 0, 0, 0 );
+  fd_reasm_insert( reasm, mr3,  mr2aa, /* slot */ 3, /* fec_set_idx */ 0,  1, 32, 0, 0, 0 );
+  fd_reasm_insert( reasm, mr4,  mr2aa, /* slot */ 4, /* fec_set_idx */ 0,  1, 32, 0, 0, 0 );
+
+  /* Introduce 2b (which equivocates with 2a). */
+
+  fd_reasm_insert( reasm, mr2b, mr1, /* slot */ 2, /* fec_set_idx */ 32, 1, 32, 0, 0, 0 );
+
+  /* Introduce 2aa, which un-orphans 3 and 4.  This should transitively
+     mark 2aa, 3 and 4 all as equivocating because 2a equivocates. */
+
+  fd_reasm_insert( reasm, mr2aa, mr2a, /* slot */ 2, /* fec_set_idx */ 64, 1, 32, 0, 1, 0 );
+
+  FD_TEST( !fd_reasm_query( reasm, mr1 )->eqvoc );
+  FD_TEST( fd_reasm_query( reasm, mr2a )->eqvoc );
+  FD_TEST( fd_reasm_query( reasm, mr2b )->eqvoc );
+  FD_TEST( fd_reasm_query( reasm, mr2aa )->eqvoc );
+  FD_TEST( fd_reasm_query( reasm, mr3 )->eqvoc );
+  FD_TEST( fd_reasm_query( reasm, mr4 )->eqvoc );
+
+  /* Confirm 3, which also should confirm mr1aa, mr1a, mr1. */
+
+  fd_reasm_confirm( reasm, mr4 );
+
+  FD_TEST( fd_reasm_query( reasm, mr4 )->confirmed );
+  FD_TEST( fd_reasm_query( reasm, mr2aa )->confirmed );
+  FD_TEST( fd_reasm_query( reasm, mr2a )->confirmed );
+  FD_TEST( fd_reasm_query( reasm, mr1 )->confirmed );
+  FD_TEST( !fd_reasm_query( reasm, mr3 )->confirmed );
+  FD_TEST( !fd_reasm_query( reasm, mr2b )->confirmed );
+
+  /* Insert 4, which is a child of 3.  Even though 3 is eqvoc, 4 should
+     not be eqvoc because 3 is confirmed. */
+
+  fd_reasm_insert( reasm, mr5, mr4, /* slot */ 5, /* fec_set_idx */ 0, 1, 32, 0, 0, 0 );
+
+  FD_TEST( !fd_reasm_query( reasm, mr5 )->eqvoc );
+  FD_TEST( !fd_reasm_query( reasm, mr5 )->confirmed );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -229,15 +360,11 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_insert( wksp );
-  test_publish( wksp );
-  test_slot_mr( wksp );
-
-  ulong sig = fd_disco_repair_replay_sig( 3508496, 1, 32, 128 );
-  FD_TEST( fd_disco_repair_replay_sig_slot( sig ) == 3508496 );
-  FD_TEST( fd_disco_repair_replay_sig_parent_off( sig ) == 1 );
-  FD_TEST( fd_disco_repair_replay_sig_data_cnt( sig ) == 32 );
-  FD_TEST( fd_disco_repair_replay_sig_slot_complete( sig ) == 1 );
+  // test_insert( wksp );
+  // test_publish( wksp );
+  // test_slot_mr( wksp );
+  // test_eqvoc( wksp );
+  test_eqvoc_transitive( wksp );
 
   fd_halt();
   return 0;

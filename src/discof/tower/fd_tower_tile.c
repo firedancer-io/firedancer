@@ -53,9 +53,9 @@
 
 #define LOGGING 0
 
-#define IN_KIND_DEDUP   (0)
-#define IN_KIND_EXEC    (1)
-#define IN_KIND_REPLAY  (2)
+#define IN_KIND_DEDUP  (0)
+#define IN_KIND_EXEC   (1)
+#define IN_KIND_REPLAY (2)
 
 #define VOTE_TXN_SIG_MAX (2UL) /* validator identity and vote authority */
 
