@@ -1,7 +1,7 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
 # checkpt_fd: The binary file to checkpoint towers to while running.
-unsigned int logfile_fd, unsigned int checkpt_fd, unsigned int restore_fd
+unsigned int logfile_fd, unsigned int checkpt_fd, unsigned int restore_fd, unsigned int debug_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -14,7 +14,8 @@ unsigned int logfile_fd, unsigned int checkpt_fd, unsigned int restore_fd
 # fd_tower_checkpt requires write
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd)
-           (eq (arg 0) checkpt_fd))
+           (eq (arg 0) checkpt_fd)
+           (eq (arg 0) debug_fd))t push
 
 # fd_tower_restore requires read
 read: (eq (arg 0) restore_fd)
