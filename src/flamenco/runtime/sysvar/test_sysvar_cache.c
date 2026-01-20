@@ -39,7 +39,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->data->non_cow.sysvar_cache ) );
 
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_v1_init( admin, funk_mem, 1 ) );
+  FD_TEST( fd_accdb_admin_v1_init( admin, funk_mem ) );
   fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
   fd_accdb_attach_child( admin, &root, &env->xid );
   fd_accdb_admin_fini( admin );

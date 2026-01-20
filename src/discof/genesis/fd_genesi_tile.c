@@ -131,11 +131,11 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     fd_accdb_ref_lamports_set( rw, account->meta.lamports     );
     fd_accdb_ref_exec_bit_set( rw, !!account->meta.executable );
     fd_accdb_ref_data_set    ( accdb, rw, account->data, account->meta.dlen );
-    fd_accdb_close_rw( ctx->accdb, rw );
 
     fd_lthash_value_t new_hash[1];
     fd_hashes_account_lthash( fd_type_pun( account->pubkey ), rw->meta, account->data, new_hash );
     fd_lthash_add( ctx->lthash, new_hash );
+    fd_accdb_close_rw( ctx->accdb, rw );
   }
 
   fd_accdb_advance_root( ctx->accdb_admin, &xid );
@@ -448,7 +448,7 @@ unprivileged_init( fd_topo_t *      topo,
                            FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
   void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
 
-  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ), 1 ) );
+  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
   FD_TEST( fd_accdb_user_v1_init ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
 
   fd_lthash_zero( ctx->lthash );

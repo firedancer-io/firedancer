@@ -7,6 +7,7 @@
 
 #include "fd_accdb_user.h"
 #include "../runtime/fd_runtime_const.h"
+#include "../fd_rwlock.h"
 
 struct fd_accdb_v0_rec {
   uint reader_cnt : 31;

@@ -111,8 +111,8 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   if( FD_UNLIKELY( !shfunk   ) ) goto bail1;
   if( FD_UNLIKELY( !shpcache ) ) goto bail1;
 
-  if( FD_UNLIKELY( !fd_accdb_admin_v1_init( runner->accdb_admin, funk_mem, 1 ) ) ) goto bail2;
-  if( FD_UNLIKELY( !fd_accdb_user_v1_init ( runner->accdb,       funk_mem    ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_accdb_admin_v1_init( runner->accdb_admin, funk_mem ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_accdb_user_v1_init ( runner->accdb,       funk_mem ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_admin_join( runner->progcache_admin, pcache_mem ) ) ) goto bail2;
 

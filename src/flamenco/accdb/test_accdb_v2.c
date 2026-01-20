@@ -1,5 +1,5 @@
 #include "fd_accdb_base.h"
-#include "fd_accdb_admin_v1.h" /* FIXME admin_v2 not yet implemented */
+#include "fd_accdb_admin_v1.h"
 #include "fd_accdb_impl_v2.h"
 #include "fd_accdb_admin.h"
 #include "fd_accdb_sync.h"
@@ -106,7 +106,7 @@ add_account_funk( fd_accdb_user_t * accdb_,
                   uchar const *     key,
                   ulong             lamports ) {
   fd_accdb_user_v2_t * accdb = (fd_accdb_user_v2_t *)accdb_;
-  fd_funk_t * funk = accdb->v1.funk;
+  fd_funk_t * funk = accdb->funk;
 
   fd_funk_rec_map_t *  rec_map  = funk->rec_map;
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
@@ -115,7 +115,8 @@ add_account_funk( fd_accdb_user_t * accdb_,
   FD_TEST( rec );
   *rec = (fd_funk_rec_t) {
     .next_idx = UINT_MAX,
-    .prev_idx = UINT_MAX
+    .prev_idx = UINT_MAX,
+    .ver_lock = fd_funk_rec_ver_lock( 1UL, 0UL )
   };
   fd_funk_txn_xid_set_root( rec->pair.xid );
   memcpy( rec->pair.key->uc, key, 32UL );
@@ -132,6 +133,11 @@ add_account_funk( fd_accdb_user_t * accdb_,
   FD_TEST( fd_funk_rec_map_insert( rec_map, rec, 0 )==FD_MAP_SUCCESS );
 }
 
+static fd_funk_rec_t *
+ref_funk_rec( fd_accdb_ref_t const * ref ) {
+  return (fd_funk_rec_t *)ref->user_data;
+}
+
 static void
 test_account_creation( fd_accdb_user_t *         accdb,
                        fd_funk_txn_xid_t const * xid2,
@@ -139,25 +145,160 @@ test_account_creation( fd_accdb_user_t *         accdb,
                        ulong                     lamports ) {
   fd_accdb_rw_t rw[1];
   fd_accdb_ro_t ro[1];
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+
+  fd_funk_rec_t * rec;
+
   FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, addr, 16UL, FD_ACCDB_FLAG_CREATE ) );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==1 );
+  rec = ref_funk_rec( rw->ref );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==FD_FUNK_REC_LOCK_MASK ); /* write locked */
   fd_accdb_ref_lamports_set( rw, lamports );
   fd_accdb_close_rw( accdb, rw );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==0 );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+
   FD_TEST( fd_accdb_open_ro( accdb, ro, xid2, addr ) );
+  FD_TEST( accdb->base.ro_active==1 && accdb->base.rw_active==0 );
+  rec = ref_funk_rec( ro->ref );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==1UL ); /* read lock */
   FD_TEST( fd_accdb_ref_lamports( ro )==lamports );
   fd_accdb_close_ro( accdb, ro );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==0 );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+
   FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, addr, 16UL, 0 ) );
+  rec = ref_funk_rec( rw->ref );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==FD_FUNK_REC_LOCK_MASK ); /* write locked */
   fd_accdb_ref_lamports_set( rw, 0UL ); /* delete */
   fd_accdb_close_rw( accdb, rw );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==0UL );
+
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, xid2, addr, 16UL, 0 ) );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+
   FD_TEST( !fd_accdb_open_ro( accdb, ro, xid2, addr ) );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+}
+
+
+/* test_truncate verifies open_rw behavior with the TRUNCATE flag set.
+
+   test_truncate_create:   Account does not exist, create new (flags+=CREATE)
+   test_truncate_nonexist: Account does not exist, return NULL
+   test_truncate_inplace:  Account exists and is mutable, truncate in-place
+   test_truncate_copy:     Account exists and is immutable, create new and copy meta */
+
+static void
+test_truncate_create( fd_accdb_admin_t * admin,
+                      fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 1UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_funk_rec_key_t key = { .ul={ 42UL } };
+  fd_accdb_rw_t rw[1];
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, 56UL, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  fd_funk_rec_t * rec = (void *)rw->ref->user_data;
+  FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max   >= sizeof(fd_account_meta_t)+56UL );
+  FD_TEST( rw->meta->dlen == 0UL );
+  fd_accdb_close_rw( accdb, rw );
+
+  fd_accdb_cancel( admin, &xid );
+}
+
+static void
+test_truncate_nonexist( fd_accdb_admin_t * admin,
+                        fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 2UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_funk_rec_key_t key = { .ul={ 42UL } };
+  fd_accdb_rw_t rw[1];
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, &key, 42UL, FD_ACCDB_FLAG_TRUNCATE ) );
+
+  fd_accdb_close_rw( accdb, rw );
+}
+
+static void
+test_truncate_inplace( fd_accdb_admin_t * admin,
+                       fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 3UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_funk_rec_key_t key = { .ul={ 42UL } };
+  fd_accdb_rw_t rw[1];
+  ulong data_sz_0 = 56UL;
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_0, FD_ACCDB_FLAG_CREATE ) );
+  FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  fd_accdb_ref_lamports_set( rw, 32UL );
+  fd_accdb_ref_data_set( accdb, rw, "hello", 5UL );
+  fd_funk_rec_t * rec = (void *)rw->ref->user_data;
+  FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t)+5UL );
+  FD_TEST( rec->val_max   >= sizeof(fd_account_meta_t)+data_sz_0 );
+  FD_TEST( rw->meta->dlen == 5UL );
+  fd_accdb_close_rw( accdb, rw );
+
+  ulong data_sz_1 = 256UL;
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_1, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  rec = (void *)rw->ref->user_data;
+  FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max   >= sizeof(fd_account_meta_t)+data_sz_1 );
+  FD_TEST( rw->meta->dlen == 0UL );
+  fd_accdb_close_rw( accdb, rw );
+
+  fd_accdb_close_rw( accdb, rw );
+}
+
+static void
+test_truncate_copy( fd_accdb_admin_t * admin,
+                    fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid1 = { .ul={ 4UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid1 );
+
+  fd_funk_rec_key_t key = { .ul={ 42UL } };
+  fd_accdb_rw_t rw[1];
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid1, &key, 56UL, FD_ACCDB_FLAG_CREATE ) );
+  FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  fd_accdb_ref_lamports_set( rw, 32UL );
+  fd_accdb_ref_data_set( accdb, rw, "hello", 5UL );
+  fd_funk_rec_t * rec = (void *)rw->ref->user_data;
+  FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t)+5UL );
+  FD_TEST( rec->val_max   >= sizeof(fd_account_meta_t)+56UL );
+  FD_TEST( rw->meta->dlen == 5UL );
+  fd_accdb_close_rw( accdb, rw );
+
+  fd_funk_txn_xid_t xid2 = { .ul={ 5UL, 0UL } };
+  fd_accdb_attach_child( admin, &xid1, &xid2 );
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid2, &key, 256UL, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  rec = (void *)rw->ref->user_data;
+  FD_TEST( rec->val_sz  == sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max >= sizeof(fd_account_meta_t)+256UL );
+  FD_TEST( rw->meta->dlen   == 0UL );
+  fd_accdb_close_rw( accdb, rw );
+
+  fd_accdb_cancel( admin, &xid2 );
+  fd_accdb_cancel( admin, &xid1 );
 }
 
 static void
 run_tests( fd_accdb_user_t * accdb ) {
   fd_accdb_user_v2_t *  v2       = (fd_accdb_user_v2_t *)accdb;
   fd_vinyl_req_pool_t * req_pool = v2->vinyl_req_pool;
+  FD_TEST( accdb->base.ro_active==0UL );
 
   add_account_vinyl( accdb, s_key_a, 10000UL );
   add_account_vinyl( accdb, s_key_b,     0UL );
@@ -180,10 +321,14 @@ run_tests( fd_accdb_user_t * accdb ) {
   FD_TEST( !fd_accdb_open_ro( accdb, ro, xid, s_key_b ) );
 
   FD_TEST( fd_accdb_open_ro( accdb, ro, xid, s_key_c ) );
+  fd_funk_rec_t * rec = ref_funk_rec( ro->ref );
+  FD_TEST( rec->ver_lock==fd_funk_rec_ver_lock( 1UL, 1UL ) );
   FD_TEST( accdb->base.ro_active==1UL );
+  FD_TEST( ro->ref->accdb_type==FD_ACCDB_TYPE_V1 );
   FD_TEST( ro->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( fd_accdb_ref_lamports( ro )==20000UL );
   fd_accdb_close_ro( accdb, ro );
+  FD_TEST( rec->ver_lock==fd_funk_rec_ver_lock( 1UL, 0UL ) );
   FD_TEST( accdb->base.ro_active==0UL );
   FD_TEST( req_pool->free_cnt==2UL );
 
@@ -260,7 +405,7 @@ run_tests( fd_accdb_user_t * accdb ) {
   fd_accdb_rw_t rw[1];
   fd_funk_txn_xid_t xid2[1] = {{ .ul={ 1UL, 2UL } }};
   fd_accdb_admin_t admin[1];
-  fd_accdb_admin_v1_init( admin, v2->v1.funk->shmem, 0 );
+  fd_accdb_admin_v1_init( admin, v2->funk->shmem );
   fd_accdb_attach_child( admin, xid, xid2 );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
 
@@ -285,6 +430,45 @@ run_tests( fd_accdb_user_t * accdb ) {
   }
 
   fd_accdb_cancel( admin, xid2 );
+
+  /* Test truncate */
+
+  test_truncate_create  ( admin, accdb );
+  test_truncate_nonexist( admin, accdb );
+  test_truncate_inplace ( admin, accdb );
+  test_truncate_copy    ( admin, accdb );
+
+  /* Open vinyl record as writable */
+
+  xid2->ul[1]++;
+  fd_accdb_attach_child( admin, xid, xid2 );
+  FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, s_key_a, 0UL, 0 ) );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==1 );
+  rec = ref_funk_rec( rw->ref );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_accdb_ref_data_sz( rw->ro )==32UL );
+  FD_TEST( 0==memcmp( fd_accdb_ref_data_const( rw->ro ), s_key_a, 32UL ) );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  fd_accdb_cancel( admin, xid2 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==0 );
+
+  /* Open vinyl record as writable (truncate) */
+
+  xid2->ul[1]++;
+  fd_accdb_attach_child( admin, xid, xid2 );
+  FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, s_key_a, 0UL, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==1 );
+  rec = ref_funk_rec( rw->ref );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_accdb_ref_data_sz( rw->ro )==0UL );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  fd_accdb_cancel( admin, xid2 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==0 );
+
   fd_accdb_admin_fini( admin );
 }
 
@@ -427,7 +611,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Cleaning up" ));
 
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk, 0 ) );
+  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk ) );
   fd_accdb_v1_clear( admin );
   fd_accdb_admin_fini( admin );
 

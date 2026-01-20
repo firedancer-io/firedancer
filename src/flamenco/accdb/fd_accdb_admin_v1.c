@@ -1,32 +1,12 @@
 #include "fd_accdb_admin_v1.h"
 #include "../fd_flamenco_base.h"
-#include "../../funk/fd_funk.h"
-
-struct fd_accdb_admin_v1 {
-  fd_accdb_admin_base_t base;
-
-  uint enable_reclaims : 1;
-
-  /* Funk client */
-  fd_funk_t funk[1];
-
-  /* Current fork cache */
-  fd_funk_txn_xid_t fork[ FD_ACCDB_DEPTH_MAX ];
-  ulong             fork_depth;
-
-  /* Current funk txn cache */
-  ulong tip_txn_idx; /* ==ULONG_MAX if tip is root */
-};
-
-typedef struct fd_accdb_admin_v1 fd_accdb_admin_v1_t;
 
 FD_STATIC_ASSERT( alignof(fd_accdb_admin_v1_t)<=alignof(fd_accdb_admin_t), layout );
 FD_STATIC_ASSERT( sizeof (fd_accdb_admin_v1_t)<=sizeof(fd_accdb_admin_t),  layout );
 
 fd_accdb_admin_t *
 fd_accdb_admin_v1_init( fd_accdb_admin_t * admin_,
-                        void *             shfunk,
-                        int                enable_reclaims ) {
+                        void *             shfunk ) {
   if( FD_UNLIKELY( !admin_ ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
@@ -44,7 +24,6 @@ fd_accdb_admin_v1_init( fd_accdb_admin_t * admin_,
   if( FD_UNLIKELY( !fd_funk_join( admin->funk, shfunk ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
-  admin->enable_reclaims = !!enable_reclaims;
 
   return admin_;
 }
@@ -156,6 +135,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_v1_t * admin,
     fd_funk_val_flush( rec, funk->alloc, funk->wksp );
     rec->next_idx = FD_FUNK_REC_IDX_NULL;
     rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+    rec->ver_lock = fd_funk_rec_ver_lock( fd_funk_rec_ver_inc( fd_funk_rec_ver_bits( rec->ver_lock ) ), 0UL );
     fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
     rec_idx = next_idx;
     rec_cnt++;
@@ -243,6 +223,15 @@ fd_accdb_txn_cancel_next_list( fd_accdb_admin_v1_t * accdb,
     fd_funk_txn_t * sibling = &accdb->funk->txn_pool->ele[ next_idx ];
     fd_accdb_txn_cancel_tree( accdb, sibling );
   }
+}
+
+void
+fd_accdb_txn_cancel_siblings( fd_accdb_admin_v1_t * accdb,
+                              fd_funk_txn_t *       txn ) {
+  fd_accdb_txn_cancel_prev_list( accdb, txn );
+  fd_accdb_txn_cancel_next_list( accdb, txn );
+  txn->sibling_prev_cidx = UINT_MAX;
+  txn->sibling_next_cidx = UINT_MAX;
 }
 
 void
@@ -353,7 +342,7 @@ fd_accdb_publish_recs( fd_accdb_admin_v1_t * accdb,
     uint next = rec->next_idx;
     fd_account_meta_t const * meta = fd_funk_val( rec, funk_wksp );
     FD_CRIT( meta && rec->val_sz>=sizeof(fd_account_meta_t), "invalid funk record value" );
-    if( !meta->lamports && accdb->enable_reclaims ) {
+    if( !meta->lamports ) {
       /* Remove record */
       fd_accdb_chain_reclaim( accdb, rec );
     } else {
@@ -456,10 +445,7 @@ fd_accdb_v1_advance_root( fd_accdb_admin_t *        accdb_,
                 (void *)txn,
                 xid->ul[0], xid->ul[1] ));
 
-  fd_accdb_txn_cancel_prev_list( accdb, txn );
-  fd_accdb_txn_cancel_next_list( accdb, txn );
-  txn->sibling_prev_cidx = UINT_MAX;
-  txn->sibling_next_cidx = UINT_MAX;
+  fd_accdb_txn_cancel_siblings( accdb, txn );
 
   /* Children of transaction are now children of root */
   funk->shmem->child_head_cidx = txn->child_head_cidx;
