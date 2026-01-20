@@ -65,6 +65,7 @@ fd_accdb_ro_pipe_enqueue( fd_accdb_ro_pipe_t * pipe,
 
 void
 fd_accdb_ro_pipe_flush( fd_accdb_ro_pipe_t * pipe ) {
+  if( pipe->state!=RO_PIPE_STATE_BATCH ) return;
   fd_accdb_open_ro_multi( pipe->accdb, pipe->ro, &pipe->xid, pipe->addr, pipe->req_cnt );
   pipe->state    = RO_PIPE_STATE_DRAIN;
   pipe->req_comp = 0U;
