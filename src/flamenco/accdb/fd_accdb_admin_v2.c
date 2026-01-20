@@ -144,7 +144,6 @@ vinyl_push_rec( fd_accdb_admin_v2_t *     admin,
   }
   int err = FD_VOLATILE_CONST( req_err[0] );
   if( FD_UNLIKELY( err!=FD_VINYL_SUCCESS ) ) {
-    fd_log_sleep( 1e9 );
     err = FD_VOLATILE_CONST( req_err[0] );
     FD_LOG_CRIT(( "vinyl tile ACQUIRE request failed: %i-%s", err, fd_vinyl_strerror( err ) ));
   }
@@ -168,6 +167,42 @@ vinyl_push_rec( fd_accdb_admin_v2_t *     admin,
   }
   if( FD_UNLIKELY( req_err[0]!=FD_VINYL_SUCCESS ) ) {
     FD_LOG_CRIT(( "vinyl tile RELEASE request failed: %i-%s", req_err[0], fd_vinyl_strerror( req_err[0] ) ));
+  }
+
+  fd_vinyl_req_pool_release( req_pool, batch_idx );
+}
+
+static void
+vinyl_remove_rec( fd_accdb_admin_v2_t * admin,
+                  void const *          addr ) {
+  fd_vinyl_rq_t *       rq       = admin->vinyl_rq;        /* "request queue "*/
+  fd_vinyl_req_pool_t * req_pool = admin->vinyl_req_pool;  /* "request pool" */
+  fd_wksp_t *           req_wksp = admin->vinyl_req_wksp;  /* shm workspace containing request buffer */
+  ulong                 link_id  = admin->vinyl_link_id;   /* vinyl client ID */
+
+  ulong batch_idx = fd_vinyl_req_pool_acquire( req_pool );
+  /* req_pool_release called before returning */
+  fd_vinyl_comp_t * comp    = fd_vinyl_req_batch_comp( req_pool, batch_idx );
+  fd_vinyl_key_t *  req_key = fd_vinyl_req_batch_key ( req_pool, batch_idx );
+  schar *           req_err = fd_vinyl_req_batch_err ( req_pool, batch_idx );
+
+  memset( comp, 0, sizeof(fd_vinyl_comp_t) );
+  fd_vinyl_key_init( req_key, addr, 32UL );
+  *req_err = 0;
+
+  ulong req_id = admin->vinyl_req_id++;
+  fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_ERASE, 0UL, batch_idx, 1UL, 0UL );
+
+  while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
+  int comp_err = FD_VOLATILE_CONST( comp->err );
+  if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
+    FD_LOG_CRIT(( "vinyl tile rejected my ERASE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
+  }
+  int err = FD_VOLATILE_CONST( req_err[0] );
+  if( FD_UNLIKELY( err!=FD_VINYL_SUCCESS && err!=FD_VINYL_ERR_KEY ) ) {
+    err = FD_VOLATILE_CONST( req_err[0] );
+    FD_LOG_CRIT(( "vinyl tile ERASE request failed: %i-%s", err, fd_vinyl_strerror( err ) ));
   }
 
   fd_vinyl_req_pool_release( req_pool, batch_idx );
@@ -254,7 +289,11 @@ publish_recs( fd_accdb_admin_v2_t * admin,
 
     /* Migrate records one-by-one.  This is slow and should be done in
        batches instead.  But it's simple and shippable for now. */
-    vinyl_push_rec ( admin, rec->pair.key, meta );
+    if( meta->lamports ) {
+      vinyl_push_rec( admin, rec->pair.key, meta );
+    } else {
+      vinyl_remove_rec( admin, rec->pair.key );
+    }
     funk_remove_rec( funk,  rec );
 
     admin->base.root_cnt++;

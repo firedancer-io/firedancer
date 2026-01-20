@@ -734,6 +734,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
 
 #   include "../../vinyl/fd_vinyl_case_acquire.c"
 #   include "../../vinyl/fd_vinyl_case_release.c"
+#   include "../../vinyl/fd_vinyl_case_erase.c"
     /* FIXME support more request types */
 
     default:
@@ -749,6 +750,9 @@ before_credit( fd_vinyl_tile_t *   ctx,
       break;
     case FD_VINYL_REQ_TYPE_RELEASE:
       FD_MCNT_INC( VINYL, REQUESTS_RELEASE, batch_cnt );
+      break;
+    case FD_VINYL_REQ_TYPE_ERASE:
+      FD_MCNT_INC( VINYL, REQUESTS_ERASE,   batch_cnt );
       break;
     }
 
