@@ -1242,6 +1242,7 @@
 | <span class="metrics-name">vinyl_&#8203;request_&#8203;batches</span> | counter | Number of request batches processed |
 | <span class="metrics-name">vinyl_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">acquire</span>"} | counter | Number of requests processed (Acquire record) |
 | <span class="metrics-name">vinyl_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">release</span>"} | counter | Number of requests processed (Release record) |
+| <span class="metrics-name">vinyl_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">erase</span>"} | counter | Number of requests processed (Erase record) |
 | <span class="metrics-name">vinyl_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">pair</span>"} | counter | Number of blocks written to bstream (Record) |
 | <span class="metrics-name">vinyl_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">dead</span>"} | counter | Number of blocks written to bstream (Record deletion) |
 | <span class="metrics-name">vinyl_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |

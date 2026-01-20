@@ -1226,6 +1226,7 @@ metric introduced.
 <enum name="VinylRequest">
     <int value="0" name="Acquire" label="Acquire record" />
     <int value="1" name="Release" label="Release record" />
+    <int value="2" name="Erase" label="Erase record" />
 </enum>
 
 <enum name="VinylBlocks">
