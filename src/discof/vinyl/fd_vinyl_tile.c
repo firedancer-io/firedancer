@@ -78,7 +78,7 @@ struct fd_vinyl_tile {
 
   uint booted : 1;
   uint shutdown : 1;
-  ulong volatile const * snapin_state;
+  ulong volatile const * snapct_state;
 
   /* I/O */
 
@@ -328,12 +328,12 @@ unprivileged_init( fd_topo_t *      topo,
 
 # undef TEST
 
-  /* Find snapin tile status */
-  ulong snapin_tile_idx = fd_topo_find_tile( topo, "snapin", 0UL );
-  FD_TEST( snapin_tile_idx!=ULONG_MAX );
-  fd_topo_tile_t const * snapin_tile = &topo->tiles[ snapin_tile_idx ];
-  FD_TEST( snapin_tile->metrics );
-  ctx->snapin_state = &fd_metrics_tile( snapin_tile->metrics )[ MIDX( GAUGE, TILE, STATUS ) ];
+  /* Find snapct tile status */
+  ulong snapct_tile_idx = fd_topo_find_tile( topo, "snapct", 0UL );
+  FD_TEST( snapct_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t const * snapct_tile = &topo->tiles[ snapct_tile_idx ];
+  FD_TEST( snapct_tile->metrics );
+  ctx->snapct_state = &fd_metrics_tile( snapct_tile->metrics )[ MIDX( GAUGE, SNAPCT, STATE ) ];
 
   /* Discover mapped clients */
 
@@ -384,6 +384,10 @@ unprivileged_init( fd_topo_t *      topo,
 
     fd_shmem_join_info_t join_info;
     FD_TEST( fd_shmem_join_query_by_join( client_wksp->wksp, &join_info)==0 );
+    FD_LOG_INFO(( "registered client %lu: req_gaddr=%s:%lu cq_gaddr=%s:%lu",
+                  ctx->client_cnt,
+                  fd_wksp_containing( rq )->name, fd_wksp_gaddr_fast( fd_wksp_containing( rq ), rq ),
+                  fd_wksp_containing( cq )->name, fd_wksp_gaddr_fast( fd_wksp_containing( cq ), cq ) ));
     ctx->_client[ ctx->client_cnt ] = (fd_vinyl_client_t) {
       .rq        = rq,
       .cq        = cq,
@@ -427,13 +431,13 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
   fd_vinyl_t * vinyl = ctx->vinyl;
 
   if( FD_UNLIKELY( !ctx->booted ) ) {
-    ulong const snapin_state = FD_VOLATILE_CONST( *ctx->snapin_state );
-    if( snapin_state!=2UL ) {
+    ulong const snapct_state = FD_VOLATILE_CONST( *ctx->snapct_state );
+    if( snapct_state!=16UL ) {
       fd_log_sleep( 1e6 ); /* 1 ms */
       return;
     }
 
-    /* Once snapin tile exits, boot up vinyl */
+    /* Once snapct tile exits, boot up vinyl */
     FD_LOG_INFO(( "booting up vinyl tile" ));
 
     if( ctx->ring ) {
