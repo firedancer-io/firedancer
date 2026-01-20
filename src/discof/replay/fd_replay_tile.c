@@ -15,13 +15,14 @@
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/pack/fd_pack.h"
+#include "../../discof/fd_accdb_topo.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v1.h"
+#include "../../flamenco/accdb/fd_accdb_admin_v2.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v2.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_vinyl_req_pool.h"
 #include "../../flamenco/rewards/fd_rewards.h"
@@ -2532,21 +2533,23 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
 
-  FD_TEST( fd_accdb_admin_v1_init ( ctx->accdb_admin,     fd_topo_obj_laddr( topo, tile->replay.funk_obj_id      ) ) );
   FD_TEST( fd_progcache_admin_join( ctx->progcache_admin, fd_topo_obj_laddr( topo, tile->replay.progcache_obj_id ) ) );
 
+  ulong funk_obj_id;
+  FD_TEST( (funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX ) )!=ULONG_MAX );
   if( !vinyl_data ) {
-    FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) );
+    FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo,funk_obj_id ) ) );
   } else {
     fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq" );
     fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
-    FD_TEST( fd_accdb_user_v2_init( ctx->accdb,
-        fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ),
+    FD_TEST( fd_accdb_admin_v2_init( ctx->accdb_admin,
+        fd_topo_obj_laddr( topo, funk_obj_id ),
         fd_topo_obj_laddr( topo, vinyl_rq->id ),
         topo->workspaces[ vinyl_data->wksp_id ].wksp,
         fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
         vinyl_rq->id ) );
   }
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

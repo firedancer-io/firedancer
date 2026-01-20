@@ -14,10 +14,10 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../choreo/tower/fd_epoch_stakes.h"
+#include "../../discof/fd_accdb_topo.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../discof/replay/fd_replay_tile.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_accdb_pipe.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -915,9 +915,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( banks_locks_obj_id!=ULONG_MAX );
   FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
 
-  ulong funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX );
-  FD_TEST( funk_obj_id!=ULONG_MAX );
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, funk_obj_id ) ) );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
 
   FD_TEST( tile->in_cnt<sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

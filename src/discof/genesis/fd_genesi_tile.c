@@ -3,13 +3,14 @@
 #include "fd_genesi_tile.h"
 #include "fd_genesis_client.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../discof/fd_accdb_topo.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/runtime/fd_genesis_parse.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v1.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../util/archive/fd_tar.h"
+#include "../../util/pod/fd_pod.h"
 
 #include <stdio.h>
 #include <errno.h>
@@ -448,8 +449,10 @@ unprivileged_init( fd_topo_t *      topo,
                            FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
   void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
 
-  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
-  FD_TEST( fd_accdb_user_v1_init ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
+  ulong funk_obj_id;
+  FD_TEST( (funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX ) )!=ULONG_MAX );
+  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, funk_obj_id ) ) );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
 
   fd_lthash_zero( ctx->lthash );
 

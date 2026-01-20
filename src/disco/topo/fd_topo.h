@@ -374,8 +374,6 @@ struct fd_topo_tile {
       ulong fec_max;
       ulong max_vote_accounts;
 
-      ulong funk_obj_id;
-
       ulong txncache_obj_id;
       ulong progcache_obj_id;
 
@@ -414,7 +412,6 @@ struct fd_topo_tile {
     } replay;
 
     struct {
-      ulong funk_obj_id;
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong acc_pool_obj_id;
@@ -597,18 +594,11 @@ struct fd_topo_tile {
     struct {
       ulong max_live_slots;
       ulong txncache_obj_id;
-      ulong funk_obj_id;
       ulong progcache_obj_id;
       ulong acc_pool_obj_id;
     } bank;
 
     struct {
-      ulong funk_obj_id;
-    } resolv;
-
-    struct {
-      ulong funk_obj_id;
-
       int allow_download;
 
       ushort expected_shred_version;

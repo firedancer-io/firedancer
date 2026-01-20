@@ -3,9 +3,9 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../replay/fd_replay_tile.h"
 #include "generated/fd_resolv_tile_seccomp.h"
+#include "../../discof/fd_accdb_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_alut_interp.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -610,7 +610,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_replay->wmark  = fd_dcache_compact_wmark ( ctx->out_replay->mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
   ctx->out_replay->chunk  = ctx->out_replay->chunk0;
 
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, tile->resolv.funk_obj_id ) ) );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
