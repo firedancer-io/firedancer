@@ -22,6 +22,7 @@
 struct fd_accdb_ref {
   ulong meta_laddr;
   ulong user_data;
+  ulong user_data2;
   uchar address[32];
   uint  accdb_type;  /* FD_ACCDB_TYPE_* */
   uchar ref_type;    /* FD_ACCDB_REF_* */
@@ -49,7 +50,8 @@ fd_accdb_ro_init_nodb( fd_accdb_ro_t *           ro,
                        void const *              address,
                        fd_account_meta_t const * meta ) {
   ro->meta = meta;
-  ro->ref->user_data = 0UL;
+  ro->ref->user_data  = 0UL;
+  ro->ref->user_data2 = 0UL;
   memcpy( ro->ref->address, address, 32UL );
   ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
   ro->ref->ref_type   = FD_ACCDB_REF_RO;
@@ -65,7 +67,8 @@ static inline fd_accdb_ro_t *
 fd_accdb_ro_init_empty( fd_accdb_ro_t * ro,
                         void const *    address ) {
   ro->meta = &fd_accdb_meta_empty;
-  ro->ref->user_data = 0UL;
+  ro->ref->user_data  = 0UL;
+  ro->ref->user_data2 = 0UL;
   memcpy( ro->ref->address, address, 32UL );
   ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
   ro->ref->ref_type   = FD_ACCDB_REF_RO;

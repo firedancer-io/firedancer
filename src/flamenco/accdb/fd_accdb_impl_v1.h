@@ -89,13 +89,13 @@ fd_accdb_user_v1_rw_data_sz_set( fd_accdb_user_t * accdb,
 /* Private methods */
 
 fd_accdb_rw_t *
-fd_accdb_v1_prep_create( fd_accdb_rw_t *           rw,
-                         fd_accdb_user_v1_t *      accdb,
-                         fd_funk_txn_xid_t const * xid,
-                         void const *              address,
-                         void *                    val,
-                         ulong                     val_sz,
-                         ulong                     val_max );
+fd_accdb_v1_prep_create( fd_accdb_rw_t *       rw,
+                         fd_accdb_user_v1_t *  accdb,
+                         fd_funk_txn_t const * txn,
+                         void const *          address,
+                         void *                val,
+                         ulong                 val_sz,
+                         ulong                 val_max );
 
 void
 fd_accdb_v1_copy_account( fd_account_meta_t *       out_meta,

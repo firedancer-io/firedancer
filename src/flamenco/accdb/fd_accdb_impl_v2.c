@@ -282,7 +282,9 @@ not_found:
       fd_memset( tail, 0, tail_sz );
     }
 
-    fd_accdb_v1_prep_create( rw, v1, xid, addr_i, val, val_sz, val_max );
+    ulong txn_idx = v1->tip_txn_idx;
+    fd_funk_txn_t * txn = &v1->funk->txn_pool->ele[ txn_idx ];
+    fd_accdb_v1_prep_create( rw, v1, txn, addr_i, val, val_sz, val_max );
 
     req_cnt++;
   }
