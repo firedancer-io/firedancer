@@ -50,7 +50,9 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN ) ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && !ctx->use_vinyl ) ) {
+    /* This only needs to be logged under funk.  When vinyl is enabled,
+       snapwm will log instead. */
     ulong accounts_dup = ctx->metrics.accounts_ignored + ctx->metrics.accounts_replaced;
     ulong accounts     = ctx->metrics.accounts_loaded  - accounts_dup;
     long  elapsed_ns   = fd_log_wallclock() - ctx->boot_timestamp;
