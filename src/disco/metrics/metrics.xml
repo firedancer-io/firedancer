@@ -1196,13 +1196,19 @@ metric introduced.
     <counter name="ThresholdFail" summary="Did not pass threshold check (can't vote)" />
     <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
 
+    <!-- Tower slot metadata -->
+
+    <gauge name="RootSlot" summary="Current Tower root slot" />
+    <gauge name="VoteSlot" summary="Current Tower vote slot" />
+    <gauge name="ResetSlot" summary="Current Tower reset slot" />
+    <counter name="SlotIgnored" summary="Number of times we ignored a slot likely due to minority fork publish" />
+
     <!-- Hard forks / bank hash cmp tracking -->
 
     <counter name="HardForksSeen" summary="Number of hard forks we've seen (block ids with multiple candidate bank hashes)" />
     <counter name="HardForksPruned" summary="Number of hard forks (candidate bank hashes) we've pruned" />
     <gauge name="HardForksActive" summary="Currently active hard forks" />
-
-    <counter name="SlotIgnored" summary="Number of times we ignored a slot likely due to minority fork publish" />
+    <gauge name="HardForksMaxWidth" summary="Max number of candidate bank hashes for a given block id" />
 </tile>
 
 <tile name="gui">
