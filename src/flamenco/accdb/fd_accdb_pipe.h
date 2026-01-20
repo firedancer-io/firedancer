@@ -97,8 +97,7 @@ fd_accdb_ro_pipe_flush( fd_accdb_ro_pipe_t * pipe );
    ro_pipe_{enqueue,flush,poll} is made on this pipe object, or when the
    pipe object is destroyed.
 
-   Results are delivered in arbitrary order (not necessarily same as
-   enqueued).
+   Results are delivered in enqueued order.
 
    NOTE: If an account was not found, returns a non-NULL ro (to a dummy
    account with zero lamports), which differs from fd_accdb_open_ro. */

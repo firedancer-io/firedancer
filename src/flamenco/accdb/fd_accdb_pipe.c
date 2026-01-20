@@ -36,8 +36,12 @@ fd_accdb_ro_pipe_init( fd_accdb_ro_pipe_t *      pipe,
 
 void
 fd_accdb_ro_pipe_fini( fd_accdb_ro_pipe_t * pipe ) {
-  fd_accdb_ro_pipe_flush( pipe );
-  while( fd_accdb_ro_pipe_poll( pipe ) ) {}
+  if( pipe->state==RO_PIPE_STATE_DRAIN ) {
+    fd_accdb_close_ro_multi( pipe->accdb, pipe->ro, pipe->req_cnt );
+  }
+  pipe->state    = RO_PIPE_STATE_BATCH;
+  pipe->req_cnt  = 0U;
+  pipe->req_comp = 0U;
 }
 
 void
