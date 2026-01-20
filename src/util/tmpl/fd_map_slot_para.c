@@ -2284,7 +2284,7 @@ MAP_(iter_init)( MAP_(t) *      join,
   /* never get here */
 }
 
-MAP_(iter_t) *
+__attribute__((warn_unused_result)) MAP_(iter_t) *
 MAP_(iter_next)( MAP_(iter_t) * iter ) {
   ulong ele_idx = iter->ele_idx;
   ulong ele_rem = iter->ele_rem - 1UL;
