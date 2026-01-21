@@ -7,6 +7,7 @@
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
@@ -14,6 +15,7 @@
 #include "../../ballet/json/cJSON.h"
 #include "../../ballet/json/cJSON_alloc.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../../util/math/fd_fxp.h"
 
 #include <stddef.h>
 #include <sys/socket.h>
@@ -1032,7 +1034,161 @@ UNIMPLEMENTED(getSlotLeader)
 UNIMPLEMENTED(getSlotLeaders)
 UNIMPLEMENTED(getStakeMinimumDelegation)
 UNIMPLEMENTED(getSupply)
-UNIMPLEMENTED(getTokenAccountBalance)
+
+FD_FN_CONST static ulong
+fd_ulong_pow10( ulong exp ) {
+  ulong result = 1UL;
+  for( ulong i=0UL; i<exp; i++ ) result *= 10UL;
+  return result;
+}
+
+static fd_http_server_response_t
+getTokenAccountBalance( fd_rpc_tile_t * ctx,
+                        ulong           request_id,
+                        cJSON const *   params ) {
+  int param_cnt = cJSON_GetArraySize( params );
+  if( param_cnt<1 || param_cnt>2 ) {
+    return (fd_http_server_response_t){ .status = 400 };
+  }
+
+  cJSON const * address_node = cJSON_GetArrayItem( params, 0 );
+  cJSON const * config       = cJSON_GetArrayItem( params, 1 );
+  if( FD_UNLIKELY( !cJSON_IsString( address_node ) ) ) {
+    return (fd_http_server_response_t){ .status = 400 };
+  }
+  if( FD_UNLIKELY( config && !cJSON_IsNull( config ) && !cJSON_IsString( config ) ) ) {
+    return (fd_http_server_response_t){ .status = 400 };
+  }
+
+  ulong bank_idx = ULONG_MAX;
+  char const * commitment = cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "commitment" ) );
+  if( !commitment ) commitment = "confirmed";
+  if( 0==strcmp( commitment, "confirmed" ) ) {
+    bank_idx = ctx->confirmed_idx;
+  } else if( 0==strcmp( commitment, "processed" ) ) {
+    bank_idx = ctx->processed_idx;
+  } else if( 0==strcmp( commitment, "finalized" ) ) {
+    bank_idx = ctx->finalized_idx;
+  } else {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+  if( FD_UNLIKELY( bank_idx==ULONG_MAX ) ) {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: cannot resolve slot for '%s' commitment level\"},\"id\":%lu}\n", commitment, request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+  bank_info_t const * info = &ctx->banks[ bank_idx ];
+
+  uchar address[ 32 ];
+  if( FD_UNLIKELY( !fd_base58_decode_32( cJSON_GetStringValue( address_node ), address ) ) ) {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: address is not a valid Base58 encoding\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+
+  fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, address ) ) ) {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: could not find account\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+
+  if( FD_UNLIKELY( fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_spl_token_2022_id ) ) ) {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: this server does not support decoding Token 2022 accounts\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = { .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+
+  struct __attribute__((packed)) {
+    /* 0x00 */ uchar mint[32];
+    /* 0x20 */ uchar owner[32];
+    /* 0x40 */ ulong amount;
+    /* 0x48 */ uint  has_delegate;
+    /* 0x4c */ uchar delegate[32];
+    /* 0x6c */ uchar state;
+    /* 0x6d */ uint  has_is_native;
+    /* 0x71 */ ulong is_native;
+    /* 0x79 */ ulong delegated_amount;
+    /* 0x81 */ uint  has_close_authority;
+    /* 0x85 */ uchar close_authority[32];
+    /* 0xa5 */
+  } token_state;
+  FD_STATIC_ASSERT( sizeof(token_state)==165UL, invalid_spl_token_account_size );
+
+  if( FD_UNLIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_spl_token_id ) ||
+                   fd_accdb_ref_data_sz( ro )!=sizeof(token_state) ) ) {
+    fd_accdb_close_ro( ctx->accdb, ro );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: not a Token account\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = { .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+  memcpy( &token_state, fd_accdb_ref_data_const( ro ), sizeof(token_state) );
+  fd_accdb_close_ro( ctx->accdb, ro );
+
+  struct __attribute__((packed)) {
+    /* 0x00 */ uint  has_mint;
+    /* 0x04 */ uchar mint[32];
+    /* 0x24 */ ulong supply;
+    /* 0x2c */ uchar decimals;
+    /* 0x2d */ uchar is_initialized;
+    /* 0x2e */ uint  has_freeze_authority;
+    /* 0x32 */ uchar freeze_authority[32];
+    /* 0x52 */
+  } mint_state;
+  FD_STATIC_ASSERT( sizeof(mint_state)==82UL, invalid_spl_token_mint_size );
+
+  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, token_state.mint ) ) ) {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: could not find mint account\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = { .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+  if( FD_UNLIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_spl_token_id ) ||
+                   fd_accdb_ref_data_sz( ro )!=sizeof(mint_state) ) ) {
+    fd_accdb_close_ro( ctx->accdb, ro );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Token account does not have a valid Mint account\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = { .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+  memcpy( &mint_state, fd_accdb_ref_data_const( ro ), sizeof(mint_state) );
+  fd_accdb_close_ro( ctx->accdb, ro );
+
+  ulong decimals_pow10 = fd_ulong_pow10( mint_state.decimals );
+  ulong balance_limb0  = token_state.amount / decimals_pow10;
+  ulong balance_limb1  = token_state.amount % decimals_pow10;
+
+  fd_http_server_printf( ctx->http,
+      "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\":{"
+        "\"context\":{\"slot\":%lu},"
+        "\"value\":{"
+          "\"amount\":\"%lu\","
+          "\"decimals\":%u,"
+          "\"uiAmount\":%lu.%lu,"
+          "\"uiAmountString\":\"%lu.%lu\""
+        "}"
+      "}}",
+      request_id,
+      info->slot,
+      token_state.amount,
+      mint_state.decimals,
+      balance_limb0, balance_limb1,
+      balance_limb0, balance_limb1 );
+
+  fd_http_server_response_t response = { .content_type = "application/json", .status = 200 };
+  FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+  return response;
+}
+
 UNIMPLEMENTED(getTokenAccountsByDelegate)
 UNIMPLEMENTED(getTokenAccountsByOwner)
 UNIMPLEMENTED(getTokenLargestAccounts)
