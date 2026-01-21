@@ -1247,9 +1247,7 @@ metric introduced.
     <counter name="RequestBatches" summary="Number of request batches processed" />
     <counter name="Requests" enum="VinylRequest" summary="Number of requests processed" />
     <counter name="Blocks" enum="VinylBlocks" summary="Number of blocks written to bstream" />
-    <gauge name="GarbageRecords" summary="Number of garbage records in bstream that have accumulated since last compaction" />
     <gauge name="GarbageBytes" sumary="Number of garbage bytes in bstream that have accumulated since last compaction" />
-    <counter name="CumGcRecords" summary="Total number of records that were garbage collected" />
     <counter name="CumGcBytes" summary="Total number of record bytes that were garbage collected" />
     <counter name="CacheHits" summary="Total number of cache hits" />
 </tile>
