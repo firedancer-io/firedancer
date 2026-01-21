@@ -958,7 +958,7 @@ main( int     argc,
 
   for( uint test_case=NET_LEN_TOO_SHORT; test_case<INVALIDS_CNT; test_case++ ) {
 
-    ulong undersz_before = ctx->metrics.rx_undersz_cnt;
+    ulong udp_inv_before = ctx->metrics.rx_net_hdr_drop_cnt[ FD_NET_ERR_INVAL_UDP_HDR - 1 ];
     ulong seq_before     = ctx->shred_out->seq;
 
     /* Pop frame off FILL ring */
@@ -980,7 +980,7 @@ main( int     argc,
     before_credit( ctx, stem, &charge_busy );
 
     /* Verify packet was dropped */
-    FD_TEST( ctx->metrics.rx_undersz_cnt == undersz_before + 1 );
+    FD_TEST( ctx->metrics.rx_net_hdr_drop_cnt[ FD_NET_ERR_INVAL_UDP_HDR - 1 ] == udp_inv_before + 1 );
     FD_TEST( ctx->shred_out->seq == seq_before );  /* No mcache advancement */
   }
 

@@ -286,7 +286,8 @@ RX ring: [`struct xdp_desc`](https://elixir.bootlin.com/linux/v6.13.2/source/inc
 The net tile consumes XDP descriptors from the XDP RX ring.
 After briefly deciding what to do with the packet, the net tile either
 frees the buffer immediately (returning it to the FILL ring) or forwards
-it to the mcache ring, see below.
+it to the mcache ring, see below. Forwarded packets meet the conditions
+enumerated at the top of src/disco/net/fd_net_checks.h.
 
 ::: info LINUX NAPI
 
@@ -310,7 +311,7 @@ The old buffer (based on the previous value of the `chunk` field) is
 immediately sent to the FILL ring.
 
 The RX mcache ring does not backpressure.  Too slow app tiles will get
-overridden.
+overwritten.
 
 The net tile produces tango descriptors of arrived packets to the mcache
 ring: [`fd_frag_meta_t`](https://github.com/firedancer-io/firedancer/blob/v0.305.20111/src/tango/fd_tango_base.h#L146)
