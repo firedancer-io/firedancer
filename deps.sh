@@ -35,7 +35,6 @@ PREFIX="$(pwd)/opt"
 
 DEVMODE=0
 MSAN=0
-LIBURING=0
 _CC="${CC:=gcc}"
 _CXX="${CXX:=g++}"
 EXTRA_CFLAGS="-g3 -fno-omit-frame-pointer"
@@ -667,10 +666,8 @@ install () {
   fi
   ( install_zstd      )
   ( install_lz4       )
-  if [[ $LIBURING == 1 ]]; then
-    if [[ "$OS" == "Linux" ]]; then
-      ( install_liburing )
-    fi
+  if [[ "$OS" == "Linux" ]]; then
+    ( install_liburing )
   fi
   if [[ "$(uname -m)" == x86_64 ]]; then
     ( install_s2n )
@@ -717,10 +714,6 @@ while [[ $# -gt 0 ]]; do
     "+dev")
       shift
       DEVMODE=1
-      ;;
-    "+uring")
-      shift
-      LIBURING=1
       ;;
     nuke)
       shift
