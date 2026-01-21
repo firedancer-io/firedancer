@@ -120,6 +120,10 @@ struct fd_vinyl_tile {
 
   ulong seq_part;
 
+  /* Periodic syncing */
+
+  long sync_next_ns;
+
   /* Place optional/external data structures last so the above struct
      offsets are reasonably stable across builds */
 # if FD_HAS_LIBURING
@@ -313,6 +317,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_vinyl_tile_t * ctx   = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_vinyl_t *      vinyl = ctx->vinyl;
+
+  ctx->sync_next_ns = fd_log_wallclock();
 
   void * _meta = fd_topo_obj_laddr( topo, tile->vinyl.vinyl_meta_map_obj_id  );
   void * _ele  = fd_topo_obj_laddr( topo, tile->vinyl.vinyl_meta_pool_obj_id );
@@ -566,6 +572,15 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
     fd_vinyl_compact( vinyl, compact_max );
     FD_MCNT_INC( VINYL, CUM_GC_BYTES, garbage_pre - vinyl->garbage_sz );
 
+  }
+
+  /* Update vinyl sync block
+     (Required to reclaim bstream space freed by compaction) */
+
+  long now = fd_log_wallclock();
+  if( now >= ctx->sync_next_ns ) {
+    ctx->sync_next_ns = now + (long)30e9; /* every 30 seconds */
+    fd_vinyl_io_sync( vinyl->io, FD_VINYL_IO_FLAG_BLOCKING );
   }
 
 }
