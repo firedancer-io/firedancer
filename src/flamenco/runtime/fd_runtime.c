@@ -297,7 +297,8 @@ fd_runtime_freeze( fd_bank_t *         bank,
 
   /* jito collects a 3% fee at the end of the block + 3% fee at
      distribution time. */
-  fd_bank_tips_set( bank, (fd_bank_tips_get( bank ) * 6UL / 100UL) );
+  ulong tips_pre_comission = fd_bank_tips_get( bank );
+  fd_bank_tips_set( bank, (tips_pre_comission - (tips_pre_comission * 6UL / 100UL)) );
 
   fd_runtime_run_incinerator( bank, accdb, &xid, capture_ctx );
 
