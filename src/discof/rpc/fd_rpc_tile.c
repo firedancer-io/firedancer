@@ -540,7 +540,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
     return response;
   }
 
-  ulong data_sz = fd_accdb_ref_data_sz( ro );
+  ulong const data_sz = fd_accdb_ref_data_sz( ro );
   if( data_off>data_sz ) data_off = data_sz;
   ulong snip_sz = data_sz - data_off;
   if( snip_sz>data_max ) snip_sz = data_max;
@@ -567,15 +567,13 @@ getAccountInfo( fd_rpc_tile_t * ctx,
       "\"owner\":\"%s\","
       "\"rentEpoch\":18446744073709551615,"
       "\"space\":%lu,"
-      "\"dataSlice\":{\"offset\":%lu,\"length\":%lu},"
       "\"data\":[\"",
       request_id,
       info->slot,
       fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
       fd_accdb_ref_lamports( ro ),
       owner_b58,
-      data_sz,
-      data_off, snip_sz );
+      data_sz );
 
   ulong   encoded_sz = FD_BASE64_ENC_SZ( snip_sz );
   uchar * encoded    = fd_http_server_append_start( ctx->http, encoded_sz );
@@ -977,7 +975,164 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
   return response;
 }
 
-UNIMPLEMENTED(getMultipleAccounts)
+static fd_http_server_response_t
+getMultipleAccounts( fd_rpc_tile_t * ctx,
+                     ulong           request_id,
+                     cJSON const *   params ) {
+  int param_cnt = cJSON_GetArraySize( params );
+  if( param_cnt<1 || param_cnt>3 ) {
+    return (fd_http_server_response_t){ .status = 400 };
+  }
+
+  cJSON const * address_list = cJSON_GetArrayItem( params, 0 );
+  cJSON const * config       = cJSON_GetArrayItem( params, 1 );
+  if( FD_UNLIKELY( !cJSON_IsArray( address_list ) ) ) {
+    return (fd_http_server_response_t){ .status = 400 };
+  }
+
+  char const * encoding = cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "encoding" ) );
+  if( !encoding ) encoding = "base64";
+  _Bool use_zstd = 0; (void)use_zstd;
+  if( 0==strcmp( encoding, "base64+zstd" ) && FD_HAS_ZSTD ) {
+    use_zstd = 1;
+  } else if( 0==strcmp( encoding, "base64" ) ||
+             0==strcmp( encoding, "jsonParsed" ) ) {
+    encoding = "base64";
+  } else {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: this server only supports 'base64' account data encoding\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+
+  ulong bank_idx = ULONG_MAX;
+  char const * commitment = cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "commitment" ) );
+  if( !commitment ) commitment = "confirmed";
+  if( 0==strcmp( commitment, "confirmed" ) ) {
+    bank_idx = ctx->confirmed_idx;
+  } else if( 0==strcmp( commitment, "processed" ) ) {
+    bank_idx = ctx->processed_idx;
+  } else if( 0==strcmp( commitment, "finalized" ) ) {
+    bank_idx = ctx->finalized_idx;
+  } else {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%lu}\n", request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+  if( FD_UNLIKELY( bank_idx==ULONG_MAX ) ) {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: cannot resolve slot for '%s' commitment level\"},\"id\":%lu}\n", commitment, request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+
+  ulong minContextSlot = 0UL;
+  cJSON const * _minContextSlot = cJSON_GetObjectItemCaseSensitive( config, "minContextSlot" );
+  if( FD_UNLIKELY( _minContextSlot && !cJSON_IsNull( _minContextSlot ) ) ) {
+    if( FD_UNLIKELY( !cJSON_IsNumber( _minContextSlot ) || _minContextSlot->valueulong==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 400 };
+    minContextSlot = _minContextSlot->valueulong;
+  }
+
+  bank_info_t const * info = &ctx->banks[ bank_idx ];
+  if( info->slot < minContextSlot ) {
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, info->slot, request_id );
+    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+  fd_funk_txn_xid_t const xid = { .ul={ info->slot, bank_idx } };
+
+  ulong data_off = 0U;
+  ulong data_max = UINT_MAX;
+  const cJSON * dataSlice = cJSON_GetObjectItemCaseSensitive( config, "dataSlice" );
+  if( dataSlice && !cJSON_IsNull( dataSlice ) ) {
+    cJSON const * _length = cJSON_GetObjectItemCaseSensitive( dataSlice, "length" );
+    cJSON const * _offset = cJSON_GetObjectItemCaseSensitive( dataSlice, "offset" );
+    if( FD_UNLIKELY( !_length || !cJSON_IsNumber( _length ) ||
+                     !_offset || !cJSON_IsNumber( _offset ) ) ) {
+      return (fd_http_server_response_t){ .status = 400 };
+    }
+    data_off = _offset->valueulong;
+    data_max = _length->valueulong;
+  }
+
+  fd_http_server_printf( ctx->http,
+      "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\":{\"context\":{\"slot\":%lu},\"value\":[",
+      request_id, info->slot );
+
+  for( cJSON const * _address = address_list->child; _address; _address = _address->next ) {
+    if( _address != address_list->child ) {
+      fd_http_server_printf( ctx->http, "," );
+    }
+
+    char const * addr_b58 = cJSON_GetStringValue( _address );
+    if( FD_UNLIKELY( !addr_b58 ) ) {
+      return (fd_http_server_response_t){ .status = 400 };
+    }
+    uchar addr[ 32 ];
+    if( FD_UNLIKELY( !fd_base58_decode_32( addr_b58, addr ) ) ) {
+      return (fd_http_server_response_t){ .status = 400 };
+    }
+
+    fd_accdb_ro_t ro[1];
+    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, addr ) ) ) {
+      fd_http_server_printf( ctx->http, "null" );
+      continue;
+    }
+
+    ulong const data_sz = fd_accdb_ref_data_sz( ro );
+    if( data_off>data_sz ) data_off = data_sz;
+    ulong snip_sz = data_sz - data_off;
+    if( snip_sz>data_max ) snip_sz = data_max;
+
+    uchar const * compressed    = (uchar const *)fd_accdb_ref_data_const( ro )+data_off;
+    ulong         compressed_sz = snip_sz;
+#   if FD_HAS_ZSTD
+    if( use_zstd ) {
+      size_t zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), compressed, snip_sz, 3 );
+      if( ZSTD_isError( zstd_res ) ) {
+        fd_accdb_close_ro( ctx->accdb, ro );
+        return (fd_http_server_response_t){ .status = 500 };
+      }
+      compressed    = ctx->compress_buf;
+      compressed_sz = (ulong)zstd_res;
+    }
+#   endif
+
+    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro ), owner_b58 );
+    fd_http_server_printf( ctx->http,
+        "{\"executable\":%s,"
+        "\"lamports\":%lu,"
+        "\"owner\":\"%s\","
+        "\"rentEpoch\":18446744073709551615,"
+        "\"space\":%lu,"
+        "\"data\":[\"",
+        fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
+        fd_accdb_ref_lamports( ro ),
+        owner_b58,
+        data_sz );
+
+    ulong   encoded_sz = FD_BASE64_ENC_SZ( snip_sz );
+    uchar * encoded    = fd_http_server_append_start( ctx->http, encoded_sz );
+    if( FD_UNLIKELY( !encoded ) ) {
+      fd_accdb_close_ro( ctx->accdb, ro );
+      return (fd_http_server_response_t){ .status = 500 };
+    }
+    encoded_sz = fd_base64_encode( (char *)encoded, compressed, compressed_sz );
+    fd_http_server_append_end( ctx->http, encoded_sz );
+
+    fd_http_server_printf( ctx->http, "\",\"%s\"]}\n", encoding );
+    fd_accdb_close_ro( ctx->accdb, ro );
+  }
+
+  fd_http_server_printf( ctx->http, "]}}\n" );
+
+  fd_http_server_response_t response = { .content_type = "application/json", .status = 200 };
+  if( fd_http_server_stage_body( ctx->http, &response ) ) response.status = 500;
+  return response;
+}
+
 UNIMPLEMENTED(getProgramAccounts)
 UNIMPLEMENTED(getRecentPerformanceSamples)
 UNIMPLEMENTED(getRecentPrioritizationFees)
