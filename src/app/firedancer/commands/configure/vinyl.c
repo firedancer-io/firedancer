@@ -36,8 +36,9 @@ init( config_t const * config ) {
 
   ulong bstream_sz = config->firedancer.vinyl.file_size_gib<<30;
   if( (ulong)st.st_size < bstream_sz ) {
-    if( FD_UNLIKELY( 0!=posix_fallocate( vinyl_fd, 0L, (long)bstream_sz ) ) ) {
-      FD_LOG_ERR(( "posix_fallocate(`%s`,%lu bytes) failed (%i-%s)", config->paths.accounts, bstream_sz, errno, fd_io_strerror( errno ) ));
+    int err = posix_fallocate( vinyl_fd, 0L, (long)bstream_sz );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "posix_fallocate(`%s`,%lu bytes) failed (%i-%s)", config->paths.accounts, bstream_sz, err, fd_io_strerror( err ) ));
     }
   }
 
