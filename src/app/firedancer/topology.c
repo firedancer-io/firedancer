@@ -728,10 +728,10 @@ fd_topo_initialize( config_t * config ) {
     for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
     if( rpc_enabled ) {
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
     }
 
     fd_topob_wksp( topo, "vinyl_replay" );
