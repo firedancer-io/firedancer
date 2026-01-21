@@ -547,8 +547,18 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL: {
-      /* FIXME: Handle the case where we have no download peers enabled,
-         boot off the local full snapshot but do not have a local incr. */
+      if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for peers." ));
+
+      if( FD_UNLIKELY( !ctx->download_enabled ) ) {
+        ulong local_slot = ctx->local_in.incremental_snapshot_slot;
+        send_expected_slot( ctx, stem, local_slot );
+        FD_LOG_NOTICE(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
+        ctx->predicted_incremental.slot = ctx->local_in.incremental_snapshot_slot;
+        ctx->state                     = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
+        init_load( ctx, stem, 0, 1 );
+        break;
+      }
+
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, ULONG_MAX );
       if( FD_LIKELY( best.addr.l ) ) {
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
@@ -564,6 +574,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, ULONG_MAX );
       if( FD_UNLIKELY( !best.addr.l ) ) {
         ctx->state = FD_SNAPCT_STATE_WAITING_FOR_PEERS;
+        ctx->deadline_nanos = now + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
         break;
       }
 
@@ -628,10 +639,13 @@ after_credit( fd_snapct_tile_t *  ctx,
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
       if( FD_UNLIKELY( !best.addr.l ) ) {
         ctx->state = FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL;
+        ctx->deadline_nanos = now + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
         break;
       }
 
-      /* FIXME: predicted_incremental? */
+      /* TODO: incremental effective age calculation */
+      ctx->predicted_incremental.slot = best.ssinfo.incremental.slot;
+      send_expected_slot( ctx, stem, best.ssinfo.incremental.slot );
 
       ctx->addr = best.addr;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
