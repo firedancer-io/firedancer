@@ -253,6 +253,6 @@
   {"name":"deprecate_rent_exemption_threshold","pubkey":"rent6iVy6PDoViPBeJ6k5EJQrkj62h7DPyLbWGHwjrC"},
   {"name":"static_instruction_limit","pubkey":"64ixypL1HPu8WtJhNSMb9mSgfFaJvsANuRkTbHyuLfnx"},
   {"name":"vote_state_v4","pubkey":"Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ"},
-  {"name":"alt_bn128_little_endian","pubkey":"bnS3pWfLrxHRJvMyLm6EaYQkP7A2Fe9DxoKv4aGA8YM"},
+  {"name":"alt_bn128_little_endian","pubkey":"bn2oPgpkzQPT3tohMaAsMVGjhDmmDa4jCaVPqCFmtxM"},
   {"name":"enable_bls12_381_syscall","pubkey":"EGJLweNUVskAPEwpjvNB7JT6uUi6h4mFhowNYXVSrimG"}
 ]

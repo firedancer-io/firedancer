@@ -1734,8 +1734,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, alt_bn128_little_endian)>>3,
-    .id                        = {"\x08\xe9\x1e\x13\xdc\xdd\x4a\x1b\x2e\x74\x17\x90\x41\x13\xdf\xa7\xe6\x56\x26\xa8\x1f\x90\x65\x52\x79\xaf\x2c\x85\xb0\x8b\xf5\x4e"},
-                                 /* bnS3pWfLrxHRJvMyLm6EaYQkP7A2Fe9DxoKv4aGA8YM */
+    .id                        = {"\x08\xe8\xaa\x0c\xd9\xdd\x0d\x64\x43\xd8\xe2\x10\x78\x48\x9b\x29\x9a\xaa\x18\x6b\x5d\xbd\x70\xca\x27\xd8\x37\x59\x39\x2a\x03\x56"},
+                                 /* bn2oPgpkzQPT3tohMaAsMVGjhDmmDa4jCaVPqCFmtxM */
     .name                      = "alt_bn128_little_endian",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -2005,7 +2005,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xf4792febab30b80c: return &ids[ 251 ];
   case 0xdab5b6a991a03e4b: return &ids[ 252 ];
   case 0x8921a3abf23afaec: return &ids[ 253 ];
-  case 0x1b4adddc131ee908: return &ids[ 254 ];
+  case 0x640dddd90caae808: return &ids[ 254 ];
   case 0x1d0a91b3be4013c5: return &ids[ 255 ];
   default: break;
   }
