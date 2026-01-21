@@ -444,9 +444,9 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
 
   /* sign the txn */
-  uchar *       signature   = signed_vote_txn + txn->signature_off;
-  uchar const * message     = signed_vote_txn + txn->message_off;
-  ulong         message_sz  = vote_txn_sz     - txn->message_off;
+  uchar *       signature  = signed_vote_txn + txn->signature_off;
+  uchar const * message    = signed_vote_txn + txn->message_off;
+  ulong         message_sz = vote_txn_sz     - txn->message_off;
   fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   ulong poh_slot  = vote_slot+1;
