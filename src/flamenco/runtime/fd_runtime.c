@@ -1164,8 +1164,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
          bundle must include a instruction that transfers lamports to
          a specific tip account.  Tips accumulated through the slot. */
       if( fd_pack_tip_is_tip_account( fd_type_pun_const( pubkey->uc ) ) ) {
-        txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( account->ro ), runtime->accounts.starting_lamports[i] );
-        FD_ATOMIC_FETCH_AND_ADD( fd_bank_tips_modify( bank ), txn_out->details.tips );
+       txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( account->ro ), runtime->accounts.starting_lamports[i] );
       }
 
       if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_vote_program_id ) ) {
@@ -1184,6 +1183,10 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         fd_runtime_save_account( runtime->accdb, &xid, pubkey, account->meta, bank, runtime->log.capture_ctx );
       runtime->metrics.txn_account_save[ save_type ]++;
     }
+
+    /* Atomically add all accumulated tips to the bank once after processing all accounts */
+    if( txn_out->details.tips>0UL )
+      FD_ATOMIC_FETCH_AND_ADD( fd_bank_tips_modify( bank ), txn_out->details.tips );
 
     /* We need to queue any existing program accounts that may have
        been deployed / upgraded for reverification in the program
