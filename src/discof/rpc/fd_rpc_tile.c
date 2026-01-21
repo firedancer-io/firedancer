@@ -827,7 +827,7 @@ getIdentity( fd_rpc_tile_t * ctx,
   (void)params;
 
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, identity_pubkey_b58 );
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%lu}\n", identity_pubkey_b58, request_id );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"%s\"},\"id\":%lu}\n", identity_pubkey_b58, request_id );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
