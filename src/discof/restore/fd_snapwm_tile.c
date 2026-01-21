@@ -44,10 +44,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_snapwm_tile_t * ctx ) {
+  FD_MGAUGE_SET( SNAPWM, STATE,             (ulong)ctx->state              );
   FD_MGAUGE_SET( SNAPWM, ACCOUNTS_LOADED,   ctx->metrics.accounts_loaded   );
   FD_MGAUGE_SET( SNAPWM, ACCOUNTS_REPLACED, ctx->metrics.accounts_replaced );
   FD_MGAUGE_SET( SNAPWM, ACCOUNTS_IGNORED,  ctx->metrics.accounts_ignored  );
-  FD_MGAUGE_SET( SNAPWM, STATE,             (ulong)ctx->state              );
+  FD_MGAUGE_SET( SNAPWM, ACCOUNTS_ACTIVE,   ctx->vinyl.pair_cnt            );
 }
 
 static inline void
@@ -174,6 +175,7 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded   = 0;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced = 0;
         ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored  = 0;
+        ctx->vinyl.pair_cnt            = 0UL;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;

@@ -1263,6 +1263,7 @@
 | <span class="metrics-name">snapwm_&#8203;accounts_&#8203;loaded</span> | gauge | Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts |
 | <span class="metrics-name">snapwm_&#8203;accounts_&#8203;replaced</span> | gauge | Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts |
 | <span class="metrics-name">snapwm_&#8203;accounts_&#8203;ignored</span> | gauge | Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts |
+| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;active</span> | gauge | Current number of accounts in index. Resets if snapshot load restarts. |
 
 </div>
 

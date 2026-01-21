@@ -205,6 +205,8 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
   ctx->vinyl.duplicate_accounts_batch_sz  = 0UL;
   ctx->vinyl.duplicate_accounts_batch_cnt = 0UL;
 
+  ctx->vinyl.pair_cnt = 0UL;
+
   fd_lthash_adder_new( &ctx->vinyl.adder );
   fd_lthash_zero( &ctx->vinyl.running_lthash );
 }
@@ -382,6 +384,8 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx,
           dup_batch_cnt += (ulong)fd_snapwm_vinyl_duplicate_accounts_batch_append( ctx, &ele->phdr, ele->seq );
         }
         ctx->metrics.accounts_replaced++;
+      } else {
+        ctx->vinyl.pair_cnt++;
       }
 
       /* Overwrite map entry */
@@ -543,6 +547,8 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
           fd_snapwm_vinyl_duplicate_accounts_batch_append( ctx, &ele->phdr, ele->seq );
         }
         ctx->metrics.accounts_replaced++;
+      } else {
+        ctx->vinyl.pair_cnt++;
       }
 
       ele->memo      = memo;
