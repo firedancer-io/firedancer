@@ -147,7 +147,7 @@ ping_tracker_change( void *        _ctx,
   switch( change_type ) {
     case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:   fd_crds_peer_active( ctx->crds, peer_pubkey, now ); break;
     case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE: fd_crds_peer_inactive( ctx->crds, peer_pubkey, now ); break;
-    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED: break;
+    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_ENTRYPOINT: break;
     default: FD_LOG_ERR(( "Unknown change type %d", change_type )); return;
   }
 
@@ -536,7 +536,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
       fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
 
       fd_ip4_port_t origin_addr = fd_contact_info_gossip_socket( contact_info );
-      if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_stake, origin_addr, now );
+      if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_addr, now );
       gossip->metrics->ci_rx_unrecognized_socket_tag_cnt += value->ci_view->unrecognized_socket_tag_cnt;
       gossip->metrics->ci_rx_ipv6_address_cnt            += value->ci_view->ip6_cnt;
     }
@@ -585,7 +585,7 @@ process_push_crds( fd_gossip_t *                       gossip,
     fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
 
     fd_ip4_port_t origin_addr = contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
-    if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_stake, origin_addr, now );
+    if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_addr, now );
     gossip->metrics->ci_rx_unrecognized_socket_tag_cnt += value->ci_view->unrecognized_socket_tag_cnt;
     gossip->metrics->ci_rx_ipv6_address_cnt            += value->ci_view->ip6_cnt;
   }
@@ -671,8 +671,7 @@ rx_pong( fd_gossip_t *           gossip,
          fd_gossip_view_pong_t * pong,
          fd_ip4_port_t           peer_address,
          long                    now ) {
-  ulong stake = get_stake( gossip, pong->pubkey );
-  fd_ping_tracker_register( gossip->ping_tracker, pong->pubkey, stake, peer_address, pong->ping_hash, now );
+  fd_ping_tracker_register( gossip->ping_tracker, pong->pubkey, peer_address, pong->ping_hash, now );
 }
 
 void
@@ -929,6 +928,5 @@ fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
                               uchar const * peer_pubkey,
                               fd_ip4_port_t peer_address,
                               long          now ) {
-  ulong origin_stake = get_stake( gossip, peer_pubkey );
-  fd_ping_tracker_track( gossip->ping_tracker, peer_pubkey, origin_stake, peer_address, now );
+  fd_ping_tracker_track( gossip->ping_tracker, peer_pubkey, peer_address, now );
 }
