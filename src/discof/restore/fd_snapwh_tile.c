@@ -119,7 +119,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
 
 static int
 should_shutdown( fd_snapwh_t const * ctx ) {
-  return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && ctx->last_fseq==ctx->next_seq;
+  return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }
 
 static void
