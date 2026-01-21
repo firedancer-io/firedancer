@@ -25,7 +25,7 @@ typedef struct fd_snapld_tile {
 
   struct {
     char path[ PATH_MAX ];
-    uint min_download_speed;
+    uint min_download_speed_mibs;
   } config;
 
   int   state;
@@ -35,7 +35,7 @@ typedef struct fd_snapld_tile {
   int   sent_meta;
 
   ulong  bytes_in_batch;
-  double download_speed;
+  double download_speed_mibs;
   long   start_batch;
   long   end_batch;
 
@@ -174,14 +174,15 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snapld_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t),  sizeof(fd_snapld_tile_t) );
 
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
-  ctx->config.min_download_speed = tile->snapld.min_download_speed;
+  ctx->config.min_download_speed_mibs = tile->snapld.min_download_speed_mibs;
 
   ctx->state            = FD_SNAPSHOT_STATE_IDLE;
   ctx->pending_ctrl_sig = 0UL;
 
-  ctx->bytes_in_batch = 0;
-  ctx->start_batch    = 0L;
-  ctx->end_batch      = 0L;
+  ctx->download_speed_mibs = 0.0;
+  ctx->bytes_in_batch      = 0UL;
+  ctx->start_batch         = 0L;
+  ctx->end_batch           = 0L;
 
   FD_TEST( tile->in_cnt==1UL );
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
@@ -295,12 +296,12 @@ after_credit( fd_snapld_tile_t *  ctx,
           if(ctx->bytes_in_batch>=100<<20UL) {
             ctx->end_batch = fd_log_wallclock();
             /* download speed in MiB/s = bytes/nanoseconds * 1e9/(1 second) * 1/(1MiB = 1<<20UL) = 1e9/(1024*1024) ~= 954 */
-            ctx->download_speed = (double)(ctx->bytes_in_batch*954) / (double)(ctx->end_batch - ctx->start_batch);
-            if( FD_UNLIKELY( ctx->download_speed<ctx->config.min_download_speed ) ) {
+            ctx->download_speed_mibs = (double)(ctx->bytes_in_batch*954) / (double)(ctx->end_batch - ctx->start_batch);
+            if( FD_UNLIKELY( ctx->download_speed_mibs<ctx->config.min_download_speed_mibs ) ) {
               /* cancel the snapshot load if the download speed is less
                  than the minimum download speed. */
               FD_LOG_WARNING(( "download speed %.2f MiB/s is below the minimum threshold %.2f MiB/s, cancelling snapshot download",
-                               ctx->download_speed, (double)(ctx->config.min_download_speed) ));
+                               ctx->download_speed_mibs, (double)(ctx->config.min_download_speed_mibs) ));
               transition_malformed(ctx, stem );
             }
             ctx->start_batch    = ctx->end_batch;
