@@ -23,6 +23,7 @@ typedef char            fd_io_uring_t;
 
 #define NAME "snaplh"
 
+#define IN_CNT_MAX     (2UL)
 #define IN_KIND_SNAPLV (0UL)
 #define IN_KIND_SNAPWH (1UL)
 
@@ -74,8 +75,6 @@ struct fd_snaplh_tile {
   /* Database params */
   ulong const * io_seed;
 
-  ulong finish_fseq;
-
   fd_lthash_adder_t   adder[1];
   fd_lthash_adder_t   adder_sub[1];
   uchar               data[FD_RUNTIME_ACC_SZ_MAX];
@@ -111,9 +110,11 @@ struct fd_snaplh_tile {
     } incremental;
   } metrics;
 
-  ulong       last_in_seq;
-  in_link_t   in[2];
-  uchar       in_kind[2];
+  ulong       wh_finish_fseq;
+  ulong       wh_last_in_seq;
+
+  in_link_t   in[IN_CNT_MAX];
+  uchar       in_kind[IN_CNT_MAX];
   out_link_t  out;
 };
 
@@ -403,7 +404,7 @@ handle_lthash_completion( fd_snaplh_t * ctx,
                           fd_stem_context_t * stem ) {
   fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
   fd_lthash_adder_flush( ctx->adder_sub, &ctx->running_lthash_sub );
-  if( fd_seq_inc( ctx->last_in_seq, 1UL )==ctx->finish_fseq ) {
+  if( fd_seq_inc( ctx->wh_last_in_seq, 1UL )==ctx->wh_finish_fseq ) {
     fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
     uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
     fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
@@ -424,7 +425,6 @@ before_credit( fd_snaplh_t *       ctx,
 static void
 handle_wh_data_frag( fd_snaplh_t * ctx,
                      ulong         in_idx,
-                     ulong         seq,
                      ulong         chunk,      /* compressed input pointer */
                      ulong         sz_comp,    /* compressed input size */
                      fd_stem_context_t * stem ) {
@@ -467,8 +467,6 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
         FD_LOG_CRIT(( "unexpected vinyl bstream block ctl=%016lx", ctl ));
     }
   }
-
-  ctx->last_in_seq = seq;
 
   if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
     ctx->state = handle_lthash_completion( ctx, stem );
@@ -536,7 +534,7 @@ handle_control_frag( fd_snaplh_t * ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
                ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      ctx->finish_fseq = tsorig_tspub_to_fseq( tsorig, tspub );
+      ctx->wh_finish_fseq = tsorig_tspub_to_fseq( tsorig, tspub );
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
 
       if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
@@ -576,14 +574,16 @@ returnable_frag( fd_snaplh_t *       ctx,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH ) )          handle_wh_data_frag( ctx, in_idx, seq, chunk, sz/*sz_comp*/, stem );
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH ) )          handle_wh_data_frag( ctx, in_idx, chunk, sz/*sz_comp*/, stem );
   else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) ) handle_lv_data_frag( ctx, in_idx, chunk, sz );
   else                                                               handle_control_frag( ctx, sig, tsorig, tspub, stem );
 
   /* Because fd_stem may not return flow control credits fast enough,
      always update fseq (consumer progress) here. */
-  ulong idx = ctx->in_kind[ 0 ]==IN_KIND_SNAPWH ? 0UL : 1UL;
-  fd_fseq_update( ctx->in[ idx ].seq_sync, fd_seq_inc( ctx->last_in_seq, 1UL ) );
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH ) ) {
+    ctx->wh_last_in_seq = seq;
+    fd_fseq_update( ctx->in[ in_idx ].seq_sync, fd_seq_inc( seq, 1UL ) );
+  }
 
   return 0;
 }
@@ -751,8 +751,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->vinyl.pair_mem = pair_mem;
   ctx->vinyl.pair_tmp = pair_tmp;
 
-  if( FD_UNLIKELY( tile->in_cnt!=2UL ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
-  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt  ));
+  if( FD_UNLIKELY( tile->in_cnt!=IN_CNT_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected %lu", tile->in_cnt, IN_CNT_MAX ));
+  if( FD_UNLIKELY( tile->out_cnt!=1UL       ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1",  tile->out_cnt            ));
 
   ctx->io_seed = NULL;
 
@@ -774,7 +774,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].mtu      = 0;
       ctx->in[ i ].base     = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snaplh.dcache_obj_id ) );
       ctx->in[ i ].seq_sync = tile->in_link_fseq[ i ];
-      ctx->last_in_seq      = fd_fseq_query( tile->in_link_fseq[ i ] );
+      ctx->wh_last_in_seq   = fd_fseq_query( tile->in_link_fseq[ i ] );
       ctx->in_kind[ i ]     = IN_KIND_SNAPWH;
       ctx->io_seed          = (ulong const *)fd_dcache_app_laddr_const( ctx->in[ i ].base );
       FD_TEST( ctx->in[ i ].base );
