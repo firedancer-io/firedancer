@@ -137,7 +137,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
   l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
   l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
-  // #if IO_URING_ENABLED
   #if FD_HAS_LIBURING
   l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  );
   l = FD_LAYOUT_APPEND( l, alignof(struct io_uring), sizeof(struct io_uring)                            );
@@ -581,9 +580,8 @@ returnable_frag( fd_snaplh_t *       ctx,
   else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) ) handle_lv_data_frag( ctx, in_idx, chunk, sz );
   else                                                               handle_control_frag( ctx, sig, tsorig, tspub, stem );
 
-  /* Because snapwr pacing is so loose and this tile sleeps, fd_stem
-     will not return flow control credits fast enough.
-     So, always update fseq (consumer progress) here. */
+  /* Because fd_stem may not return flow control credits fast enough,
+     always update fseq (consumer progress) here. */
   ulong idx = ctx->in_kind[ 0 ]==IN_KIND_SNAPWH ? 0UL : 1UL;
   fd_fseq_update( ctx->in[ idx ].seq_sync, fd_seq_inc( ctx->last_in_seq, 1UL ) );
 
@@ -603,15 +601,33 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
 
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t), sizeof(fd_snaplh_t) );
+
+  out_fds[ out_cnt++ ] = ctx->vinyl.dev_fd;
+
+  #if FD_HAS_LIBURING
+  if( FD_LIKELY( !!ctx->vinyl.ring ) ) out_fds[ out_cnt++ ] = ctx->vinyl.ring->ring_fd;
+  #endif
+
   return out_cnt;
 }
 
 static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
-                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  populate_sock_filter_policy_fd_snaplh_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t), sizeof(fd_snaplh_t) );
+
+  int ring_fd = INT_MAX;
+  #if FD_HAS_LIBURING
+  if( !!ctx->vinyl.ring ) ring_fd = ctx->vinyl.ring->ring_fd;
+  #endif
+  populate_sock_filter_policy_fd_snaplh_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->vinyl.dev_fd, (uint)ring_fd );
   return sock_filter_policy_fd_snaplh_tile_instr_cnt;
 }
 

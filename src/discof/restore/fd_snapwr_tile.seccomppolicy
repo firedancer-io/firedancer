@@ -22,3 +22,8 @@ fsync: (eq (arg 0) logfile_fd)
 
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)
+
+# fd_log_sleep: it requires a combination of these three syscalls.
+sched_yield:
+clock_nanosleep: (eq (arg 0) 0)
+nanosleep:

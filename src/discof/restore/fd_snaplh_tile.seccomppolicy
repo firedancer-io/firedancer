@@ -1,6 +1,11 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-unsigned int logfile_fd
+#
+# bstream_fd: vinyl bstream file descriptor.
+#
+# ring_fd: io_uring file descriptor, when liburing is available and
+# io_uring is enabled in the configuration, otherwise INT_MAX.
+unsigned int logfile_fd, unsigned int bstream_fd, unsigned int ring_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -19,3 +24,9 @@ fsync: (eq (arg 0) logfile_fd)
 
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)
+
+# io: io_uring required syscall(s).
+io_uring_enter: (eq (arg 0) ring_fd)
+
+# io: bd pread (when io_uring is unavailable or disabled).
+pread64: (eq (arg 0) bstream_fd)
