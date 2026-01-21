@@ -720,7 +720,8 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE: {
 
     ulong cost = fd_ulong_sat_add( FD_VM_CURVE_BLS12_381_PAIRING_BASE_COST,
-      fd_ulong_sat_mul( FD_VM_CURVE_BLS12_381_PAIRING_INCR_COST, num_pairs ) );
+      fd_ulong_sat_mul( FD_VM_CURVE_BLS12_381_PAIRING_INCR_COST,
+        fd_ulong_sat_sub( num_pairs, 1 ) ) );
     FD_VM_CU_UPDATE( vm, cost );
 
     ulong total_g1_sz = fd_ulong_sat_mul( FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ, num_pairs );
