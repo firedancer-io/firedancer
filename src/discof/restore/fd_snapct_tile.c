@@ -93,8 +93,6 @@ struct fd_snapct_tile {
   long          deadline_nanos;
   int           flush_ack;
   fd_ip4_port_t addr;
-  uint          full_retries;
-  uint          incr_retries;
 
   struct {
     int dir_fd;
@@ -232,8 +230,6 @@ during_housekeeping( fd_snapct_tile_t * ctx ) {
 
 static void
 metrics_write( fd_snapct_tile_t * ctx ) {
-  /* FIXME: Track/report FULL_NUM_RETRIES & INCREMENTAL_NUM_RETRIES */
-
   FD_MGAUGE_SET( SNAPCT, FULL_BYTES_READ,               ctx->metrics.full.bytes_read );
   FD_MGAUGE_SET( SNAPCT, FULL_BYTES_WRITTEN,            ctx->metrics.full.bytes_written );
   FD_MGAUGE_SET( SNAPCT, FULL_BYTES_TOTAL,              ctx->metrics.full.bytes_total );
@@ -757,14 +753,14 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
       if( !ctx->flush_ack ) break;
 
-      if( ctx->full_retries==ctx->config.max_retry_abort ) {
+      if( ctx->metrics.full.num_retries==ctx->config.max_retry_abort ) {
         FD_LOG_WARNING(( "hit retry limit of %u for full snapshot, aborting", ctx->config.max_retry_abort ));
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }
 
-      ctx->full_retries++;
+      ctx->metrics.full.num_retries++;
 
       ctx->metrics.full.bytes_read           = 0UL;
       ctx->metrics.full.bytes_written        = 0UL;
@@ -783,14 +779,14 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
       if( !ctx->flush_ack ) break;
 
-      if( ctx->incr_retries==ctx->config.max_retry_abort ) {
+      if( ctx->metrics.incremental.num_retries==ctx->config.max_retry_abort ) {
         FD_LOG_WARNING(("hit retry limit of %u for incremental snapshot, aborting", ctx->config.max_retry_abort ));
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }
 
-      ctx->incr_retries++;
+      ctx->metrics.incremental.num_retries++;
 
       ctx->metrics.incremental.bytes_read    = 0UL;
       ctx->metrics.incremental.bytes_written = 0UL;
@@ -1357,8 +1353,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->deadline_nanos = fd_log_wallclock() + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
   ctx->flush_ack      = 0;
   ctx->addr.l         = 0UL;
-  ctx->full_retries   = 0U;
-  ctx->incr_retries   = 0U;
 
   fd_memset( ctx->http_full_snapshot_name, 0, PATH_MAX );
   fd_memset( ctx->http_incr_snapshot_name, 0, PATH_MAX );
