@@ -38,7 +38,7 @@ init( config_t const * config ) {
   if( (ulong)st.st_size < bstream_sz ) {
     int err = posix_fallocate( vinyl_fd, 0L, (long)bstream_sz );
     if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "posix_fallocate(`%s`,%lu bytes) failed (%i-%s)", config->paths.accounts, bstream_sz, err, fd_io_strerror( err ) ));
+      FD_LOG_ERR(( "posix_fallocate(`%s`,%lu MiB) failed (%i-%s)", config->paths.accounts, bstream_sz>>20, err, fd_io_strerror( err ) ));
     }
   }
 
@@ -74,8 +74,8 @@ check( config_t const * config,
   CONFIGURE_OK();
 }
 
-configure_stage_t fd_cfg_stage_vinyl = {
-  .name    = "vinyl",
+configure_stage_t fd_cfg_stage_accdb = {
+  .name    = "accdb",
   .enabled = enabled,
   .init    = init,
   .fini    = fini,

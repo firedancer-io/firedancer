@@ -13,7 +13,7 @@
 #include "../../vinyl/fd_vinyl_base.h"
 #include "../../vinyl/io/fd_vinyl_io_ur.h"
 #include "../../util/pod/fd_pod_format.h"
-#include "generated/fd_vinyl_tile_seccomp.h"
+#include "generated/fd_accdb_tile_seccomp.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -22,7 +22,7 @@
 #include <liburing.h>
 #endif
 
-#define NAME "vinyl"
+#define NAME "accdb"
 #define MAX_INS 8
 
 #define IO_SPAD_MAX (32UL<<20)
@@ -163,14 +163,14 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
-  if( tile->vinyl.io_type==FD_VINYL_IO_TYPE_UR ) {
+  if( tile->accdb.io_type==FD_VINYL_IO_TYPE_UR ) {
 #   if FD_HAS_LIBURING
     l = FD_LAYOUT_APPEND( l, fd_vinyl_io_ur_align(), fd_vinyl_io_ur_footprint( IO_SPAD_MAX ) );
 #   endif
   } else {
     l = FD_LAYOUT_APPEND( l, fd_vinyl_io_bd_align(), fd_vinyl_io_bd_footprint( IO_SPAD_MAX ) );
   }
-  l = FD_LAYOUT_APPEND( l, alignof(fd_vinyl_line_t), sizeof(fd_vinyl_line_t)*tile->vinyl.vinyl_line_max );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_vinyl_line_t), sizeof(fd_vinyl_line_t)*tile->accdb.line_max );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -259,16 +259,16 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   #if FD_HAS_LIBURING
   if( FD_LIKELY( !!ctx->ring ) ) ring_fd = ctx->ring->ring_fd;
   #endif
-  populate_sock_filter_policy_fd_vinyl_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->bstream_fd, (uint)ring_fd );
-  return sock_filter_policy_fd_vinyl_tile_instr_cnt;
+  populate_sock_filter_policy_fd_accdb_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->bstream_fd, (uint)ring_fd );
+  return sock_filter_policy_fd_accdb_tile_instr_cnt;
 }
 
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   ulong line_footprint;
-  if( FD_UNLIKELY( !tile->vinyl.vinyl_line_max || __builtin_umull_overflow( tile->vinyl.vinyl_line_max, sizeof(fd_vinyl_line_t), &line_footprint ) ) ) {
-    FD_LOG_ERR(( "invalid vinyl_line_max %lu", tile->vinyl.vinyl_line_max ));
+  if( FD_UNLIKELY( !tile->accdb.line_max || __builtin_umull_overflow( tile->accdb.line_max, sizeof(fd_vinyl_line_t), &line_footprint ) ) ) {
+    FD_LOG_ERR(( "invalid vinyl_line_max %lu", tile->accdb.line_max ));
   }
 
   void * tile_mem = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -276,7 +276,7 @@ privileged_init( fd_topo_t *      topo,
   fd_vinyl_tile_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
   fd_vinyl_t *      vinyl = ctx->vinyl;
   void * _io = NULL;
-  if( tile->vinyl.io_type==FD_VINYL_IO_TYPE_UR ) {
+  if( tile->accdb.io_type==FD_VINYL_IO_TYPE_UR ) {
 #   if FD_HAS_LIBURING
     _io = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(), fd_vinyl_io_ur_footprint( IO_SPAD_MAX ) );
 #   endif
@@ -298,14 +298,14 @@ privileged_init( fd_topo_t *      topo,
   vinyl->line_footprint = line_footprint;
 
   /* FIXME use O_DIRECT? */
-  int dev_fd = open( tile->vinyl.vinyl_bstream_path, O_RDWR|O_CLOEXEC );
-  if( FD_UNLIKELY( dev_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_CLOEXEC) failed (%i-%s)", tile->vinyl.vinyl_bstream_path, errno, fd_io_strerror( errno ) ));
+  int dev_fd = open( tile->accdb.bstream_path, O_RDWR|O_CLOEXEC );
+  if( FD_UNLIKELY( dev_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_CLOEXEC) failed (%i-%s)", tile->accdb.bstream_path, errno, fd_io_strerror( errno ) ));
 
   ctx->bstream_fd = dev_fd;
 
-  int io_type = tile->vinyl.io_type;
+  int io_type = tile->accdb.io_type;
   if( io_type==FD_VINYL_IO_TYPE_UR ) {
-    vinyl_io_uring_init( ctx, tile->vinyl.uring_depth, dev_fd );
+    vinyl_io_uring_init( ctx, tile->accdb.uring_depth, dev_fd );
   } else if( io_type!=FD_VINYL_IO_TYPE_BD ) {
     FD_LOG_ERR(( "Unsupported vinyl io_type %d", io_type ));
   }
@@ -320,16 +320,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->sync_next_ns = fd_log_wallclock();
 
-  void * _meta = fd_topo_obj_laddr( topo, tile->vinyl.vinyl_meta_map_obj_id  );
-  void * _ele  = fd_topo_obj_laddr( topo, tile->vinyl.vinyl_meta_pool_obj_id );
-  void * _obj  = fd_topo_obj_laddr( topo, tile->vinyl.vinyl_data_obj_id      );
+  void * _meta = fd_topo_obj_laddr( topo, tile->accdb.meta_map_obj_id  );
+  void * _ele  = fd_topo_obj_laddr( topo, tile->accdb.meta_pool_obj_id );
+  void * _obj  = fd_topo_obj_laddr( topo, tile->accdb.data_obj_id      );
 
 # define TEST( c ) do { if( FD_UNLIKELY( !(c) ) ) { FD_LOG_ERR(( "FAIL: %s", #c )); } } while(0)
 
   vinyl->cnc_footprint  = 0UL;
-  vinyl->meta_footprint = topo->objs[ tile->vinyl.vinyl_meta_map_obj_id  ].footprint;
-  vinyl->ele_footprint  = topo->objs[ tile->vinyl.vinyl_meta_pool_obj_id ].footprint;
-  vinyl->obj_footprint  = topo->objs[ tile->vinyl.vinyl_data_obj_id      ].footprint;
+  vinyl->meta_footprint = topo->objs[ tile->accdb.meta_map_obj_id  ].footprint;
+  vinyl->ele_footprint  = topo->objs[ tile->accdb.meta_pool_obj_id ].footprint;
+  vinyl->obj_footprint  = topo->objs[ tile->accdb.data_obj_id      ].footprint;
 
   void * obj_laddr0 = fd_wksp_containing( _obj );
   ulong part_thresh =    64UL<<20;
@@ -525,7 +525,7 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
     ctx->accum_garbage_sz += FD_VINYL_BSTREAM_BLOCK_SZ;
 
     fd_vinyl_io_commit( vinyl->io, FD_VINYL_IO_FLAG_BLOCKING );
-    FD_MCNT_INC( VINYL, BLOCKS_PART, 1UL );
+    FD_MCNT_INC( ACCDB, BLOCKS_PART, 1UL );
 
   }
 
@@ -570,7 +570,7 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
 
     ulong garbage_pre = vinyl->garbage_sz;
     fd_vinyl_compact( vinyl, compact_max );
-    FD_MCNT_INC( VINYL, CUM_GC_BYTES, garbage_pre - vinyl->garbage_sz );
+    FD_MCNT_INC( ACCDB, CUM_GC_BYTES, garbage_pre - vinyl->garbage_sz );
 
   }
 
@@ -600,7 +600,7 @@ should_shutdown( fd_vinyl_tile_t * ctx ) {
   /* Append the final partition and sync so we can resume with a fast
      parallel recovery */
 
-  FD_MCNT_INC( VINYL, BLOCKS_PART, 1UL );
+  FD_MCNT_INC( ACCDB, BLOCKS_PART, 1UL );
   fd_vinyl_io_append_part( io, ctx->seq_part, ctx->accum_dead_cnt, 0UL, NULL, 0UL );
 
   ctx->accum_dead_cnt = 0UL;
@@ -637,12 +637,12 @@ metrics_write( fd_vinyl_tile_t * ctx ) {
   fd_vinyl_t *    vinyl = ctx->vinyl;
   fd_vinyl_io_t * io    = vinyl->io;
 
-  FD_MGAUGE_SET( VINYL, BSTREAM_SEQ_ANCIENT, io->seq_ancient );
-  FD_MGAUGE_SET( VINYL, BSTREAM_SEQ_PAST,    io->seq_past    );
-  FD_MGAUGE_SET( VINYL, BSTREAM_SEQ_PRESENT, io->seq_present );
-  FD_MGAUGE_SET( VINYL, BSTREAM_SEQ_FUTURE,  io->seq_future  );
+  FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_ANCIENT, io->seq_ancient );
+  FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_PAST,    io->seq_past    );
+  FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_PRESENT, io->seq_present );
+  FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_FUTURE,  io->seq_future  );
 
-  FD_MGAUGE_SET( VINYL, GARBAGE_BYTES, vinyl->garbage_sz );
+  FD_MGAUGE_SET( ACCDB, GARBAGE_BYTES, vinyl->garbage_sz );
 }
 
 /* before_credit runs every main loop iteration */
@@ -798,16 +798,16 @@ before_credit( fd_vinyl_tile_t *   ctx,
       break;
     }
 
-    FD_MCNT_INC( VINYL, REQUEST_BATCHES, 1UL );
+    FD_MCNT_INC( ACCDB, REQUEST_BATCHES, 1UL );
     switch( req->type ) {
     case FD_VINYL_REQ_TYPE_ACQUIRE:
-      FD_MCNT_INC( VINYL, REQUESTS_ACQUIRE, batch_cnt );
+      FD_MCNT_INC( ACCDB, REQUESTS_ACQUIRE, batch_cnt );
       break;
     case FD_VINYL_REQ_TYPE_RELEASE:
-      FD_MCNT_INC( VINYL, REQUESTS_RELEASE, batch_cnt );
+      FD_MCNT_INC( ACCDB, REQUESTS_RELEASE, batch_cnt );
       break;
     case FD_VINYL_REQ_TYPE_ERASE:
-      FD_MCNT_INC( VINYL, REQUESTS_ERASE,   batch_cnt );
+      FD_MCNT_INC( ACCDB, REQUESTS_ERASE,   batch_cnt );
       break;
     }
 
@@ -920,15 +920,15 @@ before_credit( fd_vinyl_tile_t *   ctx,
       subtracting accum_* */
 
     ulong const dead_cnt = accum_dead_cnt - ctx->accum_dead_cnt;
-    FD_MCNT_INC( VINYL, BLOCKS_PAIR, append_cnt - dead_cnt );
-    FD_MCNT_INC( VINYL, BLOCKS_DEAD, dead_cnt );
+    FD_MCNT_INC( ACCDB, BLOCKS_PAIR, append_cnt - dead_cnt );
+    FD_MCNT_INC( ACCDB, BLOCKS_DEAD, dead_cnt );
 
   }
 
   ctx->accum_dead_cnt    = accum_dead_cnt;
   ctx->accum_garbage_cnt = accum_garbage_cnt;
   ctx->accum_garbage_sz  = accum_garbage_sz;
-  FD_MCNT_INC( VINYL, CACHE_HITS, accum_cache_hit );
+  FD_MCNT_INC( ACCDB, CACHE_HITS, accum_cache_hit );
 }
 
 #define STEM_BURST (1UL)

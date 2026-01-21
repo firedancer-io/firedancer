@@ -412,7 +412,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "snaplv", /* FIREDANCER only */
     "arch_f", /* FIREDANCER only */
     "arch_w", /* FIREDANCER only */
-    "vinyl",  /* FIREDANCER only */
+    "accdb",  /* FIREDANCER only */
   };
 
   char const * CRITICAL_TILES[] = {

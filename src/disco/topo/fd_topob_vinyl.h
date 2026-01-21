@@ -24,9 +24,9 @@ fd_topob_vinyl_rq( fd_topo_t *  topo,
                    ulong        quota_max ) {
 
   /* Assumes there is only one vinyl tile in the topology */
-  ulong vinyl_tile_id;
-  FD_TEST( ( vinyl_tile_id = fd_topo_find_tile( topo, "vinyl", 0UL ) )!=ULONG_MAX );
-  fd_topo_tile_t * vinyl_tile = &topo->tiles[ vinyl_tile_id ];
+  ulong accdb_tile_id;
+  FD_TEST( ( accdb_tile_id = fd_topo_find_tile( topo, "accdb", 0UL ) )!=ULONG_MAX );
+  fd_topo_tile_t * accdb_tile = &topo->tiles[ accdb_tile_id ];
 
   ulong client_tile_id;
   FD_TEST( ( client_tile_id = fd_topo_find_tile( topo, tile_name, tile_kind_id ) )!=ULONG_MAX );
@@ -51,9 +51,9 @@ fd_topob_vinyl_rq( fd_topo_t *  topo,
   FD_TEST( fd_pod_insertf_ulong( topo->props, req_pool_obj->id, "obj.%lu.req_pool_obj_id", rq_obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, cq_obj->id,       "obj.%lu.cq_obj_id",       rq_obj->id ) );
 
-  fd_topob_tile_uses( topo, vinyl_tile,  req_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, vinyl_tile,  rq_obj,       FD_SHMEM_JOIN_MODE_READ_ONLY  );
-  fd_topob_tile_uses( topo, vinyl_tile,  cq_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, accdb_tile,  req_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, accdb_tile,  rq_obj,       FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  fd_topob_tile_uses( topo, accdb_tile,  cq_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topob_tile_uses( topo, client_tile, req_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, client_tile, rq_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );

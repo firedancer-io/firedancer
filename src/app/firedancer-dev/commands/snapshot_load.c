@@ -56,7 +56,7 @@ snapshot_load_topo( config_t * config ) {
   ulong snaplh_tile_cnt        = config->firedancer.layout.snapshot_hash_tile_count;
 
   if( config->firedancer.vinyl.enabled ) {
-    setup_topo_vinyl_meta( topo, &config->firedancer );
+    setup_topo_accdb_meta( topo, &config->firedancer );
   }
 
 #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -262,8 +262,8 @@ snapshot_load_topo( config_t * config ) {
   snapin_tile->snapin.funk_obj_id     = funk_obj->id;
   snapin_tile->snapin.txncache_obj_id = txncache_obj->id;
   if( config->firedancer.vinyl.enabled ) {
-    ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
-    ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+    ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
+    ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
 
     fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
     fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
@@ -389,8 +389,8 @@ fsck_vinyl( config_t * config,
   /* Join meta index */
 
   fd_topo_t * topo = &config->topo;
-  ulong meta_map_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX );
-  ulong meta_pool_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX );
+  ulong meta_map_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX );
+  ulong meta_pool_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX );
   FD_TEST( meta_map_id!=ULONG_MAX && meta_pool_id!=ULONG_MAX );
   void * shmap = fd_topo_obj_laddr( topo, meta_map_id  );
   void * shele = fd_topo_obj_laddr( topo, meta_pool_id );
@@ -541,8 +541,8 @@ static void
 accounts_hist_vinyl( accounts_hist_t * hist,
                      config_t *        config ) {
   fd_topo_t * topo = &config->topo;
-  ulong meta_map_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX );
-  ulong meta_pool_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX );
+  ulong meta_map_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX );
+  ulong meta_pool_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX );
   FD_TEST( meta_map_id!=ULONG_MAX && meta_pool_id!=ULONG_MAX );
   void * shmap = fd_topo_obj_laddr( topo, meta_map_id  );
   void * shele = fd_topo_obj_laddr( topo, meta_pool_id );

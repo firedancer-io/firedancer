@@ -617,15 +617,15 @@ struct fd_topo_tile {
     } genesi;
 
     struct {
-      ulong vinyl_meta_map_obj_id;
-      ulong vinyl_meta_pool_obj_id;
-      ulong vinyl_line_max;
-      ulong vinyl_data_obj_id;
-      char  vinyl_bstream_path[ PATH_MAX ];
+      ulong meta_map_obj_id;
+      ulong meta_pool_obj_id;
+      ulong line_max;
+      ulong data_obj_id;
+      char  bstream_path[ PATH_MAX ];
 
       int  io_type; /* FD_VINYL_IO_TYPE_* */
       uint uring_depth;
-    } vinyl;
+    } accdb;
 
     struct {
       ulong capture_start_slot;

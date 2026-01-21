@@ -335,19 +335,19 @@ backtest_topo( config_t * config ) {
   }
 
   if( vinyl_enabled ) {
-    setup_topo_vinyl_meta( topo, &config->firedancer );
+    setup_topo_accdb_meta( topo, &config->firedancer );
 
-    fd_topo_obj_t * vinyl_data = setup_topo_vinyl_cache( topo, &config->firedancer );
+    fd_topo_obj_t * accdb_data = setup_topo_accdb_cache( topo, &config->firedancer );
 
-    fd_topob_wksp( topo, "vinyl_exec" );
-    fd_topo_tile_t * vinyl_tile = fd_topob_tile( topo, "vinyl", "vinyl_exec", "metric_in", cpu_idx++, 0, 0 );
-    fd_topob_tile_uses( topo, vinyl_tile,  vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, replay_tile, vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_wksp( topo, "accdb_exec" );
+    fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb_exec", "metric_in", cpu_idx++, 0, 0 );
+    fd_topob_tile_uses( topo, accdb_tile,  accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, replay_tile, accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
 
-    fd_topob_wksp( topo, "vinyl_replay" );
+    fd_topob_wksp( topo, "accdb_replay" );
   }
 
   /**********************************************************************/
@@ -469,8 +469,8 @@ backtest_topo( config_t * config ) {
   if( FD_LIKELY( !disable_snap_loader ) ) {
     fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     if( vinyl_enabled ) {
-      ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
-      ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+      ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
+      ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
       fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
       fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
       fd_topob_tile_uses( topo, snapin_tile, vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -493,9 +493,9 @@ backtest_topo( config_t * config ) {
   }
 
   if( vinyl_enabled ) {
-    fd_topob_vinyl_rq( topo, "replay", 0UL, "vinyl_replay", "replay", 4UL, 1024UL, 1024UL );
+    fd_topob_vinyl_rq( topo, "replay", 0UL, "accdb_replay", "replay", 4UL, 1024UL, 1024UL );
     for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
-      fd_topob_vinyl_rq( topo, "exec", i, "vinyl_exec", "exec", 4UL, 1024UL, 1024UL );
+      fd_topob_vinyl_rq( topo, "exec", i, "accdb_exec", "exec", 4UL, 1024UL, 1024UL );
     }
   }
 
@@ -522,7 +522,7 @@ backtest_cmd_topo( config_t * config ) {
   backtest_topo( config );
 }
 
-extern configure_stage_t fd_cfg_stage_vinyl;
+extern configure_stage_t fd_cfg_stage_accdb;
 
 static args_t
 configure_args( void ) {
@@ -533,7 +533,7 @@ configure_args( void ) {
   ulong stage_idx = 0UL;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_snapshots;
-  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_vinyl;
+  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_accdb;
   args.configure.stages[ stage_idx++ ] = NULL;
 
   return args;
