@@ -75,6 +75,8 @@ struct fd_snapwm_tile {
     uchar * bstream_mem;
     ulong   bstream_sz;
 
+    ulong pair_cnt;
+
     /* Vinyl in either io_wd or io_mm mode */
     fd_vinyl_io_t * io;
     fd_vinyl_io_t * io_wd;

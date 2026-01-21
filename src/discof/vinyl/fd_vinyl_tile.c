@@ -79,6 +79,7 @@ struct fd_vinyl_tile {
   uint booted : 1;
   uint shutdown : 1;
   ulong volatile const * snapct_state;
+  ulong volatile const * snapwm_pair_cnt;
 
   /* I/O */
 
@@ -335,6 +336,13 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( snapct_tile->metrics );
   ctx->snapct_state = &fd_metrics_tile( snapct_tile->metrics )[ MIDX( GAUGE, SNAPCT, STATE ) ];
 
+  /* Find snapwm pair_cnt */
+  ulong snapwm_tile_idx = fd_topo_find_tile( topo, "snapwm", 0UL );
+  FD_TEST( snapwm_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t const * snapwm_tile = &topo->tiles[ snapwm_tile_idx ];
+  FD_TEST( snapwm_tile->metrics );
+  ctx->snapwm_pair_cnt = &fd_metrics_tile( snapwm_tile->metrics )[ MIDX( GAUGE, SNAPWM, ACCOUNTS_ACTIVE ) ];
+
   /* Discover mapped clients */
 
   ulong burst_free = FD_VINYL_REQ_MAX;
@@ -437,9 +445,6 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
       return;
     }
 
-    /* Once snapct tile exits, boot up vinyl */
-    FD_LOG_INFO(( "booting up vinyl tile" ));
-
     if( ctx->ring ) {
       vinyl->io = fd_vinyl_io_ur_init( ctx->io_mem, IO_SPAD_MAX, ctx->bstream_fd, ctx->ring );
       if( FD_UNLIKELY( !vinyl->io ) ) FD_LOG_ERR(( "Failed to initialize io_uring I/O backend for account database" ));
@@ -447,6 +452,10 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
       vinyl->io = fd_vinyl_io_bd_init( ctx->io_mem, IO_SPAD_MAX, ctx->bstream_fd, 0, NULL, 0UL, 0UL );
       if( FD_UNLIKELY( !vinyl->io ) ) FD_LOG_ERR(( "Failed to initialize blocking I/O backend for account database" ));
     }
+    vinyl->pair_cnt = FD_VOLATILE_CONST( *ctx->snapwm_pair_cnt );
+
+    /* Once snapct tile exits, boot up vinyl */
+    FD_LOG_INFO(( "vinyl server starting with %lu active records", vinyl->pair_cnt ));
 
     ctx->booted = 1;
   }

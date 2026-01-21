@@ -30,7 +30,13 @@
 #define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_IGNORED_DESC "Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts"
 #define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_IGNORED_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_SNAPWM_TOTAL (4UL)
+#define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_OFF  (20UL)
+#define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_NAME "snapwm_accounts_active"
+#define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_DESC "Current number of accounts in index. Resets if snapshot load restarts."
+#define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_SNAPWM_TOTAL (5UL)
 extern const fd_metrics_meta_t FD_METRICS_SNAPWM[FD_METRICS_SNAPWM_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_snapwm_h */
