@@ -536,8 +536,8 @@ fd_tower_with_lat_from_vote_acc( fd_voter_vote_t tower[ static FD_TOWER_VOTE_MAX
 void
 fd_tower_to_vote_txn( fd_tower_t    const * tower,
                       ulong                 root,
-                      fd_lockout_offset_t * lockouts_scratch,
                       fd_hash_t     const * bank_hash,
+                      fd_hash_t     const * block_id,
                       fd_hash_t     const * recent_blockhash,
                       fd_pubkey_t   const * validator_identity,
                       fd_pubkey_t   const * vote_authority,

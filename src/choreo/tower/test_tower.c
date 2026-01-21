@@ -242,6 +242,46 @@ make_vote_account( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf,
   out->addr = *pubkey;
 }
 
+void test_tower_serde( fd_wksp_t * wksp ) {
+  fd_txn_p_t          txnp[1];
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 1UL );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem ) );
+  fd_hash_t test_hash = {.ul = {1}};
+  fd_pubkey_t identity_key = {.ul = {2}};
+  fd_pubkey_t vote_acct_addr = {.ul = {3}};
+  for ( ulong i = 1; i <= 31; i++ ) {
+    push_vote( tower, i );
+  }
+
+  fd_tower_to_vote_txn( tower, 1, &test_hash, &test_hash,
+                        &test_hash, &identity_key,
+                        &identity_key, &vote_acct_addr, txnp );
+
+  FD_TEST( txnp->payload_sz && txnp->payload_sz<=FD_TPU_MTU );
+
+  /* blah blah blah sent over network! now parse it */
+
+  uchar txn_mem[FD_TXN_MAX_SZ];
+  ulong parse_result = fd_txn_parse_core( txnp->payload, txnp->payload_sz, txn_mem, NULL, NULL, 1UL );
+  FD_TEST( parse_result > 0UL );
+  fd_txn_t const * txn = (fd_txn_t *)txn_mem;
+  FD_TEST( fd_txn_is_simple_vote_transaction( txn, txnp->payload ) );
+
+  fd_compact_tower_sync_serde_t compact_tower_sync_serde;
+
+  fd_txn_instr_t const * instr = &txn->instr[0];
+  uchar const * instr_data     = txnp->payload + instr->data_off;
+  uint         kind            = fd_uint_load_4_fast( instr_data );
+  FD_TEST( kind == FD_VOTE_IX_KIND_TOWER_SYNC );
+  int err = fd_compact_tower_sync_deserialize( &compact_tower_sync_serde, instr_data + sizeof(uint), instr->data_sz - sizeof(uint) );
+  FD_TEST( err == 0 );
+
+  FD_TEST( compact_tower_sync_serde.root == 1 );
+  FD_TEST( compact_tower_sync_serde.lockouts_cnt == 31 );
+  FD_TEST( compact_tower_sync_serde.timestamp_option == 1 );
+  FD_TEST( 0==memcmp( &compact_tower_sync_serde.block_id, &test_hash, sizeof(fd_hash_t) ));
+}
 
 void
 test_switch_check_simple( fd_wksp_t * wksp ) {
@@ -528,6 +568,8 @@ main( int argc, char ** argv ) {
   // test_tower_vote();
   // test_tower_from_vote_acc_data_v1_14_11();
   // test_tower_from_vote_acc_data_current();
+  test_tower_serde( wksp );
+
   test_switch_check_simple( wksp );
   test_switch_threshold( wksp );
   test_switch_threshold_common_ancestor( wksp );

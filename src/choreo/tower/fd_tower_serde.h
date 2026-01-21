@@ -35,4 +35,15 @@ fd_compact_tower_sync_deserialize( fd_compact_tower_sync_serde_t * serde,
                                    uchar const *                   buf,
                                    ulong                           buf_sz );
 
+/* fd_compact_tower_sync_serialize serializes a
+   fd_compact_tower_sync_serde_t into a buffer. Returns 0 on success, -1
+   on failure.  The only failure case is if the lockouts_cnt is greater
+   than FD_TOWER_VOTE_MAX, or if the buffer is too small to fit the
+   serialized data. */
+int
+fd_compact_tower_sync_serialize( fd_compact_tower_sync_serde_t const * serde,
+                                 uchar *                               buf,
+                                 ulong                                 buf_sz,
+                                 ulong *                               out_sz );
+
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_serde_h */
