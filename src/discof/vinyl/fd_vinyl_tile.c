@@ -13,6 +13,7 @@
 #include "../../vinyl/fd_vinyl_base.h"
 #include "../../vinyl/io/fd_vinyl_io_ur.h"
 #include "../../util/pod/fd_pod_format.h"
+#include "generated/fd_vinyl_tile_seccomp.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -215,6 +216,49 @@ vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
 
 #endif
 
+static ulong
+populate_allowed_fds( fd_topo_t      const * topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0;
+  out_fds[ out_cnt++ ] = 2UL; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  }
+
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_vinyl_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
+
+  out_fds[ out_cnt++ ] = ctx->bstream_fd;
+
+  #if FD_HAS_LIBURING
+  if( FD_LIKELY( !!ctx->ring ) ) out_fds[ out_cnt++ ] = ctx->ring->ring_fd;
+  #endif
+
+  return out_cnt;
+}
+
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_vinyl_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
+
+  int ring_fd = INT_MAX;
+  #if FD_HAS_LIBURING
+  if( FD_LIKELY( !!ctx->ring ) ) ring_fd = ctx->ring->ring_fd;
+  #endif
+  populate_sock_filter_policy_fd_vinyl_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->bstream_fd, (uint)ring_fd );
+  return sock_filter_policy_fd_vinyl_tile_instr_cnt;
+}
+
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
@@ -269,7 +313,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_vinyl_tile_t * ctx   = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_vinyl_t *      vinyl = ctx->vinyl;
-
 
   void * _meta = fd_topo_obj_laddr( topo, tile->vinyl.vinyl_meta_map_obj_id  );
   void * _ele  = fd_topo_obj_laddr( topo, tile->vinyl.vinyl_meta_pool_obj_id );
@@ -888,12 +931,14 @@ before_credit( fd_vinyl_tile_t *   ctx,
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_vinyl = {
-  .name              = NAME,
-  .scratch_align     = scratch_align,
-  .scratch_footprint = scratch_footprint,
-  .privileged_init   = privileged_init,
-  .unprivileged_init = unprivileged_init,
-  .run               = stem_run
+  .name                     = NAME,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run
 };
 
 #undef NAME
