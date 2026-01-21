@@ -116,7 +116,8 @@ fd_topo_initialize( config_t * config ) {
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
 
-  int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
+  int is_auto_affinity_v0 = !strcmp( config->layout.affinity, "v0" );
+  int is_auto_affinity = !strcmp( config->layout.affinity, "auto" ) || is_auto_affinity_v0;
   int is_agave_auto_affinity = !strcmp( config->frankendancer.layout.agave_affinity, "auto" );
 
   if( FD_UNLIKELY( is_auto_affinity != is_agave_auto_affinity ) ) {
@@ -390,7 +391,11 @@ fd_topo_initialize( config_t * config ) {
     fd_topo_configure_tile( tile, config );
   }
 
-  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 1 );
+  if( FD_UNLIKELY( is_auto_affinity_v0 ) ) {
+    fd_topob_auto_layout_v0( topo, 1 );
+  } else if( FD_UNLIKELY( is_auto_affinity ) ) {
+    fd_topob_auto_layout( topo, 1 );
+  }
 
   fd_topob_finish( topo, CALLBACKS );
   config->topo = *topo;

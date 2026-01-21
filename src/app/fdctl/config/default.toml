@@ -676,6 +676,9 @@ dynamic_port_range = "8900-9000"
     # value although for best performance it is recommended to specify
     # the layout manually.  If the layout is specified as auto, the
     # agave_affinity below must also be set to auto.
+    #
+    # If the value is specified as "v0", the older layout algorithm
+    # will be used. This will be deprecated in a future release.
     affinity = "auto"
 
     # In addition to the Firedancer tiles which use a core each, the

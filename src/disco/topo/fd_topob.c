@@ -353,6 +353,156 @@ validate( fd_topo_t const * topo ) {
 }
 
 void
+fd_topob_auto_layout_v0( fd_topo_t * topo,
+                         int         reserve_agave_cores ) {
+  /* Incredibly simple automatic layout system for now ... just assign
+     tiles to CPU cores in NUMA sequential order, except for a few tiles
+     which should be floating. */
+
+  FD_TEST_CUSTOM( reserve_agave_cores==1, "auto layout v0 is only for Frankendancer" );
+
+  char const * FLOATING[] = {
+    "netlnk",
+    "metric",
+    "cswtch",
+  };
+
+  char const * ORDERED[] = {
+    "backt",
+    "benchg",
+    "benchs",
+    "net",
+    "sock",
+    "quic",
+    "bundle",
+    "verify",
+    "dedup",
+    "resolv", /* FRANK only */
+    "pack",
+    "bank",   /* FRANK only */
+    "poh",    /* FRANK only */
+    "shred",
+    "store",  /* FRANK only */
+    "sign",
+    "plugin",
+    "gui",
+  };
+
+  char const * CRITICAL_TILES[] = {
+    "pack",
+    "poh",
+    "gui",
+  };
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    tile->cpu_idx = ULONG_MAX;
+  }
+
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+
+  ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
+  int   pairs_assigned[ FD_TILE_MAX ] = { 0 };
+
+  ulong next_cpu_idx   = 0UL;
+  for( ulong i=0UL; i<cpus->numa_node_cnt; i++ ) {
+    for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) {
+      fd_topo_cpu_t * cpu = &cpus->cpu[ j ];
+
+      if( FD_UNLIKELY( pairs_assigned[ j ] || cpu->numa_node!=i ) ) continue;
+
+      FD_TEST( next_cpu_idx<FD_TILE_MAX );
+      cpu_ordering[ next_cpu_idx++ ] = j;
+
+      if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
+        /* If the CPU has a HT pair, place it immediately after so they
+           are sequentially assigned. */
+        FD_TEST( next_cpu_idx<FD_TILE_MAX );
+        cpu_ordering[ next_cpu_idx++ ] = cpu->sibling;
+        pairs_assigned[ cpu->sibling ] = 1;
+      }
+    }
+  }
+
+  FD_TEST( next_cpu_idx==cpus->cpu_cnt );
+
+  int cpu_assigned[ FD_TILE_MAX ] = {0};
+
+  ulong cpu_idx = 0UL;
+  for( ulong i=0UL; i<sizeof(ORDERED)/sizeof(ORDERED[0]); i++ ) {
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t * tile = &topo->tiles[ j ];
+      if( !strcmp( tile->name, ORDERED[ i ] ) ) {
+        if( FD_UNLIKELY( cpu_idx>=cpus->cpu_cnt ) ) {
+          FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned", tile->name, tile->kind_id ));
+        } else {
+          /* Certain tiles are latency and throughput critical and
+             should not get a HT pair assigned. */
+          fd_topo_cpu_t const * cpu = &cpus->cpu[ cpu_ordering[ cpu_idx ] ];
+
+          int is_ht_critical = 0;
+          if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
+            for( ulong k=0UL; k<sizeof(CRITICAL_TILES)/sizeof(CRITICAL_TILES[0]); k++ ) {
+              if( !strcmp( tile->name, CRITICAL_TILES[ k ] ) ) {
+                is_ht_critical = 1;
+                break;
+              }
+            }
+          }
+
+          if( FD_UNLIKELY( is_ht_critical ) ) {
+            ulong try_assign = cpu_idx;
+            while( cpu_assigned[ cpu_ordering[ try_assign ] ] || (cpus->cpu[ cpu_ordering[ try_assign ] ].sibling!=ULONG_MAX && cpu_assigned[ cpus->cpu[ cpu_ordering[ try_assign ] ].sibling ]) ) {
+              try_assign++;
+              if( FD_UNLIKELY( try_assign>=cpus->cpu_cnt ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned", tile->name, tile->kind_id ));
+            }
+
+            ulong sibling = cpus->cpu[ cpu_ordering[ try_assign ] ].sibling;
+            cpu_assigned[ cpu_ordering[ try_assign ] ] = 1;
+            if( sibling!=ULONG_MAX ) {
+              cpu_assigned[ sibling ] = 1;
+            }
+            tile->cpu_idx = cpu_ordering[ try_assign ];
+            while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
+          } else {
+            cpu_assigned[ cpu_ordering[ cpu_idx ] ] = 1;
+            tile->cpu_idx = cpu_ordering[ cpu_idx ];
+            while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
+          }
+        }
+      }
+    }
+  }
+
+  /* Make sure all the tiles we haven't set are supposed to be floating. */
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    if( tile->cpu_idx!=ULONG_MAX ) continue;
+
+    int found = 0;
+    for( ulong j=0UL; j<sizeof(FLOATING)/sizeof(FLOATING[0]); j++ ) {
+      if( !strcmp( tile->name, FLOATING[ j ] ) ) {
+        found = 1;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !found ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
+  }
+
+  if( FD_UNLIKELY( reserve_agave_cores ) ) {
+    for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
+      if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
+
+      if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
+        topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = cpu_ordering[ i ];
+      }
+    }
+  }
+}
+
+void
 fd_topob_auto_layout( fd_topo_t * topo,
                       int         reserve_agave_cores ) {
   /* Incredibly simple automatic layout system for now ... just assign
