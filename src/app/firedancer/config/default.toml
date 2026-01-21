@@ -356,6 +356,12 @@ user = ""
     # if the full_effective_age_cancel_threshold is met.
     max_retry_abort = 5
 
+    # The minimum download speed the validator will tolerate in MiB/s.
+    # If the download speed of a snapshot falls below the
+    # min_download_speed threshold, the validator will cancel the
+    # download and retry downloading the snapshot from a different peer.
+    min_download_speed = 100
+
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
     # gossip peers that advertise RPC server addresses, or from external
