@@ -2,9 +2,11 @@
 
 struct fd_sspeer_private {
   fd_ip4_port_t addr;
-  fd_ssinfo_t   ssinfo;
+  ulong         full_slot;
+  ulong         incr_slot;
   ulong         latency;
   ulong         score;
+  int           valid;
 
   struct {
     ulong next;
@@ -215,22 +217,24 @@ fd_sspeer_selector_delete( void * shselector ) {
   return (void *)selector;
 }
 
-/* Calculates a score for a peer given its latency and ssinfo */
+/* Calculates a score for a peer given its latency and its resolved
+   full and incremental slots */
 ulong
 fd_sspeer_selector_score( fd_sspeer_selector_t * selector,
                           ulong                  peer_latency,
-                          fd_ssinfo_t const *    ssinfo ) {
+                          ulong                  full_slot,
+                          ulong                  incr_slot ) {
   static const ulong slots_behind_penalty = 1000UL;
   ulong slot                              = ULONG_MAX;
   ulong slots_behind                      = DEFAULT_SLOTS_BEHIND;
   peer_latency = peer_latency!=ULONG_MAX ? peer_latency : DEFAULT_PEER_LATENCY;
 
-  if( FD_LIKELY( ssinfo && ssinfo->full.slot!=ULONG_MAX ) ) {
-    if( FD_UNLIKELY( ssinfo->incremental.slot==ULONG_MAX ) ) {
-      slot         = ssinfo->full.slot;
+  if( FD_LIKELY( full_slot!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( incr_slot==ULONG_MAX ) ) {
+      slot         = full_slot;
       slots_behind = selector->cluster_slot.full>slot ? selector->cluster_slot.full - slot : 0UL;
     } else {
-      slot         = ssinfo->incremental.slot;
+      slot         = incr_slot;
       slots_behind = selector->cluster_slot.incremental>slot ? selector->cluster_slot.incremental - slot : 0UL;
     }
   }
@@ -239,22 +243,21 @@ fd_sspeer_selector_score( fd_sspeer_selector_t * selector,
   return peer_latency + slots_behind_penalty*slots_behind;
 }
 
-/* Updates a peer's score with new values for latency and/or ssinfo */
+/* Updates a peer's score with new values for latency and/or resolved
+   full/incremental slots */
 static void
 fd_sspeer_selector_update( fd_sspeer_selector_t * selector,
                            fd_sspeer_private_t *  peer,
                            ulong                  latency,
-                           fd_ssinfo_t const *    ssinfo ) {
+                           ulong                  full_slot,
+                           ulong                  incr_slot ) {
   score_treap_ele_remove( selector->score_treap, peer, selector->pool );
 
-  ulong               peer_latency = latency!=ULONG_MAX ? latency : peer->latency;
-  fd_ssinfo_t const * peer_ssinfo  = ssinfo ? ssinfo : &peer->ssinfo;
+  ulong peer_latency = latency!=ULONG_MAX ? latency : peer->latency;
+  peer->score = fd_sspeer_selector_score( selector, peer_latency, full_slot, incr_slot );
 
-  peer->score = fd_sspeer_selector_score( selector, peer_latency, peer_ssinfo );
-
-  if( FD_LIKELY( ssinfo ) ) {
-    peer->ssinfo = *ssinfo;
-  }
+  peer->full_slot = full_slot!=ULONG_MAX ? full_slot : peer->full_slot;
+  peer->incr_slot = incr_slot!=ULONG_MAX ? incr_slot : peer->incr_slot;
 
   if( FD_LIKELY( latency!=ULONG_MAX ) ) {
     peer->latency = latency;
@@ -267,28 +270,24 @@ ulong
 fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
                         fd_ip4_port_t          addr,
                         ulong                  latency,
-                        fd_ssinfo_t const *    ssinfo ) {
+                        ulong                  full_slot,
+                        ulong                  incr_slot ) {
   fd_sspeer_private_t * peer = peer_map_ele_query( selector->map, &addr, NULL, selector->pool );
   if( FD_LIKELY( peer ) ) {
-    fd_sspeer_selector_update( selector, peer, latency, ssinfo );
+    fd_sspeer_selector_update( selector, peer, latency, full_slot, incr_slot );
   } else {
     if( FD_UNLIKELY( !peer_pool_free( selector->pool ) ) ) return ULONG_MAX;
 
     peer = peer_pool_ele_acquire( selector->pool );
-    if( FD_LIKELY( ssinfo ) ) {
-      peer->ssinfo  = *ssinfo;
-    } else {
-      peer->ssinfo.full.slot             = ULONG_MAX;
-      peer->ssinfo.incremental.slot      = ULONG_MAX;
-      peer->ssinfo.incremental.base_slot = ULONG_MAX;
-    }
-
-    peer->addr    = addr;
-    peer->latency = latency;
-    peer->score   = fd_sspeer_selector_score( selector, latency, ssinfo );
+    peer->addr      = addr;
+    peer->latency   = latency;
+    peer->score     = fd_sspeer_selector_score( selector, latency, full_slot, incr_slot );
+    peer->full_slot = full_slot;
+    peer->incr_slot = incr_slot;
     peer_map_ele_insert( selector->map, peer, selector->pool );
     score_treap_ele_insert( selector->score_treap, peer, selector->pool );
   }
+  peer->valid = peer->latency!=ULONG_MAX && peer->full_slot!=ULONG_MAX;
   return peer->score;
 }
 
@@ -315,44 +314,46 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
        !score_treap_fwd_iter_done( iter );
        iter = score_treap_fwd_iter_next( iter, selector->pool ) ) {
     fd_sspeer_private_t const * peer = score_treap_fwd_iter_ele_const( iter, selector->pool );
-    if( FD_LIKELY( peer->ssinfo.full.slot!=ULONG_MAX &&
+    if( FD_LIKELY( peer->valid &&
                    (!incremental ||
-                   (incremental && peer->ssinfo.incremental.base_slot==base_slot) ) ) ) {
+                   (incremental && peer->full_slot==base_slot) ) ) ) {
       return (fd_sspeer_t){
-        .addr   = peer->addr,
-        .ssinfo = peer->ssinfo,
-        .score  = peer->score,
+        .addr      = peer->addr,
+        .full_slot = peer->full_slot,
+        .incr_slot = peer->incr_slot,
+        .score     = peer->score,
       };
     }
   }
 
   return (fd_sspeer_t){
-    .addr={ .l=0UL },
-    .ssinfo={ .full={ .slot=ULONG_MAX }, .incremental={ .base_slot=ULONG_MAX, .slot=ULONG_MAX } },
-    .score=ULONG_MAX,
+    .addr      = { .l=0UL },
+    .full_slot = ULONG_MAX,
+    .incr_slot = ULONG_MAX,
+    .score     = ULONG_MAX,
   };
 }
 
 void
 fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
                                          ulong                  full_slot,
-                                         ulong                  incremental_slot ) {
-  if( full_slot==ULONG_MAX && incremental_slot==ULONG_MAX ) return;
+                                         ulong                  incr_slot ) {
+  if( full_slot==ULONG_MAX && incr_slot==ULONG_MAX ) return;
 
   FD_TEST( full_slot!=ULONG_MAX );
   if( FD_LIKELY( selector->incremental_snapshot_fetch ) ) {
     /* incremental slot is less than or equal to cluster incremental slot */
-    if( FD_UNLIKELY( incremental_slot!=ULONG_MAX && selector->cluster_slot.incremental!=ULONG_MAX && incremental_slot<=selector->cluster_slot.incremental ) ) return;
+    if( FD_UNLIKELY( incr_slot!=ULONG_MAX && selector->cluster_slot.incremental!=ULONG_MAX && incr_slot<=selector->cluster_slot.incremental ) ) return;
     /* incremental slot is less than or equal to cluster full slot when cluster incremental slot does not exist */
-    else if( FD_UNLIKELY( incremental_slot!=ULONG_MAX && selector->cluster_slot.incremental==ULONG_MAX && incremental_slot<=selector->cluster_slot.full ) )   return;
+    else if( FD_UNLIKELY( incr_slot!=ULONG_MAX && selector->cluster_slot.incremental==ULONG_MAX && incr_slot<=selector->cluster_slot.full ) )   return;
     /* full slot is less than cluster full slot when incremental slot does not exist */
-    else if( FD_UNLIKELY( incremental_slot==ULONG_MAX && full_slot<=selector->cluster_slot.full ) )                                                           return;
+    else if( FD_UNLIKELY( incr_slot==ULONG_MAX && full_slot<=selector->cluster_slot.full ) )                                                           return;
   } else {
     if( FD_UNLIKELY( full_slot<=selector->cluster_slot.full ) ) return;
   }
 
   selector->cluster_slot.full        = full_slot;
-  selector->cluster_slot.incremental = incremental_slot;
+  selector->cluster_slot.incremental = incr_slot;
 
   if( FD_UNLIKELY( score_treap_ele_cnt( selector->score_treap )==0UL ) ) return;
 
@@ -364,10 +365,11 @@ fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
         iter = score_treap_fwd_iter_next( iter, selector->pool ) ) {
     fd_sspeer_private_t const * peer  = score_treap_fwd_iter_ele_const( iter, selector->pool );
     fd_sspeer_private_t * shadow_peer = peer_pool_ele_acquire( selector->pool );
-    shadow_peer->latency = peer->latency;
-    shadow_peer->ssinfo  = peer->ssinfo;
-    shadow_peer->addr    = peer->addr;
-    shadow_peer->score   = fd_sspeer_selector_score( selector, shadow_peer->latency, &shadow_peer->ssinfo );
+    shadow_peer->latency   = peer->latency;
+    shadow_peer->full_slot = peer->full_slot;
+    shadow_peer->incr_slot = peer->incr_slot;
+    shadow_peer->addr      = peer->addr;
+    shadow_peer->score     = fd_sspeer_selector_score( selector, shadow_peer->latency, shadow_peer->full_slot, shadow_peer->incr_slot );
     score_treap_ele_insert( selector->shadow_score_treap, shadow_peer, selector->pool );
     selector->peer_idx_list[ idx++ ] = peer_pool_idx( selector->pool, peer );
     peer_map_ele_remove( selector->map, &peer->addr, NULL, selector->pool );

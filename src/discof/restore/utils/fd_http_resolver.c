@@ -32,7 +32,8 @@ struct fd_ssresolve_peer {
   fd_ip4_port_t addr;
   char const *  hostname;
   int           is_https;
-  fd_ssinfo_t   ssinfo;
+  ulong         full_slot;
+  ulong         incr_slot;
 
   fd_ssresolve_t * full_ssresolve;
   fd_ssresolve_t * inc_ssresolve;
@@ -225,9 +226,8 @@ fd_http_resolver_add( fd_http_resolver_t * resolver,
   peer->hostname                     = hostname;
   peer->is_https                     = is_https;
   peer->fd.idx                       = ULONG_MAX;
-  peer->ssinfo.full.slot             = ULONG_MAX;
-  peer->ssinfo.incremental.base_slot = ULONG_MAX;
-  peer->ssinfo.incremental.slot      = ULONG_MAX;
+  peer->full_slot                    = ULONG_MAX;
+  peer->incr_slot                    = ULONG_MAX;
   deadline_list_ele_push_tail( resolver->unresolved, peer, resolver->pool );
 }
 
@@ -377,10 +377,10 @@ poll_resolve( fd_http_resolver_t *  resolver,
       FD_TEST( peer->deadline_nanos>now );
 
       if( resolve_result.base_slot==ULONG_MAX ) {
-        peer->ssinfo.full.slot = resolve_result.slot;
+        peer->full_slot = resolve_result.slot;
       } else {
-        peer->ssinfo.incremental.base_slot = resolve_result.base_slot;
-        peer->ssinfo.incremental.slot      = resolve_result.slot;
+        peer->full_slot = resolve_result.base_slot;
+        peer->incr_slot = resolve_result.slot;
       }
     }
   }
@@ -428,7 +428,7 @@ poll_advance( fd_http_resolver_t * resolver,
       deadline_list_ele_push_tail( resolver->valid, peer, resolver->pool );
       remove_peer( resolver, peer->fd.idx );
 
-      resolver->on_resolve_cb( resolver->cb_arg, peer->addr, &peer->ssinfo );
+      resolver->on_resolve_cb( resolver->cb_arg, peer->addr, peer->full_slot, peer->incr_slot );
     }
   }
 }

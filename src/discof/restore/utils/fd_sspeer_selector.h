@@ -11,19 +11,6 @@
 
 #define FD_SSPEER_SELECTOR_MAGIC (0xF17EDA2CE5593350) /* FIREDANCE SSPING V0 */
 
-/* fd_ssinfo stores the resolved snapshot slot information from a peer. */
-struct fd_ssinfo {
-  struct {
-    ulong slot;
-  } full;
-
-  struct {
-    ulong base_slot;
-    ulong slot;
-  } incremental;
-};
-typedef struct fd_ssinfo fd_ssinfo_t;
-
 /* fd_sscluster_slot stores the highest full and incremental slot pair
    seen in the cluster. */
 struct fd_sscluster_slot {
@@ -37,9 +24,10 @@ typedef struct fd_sscluster_slot fd_sscluster_slot_t;
     selector, including the peer's address, resolved snapshot slots,
     and selector score. */
 struct fd_sspeer {
-  fd_ip4_port_t addr;   /* address of the peer */
-  fd_ssinfo_t   ssinfo; /* resolved snapshot slot info of the peer */
-  ulong         score;  /* selector score of peer */
+  fd_ip4_port_t addr;      /* address of the peer */
+  ulong         full_slot;
+  ulong         incr_slot;
+  ulong         score;    /* selector score of peer */
 };
 
 typedef struct fd_sspeer fd_sspeer_t;
@@ -77,7 +65,8 @@ ulong
 fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
                         fd_ip4_port_t          addr,
                         ulong                  peer_latency,
-                        fd_ssinfo_t const *    ssinfo );
+                        ulong                  full_slot,
+                        ulong                  incr_slot );
 
 /* Remove a peer from the selector.  Peers are removed when they are
    not reachable or serving corrupted/malformed snapshots.  This is a
@@ -99,7 +88,7 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
 void
 fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
                                          ulong                  full_slot,
-                                         ulong                  incremental_slot );
+                                         ulong                  incr_slot );
 
 /* Obtain the cluster slot from the selector.  It is the highest
    resolved full/incremental slot pair seen from snapshot hashes or
