@@ -7,6 +7,7 @@
 #include "../voter/fd_voter.h"
 #include "../voter/fd_voter_private.h"
 #include "fd_tower_forks.h"
+#include "fd_tower_serde.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 
@@ -722,33 +723,36 @@ fd_tower_with_lat_from_vote_acc( fd_voter_vote_t tower[ static FD_TOWER_VOTE_MAX
 void
 fd_tower_to_vote_txn( fd_tower_t const *    tower,
                       ulong                 root,
-                      fd_lockout_offset_t * lockouts_scratch,
                       fd_hash_t const *     bank_hash,
+                      fd_hash_t const *     block_id,
                       fd_hash_t const *     recent_blockhash,
                       fd_pubkey_t const *   validator_identity,
                       fd_pubkey_t const *   vote_authority,
                       fd_pubkey_t const *   vote_acc,
                       fd_txn_p_t *          vote_txn ) {
 
-  fd_compact_vote_state_update_t tower_sync;
-  tower_sync.root          = fd_ulong_if( root == ULONG_MAX, 0UL, root );
-  tower_sync.lockouts_len  = (ushort)fd_tower_cnt( tower );
-  tower_sync.lockouts      = lockouts_scratch;
-  tower_sync.timestamp     = fd_log_wallclock() / (long)1e9; /* seconds */
-  tower_sync.has_timestamp = 1;
+  FD_TEST( fd_tower_cnt( tower )<=FD_TOWER_VOTE_MAX );
+  fd_compact_tower_sync_serde_t tower_sync_serde = {
+    .root             = fd_ulong_if( root == ULONG_MAX, 0UL, root ),
+    .lockouts_cnt     = (ushort)fd_tower_cnt( tower ),
+    /* .lockouts populated below */
+    .hash             = *bank_hash,
+    .timestamp_option = 1,
+    .timestamp        = fd_log_wallclock() / (long)1e9, /* seconds */
+    .block_id         = *block_id
+  };
 
-  ulong prev = tower_sync.root;
-  ulong i    = 0UL;
+  ulong i = 0UL;
+  ulong prev = tower_sync_serde.root;
   for( fd_tower_iter_t iter = fd_tower_iter_init( tower       );
                              !fd_tower_iter_done( tower, iter );
                        iter = fd_tower_iter_next( tower, iter ) ) {
-    fd_tower_t const * vote                   = fd_tower_iter_ele_const( tower, iter );
-    tower_sync.lockouts[i].offset             = vote->slot - prev;
-    tower_sync.lockouts[i].confirmation_count = (uchar)vote->conf;
-    prev                                      = vote->slot;
+    fd_tower_t const * vote                         = fd_tower_iter_ele_const( tower, iter );
+    tower_sync_serde.lockouts[i].offset             = vote->slot - prev;
+    tower_sync_serde.lockouts[i].confirmation_count = (uchar)vote->conf;
+    prev                                            = vote->slot;
     i++;
   }
-  memcpy( tower_sync.hash.uc, bank_hash, sizeof(fd_hash_t) );
 
   uchar * txn_out = vote_txn->payload;
   uchar * txn_meta_out = vote_txn->_;
@@ -792,12 +796,11 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
 
   /* Add the vote instruction to the transaction. */
 
-  fd_vote_instruction_t vote_ix;
-  uchar                 vote_ix_buf[FD_TXN_MTU];
-  vote_ix.discriminant                    = fd_vote_instruction_enum_compact_update_vote_state;
-  vote_ix.inner.compact_update_vote_state = tower_sync;
-  fd_bincode_encode_ctx_t encode = { .data = vote_ix_buf, .dataend = ( vote_ix_buf + FD_TXN_MTU ) };
-  fd_vote_instruction_encode( &vote_ix, &encode );
+  uchar  vote_ix_buf[FD_TXN_MTU];
+  ulong  vote_ix_sz = 0;
+  FD_STORE( uint, vote_ix_buf, FD_VOTE_IX_KIND_TOWER_SYNC );
+  FD_TEST( 0==fd_compact_tower_sync_serialize( &tower_sync_serde, vote_ix_buf + sizeof(uint), FD_TXN_MTU - sizeof(uint), &vote_ix_sz ) ); // cannot fail if fd_tower_cnt( tower ) <= FD_TOWER_VOTE_MAX
+  vote_ix_sz += sizeof(uint);
   uchar program_id;
   uchar ix_accs[2];
   if( FD_LIKELY( same_addr ) ) {
@@ -809,7 +812,6 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
     ix_accs[1] = 1; /* vote authority */
     program_id = 3; /* vote program */
   }
-  ushort vote_ix_sz = (ushort)fd_vote_instruction_size( &vote_ix );
   vote_txn->payload_sz = fd_txn_add_instr( txn_meta_out, txn_out, program_id, ix_accs, 2, vote_ix_buf, vote_ix_sz );
 }
 

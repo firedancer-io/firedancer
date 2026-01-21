@@ -861,12 +861,11 @@ done_vote_iter:
 
   if( FD_LIKELY( found_authority ) ) {
     msg->is_valid_vote = 1;
-    fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
     fd_txn_p_t          txn[1];
     fd_tower_to_vote_txn( ctx->tower,
                           ctx->root_slot,
-                          lockouts,
                           &slot_completed->bank_hash,
+                          &slot_completed->block_id,
                           &slot_completed->block_hash,
                           ctx->identity_key,
                           authority,

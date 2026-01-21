@@ -9,6 +9,12 @@
     off += sizeof(T);                                                                    \
 } while(0)
 
+#define SER( T, name ) do {                                                               \
+    if( FD_UNLIKELY( off+sizeof(T)>buf_sz ) ) return -1;                                 \
+    FD_STORE( T, buf+off, serde->name );                                                 \
+    off += sizeof(T);                                                                    \
+} while(0)
+
 static ulong
 de_short_u16( ushort * dst, uchar const * src ) {
   if     ( FD_LIKELY( !(0x80U & src[0]) ) ) { *dst = (ushort)src[0];                                                                           return 1; }
@@ -35,6 +41,37 @@ de_var_int( ulong * dst, uchar const * src ) {
   FD_LOG_CRIT(( "de_varint" ));
 }
 
+static ulong
+ser_short_u16( uchar * dst, ushort val ) {
+  if     ( FD_LIKELY( val < 0x80U ) ) {
+    dst[0] = (uchar)val;
+    return 1;
+  }
+  else if( FD_LIKELY( val < 0x4000U ) ) {
+    dst[0] = (uchar)((val & 0x7FUL) | 0x80U);
+    dst[1] = (uchar)(val >> 7);
+    return 2;
+  }
+  else {
+    dst[0] = (uchar)((val & 0x7FUL) | 0x80U);
+    dst[1] = (uchar)(((val >> 7) & 0x7FUL) | 0x80U);
+    dst[2] = (uchar)(val >> 14);
+    return 3;
+  }
+}
+
+static ulong
+ser_var_int( uchar * dst, ulong val ) {
+  ulong off = 0;
+  while( FD_LIKELY( val >= 0x80UL ) ) {
+    dst[off] = (uchar)((val & 0x7FUL) | 0x80U);
+    val >>= 7;
+    off  += 1;
+  }
+  dst[off] = (uchar)val;
+  return off + 1;
+}
+
 int
 fd_compact_tower_sync_deserialize( fd_compact_tower_sync_serde_t * serde,
                                    uchar const *                   buf,
@@ -53,5 +90,28 @@ fd_compact_tower_sync_deserialize( fd_compact_tower_sync_serde_t * serde,
     DE( long, timestamp );
   }
   DE( fd_hash_t, block_id );
+  return 0;
+}
+
+int
+fd_compact_tower_sync_serialize( fd_compact_tower_sync_serde_t const * serde,
+                                 uchar *                               buf,
+                                 ulong                                 buf_sz,
+                                 ulong *                               out_sz ) {
+  ulong off = 0;
+  SER( ulong, root );
+  off += ser_short_u16( buf+off, serde->lockouts_cnt );
+  if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
+  for( ulong i = 0; i < serde->lockouts_cnt; i++ ) {
+    off += ser_var_int( buf+off, serde->lockouts[i].offset );
+    SER( uchar, lockouts[i].confirmation_count );
+  }
+  SER( fd_hash_t, hash             );
+  SER( uchar,     timestamp_option );
+  if( FD_LIKELY( serde->timestamp_option ) ) {
+    SER( long, timestamp );
+  }
+  SER( fd_hash_t, block_id );
+  if( FD_LIKELY( out_sz ) ) *out_sz = off;
   return 0;
 }
