@@ -1511,6 +1511,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #include "../../disco/stem/fd_stem.c"
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_rpc = {
   .name                     = "rpc",
   .rlimit_file_cnt_fn       = rlimit_file_cnt,
@@ -1523,3 +1524,4 @@ fd_topo_run_tile_t fd_tile_rpc = {
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
+#endif
