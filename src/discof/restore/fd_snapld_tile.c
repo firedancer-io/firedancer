@@ -25,6 +25,7 @@ typedef struct fd_snapld_tile {
 
   struct {
     char path[ PATH_MAX ];
+    uint min_download_speed;
   } config;
 
   int   state;
@@ -32,6 +33,11 @@ typedef struct fd_snapld_tile {
   int   load_full;
   int   load_file;
   int   sent_meta;
+
+  ulong  bytes_in_batch;
+  double download_speed;
+  long   start_batch;
+  long   end_batch;
 
   int local_full_fd;
   int local_incr_fd;
@@ -168,9 +174,14 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snapld_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t),  sizeof(fd_snapld_tile_t) );
 
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
+  ctx->config.min_download_speed = tile->snapld.min_download_speed;
 
   ctx->state            = FD_SNAPSHOT_STATE_IDLE;
   ctx->pending_ctrl_sig = 0UL;
+
+  ctx->bytes_in_batch = 0;
+  ctx->start_batch    = 0L;
+  ctx->end_batch      = 0L;
 
   FD_TEST( tile->in_cnt==1UL );
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
@@ -203,6 +214,14 @@ metrics_write( fd_snapld_tile_t * ctx ) {
   FD_MCNT_SET(   SNAPLD, SSL_ALLOC_ERRORS, fd_ossl_alloc_errors );
 #endif
   FD_MGAUGE_SET( SNAPLD, STATE,            (ulong)(ctx->state) );
+}
+
+static void
+transition_malformed( fd_snapld_tile_t *  ctx,
+                      fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
+  ctx->state = FD_SNAPSHOT_STATE_ERROR;
+  fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static void
@@ -256,6 +275,7 @@ after_credit( fd_snapld_tile_t *  ctx,
              need to do so before any data frags.  So, we copy any data
              we received with the headers (if any) to the next dcache
              chunk and then publish both in order. */
+          ctx->start_batch = fd_log_wallclock();
           ctx->sent_meta = 1;
           fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)out;
           ulong next_chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
@@ -269,6 +289,23 @@ after_credit( fd_snapld_tile_t *  ctx,
         if( FD_LIKELY( data_len!=0UL ) ) {
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, data_len, 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, data_len, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+          ctx->bytes_in_batch += data_len;
+
+          /* measure download speed every 100 MiB */
+          if(ctx->bytes_in_batch>=100<<20UL) {
+            ctx->end_batch = fd_log_wallclock();
+            /* download speed in MiB/s = bytes/nanoseconds * 1e9/(1 second) * 1/(1MiB = 1<<20UL) = 1e9/(1024*1024) ~= 954 */
+            ctx->download_speed = (double)(ctx->bytes_in_batch*954) / (double)(ctx->end_batch - ctx->start_batch);
+            if( FD_UNLIKELY( ctx->download_speed<ctx->config.min_download_speed ) ) {
+              /* cancel the snapshot load if the download speed is less
+                 than the minimum download speed. */
+              FD_LOG_WARNING(( "download speed %.2f MiB/s is below the minimum threshold %.2f MiB/s, cancelling snapshot download",
+                               ctx->download_speed, (double)(ctx->config.min_download_speed) ));
+              transition_malformed(ctx, stem );
+            }
+            ctx->start_batch    = ctx->end_batch;
+            ctx->bytes_in_batch = 0UL;
+          }
         }
         *charge_busy = 1;
         break;
