@@ -358,9 +358,9 @@ user = ""
 
     # The minimum download speed the validator will tolerate in MiB/s.
     # If the download speed of a snapshot falls below the
-    # min_download_speed threshold, the validator will cancel the
+    # min_download_speed_mibs threshold, the validator will cancel the
     # download and retry downloading the snapshot from a different peer.
-    min_download_speed = 100
+    min_download_speed_mibs = 100
 
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from

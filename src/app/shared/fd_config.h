@@ -161,7 +161,7 @@ struct fd_configf {
     uint max_incremental_snapshots_to_keep;
     uint full_effective_age_cancel_threshold;
     uint max_retry_abort;
-    uint min_download_speed;
+    uint min_download_speed_mibs;
   } snapshots;
 
   struct {
