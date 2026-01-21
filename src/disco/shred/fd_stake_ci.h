@@ -161,6 +161,13 @@ fd_shred_dest_weighted_t * fd_stake_ci_dest_add_init ( fd_stake_ci_t * info     
 void                       fd_stake_ci_dest_add_fini ( fd_stake_ci_t * info, ulong                         cnt );
 
 /* Firedancer only:
+   fd_stake_ci_epoch_msg_{init, fini} are the Firedancer equivalents of
+   fd_stake_ci_stake_msg_{init, fini}. They take a different input message
+   structure (fd_epoch_info_msg_t vs fd_stake_weight_msg_t). */
+void                       fd_stake_ci_epoch_msg_init( fd_stake_ci_t * info, fd_epoch_info_msg_t const * msg );
+void                       fd_stake_ci_epoch_msg_fini( fd_stake_ci_t * info );
+
+/* Firedancer only:
    The full client's Gossip update model publishes individual contact
    info updates (update/insert or remove), which requires a different
    set of dest_ APIs.

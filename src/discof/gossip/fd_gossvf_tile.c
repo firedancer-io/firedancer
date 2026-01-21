@@ -16,7 +16,7 @@
 
 #define IN_KIND_SHRED_VERSION (0)
 #define IN_KIND_NET           (1)
-#define IN_KIND_REPLAY        (2)
+#define IN_KIND_EPOCH         (2)
 #define IN_KIND_PINGS         (3)
 #define IN_KIND_GOSSIP        (4)
 
@@ -146,7 +146,7 @@ struct fd_gossvf_tile_ctx {
     ulong         count;
     stake_t *     pool;
     stake_map_t * map;
-    uchar         msg_buf[ FD_STAKE_CI_STAKE_MSG_SZ ];
+    uchar         msg_buf[ FD_EPOCH_INFO_MAX_MSG_SZ ];
   } stake;
 
   uchar payload[ FD_NET_MTU ];
@@ -249,7 +249,7 @@ before_frag( fd_gossvf_tile_ctx_t * ctx,
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: return 0;
     case IN_KIND_NET: return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
-    case IN_KIND_REPLAY: return 0;
+    case IN_KIND_EPOCH: return 0;
     case IN_KIND_PINGS: return 0;
     case IN_KIND_GOSSIP: return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
                                 sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
@@ -279,11 +279,11 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
       fd_memcpy( ctx->payload, src, sz );
       break;
     }
-    case IN_KIND_REPLAY: {
-      fd_stake_weight_msg_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+    case IN_KIND_EPOCH: {
+      fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( msg->staked_cnt>MAX_STAKED_LEADERS ) )
         FD_LOG_ERR(( "Malformed stake update with %lu stakes in it, but the maximum allowed is %lu", msg->staked_cnt, MAX_SHRED_DESTS ));
-      ulong msg_sz = FD_STAKE_CI_STAKE_MSG_RECORD_SZ*msg->staked_cnt+FD_STAKE_CI_STAKE_MSG_HEADER_SZ;
+      ulong msg_sz = fd_epoch_info_msg_sz( msg->staked_cnt );
       fd_memcpy( ctx->stake.msg_buf, msg, msg_sz );
       break;
     }
@@ -301,8 +301,8 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
 }
 
 static inline void
-handle_stakes( fd_gossvf_tile_ctx_t *        ctx,
-               fd_stake_weight_msg_t const * msg ) {
+handle_epoch( fd_gossvf_tile_ctx_t *      ctx,
+              fd_epoch_info_msg_t const * msg ) {
   fd_stake_weight_t stake_weights[ MAX_STAKED_LEADERS ];
   ulong new_stakes_cnt = compute_id_weights_from_vote_weights( stake_weights, msg->weights, msg->staked_cnt );
 
@@ -885,7 +885,7 @@ after_frag( fd_gossvf_tile_ctx_t * ctx,
     case IN_KIND_SHRED_VERSION: break;
     case IN_KIND_PINGS:  handle_ping_update( ctx, ctx->_ping_update ); break;
     case IN_KIND_GOSSIP: handle_peer_update( ctx, ctx->_gossip_update ); break;
-    case IN_KIND_REPLAY: handle_stakes( ctx, (fd_stake_weight_msg_t const *) ctx->stake.msg_buf ); break;
+    case IN_KIND_EPOCH: handle_epoch( ctx, (fd_epoch_info_msg_t const *) ctx->stake.msg_buf ); break;
     case IN_KIND_NET: {
       int result = handle_net( ctx, sz, tsorig, stem );
       ctx->metrics.message_rx[ result ]++;
@@ -1008,7 +1008,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].kind = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
     }
-    else if( !strcmp( link->name, "replay_stake" ) ) ctx->in[ i ].kind = IN_KIND_REPLAY;
+    else if( !strcmp( link->name, "replay_epoch" ) ) ctx->in[ i ].kind = IN_KIND_EPOCH;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 

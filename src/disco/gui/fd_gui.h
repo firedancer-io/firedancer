@@ -897,6 +897,11 @@ fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
                                long                          now );
 
 void
+fd_gui_handle_epoch_info( fd_gui_t *                  gui,
+                          fd_epoch_info_msg_t const * epoch_info,
+                          long                        now );
+
+void
 fd_gui_handle_notarization_update( fd_gui_t *                        gui,
                                    fd_tower_slot_confirmed_t const * notar );
 

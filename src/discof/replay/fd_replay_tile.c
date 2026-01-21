@@ -378,7 +378,7 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t replay_out[1];
 
-  fd_replay_out_link_t stake_out[1];
+  fd_replay_out_link_t epoch_out[1];
 
   /* The gui tile needs to reliably own a reference to the most recent
      completed active bank.  Replay needs to know if the gui as a
@@ -510,24 +510,24 @@ metrics_write( fd_replay_tile_t * ctx ) {
 }
 
 static inline ulong
-generate_stake_weight_msg( ulong                       epoch,
-                           fd_epoch_schedule_t const * epoch_schedule,
-                           fd_vote_states_t const *    epoch_stakes,
-                           ulong *                     stake_weight_msg_out ) {
-  fd_stake_weight_msg_t *  stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
-  fd_vote_stake_weight_t * stake_weights    = stake_weight_msg->weights;
+generate_epoch_info_msg( ulong                       epoch,
+                         fd_epoch_schedule_t const * epoch_schedule,
+                         fd_vote_states_t const *    epoch_stakes,
+                         fd_features_t const *       features,
+                         fd_epoch_info_msg_t *       epoch_info_msg ) {
+  fd_vote_stake_weight_t * stake_weights    = epoch_info_msg->weights;
 
-  stake_weight_msg->epoch             = epoch;
-  stake_weight_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
-  stake_weight_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
-  stake_weight_msg->excluded_stake    = 0UL;
-  stake_weight_msg->vote_keyed_lsched = 1UL;
+  epoch_info_msg->epoch             = epoch;
+  epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
+  epoch_info_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
+  epoch_info_msg->excluded_stake    = 0UL;
+  epoch_info_msg->vote_keyed_lsched = 1UL;
 
   /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
      This code can be removed once the feature is active. */
   if( (1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET) ||
       (0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET) ) {
-    stake_weight_msg->vote_keyed_lsched = 0UL;
+    epoch_info_msg->vote_keyed_lsched = 0UL;
   }
 
   /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
@@ -542,17 +542,19 @@ generate_stake_weight_msg( ulong                       epoch,
     memcpy( stake_weights[ idx ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
     idx++;
   }
-  stake_weight_msg->staked_cnt = idx;
+  epoch_info_msg->staked_cnt = idx;
   sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
 
-  return fd_stake_weight_msg_sz( idx );
+  epoch_info_msg->features = *features;
+
+  return fd_epoch_info_msg_sz( epoch_info_msg->staked_cnt );
 }
 
 static void
-publish_stake_weights( fd_replay_tile_t *   ctx,
-                       fd_stem_context_t *  stem,
-                       fd_bank_t *          bank,
-                       int                  current_epoch ) {
+publish_epoch_info( fd_replay_tile_t *   ctx,
+                    fd_stem_context_t *  stem,
+                    fd_bank_t *          bank,
+                    int                  current_epoch ) {
   fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL );
 
@@ -560,14 +562,16 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
   if( FD_LIKELY( current_epoch ) ) vote_states_prev = fd_bank_vote_states_prev_query( bank );
   else                             vote_states_prev = fd_bank_vote_states_prev_prev_query( bank );
 
-  ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  ulong stake_weights_sz = generate_stake_weight_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states_prev, stake_weights_msg );
-  ulong stake_weights_sig = 4UL;
-  fd_stem_publish( stem, ctx->stake_out->idx, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+  fd_features_t const * features = fd_bank_features_query( bank );
 
-  fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( stake_weights_msg ) );
-  fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
+  fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
+  ulong epoch_info_sz = generate_epoch_info_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states_prev, features, epoch_info_msg );
+  ulong epoch_info_sig = 4UL;
+  fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->epoch_out->chunk = fd_dcache_compact_next( ctx->epoch_out->chunk, epoch_info_sz, ctx->epoch_out->chunk0, ctx->epoch_out->wmark );
+
+  fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
+  fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
 }
 
 /**********************************************************************/
@@ -640,7 +644,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
-  if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
+  if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, bank, 1 );
 
 }
 
@@ -900,7 +904,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
-  if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->leader_bank, 1 );
+  if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, ctx->leader_bank, 1 );
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
@@ -1335,8 +1339,8 @@ boot_genesis( fd_replay_tile_t *  ctx,
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
   fd_txncache_finalize_fork( ctx->txncache, bank->data->txncache_fork_id, 0UL, block_hash->uc );
 
-  publish_stake_weights( ctx, stem, bank, 0 );
-  publish_stake_weights( ctx, stem, bank, 1 );
+  publish_epoch_info( ctx, stem, bank, 0 );
+  publish_epoch_info( ctx, stem, bank, 1 );
 
   /* We call this after fd_runtime_read_genesis, which sets up the
      slot_bank needed in blockstore_init. */
@@ -1455,14 +1459,17 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->store->slot0 = snapshot_slot; /* FIXME manifest_block_id */
     fd_store_exrel( ctx->store );
 
+    fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };
+    fd_features_restore( bank, ctx->accdb, &xid );
+
     /* Typically, when we cross an epoch boundary during normal
        operation, we publish the stake weights for the new epoch.  But
        since we are starting from a snapshot, we need to publish two
        epochs worth of stake weights: the previous epoch (which is
        needed for voting on the current epoch), and the current epoch
        (which is needed for voting on the next epoch). */
-    publish_stake_weights( ctx, stem, bank, 0 );
-    publish_stake_weights( ctx, stem, bank, 1 );
+    publish_epoch_info( ctx, stem, bank, 0 );
+    publish_epoch_info( ctx, stem, bank, 1 );
 
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
@@ -1482,10 +1489,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     fd_sched_block_add_done( ctx->sched, bank->data->idx, ULONG_MAX, snapshot_slot );
     FD_TEST( bank->data->idx==0UL );
-
-    fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };
-
-    fd_features_restore( bank, ctx->accdb, &xid );
 
     fd_runtime_update_leaders( bank, &ctx->runtime_stack );
 
@@ -2643,7 +2646,7 @@ unprivileged_init( fd_topo_t *      topo,
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
-  *ctx->stake_out  = out1( topo, tile, "replay_stake" ); FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
+  *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
 
   ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", 0UL );

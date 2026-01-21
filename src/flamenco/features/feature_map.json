@@ -255,5 +255,6 @@
   {"name":"vote_state_v4","pubkey":"Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ"},
   {"name":"alt_bn128_little_endian","pubkey":"bn2oPgpkzQPT3tohMaAsMVGjhDmmDa4jCaVPqCFmtxM"},
   {"name":"enable_bls12_381_syscall","pubkey":"b1sraWPVFdcUizB2LV5wQTeMuK8M313bi5bHjco5eVU"},
-  {"name":"enable_alt_bn128_g2_syscalls","pubkey":"bn1hKNURMGQaQoEVxahcEAcqiX3NwRs6hgKKNSLeKxH"}
+  {"name":"enable_alt_bn128_g2_syscalls","pubkey":"bn1hKNURMGQaQoEVxahcEAcqiX3NwRs6hgKKNSLeKxH"},
+  {"name":"switch_to_chacha8_turbine","pubkey":"CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB"}
 ]

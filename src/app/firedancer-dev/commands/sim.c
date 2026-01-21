@@ -72,13 +72,13 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "shred_storei" );
   fd_topob_wksp( topo, "repair_store" );
   fd_topob_wksp( topo, "storei_notif" );
-  fd_topob_wksp( topo, "replay_stake" );
+  fd_topob_wksp( topo, "replay_epoch" );
   fd_topob_wksp( topo, "store_replay" );
   /*             topo,  link_name,      wksp_name,     depth,         mtu,                    burst */
   fd_topob_link( topo, "shred_storei", "shred_storei", 65536UL,       4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
   fd_topob_link( topo, "repair_store", "repair_store", 1024UL*1024UL, FD_SHRED_MAX_SZ,        128UL                                          );
   fd_topob_link( topo, "storei_notif", "storei_notif", 65536UL,       4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
-  fd_topob_link( topo, "replay_stake", "replay_stake", 128UL,         40UL + 40200UL * 40UL,  1UL                                            );
+  fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL,         40UL + 40200UL * 40UL,  1UL                                            );
   fd_topob_link( topo, "store_replay", "store_replay", 32768UL,       sizeof(ulong),          64UL                                           );
 
   /*                 topo, tile_name, tile_kind_id, link_name,      link_kind_id */
@@ -87,7 +87,7 @@ sim_topo( config_t * config ) {
   fd_topob_tile_in(  topo, "arch_p",  0UL,          "metric_in", "storei_notif",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /*                 topo, tile_name, tile_kind_id, fseq_wksp,   link_name,            link_kind_id, reliable,            polled */
-  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "replay_stake",       0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "replay_epoch",       0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "repair_store",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "shred_storei",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
@@ -99,7 +99,7 @@ sim_topo( config_t * config ) {
   fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "store_replay",       0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
 
   /*                 topo, tile_name, tile_kind_id, link_name,          link_kind_id */
-  fd_topob_tile_out( topo, "replay",  0UL,          "replay_stake",     0UL );
+  fd_topob_tile_out( topo, "replay",  0UL,          "replay_epoch",     0UL );
 
   /**********************************************************************/
   /* Setup replay-->exec links in topo                                  */
