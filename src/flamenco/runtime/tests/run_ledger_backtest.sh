@@ -323,6 +323,13 @@ if [ "$status" -eq 0 ]; then
   echo "Snapshot load time for $LEDGER: $snapshot_load_time seconds"
   elapsed_time=$(grep "Backtest playback done." $LOG | grep -o "elapsed: [0-9.]*" | grep -o "[0-9.]*")
   echo "Replay time for $LEDGER: $elapsed_time seconds"
+
+  epoch_time_ns=$(grep "fd_process_new_epoch took" "$LOG" | grep -o "fd_process_new_epoch took [0-9]*" | grep -o "[0-9]*")
+  if [ -n "$epoch_time_ns" ]; then
+    epoch_time_sec=$(echo "scale=6; $epoch_time_ns / 1000000000" | bc)
+    echo "Epoch boundary time for $LEDGER: ${epoch_time_sec} seconds"
+  fi
+
   echo_notice "Finished backtest for ledger $LEDGER\n"
   exit 0
 fi
