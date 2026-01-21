@@ -414,7 +414,7 @@ FD_PROTOTYPES_END
 /* FD_VM_CURVE_BLS12_381_PAIRING_*_COST are the number of compute
    units consumed for calculating a pairing map in BLS12-381.
    The total cost is calculated as
-     `pairing_base_cost + (length) * pairing_incr_cost` */
+     `pairing_base_cost + (length-1) * pairing_incr_cost` */
 
 #define FD_VM_CURVE_BLS12_381_PAIRING_BASE_COST    (           12422UL)
 #define FD_VM_CURVE_BLS12_381_PAIRING_INCR_COST    (           13023UL)
