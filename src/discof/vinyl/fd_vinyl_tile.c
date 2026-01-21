@@ -559,14 +559,12 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
     ulong overflow    = (ctx->accum_garbage_cnt >> (63-gc_eager) >> 1); /* sigh ... avoid wide shift UB */
     ulong compact_max = fd_ulong_max( fd_ulong_if( !overflow, ctx->accum_garbage_cnt << gc_eager, ULONG_MAX ), 1UL );
 
-    FD_MCNT_INC( VINYL, CUM_GC_RECORDS, ctx->accum_garbage_cnt );
-    FD_MCNT_INC( VINYL, CUM_GC_BYTES,   ctx->accum_garbage_sz  );
-
     /**/                                        ctx->accum_garbage_cnt = 0UL;
     vinyl->garbage_sz += ctx->accum_garbage_sz; ctx->accum_garbage_sz  = 0UL;
 
+    ulong garbage_pre = vinyl->garbage_sz;
     fd_vinyl_compact( vinyl, compact_max );
-    /* FIXME count blocks written during compaction towards metrics */
+    FD_MCNT_INC( VINYL, CUM_GC_BYTES, garbage_pre - vinyl->garbage_sz );
 
   }
 
@@ -629,8 +627,7 @@ metrics_write( fd_vinyl_tile_t * ctx ) {
   FD_MGAUGE_SET( VINYL, BSTREAM_SEQ_PRESENT, io->seq_present );
   FD_MGAUGE_SET( VINYL, BSTREAM_SEQ_FUTURE,  io->seq_future  );
 
-  FD_MGAUGE_SET( VINYL, GARBAGE_RECORDS, ctx->accum_garbage_cnt );
-  FD_MGAUGE_SET( VINYL, GARBAGE_BYTES,   ctx->accum_garbage_sz  );
+  FD_MGAUGE_SET( VINYL, GARBAGE_BYTES, vinyl->garbage_sz );
 }
 
 /* before_credit runs every main loop iteration */
