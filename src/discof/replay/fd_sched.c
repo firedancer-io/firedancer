@@ -212,6 +212,12 @@ compute_longest_unstaged_fork( fd_sched_t * sched, ulong bank_idx );
 static ulong
 stage_longest_unstaged_fork( fd_sched_t * sched, ulong bank_idx, int lane_idx );
 
+static int
+lane_is_demotable( fd_sched_t * sched, int lane_idx );
+
+static ulong
+demote_lane( fd_sched_t * sched, int lane_idx );
+
 static inline fd_sched_block_t *
 block_pool_ele( fd_sched_t * sched, ulong idx ) {
   FD_TEST( idx<sched->block_cnt_max || idx==ULONG_MAX );
@@ -276,6 +282,17 @@ block_is_stageable( fd_sched_block_t * block ) {
 static inline int
 block_is_promotable( fd_sched_block_t * block ) {
   return block_is_stageable( block ) && block_is_dispatchable( block ) && !block->staged;
+}
+
+static inline int
+block_is_demotable( fd_sched_block_t * block ) {
+  /* A block can only be demoted from rdisp if it is empty, meaning no
+     PENDING, READY, or DISPATCHED transactions.  This is equivalent to
+     having no in-flight transactions (DISPATCHED) and no queued
+     transactions (PENDING or READY).  This function actually implements
+     a stronger requirement.  We consider a block demotable only if
+     there are no in-flight or queued tasks of any kind. */
+  return !block_is_in_flight( block ) && !block_is_dispatchable( block ) && block->staged;
 }
 
 static inline int
@@ -564,8 +581,11 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     } else {
       if( block_is_stageable( parent_block ) ) {
         /* Parent is unstaged but stageable.  So let's be unstaged too.
-           This is a policy decision to be lazy and not promote parent
-           at the moment. */
+           This is not only a policy decision to be lazy and not promote
+           the parent at the moment, but also an important invariant
+           that we maintain for deadlock freeness in the face of staging
+           lane shortage.  See the comments in lane eviction for how
+           this invariant is relevant. */
         block->in_rdisp = 1;
         block->staged   = 0;
         fd_rdisp_add_block( sched->rdisp, fec->bank_idx, FD_RDISP_UNSTAGED );
@@ -1572,13 +1592,58 @@ try_activate_block( fd_sched_t * sched ) {
   if( FD_LIKELY( depth>0UL ) ) {
     if( FD_UNLIKELY( sched->staged_bitset==fd_ulong_mask_lsb( FD_SCHED_MAX_STAGING_LANES ) ) ) {
       /* No more staging lanes available.  All of them are occupied by
-         slow squatters.  Demote one of them. */
-      //FIXME implement this, note that only empty blocks can be
-      //demoted, and so blocks with in-flight transactions, including
-      //dying in-flight blocks, shouldn't be demoted
-      FD_LOG_CRIT(( "unimplemented" ));
-      sched->metrics->lane_demoted_cnt++;
-      // sched->metrics->block_demoted_cnt++; for every demoted block
+         slow squatters.  Only empty blocks can be demoted, and so
+         blocks with in-flight transactions, including dying in-flight
+         blocks, shouldn't be demoted.  We demote all demotable lanes.
+         Demotion isn't all that expensive, since demotable blocks have
+         no transactions in them.  If a demoted block proves to be
+         active still, it'll naturally promote back into a staging lane.
+
+         In fact, all lanes should be demotable at this point.  None of
+         the lanes have anything dispatchable, otherwise we would have
+         simply activated one of the dispatchable lanes.  None of the
+         lanes have anything in-flight either, as we allow for a grace
+         period while something is in-flight, before we deactivate any
+         block.  In principle, we could get rid of the grace period and
+         deactivate right away.  In that case, it's okay if nothing is
+         demotable at the moment, as that simply implies that all lanes
+         have in-flight tasks.  We would get another chance to try to
+         demote when the last in-flight task on any lane completes.
+
+         Another interesting side effect of the current dispatching and
+         lane switching policy is that each lane should have exactly one
+         block in it at this point.  A parent block by definition can't
+         be partially ingested.  Any parent block that is fully ingested
+         and dispatchable would have made the lane dispatchable, and we
+         wouldn't be here.  Any parent that is fully ingested and fully
+         dispatched would be fully done after the grace period.  So
+         there could only be one block per lane, and it is
+         simultaneously the head and the tail of the lane.
+
+         A note on why this whole thing does not deadlock:
+
+         One might reasonably wonder what happens if all the lanes are
+         non-empty, non-dead, but for some reason couldn't be activated
+         for dispatching.  We would deadlock in this case, as no lane
+         dispatches to the point of being demotable, and no unstaged
+         block can be promoted.  Such is not in fact possible.  The only
+         way a dispatchable lane can be ineligible for activation is if
+         it has a parent block that isn't done yet.  So a deadlock
+         happens when this parent block, or any of its dispatchable
+         ancestors, is unstaged.  An important invariant we maintain is
+         that a staged block can't have an unstaged stageable parent.
+         This invariant, by induction, gives us the guarantee that at
+         least one of the lanes can be activated. */
+      for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
+        if( FD_UNLIKELY( !lane_is_demotable( sched, l ) ) ) {
+          FD_LOG_CRIT(( "invariant violation: lane %d is not demotable", l ));
+        }
+        ulong demoted_cnt = demote_lane( sched, l );
+        if( FD_UNLIKELY( demoted_cnt!=1UL ) ) {
+          FD_LOG_CRIT(( "invariant violation: %lu blocks demoted from lane %d, expected 1 demotion", demoted_cnt, l ));
+        }
+        sched->metrics->lane_demoted_cnt++;
+      }
     }
     FD_TEST( sched->staged_bitset!=fd_ulong_mask_lsb( FD_SCHED_MAX_STAGING_LANES ) );
     int lane_idx = fd_ulong_find_lsb( ~sched->staged_bitset );
@@ -1592,7 +1657,14 @@ try_activate_block( fd_sched_t * sched ) {
       FD_LOG_CRIT(( "invariant violation: head_bank_idx==ULONG_MAX" ));
     }
     /* We don't bother with promotion unless the block is immediately
-       dispatchable.  So it's okay to set the active block here. */
+       dispatchable.  So it's okay to set the active block here.  This
+       doesn't cause out-of-order block replay because any parent block
+       must be fully done.  If the parent block were dead, this fork
+       would be marked dead too and ineligible for promotion.  If the
+       parent block were not dead and not done and staged, we wouldn't
+       be trying to promote an unstaged fork.  If the parent block were
+       not dead and not done and unstaged, it would've been part of this
+       unstaged fork. */
     sched->active_bank_idx = head_bank_idx;
     return;
   }
@@ -1874,4 +1946,79 @@ stage_longest_unstaged_fork( fd_sched_t * sched, ulong bank_idx, int lane_idx ) 
     sched->staged_head_bank_idx[ lane_idx ] = head_bank_idx;
   }
   return head_bank_idx;
+}
+
+/* Check if an entire staging lane can be demoted.  Returns 1 if all
+   blocks in the lane are demotable, 0 otherwise. */
+static int
+lane_is_demotable( fd_sched_t * sched, int lane_idx ) {
+  ulong bank_idx = sched->staged_head_bank_idx[ lane_idx ];
+
+  while( bank_idx!=ULONG_MAX ) {
+    fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+    FD_TEST( block->staged );
+    FD_TEST( block->staging_lane==(ulong)lane_idx );
+
+    if( FD_UNLIKELY( !block_is_demotable( block ) ) ) {
+      /* Found a non-demotable block.  Early exit. */
+      return 0;
+    }
+
+    /* Find the child in the same staging lane. */
+    ulong child_idx = block->child_idx;
+    ulong next_bank_idx = ULONG_MAX;
+    while( child_idx!=ULONG_MAX ) {
+      fd_sched_block_t * child = block_pool_ele( sched, child_idx );
+      if( child->staged && child->staging_lane==(ulong)lane_idx ) {
+        next_bank_idx = child_idx;
+        break;
+      }
+      child_idx = child->sibling_idx;
+    }
+    bank_idx = next_bank_idx;
+  }
+
+  return 1;
+}
+
+/* Demote all blocks in a staging lane.  Assumes that all blocks in the
+   lane are demotable.  Returns the number of blocks demoted. */
+static ulong
+demote_lane( fd_sched_t * sched, int lane_idx ) {
+  ulong bank_idx = sched->staged_head_bank_idx[ lane_idx ];
+  uint  demoted_cnt = 0U;
+
+  while( bank_idx!=ULONG_MAX ) {
+    fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+    FD_TEST( block->staged );
+    FD_TEST( block->staging_lane==(ulong)lane_idx );
+
+    int ret = fd_rdisp_demote_block( sched->rdisp, bank_idx );
+    if( FD_UNLIKELY( ret!=0 ) ) {
+      FD_LOG_CRIT(( "fd_rdisp_demote_block failed for slot %lu, bank_idx %lu, lane %d", block->slot, bank_idx, lane_idx ));
+    }
+    block->staged = 0;
+    demoted_cnt++;
+
+    /* Find the child in the same staging lane. */
+    ulong child_idx = block->child_idx;
+    ulong next_bank_idx = ULONG_MAX;
+    while( child_idx!=ULONG_MAX ) {
+      fd_sched_block_t * child = block_pool_ele( sched, child_idx );
+      if( child->staged && child->staging_lane==(ulong)lane_idx ) {
+        next_bank_idx = child_idx;
+        break;
+      }
+      child_idx = child->sibling_idx;
+    }
+    bank_idx = next_bank_idx;
+  }
+
+  /* Clear the lane. */
+  sched->staged_bitset = fd_ulong_clear_bit( sched->staged_bitset, lane_idx );
+  sched->staged_head_bank_idx[ lane_idx ] = ULONG_MAX;
+
+  sched->metrics->block_demoted_cnt += demoted_cnt;
+  FD_LOG_DEBUG(( "demoted %u blocks in lane %d", demoted_cnt, lane_idx ));
+  return demoted_cnt;
 }
