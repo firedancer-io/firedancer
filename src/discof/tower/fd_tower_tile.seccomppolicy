@@ -15,7 +15,7 @@ unsigned int logfile_fd, unsigned int checkpt_fd, unsigned int restore_fd, unsig
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd)
            (eq (arg 0) checkpt_fd)
-           (eq (arg 0) debug_fd))t push
+           (eq (arg 0) debug_fd))
 
 # fd_tower_restore requires read
 read: (eq (arg 0) restore_fd)
