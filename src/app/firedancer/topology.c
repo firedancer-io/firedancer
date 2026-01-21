@@ -180,11 +180,11 @@ setup_topo_acc_pool( fd_topo_t * topo,
 }
 
 void
-setup_topo_vinyl_meta( fd_topo_t *    topo,
+setup_topo_accdb_meta( fd_topo_t *    topo,
                        fd_configf_t * config ) {
-  fd_topob_wksp( topo, "vinyl_meta" );
+  fd_topob_wksp( topo, "accdb_meta" );
 
-  fd_topo_obj_t * map_obj = fd_topob_obj( topo, "vinyl_meta", "vinyl_meta" );
+  fd_topo_obj_t * map_obj = fd_topob_obj( topo, "vinyl_meta", "accdb_meta" );
   ulong const meta_max  = fd_ulong_pow2_up( config->vinyl.max_account_records );
   ulong const lock_cnt  = fd_vinyl_meta_lock_cnt_est ( meta_max );
   ulong const probe_max = fd_vinyl_meta_probe_max_est( meta_max );
@@ -193,21 +193,21 @@ setup_topo_vinyl_meta( fd_topo_t *    topo,
   fd_pod_insertf_ulong( topo->props, probe_max, "obj.%lu.probe_max", map_obj->id );
   fd_pod_insertf_ulong( topo->props, (ulong)fd_tickcount(), "obj.%lu.seed", map_obj->id );
 
-  fd_topo_obj_t * meta_pool_obj = fd_topob_obj( topo, "vinyl_meta_e", "vinyl_meta" );
+  fd_topo_obj_t * meta_pool_obj = fd_topob_obj( topo, "vinyl_meta_e", "accdb_meta" );
   fd_pod_insertf_ulong( topo->props, meta_max, "obj.%lu.cnt", meta_pool_obj->id );
 
-  fd_pod_insert_ulong( topo->props, "vinyl.meta_map",  map_obj->id );
-  fd_pod_insert_ulong( topo->props, "vinyl.meta_pool", meta_pool_obj->id );
+  fd_pod_insert_ulong( topo->props, "accdb.meta_map",  map_obj->id );
+  fd_pod_insert_ulong( topo->props, "accdb.meta_pool", meta_pool_obj->id );
 }
 
 fd_topo_obj_t *
-setup_topo_vinyl_cache( fd_topo_t *    topo,
+setup_topo_accdb_cache( fd_topo_t *    topo,
                         fd_configf_t * config ) {
-  fd_topob_wksp( topo, "vinyl_data" );
-  fd_topo_obj_t * line_obj = fd_topob_obj( topo, "vinyl_data", "vinyl_data" );
+  fd_topob_wksp( topo, "accdb_data" );
+  fd_topo_obj_t * line_obj = fd_topob_obj( topo, "vinyl_data", "accdb_data" );
   ulong const heap_max = config->vinyl.cache_size_gib<<30;
   fd_pod_insertf_ulong( topo->props, heap_max, "obj.%lu.data_sz", line_obj->id );
-  fd_pod_insert_ulong( topo->props, "vinyl.data", line_obj->id );
+  fd_pod_insert_ulong( topo->props, "accdb.data", line_obj->id );
   return line_obj;
 }
 
@@ -705,41 +705,41 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( vinyl_enabled ) {
-    setup_topo_vinyl_meta( topo, &config->firedancer );
+    setup_topo_accdb_meta( topo, &config->firedancer );
 
-    fd_topo_obj_t * vinyl_data = setup_topo_vinyl_cache( topo, &config->firedancer );
+    fd_topo_obj_t * accdb_data = setup_topo_accdb_cache( topo, &config->firedancer );
 
-    ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
-    ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+    ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
+    ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
 
-    fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
-    fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
+    fd_topo_obj_t * accdb_map_obj  = &topo->objs[ vinyl_map_obj_id ];
+    fd_topo_obj_t * accdb_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
 
-    fd_topob_wksp( topo, "vinyl" );
-    fd_topo_tile_t * vinyl_tile = fd_topob_tile( topo, "vinyl", "vinyl", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-    fd_topob_tile_uses( topo, vinyl_tile,  vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, vinyl_tile, vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, vinyl_tile, vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_wksp( topo, "accdb" );
+    fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    fd_topob_tile_uses( topo, accdb_tile, accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile, accdb_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile, accdb_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
     for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", 0UL ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
     if( rpc_enabled ) {
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], vinyl_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
     }
 
-    fd_topob_wksp( topo, "vinyl_replay" );
-    fd_topob_wksp( topo, "vinyl_exec" );
-    fd_topob_wksp( topo, "vinyl_bank" );
-    fd_topob_wksp( topo, "vinyl_tower" );
-    fd_topob_wksp( topo, "vinyl_resolv" );
-    if( config->tiles.rpc.enabled ) fd_topob_wksp( topo, "vinyl_rpc" );
+    fd_topob_wksp( topo, "accdb_replay" );
+    fd_topob_wksp( topo, "accdb_exec" );
+    fd_topob_wksp( topo, "accdb_bank" );
+    fd_topob_wksp( topo, "accdb_tower" );
+    fd_topob_wksp( topo, "accdb_resolv" );
+    if( config->tiles.rpc.enabled ) fd_topob_wksp( topo, "accdb_rpc" );
   }
 
   if( FD_UNLIKELY( solcap_enabled ) ) {
@@ -749,8 +749,8 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_LIKELY( snapshots_enabled ) ) {
     if( vinyl_enabled ) {
-      ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
-      ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+      ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
+      ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
 
       fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
       fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
@@ -1227,17 +1227,17 @@ fd_topo_initialize( config_t * config ) {
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
 
   if( vinyl_enabled ) {
-    fd_topob_vinyl_rq( topo, "replay", 0UL, "vinyl_replay", "replay", 4UL, 1024UL, 1024UL );
+    fd_topob_vinyl_rq( topo, "replay", 0UL, "accdb_replay", "replay", 4UL, 1024UL, 1024UL );
     for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
-      fd_topob_vinyl_rq( topo, "exec", i, "vinyl_exec", "exec", 4UL, 1024UL, 1024UL );
+      fd_topob_vinyl_rq( topo, "exec", i, "accdb_exec", "exec", 4UL, 1024UL, 1024UL );
     }
     for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
-      fd_topob_vinyl_rq( topo, "bank", i, "vinyl_bank", "bank", 4UL, 1024UL, 1024UL );
+      fd_topob_vinyl_rq( topo, "bank", i, "accdb_bank", "bank", 4UL, 1024UL, 1024UL );
     }
-    fd_topob_vinyl_rq( topo, "tower", 0UL, "vinyl_tower", "tower", 4UL, 128UL, 128UL );
-    fd_topob_vinyl_rq( topo, "resolv", 0UL, "vinyl_resolv", "resolv", 4UL, 1UL, 1UL );
+    fd_topob_vinyl_rq( topo, "tower", 0UL, "accdb_tower", "tower", 4UL, 128UL, 128UL );
+    fd_topob_vinyl_rq( topo, "resolv", 0UL, "accdb_resolv", "resolv", 4UL, 1UL, 1UL );
     if( rpc_enabled ) {
-      fd_topob_vinyl_rq( topo, "rpc", 0UL, "vinyl_rpc", "rpc", 4UL, 1UL, 1UL );
+      fd_topob_vinyl_rq( topo, "rpc", 0UL, "accdb_rpc", "rpc", 4UL, 1UL, 1UL );
     }
   }
 
@@ -1396,8 +1396,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->snapwm.lthash_disabled = !!config->development.snapshots.disable_lthash_verification;
     strcpy( tile->snapwm.vinyl_path, config->paths.accounts );
-    tile->snapwm.vinyl_meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "vinyl.meta_map",  ULONG_MAX );
-    tile->snapwm.vinyl_meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "vinyl.meta_pool", ULONG_MAX );
+    tile->snapwm.vinyl_meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "accdb.meta_map",  ULONG_MAX );
+    tile->snapwm.vinyl_meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "accdb.meta_pool", ULONG_MAX );
 
     ulong wm_wr_link_id = fd_topo_find_link( &config->topo, "snapwm_wh", 0UL );
     FD_TEST( wm_wr_link_id!=ULONG_MAX );
@@ -1691,17 +1691,16 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
     tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "vinyl" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {
 
-    tile->vinyl.vinyl_meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "vinyl.meta_map",  ULONG_MAX );
-    tile->vinyl.vinyl_meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "vinyl.meta_pool", ULONG_MAX );
-    tile->vinyl.vinyl_line_max         = config->firedancer.vinyl.max_cache_entries;
-    tile->vinyl.vinyl_data_obj_id      = fd_pod_query_ulong( config->topo.props, "vinyl.data",      ULONG_MAX );
-    fd_cstr_ncpy( tile->vinyl.vinyl_bstream_path, config->paths.accounts, sizeof(tile->vinyl.vinyl_bstream_path) );
-
-    tile->vinyl.io_type = config->firedancer.vinyl.io_uring.enabled ?
+    tile->accdb.meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "accdb.meta_map",  ULONG_MAX );
+    tile->accdb.meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "accdb.meta_pool", ULONG_MAX );
+    tile->accdb.line_max         = config->firedancer.vinyl.max_cache_entries;
+    tile->accdb.data_obj_id      = fd_pod_query_ulong( config->topo.props, "accdb.data",      ULONG_MAX );
+    fd_cstr_ncpy( tile->accdb.bstream_path, config->paths.accounts, sizeof(tile->accdb.bstream_path) );
+    tile->accdb.io_type = config->firedancer.vinyl.io_uring.enabled ?
         FD_VINYL_IO_TYPE_UR : FD_VINYL_IO_TYPE_BD;
-    tile->vinyl.uring_depth = config->firedancer.vinyl.io_uring.queue_depth;
+    tile->accdb.uring_depth = config->firedancer.vinyl.io_uring.queue_depth;
 
     /* Minimum bound for cache entry count */
     ulong required_cache_entries = 0UL;
@@ -1714,10 +1713,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_TEST( (quota_max = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "obj.%lu.quota_max", rq_obj_id ))!=ULONG_MAX );
       required_cache_entries += quota_max;
     }
-    if( FD_UNLIKELY( required_cache_entries > tile->vinyl.vinyl_line_max ) ) {
-      FD_LOG_WARNING(( "insufficient [vinyl.max_cache_entries] (%lu) for config, increasing cache entry limit to %lu and continuing",
-                       tile->vinyl.vinyl_line_max, required_cache_entries ));
-      tile->vinyl.vinyl_line_max = required_cache_entries;
+    if( FD_UNLIKELY( required_cache_entries > tile->accdb.line_max ) ) {
+      FD_LOG_WARNING(( "insufficient [accdb.max_cache_entries] (%lu) for config, increasing cache entry limit to %lu and continuing",
+                       tile->accdb.line_max, required_cache_entries ));
+      tile->accdb.line_max = required_cache_entries;
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "solcap" ) ) ) {

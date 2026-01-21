@@ -43,7 +43,7 @@ class Tile(Enum):
     SNAPLA = 37
     SNAPLS = 38
     TOWER = 39
-    VINYL = 40
+    ACCDB = 40
     SNAPWM = 41
     SNAPLH = 42
     SNAPLV = 43

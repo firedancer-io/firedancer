@@ -57,7 +57,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   NULL,
 };
 
-extern configure_stage_t fd_cfg_stage_vinyl;
+extern configure_stage_t fd_cfg_stage_accdb;
 
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_hugetlbfs,
@@ -67,7 +67,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_offloads,
   &fd_cfg_stage_ethtool_loopback,
   &fd_cfg_stage_snapshots,
-  &fd_cfg_stage_vinyl,
+  &fd_cfg_stage_accdb,
   NULL,
 };
 

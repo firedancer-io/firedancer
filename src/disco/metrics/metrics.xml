@@ -1242,7 +1242,7 @@ metric introduced.
     <int value="3" name="Future" label="blocks between future and ancient have not been written (no read, no write)" />
 </enum>
 
-<tile name="vinyl">
+<tile name="accdb">
     <gauge name="BstreamSeq" enum="BstreamSeq" summary="Current bstream sequence number" />
     <counter name="RequestBatches" summary="Number of request batches processed" />
     <counter name="Requests" enum="VinylRequest" summary="Number of requests processed" />

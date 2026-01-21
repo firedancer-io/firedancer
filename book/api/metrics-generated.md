@@ -1229,26 +1229,26 @@
 
 </div>
 
-## Vinyl Tile
+## Accdb Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">vinyl_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">ancient</span>"} | gauge | Current bstream sequence number (blocks between ancient and past have been written and forgotten (no read, no write)) |
-| <span class="metrics-name">vinyl_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">past</span>"} | gauge | Current bstream sequence number (blocks between past and present have been written (read only)) |
-| <span class="metrics-name">vinyl_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (blocks between present and future are being written (write only)) |
-| <span class="metrics-name">vinyl_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">future</span>"} | gauge | Current bstream sequence number (blocks between future and ancient have not been written (no read, no write)) |
-| <span class="metrics-name">vinyl_&#8203;request_&#8203;batches</span> | counter | Number of request batches processed |
-| <span class="metrics-name">vinyl_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">acquire</span>"} | counter | Number of requests processed (Acquire record) |
-| <span class="metrics-name">vinyl_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">release</span>"} | counter | Number of requests processed (Release record) |
-| <span class="metrics-name">vinyl_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">erase</span>"} | counter | Number of requests processed (Erase record) |
-| <span class="metrics-name">vinyl_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">pair</span>"} | counter | Number of blocks written to bstream (Record) |
-| <span class="metrics-name">vinyl_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">dead</span>"} | counter | Number of blocks written to bstream (Record deletion) |
-| <span class="metrics-name">vinyl_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |
-| <span class="metrics-name">vinyl_&#8203;garbage_&#8203;bytes</span> | gauge |  |
-| <span class="metrics-name">vinyl_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
-| <span class="metrics-name">vinyl_&#8203;cache_&#8203;hits</span> | counter | Total number of cache hits |
+| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">ancient</span>"} | gauge | Current bstream sequence number (blocks between ancient and past have been written and forgotten (no read, no write)) |
+| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">past</span>"} | gauge | Current bstream sequence number (blocks between past and present have been written (read only)) |
+| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (blocks between present and future are being written (write only)) |
+| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">future</span>"} | gauge | Current bstream sequence number (blocks between future and ancient have not been written (no read, no write)) |
+| <span class="metrics-name">accdb_&#8203;request_&#8203;batches</span> | counter | Number of request batches processed |
+| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">acquire</span>"} | counter | Number of requests processed (Acquire record) |
+| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">release</span>"} | counter | Number of requests processed (Release record) |
+| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">erase</span>"} | counter | Number of requests processed (Erase record) |
+| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">pair</span>"} | counter | Number of blocks written to bstream (Record) |
+| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">dead</span>"} | counter | Number of blocks written to bstream (Record deletion) |
+| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |
+| <span class="metrics-name">accdb_&#8203;garbage_&#8203;bytes</span> | gauge |  |
+| <span class="metrics-name">accdb_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
+| <span class="metrics-name">accdb_&#8203;cache_&#8203;hits</span> | counter | Total number of cache hits |
 
 </div>
 
