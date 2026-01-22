@@ -516,6 +516,18 @@ fd_tile_private_cpus_parse( char const * cstr,
         p++; while( fd_isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
       }
     }
+    else if( p[0]=='h' ) {
+      /* `Nh` is a shorthand for "core N and its hyperthread sibling".
+         If M is the sibling id and S = N-M, it translates as "N,M" or
+         equivalently "N-M/S", i.e. a range from N to M with stride S.
+         If core N doesn't have a sibling, the `h` suffix is ignored.
+         This way an expression like "0h" also works on systems where
+         hyperthread is not available. */
+      p++;
+      ulong sibling = fd_tile_private_sibling_idx( cpu0 );
+      cpu1 =   fd_ulong_if( sibling==ULONG_MAX, cpu0, sibling );
+      stride = fd_ulong_if( sibling==ULONG_MAX, 1,    sibling-cpu0 );
+    }
     while( fd_isspace( (int)p[0] ) ) p++;
     if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad range delimiter)" ));
     if( p[0]==',' ) p++;

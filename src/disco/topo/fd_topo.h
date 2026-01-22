@@ -671,6 +671,8 @@ struct fd_topo {
 
   ulong          agave_affinity_cnt;
   ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
+  ulong          blocklist_cores_cnt;
+  ulong          blocklist_cores_cpu_idx[ FD_TILE_MAX ];
 
   ulong          max_page_size; /* 2^21 or 2^30 */
   ulong          gigantic_page_threshold; /* see [hugetlbfs.gigantic_page_threshold_mib]*/
