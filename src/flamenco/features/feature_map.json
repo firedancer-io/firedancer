@@ -254,6 +254,6 @@
   {"name":"static_instruction_limit","pubkey":"64ixypL1HPu8WtJhNSMb9mSgfFaJvsANuRkTbHyuLfnx"},
   {"name":"vote_state_v4","pubkey":"Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ"},
   {"name":"alt_bn128_little_endian","pubkey":"bn2oPgpkzQPT3tohMaAsMVGjhDmmDa4jCaVPqCFmtxM"},
-  {"name":"enable_bls12_381_syscall","pubkey":"EGJLweNUVskAPEwpjvNB7JT6uUi6h4mFhowNYXVSrimG"},
+  {"name":"enable_bls12_381_syscall","pubkey":"b1sraWPVFdcUizB2LV5wQTeMuK8M313bi5bHjco5eVU"},
   {"name":"enable_alt_bn128_g2_syscalls","pubkey":"bn1hKNURMGQaQoEVxahcEAcqiX3NwRs6hgKKNSLeKxH"}
 ]

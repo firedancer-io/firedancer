@@ -1740,8 +1740,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, enable_bls12_381_syscall)>>3,
-    .id                        = {"\xc5\x13\x40\xbe\xb3\x91\x0a\x1d\x93\xd2\xe9\xa3\xc5\x85\x34\xb9\x67\xd2\xa8\x5e\x0a\x47\x42\x01\x13\x02\x5f\xa1\xd7\x4a\xb4\x83"},
-                                 /* EGJLweNUVskAPEwpjvNB7JT6uUi6h4mFhowNYXVSrimG */
+    .id                        = {"\x08\xb6\xbd\x29\xaa\xb4\x9d\x6a\x7c\x4d\x8f\xb2\xc3\x1f\xd1\x9e\xfc\xda\x3c\xc8\xe3\x6f\x1c\x9a\x8d\x0f\x74\x62\xea\x21\xaf\x87"},
+                                 /* b1sraWPVFdcUizB2LV5wQTeMuK8M313bi5bHjco5eVU */
     .name                      = "enable_bls12_381_syscall",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -2012,7 +2012,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xdab5b6a991a03e4b: return &ids[ 252 ];
   case 0x8921a3abf23afaec: return &ids[ 253 ];
   case 0x640dddd90caae808: return &ids[ 254 ];
-  case 0x1d0a91b3be4013c5: return &ids[ 255 ];
+  case 0x6a9db4aa29bdb608: return &ids[ 255 ];
   case 0x010f656d89a4e808: return &ids[ 256 ];
   default: break;
   }
