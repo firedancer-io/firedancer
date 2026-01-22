@@ -211,7 +211,6 @@ typedef struct sign_pending sign_pending_t;
 #define QUEUE_T          sign_pending_t
 #define QUEUE_MAX        2*FD_ACTIVE_KEY_MAX
 #include "../../util/tmpl/fd_queue.c"
-
 struct ctx {
   long tsdebug; /* timestamp for debug printing */
 
@@ -225,6 +224,10 @@ struct ctx {
   fd_policy_t    * policy;
   fd_inflights_t * inflights;
   fd_repair_t    * protocol;
+  struct {
+    ulong slot;        /* 0 if no verification in progress */
+    uint  fec_set_idx;
+  } last_incorrect_fec[ 1 ];
 
   fd_pubkey_t identity_public_key;
 
@@ -285,6 +288,7 @@ struct ctx {
   ulong turbine_slot0;  // catchup considered complete after this slot
   struct {
     int   enabled;
+    int   eqvoc;     /* if eqvoc is enabled, the end_slot will first be generated incorrectly, and then confirmed correctly */
     ulong end_slot;
     int   complete;
   } profiler;
@@ -640,11 +644,14 @@ static inline void
 after_shred( ctx_t      * ctx,
              ulong        sig,
              fd_shred_t * shred,
-             ulong        nonce ) {
+             ulong        nonce,
+             fd_hash_t *  mr,
+             fd_hash_t *  cmr ) {
   /* Insert the shred sig (shared by all shred members in the FEC set)
       into the map. */
   int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
-  int src = fd_disco_shred_out_shred_sig_is_turbine( sig ) ? SHRED_SRC_TURBINE : SHRED_SRC_REPAIR;
+  int src     = fd_disco_shred_out_shred_sig_is_turbine( sig ) ? SHRED_SRC_TURBINE : SHRED_SRC_REPAIR;
+
   if( FD_LIKELY( !is_code ) ) {
     long rtt = 0;
     fd_pubkey_t peer;
@@ -657,15 +664,66 @@ after_shred( ctx_t      * ctx,
     int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
     if( FD_UNLIKELY( ctx->profiler.enabled && shred->slot == ctx->profiler.end_slot ) ) fd_forest_blk_parent_update( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-    fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src );
+    fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr );
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
   }
 }
 
+/* Kicks off the chained merkle verification starting at a slot with
+   a confirmed, canonical block_id.  Either finishes successfully and
+   returns early, or detects an incorrect FEC set and clears it.  In
+   this case the verification is paused and state is saved at where
+   it left off.  Verification can be re-triggered in after_fec as well. */
+static inline void
+after_confirmed( ctx_t           * ctx,
+                 ulong             slot,
+                 fd_hash_t const * confirmed_bid ) {
+
+  FD_BASE58_ENCODE_32_BYTES( confirmed_bid->key, confirmed_bid_b58 );
+
+  fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
+  FD_COMPILER_MFENCE();
+  if( FD_UNLIKELY( !blk ) ) {
+    return; /* No effect */
+  }
+
+
+  FD_LOG_NOTICE(( "after_confirmed: blk %lu is in the forest", slot ));
+  if( FD_LIKELY( !blk->confirmed && blk->consumed ) ) {
+    /* The above conditions say that all the shreds of the block have arrived. */
+    fd_forest_blk_t * bad_blk = fd_forest_fec_chain_verify( ctx->forest, blk, confirmed_bid );
+    if( FD_LIKELY( !bad_blk ) ) {
+      /* reset state */
+      ctx->last_incorrect_fec->slot        = 0;
+      ctx->last_incorrect_fec->fec_set_idx = 0;
+      FD_LOG_NOTICE(( "chain verified successfully from slot %lu to root", slot ));
+      return;
+    }
+    uint bad_fec_idx = fd_forest_merkle_last_incorrect_idx( bad_blk );
+    // TODO: equivocating across slots not supported yet
+
+     FD_LOG_WARNING(( "slot %lu is complete but has incorrect FECs. bad blk %lu. last verified fec %u", blk->slot, bad_blk->slot, bad_fec_idx ));
+     /* If we have a bad block, we need to dump and repair backwards from
+        the point where the merkle root is incorrect.
+        We start only by dumping the last incorrect FEC. It's possible that
+        this is the only incorrect one.  If it isn't though, when the slot
+        recompletes, this function will trigger again and we will dump the
+        second to last incorrect FEC. */
+
+    fd_forest_fec_clear( ctx->forest, bad_blk->slot, bad_fec_idx, 31UL );
+    ctx->last_incorrect_fec->slot        = bad_blk->slot;
+    ctx->last_incorrect_fec->fec_set_idx = bad_fec_idx;
+    fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (bad_blk->slot << 32) | bad_fec_idx, NULL );
+    if( FD_UNLIKELY( fec_sig ) ) fd_fec_sig_remove( ctx->fec_sigs, fec_sig ); /* Other version may have been force completed */
+  }
+}
+
 static inline void
 after_fec( ctx_t      * ctx,
-           fd_shred_t * shred ) {
+           fd_shred_t * shred,
+           fd_hash_t  * mr,
+           fd_hash_t  * cmr ) {
 
   /* When this is a FEC completes msg, it is implied that all the
      other shreds in the FEC set can also be inserted.  Shred inserts
@@ -676,7 +734,7 @@ after_fec( ctx_t      * ctx,
   int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
 
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick );
+  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
   fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
   if( FD_LIKELY( fec_sig ) ) fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
   FD_TEST( ele ); /* must be non-empty */
@@ -688,8 +746,17 @@ after_fec( ctx_t      * ctx,
     long start_ts = ele->first_req_ts == 0 || ele->slot >= ctx->turbine_slot0 ? ele->first_shred_ts : ele->first_req_ts;
     ulong duration_ticks = (ulong)(now - start_ts);
     fd_histf_sample( ctx->metrics->slot_compl_time, duration_ticks );
-    fd_repair_metrics_add_slot( ctx->slot_metrics, ele->slot, start_ts, now, ele->repair_cnt, ele->turbine_cnt );
+  fd_repair_metrics_add_slot( ctx->slot_metrics, ele->slot, start_ts, now, ele->repair_cnt, ele->turbine_cnt );
     FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt, ele->recovered_cnt, (double)fd_metrics_convert_ticks_to_nanoseconds(duration_ticks) / 1e6 ));
+  }
+
+  /* If we just completed something that underwent verification surgery,
+     re-trigger continuation of chained merkle verification. */
+  if( FD_UNLIKELY( ctx->last_incorrect_fec->slot == ele->slot && ctx->last_incorrect_fec->fec_set_idx == shred->fec_set_idx ) ) {
+    fd_forest_blk_t * ele = fd_forest_query( ctx->forest, ctx->last_incorrect_fec->slot );
+    // TODO: not sure we can assume ele->complete_idx is correct (eqvoc might be on last FEC)
+    FD_TEST( fd_forest_merkle_test( ele->merkle_verified, (ele->complete_idx / 32UL) + 1 ) ); /* we should have verified this FEC block id at least */
+    after_confirmed( ctx, ele->slot, &ele->merkle_roots[ (ele->complete_idx / 32UL) + 1 ].cmr );
   }
 
   if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
@@ -731,7 +798,7 @@ after_evict( ctx_t * ctx,
              ulong   sig ) {
   ulong spilled_slot        = fd_disco_shred_out_shred_sig_slot       ( sig );
   uint  spilled_fec_set_idx = fd_disco_shred_out_shred_sig_fec_set_idx( sig );
-  uint  spilled_max_idx     = fd_disco_shred_out_shred_sig_data_cnt   ( sig );
+  uint  spilled_max_idx     = fd_disco_shred_out_shred_sig_shred_idx  ( sig );
 
   fd_forest_fec_clear( ctx->forest, spilled_slot, spilled_fec_set_idx, spilled_max_idx );
 }
@@ -768,7 +835,17 @@ after_frag( ctx_t * ctx,
   if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
     if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
       fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( ctx->buffer );
-      if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) fd_forest_publish( ctx->forest, msg->root_slot );
+      if( FD_LIKELY( msg->root_slot==ULONG_MAX ) ) return;
+      fd_forest_publish( ctx->forest, msg->root_slot );
+    } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
+      if( FD_UNLIKELY( ctx->last_incorrect_fec->slot != 0 ) ) return; /* If there is a verification in progress, just drop this one */
+
+      fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( ctx->buffer );
+      if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->kind == FD_TOWER_SLOT_CONFIRMED_CLUSTER || msg->kind == FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
+        /* the other two messages (rooted / optimistic) mean we have already
+           received and replayed the correct version */
+        after_confirmed( ctx, msg->slot, &msg->block_id );
+      }
     }
     return;
   }
@@ -788,20 +865,22 @@ after_frag( ctx_t * ctx,
         Msgs 2 and 3 have a shred header in ctx->buffer */
 
     int resolver_evicted = sz == 0;
-    int fec_completes    = sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
+    int fec_completes    = fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC;
     if( FD_UNLIKELY( resolver_evicted ) ) {
       after_evict( ctx, sig );
       return;
     }
 
     fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
-    uint         nonce = FD_LOAD(uint, ctx->buffer + fd_shred_header_sz( shred->variant ) );
+    fd_hash_t  * mr    = (fd_hash_t *)(ctx->buffer + fd_shred_header_sz( shred->variant ));
+    fd_hash_t  * cmr   = (fd_hash_t *)(ctx->buffer + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) );
+    uint         nonce = FD_LOAD(uint, ctx->buffer + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) + sizeof(fd_hash_t) ); /* gibberish if not shred msg */
     if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
       FD_LOG_INFO(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
       return;
     };
 
-    if( FD_UNLIKELY( ctx->profiler.enabled && ctx->turbine_slot0 != ULONG_MAX && shred->slot > ctx->turbine_slot0 ) ) return;
+    if( FD_UNLIKELY( ctx->profiler.enabled && ctx->turbine_slot0 != ULONG_MAX && ( shred->slot > ctx->turbine_slot0 ) ) ) return;
 #   if LOGGING
     if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
       FD_LOG_INFO(( "\n\n[Turbine]\n"
@@ -833,7 +912,7 @@ after_frag( ctx_t * ctx,
     }
 
     if( FD_UNLIKELY( fec_completes ) ) {
-      after_fec( ctx, shred );
+      after_fec( ctx, shred, mr, cmr );
     } else {
       /* Don't want to reinsert the shred sig for an already complete FEC set */
       fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
@@ -841,7 +920,7 @@ after_frag( ctx_t * ctx,
         fec_sig = fd_fec_sig_insert( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx );
         memcpy( fec_sig->sig, shred->signature, sizeof(fd_ed25519_sig_t) );
       }
-      after_shred( ctx, sig, shred, nonce );
+      after_shred( ctx, sig, shred, nonce, mr, cmr );
     }
 
     /* Check if there are FECs to force complete. Algorithm: window
@@ -1106,6 +1185,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
 
+  memset( ctx->last_incorrect_fec, 0, sizeof(ctx->last_incorrect_fec) );
   memset( ctx->metrics, 0, sizeof(ctx->metrics) );
 
   fd_histf_join( fd_histf_new( ctx->metrics->slot_compl_time, FD_MHIST_SECONDS_MIN( REPAIR, SLOT_COMPLETE_TIME ),

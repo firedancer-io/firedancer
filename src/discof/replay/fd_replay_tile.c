@@ -2370,7 +2370,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_SHRED: {
       /* TODO: This message/sz should be defined. */
-      if( sz==FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int) ) {
+      if( sz!=0 && fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC ) {
         /* If receive a FEC complete message. */
         process_fec_complete( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }

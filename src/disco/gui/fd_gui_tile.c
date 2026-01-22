@@ -467,14 +467,14 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_SHRED_OUT: {
       FD_TEST( ctx->is_full_client );
       long tsorig_nanos = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
-      if( FD_LIKELY( sz!=0 && sz!=FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int) ) ) {
-        ulong slot = fd_disco_shred_out_shred_sig_slot( sig );
-        int is_turbine = fd_disco_shred_out_shred_sig_is_turbine( sig );
-        ulong shred_idx  = fd_disco_shred_out_shred_sig_shred_idx( sig );
+      if( FD_LIKELY( sz!=0 && fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_SHRED ) ) {
+        ulong slot      = fd_disco_shred_out_shred_sig_slot( sig );
+        int is_turbine  = fd_disco_shred_out_shred_sig_is_turbine( sig );
+        ulong shred_idx = fd_disco_shred_out_shred_sig_shred_idx( sig );
         /* tsorig is the timestamp when the shred was received by the shred tile */
         fd_gui_handle_shred( ctx->gui, slot, shred_idx, is_turbine, tsorig_nanos );
       }
-      if( FD_UNLIKELY( sz==FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int) && FD_LOAD( int, src + FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 ) ) ) {
+      if( FD_UNLIKELY( fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC && FD_LOAD( int, src + FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 ) ) ) {
         fd_gui_handle_leader_fec( ctx->gui, fd_disco_shred_out_fec_sig_slot( sig ), fd_disco_shred_out_fec_sig_data_cnt( sig ), fd_disco_shred_out_fec_sig_is_slot_complete( sig ), tsorig_nanos );
       }
       break;

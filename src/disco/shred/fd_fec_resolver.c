@@ -317,7 +317,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_fec_set_t const      * * out_fec_set,
                            fd_shred_t const        * * out_shred,
                            fd_bmtree_node_t          * out_merkle_root,
-                           fd_fec_resolver_spilled_t * out_spilled ) {
+                           fd_fec_resolver_spilled_t * out_spilled,
+                           int                         enforce_fixed_fec ) {
   /* Unpack variables */
   ulong partial_depth = resolver->partial_depth;
   ulong done_depth    = resolver->done_depth;
@@ -402,6 +403,19 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
      shred_idx >= code.data_cnt. */
   ulong in_type_idx = fd_ulong_if( is_data_shred, shred->idx - shred->fec_set_idx, shred->code.idx );
   ulong shred_idx   = fd_ulong_if( is_data_shred, in_type_idx, in_type_idx + shred->code.data_cnt  );
+
+  if( enforce_fixed_fec ) {
+    if( !is_data_shred ) {
+      if( FD_UNLIKELY( (shred->code.data_cnt!=FD_REEDSOL_FEC_SHRED_CNT) | (shred->code.code_cnt!=FD_REEDSOL_FEC_SHRED_CNT) ) )
+        return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
+    if( FD_UNLIKELY( ( shred->fec_set_idx % FD_REEDSOL_FEC_SHRED_CNT ) != 0UL ) )
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( in_type_idx >= FD_REEDSOL_FEC_SHRED_CNT ) )
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( is_data_shred && (shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) && shred->idx % FD_REEDSOL_FEC_SHRED_CNT != FD_REEDSOL_FEC_SHRED_CNT - 1UL ) )
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+  }
 
   if( FD_UNLIKELY( in_type_idx >= fd_ulong_if( is_data_shred, FD_REEDSOL_DATA_SHREDS_MAX, FD_REEDSOL_PARITY_SHREDS_MAX ) ) )
     return FD_FEC_RESOLVER_SHRED_REJECTED;
@@ -489,6 +503,15 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     ctx->total_rx_shred_cnt = 0UL;
     ctx->data_variant   = fd_uchar_if(  is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
     ctx->parity_variant = fd_uchar_if( !is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
+    if( enforce_fixed_fec ) {
+      ctx->set->data_shred_cnt   = FD_REEDSOL_FEC_SHRED_CNT;
+      ctx->set->parity_shred_cnt = FD_REEDSOL_FEC_SHRED_CNT;
+      ctx->parity_idx0           = shred->fec_set_idx;
+      ctx->fec_set_idx           = shred->fec_set_idx;
+    } else {
+      ctx->set->data_shred_cnt   = SHRED_CNT_NOT_SET;
+      ctx->set->parity_shred_cnt = SHRED_CNT_NOT_SET;
+    }
 
     if( FD_UNLIKELY( fd_shred_is_resigned( shred_type ) & !!(resolver->signer) ) ) {
       resolver->signer( resolver->sign_ctx, ctx->retransmitter_sig.u, _root->hash );
@@ -497,8 +520,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     }
 
     /* Reset the FEC set */
-    ctx->set->data_shred_cnt   = SHRED_CNT_NOT_SET;
-    ctx->set->parity_shred_cnt = SHRED_CNT_NOT_SET;
     d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( ctx->set->data_shred_rcvd   ) ) ) );
     p_rcvd_join( p_rcvd_new( p_rcvd_delete( p_rcvd_leave( ctx->set->parity_shred_rcvd ) ) ) );
 
@@ -729,6 +750,18 @@ fd_fec_resolver_done_contains( fd_fec_resolver_t      * resolver,
   wrapped_sig_t * w_sig = (wrapped_sig_t *)signature;
   if( FD_UNLIKELY( ctx_map_key_inval( *w_sig ) ) ) return 0;
   return !!ctx_map_query( resolver->done_map, *w_sig, NULL );
+}
+
+int
+fd_fec_resolver_done_remove( fd_fec_resolver_t      * resolver,
+                             fd_ed25519_sig_t const * signature ) {
+  wrapped_sig_t * w_sig     = (wrapped_sig_t *)signature;
+  if( FD_UNLIKELY( ctx_map_key_inval( *w_sig ) ) ) return 0;
+
+  set_ctx_t * ctx = ctx_map_query( resolver->done_map, *w_sig, NULL );
+  if( FD_UNLIKELY( !ctx ) ) return 0;
+  ctx_map_remove( resolver->done_map, ctx_ll_remove( ctx ) );
+  return 1;
 }
 
 int
