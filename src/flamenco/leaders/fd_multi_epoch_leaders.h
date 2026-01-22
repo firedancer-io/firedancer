@@ -179,6 +179,18 @@ void
 fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders );
 
 
+/* fd_multi_epoch_leaders_epoch_msg_{init, fini} are the Firedancer
+   equivalents to the Frankendancer fd_multi_epoch_leaders_stake_msg_{init, fini}.
+   They take a different input message structure (fd_epoch_info_msg_t
+   vs fd_stake_weight_msg_t). */
+
+void
+fd_multi_epoch_leaders_epoch_msg_init( fd_multi_epoch_leaders_t   * mleaders,
+                                       fd_epoch_info_msg_t const  * msg );
+
+void
+fd_multi_epoch_leaders_epoch_msg_fini( fd_multi_epoch_leaders_t * mleaders );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_leaders_fd_multi_epoch_leaders_h */

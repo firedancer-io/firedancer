@@ -353,7 +353,7 @@
 
 #define IN_KIND_BANK  (0)
 #define IN_KIND_PACK  (1)
-#define IN_KIND_STAKE (2)
+#define IN_KIND_EPOCH (2)
 
 
 typedef struct {
@@ -1833,7 +1833,7 @@ during_frag( fd_poh_ctx_t * ctx,
              ulong          ctl FD_PARAM_UNUSED ) {
   ctx->skip_frag = 0;
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
             ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -1964,7 +1964,7 @@ after_frag( fd_poh_ctx_t *      ctx,
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
     fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
     /* It might seem like we do not need to do state transitions in and
        out of being the leader here, since leader schedule updates are
@@ -2363,7 +2363,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
 
     if(        !strcmp( link->name, "stake_out" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_STAKE;
+      ctx->in_kind[ i ] = IN_KIND_EPOCH;
     } else if( !strcmp( link->name, "pack_poh" ) ) {
       ctx->in_kind[ i ] = IN_KIND_PACK;
     } else if( !strcmp( link->name, "bank_poh"  ) ) {

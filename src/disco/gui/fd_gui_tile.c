@@ -52,7 +52,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_REPAIR_NET   (10UL) /* firedancer only */
 #define IN_KIND_TOWER_OUT    (11UL) /* firedancer only */
 #define IN_KIND_REPLAY_OUT   (12UL) /* firedancer only */
-#define IN_KIND_REPLAY_STAKE (13UL) /* firedancer only */
+#define IN_KIND_EPOCH        (13UL) /* firedancer only */
 #define IN_KIND_GENESI_OUT   (14UL) /* firedancer only */
 #define IN_KIND_SNAPIN       (15UL) /* firedancer only */
 #define IN_KIND_EXEC_REPLAY  (16UL) /* firedancer only */
@@ -268,10 +268,9 @@ during_frag( fd_gui_ctx_t * ctx,
     }
   }
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_STAKE ) ) {
-    fd_stake_weight_msg_t * leader_schedule = (fd_stake_weight_msg_t *)src;
-    FD_TEST( sz==(ushort)(sizeof(fd_stake_weight_msg_t)+(leader_schedule->staked_cnt*sizeof(fd_vote_stake_weight_t))) );
-    sz = fd_stake_weight_msg_sz( leader_schedule->staked_cnt );
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
+    fd_epoch_info_msg_t * epoch_info = (fd_epoch_info_msg_t *)src;
+    sz = fd_epoch_info_msg_sz( epoch_info->staked_cnt );
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_OUT ) ) {
@@ -431,11 +430,11 @@ after_frag( fd_gui_ctx_t *      ctx,
       }
       break;
     }
-    case IN_KIND_REPLAY_STAKE: {
+    case IN_KIND_EPOCH: {
       FD_TEST( ctx->is_full_client );
 
-      fd_stake_weight_msg_t * leader_schedule = (fd_stake_weight_msg_t *)src;
-      fd_gui_handle_leader_schedule( ctx->gui, leader_schedule, fd_clock_now( ctx->clock ) );
+      fd_epoch_info_msg_t * epoch_info = (fd_epoch_info_msg_t *)src;
+      fd_gui_handle_epoch_info( ctx->gui, epoch_info, fd_clock_now( ctx->clock ) );
       break;
     }
     case IN_KIND_SNAPIN: {
@@ -819,7 +818,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "repair_net"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;    /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;   /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "replay_stake" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_STAKE; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "exec_replay"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXEC_REPLAY;  /* full client only */

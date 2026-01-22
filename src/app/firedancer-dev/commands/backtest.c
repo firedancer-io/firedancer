@@ -369,17 +369,17 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Setup replay->stake/send/poh links in topo w/o consumers         */
   /**********************************************************************/
-  fd_topob_wksp( topo, "replay_stake"    );
+  fd_topob_wksp( topo, "replay_epoch"    );
   fd_topob_wksp( topo, "replay_poh"   );
 
-  fd_topob_link( topo, "replay_stake",   "replay_stake",   128UL, 40UL + 40200UL * 40UL, 1UL );
+  fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL, FD_EPOCH_OUT_MTU, 1UL );
   ulong bank_tile_cnt   = config->layout.bank_tile_count;
   FOR(bank_tile_cnt) fd_topob_link( topo, "replay_poh", "replay_poh", 128UL, (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL );
 
-  fd_topob_tile_out( topo, "replay", 0UL, "replay_stake",   0UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_epoch",   0UL );
   FOR(bank_tile_cnt) fd_topob_tile_out( topo, "replay", 0UL, "replay_poh", i );
 
-  topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_stake",   0 ) ] ].permit_no_consumers = 1;
+  topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_epoch",   0 ) ] ].permit_no_consumers = 1;
   FOR(bank_tile_cnt) topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_poh", i ) ] ].permit_no_consumers = 1;
 
   /**********************************************************************/

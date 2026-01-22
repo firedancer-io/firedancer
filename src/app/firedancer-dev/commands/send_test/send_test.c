@@ -99,18 +99,18 @@ send_test_topo( config_t * config ) {
   /* mock links */
   /* braces shut up clang's 'misleading identation' warning */
   if( !use_live_gossip ) {fd_topob_wksp( topo, "gossip_out" ); }
-  /**/                    fd_topob_wksp( topo, "replay_stake"  );
+  /**/                    fd_topob_wksp( topo, "replay_epoch"  );
   /**/                    fd_topob_wksp( topo, "tower_out" );
   /**/                    fd_topob_wksp( topo, "send_out"  );
 
   if( !use_live_gossip ) {fd_topob_link( topo, "gossip_out",   "gossip_out",   65536UL*4UL, sizeof(fd_gossip_update_message_t), 1UL ); }
-  /**/                    fd_topob_link( topo, "replay_stake", "replay_stake", 128UL,       FD_STAKE_OUT_MTU,                   1UL );
+  /**/                    fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL,       FD_STAKE_OUT_MTU,                   1UL );
   /**/                    fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,      sizeof(fd_tower_slot_done_t),       1UL );
   /**/                    fd_topob_link( topo, "send_out",     "send_out",     128UL,       40200UL * 38UL,                     1UL );
 
   if( !use_live_gossip ) {fd_link_permit_no_producers( topo, "gossip_out" ); }
   if( !use_live_gossip ) {fd_link_permit_no_consumers( topo, "send_out"   ); }
-  /**/                    fd_link_permit_no_producers( topo, "replay_stake"  );
+  /**/                    fd_link_permit_no_producers( topo, "replay_epoch"  );
   /**/                    fd_link_permit_no_producers( topo, "tower_out" );
 
   if( use_live_gossip ) {
@@ -124,7 +124,7 @@ send_test_topo( config_t * config ) {
   fd_topob_tile_in (    topo, "send", 0UL, "metric_in", "net_send",     0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "gossip_out",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "replay_stake", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "replay_epoch", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "tower_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /* attach out links */
@@ -202,7 +202,7 @@ init( send_test_ctx_t * ctx, config_t * config ) {
   ctx->vote_acct_addr[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( config->paths.vote_account, /* pubkey only: */ 1 ) );
 
   ctx->out_links[    MOCK_CI_IDX   ] = setup_test_out_link( topo, "gossip_out" );
-  ctx->out_links[  MOCK_STAKE_IDX  ] = setup_test_out_link( topo, "replay_stake" );
+  ctx->out_links[  MOCK_STAKE_IDX  ] = setup_test_out_link( topo, "replay_epoch" );
   ctx->out_links[ MOCK_TRIGGER_IDX ] = setup_test_out_link( topo, "tower_out" );
 
   ctx->out_fns  [    MOCK_CI_IDX   ] = send_test_ci;

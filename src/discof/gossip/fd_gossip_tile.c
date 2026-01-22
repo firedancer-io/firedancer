@@ -13,7 +13,7 @@
 #define IN_KIND_SHRED_VERSION (1)
 #define IN_KIND_SIGN          (2)
 #define IN_KIND_SEND          (3)
-#define IN_KIND_STAKE         (4)
+#define IN_KIND_EPOCH         (4)
 
 /* Symbols exported by version.c */
 extern ulong const firedancer_major_version;
@@ -196,8 +196,8 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 }
 
 static void
-handle_stakes( fd_gossip_tile_ctx_t *        ctx,
-               fd_stake_weight_msg_t const * msg ) {
+handle_epoch( fd_gossip_tile_ctx_t *      ctx,
+              fd_epoch_info_msg_t const * msg ) {
   ulong stakes_cnt = compute_id_weights_from_vote_weights( ctx->stake_weights_converted, msg->weights, msg->staked_cnt );
   fd_gossip_stakes_update( ctx->gossip, ctx->stake_weights_converted, stakes_cnt );
 }
@@ -252,7 +252,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
     case IN_KIND_SEND:          handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
-    case IN_KIND_STAKE:         handle_stakes( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
+    case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_GOSSVF:        handle_packet( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
   }
 
@@ -337,8 +337,8 @@ unprivileged_init( fd_topo_t *      topo,
       sign_in_tile_idx = i;
     } else if( FD_UNLIKELY( !strcmp( link->name, "send_out" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SEND;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "replay_stake" ) ) ) {
-      ctx->in[ i ].kind = IN_KIND_STAKE;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "replay_epoch" ) ) ) {
+      ctx->in[ i ].kind = IN_KIND_EPOCH;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }

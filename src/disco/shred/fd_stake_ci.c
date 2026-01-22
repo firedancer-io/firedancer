@@ -72,6 +72,23 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
   fd_memcpy( info->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
 }
 
+void
+fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
+                            fd_epoch_info_msg_t const * msg ) {
+  if( FD_UNLIKELY( msg->staked_cnt > MAX_SHRED_DESTS ) )
+    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
+                 " but the maximum allowed is %lu", msg->staked_cnt, MAX_SHRED_DESTS ));
+
+  info->scratch->epoch             = msg->epoch;
+  info->scratch->start_slot        = msg->start_slot;
+  info->scratch->slot_cnt          = msg->slot_cnt;
+  info->scratch->staked_cnt        = msg->staked_cnt;
+  info->scratch->excluded_stake    = msg->excluded_stake;
+  info->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
+
+  fd_memcpy( info->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+}
+
 static inline void
 log_summary( char const * msg, fd_stake_ci_t * info ) {
 #if 0
@@ -217,6 +234,11 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   new_ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( new_ei->_sdest, info->shred_dest, j,
                                                                 new_ei->lsched, info->identity_key,  excluded_stake ) );
   log_summary( "stake update", info );
+}
+
+void
+fd_stake_ci_epoch_msg_fini( fd_stake_ci_t * info ) {
+  fd_stake_ci_stake_msg_fini( info );
 }
 
 fd_shred_dest_weighted_t * fd_stake_ci_dest_add_init( fd_stake_ci_t * info ) { return info->shred_dest; }

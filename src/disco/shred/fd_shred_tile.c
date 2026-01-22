@@ -87,13 +87,14 @@
 #define FD_SHRED_TILE_SCRATCH_ALIGN 128UL
 
 #define IN_KIND_CONTACT (0UL)
-#define IN_KIND_STAKE   (1UL)
-#define IN_KIND_POH     (2UL)
-#define IN_KIND_NET     (3UL)
-#define IN_KIND_SIGN    (4UL)
-#define IN_KIND_REPAIR  (5UL)
-#define IN_KIND_IPECHO  (6UL)
-#define IN_KIND_GOSSIP  (7UL)
+#define IN_KIND_EPOCH   (1UL) /* Firedancer */
+#define IN_KIND_STAKE   (2UL) /* Frankendancer */
+#define IN_KIND_POH     (3UL)
+#define IN_KIND_NET     (4UL)
+#define IN_KIND_SIGN    (5UL)
+#define IN_KIND_REPAIR  (6UL)
+#define IN_KIND_IPECHO  (7UL)
+#define IN_KIND_GOSSIP  (8UL)
 
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
@@ -280,6 +281,10 @@ typedef struct {
    implemented and activated. */
 static inline ulong
 fd_shred_get_feature_activation_slot0( ulong feature_slot, fd_shred_ctx_t * ctx ) {
+  /* if the feature does not have an activation slot yet, return ULONG_MAX */
+  if( FD_UNLIKELY( feature_slot==ULONG_MAX ) ) {
+    return ULONG_MAX;
+  }
   /* we need info about the epoch schedule (specifically slot_cnt).
      if we don't know any schedule (yet), we return ULONG_MAX, i.e. feature inactive. */
   fd_epoch_leaders_t * lsched = ctx->stake_ci->epoch_info[ 0 ].lsched
@@ -449,6 +454,29 @@ during_frag( fd_shred_ctx_t * ctx,
                    ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
     uchar const * gossip_upd_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_memcpy( ctx->gossip_upd_buf, gossip_upd_msg, sz );
+    return;
+  }
+
+  /* Firedancer only */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+    uchar const *               dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    fd_epoch_info_msg_t const * epoch_msg    = fd_type_pun_const( dcache_entry );
+
+    fd_stake_ci_epoch_msg_init( ctx->stake_ci, epoch_msg );
+
+    /* Store the feature activation slots, note that they will be incorrect
+       from the shred tile's POV until after_frag, as the conversion to the
+       correct epoch+1 slot cannot happen until fd_stake_ci_epoch_msg_fini
+       commits the new lsched.
+
+       This avoids activating the feature prematurely before we have an lsched. */
+    ctx->features_activation->enforce_fixed_fec_set     = epoch_msg->features.enforce_fixed_fec_set;
+    ctx->features_activation->switch_to_chacha8_turbine = epoch_msg->features.switch_to_chacha8_turbine;
+
     return;
   }
 
@@ -819,6 +847,17 @@ after_frag( fd_shred_ctx_t *    ctx,
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
     finalize_new_cluster_contact_info( ctx );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
+    fd_stake_ci_epoch_msg_fini( ctx->stake_ci );
+
+    /* Correct the feature activation slots to the epoch+1 slot */
+    for( ulong i=0UL; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ ) {
+      ctx->features_activation->slots[i] =
+        fd_shred_get_feature_activation_slot0( ctx->features_activation->slots[i], ctx );
+    }
     return;
   }
 
@@ -1382,8 +1421,8 @@ unprivileged_init( fd_topo_t *      topo,
       continue; /* only net_rx needs to be set in this case. */
     }
     else if( FD_LIKELY( !strcmp( link->name, "poh_shred"    ) ) )   ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "stake_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_STAKE;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_stake" ) ) )   ctx->in_kind[ i ] = IN_KIND_STAKE;
+    else if( FD_LIKELY( !strcmp( link->name, "stake_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_STAKE; /* Frankendancer */
+    else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) )   ctx->in_kind[ i ] = IN_KIND_EPOCH; /* Firedancer */
     else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) )   ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "repair_shred" ) ) )   ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) )   ctx->in_kind[ i ] = IN_KIND_IPECHO;

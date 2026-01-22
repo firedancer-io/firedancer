@@ -214,28 +214,31 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static inline ulong
-generate_stake_weight_msg_manifest( ulong                                       epoch,
-                                    fd_epoch_schedule_t const *                 epoch_schedule,
-                                    fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
-                                    ulong *                                     stake_weight_msg_out ) {
-  fd_stake_weight_msg_t *  stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
-  fd_vote_stake_weight_t * stake_weights    = stake_weight_msg->weights;
+generate_epoch_info_msg_manifest( ulong                                       epoch,
+                                  fd_epoch_schedule_t const *                 epoch_schedule,
+                                  fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
+                                  ulong *                                     epoch_info_msg_out ) {
+  fd_epoch_info_msg_t *    epoch_info_msg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_info_msg_out );
+  fd_vote_stake_weight_t * stake_weights  = epoch_info_msg->weights;
 
-  stake_weight_msg->epoch             = epoch;
-  stake_weight_msg->staked_cnt        = epoch_stakes->vote_stakes_len;
-  stake_weight_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
-  stake_weight_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
-  stake_weight_msg->excluded_stake    = 0UL;
-  stake_weight_msg->vote_keyed_lsched = 1UL;
+  epoch_info_msg->epoch             = epoch;
+  epoch_info_msg->staked_cnt        = epoch_stakes->vote_stakes_len;
+  epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
+  epoch_info_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
+  epoch_info_msg->excluded_stake    = 0UL;
+  epoch_info_msg->vote_keyed_lsched = 1UL;
 
   /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
      This code can be removed once the feature is active. */
   {
     if(    ( 1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET )
         || ( 0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET ) ) {
-      stake_weight_msg->vote_keyed_lsched = 0UL;
+      epoch_info_msg->vote_keyed_lsched = 0UL;
     }
   }
+
+  /* Set all features as deactivated as we don't have available feature info from manifest. */
+  fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
 
   /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
   for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
@@ -245,7 +248,7 @@ generate_stake_weight_msg_manifest( ulong                                       
   }
   sort_vote_weights_by_stake_vote_inplace( stake_weights, epoch_stakes->vote_stakes_len);
 
-  return fd_stake_weight_msg_sz( epoch_stakes->vote_stakes_len );
+  return fd_epoch_info_msg_sz( epoch_stakes->vote_stakes_len );
 }
 
 static void
@@ -257,7 +260,7 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
 
   /* current epoch */
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  ulong stake_weights_sz = generate_stake_weight_msg_manifest( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
+  ulong stake_weights_sz = generate_epoch_info_msg_manifest( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
   ulong stake_weights_sig = 4UL;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
@@ -265,7 +268,7 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
 
   /* next current epoch */
   stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  stake_weights_sz = generate_stake_weight_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
+  stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
   stake_weights_sig = 4UL;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
@@ -775,7 +778,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->write_buf_sz = tile->shredcap.write_buffer_size ? tile->shredcap.write_buffer_size : FD_SHREDCAP_DEFAULT_WRITER_BUF_SZ;
 
   /* Set up stake weights tile output */
-  ctx->stake_out->idx       = fd_topo_find_tile_out_link( topo, tile, "replay_stake", 0 );
+  ctx->stake_out->idx       = fd_topo_find_tile_out_link( topo, tile, "replay_epoch", 0 );
   if( FD_LIKELY( ctx->stake_out->idx!=ULONG_MAX ) ) {
     fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id[ ctx->stake_out->idx] ];
     ctx->stake_out->mcache  = stake_weights_out->mcache;

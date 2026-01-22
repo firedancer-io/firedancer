@@ -531,11 +531,11 @@ during_frag( fd_send_tile_ctx_t * ctx,
     fd_memcpy( ctx->quic_buf, src, sz );
   }
 
-  if( FD_UNLIKELY( kind==IN_KIND_STAKE ) ) {
-    if( sz>sizeof(fd_stake_weight_t)*(MAX_STAKED_LEADERS+1UL) ) {
-      FD_LOG_ERR(( "sz %lu >= max expected stake update size %lu", sz, sizeof(fd_stake_weight_t) * (MAX_STAKED_LEADERS+1UL) ));
+  if( FD_UNLIKELY( kind==IN_KIND_EPOCH ) ) {
+    if( sz>FD_EPOCH_INFO_MAX_MSG_SZ ) {
+      FD_LOG_ERR(( "sz %lu >= max expected epoch update size %lu", sz, FD_EPOCH_INFO_MAX_MSG_SZ ));
     }
-    fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( dcache_entry ) );
+    fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, fd_type_pun_const( dcache_entry ) );
   }
 
   if( FD_LIKELY( kind==IN_KIND_GOSSIP ) ) {
@@ -592,7 +592,7 @@ after_frag( fd_send_tile_ctx_t * ctx,
     }
   }
 
-  if( FD_UNLIKELY( kind==IN_KIND_STAKE ) ) {
+  if( FD_UNLIKELY( kind==IN_KIND_EPOCH ) ) {
     finalize_stake_msg( ctx );
   }
 }
@@ -703,8 +703,8 @@ unprivileged_init( fd_topo_t *      topo,
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
     } else if( 0==strcmp( link->name, "gossip_out" ) ) {
       setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, i );
-    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
-      setup_input_link( ctx, topo, tile, IN_KIND_STAKE, i );
+    } else if( 0==strcmp( link->name, "replay_epoch" ) ) {
+      setup_input_link( ctx, topo, tile, IN_KIND_EPOCH, i );
     } else if( 0==strcmp( link->name, "tower_out" ) ) {
       setup_input_link( ctx, topo, tile, IN_KIND_TOWER, i );
     }

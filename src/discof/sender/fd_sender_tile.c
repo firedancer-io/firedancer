@@ -234,7 +234,7 @@ during_frag( fd_sender_tile_ctx_t * ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
             ctx->stake_in_chunk0, ctx->stake_in_wmark ));
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->stake_in_mem, chunk );
-    fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
+    fd_stake_ci_epoch_msg_init( ctx->stake_ci, fd_type_pun_const( dcache_entry ) );
   }
 
   if( FD_UNLIKELY( in_idx==ctx->contact_in_idx ) ) {
@@ -363,7 +363,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->poh_slot = fd_fseq_join( fd_topo_obj_laddr( topo, poh_slot_obj_id ) );
 
   /* Set up stake input */
-  ctx->stake_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_stake", 0 );
+  ctx->stake_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_epoch", 0 );
   FD_TEST( ctx->stake_in_idx!=ULONG_MAX );
   fd_topo_link_t * stake_in_link = &topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ];
   ctx->stake_in_mem    = topo->workspaces[ topo->objs[ stake_in_link->dcache_obj_id ].wksp_id ].wksp;

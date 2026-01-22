@@ -1756,6 +1756,60 @@ fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+void
+fd_gui_handle_epoch_info( fd_gui_t *                  gui,
+                          fd_epoch_info_msg_t const * epoch_info,
+                          long                        now ) {
+  FD_TEST( epoch_info->staked_cnt<=MAX_STAKED_LEADERS );
+  FD_TEST( epoch_info->slot_cnt<=MAX_SLOTS_PER_EPOCH );
+
+  ulong idx = epoch_info->epoch % 2UL;
+  gui->epoch.has_epoch[ idx ] = 1;
+
+  gui->epoch.epochs[ idx ].epoch            = epoch_info->epoch;
+  gui->epoch.epochs[ idx ].start_slot       = epoch_info->start_slot;
+  gui->epoch.epochs[ idx ].end_slot         = epoch_info->start_slot + epoch_info->slot_cnt - 1; // end_slot is inclusive.
+  gui->epoch.epochs[ idx ].excluded_stake   = epoch_info->excluded_stake;
+  gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
+  gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
+
+  memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings)    );
+  memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings) );
+
+  gui->epoch.epochs[ idx ].rankings_slot = epoch_info->start_slot;
+
+  fd_vote_stake_weight_t const * stake_weights = epoch_info->weights;
+  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, epoch_info->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+
+  fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
+  gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
+                                                                               epoch_info->epoch,
+                                                                               gui->epoch.epochs[ idx ].start_slot,
+                                                                               epoch_info->slot_cnt,
+                                                                               epoch_info->staked_cnt,
+                                                                               gui->epoch.epochs[ idx ].stakes,
+                                                                               epoch_info->excluded_stake,
+                                                                               epoch_info->vote_keyed_lsched ) );
+
+  if( FD_UNLIKELY( epoch_info->start_slot==0UL ) ) {
+    gui->epoch.epochs[ 0 ].start_time = now;
+  } else {
+    gui->epoch.epochs[ idx ].start_time = LONG_MAX;
+
+    for( ulong i=0UL; i<fd_ulong_min( epoch_info->start_slot-1UL, FD_GUI_SLOTS_CNT ); i++ ) {
+      fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, epoch_info->start_slot-i );
+      if( FD_UNLIKELY( !slot ) ) break;
+      else if( FD_UNLIKELY( slot->skipped ) ) continue;
+
+      gui->epoch.epochs[ idx ].start_time = slot->completed_time;
+      break;
+    }
+  }
+
+  fd_gui_printf_epoch( gui, idx );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
 static void
 fd_gui_handle_slot_start( fd_gui_t * gui,
                           ulong      _slot,
