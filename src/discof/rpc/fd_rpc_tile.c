@@ -1,6 +1,5 @@
 #include "../replay/fd_replay_tile.h"
 #include "../genesis/fd_genesi_tile.h"
-#include "../tower/fd_tower_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -28,7 +27,6 @@
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN 8192UL
 
 #define IN_KIND_REPLAY (0)
-#define IN_KIND_TOWER  (2)
 #define IN_KIND_GENESI (0)
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
@@ -313,27 +311,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       fd_memcpy( ctx->genesis_hash, src+sizeof(fd_lthash_value_t), 32UL );
     } else {
       fd_memcpy( ctx->genesis_hash, src, 32UL );
-    }
-  } else if( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) {
-    if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
-      fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      switch( msg->kind ) {
-        case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: {
-          if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-          if( FD_LIKELY( msg->bank_idx!=ULONG_MAX ) ) ctx->confirmed_idx = msg->bank_idx;
-          break;
-        }
-        case FD_TOWER_SLOT_CONFIRMED_CLUSTER: {
-          ctx->cluster_confirmed_slot = msg->slot;
-          break;
-        }
-        case FD_TOWER_SLOT_CONFIRMED_ROOTED: {
-          if( FD_LIKELY( ctx->finalized_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-          if( FD_LIKELY( msg->bank_idx!=ULONG_MAX ) ) ctx->finalized_idx = msg->bank_idx;
-          break;
-        }
-        default: break;
-      }
     }
   }
 
@@ -1469,7 +1446,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].mtu    = link->mtu;
 
     if( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( !strcmp( link->name, "tower_out" ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
