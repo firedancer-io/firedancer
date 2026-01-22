@@ -1,13 +1,69 @@
 #ifndef HEADER_fd_src_discof_tower_fd_tower_tile_h
 #define HEADER_fd_src_discof_tower_fd_tower_tile_h
 
-#include "../../disco/topo/fd_topo.h"
+#include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/voter/fd_voter.h"
+#include "../../disco/topo/fd_topo.h"
 
 #define FD_TOWER_SIG_SLOT_DONE      (0)
 #define FD_TOWER_SIG_SLOT_CONFIRMED (1)
 #define FD_TOWER_SIG_SLOT_IGNORED   (2)
+#define FD_TOWER_SIG_SLOT_DUPLICATE (3)
+
+/* fd_tower_slot_confirmed provides confirmed notifications of different
+   Solana confirmation levels.  The levels are:
+
+   - duplicate: a block is duplicate confirmed if it has received votes
+     from at least 52% of stake in the cluster.
+
+   - optimistic: a block is optimistically confirmed if it has received
+     votes from at least 2/3 of stake in the cluster and we have already
+     replayed it (bank is available).
+
+   - cluster: same as optimistic, but may not have replayed / can be
+     delivered out of order.
+
+   - super: same as optimistic, but the stake threshold is 4/5
+     of stake.
+
+   - rooted: a block is rooted if it or any of its descendants reach max
+     lockout per TowerBFT rules.
+
+   For optimistic, super, and rooted confirmations, the tower tile
+   guarantees that we have already replayed the block.  This is not the
+   case for duplicate and cluster confirmations (a block can get
+   duplicate or cluster confirmed before it has been replayed).
+   Optimistic, super, and rooted confirmations are also
+   guaranteed to be delivered in-order with no gaps from tower.  That
+   is, if we receive a rooted frag for slot N, we will have already
+   received rooted frags for any ancestor slots N - 1, N - 2, ... (if
+   they are not skipped / on a different fork) and likewise for
+   optimistic.
+
+   Note even if tower never actually voted on a slot (and therefore the
+   slot never became a tower root), tower will still send a rooted
+   confirmation for that slot if a descendant is voted on and eventually
+   rooted.
+
+   The reason both optimistic and cluster confirmed exist is "cluster"
+   is intended to be consumed by the Solana RPC protocol, whereas
+   optimistic is intended for Firedancer-specific APIs (hence in-order
+   and no gap guarantees) */
+
+#define FD_TOWER_SLOT_CONFIRMED_DUPLICATE  0
+#define FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC 1
+#define FD_TOWER_SLOT_CONFIRMED_CLUSTER    2
+#define FD_TOWER_SLOT_CONFIRMED_SUPER      3
+#define FD_TOWER_SLOT_CONFIRMED_ROOTED     4
+
+struct fd_tower_slot_confirmed {
+  ulong     slot;
+  fd_hash_t block_id;
+  ulong     bank_idx; /* only valid for OPTIMISTIC or ROOTED kind (otherwise ULONG_MAX) */
+  int       kind;
+};
+typedef struct fd_tower_slot_confirmed fd_tower_slot_confirmed_t;
 
 /* In response to finishing replay of a slot, the tower tile will
    produce both a block to vote for and block to reset to, and
@@ -75,7 +131,7 @@ struct fd_tower_slot_done {
 
      TODO: Need to implement "refresh last vote" logic. */
 
-  int   is_valid_vote;
+  int   has_vote_txn;
   ulong authority_idx;
   ulong vote_txn_sz;
   uchar vote_txn[ FD_TPU_MTU ];
@@ -90,69 +146,21 @@ struct fd_tower_slot_done {
 };
 typedef struct fd_tower_slot_done fd_tower_slot_done_t;
 
-/* fd_tower_slot_confirmed provides confirmed notifications of different
-   Solana confirmation levels.  The levels are:
-
-   - duplicate: a block is duplicate confirmed if it has received votes
-     from at least 52% of stake in the cluster.
-
-   - optimistic: a block is optimistically confirmed if it has received
-     votes from at least 2/3 of stake in the cluster and we have already
-     replayed it (bank is available).
-
-   - cluster: same as optimistic, but may not have replayed / can be
-     delivered out of order.
-
-   - super: same as optimistic, but the stake threshold is 4/5
-     of stake.
-
-   - rooted: a block is rooted if it or any of its descendants reach max
-     lockout per TowerBFT rules.
-
-   For optimistic, super, and rooted confirmations, the tower tile
-   guarantees that we have already replayed the block.  This is not the
-   case for duplicate and cluster confirmations (a block can get
-   duplicate or cluster confirmed before it has been replayed).
-   Optimistic, super, and rooted confirmations are also
-   guaranteed to be delivered in-order with no gaps from tower.  That
-   is, if we receive a rooted frag for slot N, we will have already
-   received rooted frags for any ancestor slots N - 1, N - 2, ... (if
-   they are not skipped / on a different fork) and likewise for
-   optimistic.
-
-   Note even if tower never actually voted on a slot (and therefore the
-   slot never became a tower root), tower will still send a rooted
-   confirmation for that slot if a descendant is voted on and eventually
-   rooted.
-
-   The reason both optimistic and cluster confirmed exist is "cluster"
-   is intended to be consumed by the Solana RPC protocol, whereas
-   optimistic is intended for Firedancer-specific APIs (hence in-order
-   and no gap guarantees) */
-
-#define FD_TOWER_SLOT_CONFIRMED_DUPLICATE  0
-#define FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC 1
-#define FD_TOWER_SLOT_CONFIRMED_CLUSTER    2
-#define FD_TOWER_SLOT_CONFIRMED_SUPER      3
-#define FD_TOWER_SLOT_CONFIRMED_ROOTED     4
-
-struct fd_tower_slot_confirmed {
-  ulong     slot;
-  fd_hash_t block_id;
-  ulong     bank_idx; /* only valid for OPTIMISTIC or ROOTED kind (otherwise ULONG_MAX) */
-  int       kind;
+struct fd_tower_slot_duplicate {
+  fd_gossip_duplicate_shred_t chunks[ FD_EQVOC_CHUNK_CNT ];
 };
-typedef struct fd_tower_slot_confirmed fd_tower_slot_confirmed_t;
+typedef struct fd_tower_slot_duplicate fd_tower_slot_duplicate_t;
 
 struct fd_tower_slot_ignored {
-  ulong     slot;
-  ulong     bank_idx;
+  ulong slot;
+  ulong bank_idx;
 };
 typedef struct fd_tower_slot_ignored fd_tower_slot_ignored_t;
 
 union fd_tower_msg {
-  fd_tower_slot_done_t      slot_done;
   fd_tower_slot_confirmed_t slot_confirmed;
+  fd_tower_slot_done_t      slot_done;
+  fd_tower_slot_duplicate_t slot_duplicate;
   fd_tower_slot_ignored_t   slot_ignored;
 };
 typedef union fd_tower_msg fd_tower_msg_t;
