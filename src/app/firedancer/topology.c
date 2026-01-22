@@ -1466,7 +1466,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
     tile->replay.wait_for_vote_to_start_leader = config->consensus.wait_for_vote_to_start_leader;
 
-    FD_CRIT( config->firedancer.runtime.max_live_slots>32UL, "max live slots must be > 32 to support tower rooting" );
+    FD_CRIT( config->firedancer.runtime.max_live_slots>32UL, "max_live_slots must be > 32 to support tower rooting" );
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
 
     strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
