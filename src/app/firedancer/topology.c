@@ -1134,6 +1134,10 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( config->firedancer.runtime.max_account_cnt<FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ) ) {
     FD_LOG_ERR(( "max_account_cnt is less than the minimum required for transaction execution: %lu < %lu", config->firedancer.runtime.max_account_cnt, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ));
   }
+  if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<32UL ) ) {
+    FD_LOG_ERR(( "max_account_cnt must be >= 32 in order to support tower rooting" ));
+  }
+
   fd_topo_obj_t * acc_pool_obj = setup_topo_acc_pool( topo, config->firedancer.runtime.max_account_cnt );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec",   i   ) ], acc_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(bank_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], acc_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1466,7 +1470,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
     tile->replay.wait_for_vote_to_start_leader = config->consensus.wait_for_vote_to_start_leader;
 
-    if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<=32UL ) ) FD_LOG_ERR(( "max_live_slots must be > 32 to support tower rooting" ));
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
 
     strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
