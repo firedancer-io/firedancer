@@ -630,22 +630,20 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   fd_bank_has_identity_vote_set( bank, 0 );
 
-  /* Set the tick height. */
-  fd_bank_tick_height_set( bank, fd_bank_max_tick_height_get( bank ) );
-
   /* Update block height. */
   fd_bank_block_height_set( bank, fd_bank_block_height_get( bank ) + 1UL );
-
-  ulong * max_tick_height = fd_bank_max_tick_height_modify( bank );
-  ulong   ticks_per_slot  = fd_bank_ticks_per_slot_get( bank );
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ticks_per_slot, slot, max_tick_height ) ) ) {
-    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
-  }
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, bank, 1 );
 
+  ulong max_tick_height;
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( fd_bank_ticks_per_slot_get( parent_bank ), slot, &max_tick_height ) ) ) {
+    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, fd_bank_ticks_per_slot_get( parent_bank ) ));
+  }
+  fd_bank_max_tick_height_set( bank, max_tick_height );
+  fd_bank_tick_height_set( bank, fd_bank_max_tick_height_get( parent_bank ) ); /* The parent's max tick height is our starting tick height. */
+  fd_sched_set_poh_params( ctx->sched, bank->data->idx, fd_bank_tick_height_get( bank ), fd_bank_max_tick_height_get( bank ), fd_bank_hashes_per_tick_get( bank ), fd_bank_poh_query( parent_bank ) );
 }
 
 static void
@@ -890,21 +888,19 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_bank_shred_cnt_set( ctx->leader_bank, 0UL );
   fd_bank_tips_set( ctx->leader_bank, 0UL );
 
-  /* Set the tick height. */
-  fd_bank_tick_height_set( ctx->leader_bank, fd_bank_max_tick_height_get( ctx->leader_bank ) );
-
   /* Update block height. */
   fd_bank_block_height_set( ctx->leader_bank, fd_bank_block_height_get( ctx->leader_bank ) + 1UL );
-
-  ulong * max_tick_height = fd_bank_max_tick_height_modify( ctx->leader_bank );
-  ulong   ticks_per_slot  = fd_bank_ticks_per_slot_get( ctx->leader_bank );
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ticks_per_slot, slot, max_tick_height ) ) ) {
-    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
-  }
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, ctx->leader_bank, 1 );
+
+  ulong max_tick_height;
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( fd_bank_ticks_per_slot_get( parent_bank ), slot, &max_tick_height ) ) ) {
+    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, fd_bank_ticks_per_slot_get( parent_bank ) ));
+  }
+  fd_bank_max_tick_height_set( ctx->leader_bank, max_tick_height );
+  fd_bank_tick_height_set( ctx->leader_bank, fd_bank_max_tick_height_get( parent_bank ) ); /* The parent's max tick height is our starting tick height. */
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
@@ -1579,7 +1575,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
 
       fd_replay_out_link_t *   exec_out = ctx->exec_out;
       fd_exec_txn_exec_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
+      memcpy( exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
       exec_msg->bank_idx = task->txn_exec->bank_idx;
       exec_msg->txn_idx  = task->txn_exec->txn_idx;
       if( FD_UNLIKELY( ctx->capture_ctx ) ) {
@@ -1598,10 +1594,25 @@ dispatch_task( fd_replay_tile_t *  ctx,
 
       fd_replay_out_link_t *        exec_out = ctx->exec_out;
       fd_exec_txn_sigverify_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
+      memcpy( exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
       exec_msg->bank_idx = task->txn_sigverify->bank_idx;
       exec_msg->txn_idx  = task->txn_sigverify->txn_idx;
       fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
+      break;
+    };
+    case FD_SCHED_TT_POH_HASH: {
+      fd_bank_t bank[ 1 ];
+      FD_TEST( fd_banks_bank_query( bank, ctx->banks, task->poh_hash->bank_idx ) );
+      bank->data->refcnt++;
+
+      fd_replay_out_link_t *   exec_out = ctx->exec_out;
+      fd_exec_poh_hash_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      exec_msg->bank_idx = task->poh_hash->bank_idx;
+      exec_msg->mblk_idx = task->poh_hash->mblk_idx;
+      exec_msg->hashcnt  = task->poh_hash->hashcnt;
+      memcpy( exec_msg->hash, task->poh_hash->hash, sizeof(fd_hash_t) );
+      fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_POH_HASH<<32) | task->poh_hash->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
     };
@@ -1629,21 +1640,29 @@ replay( fd_replay_tile_t *  ctx,
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
       replay_block_start( ctx, stem, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX );
+      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
       break;
     }
     case FD_SCHED_TT_BLOCK_END: {
       fd_bank_t bank[1];
       fd_banks_bank_query( bank, ctx->banks, task->block_end->bank_idx );
       if( FD_LIKELY( !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) replay_block_finalize( ctx, stem, bank );
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX );
+      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
       break;
     }
     case FD_SCHED_TT_TXN_EXEC:
-    case FD_SCHED_TT_TXN_SIGVERIFY: {
+    case FD_SCHED_TT_TXN_SIGVERIFY:
+    case FD_SCHED_TT_POH_HASH: {
       /* Likely/common case: we have a transaction we actually need to
          execute. */
       dispatch_task( ctx, stem, task );
+      break;
+    }
+    case FD_SCHED_TT_MARK_DEAD: {
+      fd_bank_t bank[ 1 ];
+      FD_TEST( fd_banks_bank_query( bank, ctx->banks, task->mark_dead->bank_idx ) );
+      publish_slot_dead( ctx, stem, bank );
+      fd_banks_mark_bank_dead( ctx->banks, bank );
       break;
     }
     default: {
@@ -2049,7 +2068,8 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
       }
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx, exec_tile_idx );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx, exec_tile_idx, NULL );
+      FD_TEST( res==0 );
       break;
     }
     case FD_EXEC_TT_TXN_SIGVERIFY: {
@@ -2069,7 +2089,22 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
       }
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx, NULL );
+      FD_TEST( res==0 );
+      break;
+    }
+    case FD_EXEC_TT_POH_HASH: {
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash );
+      if( FD_UNLIKELY( res<0 && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
+        fd_banks_mark_bank_dead( ctx->banks, bank );
+
+        if( ctx->block_id_arr[ bank->data->idx ].block_id_seen ) {
+          publish_slot_dead( ctx, stem, bank );
+        }
+      }
+      if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
+        fd_banks_mark_bank_frozen( ctx->banks, bank );
+      }
       break;
     }
     default: FD_LOG_CRIT(( "unexpected sig 0x%lx", sig ));

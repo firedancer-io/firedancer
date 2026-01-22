@@ -803,16 +803,16 @@ user = ""
     # much parallelism is possible.
     #
     # More exec tiles can allow the validator to replay through blocks
-    # faster, subject to Amdahl's law.  Empirically, we've found 8 exec
+    # faster, subject to Amdahl's law.  Empirically, we've found 10 exec
     # tiles to achieve near optimal replay speed under current
     # `mainnet-beta` conditions.
     #
     # Exec tiles are also responsible for writing account changes back
     # to the accounts database.  Since the accounts database is designed
     # to be highly concurrent, most of the time account writeback can be
-    # done in parallel without blocking.  Multiple exec tiles exploit this
-    # parallelism supported by the accounts database.
-    exec_tile_count = 8
+    # done in parallel without blocking.  Multiple exec tiles exploit
+    # this parallelism supported by the accounts database.
+    exec_tile_count = 10
 
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network

@@ -111,8 +111,10 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   rent->exemption_threshold     = manifest->rent_params.exemption_threshold;
   rent->burn_percent            = manifest->rent_params.burn_percent;
 
+  /* https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1118
+     None gets treated as 0 for hash verification. */
   if( FD_LIKELY( manifest->has_hashes_per_tick ) ) fd_bank_hashes_per_tick_set( bank, manifest->hashes_per_tick );
-  else                                             fd_bank_hashes_per_tick_set( bank, DEFAULT_HASHES_PER_TICK );
+  else                                             fd_bank_hashes_per_tick_set( bank, 0UL );
 
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {

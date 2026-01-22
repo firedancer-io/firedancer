@@ -226,10 +226,7 @@ cat <<EOF > ${CONFIG_FILE}
             allow_any = false
             allow_list = []
 [layout]
-    shred_tile_count = 4
     snapshot_hash_tile_count = 1
-    verify_tile_count = 2
-    exec_tile_count = 6
 [tiles]
     [tiles.archiver]
         enabled = true

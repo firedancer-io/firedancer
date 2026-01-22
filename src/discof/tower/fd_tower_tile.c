@@ -834,7 +834,7 @@ returnable_frag( ctx_t *             ctx,
   case IN_KIND_EXEC: {
     if( FD_LIKELY( (sig>>32)==FD_EXEC_TT_TXN_EXEC ) ) {
       fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-      count_vote_txn( ctx, TXN(&msg->txn), msg->txn.payload );
+      count_vote_txn( ctx, TXN(msg->txn), msg->txn->payload );
     }
     return 0;
   }
