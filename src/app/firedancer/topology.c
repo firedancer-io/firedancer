@@ -893,6 +893,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "execrp",  i,            "metric_in", "replay_execr", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "dedup_resolv", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_execr", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_out",    0UL                                                );

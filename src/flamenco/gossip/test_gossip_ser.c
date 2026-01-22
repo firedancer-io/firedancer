@@ -33,7 +33,7 @@ test_gossip_vote_enc( void ) {
                               0UL, /* vote_index */
                               ser_view );
   FD_TEST( ser_view->tag==FD_GOSSIP_VALUE_VOTE );
-  FD_TEST( fd_memeq( crds_val+ser_view->pubkey_off, pubkey, 32UL ) );
+  FD_TEST( fd_memeq( crds_val+ser_view->from_off, pubkey, 32UL ) );
   FD_TEST( ser_view->vote->index==0UL );
   FD_TEST( ser_view->vote->txn_sz==fd_gossip_test_vote_txn_sz );
   FD_TEST( fd_memeq( crds_val+ser_view->vote->txn_off, fd_gossip_test_vote_txn, fd_gossip_test_vote_txn_sz ) );
@@ -52,7 +52,7 @@ test_gossip_vote_enc( void ) {
 
   fd_gossip_view_crds_value_t * parsed_vote = &parse_view->push->crds_values[0];
   FD_TEST( parsed_vote->tag==FD_GOSSIP_VALUE_VOTE );
-  FD_TEST( fd_memeq( txbuild->bytes+parsed_vote->pubkey_off, pubkey, 32UL ) );
+  FD_TEST( fd_memeq( txbuild->bytes+parsed_vote->from_off, pubkey, 32UL ) );
   FD_TEST( parsed_vote->vote->index==0UL );
   FD_TEST( parsed_vote->length==crds_val_sz );
   FD_TEST( parsed_vote->vote->txn_sz==fd_gossip_test_vote_txn_sz );
@@ -88,12 +88,12 @@ test_parse_push_vote( void ) {
   FD_TEST( view->tag==FD_GOSSIP_MESSAGE_PUSH );
   FD_TEST( view->push->crds_values_len==2UL );
   FD_TEST( base58_eq_64( push_vote+view->push->crds_values[0].signature_off, "3WtiW29DRc4jGx9bqPkBm8evtL1bEnwiGnPRZbp2GXXkuZ7SfJpFEdEfoMJn5iZzHUjXyFCG4f4sySQS13oqF22w" ) );
-  FD_TEST( base58_eq_32( push_vote+view->push->crds_values[0].pubkey_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
+  FD_TEST( base58_eq_32( push_vote+view->push->crds_values[0].from_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
   FD_TEST( view->push->crds_values[0].tag==FD_GOSSIP_VALUE_VOTE );
   FD_TEST( view->push->crds_values[0].wallclock_nanos==1660658421296L*(long)1e6 );
   FD_TEST( view->push->crds_values[0].vote->index==7 );
   FD_TEST( base58_eq_64( push_vote+view->push->crds_values[1].signature_off, "5Xrqaz4ESCnZyGKY9xT4bXDTrM54mDBdGD8T4ooSHkGYH7LHMrDu9oP6r6ofi4ydKDtvGgTdJZsUcdsmqkipD1Sg" ) );
-  FD_TEST( base58_eq_32( push_vote+view->push->crds_values[1].pubkey_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
+  FD_TEST( base58_eq_32( push_vote+view->push->crds_values[1].from_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
   FD_TEST( view->push->crds_values[1].tag==FD_GOSSIP_VALUE_VOTE );
   FD_TEST( view->push->crds_values[1].wallclock_nanos==1660658421764L*(long)1e6 );
   FD_TEST( view->push->crds_values[1].vote->index==8 );
@@ -121,7 +121,7 @@ test_parse_pull_resp_legacy_snapshot_hashes( void ) {
   FD_TEST( base58_eq_32( pull_resp_legacy_snapshot_hashes+view->pull_response->from_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
   FD_TEST( view->pull_response->crds_values_len==1UL );
   FD_TEST( base58_eq_64( pull_resp_legacy_snapshot_hashes+view->pull_response->crds_values[0].signature_off, "4ovwbuxF1k5hAej248Eay3ZLDssxXi9P4UWtsU6vu3jZmAHedtsZ55fkdSjLp4GicXCZCoCmHLbk5nHMnhYZ2QWq" ) );
-  FD_TEST( base58_eq_32( pull_resp_legacy_snapshot_hashes+view->pull_response->crds_values[0].pubkey_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
+  FD_TEST( base58_eq_32( pull_resp_legacy_snapshot_hashes+view->pull_response->crds_values[0].from_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
   FD_TEST( view->pull_response->crds_values[0].tag==FD_GOSSIP_VALUE_LEGACY_SNAPSHOT_HASHES );
   FD_TEST( view->pull_response->crds_values[0].wallclock_nanos==1660658416429*(long)1e6 );
 }
@@ -134,7 +134,7 @@ test_parse_pull_resp_snapshot_hashes( void ) {
   FD_TEST( base58_eq_32( pull_resp_snapshot_hashes+view->pull_response->from_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
   FD_TEST( view->pull_response->crds_values_len==1UL );
   FD_TEST( base58_eq_64( pull_resp_snapshot_hashes+view->pull_response->crds_values[0].signature_off, "4ovwbuxF1k5hAej248Eay3ZLDssxXi9P4UWtsU6vu3jZmAHedtsZ55fkdSjLp4GicXCZCoCmHLbk5nHMnhYZ2QWq" ) );
-  FD_TEST( base58_eq_32( pull_resp_snapshot_hashes+view->pull_response->crds_values[0].pubkey_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
+  FD_TEST( base58_eq_32( pull_resp_snapshot_hashes+view->pull_response->crds_values[0].from_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
   FD_TEST( view->pull_response->crds_values[0].tag==FD_GOSSIP_VALUE_INC_SNAPSHOT_HASHES );
   fd_gossip_snapshot_hash_pair_t full = FD_LOAD( fd_gossip_snapshot_hash_pair_t, pull_resp_snapshot_hashes+view->pull_response->crds_values[0].snapshot_hashes->full_off );
   FD_TEST( full.slot==47411 );
@@ -151,7 +151,7 @@ test_parse_pull_resp_node_instance( void ) {
   FD_TEST( base58_eq_32( pull_resp_node_instance+view->pull_response->from_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
   FD_TEST( view->pull_response->crds_values_len==1UL );
   FD_TEST( base58_eq_64( pull_resp_node_instance+view->pull_response->crds_values[0].signature_off, "2x1fZN5oR8BXGKW8CuHQBw5rKL68sn4WRBrDnepjn4TXmd4XWLwUUo5kdq8npmPbtCUwcBy8nq4667wRSUph7jv9" ) );
-  FD_TEST( base58_eq_32( pull_resp_node_instance+view->pull_response->crds_values[0].pubkey_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
+  FD_TEST( base58_eq_32( pull_resp_node_instance+view->pull_response->crds_values[0].from_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
   FD_TEST( view->pull_response->crds_values[0].tag==FD_GOSSIP_VALUE_NODE_INSTANCE );
   FD_TEST( view->pull_response->crds_values[0].node_instance->token==6711090452999269525UL );
   FD_TEST( view->pull_response->crds_values[0].wallclock_nanos==1660658416907*(long)1e6 );
@@ -165,7 +165,7 @@ test_parse_pull_resp_version( void ) {
   FD_TEST( base58_eq_32( pull_resp_version+view->pull_response->from_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
   FD_TEST( view->pull_response->crds_values_len==1UL );
   FD_TEST( base58_eq_64( pull_resp_version+view->pull_response->crds_values[0].signature_off, "41fQjMjZF8Uw3ydc4tfSiJZGkBwFSu8SqqaqsDysiDepVrhV1QvYsqETystLsay7swYxPxDnfFVX4mxqMzoFWy4S" ) );
-  FD_TEST( base58_eq_32( pull_resp_version+view->pull_response->crds_values[0].pubkey_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
+  FD_TEST( base58_eq_32( pull_resp_version+view->pull_response->crds_values[0].from_off, "9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn" ) );
   FD_TEST( view->pull_response->crds_values[0].tag==FD_GOSSIP_VALUE_VERSION );
   FD_TEST( view->pull_response->crds_values[0].wallclock_nanos==1660658416907*(long)1e6 );
 }
