@@ -293,7 +293,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
   trailer->pack_txn_idx = ctx->_txn_idx;
-  trailer->tips = out_tips[ 0 ];
+  trailer->tips = 0;
+  for( ulong i=0UL; i<txn_cnt; i++ ) trailer->tips += out_tips[ i ];
 
   long tickcount                 = fd_tickcount();
   long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
