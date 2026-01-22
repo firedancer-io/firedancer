@@ -1204,7 +1204,7 @@ fd_topo_initialize( config_t * config ) {
       reduced to 1024 once FECs are restricted to always be size 32,
       given the current consensus limit of 32768 shreds per block). */
 
-  FD_CRIT( fd_ulong_is_pow2( config->firedancer.runtime.max_live_slots ), "max_live_slots must be a power of 2 for store" );
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( config->firedancer.runtime.max_live_slots ) ) ) FD_LOG_ERR(( "max_live_slots must be a power of 2 for store" ));
   fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX / 4 /* FIXME temporary hack to run on 512 gb boxes */, (uint)shred_tile_cnt );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1466,7 +1466,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
     tile->replay.wait_for_vote_to_start_leader = config->consensus.wait_for_vote_to_start_leader;
 
-    FD_CRIT( config->firedancer.runtime.max_live_slots>32UL, "max_live_slots must be > 32 to support tower rooting" );
+    if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<=32UL ) ) FD_LOG_ERR(( "max_live_slots must be > 32 to support tower rooting" ));
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
 
     strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
