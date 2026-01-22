@@ -1297,9 +1297,6 @@ publish_reset( fd_replay_tile_t *  ctx,
   }
   reset->next_leader_slot = ctx->next_leader_slot;
 
-  if( FD_LIKELY( ctx->rpc_enabled ) ) bank->data->refcnt++;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu", bank->data->idx, reset->completed_slot, bank->data->refcnt ));
-
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }

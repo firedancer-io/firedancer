@@ -1,5 +1,6 @@
 #include "../replay/fd_replay_tile.h"
 #include "../genesis/fd_genesi_tile.h"
+#include "../tower/fd_tower_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -27,7 +28,8 @@
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN 8192UL
 
 #define IN_KIND_REPLAY (0)
-#define IN_KIND_GENESI (0)
+#define IN_KIND_GENESI (1)
+#define IN_KIND_TOWER  (2)
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
@@ -38,6 +40,10 @@
 #define FD_RPC_ENCODING_BASE64_ZSTD (2)
 #define FD_RPC_ENCODING_BINARY      (3)
 #define FD_RPC_ENCODING_JSON_PARSED (4)
+
+#define FD_RPC_HEALTH_STATUS_OK      (0)
+#define FD_RPC_HEALTH_STATUS_BEHIND  (1)
+#define FD_RPC_HEALTH_STATUS_UNKNOWN (2)
 
 #define FD_RPC_METHOD_GET_ACCOUNT_INFO                       ( 0)
 #define FD_RPC_METHOD_GET_BALANCE                            ( 1)
@@ -147,7 +153,9 @@ struct fd_rpc_out {
 typedef struct fd_rpc_out fd_rpc_out_t;
 
 struct bank_info {
-  ulong slot;
+  ulong slot; /* default ULONG_MAX */
+  ulong bank_idx;
+
   ulong transaction_count;
   uchar block_hash[ 32 ];
   ulong block_height;
@@ -173,6 +181,7 @@ struct fd_rpc_tile {
   fd_http_server_t * http;
 
   bank_info_t * banks;
+  ulong         max_live_slots;
 
   ulong cluster_confirmed_slot;
 
@@ -291,15 +300,20 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         bank->rent.exemption_threshold     = slot_completed->rent.exemption_threshold;
         bank->rent.burn_percent            = slot_completed->rent.burn_percent;
 
-        break;
-      }
-      case REPLAY_SIG_RESET: {
-        fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        /* In Agave, "processed" confirmation is the bank we've just
+           voted for (handle_votable_bank), which is also guaranteed to
+           have been replayed.
 
-        ulong prior_processed_idx = ctx->processed_idx;
-        ctx->processed_idx = reset->bank_idx;
+           Right now tower is not really built out to replicate this
+           exactly, so we use the latest replayed slot, which is
+           slightly more eager than Agave but shouldn't really affect
+           end-users, since any use-cases that assume "processed" means
+           "voted-for" would fail in Agave in cases where a cast vote
+           does not land.
 
-        if( FD_LIKELY( prior_processed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, prior_processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+           tldr: This isn't strictly conformant with Agave, but doesn't
+           need to be since Agave doesn't provide any guarantees anyways. */
+        ctx->processed_idx = slot_completed->bank_idx;
         break;
       }
       default: break;
@@ -311,6 +325,41 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       fd_memcpy( ctx->genesis_hash, src+sizeof(fd_lthash_value_t), 32UL );
     } else {
       fd_memcpy( ctx->genesis_hash, src, 32UL );
+    }
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) {
+    if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
+      fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      switch( msg->kind ) {
+        case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: {
+          if( FD_LIKELY( msg->bank_idx!=ULONG_MAX ) ) ctx->confirmed_idx = msg->bank_idx;
+          break;
+        }
+        case FD_TOWER_SLOT_CONFIRMED_CLUSTER: {
+          ctx->cluster_confirmed_slot = msg->slot;
+          break;
+        }
+        case FD_TOWER_SLOT_CONFIRMED_ROOTED: {
+          /* TODO: rooted != finalized. Fix in fd_notar */
+
+          if( FD_UNLIKELY( ctx->finalized_idx==ULONG_MAX ) ) ctx->finalized_idx = msg->bank_idx;
+          else if ( FD_LIKELY( ctx->banks[ ctx->finalized_idx ].slot==ULONG_MAX || ctx->banks[ ctx->finalized_idx ].slot<msg->slot ) ) {
+            FD_TEST( msg->bank_idx!=ULONG_MAX );
+            for( ulong i=0UL; i<ctx->max_live_slots; i++ ) {
+              /* release ownership of any banks older than
+                 finalized_idx. TODO: release ownership of any
+                 descendants of released banks. */
+              if( FD_UNLIKELY( ctx->banks[ i ].slot!=ULONG_MAX && ctx->banks[ i ].slot<msg->slot ) ) {
+                fd_stem_publish( stem, ctx->replay_out->idx, i, 0UL, 0UL, 0UL, 0UL, 0UL );
+                ctx->banks[ i ].slot = ULONG_MAX;
+              }
+            }
+
+            ctx->finalized_idx = msg->bank_idx;
+          }
+          break;
+        }
+        default: break;
+      }
     }
   }
 
@@ -476,11 +525,14 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   char const * commitment = cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "commitment" ) );
   if( !commitment ) commitment = "confirmed";
   if( 0==strcmp( commitment, "confirmed" ) ) {
-    bank_idx = ctx->confirmed_idx;
+    /* This check is here for correctness. It's technically possible for
+       tower to race and provide confirmed_idx before we've received it
+       from replay. */
+    bank_idx = fd_ulong_if( ctx->banks[ ctx->confirmed_idx ].slot!=ULONG_MAX, ctx->confirmed_idx, ULONG_MAX );
   } else if( 0==strcmp( commitment, "processed" ) ) {
     bank_idx = ctx->processed_idx;
   } else if( 0==strcmp( commitment, "finalized" ) ) {
-    bank_idx = ctx->finalized_idx;
+    bank_idx = fd_ulong_if( ctx->banks[ ctx->finalized_idx ].slot!=ULONG_MAX, ctx->finalized_idx, ULONG_MAX );
   } else {
     fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%lu}\n", request_id );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
@@ -614,11 +666,11 @@ getBalance( fd_rpc_tile_t * ctx,
   char const * commitment = cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "commitment" ) );
   if( !commitment ) commitment = "confirmed";
   if( 0==strcmp( commitment, "confirmed" ) ) {
-    bank_idx = ctx->confirmed_idx;
+    bank_idx = fd_ulong_if( ctx->banks[ ctx->confirmed_idx ].slot!=ULONG_MAX, ctx->confirmed_idx, ULONG_MAX );
   } else if( 0==strcmp( commitment, "processed" ) ) {
     bank_idx = ctx->processed_idx;
   } else if( 0==strcmp( commitment, "finalized" ) ) {
-    bank_idx = ctx->finalized_idx;
+    bank_idx = fd_ulong_if( ctx->banks[ ctx->finalized_idx ].slot!=ULONG_MAX, ctx->finalized_idx, ULONG_MAX );
   } else {
     fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%lu}\n", request_id );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
@@ -785,6 +837,15 @@ getGenesisHash( fd_rpc_tile_t * ctx,
    snapshot database on boot.  Firedancer hashes snapshots so quickly
    that the node will die on boot if the hash is not valid. */
 
+static inline int
+_getHealth( fd_rpc_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX || fd_ulong_if( ctx->banks[ ctx->confirmed_idx ].slot!=ULONG_MAX, ctx->confirmed_idx, ULONG_MAX )==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
+
+  ulong slots_behind = fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot );
+  if( FD_LIKELY( slots_behind<=128UL ) ) return FD_RPC_HEALTH_STATUS_OK;
+  else                                   return FD_RPC_HEALTH_STATUS_BEHIND;
+}
+
 static fd_http_server_response_t
 getHealth( fd_rpc_tile_t * ctx,
            ulong           request_id,
@@ -794,12 +855,13 @@ getHealth( fd_rpc_tile_t * ctx,
   // TODO: We should probably implement the same waiting_for_supermajority
   // logic to conform with Agave here.
 
-  int unknown = ctx->cluster_confirmed_slot==ULONG_MAX || ctx->confirmed_idx==ULONG_MAX;
-  if( FD_UNLIKELY( unknown ) ) fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":%lu}\n", FD_RPC_ERROR_NODE_UNHEALTHY, request_id );
-  else {
-    ulong slots_behind = fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot );
-    if( FD_LIKELY( slots_behind<=128UL ) ) fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%lu}\n", request_id );
-    else                                   fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_NODE_UNHEALTHY, slots_behind, request_id );
+  int health_status = _getHealth( ctx );
+
+  switch( health_status ) {
+    case FD_RPC_HEALTH_STATUS_UNKNOWN: fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":%lu}\n", FD_RPC_ERROR_NODE_UNHEALTHY, request_id ); break;
+    case FD_RPC_HEALTH_STATUS_BEHIND:  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_NODE_UNHEALTHY, fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot ), request_id ); break;
+    case FD_RPC_HEALTH_STATUS_OK:      fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%lu}\n", request_id ); break;
+    default: FD_LOG_ERR(( "unknown health status" ));
   }
 
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
@@ -1009,11 +1071,11 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
   char const * commitment = cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "commitment" ) );
   if( !commitment ) commitment = "confirmed";
   if( 0==strcmp( commitment, "confirmed" ) ) {
-    bank_idx = ctx->confirmed_idx;
+    bank_idx = fd_ulong_if( ctx->banks[ ctx->confirmed_idx ].slot!=ULONG_MAX, ctx->confirmed_idx, ULONG_MAX );
   } else if( 0==strcmp( commitment, "processed" ) ) {
     bank_idx = ctx->processed_idx;
   } else if( 0==strcmp( commitment, "finalized" ) ) {
-    bank_idx = ctx->finalized_idx;
+    bank_idx = fd_ulong_if( ctx->banks[ ctx->finalized_idx ].slot!=ULONG_MAX, ctx->finalized_idx, ULONG_MAX );
   } else {
     fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%lu}\n", request_id );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
@@ -1261,6 +1323,23 @@ static fd_http_server_response_t
 rpc_http_request( fd_http_server_request_t const * request ) {
   fd_rpc_tile_t * ctx = (fd_rpc_tile_t *)request->ctx;
 
+  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/health" ) ) ) {
+    int health_status = _getHealth( ctx );
+
+    switch( health_status ) {
+      case FD_RPC_HEALTH_STATUS_UNKNOWN: fd_http_server_printf( ctx->http, "unknown" ); break;
+      case FD_RPC_HEALTH_STATUS_BEHIND:  fd_http_server_printf( ctx->http, "behind" ); break;
+      case FD_RPC_HEALTH_STATUS_OK:      fd_http_server_printf( ctx->http, "ok" ); break;
+      default: FD_LOG_ERR(( "unknown health status" ));
+    }
+
+    fd_http_server_response_t response = (fd_http_server_response_t){ .status = 200, .upgrade_websocket = 0 };
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+
+    return response;
+  }
+
+
   if( FD_UNLIKELY( request->method!=FD_HTTP_SERVER_METHOD_POST ) ) {
     return (fd_http_server_response_t){
       .status = 400,
@@ -1432,6 +1511,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->finalized_idx = ULONG_MAX;
 
   ctx->banks = _banks;
+  ctx->max_live_slots = tile->rpc.max_live_slots;
+  for( ulong i=0UL; i<ctx->max_live_slots; i++ ) ctx->banks[ i ].slot = ULONG_MAX;
 
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
@@ -1445,8 +1526,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
 
-    if( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    if     ( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
+    else if( FD_LIKELY( !strcmp( link->name, "tower_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
