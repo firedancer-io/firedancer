@@ -81,6 +81,7 @@ struct fd_snapin_tile {
     int manifest_processed;
   } flags;
 
+  ulong advertised_slot;
   ulong bank_slot;
 
   ulong blockhash_offsets_len;
