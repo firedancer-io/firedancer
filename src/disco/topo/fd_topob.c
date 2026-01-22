@@ -28,6 +28,9 @@ fd_topob_new( void * mem,
   topo->max_page_size           = FD_SHMEM_GIGANTIC_PAGE_SZ;
   topo->gigantic_page_threshold = 4 * FD_SHMEM_HUGE_PAGE_SZ;
 
+  topo->agave_affinity_cnt = 0;
+  topo->blocklist_cores_cnt = 0;
+
   return topo;
 }
 
@@ -460,8 +463,15 @@ fd_topob_auto_layout( fd_topo_t * topo,
   FD_TEST( next_cpu_idx==cpus->cpu_cnt );
 
   int cpu_assigned[ FD_TILE_MAX ] = {0};
+  /* excluded cpus are simply considered already assigned */
+  for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) {
+    FD_TEST( topo->blocklist_cores_cpu_idx[ i ]<FD_TILE_MAX );
+    cpu_assigned[ topo->blocklist_cores_cpu_idx[ i ] ] = 1;
+  }
 
   ulong cpu_idx = 0UL;
+  while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
+
   for( ulong i=0UL; i<sizeof(ORDERED)/sizeof(ORDERED[0]); i++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
@@ -526,6 +536,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
   if( FD_UNLIKELY( reserve_agave_cores ) ) {
     for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
       if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
+      if( FD_UNLIKELY( cpu_assigned[ cpu_ordering[ i ] ] ) ) continue;
 
       if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
         topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = cpu_ordering[ i ];
