@@ -82,3 +82,6 @@ deps-bundle.tar.zst
 # Python
 venv
 *.pyc
+
+# Fuchsia trace format
+*.fxt

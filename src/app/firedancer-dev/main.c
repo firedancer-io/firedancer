@@ -226,6 +226,7 @@ extern action_t fd_action_ipecho_server;
 extern action_t fd_action_send_test;
 extern action_t fd_action_gossip_dump;
 extern action_t fd_action_watch;
+extern action_t fd_action_trace;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -263,6 +264,7 @@ action_t * ACTIONS[] = {
   &fd_action_send_test,
   &fd_action_gossip_dump,
   &fd_action_watch,
+  &fd_action_trace,
   NULL,
 };
 
