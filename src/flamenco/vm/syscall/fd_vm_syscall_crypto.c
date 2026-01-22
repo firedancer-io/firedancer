@@ -99,19 +99,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
 
   FD_VM_CU_UPDATE( vm, cost );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1660-L1664 */
-
-  fd_vm_haddr_query_t call_result_query = {
-    .vaddr    = result_addr,
-    .align    = FD_VM_ALIGN_RUST_U8,
-    .sz       = output_sz,
-    .is_slice = 1,
-  };
-
-  fd_vm_haddr_query_t * queries[] = { &call_result_query };
-  FD_VM_TRANSLATE_MUT( vm, queries );
-
-  uchar * call_result = call_result_query.haddr;
+  uchar * call_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_addr, output_sz );
   uchar const * input = FD_VM_MEM_SLICE_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz );
 
   int big_endian = ( group_op & FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG ) ? 0 : 1;
@@ -236,21 +224,8 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1815-L1827 */
 
-  fd_vm_haddr_query_t call_result_query = {
-    .vaddr    = result_addr,
-    .align    = FD_VM_ALIGN_RUST_U8,
-    .sz       = output_sz,
-    .is_slice = 1,
-  };
-
-  fd_vm_haddr_query_t * queries[] = { &call_result_query };
-  FD_VM_TRANSLATE_MUT( vm, queries );
-
-  uchar * call_result = call_result_query.haddr;
+  uchar * call_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_addr, output_sz );
   void const * input  = FD_VM_MEM_SLICE_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz );
-
-  /* input and call_result may alias.  Therefore, buffer via out_buf */
-  uchar FD_ALIGNED out_buf[128];
 
   int big_endian = ( op & FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG ) ? 0 : 1;
 
@@ -263,8 +238,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g1_compress( out_buf, fd_type_pun_const(input), big_endian ) ) ) {
-      fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ );
+    if( FD_LIKELY( fd_bn254_g1_compress( call_result, fd_type_pun_const(input), big_endian ) ) ) {
       ret = 0UL; /* success */
     }
     break;
@@ -274,8 +248,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g1_decompress( out_buf, fd_type_pun_const(input), big_endian ) ) ) {
-      fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ );
+    if( FD_LIKELY( fd_bn254_g1_decompress( call_result, fd_type_pun_const(input), big_endian ) ) ) {
       ret = 0UL; /* success */
     }
     break;
@@ -285,8 +258,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g2_compress( out_buf, fd_type_pun_const(input), big_endian ) ) ) {
-      fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ );
+    if( FD_LIKELY( fd_bn254_g2_compress( call_result, fd_type_pun_const(input), big_endian ) ) ) {
       ret = 0UL; /* success */
     }
     break;
@@ -296,8 +268,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ ) ) {
       goto soft_error;
     }
-    if( FD_LIKELY( fd_bn254_g2_decompress( out_buf, fd_type_pun_const(input), big_endian ) ) ) {
-      fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ );
+    if( FD_LIKELY( fd_bn254_g2_decompress( call_result, fd_type_pun_const(input), big_endian ) ) ) {
       ret = 0UL; /* success */
     }
     break;
@@ -372,15 +343,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1710-L1715 */
 
-  fd_vm_haddr_query_t hash_result_query = {
-    .vaddr    = result_addr,
-    .align    = FD_VM_ALIGN_RUST_U8,
-    .sz       = 32UL,
-    .is_slice = 1,
-  };
-
-  fd_vm_haddr_query_t * queries[] = { &hash_result_query };
-  FD_VM_TRANSLATE_MUT( vm, queries );
+  uchar * hash_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_addr, 32UL );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1716-L1732 */
 
@@ -419,7 +382,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
     }
   }
 
-  ret = !fd_poseidon_fini( pos, hash_result_query.haddr );
+  ret = !fd_poseidon_fini( pos, hash_result );
 
 soft_error:
   *_ret = ret;
@@ -443,19 +406,9 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_SECP256K1_RECOVER_COST );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L952-L956 */
-  fd_vm_haddr_query_t pubkey_result_query = {
-    .vaddr    = result_vaddr,
-    .align    = FD_VM_ALIGN_RUST_U8,
-    .sz       = 64UL,
-    .is_slice = 1,
-  };
-
-  fd_vm_haddr_query_t * queries[] = { &pubkey_result_query };
-  FD_VM_TRANSLATE_MUT( vm, queries );
-
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L957-L968 */
 
+  uchar * pubkey_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_vaddr, 64UL );
   uchar const * hash = FD_VM_MEM_HADDR_LD( vm, hash_vaddr,      FD_VM_ALIGN_RUST_U8, 32UL );
   uchar const * sig  = FD_VM_MEM_HADDR_LD( vm, signature_vaddr, FD_VM_ALIGN_RUST_U8, 64UL );
 
@@ -507,7 +460,7 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
-  memcpy( pubkey_result_query.haddr, secp256k1_pubkey, 64UL );
+  memcpy( pubkey_result, secp256k1_pubkey, 64UL );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
