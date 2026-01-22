@@ -219,18 +219,27 @@ struct fd_gossip_view_snapshot_hashes {
 
 typedef struct fd_gossip_view_snapshot_hashes fd_gossip_view_snapshot_hashes_t;
 
- /* Offsets are within full message payload, not the subset where the encoded
-    CRDS value lies. */
+/* fd_gossip_view_crds_value_t corresponds to the bincode schema of
+   Agave's CrdsValue.
+
+   Offsets are relative to CrdsValue, not the CrdsData. */
+
 struct fd_gossip_view_crds_value {
   union {
     ushort value_off; /* Start of CRDS value data in payload */
     ushort signature_off;
   };
-  ushort pubkey_off;
-  long   wallclock_nanos;
-  ushort length; /* Length of the value in bytes (incl. signature) */
 
-  uchar tag;
+  /* CrdsData */
+
+  uint tag;
+
+  /* All CrdsData types begin with from & wallclock so these are lifted
+     up to the CrdsValue. */
+
+  ushort from_off;
+  long   wallclock_nanos;
+
   union{
     fd_gossip_view_contact_info_t    ci_view[ 1 ];
     fd_gossip_view_node_instance_t   node_instance[ 1 ];
@@ -240,6 +249,8 @@ struct fd_gossip_view_crds_value {
     ulong                            lowest_slot;
     fd_gossip_view_snapshot_hashes_t snapshot_hashes[ 1 ];
   };
+
+  ushort length; /* Length of the value in bytes (incl. signature) */
 };
 
 typedef struct fd_gossip_view_crds_value fd_gossip_view_crds_value_t;
@@ -380,4 +391,12 @@ fd_gossip_crds_vote_encode( uchar *                       out_buf,
                             long                          now,
                             uchar                         vote_index,
                             fd_gossip_view_crds_value_t * out_view );
+
+int
+fd_gossip_crds_duplicate_shred_encode( fd_gossip_duplicate_shred_t const * duplicate_shred,
+                                       uchar                               from[static sizeof( fd_pubkey_t )],
+                                       uchar                               buf[static FD_GOSSIP_CRDS_MAX_SZ],
+                                       ulong                               buf_sz,
+                                       fd_gossip_view_crds_value_t       * view );
+
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_private_h */
