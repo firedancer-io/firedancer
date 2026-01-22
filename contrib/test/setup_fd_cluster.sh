@@ -6,6 +6,10 @@ PRIMARY_IP=$(ip -o -4 addr show scope global | awk '{ print $4 }' | cut -d/ -f1 
 RPC_URL="http://$PRIMARY_IP:8899/"
 AGAVE_PATH=${AGAVE_PATH:='./agave/target/release'}
 
+cd $AGAVE_PATH/../..
+./cargo build --release
+cd -
+
 mkdir ../test-ledger
 cd ../test-ledger
 

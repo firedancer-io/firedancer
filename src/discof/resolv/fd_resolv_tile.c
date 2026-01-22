@@ -414,6 +414,9 @@ after_frag( fd_resolv_ctx_t *   ctx,
         memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, msg->block_hash.uc, 32UL );
         ctx->blockhash_ring_idx++;
 
+        /* equivocating slot, ignore. TODO: is this true? */
+        if( FD_UNLIKELY( map_query( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc, NULL ) ) ) return;
+
         blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc );
         blockhash->slot = msg->slot;
 

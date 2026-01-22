@@ -8,6 +8,8 @@ FD_DIR="$SCRIPT_DIR/../.."
 OBJDIR=${OBJDIR:-build/native/${CC}}
 AGAVE_PATH=${AGAVE_PATH:='./agave/target/release'}
 
+make -j firedancer-dev
+
 cd ../test-ledger/
 
 cleanup() {
@@ -26,58 +28,37 @@ fi
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
 PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
 
-while [ $($AGAVE_PATH/solana -u localhost epoch-info --output json | jq .blockHeight) -le 150 ]; do
-  sleep 1
-done
+#while [ $($AGAVE_PATH/solana -u localhost epoch-info --output json | jq .blockHeight) -le 150 ]; do
+  #sleep 1
+#done
 
-FULL_SNAPSHOT=$(wget -c -nc -S --trust-server-names http://$PRIMARY_IP:8899/snapshot.tar.bz2 |& grep 'location:' | cut -d/ -f2)
-SHRED_VERS=`grep shred_version: validator.log | sed -e 's@.*shred_version: \([0-9]*\).*@\1@'`
-
-sudo rm -f /tmp/localnet.funk
-sudo rm -f /tmp/localnet.blockstore
 sudo rm -f firedancer-dev.log
+# clear snapshot cache always
+sudo rm -rf /home/${USER}/.firedancer/fd2/snapshots/*
 
 echo "
-[layout]
-    verify_tile_count = 16
 [gossip]
-    entrypoints = [\"$PRIMARY_IP:8001\"]
+    entrypoints = [\"64.130.55.36:8001\"]
     port = 8700
 [tiles]
     [tiles.repair]
-        repair_intake_listen_port = 8701
-        repair_serve_listen_port = 8702
-    [tiles.replay]
-        capture = \"firedancer-dev.solcap\"
-        snapshot = \"$FULL_SNAPSHOT\"
+        slot_max = 1024
     [tiles.gui]
         enabled = false
-        gui_listen_address = \"64.130.51.169\"
-        gui_listen_port = 8080
-[consensus]
-    expected_shred_version = $SHRED_VERS
-    vote = true
+    [tiles.rpc]
+        enabled = false
+[snapshots]
+    incremental_snapshots = false
 [paths]
-    identity_key = \"fd-identity-keypair.json\"
-    vote_account = \"fd-vote-keypair.json\"
+    identity_key = \"/home/emwang/em-testnet-keys/fd-identity.json\"
+    vote_account = \"/home/emwang/em-testnet-keys/fd-vote.json\"
+    base = \"/home/${USER}/.firedancer/fd2\"
 [funk]
     max_account_records = 10000000
     heap_size_gib = 32
     max_database_transactions = 1024
 [log]
     path = \"firedancer-dev.log\"
-    level_stderr = \"INFO\"
-    level_logfile = \"NOTICE\"
-    level_flush = \"ERR\"
-[rpc]
-    port = 8123
-    extended_tx_metadata_storage = true
 " > firedancer-dev.toml
 
-sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init kill --config $(readlink -f firedancer-dev.toml)
-sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init hugetlbfs --config $(readlink -f firedancer-dev.toml)
-sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init ethtool-channels --config $(readlink -f firedancer-dev.toml)
-sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init ethtool-offloads ethtool-loopback --config $(readlink -f firedancer-dev.toml)
-sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init keys --config $(readlink -f firedancer-dev.toml)
-
-sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/$OBJDIR/bin/firedancer-dev dev --no-configure --log-path $(readlink -f firedancer-dev.log) --config $(readlink -f firedancer-dev.toml)
+sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/$OBJDIR/bin/firedancer-dev dev --config $(readlink -f firedancer-dev.toml) --no-clone --no-sandbox

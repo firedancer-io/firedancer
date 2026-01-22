@@ -591,8 +591,11 @@ fd_gossip_msg_crds_data_parse( fd_gossip_view_crds_value_t * crds_val,
       return fd_gossip_msg_crds_version_parse( crds_val, payload, payload_sz, start_offset );
     case FD_GOSSIP_VALUE_NODE_INSTANCE:
       return fd_gossip_msg_crds_node_instance_parse( crds_val, payload, payload_sz, start_offset );
-    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED: {
+      FD_LOG_NOTICE(("duplicate shred gossip msg detected"));
+
       return fd_gossip_msg_crds_duplicate_shred_parse( crds_val, payload, payload_sz, start_offset );
+    }
     case FD_GOSSIP_VALUE_INC_SNAPSHOT_HASHES:
       return fd_gossip_msg_crds_snapshot_hashes_parse( crds_val, payload, payload_sz, start_offset );
     case FD_GOSSIP_VALUE_CONTACT_INFO:
