@@ -603,18 +603,8 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     fd_ed25519_point_t * r = multi_scalar_mul_edwards( _r, scalars, points, points_len );
 
     if( FD_LIKELY( r ) ) {
-      /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1339-L1343 */
-      fd_vm_haddr_query_t result_query = {
-        .vaddr    = result_point_addr,
-        .align    = FD_VM_ALIGN_RUST_POD_U8_ARRAY,
-        .sz       = FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ,
-        .is_slice = 0,
-      };
-
-      fd_vm_haddr_query_t * queries[] = { &result_query };
-      FD_VM_TRANSLATE_MUT( vm, queries );
-
-      fd_ed25519_point_tobytes( result_query.haddr, r );
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+      fd_ed25519_point_tobytes( result, r );
       ret = 0UL;
     }
     break;
@@ -625,18 +615,8 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     fd_ristretto255_point_t * r = multi_scalar_mul_ristretto( _r, scalars, points, points_len );
 
     if( FD_LIKELY( r ) ) {
-      /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1380-L1384 */
-      fd_vm_haddr_query_t result_query = {
-        .vaddr    = result_point_addr,
-        .align    = FD_VM_ALIGN_RUST_POD_U8_ARRAY,
-        .sz       = FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ,
-        .is_slice = 0,
-      };
-
-      fd_vm_haddr_query_t * queries[] = { &result_query };
-      FD_VM_TRANSLATE_MUT( vm, queries );
-
-      fd_ristretto255_point_tobytes( result_query.haddr, r );
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+      fd_ristretto255_point_tobytes( result, r );
       ret = 0UL;
     }
     break;

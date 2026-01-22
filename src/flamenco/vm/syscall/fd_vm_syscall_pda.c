@@ -224,17 +224,8 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
     return err;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L875-L880 */
-  fd_vm_haddr_query_t address_query = {
-    .vaddr    = out_vaddr,
-    .align    = FD_VM_ALIGN_RUST_U8,
-    .sz       = FD_PUBKEY_FOOTPRINT,
-    .is_slice = 1,
-  };
-
-  fd_vm_haddr_query_t * queries[] = { &address_query };
-  FD_VM_TRANSLATE_MUT( vm, queries );
-  memcpy( address_query.haddr, derived->uc, FD_PUBKEY_FOOTPRINT );
+  uchar * address = FD_VM_HADDR_QUERY_U8_SLICE( vm, out_vaddr, FD_PUBKEY_FOOTPRINT );
+  memcpy( address, derived->uc, FD_PUBKEY_FOOTPRINT );
 
   /* Success */
   *_ret = 0UL;
