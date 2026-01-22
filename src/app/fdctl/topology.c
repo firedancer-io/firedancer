@@ -349,10 +349,28 @@ fd_topo_initialize( config_t * config ) {
 
         if( FD_UNLIKELY( topo->agave_affinity_cnt>FD_TILE_MAX ) ) {
           FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.agave_affinity] specifies more CPUs than Firedancer can use. "
-                        "You should either reduce the number of CPUs in the affinity string." ));
+                        "You should reduce the number of CPUs in the affinity string." ));
         }
         topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = agave_cpu[ i ];
       }
+    }
+  } else {
+    ushort blocklist_cores[ FD_TILE_MAX ];
+    topo->blocklist_cores_cnt = fd_tile_private_cpus_parse( config->layout.blocklist_cores, blocklist_cores );
+    if( FD_UNLIKELY( topo->blocklist_cores_cnt>FD_TILE_MAX ) ) {
+      FD_LOG_ERR(( "The CPU string in the configuration file under [layout.blocklist_cores] specifies more CPUs than Firedancer can use. "
+                    "You should reduce the number of CPUs in the excluded cores string." ));
+    }
+
+    for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) {
+      /* Since we use fd_tile_private_cpus_parse() like for affinity, the user
+         may input a string containing `f`. That's parsed correctly, but it's
+         meaningless for blocklisted cores, so we reject it here.  */
+      if( FD_UNLIKELY( blocklist_cores[ i ]==USHORT_MAX ) ) {
+        FD_LOG_ERR(( "The CPU string in the configuration file under [layout.blocklist_cores] contains invalid values: `f`. "
+                      "You should fix the excluded cores string." ));
+      }
+      topo->blocklist_cores_cpu_idx[ i ] = blocklist_cores[ i ];
     }
   }
 

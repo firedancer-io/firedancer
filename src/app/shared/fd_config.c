@@ -521,6 +521,7 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( log.level_flush );
 
   CFG_HAS_NON_EMPTY( layout.affinity );
+  CFG_HAS_NON_EMPTY( layout.blocklist_cores );
   CFG_HAS_NON_ZERO ( layout.net_tile_count );
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
   CFG_HAS_NON_ZERO ( layout.resolv_tile_count );
