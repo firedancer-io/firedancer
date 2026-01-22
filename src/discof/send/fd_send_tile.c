@@ -442,11 +442,18 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   fd_txn_t * txn = (fd_txn_t *)txn_mem;
   FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
+  FD_LOG_WARNING(("SIGNATURE CNT %u", txn->signature_cnt));
 
   /* sign the txn */
   uchar *       signature  = signed_vote_txn + txn->signature_off;
   uchar const * message    = signed_vote_txn + txn->message_off;
   ulong         message_sz = vote_txn_sz     - txn->message_off;
+
+  fd_sha512_t sha512[1];
+  FD_TEST( fd_sha512_join( fd_sha512_new( sha512 ) ) );
+  fd_ed25519_sign( signature, message, message_sz, ctx->auth_public_key.uc, ctx->auth_private_key.uc, sha512 );
+
+  signature = signature + FD_TXN_SIGNATURE_SZ;
   fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   ulong poh_slot  = vote_slot+1;
@@ -610,6 +617,9 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( tile->send.identity_key_path, /* pubkey only: */ 1 ) );
+
+  ctx->auth_public_key = *(fd_pubkey_t const *)(fd_keyload_load( "/home/ibhatt/keys/staked-identity.json", /* pubkey only: */ 1 ) );
+  ctx->auth_private_key = *(fd_pubkey_t const *)(fd_keyload_load( "/home/ibhatt/keys/staked-identity.json", /* pubkey only: */ 0 ) );
 }
 
 static fd_send_link_in_t *

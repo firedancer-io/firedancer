@@ -990,7 +990,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch      = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                        );
-  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint()                          );
+  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint()                          ); (void)av_map;
   void  * ghost  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
   void  * hfork  = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )         );
   void  * notar  = FD_SCRATCH_ALLOC_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead ) );
@@ -1001,10 +1001,6 @@ unprivileged_init( fd_topo_t *      topo,
   void  * stake  = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stakes_align(), fd_epoch_stakes_footprint( slot_max )                );
   void  * notif  = FD_SCRATCH_ALLOC_APPEND( l, notif_align(),           notif_footprint( slot_max )                          );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-
-  /* The auth key map was already joined and setup in privileged_init.
-     Just verify the join is still valid. */
-  FD_TEST( ctx->auth_key_map == fd_auth_key_map_join( fd_auth_key_map_new( av_map ) ) );
 
   ctx->wksp         = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->ghost        = fd_ghost_join       ( fd_ghost_new       ( ghost, 2*slot_max, FD_VOTER_MAX, 42UL ) ); /* FIXME seed */

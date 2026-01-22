@@ -127,7 +127,8 @@ struct fd_send_tile_ctx {
 
   /* tls pubkey */
   fd_pubkey_t identity_key  [ 1 ];    /* also tls pubkey - only really used by quic */
-
+  fd_pubkey_t auth_public_key  ;
+  fd_pubkey_t auth_private_key ;
   /* Leader schedule tracking */
   fd_multi_epoch_leaders_t * mleaders;
 
