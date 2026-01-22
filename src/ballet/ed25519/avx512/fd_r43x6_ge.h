@@ -81,7 +81,7 @@ fd_r43x6_ge_is_eq( wwl_t X03, wwl_t X14, wwl_t X25,
          (int)(!fd_r43x6_is_nonzero( fd_r43x6_sub_fast( yn1, yn2 ) /* in s62 */ ));
 }
 
-/* FD_R43X6_QUAD_1112d(Q) does Q = (1,1,2,2*d).  (X,Y,Z,T) will be
+/* FD_R43X6_QUAD_1112d(Q) does Q = (1,1,1,2*d).  (X,Y,Z,T) will be
    reduced fd_r43x6_t. */
 
 #define FD_R43X6_QUAD_1112d( Q ) do {                                      \
