@@ -735,6 +735,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->last_transaction_finished_nanos   = bank->data->last_transaction_finished_nanos;
   slot_info->completion_time_nanos             = fd_log_wallclock();
 
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt is %lu", bank->data->idx, slot, bank->data->refcnt ));
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
      they are done using the bank. */
@@ -940,6 +941,8 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   /* The reference on the bank is finally no longer needed. */
   ctx->leader_bank->data->refcnt--;
+
+  FD_LOG_WARNING(( "fini_leader_bank: ctx->leader_bank->data->refcnt is for (idx=%lu) %lu", ctx->leader_bank->data->idx, ctx->leader_bank->data->refcnt ));
 
   /* We are no longer leader so we can clear the bank index we use for
      being the leader. */
@@ -1570,6 +1573,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
       }
 #     endif
 
+      FD_LOG_DEBUG(( "dispatch_task: bank (idx=%lu) refcnt is %lu", bank->data->idx, bank->data->refcnt ));
       bank->data->refcnt++;
 
       if( FD_UNLIKELY( !bank->data->first_transaction_scheduled_nanos ) ) bank->data->first_transaction_scheduled_nanos = fd_log_wallclock();
@@ -1591,6 +1595,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
 
       fd_bank_t bank[1];
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, task->txn_sigverify->bank_idx ) );
+      FD_LOG_DEBUG(( "dispatch_task: bank (idx=%lu) refcnt is %lu", bank->data->idx, bank->data->refcnt ));
       bank->data->refcnt++;
 
       fd_replay_out_link_t *        exec_out = ctx->exec_out;
@@ -2018,6 +2023,8 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
   FD_TEST( bank->data );
   bank->data->refcnt--;
 
+  FD_LOG_DEBUG(( "process_exec_task_done: bank (idx=%lu) refcnt is %lu", bank->data->idx, bank->data->refcnt ));
+
   switch( sig>>32 ) {
     case FD_EXEC_TT_TXN_EXEC: {
       if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
@@ -2157,6 +2164,8 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   maybe_become_leader( ctx, stem );
 
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
+
+    FD_LOG_WARNING(("TOWER ROOT ADVANCE"));
 
     FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
     fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->root_block_id, NULL, ctx->block_id_arr );
@@ -2383,6 +2392,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_RPC:
     case IN_KIND_GUI: {
       fd_bank_t bank[1];
+
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, sig ) );
       bank->data->refcnt--;
       FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));

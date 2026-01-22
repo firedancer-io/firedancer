@@ -165,6 +165,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                    ulong               sz,
                    ulong               begin_tspub,
                    fd_stem_context_t * stem ) {
+
+  FD_LOG_WARNING(("VOTE TX"));
+
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
@@ -199,6 +202,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
+      FD_LOG_WARNING(("VOTE TX FAILED"));
       FD_TEST( !txn_out->err.is_fees_only );
       fd_runtime_cancel_txn( ctx->runtime, txn_out );
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
@@ -229,6 +233,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
+    FD_LOG_WARNING(("COMMIT TX"));
     fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {

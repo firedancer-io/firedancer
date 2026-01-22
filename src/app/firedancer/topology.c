@@ -1451,6 +1451,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
     /* Please maintain same field order as fd_topo.h */
+    FD_CRIT( config->firedancer.runtime.max_live_slots>32UL, "max live slots must be > 32 to support tower rooting" );
 
     tile->replay.fec_max = config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX / 4; /* FIXME temporary hack to run on 512 gb boxes */
     tile->replay.max_vote_accounts = config->firedancer.runtime.max_vote_accounts;

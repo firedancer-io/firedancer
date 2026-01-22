@@ -2208,6 +2208,7 @@ fd_gui_handle_rooted_slot_legacy( fd_gui_t * gui,
     fd_http_server_ws_broadcast( gui->http );
   }
 
+  FD_LOG_NOTICE(("rooted slot %lu", _slot));
   gui->summary.slot_rooted = _slot;
   fd_gui_printf_root_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
@@ -2477,7 +2478,8 @@ fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
   }
 
   /* ensure a history exists */
-  if( FD_UNLIKELY( prev_slot_completed==ULONG_MAX || gui->summary.slot_rooted==ULONG_MAX ) ) return;
+  FD_LOG_NOTICE(("prev slot completed %lu, rooted %lu", prev_slot_completed, gui->summary.slot_rooted));
+  if( FD_UNLIKELY( prev_slot_completed==ULONG_MAX || gui->summary.slot_rooted==ULONG_MAX || gui->summary.slot_rooted==0UL ) ) return;
 
   /* slot complete received out of order on the same fork? */
   FD_TEST( fd_gui_slot_is_ancestor( gui, prev_slot_completed, gui->summary.slot_completed ) || !fd_gui_slot_is_ancestor( gui, gui->summary.slot_completed, prev_slot_completed ) );
@@ -2486,9 +2488,9 @@ fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
   int republish_skip_rate[ 2 ] = {0};
   if( FD_UNLIKELY( !fd_gui_slot_is_ancestor( gui, prev_slot_completed, gui->summary.slot_completed ) ) ) {
     /* The handling for skipped slot on a fork switch is tricky.  We
-        want to rebate back any slots that were skipped but are no
-        longer.  We also need to make sure we count skipped slots
-        towards the correct epoch. */
+       want to rebate back any slots that were skipped but are no
+       longer.  We also need to make sure we count skipped slots
+       towards the correct epoch. */
     for( ulong i=fd_ulong_max( gui->summary.slot_completed, prev_slot_completed); i>gui->summary.slot_rooted; i-- ) {
 
       int is_skipped_on_old_fork = i<=prev_slot_completed         && fd_gui_is_skipped_on_fork( gui, gui->summary.slot_rooted, prev_slot_completed,         i );
@@ -2692,7 +2694,7 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
       gui->shreds.history_tail++;
     }
   }
-
+  FD_LOG_NOTICE(("rooted slot %lu", root_slot));
   gui->summary.slot_rooted = root_slot;
   fd_gui_printf_root_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
@@ -2870,7 +2872,6 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
   slot->compute_units          = slot_completed->compute_units;
   slot->shred_cnt              = slot_completed->shred_cnt;
   slot->vote_slot              = vote_slot;
-
   try_publish_vote_status( gui, slot_completed->slot );
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && slot->slot==gui->epoch.epochs[ 0 ].end_slot ) ) {

@@ -721,7 +721,7 @@ done_vote_iter:
     contiguous_confirm( ctx, out.root_slot, ctx->root_slot, FD_TOWER_SLOT_CONFIRMED_ROOTED     );
 
     /* Update slot watermarks. */
-
+    FD_LOG_WARNING(("TOWER ROOT ADVANCE"));
     ctx->root_slot = out.root_slot;
   }
 

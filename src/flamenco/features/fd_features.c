@@ -101,10 +101,10 @@ fd_feature_restore( fd_bank_t *               bank,
 
   FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
   if( feature->has_activated_at ) {
-    FD_LOG_DEBUG(( "Feature %s activated at %lu", addr_b58, feature->activated_at ));
+    //FD_LOG_DEBUG(( "Feature %s activated at %lu", addr_b58, feature->activated_at ));
     fd_features_set( features, id, feature->activated_at );
   } else {
-    FD_LOG_DEBUG(( "Feature %s not activated at %lu", addr_b58, feature->activated_at ));
+    //FD_LOG_DEBUG(( "Feature %s not activated at %lu", addr_b58, feature->activated_at ));
   }
 }
 

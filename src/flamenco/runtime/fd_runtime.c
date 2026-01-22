@@ -1554,11 +1554,11 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
         fd_features_t * features = fd_bank_features_modify( bank );
         if( feature->has_activated_at ) {
           FD_BASE58_ENCODE_32_BYTES( account->pubkey, pubkey_b58 );
-          FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", pubkey_b58, feature->activated_at ));
+          //FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", pubkey_b58, feature->activated_at ));
           fd_features_set( features, found, feature->activated_at );
         } else {
           FD_BASE58_ENCODE_32_BYTES( account->pubkey, pubkey_b58 );
-          FD_LOG_DEBUG(( "Feature %s not activated (genesis)", pubkey_b58 ));
+          //FD_LOG_DEBUG(( "Feature %s not activated (genesis)", pubkey_b58 ));
           fd_features_set( features, found, ULONG_MAX );
         }
       }

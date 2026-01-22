@@ -298,8 +298,12 @@ returnable_frag( fd_rpc_tile_t *     ctx,
 
         ulong prior_processed_idx = ctx->processed_idx;
         ctx->processed_idx = reset->bank_idx;
-
-        if( FD_LIKELY( prior_processed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, prior_processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        if( FD_LIKELY( prior_processed_idx!=ULONG_MAX ) ) {
+          FD_LOG_NOTICE(("RESET: %lu", reset->bank_idx));
+          fd_stem_publish( stem, ctx->replay_out->idx, prior_processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        } else {
+          FD_LOG_NOTICE(("RESET NP: %lu", reset->bank_idx));
+        }
         break;
       }
       default: break;

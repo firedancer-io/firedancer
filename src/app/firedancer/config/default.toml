@@ -235,13 +235,13 @@ user = ""
     # The minimum log level which will be written to the log file.  Log
     # levels lower than this will be skipped.  Must be one of the levels
     # described above.
-    level_logfile = "INFO"
+    level_logfile = "DEBUG"
 
     # The minimum log level which will be written to stderr.  Log levels
     # lower than this will be skipped.  Must be one of the levels
     # described above.  This should be at least the same as the level
     # for the log file.
-    level_stderr = "NOTICE"
+    level_stderr = "DEBUG"
 
     # The minimum log level which will immediately flush the log file to
     # disk.  Must be one of the levels described above.
@@ -549,7 +549,7 @@ user = ""
     # is not stored as an account. Examples of members of the bank
     # are the total capitalization of the chain and the vote account
     # states for previous epochs.
-    max_live_slots = 128
+    max_live_slots = 64
 
     # max_fork_width specifies the maximum number of forks that will
     # play through the same slot. Specifically, the maximum number
