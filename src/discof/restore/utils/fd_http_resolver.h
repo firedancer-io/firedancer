@@ -13,9 +13,10 @@ typedef struct fd_http_resolver_private fd_http_resolver_t;
 #define FD_HTTP_RESOLVER_MAGIC (0xF17EDA2CE551170) /* FIREDANCE HTTP RESOLVER V0 */
 
 typedef void
-(* fd_http_resolver_on_resolve_fn_t)( void *              _ctx,
-                                      fd_ip4_port_t       addr,
-                                      fd_ssinfo_t const * ssinfo );
+(* fd_http_resolver_on_resolve_fn_t)( void *        _ctx,
+                                      fd_ip4_port_t addr,
+                                      ulong         full_slot,
+                                      ulong         incr_slot );
 
 FD_PROTOTYPES_BEGIN
 

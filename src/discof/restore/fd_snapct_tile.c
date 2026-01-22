@@ -23,7 +23,6 @@
 #define NAME "snapct"
 
 /* FIXME: Implement full_effective_age_cancel_threshold */
-/* FIXME: Implement min_speed_mib and other download health logic */
 /* FIXME: Add more timeout config options and have consistent behavior */
 /* FIXME: Do a finishing pass over the default.toml config options / comments */
 /* FIXME: Improve behavior when using incremental_snapshots = false */
@@ -275,8 +274,8 @@ predict_incremental( fd_snapct_tile_t * ctx ) {
   fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
 
   if( FD_LIKELY( best.addr.l ) ) {
-    if( FD_UNLIKELY( ctx->predicted_incremental.slot!=best.ssinfo.incremental.slot ) ) {
-      ctx->predicted_incremental.slot  = best.ssinfo.incremental.slot;
+    if( FD_UNLIKELY( ctx->predicted_incremental.slot!=best.incr_slot ) ) {
+      ctx->predicted_incremental.slot  = best.incr_slot;
       ctx->predicted_incremental.dirty = 1;
     }
   }
@@ -285,11 +284,12 @@ predict_incremental( fd_snapct_tile_t * ctx ) {
 static void
 on_resolve( void *              _ctx,
             fd_ip4_port_t       addr,
-            fd_ssinfo_t const * ssinfo ) {
+            ulong               full_slot,
+            ulong               incr_slot ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
-  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, ssinfo );
-  fd_sspeer_selector_process_cluster_slot( ctx->selector, ssinfo->full.slot, ssinfo->incremental.slot );
+  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
 
@@ -299,7 +299,7 @@ on_ping( void *        _ctx,
          ulong         latency ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
-  fd_sspeer_selector_add( ctx->selector, addr, latency, NULL );
+  fd_sspeer_selector_add( ctx->selector, addr, latency, ULONG_MAX, ULONG_MAX);
   predict_incremental( ctx );
 }
 
@@ -316,10 +316,7 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
     }
   }
 
-  fd_ssinfo_t ssinfo = { .full = { .slot = msg->snapshot_hashes.full->slot },
-                        .incremental = { .slot = incr_slot, .base_slot = full_slot } };
-
-  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, &ssinfo );
+  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot );
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
@@ -585,8 +582,8 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( (ctx->config.incremental_snapshots && local_full_only) || local_too_old ) ) {
         fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot );
         if( FD_LIKELY( best_incremental.addr.l ) ) {
-          ctx->predicted_incremental.slot = best_incremental.ssinfo.incremental.slot;
-          local_slot_with_download = best_incremental.ssinfo.incremental.slot;
+          ctx->predicted_incremental.slot = best_incremental.incr_slot;
+          local_slot_with_download = best_incremental.incr_slot;
           ctx->local_in.incremental_snapshot_slot = ULONG_MAX; /* don't use the local incremental snapshot */
         }
       }
@@ -600,19 +597,19 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
         init_load( ctx, stem, 1, 1 );
       } else {
-        if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) send_expected_slot( ctx, stem, best.ssinfo.full.slot );
+        if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) send_expected_slot( ctx, stem, best.full_slot );
 
-        fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, best.ssinfo.full.slot );
+        fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, best.full_slot );
         if( FD_LIKELY( best_incremental.addr.l ) ) {
-          ctx->predicted_incremental.slot = best_incremental.ssinfo.incremental.slot;
-          send_expected_slot( ctx, stem, best_incremental.ssinfo.incremental.slot );
+          ctx->predicted_incremental.slot = best_incremental.incr_slot;
+          send_expected_slot( ctx, stem, best_incremental.incr_slot );
         }
 
         ctx->addr                            = best.addr;
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_HTTP;
-        ctx->predicted_incremental.full_slot = best.ssinfo.full.slot;
+        ctx->predicted_incremental.full_slot = best.full_slot;
         init_load( ctx, stem, 1, 0 );
-        log_download( ctx, 1, best.addr, best.ssinfo.full.slot );
+        log_download( ctx, 1, best.addr, best.full_slot );
       }
       break;
     }
@@ -632,7 +629,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->addr = best.addr;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
       init_load( ctx, stem, 0, 0 );
-      log_download( ctx, 0, best.addr, best.ssinfo.incremental.slot );
+      log_download( ctx, 0, best.addr, best.incr_slot );
       break;
     }
 
@@ -737,15 +734,15 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
-      if( FD_UNLIKELY( ctx->predicted_incremental.slot!=best.ssinfo.incremental.slot ) ) {
-        ctx->predicted_incremental.slot = best.ssinfo.incremental.slot;
-        send_expected_slot( ctx, stem, best.ssinfo.incremental.slot );
+      if( FD_UNLIKELY( ctx->predicted_incremental.slot!=best.incr_slot ) ) {
+        ctx->predicted_incremental.slot = best.incr_slot;
+        send_expected_slot( ctx, stem, best.incr_slot );
       }
 
       ctx->addr = best.addr;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
       init_load( ctx, stem, 0, 0 );
-      log_download( ctx, 0, best.addr, best.ssinfo.incremental.slot );
+      log_download( ctx, 0, best.addr, best.incr_slot );
       break;
 
     /* ============================================================== */
