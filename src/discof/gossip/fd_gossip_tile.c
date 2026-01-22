@@ -2,6 +2,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "generated/fd_gossip_tile_seccomp.h"
 
+#include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../flamenco/gossip/crds/fd_crds.h"
 #include "../../flamenco/gossip/fd_gossip_out.h"
 #include "../../flamenco/features/fd_features.h"
@@ -14,6 +15,7 @@
 #define IN_KIND_SIGN          (2)
 #define IN_KIND_TXSEND        (3)
 #define IN_KIND_EPOCH         (4)
+#define IN_KIND_TOWER         (5)
 
 /* Symbols exported by version.c */
 extern ulong const firedancer_major_version;
@@ -228,6 +230,14 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
   }
 }
 
+static void
+handle_local_duplicate_shred( fd_gossip_tile_ctx_t *            ctx,
+                              fd_gossip_duplicate_shred_t const chunk[FD_EQVOC_CHUNK_CNT],
+                              fd_stem_context_t *               stem ) {
+  long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
+  for( ulong i=0UL; i<FD_EQVOC_CHUNK_CNT; i++ ) fd_gossip_push_duplicate_shred( ctx->gossip, &chunk[i], stem, now );
+}
+
 static inline int
 returnable_frag( fd_gossip_tile_ctx_t * ctx,
                  ulong                  in_idx,
@@ -254,6 +264,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
     case IN_KIND_TXSEND:        handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
     case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_GOSSVF:        handle_packet( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
+    case IN_KIND_TOWER:         handle_local_duplicate_shred( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
   }
 
   return 0;

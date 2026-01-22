@@ -75,7 +75,7 @@ struct fd_tower_slot_done {
 
      TODO: Need to implement "refresh last vote" logic. */
 
-  int   is_valid_vote;
+  int   has_vote_txn;
   ulong authority_idx;
   ulong vote_txn_sz;
   uchar vote_txn[ FD_TPU_MTU ];

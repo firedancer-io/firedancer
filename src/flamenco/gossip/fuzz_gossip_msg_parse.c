@@ -53,7 +53,7 @@ check_view_crds_value( uchar const * data,
                        ulong         size,
                        fd_gossip_view_crds_value_t const * v ) {
   (void)data;
-  assert( bounds_check( size, v->pubkey_off, sizeof(fd_pubkey_t) ) );
+  assert( bounds_check( size, v->from_off, sizeof(fd_pubkey_t) ) );
   assert( bounds_check_arr( size, v->value_off, 1UL, v->length ) );
   switch( v->tag ) {
   case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:

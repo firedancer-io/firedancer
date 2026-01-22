@@ -127,7 +127,7 @@ test_crds_mask_iter( void ) {
   for( ulong i=0UL; i<ENTRY_CNT; i++ ) {
     fd_gossip_view_crds_value_t view[1];
     view->value_off = 0UL;
-    view->pubkey_off = 64UL+4UL;
+    view->from_off = 64UL+4UL;
     view->wallclock_nanos = now;
     view->length = FD_GOSSIP_CRDS_MAX_SZ;
     view->tag = FD_GOSSIP_VALUE_LOWEST_SLOT;
@@ -166,7 +166,7 @@ test_crds_mask_iter( void ) {
 
     fd_gossip_view_crds_value_t view[1];
     view->value_off = 0UL;
-    view->pubkey_off = 64UL+4UL;
+    view->from_off = 64UL+4UL;
     view->wallclock_nanos = now;
     view->length = FD_GOSSIP_CRDS_MAX_SZ;
     view->tag = FD_GOSSIP_VALUE_LOWEST_SLOT;

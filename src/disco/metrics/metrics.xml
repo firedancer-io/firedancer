@@ -1195,12 +1195,6 @@ metric introduced.
 
 <tile name="tower">
 
-    <!-- Vote txns from TPU / Gossip -->
-
-    <counter name="VoteTxnInvalid" summary="Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.)" />
-    <counter name="VoteTxnIgnored" summary="Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind)" />
-    <counter name="VoteTxnMismatch" summary="Number of times a vote txn mismatched our own block id" />
-
     <!-- Tower voting decisions -->
 
     <counter name="AncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
@@ -1212,12 +1206,41 @@ metric introduced.
     <counter name="ThresholdFail" summary="Did not pass threshold check (can't vote)" />
     <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
 
+    <!-- Vote txns from TPU / Gossip -->
+
+    <counter name="VoteTxnInvalid" summary="Number of invalid vote txns (malformed, bad signature, etc.)" />
+    <counter name="VoteTxnIgnored" summary="Number of ignored vote txns (unrecognized slot or block id)" />
+
+    <!-- DuplicateShreds from Gossip -->
+
+    <counter name="ProofInvalidChunkCnt" summary="Invalid DuplicateShred proof bad chunk cnt" />
+    <counter name="ProofInvalidChunkIdx" summary="Invalid DuplicateShred proof bad chunk idx" />
+    <counter name="ProofInvalidChunkLen" summary="Invalid DuplicateShred proof bad chunk len" />
+    <counter name="ProofInvalidShred1Sz" summary="Invalid DuplicateShred proof bad shred1 sz" />
+    <counter name="ProofInvalidShred2Sz" summary="Invalid DuplicateShred proof bad shred2 sz" />
+
+    <!-- DuplicateShreds proofs -->
+
+    <counter name="ProofVerifiedMerkle" summary="Merkle root conflict" />
+    <counter name="ProofVerifiedMeta" summary="Coding metadata conflict" />
+    <counter name="ProofVerifiedLast" summary="Last shred index conflict" />
+    <counter name="ProofVerifiedOverlap" summary="Overlapping FEC set conflict" />
+    <counter name="ProofVerifiedChained" summary="Chained merkle root conflict" />
+
     <!-- Tower slot metadata -->
 
-    <gauge name="RootSlot" summary="Current Tower root slot" />
-    <gauge name="VoteSlot" summary="Current Tower vote slot" />
-    <gauge name="ResetSlot" summary="Current Tower reset slot" />
-    <counter name="SlotIgnored" summary="Number of times we ignored a slot likely due to minority fork publish" />
+    <gauge name="ClusterRootSlot" summary="Cluster root slot (from on-chain vote account as of ReplaySlotProcessed)" />
+    <gauge name="ClusterVoteSlot" summary="Cluster vote slot (from on-chain vote account as of ReplaySlotProcessed)" />
+    <gauge name="LocalRootSlot" summary="Local root slot (root of local tower)" />
+    <gauge name="LocalVoteSlot" summary="Local vote slot (top of local tower)" />
+    <gauge name="ResetSlot" summary="Reset slot" />
+
+    <!-- Replay slot completed -->
+
+    <gauge name="ReplaySlotProcessed" summary="Most recent processed ReplaySlotCompleted slot" />
+    <gauge name="ReplaySlotIgnored" summary="Most recent ignored ReplaySlotCompleted slot" />
+    <counter name="ReplaySlotProcessed" summary="Number of processed ReplaySlotCompleted frags" />
+    <counter name="ReplaySlotIgnored" summary="Number of ignored ReplaySlotCompleted frags" />
 
     <!-- Hard forks / bank hash cmp tracking -->
 
