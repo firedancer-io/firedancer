@@ -44,7 +44,8 @@ fd_pack_rebate_sum_new( void * mem ) {
   return mem;
 }
 
-#define HEADROOM (FD_PACK_REBATE_SUM_CAPACITY-MAX_TXN_PER_MICROBLOCK*FD_TXN_ACCT_ADDR_MAX)
+#define HEADROOM (FD_PACK_REBATE_SUM_CAPACITY-FD_PACK_MAX_TXN_PER_BUNDLE*FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION)
+#define MAX_REBATE_ENTRIES_PER_REPORT (FD_PACK_MAX_TXN_PER_BUNDLE*FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION)
 
 ulong
 fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
@@ -52,7 +53,7 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
                             fd_acct_addr_t const * const * adtl_writable,
                             ulong                          txn_cnt ) {
   /* See end of function for this equation */
-  if( FD_UNLIKELY( txn_cnt==0UL ) ) return (ulong)((fd_int_max( 0, (int)s->writer_cnt - (int)HEADROOM ) + 1636) / 1637);
+  if( FD_UNLIKELY( txn_cnt==0UL ) ) return (ulong)(((ulong)fd_int_max( 0, (int)s->writer_cnt - (int)HEADROOM ) + (MAX_REBATE_ENTRIES_PER_REPORT-1UL)) / MAX_REBATE_ENTRIES_PER_REPORT);
 
   int is_initializer_bundle = 1;
   int ib_success            = 1;
@@ -115,13 +116,13 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
     s->ib_result = fd_int_if( ib_success, 1, -1 );
   }
 
-  /* We want to make sure that we have enough capacity to insert 31*128
+  /* We want to make sure that we have enough capacity to insert 5*64
      addresses without hitting 5k.  Thus, if x is the current value of
      writer_cnt, we need to call report at least y times to ensure
-                        x-y*1637 <= 5*1024-31*128
-                               y >= (x-1152)/1637
-     but y is an integer, so y >= ceiling( (x-1152)/1637 ) */
-  return (ulong)((fd_int_max( 0, (int)s->writer_cnt - (int)HEADROOM ) + 1636) / 1637);
+                        x-y*320 <= 5*1024-5*64
+                               y >= (x-4800)/320
+     but y is an integer, so y >= ceiling( (x-4800)/320 ) */
+  return (ulong)(((ulong)fd_int_max( 0, (int)s->writer_cnt - (int)HEADROOM ) + (MAX_REBATE_ENTRIES_PER_REPORT-1UL)) / MAX_REBATE_ENTRIES_PER_REPORT);
 }
 
 

@@ -97,10 +97,10 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    128UL,                                    FD_STAKE_OUT_MTU,       1UL );
   /* pack_bank is shared across all banks, so if one bank stalls due to complex transactions, the buffer needs to be large so that
      other banks can keep proceeding. */
-  /**/                 fd_topob_link( topo, "pack_bank",    "pack_bank",    65536UL,                                  USHORT_MAX,             1UL );
+  /**/                 fd_topob_link( topo, "pack_bank",    "pack_bank",    256UL,                                    FD_PACK_BANK_MTU,       1UL );
   /**/                 fd_topob_link( topo, "pack_poh",     "pack_poh",     65536UL,                                  sizeof(fd_done_packing_t), 1UL );
-  FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_poh",     "bank_poh",     16384UL,                                  USHORT_MAX,             1UL );
-  FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_pack",    "bank_pack",    16384UL,                                  USHORT_MAX,             3UL );
+  FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_poh",     "bank_poh",     32UL,                                     FD_BANK_POH_MTU,        1UL );
+  FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_pack",    "bank_pack",    32UL,                                     FD_PACK_REBATE_MAX_SZ,  1UL );
   /**/                 fd_topob_link( topo, "poh_pack",     "bank_poh",     128UL,                                    sizeof(fd_became_leader_t), 1UL );
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,             2UL );
   /**/                 fd_topob_link( topo, "crds_shred",   "poh_shred",    128UL,                                    8UL  + 40200UL * 46UL,  1UL );

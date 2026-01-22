@@ -201,6 +201,15 @@ struct fd_microblock_bank_trailer {
 };
 typedef struct fd_microblock_bank_trailer fd_microblock_bank_trailer_t;
 
+/* FD_PACK_BANK_MTU is the worst-case size for pack->bank microblocks.
+   Even with SMALL_MICROBLOCKS=1, bundles can contain up to
+   FD_PACK_MAX_TXN_PER_BUNDLE (5) transactions plus a trailer. */
+#define FD_PACK_BANK_MTU (FD_PACK_MAX_TXN_PER_BUNDLE*sizeof(fd_txn_p_t)+sizeof(fd_microblock_bank_trailer_t))
+
+/* FD_BANK_POH_MTU is the worst-case size for bank->poh microblocks.
+   Similar to pack->bank, but uses fd_microblock_trailer_t instead. */
+#define FD_BANK_POH_MTU (FD_PACK_MAX_TXN_PER_BUNDLE*sizeof(fd_txn_p_t)+sizeof(fd_microblock_trailer_t))
+
 typedef struct __attribute__((packed)) {
   ulong  tick_duration_ns;
   ulong  hashcnt_per_tick;

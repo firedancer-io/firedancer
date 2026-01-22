@@ -55,7 +55,10 @@ struct fd_entry_batch_header {
 };
 typedef struct fd_entry_batch_header fd_entry_batch_header_t;
 
-#define MAX_TXN_PER_MICROBLOCK ((MAX_MICROBLOCK_SZ-sizeof(fd_entry_batch_meta_t))/sizeof(fd_txn_p_t))
+/* Microblocks are limited to bundle size (5 txns max). This is the effective maximum
+   used for link MTU calculations and capacity planning. Hard-coded to avoid circular
+   include dependencies. */
+#define MAX_TXN_PER_MICROBLOCK 5UL
 
 /* FD_POH_SHRED_MTU is the size of the raw transaction portion of the
    largest microblock the pack tile will produce, plus the 48B of

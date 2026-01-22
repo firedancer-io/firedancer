@@ -3,7 +3,7 @@
 
 #include "../fd_disco_base.h"
 #include "fd_microblock.h"
-
+#include "../../flamenco/runtime/fd_runtime_const.h"
 
 /* Pack schedules transactions assuming they consume all the CUs they
    request in order to accommodate the worst case.  However,
@@ -48,14 +48,15 @@ struct fd_pack_rebate {
   int   ib_result; /* -1: IB failed, 0: not an IB, 1: IB success */
   uint  writer_cnt;
 
-  fd_pack_rebate_entry_t writer_rebates[ 1UL ]; /* Actually writer_cnt, up to 1637 */
+  fd_pack_rebate_entry_t writer_rebates[ 1UL ]; /* Actually writer_cnt, up to 5*64=320 entries max */
 };
 typedef struct fd_pack_rebate fd_pack_rebate_t;
 
-#define FD_PACK_REBATE_MIN_SZ (sizeof(fd_pack_rebate_t)       -sizeof(fd_pack_rebate_entry_t))
-#define FD_PACK_REBATE_MAX_SZ (sizeof(fd_pack_rebate_t)+1636UL*sizeof(fd_pack_rebate_entry_t))
+#define FD_PACK_REBATE_MIN_SZ (sizeof(fd_pack_rebate_t)-sizeof(fd_pack_rebate_entry_t))
+/* Worst case: bundle with 5 txns (FD_PACK_MAX_TXN_PER_BUNDLE), each with 64 writable accounts (FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION) */
+#define FD_PACK_REBATE_MAX_SZ (sizeof(fd_pack_rebate_t)+(MAX_TXN_PER_MICROBLOCK*FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION)*sizeof(fd_pack_rebate_entry_t))
 
-FD_STATIC_ASSERT( sizeof(fd_pack_rebate_t)+1636UL*sizeof(fd_pack_rebate_entry_t)<USHORT_MAX, rebate_depth );
+FD_STATIC_ASSERT( sizeof(fd_pack_rebate_t)+(MAX_TXN_PER_MICROBLOCK*FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION)*sizeof(fd_pack_rebate_entry_t)<USHORT_MAX, rebate_depth );
 
 
 FD_FN_PURE static inline ulong fd_pack_rebate_sum_align    ( void ) { return alignof(fd_pack_rebate_sum_t); }
