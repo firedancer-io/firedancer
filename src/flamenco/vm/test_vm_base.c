@@ -91,7 +91,7 @@ FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G1_DECOMPRESS_COST       ==            2
 FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G2_DECOMPRESS_COST       ==            3050UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G1_VALIDATE_COST         ==            1565UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G2_VALIDATE_COST         ==            1968UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_PAIRING_BASE_COST        ==           12422UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_PAIRING_BASE_COST        ==           25445UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_PAIRING_INCR_COST        ==           13023UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_HEAP_SIZE                                ==           32768UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_HEAP_COST                                ==               8UL, vm_cu );

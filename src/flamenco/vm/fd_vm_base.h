@@ -416,7 +416,7 @@ FD_PROTOTYPES_END
    The total cost is calculated as
      `pairing_base_cost + (length-1) * pairing_incr_cost` */
 
-#define FD_VM_CURVE_BLS12_381_PAIRING_BASE_COST    (           12422UL)
+#define FD_VM_CURVE_BLS12_381_PAIRING_BASE_COST    (           25445UL)
 #define FD_VM_CURVE_BLS12_381_PAIRING_INCR_COST    (           13023UL)
 
 /* FD_VM_HEAP_SIZE is the program heap region size, default:
