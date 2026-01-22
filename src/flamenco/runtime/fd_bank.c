@@ -443,12 +443,10 @@ fd_banks_new( void * shmem,
     return NULL;
   }
   fd_banks_set_vote_states_pool( banks_data, vote_states_pool );
-  for( ulong i=0UL; i<max_total_banks; i++ ) {
-    fd_bank_vote_states_t * vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, i );
-    if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
-      FD_LOG_WARNING(( "Failed to create vote states" ));
-      return NULL;
-    }
+  fd_bank_vote_states_t * vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, 0UL );
+  if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states" ));
+    return NULL;
   }
 
   fd_bank_vote_states_prev_t * vote_states_prev_pool = fd_bank_vote_states_prev_pool_join( fd_bank_vote_states_prev_pool_new( vote_states_prev_pool_mem, max_fork_width ) );
@@ -457,12 +455,10 @@ fd_banks_new( void * shmem,
     return NULL;
   }
   fd_banks_set_vote_states_prev_pool( banks_data, vote_states_prev_pool );
-  for( ulong i=0UL; i<max_fork_width; i++ ) {
-    fd_bank_vote_states_prev_t * vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, i );
-    if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states_prev->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
-      FD_LOG_WARNING(( "Failed to create vote states prev" ));
-      return NULL;
-    }
+  fd_bank_vote_states_prev_t * vote_states_prev = fd_bank_vote_states_prev_pool_ele( vote_states_prev_pool, 0UL );
+  if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states_prev->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states prev" ));
+    return NULL;
   }
 
   fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_vote_states_prev_prev_pool_join( fd_bank_vote_states_prev_prev_pool_new( vote_states_prev_prev_pool_mem, max_fork_width ) );
@@ -471,12 +467,10 @@ fd_banks_new( void * shmem,
     return NULL;
   }
   fd_banks_set_vote_states_prev_prev_pool( banks_data, vote_states_prev_prev_pool );
-  for( ulong i=0UL; i<max_fork_width; i++ ) {
-    fd_bank_vote_states_prev_prev_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, i );
-    if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
-      FD_LOG_WARNING(( "Failed to create vote states prev prev" ));
-      return NULL;
-    }
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( vote_states_prev_prev_pool, 0UL );
+  if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states_prev_prev->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states prev prev" ));
+    return NULL;
   }
 
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_cost_tracker_pool_join( fd_bank_cost_tracker_pool_new( cost_tracker_pool_mem, max_fork_width ) );
