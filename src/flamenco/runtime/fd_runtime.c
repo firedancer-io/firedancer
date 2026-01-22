@@ -1420,6 +1420,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
                                    fd_genesis_t const *      genesis_block,
                                    fd_hash_t const *         genesis_hash ) {
 
+  fd_bank_parent_slot_set( bank, ULONG_MAX );
   fd_bank_poh_set( bank, *genesis_hash );
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( bank );
