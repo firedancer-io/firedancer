@@ -1485,12 +1485,15 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
                                     txn,
                                     NULL,
                                     &pay_sz,
-                                    FD_TXN_INSTR_MAX*2UL );
+                                    ULONG_MAX );
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */
     return FD_SCHED_PARSER_AGAIN_LATER;
   }
+
+  /* FIXME: remove after static_instruction_limit */
+  if( FD_UNLIKELY( txn->instr_cnt>FD_TXN_INSTR_MAX*2UL ) ) FD_LOG_CRIT(( "slot %lu txn idx %u has %u instructions, static_instruction_limit will resolve this", block->slot, block->txn_parsed_cnt, txn->instr_cnt ));
 
   if( FD_UNLIKELY( block->txn_parsed_cnt>=FD_MAX_TXN_PER_SLOT ) ) {
     /* The block contains more transactions than a valid block would.
