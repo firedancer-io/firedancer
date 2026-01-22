@@ -149,6 +149,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   consensus.expected_genesis_hash                  );
 
   CFG_POP      ( cstr,   layout.affinity                                  );
+  CFG_POP      ( cstr,   layout.blocklist_cores                           );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
   CFG_POP      ( uint,   layout.resolv_tile_count                         );

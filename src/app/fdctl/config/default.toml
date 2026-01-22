@@ -703,6 +703,26 @@ dynamic_port_range = "8900-9000"
     # determined automatically as well.
     agave_affinity = "auto"
 
+    # Logical CPU cores to blocklist from being used by Firedancer, when
+    # using auto affinity.  If not using auto affinity, this option is
+    # ignored.
+    #
+    # Blocklisting cores is useful if there are specific cores that are
+    # used by other processes on the system, and you do not want
+    # Firedancer running there and competing for the core.
+    #
+    # Cores are specified as a comma separated list of single cores like
+    # "0", ranges like "0-10", or ranges with stride like "0-10/2".
+    # Cores can also be specified with an 'h' suffix to indicate both
+    # the core and its hyperthread sibling should be blocklisted.  For
+    # example, "2h" blocklists core 2 and its hyperthread sibling (if
+    # any, if there is no hyperthread sibling the program will proceed).
+    #
+    # By default, both core 0 and its hyperthread sibling are
+    # blocklisted to prevent interference with OS kernel threads that
+    # often run on these cores.
+    blocklist_cores = "0h"
+
     # The number of threads to spawn per-fork for the unified scheduler.
     # The replay stage, which is a part of the Agave subprocess, uses
     # these threads for transaction execution.  The threads stay within

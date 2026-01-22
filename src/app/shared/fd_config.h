@@ -257,6 +257,7 @@ struct fd_config {
 
   struct {
     char affinity[ AFFINITY_SZ ];
+    char blocklist_cores[ AFFINITY_SZ ];
 
     uint net_tile_count;
     uint quic_tile_count;
