@@ -103,6 +103,7 @@
 typedef struct fd_ssctrl_init {
   int           file;
   int           zstd;
+  ulong         slot; /* slot advertised by the snapshot peer */
   fd_ip4_port_t addr;
   char          hostname[ 256UL ];
   int           is_https;

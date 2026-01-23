@@ -26,7 +26,7 @@ struct fd_snapdc_tile {
   ZSTD_DCtx * zstd;
 
   struct {
-    fd_wksp_t * wksp;
+    fd_wksp_t * mem;
     ulong       chunk0;
     ulong       wmark;
     ulong       mtu;
@@ -34,7 +34,7 @@ struct fd_snapdc_tile {
   } in;
 
   struct {
-    fd_wksp_t * wksp;
+    fd_wksp_t * mem;
     ulong       chunk0;
     ulong       wmark;
     ulong       chunk;
@@ -101,7 +101,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
-      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.mem, chunk );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = 1;
       ctx->is_zstd = !!msg->zstd;
@@ -109,12 +109,17 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       ctx->in.frag_pos = 0UL;
       ctx->metrics.full.compressed_bytes_read      = 0UL;
       ctx->metrics.full.decompressed_bytes_written = 0UL;
-      break;
+
+      fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
+      fd_memcpy( msg_out, msg, sz );
+      fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
+      ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
+      return;
     }
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
-      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.mem, chunk );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = 0;
       ctx->is_zstd = !!msg->zstd;
@@ -122,7 +127,12 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       ctx->in.frag_pos = 0UL;
       ctx->metrics.incremental.compressed_bytes_read      = 0UL;
       ctx->metrics.incremental.decompressed_bytes_written = 0UL;
-      break;
+
+      fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
+      fd_memcpy( msg_out, msg, sz );
+      fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
+      ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
+      return;
     }
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
@@ -170,9 +180,9 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
   }
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu && sz>=ctx->in.frag_pos );
-  uchar const * data = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+  uchar const * data = fd_chunk_to_laddr_const( ctx->in.mem, chunk );
   uchar const * in  = data+ctx->in.frag_pos;
-  uchar * out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
+  uchar * out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
 
   if( FD_UNLIKELY( !ctx->is_zstd ) ) {
     FD_TEST( ctx->in.frag_pos<sz );
@@ -303,17 +313,17 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_link_t * snapin_link = &topo->links[ tile->out_link_id[ 0UL ] ];
   FD_TEST( 0==strcmp( snapin_link->name, "snapdc_in" ) );
-  ctx->out.wksp   = topo->workspaces[ topo->objs[ snapin_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.wksp, snapin_link->dcache );
-  ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, snapin_link->dcache, snapin_link->mtu );
+  ctx->out.mem    = topo->workspaces[ topo->objs[ snapin_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.mem, snapin_link->dcache );
+  ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.mem, snapin_link->dcache, snapin_link->mtu );
   ctx->out.chunk  = ctx->out.chunk0;
   ctx->out.mtu    = snapin_link->mtu;
 
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
   fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
-  ctx->in.wksp                   = in_wksp->wksp;
-  ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
-  ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
+  ctx->in.mem                    = in_wksp->wksp;
+  ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.mem, in_link->dcache );
+  ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.mem, in_link->dcache, in_link->mtu );
   ctx->in.mtu                    = in_link->mtu;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );

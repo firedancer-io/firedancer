@@ -397,6 +397,13 @@ static void
 process_manifest( fd_snapin_tile_t * ctx ) {
   fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk );
 
+  if( FD_UNLIKELY( ctx->advertised_slot!=manifest->slot ) ) {
+    FD_LOG_WARNING(( "snapshot manifest bank slot %lu does not match advertised slot %lu from snapshot peer",
+                     manifest->slot, ctx->advertised_slot ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
   ctx->bank_slot = manifest->slot;
   if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
     FD_LOG_WARNING(( "slot deltas verification failed" ));
@@ -576,7 +583,8 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
-                     ulong               sig ) {
+                     ulong               sig,
+                     ulong               chunk ) {
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
@@ -607,6 +615,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
         fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
       }
+
+      /* Save the slot advertised by the snapshot peer and verify it
+         against the slot in the snapshot manifest. */
+      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      ctx->advertised_slot = msg->slot;
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -717,7 +730,7 @@ returnable_frag( fd_snapin_tile_t *  ctx,
 
   ctx->stem = stem;
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
-  else                                           handle_control_frag( ctx, stem, sig );
+  else                                           handle_control_frag( ctx, stem, sig, chunk );
   ctx->stem = NULL;
 
   return 0;
@@ -876,6 +889,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->buffered_batch.batch_cnt     = 0UL;
   ctx->buffered_batch.remaining_idx = 0UL;
+
+  ctx->advertised_slot = 0UL;
+  ctx->bank_slot       = 0UL;
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
 
