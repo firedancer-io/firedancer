@@ -19,11 +19,10 @@ generate_stake_msg( uchar *      _buf,
   buf->slot_cnt       = SLOTS_PER_EPOCH;
   buf->staked_cnt     = strlen(stakers);
   buf->excluded_stake = 0UL;
-  buf->vote_keyed_lsched = 0UL;
 
   ulong i = 0UL;
   for(; *stakers; stakers++, i++ ) {
-    /* for simplicity use vote==id, but see test_stake_msg_staked_by_vote()
+    /* for simplicity use vote==id, but see test_stake_msg_multi_vote_per_identity()
        where we test cases in which id is repeated.
        (vote is not used, so it doesn't matter if it's repeated or not) */
     memset( buf->weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
@@ -44,7 +43,6 @@ generate_epoch_msg( uchar *      _buf,
   buf->slot_cnt       = SLOTS_PER_EPOCH;
   buf->staked_cnt     = strlen(stakers);
   buf->excluded_stake = 0UL;
-  buf->vote_keyed_lsched = 0UL;
   memset( &buf->features, 0, sizeof(fd_features_t) );
 
   ulong i = 0UL;
@@ -327,17 +325,15 @@ test_stake_msg_destaking( void ) {
 }
 
 static void
-test_stake_msg_staked_by_vote( void ) {
+test_stake_msg_multi_vote_per_identity( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
   fd_stake_weight_msg_t * msg;
 
   msg = generate_stake_msg( stake_msg, 0UL, "I"   );
-  msg->vote_keyed_lsched = 1;
   fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "I",   "" );
 
   msg = generate_stake_msg( stake_msg, 0UL, "ABC"   );
-  msg->vote_keyed_lsched = 1;
   fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "ABC",   "I" );
 
@@ -363,7 +359,7 @@ test_stake_msg( void ) {
   test_stake_msg_cancel();
   test_stake_msg_ordering();
   test_stake_msg_destaking();
-  test_stake_msg_staked_by_vote();
+  test_stake_msg_multi_vote_per_identity();
 }
 
 static void
@@ -552,17 +548,15 @@ test_epoch_msg_destaking( void ) {
 }
 
 static void
-test_epoch_msg_staked_by_vote( void ) {
+test_epoch_msg_multi_vote_per_identity( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
   fd_epoch_info_msg_t * msg;
 
   msg = generate_epoch_msg( epoch_msg, 0UL, "I"   );
-  msg->vote_keyed_lsched = 1;
   fd_stake_ci_epoch_msg_init( info, msg );  fd_stake_ci_epoch_msg_fini( info );
   check_destinations( info, 0UL, "I",   "" );
 
   msg = generate_epoch_msg( epoch_msg, 0UL, "ABC"   );
-  msg->vote_keyed_lsched = 1;
   fd_stake_ci_epoch_msg_init( info, msg );  fd_stake_ci_epoch_msg_fini( info );
   check_destinations( info, 0UL, "ABC",   "I" );
 
@@ -588,7 +582,7 @@ test_epoch_msg( void ) {
   test_epoch_msg_cancel();
   test_epoch_msg_ordering();
   test_epoch_msg_destaking();
-  test_epoch_msg_staked_by_vote();
+  test_epoch_msg_multi_vote_per_identity();
 }
 
 static void
@@ -633,12 +627,11 @@ test_limits( void ) {
 
   for( ulong stake_weight_cnt=40198UL; stake_weight_cnt<=40201UL; stake_weight_cnt++ ) {
     fd_stake_weight_msg_t * buf = fd_type_pun( stake_msg );
-    buf->epoch                  = stake_weight_cnt;
-    buf->start_slot             = stake_weight_cnt * SLOTS_PER_EPOCH;
-    buf->slot_cnt               = SLOTS_PER_EPOCH;
-    buf->staked_cnt             = 0UL;
-    buf->excluded_stake         = 0UL;
-    buf->vote_keyed_lsched      = 0UL;
+    buf->epoch          = stake_weight_cnt;
+    buf->start_slot     = stake_weight_cnt * SLOTS_PER_EPOCH;
+    buf->slot_cnt       = SLOTS_PER_EPOCH;
+    buf->staked_cnt     = 0UL;
+    buf->excluded_stake = 0UL;
 
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);

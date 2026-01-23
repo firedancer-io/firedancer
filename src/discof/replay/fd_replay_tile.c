@@ -517,18 +517,10 @@ generate_epoch_info_msg( ulong                       epoch,
                          fd_epoch_info_msg_t *       epoch_info_msg ) {
   fd_vote_stake_weight_t * stake_weights    = epoch_info_msg->weights;
 
-  epoch_info_msg->epoch             = epoch;
-  epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
-  epoch_info_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
-  epoch_info_msg->excluded_stake    = 0UL;
-  epoch_info_msg->vote_keyed_lsched = 1UL;
-
-  /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
-     This code can be removed once the feature is active. */
-  if( (1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET) ||
-      (0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET) ) {
-    epoch_info_msg->vote_keyed_lsched = 0UL;
-  }
+  epoch_info_msg->epoch          = epoch;
+  epoch_info_msg->start_slot     = fd_epoch_slot0( epoch_schedule, epoch );
+  epoch_info_msg->slot_cnt       = epoch_schedule->slots_per_epoch;
+  epoch_info_msg->excluded_stake = 0UL;
 
   /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
   fd_vote_states_iter_t iter_[1];
