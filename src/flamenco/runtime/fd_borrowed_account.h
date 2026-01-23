@@ -305,16 +305,12 @@ fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
    solana_sdk::transaction_context::BorrowedAccount::is_writer.
    Returns 1 if the account is a signer or is writable and 0 otherwise.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1052 */
+   https://github.com/anza-xyz/agave/blob/v3.1.4/transaction-context/src/lib.rs#L998-L1001 */
 
 static inline int
 fd_borrowed_account_is_writable( fd_borrowed_account_t const * borrowed_acct ) {
   fd_exec_instr_ctx_t const * instr_ctx = borrowed_acct->instr_ctx;
   fd_instr_info_t     const * instr     = instr_ctx->instr;
-
-  if( FD_UNLIKELY( borrowed_acct->index_in_instruction>=instr_ctx->instr->acct_cnt ) ) {
-    return 0;
-  }
 
   return fd_instr_acc_is_writable_idx( instr, borrowed_acct->index_in_instruction );
 }
