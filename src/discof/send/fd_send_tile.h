@@ -55,8 +55,6 @@ FD_STATIC_ASSERT((60*1000000)/FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS <= 1000000*
 #define FD_SEND_PORT_QUIC_CNT       (2UL)
 #define FD_SEND_PORT_CNT            (4UL)
 
-#define FD_VOTE_TXN_SIGNERS_MAX (2UL)
-
 struct fd_send_link_in {
   fd_wksp_t *  mem;
   ulong        chunk0;
@@ -122,8 +120,8 @@ struct fd_send_tile_ctx {
   fd_ip4_udp_hdrs_t  packet_hdr[1]; /* template, but will be modified directly */
   ushort             net_id;
 
-  /* tls pubkey */
-  fd_pubkey_t identity_key[ 1 ];    /* also tls pubkey - only really used by quic */
+  /* identity pubkey used for tls */
+  fd_pubkey_t identity_key[ 1 ];
   /* Leader schedule tracking */
   fd_multi_epoch_leaders_t * mleaders;
 

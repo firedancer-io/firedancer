@@ -179,14 +179,14 @@ vote_txn_sign( fd_sign_ctx_t * ctx,
      combination between the identity and the authorized voter.  The
      first signer is always the identity key. */
 
-  uchar * message    = ctx->_data + 33;
-  ulong   message_sz = sz - 33;
+  uchar * message    = ctx->_data + 33UL;
+  ulong   message_sz = sz - 33UL;
 
   fd_ed25519_sign( dst, message, message_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
 
   if( ctx->_data[ 0 ]==1 ) {
     fd_auth_key_t * auth_key = fd_auth_key_set_query( ctx->auth_key_set, *(fd_pubkey_t const *)(ctx->_data + 1), NULL );
-    FD_CRIT( auth_key!=NULL, "authorized voter not found" );
+    FD_CRIT( auth_key==NULL, "authorized voter not found" );
     fd_ed25519_sign( dst + 64, message, message_sz, auth_key->public_key.uc, auth_key->private_key, ctx->sha512 );
   }
 }
@@ -218,9 +218,9 @@ after_frag_sensitive( void *              _ctx,
 
   int is_vote_txn = role==FD_KEYGUARD_ROLE_SEND && sign_type==FD_KEYGUARD_SIGN_TYPE_VOTE_TXN;
 
-  uchar * payload = is_vote_txn ? ctx->_data + 33 : ctx->_data;
+  uchar * payload = is_vote_txn ? ctx->_data + 33UL : ctx->_data;
   if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, payload, sz, role, sign_type ) ) ) {
-    FD_LOG_WARNING(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
+    FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
   }
 
   long sign_duration = -fd_tickcount();
@@ -282,15 +282,15 @@ privileged_init_sensitive( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sign_ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
-  fd_auth_key_t * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint() );
 
   uchar * identity_key = fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 );
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
+  fd_auth_key_t * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint() );
   ctx->auth_key_set = fd_auth_key_set_join( fd_auth_key_set_new( av_map ) );
   for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
-    uchar * authorized_voter_key = fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
+    uchar * authorized_voter_key = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
     fd_auth_key_t * auth_key = fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)(authorized_voter_key+32UL) );
     auth_key->private_key = authorized_voter_key;
   }

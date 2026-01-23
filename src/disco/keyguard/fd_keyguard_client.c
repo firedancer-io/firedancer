@@ -90,7 +90,7 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
     dst[0] = 0;
     if( pubkey_cnt==2UL ) {
       dst[0] = 1;
-      memcpy( dst+1, pubkeys, 32UL );
+      memcpy( dst+1UL, pubkeys+32UL, 32UL );
     }
     memcpy( dst+33UL, sign_data, sign_data_len );
 
@@ -119,4 +119,6 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
     seq_found = fd_frag_meta_seq_query( mline );
     if( FD_UNLIKELY( fd_seq_ne( seq_found, client->response_seq ) ) ) FD_LOG_ERR(( "sign request was overrun while reading" ));
     client->response_seq = fd_seq_inc( client->response_seq, 1UL );
+
+    #undef SIGN_TYPE_VOTE_TXN
 }

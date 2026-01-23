@@ -52,7 +52,7 @@
    block_id when possible to interface with the protocol but otherwise
    falling back to slot number when block_id is unsupported. */
 
-static const fd_pubkey_t DEFAULT_AUTHORITY = {0};
+static const fd_pubkey_t NULL_AUTHORITY = {0};
 
 #define IN_KIND_DEDUP   (0)
 #define IN_KIND_EXEC    (1)
@@ -479,7 +479,7 @@ get_authority( ctx_t * ctx,
                ulong   epoch,
                int     vote_acc_found ) {
 
-  if( FD_UNLIKELY( !vote_acc_found ) ) return DEFAULT_AUTHORITY;
+  if( FD_UNLIKELY( !vote_acc_found ) ) return NULL_AUTHORITY;
 
   fd_bincode_decode_ctx_t decode_ctx = {
     .data    = ctx->our_vote_acct,
@@ -512,11 +512,10 @@ get_authority( ctx_t * ctx,
   if( FD_LIKELY( fd_pubkey_eq( auth_voter, ctx->identity_key ) ||
                  fd_auth_key_set_query( ctx->auth_key_set, *auth_voter, NULL ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( auth_voter->key, b58 );
-    FD_LOG_WARNING(("AUTHORITY %s", b58));
     return *auth_voter;
   }
 
-  return DEFAULT_AUTHORITY;
+  return NULL_AUTHORITY;
 }
 
 static void
@@ -824,7 +823,7 @@ done_vote_iter:
 
      TODO only do this on refresh_last_vote? */
 
-  if( FD_LIKELY( !memcmp( ctx->vote_account, ctx->identity_key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_LIKELY( memcmp( authority.key, NULL_AUTHORITY.key, sizeof(fd_pubkey_t) ) ) ) {
     msg->is_valid_vote = 1;
     fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
     fd_txn_p_t          txn[1];
@@ -941,7 +940,7 @@ privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),          sizeof(ctx_t) );
   void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
@@ -996,7 +995,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch      = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                        );
-  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint()                          ); (void)av_map;
+  void  * av_set = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint()                          ); (void)av_set;
   void  * ghost  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
   void  * hfork  = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )         );
   void  * notar  = FD_SCRATCH_ALLOC_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead ) );

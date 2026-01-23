@@ -450,36 +450,15 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   fd_txn_t * txn = (fd_txn_t *)txn_mem;
   FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
 
-  /* sign the txn */
-
-  uchar *       signatures    = signed_vote_txn + txn->signature_off;
   uchar *       accts         = signed_vote_txn + txn->acct_addr_off;
+  uchar *       signatures    = signed_vote_txn + txn->signature_off;
   ulong         signature_cnt = txn->signature_cnt;
   uchar const * message       = signed_vote_txn + txn->message_off;
   ulong         message_sz    = vote_txn_sz     - txn->message_off;
-
   fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, accts, signature_cnt, message, message_sz );
 
-  // FD_LOG_HEXDUMP_WARNING(("MESSAGE", message, message_sz));
-
-  // fd_sha512_t sha512[1];
-  // fd_sha512_join( fd_sha512_new( sha512 ) );
-  // fd_sha512_init( sha512 );
-
-  // fd_sha512_t sha2[1];
-  // fd_sha512_new( sha2 );
-  // fd_sha512_init( sha2 );
-
-  // fd_sha512_t * shas[2UL];
-  // shas[0] = sha512;
-  // shas[1] = sha2;
-
-  // int res = fd_ed25519_verify_batch_single_msg( message, message_sz, signature, accts, shas, 2UL );
-  // FD_LOG_ERR(("res %d", res));
-
-
-  ulong poh_slot  = vote_slot+1;
-  FD_LOG_INFO(("got vote for slot %lu", vote_slot));
+  ulong poh_slot = vote_slot+1;
+  FD_LOG_INFO(( "got vote for slot %lu", vote_slot ));
 
   /* send to leader for next few slots */
   for( ulong i=0UL; i<FD_SEND_TARGET_LEADER_CNT; i++ ) {
@@ -579,6 +558,7 @@ during_frag( fd_send_tile_ctx_t * ctx,
 
         ulong const vote_slot   = slot_done->vote_slot;
         ulong const vote_txn_sz = slot_done->vote_txn_sz;
+
         if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return;      /* no new vote to send */
         if( FD_UNLIKELY( !slot_done->is_valid_vote ) ) return; /* invalid vote */
 
