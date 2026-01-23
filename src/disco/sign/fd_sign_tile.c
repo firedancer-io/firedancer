@@ -343,8 +343,8 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
     } else if ( !strcmp(in_link->name, "send_sign"  ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_SEND;
       FD_TEST( !strcmp( out_link->name, "sign_send"  ) );
-      FD_TEST( in_link->mtu==FD_SEND_SIGN_MTU  );
-      FD_TEST( out_link->mtu==FD_SIGN_SEND_MTU );
+      FD_TEST( in_link->mtu==FD_TXN_MTU  );
+      FD_TEST( out_link->mtu==64UL*2UL );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;
       FD_TEST( !strcmp( out_link->name, "sign_bundle" ) );

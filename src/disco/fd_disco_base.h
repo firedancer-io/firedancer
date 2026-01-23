@@ -42,17 +42,6 @@
 
 #define FD_SHRED_STORE_MTU (41792UL)
 
-/* FD_SEND_SIGN_MTU is the largest packet size possible that a vote
-   transaction signing can be which is the transaction mtu. */
-
-#define FD_SEND_SIGN_MTU (FD_TXN_MTU)
-
-/* FD_SIGN_SEND_MTU is the largest packet size possible that the sign
-   tile can send to the send tile:
-   - 2 * 64 bytes for up to two signatures (one for each signer) */
-
-#define FD_SIGN_SEND_MTU (sizeof(fd_ed25519_sig_t)*2UL)
-
 /* FD_SHRED_OUT_MTU is the maximum size of a frag on the shred_out
    link.  This is the size of a data shred header + merkle root
    + chained merkle root. */
