@@ -414,6 +414,9 @@ init_load( fd_snapct_tile_t *  ctx,
   fd_ssctrl_init_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
   out->file = file;
   out->zstd = !file || (full ? ctx->local_in.full_snapshot_zstd : ctx->local_in.incremental_snapshot_zstd);
+  if( file ) out->slot = full ? ctx->local_in.full_snapshot_slot : ctx->local_in.incremental_snapshot_slot;
+  else       out->slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
+
   if( !file ) {
     out->addr = ctx->addr;
     for( ulong i=0UL; i<SERVER_PEERS_MAX; i++ ) {
@@ -624,7 +627,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
-      /* FIXME: predicted_incremental? */
+      ctx->predicted_incremental.slot = best.incr_slot;
+      send_expected_slot( ctx, stem, best.incr_slot );
 
       ctx->addr = best.addr;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
@@ -734,10 +738,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
-      if( FD_UNLIKELY( ctx->predicted_incremental.slot!=best.incr_slot ) ) {
-        ctx->predicted_incremental.slot = best.incr_slot;
-        send_expected_slot( ctx, stem, best.incr_slot );
-      }
+      ctx->predicted_incremental.slot = best.incr_slot;
+      send_expected_slot( ctx, stem, best.incr_slot );
 
       ctx->addr = best.addr;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
