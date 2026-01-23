@@ -945,7 +945,7 @@ privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),          sizeof(ctx_t) );
+  ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)               );
   void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
