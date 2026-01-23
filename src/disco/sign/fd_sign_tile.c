@@ -207,8 +207,6 @@ after_frag_sensitive( void *              _ctx,
     fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
     if( needs_second_sign ) {
       ulong authority_idx = (sig >> 33) & 0xFUL;
-      FD_LOG_WARNING(("AUTHORITY INDEX: %lu", authority_idx));
-      FD_LOG_HEXDUMP_WARNING(("MSG MSG SIGN", ctx->_data, sz));
       fd_ed25519_sign( dst+64UL, ctx->_data, sz, ctx->authorized_voter_pubkeys[ authority_idx ], ctx->authorized_voter_private_keys[ authority_idx ], ctx->sha512 );
     }
     break;

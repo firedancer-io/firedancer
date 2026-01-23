@@ -78,8 +78,6 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
   FD_CRIT( sign_data_len<=client->request_mtu, "the request is too large and will not fit in the mtu" );
   FD_CRIT( authority_idx==ULONG_MAX || authority_idx<16UL, "unexpected authorized voter index" );
 
-  FD_LOG_WARNING(("AUTHORITY INDEX: %lu", authority_idx));
-
   uchar * dst = fd_chunk_to_laddr( client->request_mem, client->request_chunk );
 
   /* In the signature of the message we use the lower 32 bits to
@@ -94,8 +92,6 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
   ulong sig = 0UL;
   if( authority_idx!=ULONG_MAX ) sig |= (1UL << 32) | (authority_idx << 33);
   memcpy( dst, sign_data, sign_data_len );
-
-  FD_LOG_HEXDUMP_WARNING(("MSG MSG SEND", sign_data, sign_data_len));
 
   fd_mcache_publish( client->request, client->request_depth, client->request_seq, sig, client->request_chunk, sign_data_len, 0UL, 0UL, 0UL );
   client->request_seq   = fd_seq_inc( client->request_seq, 1UL );
