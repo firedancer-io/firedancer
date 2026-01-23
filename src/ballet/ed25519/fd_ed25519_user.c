@@ -273,7 +273,7 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
     }
 
     /* Decompress public_key and point r, concurrently */
-    int res = fd_ed25519_point_frombytes_2x( &Aprime[j], public_key,   &R[j], r );
+    int res = fd_ed25519_point_frombytes_2x( &Aprime[j], public_key, &R[j], r );
 
     /* Check public key and point r */
     if( FD_UNLIKELY( res ) ) {

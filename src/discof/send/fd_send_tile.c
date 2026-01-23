@@ -9,6 +9,12 @@
 
 #include <sys/random.h>
 
+#define IN_KIND_SIGN   (0UL)
+#define IN_KIND_GOSSIP (1UL)
+#define IN_KIND_EPOCH  (2UL)
+#define IN_KIND_TOWER  (3UL)
+#define IN_KIND_NET    (4UL)
+
 /* map leader pubkey to contact/conn info
    A map entry is created only for staked peers. On receiving contact info, we update
    the map entry with the following 4 sockets from the contact info:
@@ -437,20 +443,20 @@ static void
 handle_vote_msg( fd_send_tile_ctx_t * ctx,
                  ulong                vote_slot,
                  uchar *              signed_vote_txn,
-                 ulong                vote_txn_sz ) {
+                 ulong                vote_txn_sz,
+                 ulong                authority_idx ) {
 
   uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   fd_txn_t * txn = (fd_txn_t *)txn_mem;
   FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
 
-  /* sign the txn */
-  uchar * signature = signed_vote_txn + txn->signature_off;
-  uchar const * message   = signed_vote_txn + txn->message_off;
-  ulong message_sz  = vote_txn_sz - txn->message_off;
-  fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+  uchar *       signatures    = signed_vote_txn + txn->signature_off;
+  uchar const * message       = signed_vote_txn + txn->message_off;
+  ulong         message_sz    = vote_txn_sz     - txn->message_off;
+  fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, authority_idx, message, message_sz );
 
-  ulong poh_slot  = vote_slot+1;
-  FD_LOG_INFO(("got vote for slot %lu", vote_slot));
+  ulong poh_slot = vote_slot+1;
+  FD_LOG_INFO(( "got vote for slot %lu", vote_slot ));
 
   /* send to leader for next few slots */
   for( ulong i=0UL; i<FD_SEND_TARGET_LEADER_CNT; i++ ) {
@@ -550,12 +556,14 @@ during_frag( fd_send_tile_ctx_t * ctx,
 
         ulong const vote_slot   = slot_done->vote_slot;
         ulong const vote_txn_sz = slot_done->vote_txn_sz;
-        if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return; /* no new vote to send */
+
+        if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return;      /* no new vote to send */
+        if( FD_UNLIKELY( !slot_done->is_valid_vote ) ) return; /* invalid vote */
 
         uchar vote_txn[ FD_TPU_MTU ];
         fd_memcpy( vote_txn, slot_done->vote_txn, vote_txn_sz );
 
-        handle_vote_msg( ctx, vote_slot, vote_txn, vote_txn_sz );
+        handle_vote_msg( ctx, vote_slot, vote_txn, vote_txn_sz, slot_done->authority_idx );
     }
   }
 }
@@ -720,11 +728,11 @@ unprivileged_init( fd_topo_t *      topo,
   fd_topo_link_t  * sign_out     =  &topo->links[ tile->out_link_id[ sign_out_idx ] ];
 
   if ( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
-                                                            sign_out->mcache,
-                                                            sign_out->dcache,
-                                                            sign_in->mcache,
-                                                            sign_in->dcache,
-                                                            sign_out->mtu ) )==NULL ) {
+                                                        sign_out->mcache,
+                                                        sign_out->dcache,
+                                                        sign_in->mcache,
+                                                        sign_in->dcache,
+                                                        sign_out->mtu ) )==NULL ) {
     FD_LOG_ERR(( "Keyguard join failed" ));
   }
 
@@ -835,7 +843,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
   FD_MCNT_SET(         SEND, PKT_UNDERSZ,                 ctx->quic->metrics.pkt_undersz_cnt         );
   FD_MCNT_SET(         SEND, PKT_OVERSZ,                  ctx->quic->metrics.pkt_oversz_cnt          );
   FD_MCNT_SET(         SEND, PKT_VERNEG,                  ctx->quic->metrics.pkt_verneg_cnt          );
-  FD_MCNT_ENUM_COPY(   SEND, PKT_RETRANSMISSIONS,         ctx->quic->metrics.pkt_retransmissions_cnt            );
+  FD_MCNT_ENUM_COPY(   SEND, PKT_RETRANSMISSIONS,         ctx->quic->metrics.pkt_retransmissions_cnt );
 
   FD_MCNT_SET(         SEND, HANDSHAKES_CREATED,          ctx->quic->metrics.hs_created_cnt          );
   FD_MCNT_SET(         SEND, HANDSHAKE_ERROR_ALLOC_FAIL,  ctx->quic->metrics.hs_err_alloc_fail_cnt   );
