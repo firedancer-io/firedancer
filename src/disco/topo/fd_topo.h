@@ -329,7 +329,9 @@ struct fd_topo_tile {
     } store;
 
     struct {
-      char   identity_key_path[ PATH_MAX ];
+      char  identity_key_path[ PATH_MAX ];
+      ulong authorized_voter_paths_cnt;
+      char  authorized_voter_paths[ 16 ][ PATH_MAX ];
     } sign;
 
     struct {
@@ -491,6 +493,8 @@ struct fd_topo_tile {
     } backtest;
 
     struct {
+      ulong authorized_voter_paths_cnt;
+      char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;
       ulong max_live_slots;
       ulong max_vote_lookahead;

@@ -16,12 +16,6 @@
 #include "../../waltz/quic/fd_quic.h"
 #include "../../util/clock/fd_clock.h"
 
-#define IN_KIND_SIGN   (0UL)
-#define IN_KIND_GOSSIP (1UL)
-#define IN_KIND_EPOCH  (2UL)
-#define IN_KIND_TOWER  (3UL)
-#define IN_KIND_NET    (4UL)
-
 /* Send votes to next FD_SEND_TARGET_LEADER_CNT leaders (slot x, x+4, x+8, ...) */
 #define FD_SEND_TARGET_LEADER_CNT (3UL)
 
@@ -30,6 +24,7 @@
 
 /* Agave currently rate limits connections per minute per IP */
 #define FD_AGAVE_MAX_CONNS_PER_MINUTE (8UL)
+
 /* so each of our connections must survive at least 60/8 = 7.5 seconds
    Let's conservatively go to 10 */
 #define FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS (10L)
@@ -125,9 +120,8 @@ struct fd_send_tile_ctx {
   fd_ip4_udp_hdrs_t  packet_hdr[1]; /* template, but will be modified directly */
   ushort             net_id;
 
-  /* tls pubkey */
-  fd_pubkey_t identity_key  [ 1 ];    /* also tls pubkey - only really used by quic */
-
+  /* identity pubkey used for tls */
+  fd_pubkey_t identity_key[ 1 ];
   /* Leader schedule tracking */
   fd_multi_epoch_leaders_t * mleaders;
 

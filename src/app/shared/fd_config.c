@@ -112,6 +112,11 @@ fd_config_fillf( fd_config_t * config ) {
   } else {
     FD_TEST( fd_cstr_printf_check( config->paths.accounts, sizeof(config->paths.accounts), NULL, "%s/accounts.db", config->paths.base ) );
   }
+
+  for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {
+    replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
+    replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
+  }
 }
 
 static void

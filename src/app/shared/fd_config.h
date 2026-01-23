@@ -171,6 +171,11 @@ struct fd_configf {
   struct {
     char path[ PATH_MAX ];
   } capctx;
+
+  struct {
+    ulong authorized_voter_paths_cnt;
+    char  authorized_voter_paths[ 16 ][ PATH_MAX ];
+  } paths;
 };
 
 typedef struct fd_configf fd_configf_t;

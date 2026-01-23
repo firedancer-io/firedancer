@@ -114,8 +114,6 @@ fd_txn_parse_core( uchar const             * payload,
   CHECK( (signature_cnt<=acct_addr_cnt) & (acct_addr_cnt<=FD_TXN_ACCT_ADDR_MAX) );
   CHECK( (ulong)signature_cnt+(ulong)ro_unsigned_cnt<=(ulong)acct_addr_cnt );
 
-
-
   CHECK_LEFT( FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt );   ulong acct_addr_off  =          i  ;     i+=FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt;
   CHECK_LEFT( FD_TXN_BLOCKHASH_SZ               );   ulong recent_blockhash_off =    i  ;     i+=FD_TXN_BLOCKHASH_SZ;
 

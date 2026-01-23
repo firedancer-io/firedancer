@@ -50,10 +50,14 @@ typedef struct {
 
   fd_sha512_t       sha512 [ 1 ];
 
-  fd_keyswitch_t * keyswitch;
+  fd_keyswitch_t *  keyswitch;
 
   uchar *           public_key;
   uchar *           private_key;
+
+  ulong             authorized_voters_cnt;
+  uchar *           authorized_voter_pubkeys[ 16UL ];
+  uchar *           authorized_voter_private_keys[ 16UL ];
 
   fd_histf_t        sign_duration[1];
 } fd_sign_ctx_t;
@@ -162,9 +166,19 @@ after_frag_sensitive( void *              _ctx,
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
-  /* The upper 32 bits contain the repair tile nonce to identify the
-     request, while the lower 32 bits specify the sign_type. */
-  int sign_type = (int)(uint)(sig);
+  /* The lower 32 bits are used to specify the sign type.
+
+     If the frag is coming from the repair tile, then the upper 32 bits
+     contain the repair tile nonce to identify the request.
+
+     If the frag is coming from the send tile, then the upper 32 bits
+     contain the index of the authorized voter that needs to sign the
+     vote transaction.  The least significant bit of the upper 32 is
+     used to indicate if a second signature is needed.  The next 4 least
+     significant bits are used to encode the index of the authorized
+     voter that a signature is needed from. */
+  int sign_type         = (int)(uint)(sig);
+  int needs_second_sign = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_SEND && ((sig>>32) & 1UL);
 
   FD_TEST( in_idx<MAX_IN );
 
@@ -184,6 +198,10 @@ after_frag_sensitive( void *              _ctx,
   switch( sign_type ) {
   case FD_KEYGUARD_SIGN_TYPE_ED25519: {
     fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+    if( needs_second_sign ) {
+      ulong authority_idx = (sig >> 33) & 0xFUL;
+      fd_ed25519_sign( dst+64UL, ctx->_data, sz, ctx->authorized_voter_pubkeys[ authority_idx ], ctx->authorized_voter_private_keys[ authority_idx ], ctx->sha512 );
+    }
     break;
   }
   case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
@@ -229,7 +247,6 @@ static void FD_FN_SENSITIVE
 privileged_init_sensitive( fd_topo_t *      topo,
                            fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
 
@@ -237,7 +254,14 @@ privileged_init_sensitive( fd_topo_t *      topo,
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
-    /* The stack can be taken over and reorganized by under AddressSanitizer,
+  ctx->authorized_voters_cnt = tile->sign.authorized_voter_paths_cnt;
+  for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
+    uchar * authorized_voter_key = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
+    ctx->authorized_voter_private_keys[ i ] = authorized_voter_key;
+    ctx->authorized_voter_pubkeys[ i ]      = authorized_voter_key + 32UL;
+  }
+
+  /* The stack can be taken over and reorganized by under AddressSanitizer,
      which causes this code to fail.  */
 #if FD_HAS_ASAN
   FD_LOG_WARNING(( "!!! SECURITY WARNING !!! YOU ARE RUNNING THE SIGNING TILE "
@@ -320,7 +344,7 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_SEND;
       FD_TEST( !strcmp( out_link->name, "sign_send"  ) );
       FD_TEST( in_link->mtu==FD_TXN_MTU  );
-      FD_TEST( out_link->mtu==64UL );
+      FD_TEST( out_link->mtu==64UL*2UL );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;
       FD_TEST( !strcmp( out_link->name, "sign_bundle" ) );

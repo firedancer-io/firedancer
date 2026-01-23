@@ -1,8 +1,6 @@
 #include "topology.h"
 
 #include "../../ballet/lthash/fd_lthash.h"
-#include "../../choreo/fd_choreo_base.h"
-#include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/poh/fd_poh.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../discof/gossip/fd_gossip_tile.h"
@@ -12,7 +10,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
-#include "../../disco/gui/fd_gui_peers.h"
+#include "../../disco/gui/fd_gui_config_parse.h"
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/tiles.h"
@@ -606,7 +604,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
   /**/                 fd_topob_link( topo, "send_sign",    "send_sign",    128UL,                                    FD_TXN_MTU,                    1UL ); /* TODO: Depth probably doesn't need to be 128 */
-  /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Depth probably doesn't need to be 128 */
+  /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    shred_depth,                              FD_SHRED_OUT_MTU,              3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "repair_shred", shred_depth,                              sizeof(fd_ed25519_sig_t),      1UL );
@@ -1531,6 +1529,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->exec.dump_elf_to_pb = config->capture.dump_elf_to_pb;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
+    tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
+    for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
+      strncpy( tile->tower.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->tower.authorized_voter_paths[ i ]) );
+    }
 
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
@@ -1604,16 +1606,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->poh.bank_cnt = config->layout.bank_tile_count;
     tile->poh.lagged_consecutive_leader_start = config->tiles.poh.lagged_consecutive_leader_start;
 
-    if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-      tile->poh.bundle.enabled = 1;
-      PARSE_PUBKEY( poh, tip_distribution_program_addr );
-      PARSE_PUBKEY( poh, tip_payment_program_addr      );
-      strncpy( tile->poh.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->poh.bundle.vote_account_path) );
-#undef PARSE_PUBKEY
-    } else {
-      fd_memset( &tile->poh.bundle, '\0', sizeof(tile->poh.bundle) );
-    }
-
   } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
 
     strncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
@@ -1639,6 +1631,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
 
     strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
+
+    tile->sign.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
+    for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
+      strncpy( tile->sign.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->sign.authorized_voter_paths[ i ]) );
+    }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 
