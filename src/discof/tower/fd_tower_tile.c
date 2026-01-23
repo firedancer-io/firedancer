@@ -77,7 +77,7 @@ struct fd_auth_key {
 };
 typedef struct fd_auth_key fd_auth_key_t;
 
-#define MAP_NAME               fd_auth_key_map
+#define MAP_NAME               fd_auth_key_set
 #define MAP_T                  fd_auth_key_t
 #define MAP_LG_SLOT_CNT        6
 #define MAP_KEY                key
@@ -106,7 +106,7 @@ typedef struct {
   int             restore_fd;
   fd_pubkey_t     identity_key[1];
   fd_pubkey_t     vote_account[1];
-  fd_auth_key_t * auth_key_map;
+  fd_auth_key_t * auth_key_set;
   uchar           our_vote_acct[FD_VOTE_STATE_DATA_MAX]; /* buffer for reading back our own vote acct data */
   ulong           out_vote_acct_sz;
 
@@ -193,7 +193,7 @@ scratch_footprint( FD_PARAM_UNUSED fd_topo_tile_t const * tile ) {
   ulong slot_max = tile->tower.max_live_slots;
   ulong l        = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                        );
-  l = FD_LAYOUT_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint()                          );
+  l = FD_LAYOUT_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint()                          );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
   l = FD_LAYOUT_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )         );
   l = FD_LAYOUT_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead ) );
@@ -510,7 +510,7 @@ get_authority( ctx_t * ctx,
   }
 
   if( FD_LIKELY( fd_pubkey_eq( auth_voter, ctx->identity_key ) ||
-                 fd_auth_key_map_query( ctx->auth_key_map, *auth_voter, NULL ) ) ) {
+                 fd_auth_key_set_query( ctx->auth_key_set, *auth_voter, NULL ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( auth_voter->key, b58 );
     FD_LOG_WARNING(("AUTHORITY %s", b58));
     return *auth_voter;
@@ -942,7 +942,7 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
-  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint() );
+  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
@@ -956,9 +956,9 @@ privileged_init( fd_topo_t *      topo,
   uchar * vote_key = fd_base58_decode_32( tile->tower.vote_account, ctx->vote_account->uc );
   if( FD_UNLIKELY( !vote_key ) ) ctx->vote_account[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.vote_account, /* pubkey only: */ 1 ) );
 
-  ctx->auth_key_map = fd_auth_key_map_join( fd_auth_key_map_new( av_map ) );
+  ctx->auth_key_set = fd_auth_key_set_join( fd_auth_key_set_new( av_map ) );
   for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
-    fd_auth_key_map_insert( ctx->auth_key_map, *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) ) );
+    fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) ) );
   }
 
   /* The tower file is used to checkpt and restore the state of the
@@ -996,7 +996,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch      = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                        );
-  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_map_align(), fd_auth_key_map_footprint()                          ); (void)av_map;
+  void  * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint()                          ); (void)av_map;
   void  * ghost  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
   void  * hfork  = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )         );
   void  * notar  = FD_SCRATCH_ALLOC_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead ) );
