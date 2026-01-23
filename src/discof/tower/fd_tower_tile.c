@@ -956,8 +956,6 @@ privileged_init( fd_topo_t *      topo,
   uchar * vote_key = fd_base58_decode_32( tile->tower.vote_account, ctx->vote_account->uc );
   if( FD_UNLIKELY( !vote_key ) ) ctx->vote_account[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.vote_account, /* pubkey only: */ 1 ) );
 
-  /* Load in all of the authorized voters */
-
   ctx->auth_key_map = fd_auth_key_map_join( fd_auth_key_map_new( av_map ) );
   for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
     fd_auth_key_map_insert( ctx->auth_key_map, *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) ) );

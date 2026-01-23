@@ -17,15 +17,16 @@
 #define MAX_IN (32UL)
 
 struct fd_auth_key {
-  fd_pubkey_t key;
+  fd_pubkey_t public_key;
+  uchar *     private_key;
   uint        hash;
 };
 typedef struct fd_auth_key fd_auth_key_t;
 
-#define MAP_NAME               fd_auth_key_map
+#define MAP_NAME               fd_auth_key_set
 #define MAP_T                  fd_auth_key_t
 #define MAP_LG_SLOT_CNT        6
-#define MAP_KEY                key
+#define MAP_KEY                public_key
 #define MAP_KEY_T              fd_pubkey_t
 #define MAP_KEY_NULL           (fd_pubkey_t){0}
 #define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
@@ -73,9 +74,7 @@ typedef struct {
   uchar *           public_key;
   uchar *           private_key;
 
-  ulong             authorized_voters_cnt;
-  uchar *           authorized_voters_public_keys[ 32 ];
-  uchar *           authorized_voters_private_keys[ 32 ];
+  fd_auth_key_t *   auth_key_set;
 
   fd_histf_t        sign_duration[1];
 } fd_sign_ctx_t;
@@ -90,6 +89,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -185,13 +185,10 @@ vote_txn_sign( fd_sign_ctx_t * ctx,
 
   if( request->requested_signers_cnt==2UL ) {
     response->signatures_cnt = 2UL;
-    /* TODO: Replace this with a map lookup. */
-    for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
-      if( !memcmp( ctx->authorized_voters_public_keys[i], request->requested_signers_pubkeys[1], 32UL ) ) {
-        fd_ed25519_sign( response->signatures[1], request->message, request->message_sz, ctx->authorized_voters_public_keys[i], ctx->authorized_voters_private_keys[i], ctx->sha512 );
-        break;
-      }
-    }
+
+    fd_auth_key_t * auth_key = fd_auth_key_set_query( ctx->auth_key_set, *(fd_pubkey_t const *)(request->requested_signers_pubkeys[1]), NULL );
+    FD_CRIT( auth_key!=NULL, "authorized voter not found" );
+    fd_ed25519_sign( response->signatures[1], request->message, request->message_sz, auth_key->public_key.uc, auth_key->private_key, ctx->sha512 );
   }
 }
 
@@ -285,17 +282,18 @@ privileged_init_sensitive( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
+  fd_sign_ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
+  fd_auth_key_t * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint() );
 
   uchar * identity_key = fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 );
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
-  ctx->authorized_voters_cnt = tile->sign.authorized_voter_paths_cnt;
+  ctx->auth_key_set = fd_auth_key_set_join( fd_auth_key_set_new( av_map ) );
   for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
-    uchar * authorized_voter = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
-    ctx->authorized_voters_private_keys[ i ] = authorized_voter;
-    ctx->authorized_voters_public_keys[ i ]  = authorized_voter + 32UL;
+    uchar * authorized_voter_key = fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
+    fd_auth_key_t * auth_key = fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)(authorized_voter_key+32UL) );
+    auth_key->private_key = authorized_voter_key;
   }
 
   /* The stack can be taken over and reorganized by under AddressSanitizer,
