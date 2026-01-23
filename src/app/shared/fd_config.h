@@ -174,7 +174,7 @@ struct fd_configf {
 
   struct {
     ulong authorized_voter_paths_cnt;
-    char  authorized_voter_paths[ 32 ][ PATH_MAX ];
+    char  authorized_voter_paths[ 16 ][ PATH_MAX ];
   } paths;
 };
 

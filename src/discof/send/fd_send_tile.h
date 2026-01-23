@@ -24,6 +24,7 @@
 
 /* Agave currently rate limits connections per minute per IP */
 #define FD_AGAVE_MAX_CONNS_PER_MINUTE (8UL)
+
 /* so each of our connections must survive at least 60/8 = 7.5 seconds
    Let's conservatively go to 10 */
 #define FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS (10L)
@@ -55,20 +56,6 @@ FD_STATIC_ASSERT((60*1000000)/FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS <= 1000000*
 #define FD_SEND_PORT_CNT            (4UL)
 
 #define FD_VOTE_TXN_SIGNERS_MAX (2UL)
-
-struct fd_send_sign_request {
-  uchar requested_signers_pubkeys[ FD_VOTE_TXN_SIGNERS_MAX ][ FD_TXN_PUBKEY_SZ ];
-  uchar requested_signers_cnt;
-  uchar message[ FD_TXN_MTU ];
-  ulong message_sz;
-};
-typedef struct fd_send_sign_request fd_send_sign_request_t;
-
-struct fd_sign_send_response {
-  uchar signatures_cnt;
-  uchar signatures[ FD_VOTE_TXN_SIGNERS_MAX ][ FD_ED25519_SIG_SZ ];
-};
-typedef struct fd_sign_send_response fd_sign_send_response_t;
 
 struct fd_send_link_in {
   fd_wksp_t *  mem;

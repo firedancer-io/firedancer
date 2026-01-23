@@ -126,9 +126,9 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
 
 void
 fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
-                                  uchar *                signatures[ static 2UL ],
-                                  uchar const *          pubkeys[ static 2UL ],
-                                  uchar                  pubkeys_cnt,
+                                  uchar *                signatures,
+                                  uchar *                pubkeys,
+                                  ulong                  pubkey_cnt,
                                   uchar const *          sign_data,
                                   ulong                  sign_data_len );
 

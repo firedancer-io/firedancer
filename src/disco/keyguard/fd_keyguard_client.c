@@ -72,23 +72,29 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
 
 void
 fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
-                                  uchar *                signatures[ static 2UL ],
-                                  uchar const *          pubkeys[ static 2UL ],
-                                  uchar                  pubkeys_cnt,
+                                  uchar *                signatures,
+                                  uchar *                pubkeys,
+                                  ulong                  pubkey_cnt,
                                   uchar const *          sign_data,
                                   ulong                  sign_data_len ) {
-    FD_CRIT( sign_data_len+pubkeys_cnt*32UL <= client->request_mtu, "the request is too large and will not fit in the mtu" );
-    FD_CRIT( pubkeys_cnt==1UL || pubkeys_cnt==2UL, "there can be 1 or 2 signers on an outgoing vote trasnaction" );
+    #define SIGN_TYPE_VOTE_TXN (4UL)
 
-    fd_send_sign_request_t * request = fd_chunk_to_laddr( client->request_mem, client->request_chunk );
-    request->requested_signers_cnt = pubkeys_cnt;
-    if( pubkeys_cnt>=1UL )fd_memcpy( request->requested_signers_pubkeys[0], pubkeys[ 0UL ], 32UL );
-    if( pubkeys_cnt==2UL )fd_memcpy( request->requested_signers_pubkeys[1], pubkeys[ 1UL ], 32UL );
+    FD_CRIT( sign_data_len+pubkey_cnt*32UL <= client->request_mtu, "the request is too large and will not fit in the mtu" );
+    FD_CRIT( pubkey_cnt==1UL || pubkey_cnt==2UL, "there can be 1 or 2 signers on an outgoing vote trasnaction" );
 
-    request->message_sz = sign_data_len;
-    memcpy( request->message, sign_data, sign_data_len );
+    uchar * dst = fd_chunk_to_laddr( client->request_mem, client->request_chunk );
 
-    fd_mcache_publish( client->request, client->request_depth, client->request_seq, 0UL, client->request_chunk, sizeof(fd_send_sign_request_t), 0UL, 0UL, 0UL );
+    /* If we have a second signer, set the first byte and copy the
+       second pubkey.  This will indicate that the send tile has to
+       sign a second signature. */
+    dst[0] = 0;
+    if( pubkey_cnt==2UL ) {
+      dst[0] = 1;
+      memcpy( dst+1, pubkeys, 32UL );
+    }
+    memcpy( dst+33UL, sign_data, sign_data_len );
+
+    fd_mcache_publish( client->request, client->request_depth, client->request_seq, SIGN_TYPE_VOTE_TXN, client->request_chunk, sign_data_len+33UL, 0UL, 0UL, 0UL );
     client->request_seq   = fd_seq_inc( client->request_seq, 1UL );
     client->request_chunk = fd_dcache_compact_next( client->request_chunk, sign_data_len, client->request_chunk0, client->request_wmark );
 
@@ -106,9 +112,9 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
     ulong chunk = FD_VOLATILE_CONST( mline->chunk );
     FD_TEST( chunk>=client->response_chunk0 && chunk<=client->response_wmark );
 
-    fd_sign_send_response_t * response = fd_chunk_to_laddr( client->response_mem, chunk );
-    if( pubkeys_cnt>=1UL ) memcpy( signatures[0], response->signatures[0], 64UL );
-    if( pubkeys_cnt==2UL ) memcpy( signatures[1], response->signatures[1], 64UL );
+    uchar * src = fd_chunk_to_laddr( client->response_mem, chunk );
+    memcpy( signatures, src, 64UL );
+    if( pubkey_cnt==2UL ) memcpy( signatures+64UL, src+64UL, 64UL );
 
     seq_found = fd_frag_meta_seq_query( mline );
     if( FD_UNLIKELY( fd_seq_ne( seq_found, client->response_seq ) ) ) FD_LOG_ERR(( "sign request was overrun while reading" ));

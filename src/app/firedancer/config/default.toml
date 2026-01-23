@@ -87,9 +87,9 @@ user = ""
     identity_key = ""
 
     # Absolute path to a `keypair.json` containing the voting account
-    # of the validator.  The vote account can also be  represented as A
-    # base 58 encoded pubkey.  If no voting account is provided, voting
-    # will be disabled and the validator will cast no votes.
+    # of the validator.  The vote account can also be represented as a
+    # base 58 encoded pubkey string.  If no voting account is provided,
+    # voting will be disabled and the validator will cast no votes.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
@@ -1572,7 +1572,7 @@ user = ""
     #
     # In development, you can disable the sandbox for testing and
     # debugging with the `--no-sandbox` argument to `firedancer-dev`.
-    sandbox = false
+    sandbox = true
 
     # As part of the security sandboxing, Firedancer will run every tile
     # in a separate process.  This can be annoying for debugging where
@@ -1585,7 +1585,7 @@ user = ""
     # This option cannot be enabled in production.  In development, you
     # can also launch Firedancer as a single process for with the
     # `--no-clone` argument to `firedancer-dev`.
-    no_clone = true
+    no_clone = false
 
     # As part of security sandboxing, the dumpable bit of each process
     # is cleared with prctl( PR_SET_DUMPABLE, 0 ).  This prevents other

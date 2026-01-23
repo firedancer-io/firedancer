@@ -172,23 +172,22 @@ during_frag( void * _ctx,
 
 static void FD_FN_SENSITIVE
 vote_txn_sign( fd_sign_ctx_t * ctx,
-               uchar *         dst ) {
+               uchar *         dst,
+               ulong           sz ) {
 
   /* A vote transaction may be signed by either the identity key or a
      combination between the identity and the authorized voter.  The
      first signer is always the identity key. */
 
-  fd_send_sign_request_t *  request  = (fd_send_sign_request_t *)ctx->_data;
-  fd_sign_send_response_t * response = (fd_sign_send_response_t *)dst;
+  uchar * message    = ctx->_data + 33;
+  ulong   message_sz = sz - 33;
 
-  fd_ed25519_sign( response->signatures[0], request->message, request->message_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+  fd_ed25519_sign( dst, message, message_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
 
-  if( request->requested_signers_cnt==2UL ) {
-    response->signatures_cnt = 2UL;
-
-    fd_auth_key_t * auth_key = fd_auth_key_set_query( ctx->auth_key_set, *(fd_pubkey_t const *)(request->requested_signers_pubkeys[1]), NULL );
+  if( ctx->_data[ 0 ]==1 ) {
+    fd_auth_key_t * auth_key = fd_auth_key_set_query( ctx->auth_key_set, *(fd_pubkey_t const *)(ctx->_data + 1), NULL );
     FD_CRIT( auth_key!=NULL, "authorized voter not found" );
-    fd_ed25519_sign( response->signatures[1], request->message, request->message_sz, auth_key->public_key.uc, auth_key->private_key, ctx->sha512 );
+    fd_ed25519_sign( dst + 64, message, message_sz, auth_key->public_key.uc, auth_key->private_key, ctx->sha512 );
   }
 }
 
@@ -217,7 +216,10 @@ after_frag_sensitive( void *              _ctx,
   fd_keyguard_authority_t authority = {0};
   memcpy( authority.identity_pubkey, ctx->public_key, 32 );
 
-  if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, ctx->_data, sz, role, sign_type ) ) ) {
+  int is_vote_txn = role==FD_KEYGUARD_ROLE_SEND && sign_type==FD_KEYGUARD_SIGN_TYPE_VOTE_TXN;
+
+  uchar * payload = is_vote_txn ? ctx->_data + 33 : ctx->_data;
+  if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, payload, sz, role, sign_type ) ) ) {
     FD_LOG_WARNING(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
   }
 
@@ -225,36 +227,33 @@ after_frag_sensitive( void *              _ctx,
 
   uchar * dst = fd_chunk_to_laddr( ctx->out[ in_idx ].out_mem, ctx->out[ in_idx ].out_chunk );
 
-  if( FD_UNLIKELY( ctx->in[ in_idx ].role == FD_KEYGUARD_ROLE_SEND ) ) {
-    /* The vote transactions sent from the send tile are special cased
-       in that the sign tile is responsible for figuring out which
-       keypairs are used to sign the transaction. */
-    vote_txn_sign( ctx, dst );
-  } else {
-    switch( sign_type ) {
-    case FD_KEYGUARD_SIGN_TYPE_ED25519: {
-      fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
-      break;
-    }
-    case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
-      uchar hash[ 32 ];
-      fd_sha256_hash( ctx->_data, sz, hash );
-      fd_ed25519_sign( dst, hash, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-      break;
-    }
-    case FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519: {
-      memcpy( ctx->concat+ctx->public_key_base58_sz+1UL, ctx->_data, 9UL );
-      fd_ed25519_sign( dst, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-      break;
-    }
-    case FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519: {
-      memcpy( ctx->event_concat+18UL, ctx->_data, 32UL );
-      fd_ed25519_sign( dst, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-      break;
-    }
-    default:
-      FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
-    }
+  switch( sign_type ) {
+  case FD_KEYGUARD_SIGN_TYPE_ED25519: {
+    fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+    break;
+  }
+  case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
+    uchar hash[ 32 ];
+    fd_sha256_hash( ctx->_data, sz, hash );
+    fd_ed25519_sign( dst, hash, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+    break;
+  }
+  case FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519: {
+    memcpy( ctx->concat+ctx->public_key_base58_sz+1UL, ctx->_data, 9UL );
+    fd_ed25519_sign( dst, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+    break;
+  }
+  case FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519: {
+    memcpy( ctx->event_concat+18UL, ctx->_data, 32UL );
+    fd_ed25519_sign( dst, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+    break;
+  }
+  case FD_KEYGUARD_SIGN_TYPE_VOTE_TXN: {
+    vote_txn_sign( ctx, dst, sz );
+    break;
+  }
+  default:
+    FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
   }
 
   sign_duration += fd_tickcount();
@@ -378,8 +377,8 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
     } else if ( !strcmp(in_link->name, "send_sign"  ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_SEND;
       FD_TEST( !strcmp( out_link->name, "sign_send"  ) );
-      FD_TEST( in_link->mtu==sizeof(fd_send_sign_request_t)  );
-      FD_TEST( out_link->mtu==sizeof(fd_sign_send_response_t) );
+      FD_TEST( in_link->mtu==FD_SEND_SIGN_MTU  );
+      FD_TEST( out_link->mtu==FD_SIGN_SEND_MTU );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;
       FD_TEST( !strcmp( out_link->name, "sign_bundle" ) );

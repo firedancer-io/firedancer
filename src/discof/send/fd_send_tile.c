@@ -452,21 +452,13 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
 
   /* sign the txn */
 
-  uchar *       signature     = signed_vote_txn + txn->signature_off;
-  // uchar *       accts         = signed_vote_txn + txn->acct_addr_off;
+  uchar *       signatures    = signed_vote_txn + txn->signature_off;
+  uchar *       accts         = signed_vote_txn + txn->acct_addr_off;
   ulong         signature_cnt = txn->signature_cnt;
   uchar const * message       = signed_vote_txn + txn->message_off;
   ulong         message_sz    = vote_txn_sz     - txn->message_off;
 
-  uchar * signatures[2UL];
-  signatures[0] = signature;
-  if( signature_cnt == 2UL ) signatures[1] = signature + 64UL;
-
-  uchar const * pubkeys[2UL];
-  if( signature_cnt >= 1UL ) pubkeys[0] = signed_vote_txn + txn->acct_addr_off;
-  if( signature_cnt == 2UL ) pubkeys[1] = signed_vote_txn + txn->acct_addr_off + 32UL;
-
-  fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, pubkeys, (uchar)signature_cnt, message, message_sz );
+  fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, accts, signature_cnt, message, message_sz );
 
   // FD_LOG_HEXDUMP_WARNING(("MESSAGE", message, message_sz));
 

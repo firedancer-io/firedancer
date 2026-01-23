@@ -1,6 +1,5 @@
 #include "fd_ed25519.h"
 #include "fd_curve25519.h"
-#include "../base58/fd_base58.h"
 
 uchar * FD_FN_SENSITIVE
 fd_ed25519_public_from_private( uchar         public_key [ static 32 ],

@@ -24,10 +24,10 @@
 #include "../../discof/restore/fd_snapin_tile_private.h"
 #include "../../discof/restore/fd_snaplv_tile_private.h"
 #include "../../discof/restore/fd_snapwm_tile_private.h"
-#include "../../discof/send/fd_send_tile.h"
 #include "../../discof/restore/utils/fd_slot_delta_parser.h"
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../discof/send/fd_send_tile.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
@@ -606,8 +606,8 @@ fd_topo_initialize( config_t * config ) {
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL ); /* See repair_tile.c for explanation */
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
-  /**/                 fd_topob_link( topo, "send_sign",    "send_sign",    128UL,                                    sizeof(fd_send_sign_request_t), 1UL ); /* TODO: Depth probably doesn't need to be 128 */
-  /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    sizeof(fd_sign_send_response_t), 1UL ); /* TODO: Depth probably doesn't need to be 128 */
+  /**/                 fd_topob_link( topo, "send_sign",    "send_sign",    128UL,                                    FD_SEND_SIGN_MTU,              1UL ); /* TODO: Depth probably doesn't need to be 128 */
+  /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    FD_SIGN_SEND_MTU,              1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    shred_depth,                              FD_SHRED_OUT_MTU,              3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "repair_shred", shred_depth,                              sizeof(fd_ed25519_sig_t),      1UL );
