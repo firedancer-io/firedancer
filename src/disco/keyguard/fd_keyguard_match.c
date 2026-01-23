@@ -91,8 +91,7 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
 
   uchar const * end = data + sz;
 
-  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 &&
-      sign_type != FD_KEYGUARD_SIGN_TYPE_VOTE_TXN ) return 0;
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
 
   /* txn_msg_min_sz is the smallest valid size of a transaction msg. A
      transaction is the concatenation of (signature count, signatures,

@@ -10,7 +10,7 @@
 #include "../metrics/fd_metrics.h"
 
 #include "../../util/hist/fd_histf.h"
-#include "../../discof/send/fd_send_tile.h"
+
 #include <errno.h>
 #include <sys/mman.h>
 
@@ -25,7 +25,7 @@ typedef struct fd_auth_key fd_auth_key_t;
 
 #define MAP_NAME               fd_auth_key_set
 #define MAP_T                  fd_auth_key_t
-#define MAP_LG_SLOT_CNT        6
+#define MAP_LG_SLOT_CNT        5
 #define MAP_KEY                public_key
 #define MAP_KEY_T              fd_pubkey_t
 #define MAP_KEY_NULL           (fd_pubkey_t){0}
@@ -205,9 +205,14 @@ after_frag_sensitive( void *              _ctx,
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
-  /* The upper 32 bits contain the repair tile nonce to identify the
-     request, while the lower 32 bits specify the sign_type. */
-  int sign_type = (int)(uint)(sig);
+  /* If the frag is coming from the repair tile, then the upper 32 bits
+     contain the repair tile nonce to identify the request.  The send
+     tile will use the upper 32 bits to identify if it's a vote
+     transaction or not: if the 32 bits are all 1s, then it's a vote
+     transaction, otherwise it's not.
+     The lower 32 bits specify the sign_type. */
+  int sign_type   = (int)(uint)(sig);
+  int is_vote_txn = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_SEND && UINT_MAX==(sig>>32);
 
   FD_TEST( in_idx<MAX_IN );
 
@@ -216,7 +221,6 @@ after_frag_sensitive( void *              _ctx,
   fd_keyguard_authority_t authority = {0};
   memcpy( authority.identity_pubkey, ctx->public_key, 32 );
 
-  int is_vote_txn = role==FD_KEYGUARD_ROLE_SEND && sign_type==FD_KEYGUARD_SIGN_TYPE_VOTE_TXN;
 
   uchar * payload = is_vote_txn ? ctx->_data + 33UL : ctx->_data;
   if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, payload, sz, role, sign_type ) ) ) {
@@ -229,7 +233,11 @@ after_frag_sensitive( void *              _ctx,
 
   switch( sign_type ) {
   case FD_KEYGUARD_SIGN_TYPE_ED25519: {
-    fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+    if( is_vote_txn ) {
+      vote_txn_sign( ctx, dst, sz );
+    } else {
+      fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+    }
     break;
   }
   case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
@@ -246,10 +254,6 @@ after_frag_sensitive( void *              _ctx,
   case FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519: {
     memcpy( ctx->event_concat+18UL, ctx->_data, 32UL );
     fd_ed25519_sign( dst, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-    break;
-  }
-  case FD_KEYGUARD_SIGN_TYPE_VOTE_TXN: {
-    vote_txn_sign( ctx, dst, sz );
     break;
   }
   default:

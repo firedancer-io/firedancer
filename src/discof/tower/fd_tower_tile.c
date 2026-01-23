@@ -79,7 +79,7 @@ typedef struct fd_auth_key fd_auth_key_t;
 
 #define MAP_NAME               fd_auth_key_set
 #define MAP_T                  fd_auth_key_t
-#define MAP_LG_SLOT_CNT        6
+#define MAP_LG_SLOT_CNT        5
 #define MAP_KEY                key
 #define MAP_KEY_T              fd_pubkey_t
 #define MAP_KEY_NULL           (fd_pubkey_t){0}

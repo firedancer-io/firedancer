@@ -55,7 +55,6 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519                   (1)  /* ed25519_sign(sha256(data)) */
 #define FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519            (2)  /* ed25519_sign(pubkey-data) */
 #define FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519 (3)  /* ed25519_sign(FD_METRICS_REPORT-data)) */
-#define FD_KEYGUARD_SIGN_TYPE_VOTE_TXN                         (4)  /* ed25519_sign(vote_txn_data) */
 
 /* Type confusion/ambiguity checks ************************************/
 

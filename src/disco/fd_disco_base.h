@@ -44,9 +44,10 @@
 
 /* FD_SEND_SIGN_MTU is the largest packet size possible that a vote
    transaction signing packet can be:
-   - 1          byte  to indicate if there is a second signer
+   - 1          byte is a flag to indicate if there is a second signer
    - 32         bytes for the second pubkey
    - FD_TXN_MTU bytes for the actual transaction payload */
+
 #define FD_SEND_SIGN_MTU (FD_TXN_MTU+33UL)
 
 

@@ -6,7 +6,6 @@
 #include "../../discof/tower/fd_tower_tile.h"
 #include "generated/fd_send_tile_seccomp.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
-#include "../../flamenco/runtime/fd_executor.h"
 
 #include <sys/random.h>
 
@@ -450,7 +449,7 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   fd_txn_t * txn = (fd_txn_t *)txn_mem;
   FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
 
-  uchar *       accts         = signed_vote_txn + txn->acct_addr_off;
+  uchar const * accts         = signed_vote_txn + txn->acct_addr_off;
   uchar *       signatures    = signed_vote_txn + txn->signature_off;
   ulong         signature_cnt = txn->signature_cnt;
   uchar const * message       = signed_vote_txn + txn->message_off;
