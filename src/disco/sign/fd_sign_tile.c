@@ -206,11 +206,11 @@ after_frag_sensitive( void *              _ctx,
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
   /* If the frag is coming from the repair tile, then the upper 32 bits
-     contain the repair tile nonce to identify the request.  The send
-     tile will use the upper 32 bits to identify if it's a vote
-     transaction or not: if the 32 bits are all 1s, then it's a vote
-     transaction, otherwise it's not.
-     The lower 32 bits specify the sign_type. */
+     contain the repair tile nonce to identify the request.  If the frag
+     is coming from the send tile, the upper 32 bits are used to
+     identify if it's a vote transaction or not: if the 32 bits are all
+     1s, then it's a vote transaction, otherwise it's not.  The lower 32
+     bits specify the sign_type. */
   int sign_type   = (int)(uint)(sig);
   int is_vote_txn = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_SEND && UINT_MAX==(sig>>32);
 
@@ -220,7 +220,6 @@ after_frag_sensitive( void *              _ctx,
 
   fd_keyguard_authority_t authority = {0};
   memcpy( authority.identity_pubkey, ctx->public_key, 32 );
-
 
   uchar * payload = is_vote_txn ? ctx->_data + 33UL : ctx->_data;
   if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, payload, sz, role, sign_type ) ) ) {
@@ -283,15 +282,14 @@ static void FD_FN_SENSITIVE
 privileged_init_sensitive( fd_topo_t *      topo,
                            fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_sign_ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
+  fd_sign_ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t )     );
+  fd_auth_key_t * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(),  fd_auth_key_set_footprint() );
 
   uchar * identity_key = fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 );
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
-  fd_auth_key_t * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint() );
   ctx->auth_key_set = fd_auth_key_set_join( fd_auth_key_set_new( av_map ) );
   for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
     uchar * authorized_voter_key = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );

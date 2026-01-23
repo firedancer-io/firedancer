@@ -1,6 +1,5 @@
 #include "fd_keyguard_client.h"
 
-#include "../../discof/send/fd_send_tile.h"
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
 
