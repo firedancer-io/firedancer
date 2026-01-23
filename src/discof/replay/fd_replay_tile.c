@@ -373,8 +373,8 @@ struct fd_replay_tile {
 
   ulong  resolv_tile_cnt;
 
-  int in_kind[ 64 ];
-  fd_replay_in_link_t in[ 64 ];
+  int in_kind[ 128 ];
+  fd_replay_in_link_t in[ 128 ];
 
   fd_replay_out_link_t replay_out[1];
 
