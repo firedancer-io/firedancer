@@ -1604,16 +1604,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->poh.bank_cnt = config->layout.bank_tile_count;
     tile->poh.lagged_consecutive_leader_start = config->tiles.poh.lagged_consecutive_leader_start;
 
-    if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-      tile->poh.bundle.enabled = 1;
-      PARSE_PUBKEY( poh, tip_distribution_program_addr );
-      PARSE_PUBKEY( poh, tip_payment_program_addr      );
-      strncpy( tile->poh.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->poh.bundle.vote_account_path) );
-#undef PARSE_PUBKEY
-    } else {
-      fd_memset( &tile->poh.bundle, '\0', sizeof(tile->poh.bundle) );
-    }
-
   } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
 
     strncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
