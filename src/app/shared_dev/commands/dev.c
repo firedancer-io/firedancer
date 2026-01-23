@@ -99,7 +99,7 @@ update_config_for_dev( fd_config_t * config ) {
   else FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
 
   ushort shred_version = 0;
-  int result = compute_shred_version( genesis_path, &shred_version, NULL );
+  int result = read_genesis_bin( genesis_path, &shred_version, NULL );
   if( FD_UNLIKELY( -1==result && errno!=ENOENT ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
   for( ulong i=0UL; i<config->layout.shred_tile_count; i++ ) {

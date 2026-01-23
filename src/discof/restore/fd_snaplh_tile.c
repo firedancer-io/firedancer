@@ -717,7 +717,7 @@ snaplh_io_uring_init( fd_snaplh_t * ctx,
                       int           dev_fd ) {
   ulong const uring_depth = VINYL_LTHASH_IORING_DEPTH;
   fd_io_uring_params_t params[1];
-  fd_io_uring_params_init( params, uring_depth );
+  fd_io_uring_params_init( params, (uint)uring_depth );
 
   if( FD_UNLIKELY( !fd_io_uring_init_shmem( ctx->ioring, params, uring_shmem, uring_depth, uring_depth ) ) ) {
     FD_LOG_ERR(( "fd_io_uring_init_shmem failed (%i-%s)", errno, fd_io_strerror( errno ) ));

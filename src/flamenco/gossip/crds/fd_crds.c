@@ -38,7 +38,7 @@ struct fd_crds_entry_private {
     struct {
       fd_crds_contact_info_entry_t * ci;
       long                           instance_creation_wallclock_nanos;
-      uchar                          is_active;
+      uchar                          is_active; /* based on ping tracker */
       ulong                          sampler_idx;
 
       /* A list of "fresh" contact info entries is maintained, holding
@@ -64,6 +64,15 @@ struct fd_crds_entry_private {
         ulong prev;
         ulong next;
       } evict_dlist;
+
+      /* active is used to maintain a linked list of values sorted by
+         creation time which tracks whether a node is active or not, defined
+         as having contact info crds created within the last 15 seconds. */
+      struct {
+        ulong prev;
+        ulong next;
+        uchar in_list; /* 1 if in active list, 0 otherwise */
+      } active;
 
       /* TODO: stake-ordered treap/pq? */
     } contact_info;
@@ -129,7 +138,8 @@ struct fd_crds_entry_private {
      There are actually two lists that reuse the same pointers here,
      and a value will be in exactly one of the lists.  One is for staked
      nodes, which values expire after 48 hours, and one is for unstaked
-     nodes, which expire after 15 seconds. */
+     nodes, which expire after 15 seconds (or also 48hours if the node
+     is configured as unstaked). */
   struct {
     long  wallclock_nanos;
     ulong prev;
@@ -178,6 +188,9 @@ struct fd_crds_entry_private {
 
 #include "../../../util/tmpl/fd_treap.c"
 
+/* staked_expire_dlist tracks contact info crds entries inserted in the
+   last 432000L*SLOT_DURATION_NANOS nanoseconds with nonzero active
+   stake according to their epoch stake at the time they are inserted. */
 #define DLIST_NAME      staked_expire_dlist
 #define DLIST_ELE_T     fd_crds_entry_t
 #define DLIST_PREV      expire.prev
@@ -185,6 +198,10 @@ struct fd_crds_entry_private {
 
 #include "../../../util/tmpl/fd_dlist.c"
 
+/* unstaked_expire_dlist tracks contact info crds entries from the last
+   432000L*SLOT_DURATION_NANOS nanoseconds (or from the last 15 seconds,
+   if this node is itself running as unstaked) with zero active stake
+   according to their epoch stake at the time they are inserted. */
 #define DLIST_NAME      unstaked_expire_dlist
 #define DLIST_ELE_T     fd_crds_entry_t
 #define DLIST_PREV      expire.prev
@@ -192,6 +209,14 @@ struct fd_crds_entry_private {
 
 #include "../../../util/tmpl/fd_dlist.c"
 
+/* active_15s_dlist tracks all contact info crds entries from the last
+   15 seconds. */
+#define DLIST_NAME      active_15s_dlist
+#define DLIST_ELE_T     fd_crds_entry_t
+#define DLIST_PREV      contact_info.active.prev
+#define DLIST_NEXT      contact_info.active.next
+
+#include "../../../util/tmpl/fd_dlist.c"
 
 #define DLIST_NAME  crds_contact_info_fresh_list
 #define DLIST_ELE_T fd_crds_entry_t
@@ -343,6 +368,9 @@ typedef struct fd_crds_purged fd_crds_purged_t;
 struct fd_crds_private {
   fd_gossip_out_ctx_t * gossip_update;
 
+  fd_gossip_activity_update_fn activity_update_fn;
+  void *                       activity_update_fn_ctx;
+
   fd_sha256_t sha256[1];
 
   int has_staked_node;
@@ -352,6 +380,7 @@ struct fd_crds_private {
   evict_treap_t *           evict_treap;
   staked_expire_dlist_t *   staked_expire_dlist;
   unstaked_expire_dlist_t * unstaked_expire_dlist;
+  active_15s_dlist_t *      active_15s_dlist;
   hash_treap_t *            hash_treap;
   lookup_map_t *            lookup_map;
 
@@ -390,6 +419,7 @@ fd_crds_footprint( ulong ele_max,
   l = FD_LAYOUT_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max )    );
   l = FD_LAYOUT_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()     );
   l = FD_LAYOUT_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()   );
+  l = FD_LAYOUT_APPEND( l, active_15s_dlist_align(),              active_15s_dlist_footprint()        );
   l = FD_LAYOUT_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max )     );
   l = FD_LAYOUT_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )     );
   l = FD_LAYOUT_APPEND( l, purged_pool_align(),                   purged_pool_footprint( purged_max ) );
@@ -403,11 +433,13 @@ fd_crds_footprint( ulong ele_max,
 }
 
 void *
-fd_crds_new( void *                    shmem,
-             fd_rng_t *                rng,
-             ulong                     ele_max,
-             ulong                     purged_max,
-             fd_gossip_out_ctx_t *     gossip_update_out ) {
+fd_crds_new( void *                       shmem,
+             fd_rng_t *                   rng,
+             ulong                        ele_max,
+             ulong                        purged_max,
+             fd_gossip_activity_update_fn activity_update_fn,
+             void *                       activity_update_fn_ctx,
+             fd_gossip_out_ctx_t *        gossip_update_out ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -444,6 +476,7 @@ fd_crds_new( void *                    shmem,
   void * _evict_treap           = FD_SCRATCH_ALLOC_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max ) );
   void * _staked_expire_dlist   = FD_SCRATCH_ALLOC_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint() );
   void * _unstaked_expire_dlist = FD_SCRATCH_ALLOC_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint() );
+  void * _active_15s_dlist      = FD_SCRATCH_ALLOC_APPEND( l, active_15s_dlist_align(),              active_15s_dlist_footprint() );
   void * _hash_treap            = FD_SCRATCH_ALLOC_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max ) );
   void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max ) );
   void * _purged_pool           = FD_SCRATCH_ALLOC_APPEND( l, purged_pool_align(),                   purged_pool_footprint( purged_max ) );
@@ -454,6 +487,9 @@ fd_crds_new( void *                    shmem,
   void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
   void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max, purged_max ) );
+
+  crds->activity_update_fn = activity_update_fn;
+  crds->activity_update_fn_ctx = activity_update_fn_ctx;
 
   crds->pool = crds_pool_join( crds_pool_new( _pool, ele_max ) );
   FD_TEST( crds->pool );
@@ -467,6 +503,9 @@ fd_crds_new( void *                    shmem,
 
   crds->unstaked_expire_dlist = unstaked_expire_dlist_join( unstaked_expire_dlist_new( _unstaked_expire_dlist ) );
   FD_TEST( crds->unstaked_expire_dlist );
+
+  crds->active_15s_dlist = active_15s_dlist_join( active_15s_dlist_new( _active_15s_dlist ) );
+  FD_TEST( crds->active_15s_dlist );
 
   crds->hash_treap = hash_treap_join( hash_treap_new( _hash_treap, ele_max ) );
   FD_TEST( crds->hash_treap );
@@ -570,6 +609,12 @@ remove_contact_info( fd_crds_t *         crds,
      be sampled in a bucket (at least) twice during
      fd_active_set_rotate. */
   crds_samplers_rem_peer( crds->samplers, ci );
+
+  if( FD_LIKELY( !!ci->contact_info.active.in_list ) ) {
+    active_15s_dlist_ele_remove( crds->active_15s_dlist, ci, crds->pool );
+    crds->activity_update_fn( crds->activity_update_fn_ctx, (fd_pubkey_t const *)ci->key.pubkey, ci->contact_info.ci->contact_info, now, FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE );
+    ci->contact_info.active.in_list = 0U;
+  }
 }
 
 ulong
@@ -672,8 +717,26 @@ unfresh( fd_crds_t * crds,
     if( FD_LIKELY( head->expire.wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
 
     head = crds_contact_info_fresh_list_ele_pop_head( crds->contact_info.fresh_dlist, crds->pool );
-    head->contact_info.fresh_dlist.in_list = 0;
+
+    FD_TEST( !!head->contact_info.fresh_dlist.in_list );
+    head->contact_info.fresh_dlist.in_list = 0U;
     crds_samplers_upd_peer_at_idx( crds->samplers, head, head->contact_info.sampler_idx, now );
+  }
+}
+
+void
+inactive( fd_crds_t * crds,
+          long        now ) {
+  while( !active_15s_dlist_is_empty( crds->active_15s_dlist, crds->pool ) ) {
+    fd_crds_entry_t * head = active_15s_dlist_ele_peek_head( crds->active_15s_dlist, crds->pool );
+
+    if( FD_LIKELY( head->expire.wallclock_nanos>now-15L*1000L*1000L*1000L ) ) break;
+
+    head = active_15s_dlist_ele_pop_head( crds->active_15s_dlist, crds->pool );
+
+    FD_TEST( !!head->contact_info.active.in_list );
+    head->contact_info.active.in_list = 0U;
+    crds->activity_update_fn( crds->activity_update_fn_ctx, (fd_pubkey_t const *)head->key.pubkey, head->contact_info.ci->contact_info, head->expire.wallclock_nanos, FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE );
   }
 }
 
@@ -683,6 +746,7 @@ fd_crds_advance( fd_crds_t *         crds,
                  fd_stem_context_t * stem ) {
   expire( crds, now, stem );
   unfresh( crds, now );
+  inactive( crds, now );
 }
 
 fd_crds_entry_t *
@@ -1029,6 +1093,7 @@ fd_crds_insert( fd_crds_t *               crds,
 
     if( FD_UNLIKELY( incumbent->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       if( FD_LIKELY( !!incumbent->contact_info.fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->contact_info.fresh_dlist, incumbent, crds->pool );
+
       crds_contact_info_evict_dlist_ele_remove( crds->contact_info.evict_dlist, incumbent, crds->pool );
       candidate->contact_info.ci = incumbent->contact_info.ci;
 
@@ -1059,6 +1124,7 @@ fd_crds_insert( fd_crds_t *               crds,
     hash_treap_ele_remove( crds->hash_treap, incumbent, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &incumbent->key, NULL, crds->pool );
     fd_crds_release( crds, incumbent );
+    if( FD_LIKELY( !!incumbent->contact_info.active.in_list ) ) active_15s_dlist_ele_remove( crds->active_15s_dlist, incumbent, crds->pool );
   } else if( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) {
     if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
       fd_crds_entry_t * evict = crds_contact_info_evict_dlist_ele_peek_head( crds->contact_info.evict_dlist, crds->pool );
@@ -1095,6 +1161,8 @@ fd_crds_insert( fd_crds_t *               crds,
   hash_treap_ele_insert( crds->hash_treap, candidate, crds->pool );
   lookup_map_ele_insert( crds->lookup_map, candidate, crds->pool );
 
+  candidate->contact_info.fresh_dlist.in_list = 0U;
+  candidate->contact_info.active.in_list = 0U;
   if( FD_UNLIKELY( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     *candidate->contact_info.ci->contact_info = *value->contact_info;
     /* Default to active, since we filter inactive entries prior to insertion */
@@ -1105,13 +1173,16 @@ fd_crds_insert( fd_crds_t *               crds,
     if( FD_LIKELY( !is_from_me ) ){
       crds_contact_info_fresh_list_ele_push_tail( crds->contact_info.fresh_dlist, candidate, crds->pool );
       candidate->contact_info.fresh_dlist.in_list = 1;
-    } else {
-      candidate->contact_info.fresh_dlist.in_list = 0;
     }
 
     if( FD_UNLIKELY( !is_replacing && !is_from_me ) ) {
       crds_samplers_add_peer( crds->samplers, candidate, now);
     }
+
+    active_15s_dlist_ele_push_tail( crds->active_15s_dlist, candidate, crds->pool );
+    candidate->contact_info.active.in_list = 1U;
+    /* callback is triggered even if incumbent is already active */
+    crds->activity_update_fn( crds->activity_update_fn_ctx, (fd_pubkey_t const *)candidate->key.pubkey, candidate->contact_info.ci->contact_info, now, FD_GOSSIP_ACTIVITY_CHANGE_TYPE_ACTIVE );
 
     if( FD_LIKELY( candidate->stake ) ) crds->metrics->peer_staked_cnt++;
     else                                crds->metrics->peer_unstaked_cnt++;
@@ -1154,7 +1225,7 @@ fd_crds_entry_contact_info( fd_crds_entry_t const * entry ) {
 
 fd_gossip_contact_info_t const *
 fd_crds_contact_info_lookup( fd_crds_t const * crds,
-                              uchar const *     pubkey ) {
+                             uchar const *     pubkey ) {
 
   fd_crds_key_t key[1];
   make_contact_info_key( pubkey, key );
