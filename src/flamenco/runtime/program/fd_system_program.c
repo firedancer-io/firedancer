@@ -13,6 +13,15 @@
 
 #define FD_SYSTEM_PROGRAM_INSTR_FOOTPRINT (FD_TXN_MTU + sizeof(fd_system_program_instruction_t))
 
+#define FD_FMT_ADDRESS(account_b58, base, out_fmt)                                               \
+  char out_fmt[ 128UL ];                                                                         \
+  FD_BASE58_ENCODE_32_BYTES( base->key, base_b58 );                                              \
+  if( base ) {                                                                                   \
+    snprintf( out_fmt, 128UL, "Address { address: %s, base: Some(%s) }", account_b58, base_b58 ); \
+  } else {                                                                                       \
+    snprintf( out_fmt, 128UL, "Address { address: %s, base: None }", account_b58 );               \
+  }
+
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L42-L68
 
    Partial port of system_processor::Address::create, only covering the
@@ -159,11 +168,10 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 35 - 2 + 125 = 158 */
     FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, account_b58 );
-    FD_BASE58_ENCODE_32_BYTES( base->key,            base_b58    );
+    FD_FMT_ADDRESS( account_b58, base, address_fmt );
     fd_log_collector_printf_inefficient_max_512( ctx,
-      "Allocate: 'to' (account %s, base %s) must sign",
-      account_b58,
-      base ? base_b58 : "None" );
+      "Allocate: 'to' account %s must sign",
+      address_fmt );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -173,11 +181,10 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
                    ( 0!=memcmp( fd_borrowed_account_get_owner( account ), fd_solana_system_program_id.uc, 32UL ) ) ) ) {
     /* Max msg_sz: 35 - 2 + 125 = 158 */
     FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, account_b58 );
-    FD_BASE58_ENCODE_32_BYTES( base->key,            base_b58    );
+    FD_FMT_ADDRESS( account_b58, base, address_fmt );
     fd_log_collector_printf_inefficient_max_512( ctx,
-      "Allocate: account (account %s, base %s) already in use",
-      account_b58,
-      base ? base_b58 : "None" );
+      "Allocate: account %s already in use",
+      address_fmt );
     ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -225,11 +232,10 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 28 - 2 + 125 = 151 */
     FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, account_b58 );
-    FD_BASE58_ENCODE_32_BYTES( base->key,            base_b58    );
+    FD_FMT_ADDRESS( account_b58, base, address_fmt );
     fd_log_collector_printf_inefficient_max_512( ctx,
-      "Assign: 'to' (account %s, base %s) must sign",
-      account_b58,
-      base ? base_b58 : "None" );
+      "Assign: account %s must sign",
+      address_fmt );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -286,11 +292,10 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &to ) ) ) {
       /* Max msg_sz: 41 - 2 + 125 = 164 */
       FD_BASE58_ENCODE_32_BYTES( to.pubkey->key, to_b58 );
-      FD_BASE58_ENCODE_32_BYTES( base->key,  base_b58 );
+      FD_FMT_ADDRESS( to_b58, base, address_fmt );
       fd_log_collector_printf_inefficient_max_512( ctx,
-        "Create Account: 'to' (account %s, base %s) already in use",
-        to_b58,
-        base ? base_b58 : "None" );
+        "Create Account: account %s already in use",
+        address_fmt );
       ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
