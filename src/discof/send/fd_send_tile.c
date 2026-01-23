@@ -443,18 +443,17 @@ static void
 handle_vote_msg( fd_send_tile_ctx_t * ctx,
                  ulong                vote_slot,
                  uchar *              signed_vote_txn,
-                 ulong                vote_txn_sz ) {
+                 ulong                vote_txn_sz,
+                 ulong                authority_idx ) {
 
   uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   fd_txn_t * txn = (fd_txn_t *)txn_mem;
   FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
 
-  uchar const * accts         = signed_vote_txn + txn->acct_addr_off;
   uchar *       signatures    = signed_vote_txn + txn->signature_off;
-  ulong         signature_cnt = txn->signature_cnt;
   uchar const * message       = signed_vote_txn + txn->message_off;
   ulong         message_sz    = vote_txn_sz     - txn->message_off;
-  fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, accts, signature_cnt, message, message_sz );
+  fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, authority_idx, message, message_sz );
 
   ulong poh_slot = vote_slot+1;
   FD_LOG_INFO(( "got vote for slot %lu", vote_slot ));
@@ -564,7 +563,7 @@ during_frag( fd_send_tile_ctx_t * ctx,
         uchar vote_txn[ FD_TPU_MTU ];
         fd_memcpy( vote_txn, slot_done->vote_txn, vote_txn_sz );
 
-        handle_vote_msg( ctx, vote_slot, vote_txn, vote_txn_sz );
+        handle_vote_msg( ctx, vote_slot, vote_txn, vote_txn_sz, slot_done->authority_idx );
     }
   }
 }

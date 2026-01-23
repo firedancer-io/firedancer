@@ -43,12 +43,9 @@
 #define FD_SHRED_STORE_MTU (41792UL)
 
 /* FD_SEND_SIGN_MTU is the largest packet size possible that a vote
-   transaction signing packet can be:
-   - 1          byte is a flag to indicate if there is a second signer
-   - 32         bytes for the second pubkey
-   - FD_TXN_MTU bytes for the actual transaction payload */
+   transaction signing can be which is the transaction mtu. */
 
-#define FD_SEND_SIGN_MTU (FD_TXN_MTU+33UL)
+#define FD_SEND_SIGN_MTU (FD_TXN_MTU)
 
 
 /* FD_SIGN_SEND_MTU is the largest packet size possible that the sign

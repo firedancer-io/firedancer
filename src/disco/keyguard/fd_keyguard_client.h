@@ -113,22 +113,22 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
    not correspond to the role assigned to the receiving mcache, it
    will abort the whole program with a critical error.
 
-   The pubkeys that are passed in are the public keys of the signers,
-   in the order that they are to be signed.  The number of pubkeys is
-   passed in by the caller.  If there are not exactly 1 or 2 signers,
-   then the entire program will abort with a critical error.
+   The authority_idx is the index of the second signer on the vote
+   transaction where the index corresponds to the authorized voter
+   the caller passes into the toml.  If there is no second signer
+   (the case where the identity is the only signer) then the
+   authority_idx should be ULONG_MAX.
 
    The response will be either 1 or 2 64 byte signatures which will be
    written into the signature buffer which must have the capacity to
-   hold the maximum number of signatures, which is 2.  The number of
-   signatures written into the array will be the same as the pubkey_cnt
-   which is passed in by the caller. */
+   hold the maximum number of signatures, which is 2.  There will be
+   2 signatures if authority_idx!=ULONG_MAX and 1 otherwise.
+   authority_idx should be in the range [0,16). */
 
 void
 fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
                                   uchar *                signatures,
-                                  uchar const *          pubkeys,
-                                  ulong                  pubkey_cnt,
+                                  ulong                  authority_idx,
                                   uchar const *          sign_data,
                                   ulong                  sign_data_len );
 

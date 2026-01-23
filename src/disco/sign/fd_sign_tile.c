@@ -23,18 +23,6 @@ struct fd_auth_key {
 };
 typedef struct fd_auth_key fd_auth_key_t;
 
-#define MAP_NAME               fd_auth_key_set
-#define MAP_T                  fd_auth_key_t
-#define MAP_LG_SLOT_CNT        5
-#define MAP_KEY                public_key
-#define MAP_KEY_T              fd_pubkey_t
-#define MAP_KEY_NULL           (fd_pubkey_t){0}
-#define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
-#define MAP_KEY_INVAL(k)       (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
-#define MAP_KEY_EQUAL_IS_SLOW  1
-#define MAP_KEY_HASH(k)        ((uint)fd_ulong_hash( fd_ulong_load_8( (k).uc ) ))
-#include "../../util/tmpl/fd_map.c"
-
 /* fd_sign_in_ctx_t is a context object for each in (producer) mcache
    connected to the sign tile. */
 
@@ -74,7 +62,9 @@ typedef struct {
   uchar *           public_key;
   uchar *           private_key;
 
-  fd_auth_key_t *   auth_key_set;
+  ulong             authorized_voters_cnt;
+  uchar *           authorized_voter_pubkeys[ 16UL ];
+  uchar *           authorized_voter_private_keys[ 16UL ];
 
   fd_histf_t        sign_duration[1];
 } fd_sign_ctx_t;
@@ -89,7 +79,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -171,27 +160,6 @@ during_frag( void * _ctx,
 }
 
 static void FD_FN_SENSITIVE
-vote_txn_sign( fd_sign_ctx_t * ctx,
-               uchar *         dst,
-               ulong           sz ) {
-
-  /* A vote transaction may be signed by either the identity key or a
-     combination between the identity and the authorized voter.  The
-     first signer is always the identity key. */
-
-  uchar * message    = ctx->_data + 33UL;
-  ulong   message_sz = sz - 33UL;
-
-  fd_ed25519_sign( dst, message, message_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
-
-  if( ctx->_data[ 0 ]==1 ) {
-    fd_auth_key_t * auth_key = fd_auth_key_set_query( ctx->auth_key_set, *(fd_pubkey_t const *)(ctx->_data + 1), NULL );
-    FD_CRIT( auth_key==NULL, "authorized voter not found" );
-    fd_ed25519_sign( dst + 64, message, message_sz, auth_key->public_key.uc, auth_key->private_key, ctx->sha512 );
-  }
-}
-
-static void FD_FN_SENSITIVE
 after_frag_sensitive( void *              _ctx,
                       ulong               in_idx,
                       ulong               seq,
@@ -205,14 +173,19 @@ after_frag_sensitive( void *              _ctx,
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
-  /* If the frag is coming from the repair tile, then the upper 32 bits
-     contain the repair tile nonce to identify the request.  If the frag
-     is coming from the send tile, the upper 32 bits are used to
-     identify if it's a vote transaction or not: if the 32 bits are all
-     1s, then it's a vote transaction, otherwise it's not.  The lower 32
-     bits specify the sign_type. */
-  int sign_type   = (int)(uint)(sig);
-  int is_vote_txn = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_SEND && UINT_MAX==(sig>>32);
+  /* The lower 32 bits are used to specify the sign type
+
+     If the frag is coming from the repair tile, then the upper 32 bits
+     contain the repair tile nonce to identify the request.
+
+     If the frag is coming from the send tile, then the upper 32 bits
+     contain the index of the authorized voter that needs to sign the
+     vote transaction.  The least significant bit of the upper 32 is
+     used to indicate if a second signature is needed.  The next 4 least
+     significant bits are used to encode the index of the authorized
+     voter that a signature is needed from. */
+  int sign_type         = (int)(uint)(sig);
+  int needs_second_sign = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_SEND && (sig>>32) & 1UL;
 
   FD_TEST( in_idx<MAX_IN );
 
@@ -221,8 +194,7 @@ after_frag_sensitive( void *              _ctx,
   fd_keyguard_authority_t authority = {0};
   memcpy( authority.identity_pubkey, ctx->public_key, 32 );
 
-  uchar * payload = is_vote_txn ? ctx->_data + 33UL : ctx->_data;
-  if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, payload, sz, role, sign_type ) ) ) {
+  if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, ctx->_data, sz, role, sign_type ) ) ) {
     FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
   }
 
@@ -232,10 +204,12 @@ after_frag_sensitive( void *              _ctx,
 
   switch( sign_type ) {
   case FD_KEYGUARD_SIGN_TYPE_ED25519: {
-    if( is_vote_txn ) {
-      vote_txn_sign( ctx, dst, sz );
-    } else {
-      fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+    fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+    if( needs_second_sign ) {
+      ulong authority_idx = (sig >> 33) & 0xFUL;
+      FD_LOG_WARNING(("AUTHORITY INDEX: %lu", authority_idx));
+      FD_LOG_HEXDUMP_WARNING(("MSG MSG SIGN", ctx->_data, sz));
+      fd_ed25519_sign( dst+64UL, ctx->_data, sz, ctx->authorized_voter_pubkeys[ authority_idx ], ctx->authorized_voter_private_keys[ authority_idx ], ctx->sha512 );
     }
     break;
   }
@@ -283,18 +257,17 @@ privileged_init_sensitive( fd_topo_t *      topo,
                            fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_sign_ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t )     );
-  fd_auth_key_t * av_map = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(),  fd_auth_key_set_footprint() );
+  fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
 
   uchar * identity_key = fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 );
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
-  ctx->auth_key_set = fd_auth_key_set_join( fd_auth_key_set_new( av_map ) );
+  ctx->authorized_voters_cnt = tile->sign.authorized_voter_paths_cnt;
   for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
     uchar * authorized_voter_key = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
-    fd_auth_key_t * auth_key = fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)(authorized_voter_key+32UL) );
-    auth_key->private_key = authorized_voter_key;
+    ctx->authorized_voter_private_keys[ i ] = authorized_voter_key;
+    ctx->authorized_voter_pubkeys[ i ]      = authorized_voter_key + 32UL;
   }
 
   /* The stack can be taken over and reorganized by under AddressSanitizer,

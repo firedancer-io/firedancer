@@ -72,29 +72,32 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
 void
 fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
                                   uchar *                signatures,
-                                  uchar const *          pubkeys,
-                                  ulong                  pubkey_cnt,
+                                  ulong                  authority_idx,
                                   uchar const *          sign_data,
                                   ulong                  sign_data_len ) {
-  FD_CRIT( sign_data_len+pubkey_cnt*32UL <= client->request_mtu, "the request is too large and will not fit in the mtu" );
-  FD_CRIT( pubkey_cnt==1UL || pubkey_cnt==2UL, "there can be 1 or 2 signers on an outgoing vote trasnaction" );
+  FD_CRIT( sign_data_len<=client->request_mtu, "the request is too large and will not fit in the mtu" );
+  FD_CRIT( authority_idx==ULONG_MAX || authority_idx<16UL, "unexpected authorized voter index" );
+
+  FD_LOG_WARNING(("AUTHORITY INDEX: %lu", authority_idx));
 
   uchar * dst = fd_chunk_to_laddr( client->request_mem, client->request_chunk );
 
-  /* If we have a second signer, set the first byte and copy the
-      second pubkey.  This will indicate that the send tile has to
-      sign a second signature. */
-  dst[0] = 0;
-  if( pubkey_cnt==2UL ) {
-    dst[0] = 1;
-    memcpy( dst+1UL, pubkeys+32UL, 32UL );
-  }
-  memcpy( dst+33UL, sign_data, sign_data_len );
+  /* In the signature of the message we use the lower 32 bits to
+     indicate the sign type.  We can use the upper 32 bits to encode if
+     a second signature is needed and what index the authorized voter
+     that a signature is needed from.
+     The least significant bit of the upper 32 is 1 if a second
+     signature is needed.  The next 4 least significant bits of the
+     upper 32 are used to encode the index of the authorized voter
+     where the index is [0,16). */
 
-  /* Mask the upper 32 bits of the signature so the send tile can
-     identify if it's a vote transaction or not.  */
-  ulong sig = 0UL | 0xFFFFFFFF00000000;
-  fd_mcache_publish( client->request, client->request_depth, client->request_seq, sig, client->request_chunk, sign_data_len+33UL, 0UL, 0UL, 0UL );
+  ulong sig = 0UL;
+  if( authority_idx!=ULONG_MAX ) sig |= (1UL << 32) | (authority_idx << 33);
+  memcpy( dst, sign_data, sign_data_len );
+
+  FD_LOG_HEXDUMP_WARNING(("MSG MSG SEND", sign_data, sign_data_len));
+
+  fd_mcache_publish( client->request, client->request_depth, client->request_seq, sig, client->request_chunk, sign_data_len, 0UL, 0UL, 0UL );
   client->request_seq   = fd_seq_inc( client->request_seq, 1UL );
   client->request_chunk = fd_dcache_compact_next( client->request_chunk, sign_data_len, client->request_chunk0, client->request_wmark );
 
@@ -114,10 +117,9 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
 
   uchar * src = fd_chunk_to_laddr( client->response_mem, chunk );
   memcpy( signatures, src, 64UL );
-  if( pubkey_cnt==2UL ) memcpy( signatures+64UL, src+64UL, 64UL );
+  if( authority_idx!=ULONG_MAX ) memcpy( signatures+64UL, src+64UL, 64UL );
 
   seq_found = fd_frag_meta_seq_query( mline );
   if( FD_UNLIKELY( fd_seq_ne( seq_found, client->response_seq ) ) ) FD_LOG_ERR(( "sign request was overrun while reading" ));
   client->response_seq = fd_seq_inc( client->response_seq, 1UL );
-
 }

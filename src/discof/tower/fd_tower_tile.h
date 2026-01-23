@@ -69,9 +69,14 @@ struct fd_tower_slot_done {
      authorized voters, then is_valid_vote will be 1; otherwise it will
      be 0.
 
+     The authority_idx is the index of the authorized voter that needs
+     to sign the vote transaction.  If the authorized voter is the
+     identity, the authority_idx will be ULONG_MAX.
+
      TODO: Need to implement "refresh last vote" logic. */
 
   int   is_valid_vote;
+  ulong authority_idx;
   ulong vote_txn_sz;
   uchar vote_txn[ FD_TPU_MTU ];
 

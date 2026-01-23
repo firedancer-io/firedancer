@@ -73,6 +73,7 @@ typedef struct notif notif_t;
 
 struct fd_auth_key {
   fd_pubkey_t key;
+  ulong       idx;
   uint        hash;
 };
 typedef struct fd_auth_key fd_auth_key_t;
@@ -477,7 +478,8 @@ query_acct_stake_from_bank( fd_tower_accts_t *  tower_accts_deque,
 static fd_pubkey_t
 get_authority( ctx_t * ctx,
                ulong   epoch,
-               int     vote_acc_found ) {
+               int     vote_acc_found,
+               ulong * authority_idx ) {
 
   if( FD_UNLIKELY( !vote_acc_found ) ) return NULL_AUTHORITY;
 
@@ -509,9 +511,10 @@ get_authority( ctx_t * ctx,
       FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", vsv->discriminant ));
   }
 
-  if( FD_LIKELY( fd_pubkey_eq( auth_voter, ctx->identity_key ) ||
-                 fd_auth_key_set_query( ctx->auth_key_set, *auth_voter, NULL ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( auth_voter->key, b58 );
+  fd_auth_key_t * auth_key = fd_auth_key_set_query( ctx->auth_key_set, *auth_voter, NULL );
+  if( auth_key ) *authority_idx = auth_key->idx;
+
+  if( auth_key || fd_pubkey_eq( auth_voter, ctx->identity_key ) ) {
     return *auth_voter;
   }
 
@@ -576,7 +579,8 @@ replay_slot_completed( ctx_t *                      ctx,
     FD_TEST( !last_vote || fd_forks_query( ctx->forks, last_vote->slot ) );
   }
 
-  fd_pubkey_t authority = get_authority( ctx, slot_completed->epoch, found );
+  ulong       authority_idx = ULONG_MAX;
+  fd_pubkey_t authority     = get_authority( ctx, slot_completed->epoch, found, &authority_idx );
 
   /* Insert the vote acct addrs and stakes from the bank into accts. */
 
@@ -839,7 +843,8 @@ done_vote_iter:
     FD_TEST( !fd_tower_empty( ctx->tower ) );
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
     fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
-    msg->vote_txn_sz = txn->payload_sz;
+    msg->vote_txn_sz   = txn->payload_sz;
+    msg->authority_idx = authority_idx;
   } else {
     msg->is_valid_vote = 0;
   }
@@ -957,7 +962,8 @@ privileged_init( fd_topo_t *      topo,
 
   ctx->auth_key_set = fd_auth_key_set_join( fd_auth_key_set_new( av_map ) );
   for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
-    fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) ) );
+    fd_auth_key_t * auth_key = fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) ) );
+    auth_key->idx = i;
   }
 
   /* The tower file is used to checkpt and restore the state of the
