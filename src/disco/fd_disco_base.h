@@ -47,7 +47,6 @@
 
 #define FD_SEND_SIGN_MTU (FD_TXN_MTU)
 
-
 /* FD_SIGN_SEND_MTU is the largest packet size possible that the sign
    tile can send to the send tile:
    - 2 * 64 bytes for up to two signatures (one for each signer) */

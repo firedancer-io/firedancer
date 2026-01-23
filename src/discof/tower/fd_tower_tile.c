@@ -479,7 +479,7 @@ static fd_pubkey_t
 get_authority( ctx_t * ctx,
                ulong   epoch,
                int     vote_acc_found,
-               ulong * authority_idx ) {
+               ulong * authority_idx_out ) {
 
   if( FD_UNLIKELY( !vote_acc_found ) ) return NULL_AUTHORITY;
 
@@ -512,7 +512,7 @@ get_authority( ctx_t * ctx,
   }
 
   fd_auth_key_t * auth_key = fd_auth_key_set_query( ctx->auth_key_set, *auth_voter, NULL );
-  if( auth_key ) *authority_idx = auth_key->idx;
+  if( auth_key ) *authority_idx_out = auth_key->idx;
 
   if( auth_key || fd_pubkey_eq( auth_voter, ctx->identity_key ) ) {
     return *auth_voter;

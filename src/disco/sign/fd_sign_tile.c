@@ -16,13 +16,6 @@
 
 #define MAX_IN (32UL)
 
-struct fd_auth_key {
-  fd_pubkey_t public_key;
-  uchar *     private_key;
-  uint        hash;
-};
-typedef struct fd_auth_key fd_auth_key_t;
-
 /* fd_sign_in_ctx_t is a context object for each in (producer) mcache
    connected to the sign tile. */
 
@@ -173,7 +166,7 @@ after_frag_sensitive( void *              _ctx,
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
-  /* The lower 32 bits are used to specify the sign type
+  /* The lower 32 bits are used to specify the sign type.
 
      If the frag is coming from the repair tile, then the upper 32 bits
      contain the repair tile nonce to identify the request.
@@ -185,7 +178,7 @@ after_frag_sensitive( void *              _ctx,
      significant bits are used to encode the index of the authorized
      voter that a signature is needed from. */
   int sign_type         = (int)(uint)(sig);
-  int needs_second_sign = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_SEND && (sig>>32) & 1UL;
+  int needs_second_sign = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_SEND && ((sig>>32) & 1UL);
 
   FD_TEST( in_idx<MAX_IN );
 
