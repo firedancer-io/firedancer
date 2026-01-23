@@ -168,7 +168,6 @@ test_shred_dest_conformance(
   stake_msg->start_slot = 0UL;
   stake_msg->slot_cnt = 432000UL;
   stake_msg->excluded_stake = 0UL;
-  stake_msg->vote_keyed_lsched = 0UL;  /* Use identity-keyed leader schedule */
 
   /* Count staked nodes and build stake weights */
   ulong staked_cnt = 0UL;
@@ -181,6 +180,9 @@ test_shred_dest_conformance(
     }
   }
   stake_msg->staked_cnt = staked_cnt;
+
+  /* Leader schedule requires the weights to be sorted by stake */
+  sort_vote_weights_by_stake_vote_inplace( stake_msg->weights, staked_cnt );
 
   FD_LOG_NOTICE(( "Staked nodes: %lu / 20", staked_cnt ));
 
@@ -519,7 +521,7 @@ main( int argc, char ** argv ) {
 
     // Conformance tests to generate deterministic test data for C
     mod conformance_tests {
-        use solana_ledger::leader_schedule::IdentityKeyedLeaderSchedule;
+        use solana_ledger::leader_schedule::LeaderSchedule;
         use super::*;
         use solana_gossip::crds_value::CrdsValue;
         use solana_gossip::crds_data::CrdsData;
@@ -602,9 +604,10 @@ main( int argc, char ** argv ) {
             }
 
             // Generate leader schedule for epoch 123
+            // Vote-keyed is now the default - stakes should be pre-sorted by (stake desc, vote_key asc)
             let epoch = 123u64;
             let slot_cnt = 432000u64;
-            let leader_schedule = IdentityKeyedLeaderSchedule::new(&stakes, epoch, slot_cnt, 4);
+            let leader_schedule = LeaderSchedule::new(&stakes, epoch, slot_cnt, 4);
 
             // Find a slot where slot_leader (the first node) is actually the leader
             let mut broadcast_test_slot = 0u64;

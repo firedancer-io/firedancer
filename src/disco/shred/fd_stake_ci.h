@@ -33,7 +33,6 @@ struct fd_per_epoch_info_private {
   ulong start_slot;
   ulong slot_cnt;
   ulong excluded_stake;
-  ulong vote_keyed_lsched;
 
   /* Invariant: These are always joined and use the memory below for
      their footprint. */
@@ -57,7 +56,6 @@ struct fd_stake_ci {
     ulong slot_cnt;
     ulong staked_cnt;
     ulong excluded_stake;
-    ulong vote_keyed_lsched;
   } scratch[1];
 
   fd_vote_stake_weight_t   vote_stake_weight[ MAX_SHRED_DESTS ];
