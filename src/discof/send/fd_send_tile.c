@@ -446,8 +446,6 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
                  uchar *              signed_vote_txn,
                  ulong                vote_txn_sz ) {
 
-  /* TODO: We should just be sending the */
-
   uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   fd_txn_t * txn = (fd_txn_t *)txn_mem;
   FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
@@ -589,7 +587,8 @@ during_frag( fd_send_tile_ctx_t * ctx,
 
         ulong const vote_slot   = slot_done->vote_slot;
         ulong const vote_txn_sz = slot_done->vote_txn_sz;
-        if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return; /* no new vote to send */
+        if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return;      /* no new vote to send */
+        if( FD_UNLIKELY( !slot_done->is_valid_vote ) ) return; /* invalid vote */
 
         uchar vote_txn[ FD_TPU_MTU ];
         fd_memcpy( vote_txn, slot_done->vote_txn, vote_txn_sz );
@@ -649,9 +648,6 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( tile->send.identity_key_path, /* pubkey only: */ 1 ) );
-
-  ctx->auth_public_key = *(fd_pubkey_t const *)(fd_keyload_load( "/home/ibhatt/keys/staked-identity.json", /* pubkey only: */ 1 ) );
-  ctx->auth_private_key = *(fd_pubkey_t const *)(fd_keyload_load( "/home/ibhatt/keys/staked-identity.json", /* pubkey only: */ 0 ) );
 }
 
 static fd_send_link_in_t *

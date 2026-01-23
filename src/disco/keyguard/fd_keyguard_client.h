@@ -115,8 +115,8 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
 
    The pubkeys that are passed in are the public keys of the signers,
    in the order that they are to be signed.  The number of pubkeys is
-   passed in by the caller.  If there are more than 2 signers, then the
-   entire program will abort with a critical error.
+   passed in by the caller.  If there are not exactly 1 or 2 signers,
+   then the entire program will abort with a critical error.
 
    The response will be either 1 or 2 64 byte signatures which will be
    written into the signature buffer which must have the capacity to

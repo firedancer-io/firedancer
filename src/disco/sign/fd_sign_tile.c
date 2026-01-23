@@ -16,6 +16,24 @@
 
 #define MAX_IN (32UL)
 
+struct fd_auth_key {
+  fd_pubkey_t key;
+  uint        hash;
+};
+typedef struct fd_auth_key fd_auth_key_t;
+
+#define MAP_NAME               fd_auth_key_map
+#define MAP_T                  fd_auth_key_t
+#define MAP_LG_SLOT_CNT        6
+#define MAP_KEY                key
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_KEY_NULL           (fd_pubkey_t){0}
+#define MAP_KEY_EQUAL(k0,k1)   (!(memcmp((k0).key,(k1).key,sizeof(fd_pubkey_t))))
+#define MAP_KEY_INVAL(k)       (MAP_KEY_EQUAL((k),MAP_KEY_NULL))
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_KEY_HASH(k)        ((uint)fd_ulong_hash( fd_ulong_load_8( (k).uc ) ))
+#include "../../util/tmpl/fd_map.c"
+
 /* fd_sign_in_ctx_t is a context object for each in (producer) mcache
    connected to the sign tile. */
 
@@ -56,8 +74,8 @@ typedef struct {
   uchar *           private_key;
 
   ulong             authorized_voters_cnt;
-  uchar *           authorized_voters_public_keys[ 16 ];
-  uchar *           authorized_voters_private_keys[ 16 ];
+  uchar *           authorized_voters_public_keys[ 32 ];
+  uchar *           authorized_voters_private_keys[ 32 ];
 
   fd_histf_t        sign_duration[1];
 } fd_sign_ctx_t;
@@ -273,15 +291,11 @@ privileged_init_sensitive( fd_topo_t *      topo,
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
-  FD_LOG_WARNING(("AUTHORIZED_VOTERS_CNT %lu", tile->sign.authorized_voter_paths_cnt));
   ctx->authorized_voters_cnt = tile->sign.authorized_voter_paths_cnt;
   for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
     uchar * authorized_voter = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
     ctx->authorized_voters_private_keys[ i ] = authorized_voter;
     ctx->authorized_voters_public_keys[ i ]  = authorized_voter + 32UL;
-
-    FD_BASE58_ENCODE_32_BYTES( ctx->authorized_voters_public_keys[i], b582 );
-    FD_LOG_WARNING(("AUTHORIZED_VOTER %lu %s", i, b582));
   }
 
   /* The stack can be taken over and reorganized by under AddressSanitizer,

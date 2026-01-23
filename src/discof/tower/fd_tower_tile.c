@@ -79,7 +79,7 @@ typedef struct fd_auth_key fd_auth_key_t;
 
 #define MAP_NAME               fd_auth_key_map
 #define MAP_T                  fd_auth_key_t
-#define MAP_LG_SLOT_CNT        4
+#define MAP_LG_SLOT_CNT        6
 #define MAP_KEY                key
 #define MAP_KEY_T              fd_pubkey_t
 #define MAP_KEY_NULL           (fd_pubkey_t){0}
@@ -108,6 +108,7 @@ typedef struct {
   fd_pubkey_t     vote_account[1];
   fd_auth_key_t * auth_key_map;
   uchar           our_vote_acct[FD_VOTE_STATE_DATA_MAX]; /* buffer for reading back our own vote acct data */
+  ulong           out_vote_acct_sz;
 
   /* structures owned by tower tile */
 
@@ -482,7 +483,7 @@ get_authority( ctx_t * ctx,
 
   fd_bincode_decode_ctx_t decode_ctx = {
     .data    = ctx->our_vote_acct,
-    .dataend = ctx->our_vote_acct + FD_VOTE_STATE_DATA_MAX,
+    .dataend = ctx->our_vote_acct + ctx->out_vote_acct_sz,
   };
 
   uchar __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN))) vote_state_versioned[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
@@ -565,9 +566,9 @@ replay_slot_completed( ctx_t *                      ctx,
   if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, ro, &xid, ctx->vote_account ) ) ) {
     /* Copy account data */
     found = 1;
-    ulong data_sz = fd_ulong_min( fd_accdb_ref_data_sz( ro ), FD_VOTE_STATE_DATA_MAX );
+    ctx->out_vote_acct_sz = fd_ulong_min( fd_accdb_ref_data_sz( ro ), FD_VOTE_STATE_DATA_MAX );
     our_vote_acct_bal = fd_accdb_ref_lamports( ro );
-    fd_memcpy( ctx->our_vote_acct, fd_accdb_ref_data_const( ro ), data_sz );
+    fd_memcpy( ctx->our_vote_acct, fd_accdb_ref_data_const( ro ), ctx->out_vote_acct_sz );
     fd_accdb_close_ro( ctx->accdb, ro );
 
     fd_tower_reconcile( ctx->tower, ctx->root_slot, ctx->our_vote_acct );
@@ -823,21 +824,26 @@ done_vote_iter:
 
      TODO only do this on refresh_last_vote? */
 
-  fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
-  fd_txn_p_t          txn[1];
-  fd_tower_to_vote_txn( ctx->tower,
-                        ctx->root_slot,
-                        lockouts,
-                        &slot_completed->bank_hash,
-                        &slot_completed->block_hash,
-                        ctx->identity_key,
-                        &authority,
-                        ctx->vote_account,
-                        txn );
-  FD_TEST( !fd_tower_empty( ctx->tower ) );
-  FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
-  fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
-  msg->vote_txn_sz = txn->payload_sz;
+  if( FD_LIKELY( !memcmp( ctx->vote_account, ctx->identity_key, sizeof(fd_pubkey_t) ) ) ) {
+    msg->is_valid_vote = 1;
+    fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
+    fd_txn_p_t          txn[1];
+    fd_tower_to_vote_txn( ctx->tower,
+                          ctx->root_slot,
+                          lockouts,
+                          &slot_completed->bank_hash,
+                          &slot_completed->block_hash,
+                          ctx->identity_key,
+                          &authority,
+                          ctx->vote_account,
+                          txn );
+    FD_TEST( !fd_tower_empty( ctx->tower ) );
+    FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
+    fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
+    msg->vote_txn_sz = txn->payload_sz;
+  } else {
+    msg->is_valid_vote = 0;
+  }
 
   msg->tower_cnt = 0UL;
   if( FD_LIKELY( found ) ) msg->tower_cnt = fd_tower_with_lat_from_vote_acc( msg->tower, ctx->our_vote_acct );

@@ -64,10 +64,14 @@ struct fd_tower_slot_done {
      slot can be ULONG_MAX and vote_txn will contain a txn of our
      current tower).  The vote is not yet signed.  This is necessary to
      support refreshing our last vote, ie. we retransmit our vote even
-     when we are locked out / can't switch vote forks.
+     when we are locked out / can't switch vote forks.  If the vote
+     account's authorized voter is either the identity or one of the
+     authorized voters, then is_valid_vote will be 1; otherwise it will
+     be 0.
 
      TODO: Need to implement "refresh last vote" logic. */
 
+  int   is_valid_vote;
   ulong vote_txn_sz;
   uchar vote_txn[ FD_TPU_MTU ];
 

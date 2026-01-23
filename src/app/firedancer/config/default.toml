@@ -86,9 +86,10 @@ user = ""
     # to inside the base directory, under path `identity.json`.
     identity_key = ""
 
-    # Absolute path to a `keypair.json` containing the  voting account
-    # of the validator.  If no voting account is provided, voting will
-    # be disabled and the validator will cast no votes.
+    # Absolute path to a `keypair.json` containing the voting account
+    # of the validator.  The vote account can also be  represented as A
+    # base 58 encoded pubkey.  If no voting account is provided, voting
+    # will be disabled and the validator will cast no votes.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,

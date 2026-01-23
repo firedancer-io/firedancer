@@ -85,7 +85,6 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
     if( pubkeys_cnt>=1UL )fd_memcpy( request->requested_signers_pubkeys[0], pubkeys[ 0UL ], 32UL );
     if( pubkeys_cnt==2UL )fd_memcpy( request->requested_signers_pubkeys[1], pubkeys[ 1UL ], 32UL );
 
-    FD_LOG_WARNING(("REQUEST SIGNERS CNT %u", request->requested_signers_cnt));
     request->message_sz = sign_data_len;
     memcpy( request->message, sign_data, sign_data_len );
 
@@ -110,9 +109,6 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
     fd_sign_send_response_t * response = fd_chunk_to_laddr( client->response_mem, chunk );
     if( pubkeys_cnt>=1UL ) memcpy( signatures[0], response->signatures[0], 64UL );
     if( pubkeys_cnt==2UL ) memcpy( signatures[1], response->signatures[1], 64UL );
-
-    FD_LOG_HEXDUMP_WARNING(("SIG0", signatures[0], 64UL));
-    FD_LOG_HEXDUMP_WARNING(("SIG1", signatures[1], 64UL));
 
     seq_found = fd_frag_meta_seq_query( mline );
     if( FD_UNLIKELY( fd_seq_ne( seq_found, client->response_seq ) ) ) FD_LOG_ERR(( "sign request was overrun while reading" ));

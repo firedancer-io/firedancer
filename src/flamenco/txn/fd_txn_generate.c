@@ -43,7 +43,6 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
   txn_meta->readonly_unsigned_cnt = accounts->readonly_unsigned_cnt;
   /* Number of signatures is encoded as a compact u16 but
      can always be encoded using 1 byte here. */
-  FD_LOG_NOTICE(("NUM SIGNATURES %lu %u", num_signatures, accounts->signature_cnt));
   txn_meta->message_off           = (ushort)(num_signatures * FD_TXN_SIGNATURE_SZ  + 1);
   txn_meta->signature_off         = (ushort)1UL;
   txn_meta->instr_cnt             = 0;
@@ -60,22 +59,15 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
   memcpy( write_ptr, &msg_header, sizeof(fd_txn_message_hdr_t) ) ;
   write_ptr += sizeof(fd_txn_message_hdr_t);
 
-  uchar * start = out_txn_payload + txn_meta->message_off;
-  FD_LOG_NOTICE(("START %u", *start));
-
   /* Write number of accounts */
   *write_ptr = (uchar)txn_meta->acct_addr_cnt;
   write_ptr += 1;
 
   /* Write accounts list to txn payload */
   ulong signers_write_sz = FD_TXN_ACCT_ADDR_SZ * (ulong)(accounts->signature_cnt - accounts->readonly_signed_cnt);
-  FD_BASE58_ENCODE_32_BYTES( accounts->signers_w->uc, b58 );
-  FD_LOG_NOTICE(("SIGNERS %s %lu", b58, signers_write_sz));
   fd_memcpy( write_ptr, accounts->signers_w, signers_write_sz );
   write_ptr += signers_write_sz;
 
-  FD_BASE58_ENCODE_32_BYTES( accounts->signers_r->uc, b582 );
-  FD_LOG_NOTICE(("SIGNERS %s %lu", b582, FD_TXN_ACCT_ADDR_SZ * accounts->readonly_signed_cnt));
   fd_memcpy( write_ptr, accounts->signers_r, FD_TXN_ACCT_ADDR_SZ * accounts->readonly_signed_cnt );
   write_ptr += FD_TXN_ACCT_ADDR_SZ * accounts->readonly_signed_cnt;
 
