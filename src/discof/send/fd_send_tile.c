@@ -6,8 +6,15 @@
 #include "../../discof/tower/fd_tower_tile.h"
 #include "generated/fd_send_tile_seccomp.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/runtime/fd_executor.h"
 
 #include <sys/random.h>
+
+#define IN_KIND_SIGN   (0UL)
+#define IN_KIND_GOSSIP (1UL)
+#define IN_KIND_STAKE  (2UL)
+#define IN_KIND_TOWER  (3UL)
+#define IN_KIND_NET    (4UL)
 
 /* map leader pubkey to contact/conn info
    A map entry is created only for staked peers. On receiving contact info, we update
@@ -439,22 +446,47 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
                  uchar *              signed_vote_txn,
                  ulong                vote_txn_sz ) {
 
+  /* TODO: We should just be sending the */
+
   uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   fd_txn_t * txn = (fd_txn_t *)txn_mem;
   FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
-  FD_LOG_WARNING(("SIGNATURE CNT %u", txn->signature_cnt));
 
   /* sign the txn */
-  uchar *       signature  = signed_vote_txn + txn->signature_off;
-  uchar const * message    = signed_vote_txn + txn->message_off;
-  ulong         message_sz = vote_txn_sz     - txn->message_off;
 
-  fd_sha512_t sha512[1];
-  FD_TEST( fd_sha512_join( fd_sha512_new( sha512 ) ) );
-  fd_ed25519_sign( signature, message, message_sz, ctx->auth_public_key.uc, ctx->auth_private_key.uc, sha512 );
+  uchar *       signature     = signed_vote_txn + txn->signature_off;
+  // uchar *       accts         = signed_vote_txn + txn->acct_addr_off;
+  ulong         signature_cnt = txn->signature_cnt;
+  uchar const * message       = signed_vote_txn + txn->message_off;
+  ulong         message_sz    = vote_txn_sz     - txn->message_off;
 
-  signature = signature + FD_TXN_SIGNATURE_SZ;
-  fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+  uchar * signatures[2UL];
+  signatures[0] = signature;
+  if( signature_cnt == 2UL ) signatures[1] = signature + 64UL;
+
+  uchar const * pubkeys[2UL];
+  if( signature_cnt >= 1UL ) pubkeys[0] = signed_vote_txn + txn->acct_addr_off;
+  if( signature_cnt == 2UL ) pubkeys[1] = signed_vote_txn + txn->acct_addr_off + 32UL;
+
+  fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, pubkeys, (uchar)signature_cnt, message, message_sz );
+
+  // FD_LOG_HEXDUMP_WARNING(("MESSAGE", message, message_sz));
+
+  // fd_sha512_t sha512[1];
+  // fd_sha512_join( fd_sha512_new( sha512 ) );
+  // fd_sha512_init( sha512 );
+
+  // fd_sha512_t sha2[1];
+  // fd_sha512_new( sha2 );
+  // fd_sha512_init( sha2 );
+
+  // fd_sha512_t * shas[2UL];
+  // shas[0] = sha512;
+  // shas[1] = sha2;
+
+  // int res = fd_ed25519_verify_batch_single_msg( message, message_sz, signature, accts, shas, 2UL );
+  // FD_LOG_ERR(("res %d", res));
+
 
   ulong poh_slot  = vote_slot+1;
   FD_LOG_INFO(("got vote for slot %lu", vote_slot));

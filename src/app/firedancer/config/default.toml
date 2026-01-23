@@ -1571,7 +1571,7 @@ user = ""
     #
     # In development, you can disable the sandbox for testing and
     # debugging with the `--no-sandbox` argument to `firedancer-dev`.
-    sandbox = true
+    sandbox = false
 
     # As part of the security sandboxing, Firedancer will run every tile
     # in a separate process.  This can be annoying for debugging where
@@ -1584,7 +1584,7 @@ user = ""
     # This option cannot be enabled in production.  In development, you
     # can also launch Firedancer as a single process for with the
     # `--no-clone` argument to `firedancer-dev`.
-    no_clone = false
+    no_clone = true
 
     # As part of security sandboxing, the dumpable bit of each process
     # is cleared with prctl( PR_SET_DUMPABLE, 0 ).  This prevents other

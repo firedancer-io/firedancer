@@ -473,12 +473,12 @@ query_acct_stake_from_bank( fd_tower_accts_t *  tower_accts_deque,
   return total_stake;
 }
 
-static fd_pubkey_t const *
+static fd_pubkey_t
 get_authority( ctx_t * ctx,
                ulong   epoch,
                int     vote_acc_found ) {
 
-  if( FD_UNLIKELY( !vote_acc_found ) ) return &DEFAULT_AUTHORITY;
+  if( FD_UNLIKELY( !vote_acc_found ) ) return DEFAULT_AUTHORITY;
 
   fd_bincode_decode_ctx_t decode_ctx = {
     .data    = ctx->our_vote_acct,
@@ -510,10 +510,12 @@ get_authority( ctx_t * ctx,
 
   if( FD_LIKELY( fd_pubkey_eq( auth_voter, ctx->identity_key ) ||
                  fd_auth_key_map_query( ctx->auth_key_map, *auth_voter, NULL ) ) ) {
-    return auth_voter;
+    FD_BASE58_ENCODE_32_BYTES( auth_voter->key, b58 );
+    FD_LOG_WARNING(("AUTHORITY %s", b58));
+    return *auth_voter;
   }
 
-  return &DEFAULT_AUTHORITY;
+  return DEFAULT_AUTHORITY;
 }
 
 static void
@@ -574,7 +576,7 @@ replay_slot_completed( ctx_t *                      ctx,
     FD_TEST( !last_vote || fd_forks_query( ctx->forks, last_vote->slot ) );
   }
 
-  fd_pubkey_t const * authority = get_authority( ctx, slot_completed->epoch, found );
+  fd_pubkey_t authority = get_authority( ctx, slot_completed->epoch, found );
 
   /* Insert the vote acct addrs and stakes from the bank into accts. */
 
@@ -829,7 +831,7 @@ done_vote_iter:
                         &slot_completed->bank_hash,
                         &slot_completed->block_hash,
                         ctx->identity_key,
-                        authority,
+                        &authority,
                         ctx->vote_account,
                         txn );
   FD_TEST( !fd_tower_empty( ctx->tower ) );

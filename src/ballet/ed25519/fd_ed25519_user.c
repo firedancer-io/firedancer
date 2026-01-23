@@ -1,5 +1,6 @@
 #include "fd_ed25519.h"
 #include "fd_curve25519.h"
+#include "../base58/fd_base58.h"
 
 uchar * FD_FN_SENSITIVE
 fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
@@ -267,13 +268,16 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
     uchar const * S = signatures + 32 + 64*j;
     uchar const * public_key = pubkeys + 32*j;
 
+    FD_BASE58_ENCODE_32_BYTES( public_key, b58 );
+    FD_LOG_NOTICE(("PUBLIC KEY %s", b58));
+
     /* Check scalar s */
     if( FD_UNLIKELY( !fd_curve25519_scalar_validate( S ) )) {
       return FD_ED25519_ERR_SIG;
     }
 
     /* Decompress public_key and point r, concurrently */
-    int res = fd_ed25519_point_frombytes_2x( &Aprime[j], public_key,   &R[j], r );
+    int res = fd_ed25519_point_frombytes_2x( &Aprime[j], public_key, &R[j], r );
 
     /* Check public key and point r */
     if( FD_UNLIKELY( res ) ) {
@@ -296,6 +300,7 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
   fd_ed25519_point_t res[1];
   for( uchar j=0; j<batch_sz; j++ ) {
     uchar const * S = signatures + 32 + 64*j;
+    //FD_LOG_NOTICE(("SIGNTURE"));
 
     fd_ed25519_point_neg( &Aprime[j], &Aprime[j] );
     fd_ed25519_double_scalar_mul_base( res, &k[32*j], &Aprime[j], S );

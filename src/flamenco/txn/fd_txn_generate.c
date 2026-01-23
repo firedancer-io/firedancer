@@ -69,9 +69,13 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
 
   /* Write accounts list to txn payload */
   ulong signers_write_sz = FD_TXN_ACCT_ADDR_SZ * (ulong)(accounts->signature_cnt - accounts->readonly_signed_cnt);
+  FD_BASE58_ENCODE_32_BYTES( accounts->signers_w->uc, b58 );
+  FD_LOG_NOTICE(("SIGNERS %s %lu", b58, signers_write_sz));
   fd_memcpy( write_ptr, accounts->signers_w, signers_write_sz );
   write_ptr += signers_write_sz;
 
+  FD_BASE58_ENCODE_32_BYTES( accounts->signers_r->uc, b582 );
+  FD_LOG_NOTICE(("SIGNERS %s %lu", b582, FD_TXN_ACCT_ADDR_SZ * accounts->readonly_signed_cnt));
   fd_memcpy( write_ptr, accounts->signers_r, FD_TXN_ACCT_ADDR_SZ * accounts->readonly_signed_cnt );
   write_ptr += FD_TXN_ACCT_ADDR_SZ * accounts->readonly_signed_cnt;
 

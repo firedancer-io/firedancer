@@ -772,7 +772,8 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
     FD_TEST( fd_txn_base_generate( txn_meta_out, txn_out, votes.signature_cnt, &votes, recent_blockhash->uc ) );
 
   } else {
-
+    FD_BASE58_ENCODE_32_BYTES( vote_authority->uc, b58 );
+    FD_LOG_WARNING(("DIFFERENT ADDRESS %s", b58));
     /* 0: validator identity
        1: vote authority
        2: vote account address
@@ -801,10 +802,12 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
   uchar program_id;
   uchar ix_accs[2];
   if( FD_LIKELY( same_addr ) ) {
+    FD_LOG_WARNING(("SAME ADDRESS"));
     ix_accs[0] = 1; /* vote account address */
     ix_accs[1] = 0; /* vote authority */
     program_id = 2; /* vote program */
   } else {
+    FD_LOG_WARNING(("DIFFERENT ADDRESS"));
     ix_accs[0] = 2; /* vote account address */
     ix_accs[1] = 1; /* vote authority */
     program_id = 3; /* vote program */

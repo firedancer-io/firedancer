@@ -10,7 +10,7 @@
 #include "../metrics/fd_metrics.h"
 
 #include "../../util/hist/fd_histf.h"
-
+#include "../../discof/send/fd_send_tile.h"
 #include <errno.h>
 #include <sys/mman.h>
 
@@ -50,10 +50,14 @@ typedef struct {
 
   fd_sha512_t       sha512 [ 1 ];
 
-  fd_keyswitch_t * keyswitch;
+  fd_keyswitch_t *  keyswitch;
 
   uchar *           public_key;
   uchar *           private_key;
+
+  ulong             authorized_voters_cnt;
+  uchar *           authorized_voters_public_keys[ 16 ];
+  uchar *           authorized_voters_private_keys[ 16 ];
 
   fd_histf_t        sign_duration[1];
 } fd_sign_ctx_t;
@@ -149,6 +153,31 @@ during_frag( void * _ctx,
 }
 
 static void FD_FN_SENSITIVE
+vote_txn_sign( fd_sign_ctx_t * ctx,
+               uchar *         dst ) {
+
+  /* A vote transaction may be signed by either the identity key or a
+     combination between the identity and the authorized voter.  The
+     first signer is always the identity key. */
+
+  fd_send_sign_request_t *  request  = (fd_send_sign_request_t *)ctx->_data;
+  fd_sign_send_response_t * response = (fd_sign_send_response_t *)dst;
+
+  fd_ed25519_sign( response->signatures[0], request->message, request->message_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+
+  if( request->requested_signers_cnt==2UL ) {
+    response->signatures_cnt = 2UL;
+    /* TODO: Replace this with a map lookup. */
+    for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
+      if( !memcmp( ctx->authorized_voters_public_keys[i], request->requested_signers_pubkeys[1], 32UL ) ) {
+        fd_ed25519_sign( response->signatures[1], request->message, request->message_sz, ctx->authorized_voters_public_keys[i], ctx->authorized_voters_private_keys[i], ctx->sha512 );
+        break;
+      }
+    }
+  }
+}
+
+static void FD_FN_SENSITIVE
 after_frag_sensitive( void *              _ctx,
                       ulong               in_idx,
                       ulong               seq,
@@ -174,36 +203,43 @@ after_frag_sensitive( void *              _ctx,
   memcpy( authority.identity_pubkey, ctx->public_key, 32 );
 
   if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, ctx->_data, sz, role, sign_type ) ) ) {
-    FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
+    FD_LOG_WARNING(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
   }
 
   long sign_duration = -fd_tickcount();
 
   uchar * dst = fd_chunk_to_laddr( ctx->out[ in_idx ].out_mem, ctx->out[ in_idx ].out_chunk );
 
-  switch( sign_type ) {
-  case FD_KEYGUARD_SIGN_TYPE_ED25519: {
-    fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
-    break;
-  }
-  case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
-    uchar hash[ 32 ];
-    fd_sha256_hash( ctx->_data, sz, hash );
-    fd_ed25519_sign( dst, hash, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-    break;
-  }
-  case FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519: {
-    memcpy( ctx->concat+ctx->public_key_base58_sz+1UL, ctx->_data, 9UL );
-    fd_ed25519_sign( dst, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-    break;
-  }
-  case FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519: {
-    memcpy( ctx->event_concat+18UL, ctx->_data, 32UL );
-    fd_ed25519_sign( dst, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-    break;
-  }
-  default:
-    FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
+  if( FD_UNLIKELY( ctx->in[ in_idx ].role == FD_KEYGUARD_ROLE_SEND ) ) {
+    /* The vote transactions sent from the send tile are special cased
+       in that the sign tile is responsible for figuring out which
+       keypairs are used to sign the transaction. */
+    vote_txn_sign( ctx, dst );
+  } else {
+    switch( sign_type ) {
+    case FD_KEYGUARD_SIGN_TYPE_ED25519: {
+      fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+      break;
+    }
+    case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
+      uchar hash[ 32 ];
+      fd_sha256_hash( ctx->_data, sz, hash );
+      fd_ed25519_sign( dst, hash, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+      break;
+    }
+    case FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519: {
+      memcpy( ctx->concat+ctx->public_key_base58_sz+1UL, ctx->_data, 9UL );
+      fd_ed25519_sign( dst, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+      break;
+    }
+    case FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519: {
+      memcpy( ctx->event_concat+18UL, ctx->_data, 32UL );
+      fd_ed25519_sign( dst, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+      break;
+    }
+    default:
+      FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
+    }
   }
 
   sign_duration += fd_tickcount();
@@ -237,7 +273,18 @@ privileged_init_sensitive( fd_topo_t *      topo,
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
-    /* The stack can be taken over and reorganized by under AddressSanitizer,
+  FD_LOG_WARNING(("AUTHORIZED_VOTERS_CNT %lu", tile->sign.authorized_voter_paths_cnt));
+  ctx->authorized_voters_cnt = tile->sign.authorized_voter_paths_cnt;
+  for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
+    uchar * authorized_voter = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
+    ctx->authorized_voters_private_keys[ i ] = authorized_voter;
+    ctx->authorized_voters_public_keys[ i ]  = authorized_voter + 32UL;
+
+    FD_BASE58_ENCODE_32_BYTES( ctx->authorized_voters_public_keys[i], b582 );
+    FD_LOG_WARNING(("AUTHORIZED_VOTER %lu %s", i, b582));
+  }
+
+  /* The stack can be taken over and reorganized by under AddressSanitizer,
      which causes this code to fail.  */
 #if FD_HAS_ASAN
   FD_LOG_WARNING(( "!!! SECURITY WARNING !!! YOU ARE RUNNING THE SIGNING TILE "
@@ -319,8 +366,8 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
     } else if ( !strcmp(in_link->name, "send_sign"  ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_SEND;
       FD_TEST( !strcmp( out_link->name, "sign_send"  ) );
-      FD_TEST( in_link->mtu==FD_TXN_MTU  );
-      FD_TEST( out_link->mtu==64UL );
+      FD_TEST( in_link->mtu==sizeof(fd_send_sign_request_t)  );
+      FD_TEST( out_link->mtu==sizeof(fd_sign_send_response_t) );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;
       FD_TEST( !strcmp( out_link->name, "sign_bundle" ) );

@@ -329,7 +329,9 @@ struct fd_topo_tile {
     } store;
 
     struct {
-      char   identity_key_path[ PATH_MAX ];
+      char  identity_key_path[ PATH_MAX ];
+      ulong authorized_voter_paths_cnt;
+      char  authorized_voter_paths[ 16 ][ PATH_MAX ];
     } sign;
 
     struct {

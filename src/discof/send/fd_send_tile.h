@@ -16,12 +16,6 @@
 #include "../../waltz/quic/fd_quic.h"
 #include "../../util/clock/fd_clock.h"
 
-#define IN_KIND_SIGN   (0UL)
-#define IN_KIND_GOSSIP (1UL)
-#define IN_KIND_EPOCH  (2UL)
-#define IN_KIND_TOWER  (3UL)
-#define IN_KIND_NET    (4UL)
-
 /* Send votes to next FD_SEND_TARGET_LEADER_CNT leaders (slot x, x+4, x+8, ...) */
 #define FD_SEND_TARGET_LEADER_CNT (3UL)
 
@@ -59,6 +53,22 @@ FD_STATIC_ASSERT((60*1000000)/FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS <= 1000000*
 #define FD_SEND_PORT_UDP_TPU_IDX    (3UL)
 #define FD_SEND_PORT_QUIC_CNT       (2UL)
 #define FD_SEND_PORT_CNT            (4UL)
+
+#define FD_VOTE_TXN_SIGNERS_MAX (2UL)
+
+struct fd_send_sign_request {
+  uchar requested_signers_pubkeys[ FD_VOTE_TXN_SIGNERS_MAX ][ FD_TXN_PUBKEY_SZ ];
+  uchar requested_signers_cnt;
+  uchar message[ FD_TXN_MTU ];
+  ulong message_sz;
+};
+typedef struct fd_send_sign_request fd_send_sign_request_t;
+
+struct fd_sign_send_response {
+  uchar signatures_cnt;
+  uchar signatures[ FD_VOTE_TXN_SIGNERS_MAX ][ FD_ED25519_SIG_SZ ];
+};
+typedef struct fd_sign_send_response fd_sign_send_response_t;
 
 struct fd_send_link_in {
   fd_wksp_t *  mem;

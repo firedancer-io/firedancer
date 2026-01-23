@@ -528,6 +528,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
     strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
 
+    /* Frankendancer does not use authorized voters in the sign tile. */
+    tile->sign.authorized_voter_paths_cnt = 0UL;
+
   } else if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &tile->metric.prometheus_listen_addr ) ) )
       FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
