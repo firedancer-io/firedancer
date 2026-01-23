@@ -12,7 +12,7 @@
 
 #define IN_KIND_SIGN   (0UL)
 #define IN_KIND_GOSSIP (1UL)
-#define IN_KIND_STAKE  (2UL)
+#define IN_KIND_EPOCH  (2UL)
 #define IN_KIND_TOWER  (3UL)
 #define IN_KIND_NET    (4UL)
 
