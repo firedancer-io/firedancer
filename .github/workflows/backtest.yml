@@ -7,7 +7,7 @@ on:
         default: linux_gcc_zen2
       extras:
         type: string
-        default: "handholding"
+        default: "handholding liburing"
       script:
         type: string
         default: src/flamenco/runtime/tests/run_backtest_ci.sh
@@ -21,7 +21,7 @@ on:
         default: linux_gcc_zen2
       extras:
         type: string
-        default: "handholding"
+        default: "handholding liburing"
       script:
         type: string
         default: src/flamenco/runtime/tests/run_backtest_ci.sh
