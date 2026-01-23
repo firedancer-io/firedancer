@@ -19,6 +19,7 @@
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
+#include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v1.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v2.h"
@@ -36,9 +37,10 @@
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
+# if FD_HAS_FLATCC
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
+#endif
 
-#include <errno.h>
 #include <stdio.h>
 
 /* Replay concepts:
@@ -79,17 +81,18 @@
     be replayed.  The new Dispatcher will change this by taking a FEC
     set as input instead. */
 
-#define IN_KIND_SNAP    ( 0)
-#define IN_KIND_GENESIS ( 1)
-#define IN_KIND_IPECHO  ( 2)
-#define IN_KIND_TOWER   ( 3)
-#define IN_KIND_RESOLV  ( 4)
-#define IN_KIND_POH     ( 5)
-#define IN_KIND_EXECRP  ( 6)
-#define IN_KIND_SHRED   ( 7)
-#define IN_KIND_TXSEND  ( 8)
-#define IN_KIND_GUI     ( 9)
-#define IN_KIND_RPC     (10)
+#define IN_KIND_SNAP       ( 0)
+#define IN_KIND_GENESIS    ( 1)
+#define IN_KIND_IPECHO     ( 2)
+#define IN_KIND_TOWER      ( 3)
+#define IN_KIND_RESOLV     ( 4)
+#define IN_KIND_POH        ( 5)
+#define IN_KIND_EXECRP     ( 6)
+#define IN_KIND_SHRED      ( 7)
+#define IN_KIND_TXSEND     ( 8)
+#define IN_KIND_GUI        ( 9)
+#define IN_KIND_RPC        (10)
+#define IN_KIND_GOSSIP_WFS (11)
 
 #define DEBUG_LOGGING 0
 
@@ -142,6 +145,20 @@ fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) 
   return (ulong)(ele - ele_arr);
 }
 
+struct fd_replay_wfs_stake {
+  fd_pubkey_t identity;
+  ulong       stake;
+
+  int         has_ci;
+  long        ci_wallclock_ns;
+  ushort      ci_shred_version;
+};
+typedef struct fd_replay_wfs_stake fd_replay_wfs_stake_t;
+
+#define SORT_NAME fd_replay_wfs_stake_sort
+#define SORT_KEY_T fd_replay_wfs_stake_t
+#define SORT_BEFORE(a,b) (memcmp( (a).identity.uc, (b).identity.uc, sizeof(fd_pubkey_t) ) < 0)
+#include "../../util/tmpl/fd_sort.c"
 struct fd_replay_tile {
   fd_wksp_t * wksp;
 
@@ -159,6 +176,19 @@ struct fd_replay_tile {
      set.  This parallels the Agave 'has_new_vote_been_rooted'. */
   int has_identity_vote_rooted;
   int wait_for_vote_to_start_leader;
+
+  /* These flags are initialized from config parameters. Typically used
+     during a cluster restart/hard-fork, they incur additional
+     validation checks are run at boot to ensure the correct snapshot is
+     loaded. Additionally replay is not allowed to make progress until
+     80% of the cluster has voted for that snapshot slot. */
+  int   wfs_complete;
+  ulong wfs_slot;
+
+  fd_replay_out_link_t replay_wfs[ 1 ]; /* Sending work down to exec tiles */
+
+  fd_hash_t expected_bank_hash;
+  int       has_expected_bank_hash;
 
   ulong        reasm_seed;
   fd_reasm_t * reasm;
@@ -179,6 +209,7 @@ struct fd_replay_tile {
 #define FD_REPLAY_HARD_FORKS_MAX (64UL)
   ulong hard_forks_cnt;
   ulong hard_forks[ FD_REPLAY_HARD_FORKS_MAX ];
+  ulong hard_forks_cnts[ FD_REPLAY_HARD_FORKS_MAX ];
 
   ushort expected_shred_version;
   ushort ipecho_shred_version;
@@ -1108,7 +1139,7 @@ static inline int
 maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
-  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->has_identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
+  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->has_identity_vote_rooted && ctx->wait_for_vote_to_start_leader && ctx->wfs_slot==ULONG_MAX) || ctx->replay_out->idx==ULONG_MAX || !ctx->wfs_complete ) ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
@@ -1441,6 +1472,20 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     }
 
     ulong snapshot_slot = fd_bank_slot_get( bank );
+
+    if( FD_UNLIKELY( ctx->wfs_slot!=ULONG_MAX ) ) {
+      if( FD_UNLIKELY( ctx->wfs_slot>snapshot_slot ) ) FD_LOG_ERR(( "ctx->wfs_slot=%lu does not match snapshot_slot=%lu", ctx->wfs_slot, snapshot_slot ));
+      else if( FD_UNLIKELY( ctx->wfs_slot<snapshot_slot ) ) {
+        ctx->wfs_slot = ULONG_MAX;
+        ctx->wfs_complete = 1;
+        FD_LOG_WARNING(( "wait_for_supermajority_at_slot=%lu < snapshot_slot=%lu. Both wait_for_supermajority_at_slot and expected_bank_hash will be ignored.", ctx->wfs_slot, snapshot_slot ));
+      } else if( FD_UNLIKELY( ctx->has_expected_bank_hash && memcmp( ctx->expected_bank_hash.uc, fd_bank_bank_hash_get( bank ).uc, sizeof(fd_hash_t) ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
+        FD_BASE58_ENCODE_32_BYTES( fd_bank_bank_hash_get( bank ).uc, actual_bank_hash_cstr );
+        FD_LOG_ERR(( "expected_bank_hash=%s does not match actual_bank_hash=%s", expected_bank_hash_cstr, actual_bank_hash_cstr ));
+      }
+    }
+
     /* FIXME: This is a hack because the block id of the snapshot slot
        is not provided in the snapshot.  A possible solution is to get
        the block id of the snapshot slot from repair. */
@@ -1498,6 +1543,18 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
     slot_info->identity_balance = get_identity_balance( ctx, xid );
 
+    if( FD_LIKELY( ctx->replay_wfs->idx!=ULONG_MAX ) ) {
+      /* We send a message to the gossip tile with the bank_idx of the
+         boot bank if we are waiting for supermajority, and ULONG_MAX
+         otherwise. */
+      if( FD_UNLIKELY( ctx->wfs_slot!=ULONG_MAX ) ) {
+        bank->data->refcnt++; /* gossip tile */
+        fd_stem_publish( stem, ctx->replay_wfs->idx, bank->data->idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+      } else {
+        fd_stem_publish( stem, ctx->replay_wfs->idx, ULONG_MAX, 0UL, 0UL, 0UL, 0UL, 0UL );
+      }
+    }
+
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
     publish_root_advanced( ctx, stem );
 
@@ -1530,7 +1587,10 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       ctx->hard_forks_cnt = manifest->hard_forks_len;
-      for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
+      for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
+        ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
+        ctx->hard_forks_cnts[ i ] = manifest->hard_forks_cnts[ i ];
+      }
       break;
     }
     default: {
@@ -1935,7 +1995,7 @@ after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  if( FD_UNLIKELY( !ctx->is_booted ) ) return;
+  if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
 
   if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
     *charge_busy = 1;
@@ -2239,48 +2299,11 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
   if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_forks_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
     ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
 
-    union {
-      uchar  c[ 32 ];
-      ushort s[ 16 ];
-    } running_hash;
-    fd_memcpy( running_hash.c, ctx->genesis_hash, sizeof(fd_hash_t) );
+    ushort actual_shred_version = compute_shred_version( ctx->genesis_hash, ctx->hard_forks, ctx->hard_forks_cnts, ctx->hard_forks_cnt );
 
-    ulong processed = 0UL;
-    ulong min_value = 0UL;
-    while( processed<ctx->hard_forks_cnt ) {
-      ulong min_index = ULONG_MAX;
-      for( ulong i=0UL; i<ctx->hard_forks_cnt; i++ ) {
-        if( ctx->hard_forks[ i ]>=min_value && (min_index==ULONG_MAX || ctx->hard_forks[ i ]<ctx->hard_forks[ min_index ] ) ) {
-          min_index = i;
-        }
-      }
-
-      FD_TEST( min_index!=ULONG_MAX );
-      min_value = ctx->hard_forks[ min_index ];
-      ulong min_count = 0UL;
-      for( ulong i=0UL; i<ctx->hard_forks_cnt; i++ ) {
-        if( ctx->hard_forks[ i ]==min_value ) min_count++;
-      }
-
-      uchar data[ 48UL ];
-      fd_memcpy( data, running_hash.c, sizeof(fd_hash_t) );
-      fd_memcpy( data+32UL, &min_value, sizeof(ulong) );
-      fd_memcpy( data+40UL, &min_count, sizeof(ulong) );
-
-      FD_TEST( fd_sha256_hash( data, 48UL, running_hash.c ) );
-      processed += min_count;
-      min_value += 1UL;
-    }
-
-    ushort xor = 0;
-    for( ulong i=0UL; i<16UL; i++ ) xor ^= running_hash.s[ i ];
-
-    xor = fd_ushort_bswap( xor );
-    xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
-
-    if( FD_UNLIKELY( expected_shred_version!=xor ) ) {
+    if( FD_UNLIKELY( expected_shred_version!=actual_shred_version ) ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash, genesis_hash_b58 );
-      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash %s and hard forks", expected_shred_version, xor, genesis_hash_b58 ));
+      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash %s and hard forks", expected_shred_version, actual_shred_version, genesis_hash_b58 ));
     }
   }
 }
@@ -2397,11 +2420,18 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_RPC:
-    case IN_KIND_GUI: {
+    case IN_KIND_GUI:
+    case IN_KIND_GOSSIP_WFS: {
       fd_bank_t bank[1];
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, sig ) );
       bank->data->refcnt--;
       FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for %s", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt, ctx->in_kind[in_idx]==IN_KIND_RPC ? "rpc" : "gui" ));
+
+      if( FD_UNLIKELY( ctx->in_kind[in_idx]==IN_KIND_GOSSIP_WFS ) ) {
+        ctx->wfs_complete = 1;
+        FD_LOG_NOTICE(( "Done waiting for supermajority. More than 80 percent of cluster stake has joined." ));
+      }
+
       break;
     }
     default:
@@ -2426,6 +2456,9 @@ out1( fd_topo_t const *      topo,
   }
 
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) return (fd_replay_out_link_t){ .idx = ULONG_MAX, .mem = NULL, .chunk0 = 0, .wmark = 0, .chunk = 0 };
+
+  ulong mtu = topo->links[ tile->out_link_id[ idx ] ].mtu;
+  if( FD_UNLIKELY( mtu==0UL ) ) return (fd_replay_out_link_t){ .idx = idx, .mem = NULL, .chunk0 = ULONG_MAX, .wmark = ULONG_MAX, .chunk = ULONG_MAX };
 
   void * mem = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
   ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
@@ -2617,6 +2650,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->has_identity_vote_rooted = 0;
   ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
 
+  ctx->wfs_slot               = fd_ulong_if( tile->replay.wait_for_supermajority_at_slot!=0UL, tile->replay.wait_for_supermajority_at_slot, ULONG_MAX );
+  ctx->wfs_complete           = tile->replay.wait_for_supermajority_at_slot==0UL;
+  ctx->expected_bank_hash     = tile->replay.expected_bank_hash;
+  ctx->has_expected_bank_hash = memcmp( tile->replay.expected_bank_hash.uc, ((fd_hash_t){ 0 }).uc, sizeof(fd_hash_t) );
+
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
   FD_TEST( ctx->mleaders );
 
@@ -2662,6 +2700,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "gui_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
+    else if( !strcmp( link->name, "gossip_wfs"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_WFS;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
@@ -2678,6 +2717,14 @@ unprivileged_init( fd_topo_t *      topo,
   exec_out->chunk0 = fd_dcache_compact_chunk0( exec_out->mem, link->dcache );
   exec_out->wmark  = fd_dcache_compact_wmark( exec_out->mem, link->dcache, link->mtu );
   exec_out->chunk  = exec_out->chunk0;
+
+  idx = fd_topo_find_tile_out_link( topo, tile, "replay_wfs", 0UL );
+  if( FD_LIKELY( idx!=ULONG_MAX ) ) {
+    link = &topo->links[ tile->out_link_id[ idx ] ];
+    *ctx->replay_wfs = out1( topo, tile, "replay_wfs" ); FD_TEST( ctx->replay_wfs->idx!=ULONG_MAX );
+  } else {
+    FD_TEST( tile->replay.wait_for_supermajority_at_slot==0UL );
+  }
 
   ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;

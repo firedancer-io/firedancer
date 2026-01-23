@@ -1,6 +1,6 @@
 $(call add-hdrs,fd_bundle_crank.h)
 $(call add-objs,fd_bundle_crank,fd_disco,fd_flamenco)
-$(call make-unit-test,test_bundle_crank,test_bundle_crank,fd_disco fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_bundle_crank,test_bundle_crank,fd_disco fd_flamenco fd_ballet fd_util fd_funk)
 $(call run-unit-test,test_bundle_crank)
 
 $(call add-hdrs,fd_bundle_tile.h)

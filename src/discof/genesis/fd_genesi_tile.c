@@ -66,6 +66,10 @@ struct fd_genesi_tile {
   uchar expected_genesis_hash[ 32UL ];
   ushort expected_shred_version;
 
+  /* Enables an assertion that the fetched genesis hash belongs to one
+     of the testnet, devnet, or mainnet clusters. */
+  int validate_genesis_hash;
+
   uchar genesis[ FD_GENESIS_MAX_MESSAGE_SIZE ] __attribute__((aligned(alignof(fd_genesis_t)))); /* 10 MiB buffer for decoded genesis */
   uchar buffer[ FD_GENESIS_MAX_MESSAGE_SIZE ]; /* 10 MiB buffer for reading genesis file */
 
@@ -280,7 +284,9 @@ after_credit( fd_genesi_tile_t *  ctx,
       FD_LOG_ERR(( "unable to decode downloaded solana genesis file due to violated hardcoded limits" ));
     }
 
-    verify_cluster_type( genesis, hash, ctx->genesis_path );
+    if( FD_LIKELY( ctx->validate_genesis_hash ) ) {
+      verify_cluster_type( genesis, hash, ctx->genesis_path );
+    }
 
     uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     fd_memcpy( dst, hash, sizeof(fd_hash_t) );
@@ -346,7 +352,9 @@ process_local_genesis( fd_genesi_tile_t * ctx,
   } hash;
   fd_sha256_hash( ctx->buffer, size, hash.c );
 
-  verify_cluster_type( genesis, hash.c, genesis_path );
+  if( FD_LIKELY( ctx->validate_genesis_hash ) ) {
+    verify_cluster_type( genesis, hash.c, genesis_path );
+  }
 
   fd_memcpy( ctx->genesis_hash, hash.c, 32UL );
 
@@ -463,6 +471,7 @@ unprivileged_init( fd_topo_t *      topo,
     process_local_genesis( ctx, tile->genesi.genesis_path );
     if( FD_UNLIKELY( ctx->bootstrap ) ) initialize_accdb( ctx );
   }
+  ctx->validate_genesis_hash = tile->genesi.validate_genesis_hash;
 
   FD_TEST( fd_cstr_printf_check( ctx->genesis_path, PATH_MAX, NULL, "%s", tile->genesi.genesis_path ) );
 

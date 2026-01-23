@@ -416,12 +416,14 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossvf_gossip" );
   fd_topob_wksp( topo, "gossip_gossvf" );
   fd_topob_wksp( topo, "gossip_out"    );
+  fd_topob_wksp( topo, "gossip_wfs"    );
 
   fd_topob_wksp( topo, "shred_out"     );
   fd_topob_wksp( topo, "repair_shred"  );
   fd_topob_wksp( topo, "replay_epoch"  );
   fd_topob_wksp( topo, "replay_execrp" );
   fd_topob_wksp( topo, "replay_out"    );
+  fd_topob_wksp( topo, "replay_wfs"    );
   fd_topob_wksp( topo, "tower_out"     );
   fd_topob_wksp( topo, "txsend_out"    );
 
@@ -580,6 +582,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossip", "gossvf_gossip", config->net.ingress_buffer_size,          sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
   /**/                 fd_topob_link( topo, "gossip_gossvf", "gossip_gossvf", 65536UL*4UL,                              sizeof(fd_gossip_ping_update_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
   /**/                 fd_topob_link( topo, "gossip_out",    "gossip_out",    65536UL*4UL,                              sizeof(fd_gossip_update_message_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
+  /**/                 fd_topob_link( topo, "gossip_wfs",    "gossip_wfs",    2UL,                                      0UL, 1UL );
 
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",   "quic_verify",   config->tiles.verify.receive_buffer_size, FD_TPU_REASM_MTU,              config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup",  "verify_dedup",  config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,             1UL );
@@ -587,6 +590,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(resolv_tile_cnt) fd_topob_link( topo, "resolv_pack",   "resolv_pack",   65536UL,                                  FD_TPU_RESOLVED_MTU,           1UL );
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  128UL,                                    FD_EPOCH_OUT_MTU,              1UL ); /* TODO: This should be 2 but requires fixing STEM_BURST */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    8192UL,                                   sizeof(fd_replay_message_t),   1UL );
+  /**/                 fd_topob_link( topo, "replay_wfs",    "replay_wfs",    32UL,                                     0UL,                           1UL );
   /**/                 fd_topob_link( topo, "pack_poh",      "pack_poh",      4096UL,                                   sizeof(fd_done_packing_t),     1UL );
   /* pack_execle is shared across all execle, so if one executor stalls
      due to complex transactions, the buffer needs to be large so that
@@ -792,12 +796,14 @@ fd_topo_initialize( config_t * config ) {
   FOR(gossvf_tile_cnt) fd_topob_tile_in (   topo, "gossvf", i,             "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_out",    0UL                                                );
+  /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_wfs",    0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_net",    0UL                                                );
   /**/                 fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "ipecho_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(gossvf_tile_cnt) fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "gossvf_gossip", i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "txsend_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_gossvf", 0UL                                                );
+  /**/                 fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "replay_wfs",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   int snapshots_gossip_enabled = config->firedancer.snapshots.sources.gossip.allow_any || config->firedancer.snapshots.sources.gossip.allow_list_cnt>0UL;
   if( FD_LIKELY( snapshots_enabled ) ) {
@@ -890,12 +896,15 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",    0UL                                                );
+  /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_wfs",    0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_epoch",  0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "executed_txn",  0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_execrp", 0UL                                                );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "txsend_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(resolv_tile_cnt) fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "resolv_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(resolv_tile_cnt) fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "resolv_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "ipecho_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "gossip_wfs",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* TODO: Although can't get overrun, this makes more sense as reliable. Need to fix gossip STEM_BURST / depth */
   if( FD_LIKELY( snapshots_enabled ) ) {
                        fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
@@ -1169,6 +1178,7 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->development.bench.larger_max_cost_per_block );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gossip", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle",   i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1177,6 +1187,7 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topo_obj_t * banks_locks_obj = setup_topo_banks_locks( topo, "banks_locks" );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gossip", 0UL ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1348,6 +1359,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "genesi" ) ) ) {
 
+    tile->genesi.validate_genesis_hash = config->firedancer.development.genesis.validate_genesis_hash;
     tile->genesi.allow_download = config->firedancer.snapshots.genesis_download;
     strncpy( tile->genesi.genesis_path, config->paths.genesis, sizeof(tile->genesi.genesis_path) );
     tile->genesi.expected_shred_version = config->consensus.expected_shred_version;

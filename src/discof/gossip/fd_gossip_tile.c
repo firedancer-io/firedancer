@@ -11,12 +11,15 @@
 #include "../../disco/fd_txn_m.h"
 #include "../tower/fd_tower_tile.h"
 
+#include "../../util/pod/fd_pod.h"
+
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
 #define IN_KIND_SIGN          (2)
 #define IN_KIND_TXSEND        (3)
 #define IN_KIND_EPOCH         (4)
 #define IN_KIND_TOWER         (5)
+#define IN_KIND_REPLAY_WFS    (6)
 
 /* Symbols exported by version.c */
 extern ulong const firedancer_major_version;
@@ -102,6 +105,30 @@ gossip_ping_tracker_change_fn( void *        _ctx,
   ctx->gossvf_out->chunk = fd_dcache_compact_next( ctx->gossvf_out->chunk, sizeof(fd_gossip_ping_update_t), ctx->gossvf_out->chunk0, ctx->gossvf_out->wmark );
 }
 
+static inline int
+maybe_done_waiting_for_supermajority( fd_gossip_tile_ctx_t * ctx, long now ) {
+  if( FD_UNLIKELY( !ctx->my_contact_info->shred_version ) ) return 0;
+
+  ulong offline_stake  = 0UL;
+  ulong online_stake   = 0UL;
+  ulong mismatch_stake = 0UL;
+
+  for( ulong i=0UL; i<ctx->wfs_stakes_cnt; i++ ) {
+    fd_gossip_wfs_stake_t * vstate = &ctx->wfs_stakes[ i ];
+    fd_contact_info_t const * ci = fd_gossip_contact_info_lookup( ctx->gossip, &vstate->identity );
+
+    if( !ci || (now - ci->wallclock_nanos > 15*1000L*1000L*1000L) ) {
+      offline_stake += vstate->stake;
+    } else if( ci->shred_version==ctx->my_contact_info->shred_version ) {
+      online_stake += vstate->stake;
+    } else {
+      mismatch_stake += vstate->stake;
+    }
+  }
+
+  return (100UL * online_stake) / (offline_stake + online_stake + mismatch_stake) > 80UL;
+}
+
 static inline void
 during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   ctx->last_wallclock = fd_log_wallclock();
@@ -114,6 +141,14 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
     fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, ctx->last_wallclock );
 
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  if( FD_UNLIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_START && ctx->last_wallclock>ctx->wfs_next_check_5secs ) ) {
+    if( FD_UNLIKELY( maybe_done_waiting_for_supermajority( ctx, ctx->last_wallclock ) ) ) {
+      ctx->wfs_state = FD_GOSSIP_WFS_STATE_PUB;
+    }
+
+    ctx->wfs_next_check_5secs += 5*1000L*1000L*1000L;
   }
 }
 
@@ -177,6 +212,11 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
   ctx->stem = stem;
 
   if( FD_UNLIKELY( !ctx->my_contact_info->shred_version ) ) return;
+
+  if( FD_UNLIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_PUB ) ) {
+    ctx->wfs_state = FD_GOSSIP_WFS_STATE_DONE;
+    fd_stem_publish( stem, ctx->gossip_wfs->idx, ctx->wfs_bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
   fd_gossip_advance( ctx->gossip, now, stem );
@@ -243,6 +283,37 @@ handle_local_duplicate_shred( fd_gossip_tile_ctx_t *            ctx,
   }
 }
 
+static void
+handle_wait_for_supermajority( fd_gossip_tile_ctx_t * ctx, ulong bank_idx ) {
+  if( FD_LIKELY( bank_idx==ULONG_MAX ) ) {
+    /* indicates we are not waiting for supermajority */
+    ctx->wfs_state = FD_GOSSIP_WFS_STATE_DONE;
+    return;
+  }
+
+  ctx->wfs_state = FD_GOSSIP_WFS_STATE_START;
+  ctx->wfs_bank_idx = bank_idx;
+
+  fd_bank_t bank[1];
+  if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, bank_idx ) ) ) {
+    FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", bank_idx ));
+  }
+
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
+  fd_vote_states_iter_t iter_[1];
+
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+      !fd_vote_states_iter_done( iter );
+      fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+    fd_gossip_wfs_stake_t * cur = &ctx->wfs_stakes[  ctx->wfs_stakes_cnt++ ];
+    cur->identity = vote_state->node_account;
+    cur->stake = vote_state->stake;
+  }
+
+  fd_bank_vote_states_end_locking_query( bank );
+}
+
 static inline int
 returnable_frag( fd_gossip_tile_ctx_t * ctx,
                  ulong                  in_idx,
@@ -270,6 +341,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
     case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_GOSSVF:        handle_packet( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
     case IN_KIND_TOWER:         handle_local_duplicate_shred( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
+    case IN_KIND_REPLAY_WFS:    handle_wait_for_supermajority( ctx, sig );
   }
 
   return 0;
@@ -307,6 +379,9 @@ out1( fd_topo_t const *      topo,
 
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had no output link named %s", tile->name, tile->kind_id, name ));
 
+  ulong mtu = topo->links[ tile->out_link_id[ idx ] ].mtu;
+  if( FD_UNLIKELY( mtu==0UL ) ) return (fd_gossip_out_ctx_t){ .idx = idx, .mem = NULL, .chunk0 = ULONG_MAX, .wmark = ULONG_MAX, .chunk = ULONG_MAX };
+
   void * mem   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
   ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
   ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
@@ -327,6 +402,18 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_weights_converted = (fd_stake_weight_t *)_stake_weights;
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, ctx->rng_seed, ctx->rng_idx ) ) );
+
+  ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
+  FD_TEST( banks_obj_id!=ULONG_MAX );
+  ulong banks_locks_obj_id = fd_pod_query_ulong( topo->props, "banks_locks", ULONG_MAX );
+  FD_TEST( banks_locks_obj_id!=ULONG_MAX );
+
+  ctx->wfs_state = FD_GOSSIP_WFS_STATE_INIT;
+  ctx->wfs_bank_idx = ULONG_MAX;
+  ctx->wfs_stakes_cnt = 0UL;
+  ctx->wfs_next_check_5secs = fd_log_wallclock();
+
+  FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ulong sign_in_tile_idx = ULONG_MAX;
@@ -357,6 +444,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].kind = IN_KIND_EPOCH;
     } else if( FD_UNLIKELY( !strcmp( link->name, "tower_out" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_TOWER;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "replay_wfs" ) ) ) {
+      ctx->in[ i ].kind = IN_KIND_REPLAY_WFS;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }
@@ -369,6 +458,7 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->sign_out   = out1( topo, tile, "gossip_sign"   );
   *ctx->gossip_out = out1( topo, tile, "gossip_out"    );
   *ctx->gossvf_out = out1( topo, tile, "gossip_gossvf" );
+  *ctx->gossip_wfs = out1( topo, tile, "gossip_wfs"    );
 
   fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id [ sign_in_tile_idx  ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ ctx->sign_out->idx ] ];

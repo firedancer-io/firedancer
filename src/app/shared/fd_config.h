@@ -51,8 +51,6 @@ struct fd_configh {
     int    genesis_fetch;
     int    poh_speed_test;
     char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
-    uint   wait_for_supermajority_at_slot;
-    char   expected_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
     int    wait_for_vote_to_start_leader;
     ulong  hard_fork_at_slots_cnt;
     uint   hard_fork_at_slots[ 32 ];
@@ -170,6 +168,9 @@ struct fd_configf {
 
   struct {
     int hard_fork_fatal;
+    struct {
+      int validate_genesis_hash;
+    } genesis;
   } development;
 
   struct {
@@ -269,6 +270,8 @@ struct fd_config {
   } log;
 
   struct {
+    uint   wait_for_supermajority_at_slot;
+    char   expected_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
     ushort expected_shred_version;
     char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
 
