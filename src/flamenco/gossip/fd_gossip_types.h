@@ -26,6 +26,7 @@
 #define FD_GOSSIP_UPDATE_TAG_VOTE                (3)
 #define FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED     (4)
 #define FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES     (5)
+#define FD_GOSSIP_UPDATE_TAG_WFS_DONE            (6) /* wait for supermajority done */
 
 /* The maximum number of contact infos that may be present at any one
    time.  If new contact infos are added, a removal will be issued first

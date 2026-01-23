@@ -235,6 +235,9 @@ fd_gossip_push_duplicate_shred( fd_gossip_t *                       gossip,
                                 fd_stem_context_t *                 stem,
                                 long                                now );
 
+fd_contact_info_t const *
+fd_gossip_contact_info_lookup( fd_gossip_t * gossip, fd_pubkey_t * pubkey );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */

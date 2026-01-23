@@ -310,6 +310,11 @@ txbuild_flush( fd_gossip_t *         gossip,
   fd_gossip_txbuild_init( txbuild, gossip->identity_pubkey, txbuild->tag );
 }
 
+fd_contact_info_t const *
+fd_gossip_contact_info_lookup( fd_gossip_t * gossip, fd_pubkey_t * pubkey ) {
+  return fd_crds_contact_info_lookup( gossip->crds, pubkey->uc );
+}
+
 /* Note: NOT a no-op in the case contact info does not exist. We
    reset and push it back to the last-hit queue instead.
 
