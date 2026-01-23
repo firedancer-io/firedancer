@@ -370,6 +370,7 @@ fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
     shadow_peer->incr_slot = peer->incr_slot;
     shadow_peer->addr      = peer->addr;
     shadow_peer->score     = fd_sspeer_selector_score( selector, shadow_peer->latency, shadow_peer->full_slot, shadow_peer->incr_slot );
+    shadow_peer->valid     = peer->valid;
     score_treap_ele_insert( selector->shadow_score_treap, shadow_peer, selector->pool );
     selector->peer_idx_list[ idx++ ] = peer_pool_idx( selector->pool, peer );
     peer_map_ele_remove( selector->map, &peer->addr, NULL, selector->pool );
