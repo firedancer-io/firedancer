@@ -1,9 +1,10 @@
+#define _GNU_SOURCE
 #include "fd_vinyl_io_ur.h"
 
-#if FD_HAS_LIBURING
-
+#include <errno.h>
 #include <unistd.h> /* lseek */
-#include <liburing.h>
+#include <linux/io_uring.h>
+#include "../../util/io_uring/fd_io_uring.h"
 
 static inline void
 bd_read( int    fd,
@@ -51,7 +52,7 @@ struct fd_vinyl_io_ur_rd {
 
 FD_STATIC_ASSERT( sizeof(fd_vinyl_io_ur_rd_t)<=sizeof(fd_vinyl_io_rd_t), layout );
 
-/* fd_vinyl_io_ur_t extends fd_viny_io_t. */
+/* fd_vinyl_io_ur_t extends fd_vinyl_io_t. */
 
 struct fd_vinyl_io_ur {
   fd_vinyl_io_t            base[1];
@@ -63,7 +64,7 @@ struct fd_vinyl_io_ur {
   fd_vinyl_io_ur_rd_t **   rd_tail_next; /* Pointer to queue &tail->next or &rd_head if empty. */
   fd_vinyl_bstream_block_t sync[1];
 
-  struct io_uring * ring;
+  fd_io_uring_t * ring;
 
   ulong sq_prep_cnt;  /* io_uring SQEs sent */
   ulong sq_sent_cnt;  /* io_uring SQEs submitted */
@@ -177,11 +178,11 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
               fd_vinyl_io_ur_rd_t * rd,
               ulong                 seq0,
               ulong                 sz ) {
-  struct io_uring * ring = ur->ring;
+  fd_io_uring_t * ring = ur->ring;
   if( FD_UNLIKELY( sz>INT_MAX ) ) {
     FD_LOG_CRIT(( "Invalid read size 0x%lx bytes (exceeds max)", sz ));
   }
-  if( FD_UNLIKELY( io_uring_sq_space_left( ring )<2U ) ) return 0U;
+  if( FD_UNLIKELY( fd_io_uring_sq_space_left( ring->sq )<2U ) ) return 0U;
 
   /* Map seq0 into the bstream store. */
 
@@ -196,11 +197,17 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
   /* Prepare the head SQE */
   rd->next = NULL;
   rd->tsz  = (uint)rsz;
-  struct io_uring_sqe * sqe = io_uring_get_sqe( ring );
-  if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
-  io_uring_prep_read( sqe, 0, rd->dst, (uint)rsz, dev_base+dev_off );
-  io_uring_sqe_set_flags( sqe, IOSQE_FIXED_FILE );
-  io_uring_sqe_set_data( sqe, rd );
+  struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
+  if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "fd_io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
+  *sqe = (struct io_uring_sqe){
+    .opcode    = IORING_OP_READ,
+    .fd        = 0, /* fixed file index 0 */
+    .off       = (unsigned long long)(dev_base + dev_off),
+    .addr      = (unsigned long long)rd->dst,
+    .len       = (uint)rsz,
+    .flags     = IOSQE_FIXED_FILE,
+    .user_data = (unsigned long long)rd,
+  };
   ur->sq_prep_cnt++;
   if( FD_LIKELY( !sz ) ) return 1U; /* optimize for the unfragmented case */
 
@@ -210,17 +217,23 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
      the head read job also succeeded.  Also, set the low bit of the
      userdata to 1 (usually guaranteed to be 0 due to alignment), to
      indicate that this SQE is a head frag. */
-  io_uring_sqe_set_flags( sqe, IOSQE_FIXED_FILE | IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS );
-  io_uring_sqe_set_data64( sqe, (ulong)rd+1UL );
+  sqe->flags |= IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS;
+  sqe->user_data = (unsigned long long)rd + 1ULL;
   ur->cq_cnt++;  /* Treat as already-completed in metrics */
 
   /* Prepare the tail SQE */
   rd->tsz  = (uint)sz;
-  sqe = io_uring_get_sqe( ring );
-  if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
-  io_uring_prep_read( sqe, 0, (uchar *)rd->dst + rsz, (uint)sz, dev_base );
-  io_uring_sqe_set_flags( sqe, IOSQE_FIXED_FILE );
-  io_uring_sqe_set_data( sqe, rd );
+  sqe = fd_io_uring_get_sqe( ring->sq );
+  if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "fd_io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
+  *sqe = (struct io_uring_sqe){
+    .opcode    = IORING_OP_READ,
+    .fd        = 0, /* fixed file index 0 */
+    .off       = (unsigned long long)dev_base,
+    .addr      = (unsigned long long)rd->dst + rsz,
+    .len       = (uint)sz,
+    .flags     = IOSQE_FIXED_FILE,
+    .user_data = (unsigned long long)rd,
+  };
   ur->sq_prep_cnt++;
   return 2U;
 }
@@ -259,11 +272,11 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
                      fd_vinyl_io_rd_t ** _rd,
                      int                 flags ) {
   fd_vinyl_io_ur_t * ur       = (fd_vinyl_io_ur_t *)io;
-  struct io_uring *  ring     = ur->ring;
+  fd_io_uring_t *    ring     = ur->ring;
   int                blocking = !!( flags & FD_VINYL_IO_FLAG_BLOCKING );
   *_rd = NULL;
 
-  uint cq_cnt = io_uring_cq_ready( ring );
+  uint cq_cnt = fd_io_uring_cq_ready( ring->cq );
   if( FD_UNLIKELY( !cq_cnt ) ) {  /* no CQEs ready */
     /* Move staged work to submission queue */
     ur_staged_clean( ur );
@@ -276,18 +289,14 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
     }
 
     /* Issue syscall to drive kernel */
-    int submit_cnt;
-    if( blocking ) {
-      submit_cnt = io_uring_submit_and_wait( ring, 1U );
-    } else {
-      submit_cnt = io_uring_submit_and_get_events( ring );
-    }
+    uint flags = blocking ? IORING_ENTER_GETEVENTS : 0U;
+    int submit_cnt = fd_io_uring_submit( ring->sq, ring->ioring_fd, !!blocking, flags );
     if( FD_UNLIKELY( submit_cnt<0 ) ) {
-      FD_LOG_ERR(( "%s failed (%i-%s)", blocking ? "io_uring_submit_and_wait" : "io_uring_submit_and_get_events", -submit_cnt, fd_io_strerror( -submit_cnt ) ));
+      FD_LOG_ERR(( "io_uring_enter failed (%i-%s)", -submit_cnt, fd_io_strerror( -submit_cnt ) ));
     }
     ur->sq_sent_cnt += (ulong)submit_cnt;
 
-    cq_cnt = io_uring_cq_ready( ring );
+    cq_cnt = fd_io_uring_cq_ready( ring->cq );
     if( !cq_cnt ) {
       if( FD_UNLIKELY( blocking ) ) FD_LOG_CRIT(( "io_uring_submit_and_wait() returned but no CQEs ready" ));
       return FD_VINYL_ERR_AGAIN;
@@ -304,10 +313,8 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
        chain, the tail got cancelled.  Crash the app
      - Error (other): crash the app */
 
-  struct io_uring_cqe * cqe = NULL;
-  io_uring_peek_cqe( ring, &cqe );
-  if( FD_UNLIKELY( !cqe ) ) FD_LOG_CRIT(( "io_uring_peek_cqe() yielded NULL despite io_uring_cq_ready()=%u", cq_cnt ));
-  ulong                 udata     = io_uring_cqe_get_data64( cqe );
+  struct io_uring_cqe * cqe = fd_io_uring_cq_head( ring->cq );
+  ulong                 udata     = (ulong)cqe->user_data;
   int                   last_frag = !fd_ulong_extract_bit( udata, 0 );
   fd_vinyl_io_ur_rd_t * rd        = (void *)fd_ulong_clear_bit( udata, 0 );
   if( FD_UNLIKELY( !rd ) ) FD_LOG_CRIT(( "io_uring_peek_cqe() yielded invalid user data" ));
@@ -321,7 +328,7 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
   if( FD_UNLIKELY( rd->tsz!=(uint)cqe_res ) ) {
     FD_LOG_ERR(( "io_uring read failed (expected %u bytes, got %i bytes)", rd->tsz, cqe_res ));
   }
-  io_uring_cq_advance( ring, 1U );
+  fd_io_uring_cq_advance( ring->cq, 1U );
   ur->cq_cnt++;
 
   *_rd = (fd_vinyl_io_rd_t *)rd;
@@ -654,10 +661,10 @@ fd_vinyl_io_ur_footprint( ulong spad_max ) {
 }
 
 fd_vinyl_io_t *
-fd_vinyl_io_ur_init( void *            mem,
-                     ulong             spad_max,
-                     int               dev_fd,
-                     struct io_uring * ring ) {
+fd_vinyl_io_ur_init( void *          mem,
+                     ulong           spad_max,
+                     int             dev_fd,
+                     fd_io_uring_t * ring ) {
   fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)mem;
 
   if( FD_UNLIKELY( !ur ) ) {
@@ -778,32 +785,7 @@ fd_vinyl_io_ur_init( void *            mem,
                 spad_max, dev_sz,
                 (char const *)info, info_sz,
                 io_seed,
-                ring->sq.ring_entries ));
+                ring->sq->depth ));
 
   return ur->base;
 }
-
-#else /* io_uring not supported */
-
-ulong
-fd_vinyl_io_ur_align( void ) {
-  return 8UL;
-}
-
-ulong
-fd_vinyl_io_ur_footprint( ulong spad_max ) {
-  (void)spad_max;
-  return 8UL;
-}
-
-fd_vinyl_io_t *
-fd_vinyl_io_ur_init( void *            mem,
-                     ulong             spad_max,
-                     int               dev_fd,
-                     struct io_uring * ring ) {
-  (void)mem; (void)spad_max; (void)dev_fd; (void)ring;
-  FD_LOG_WARNING(( "Sorry, this build does not support io_uring" ));
-  return NULL;
-}
-
-#endif

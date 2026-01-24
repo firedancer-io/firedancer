@@ -4,6 +4,9 @@
 #include "../../ballet/lthash/fd_lthash_adder.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
+#include "../../util/io_uring/fd_io_uring_setup.h"
+#include "../../util/io_uring/fd_io_uring_register.h"
+#include "../../util/io_uring/fd_io_uring.h"
 #include "generated/fd_snaplh_tile_seccomp.h"
 
 #include "utils/fd_ssctrl.h"
@@ -13,13 +16,7 @@
 #include <fcntl.h>    /* open  */
 #include <unistd.h>   /* close */
 
-#if FD_HAS_LIBURING
 #include "../../vinyl/io/fd_vinyl_io_ur.h"
-#include <liburing.h>
-typedef struct io_uring fd_io_uring_t;
-#else
-typedef char            fd_io_uring_t;
-#endif
 
 #define NAME "snaplh"
 
@@ -32,6 +29,7 @@ typedef char            fd_io_uring_t;
 FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
 
 #define VINYL_LTHASH_RD_REQ_MAX   (32UL)
+#define VINYL_LTHASH_IORING_DEPTH (2*VINYL_LTHASH_RD_REQ_MAX)
 
 #define VINYL_LTHASH_IO_SPAD_MAX  (2<<20UL)
 
@@ -95,9 +93,7 @@ struct fd_snaplh_tile {
     } pending;
     ulong             pending_rd_req_cnt;
 
-    int               io_uring_enabled;
     fd_vinyl_io_t *   io;
-    fd_io_uring_t *   ring;
   } vinyl;
 
   struct {
@@ -116,6 +112,10 @@ struct fd_snaplh_tile {
   in_link_t   in[IN_CNT_MAX];
   uchar       in_kind[IN_CNT_MAX];
   out_link_t  out;
+
+  /* io_uring setup */
+
+  fd_io_uring_t ioring[1];
 };
 
 typedef struct fd_snaplh_tile fd_snaplh_t;
@@ -134,15 +134,13 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)                                );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          );
-  #if FD_HAS_LIBURING
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  );
-  l = FD_LAYOUT_APPEND( l, alignof(struct io_uring), sizeof(struct io_uring)                            );
-  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_ur_align(),   fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
-  #endif
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snaplh_t),      sizeof(fd_snaplh_t)                                );
+  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          );
+  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          );
+  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          );
+  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  );
+  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_ur_align(),    fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
+  l = FD_LAYOUT_APPEND( l, fd_io_uring_shmem_align(), fd_io_uring_shmem_footprint( VINYL_LTHASH_IORING_DEPTH, VINYL_LTHASH_IORING_DEPTH ) );
   return FD_LAYOUT_FINI( l, alignof(fd_snaplh_t) );
 }
 
@@ -311,18 +309,16 @@ handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
   streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair );
 }
 
+/* Process next read completion */
+
 static inline ulong
-consume_available_cqe( fd_snaplh_t * ctx,
-                       int           peek_first ) {
+consume_available_cqe( fd_snaplh_t * ctx ) {
   if( FD_LIKELY( !ctx->vinyl.pending_rd_req_cnt ) ) return 0UL;
-  if( FD_UNLIKELY( !ctx->vinyl.io_uring_enabled ) ) return 0UL;
-  /* Consume one at a time, so that incoming frags can be processed
-     with minimum delay. */
-  #if FD_HAS_LIBURING
-  if( FD_UNLIKELY( !!peek_first ) ) {
-    struct io_uring_cqe * cqe = NULL;
-    io_uring_peek_cqe( ctx->vinyl.ring, &cqe ); if( !cqe ) return 0UL;
-  }
+  if( ctx->vinyl.io->type!=FD_VINYL_IO_TYPE_UR ) return 0UL;
+  if( !fd_io_uring_cq_ready( ctx->ioring->cq ) ) return 0UL;
+
+  /* At this point, there is at least one unconsumed CQE */
+
   fd_vinyl_io_rd_t * rd_req = NULL;
   if( FD_LIKELY( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )==FD_VINYL_SUCCESS ) ) {
     handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
@@ -332,9 +328,6 @@ consume_available_cqe( fd_snaplh_t * ctx,
     ctx->vinyl.pending_rd_req_cnt--;
     return 1UL;
   }
-  #else
-  (void)peek_first;
-  #endif
   return 0UL;
 }
 
@@ -419,7 +412,7 @@ static void
 before_credit( fd_snaplh_t *       ctx,
                fd_stem_context_t * stem FD_PARAM_UNUSED,
                int *               charge_busy ) {
-  *charge_busy = !!consume_available_cqe( ctx, 1/*peek_first*/ );
+  *charge_busy = !!consume_available_cqe( ctx );
 }
 
 static void
@@ -485,7 +478,7 @@ handle_lv_data_frag( fd_snaplh_t * ctx,
     fd_vinyl_bstream_phdr_t acc_hdr[1];
     memcpy( &seq,    indata, sizeof(ulong) );
     memcpy( acc_hdr, indata + sizeof(ulong), sizeof(fd_vinyl_bstream_phdr_t) );
-    if( FD_LIKELY( ctx->vinyl.io_uring_enabled ) ) {
+    if( FD_LIKELY( ctx->vinyl.io->type==FD_VINYL_IO_TYPE_UR ) ) {
       handle_vinyl_lthash_request_ur( ctx, seq, acc_hdr );
     } else {
       handle_vinyl_lthash_request_bd( ctx, seq, acc_hdr );
@@ -538,7 +531,7 @@ handle_control_frag( fd_snaplh_t * ctx,
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
 
       if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
-        if( FD_LIKELY( ctx->vinyl.io_uring_enabled ) ) {
+        if( FD_LIKELY( ctx->vinyl.io->type==FD_VINYL_IO_TYPE_UR ) ) {
           handle_vinyl_lthash_request_ur_consume_all( ctx );
         }
         ctx->state = handle_lthash_completion( ctx, stem );
@@ -607,11 +600,30 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
 
   out_fds[ out_cnt++ ] = ctx->vinyl.dev_fd;
 
-  #if FD_HAS_LIBURING
-  if( FD_LIKELY( !!ctx->vinyl.ring ) ) out_fds[ out_cnt++ ] = ctx->vinyl.ring->ring_fd;
-  #endif
+  if( FD_LIKELY( ctx->ioring->ioring_fd>=0 ) ) {
+    out_fds[ out_cnt++ ] = ctx->ioring->ioring_fd;
+  }
 
   return out_cnt;
+}
+
+static void
+during_housekeeping( fd_snaplh_t * ctx ) {
+
+  /* Service io_uring instance */
+
+  if( ctx->vinyl.io->type==FD_VINYL_IO_TYPE_UR ) {
+    uint sq_drops = fd_io_uring_sq_dropped( ctx->ioring->sq );
+    if( FD_UNLIKELY( sq_drops ) ) {
+      FD_LOG_CRIT(( "kernel io_uring dropped I/O requests, cannot continue (sq_dropped=%u)", sq_drops ));
+    }
+
+    uint cq_drops = fd_io_uring_cq_overflow( ctx->ioring->cq );
+    if( FD_UNLIKELY( cq_drops ) ) {
+      FD_LOG_CRIT(( "kernel io_uring dropped I/O completions, cannot continue (cq_overflow=%u)", cq_drops ));
+    }
+  }
+
 }
 
 static ulong
@@ -623,12 +635,73 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t), sizeof(fd_snaplh_t) );
 
-  int ring_fd = INT_MAX;
-  #if FD_HAS_LIBURING
-  if( !!ctx->vinyl.ring ) ring_fd = ctx->vinyl.ring->ring_fd;
-  #endif
-  populate_sock_filter_policy_fd_snaplh_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->vinyl.dev_fd, (uint)ring_fd );
+  populate_sock_filter_policy_fd_snaplh_tile( out_cnt, out,
+      (uint)fd_log_private_logfile_fd(),
+      (uint)ctx->vinyl.dev_fd,
+      (uint)ctx->ioring->ioring_fd /* possibly -1 */ );
   return sock_filter_policy_fd_snaplh_tile_instr_cnt;
+}
+
+static fd_vinyl_io_t *
+snaplh_io_uring_init( fd_snaplh_t * ctx,
+                      void *        uring_shmem,
+                      void *        vinyl_io_ur_mem,
+                      int           dev_fd ) {
+  ulong const uring_depth = VINYL_LTHASH_IORING_DEPTH;
+  struct io_uring_params params[1];
+  fd_io_uring_params_init( params, uring_depth );
+
+  if( FD_UNLIKELY( !fd_io_uring_init_shmem( ctx->ioring, params, uring_shmem, uring_depth, uring_depth ) ) ) {
+    FD_LOG_ERR(( "fd_io_uring_init_shmem failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  fd_io_uring_t * ioring = ctx->ioring;
+
+  if( FD_UNLIKELY( fd_io_uring_register_files( ioring->ioring_fd, &dev_fd, 1 )<0 ) ) {
+    FD_LOG_ERR(( "io_uring_register_files failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  struct io_uring_restriction res[3] = {
+    { .opcode    = IORING_RESTRICTION_SQE_OP,
+      .sqe_op    = IORING_OP_READ },
+    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
+      .sqe_flags = IOSQE_FIXED_FILE },
+    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
+      .sqe_flags = IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS }
+  };
+  if( FD_UNLIKELY( fd_io_uring_register_restrictions( ioring->ioring_fd, res, 3U )<0 ) ) {
+    FD_LOG_ERR(( "io_uring_register_restrictions failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( fd_io_uring_enable_rings( ioring->ioring_fd )<0 ) ) {
+    FD_LOG_ERR(( "io_uring_enable_rings failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  ulong align = fd_vinyl_io_ur_align();
+  FD_TEST( fd_ulong_is_pow2( align ) );
+
+  ulong footprint = fd_vinyl_io_ur_footprint( VINYL_LTHASH_IO_SPAD_MAX );
+  FD_TEST( fd_ulong_is_aligned( footprint, align ) );
+
+  /* Before invoking fd_vinyl_io_ur_init, the sync block must be
+     already available.  Although in principle one could keep
+     calling fd_vinyl_io_ur_init until it returns !=NULL, doing this
+     would log uncessary (and misleading) warnings. */
+  FD_LOG_INFO(( "waiting for account database creation" ));
+  for(;;) {
+    fd_vinyl_bstream_block_t block[1];
+    ulong dev_sync = 0UL; /* Use the beginning of the file for the sync block */
+    bd_read( dev_fd, dev_sync, block, FD_VINYL_BSTREAM_BLOCK_SZ );
+    int type = fd_vinyl_bstream_ctl_type( block->sync.ctl );
+    if( FD_UNLIKELY( type != FD_VINYL_BSTREAM_CTL_TYPE_SYNC ) ) continue;
+    ulong io_seed = block->sync.hash_trail;
+    if( FD_LIKELY( !fd_vinyl_bstream_block_test( io_seed, block ) ) ) break;
+    fd_log_sleep( 1e6 ); /* 1ms */
+  }
+  FD_LOG_INFO(( "found valid account database sync block, attaching ..." ));
+
+  fd_vinyl_io_t * io = fd_vinyl_io_ur_init( vinyl_io_ur_mem, VINYL_LTHASH_IO_SPAD_MAX, dev_fd, ioring );
+  if( FD_UNLIKELY( !io ) ) FD_LOG_ERR(( "vinyl_io_ur_init failed" ));
+  return io;
 }
 
 static void
@@ -637,14 +710,12 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)                                );
-  void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          ); (void)pair_mem;
-  void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                          ); (void)pair_tmp;
-  #if FD_HAS_LIBURING
-  void * rd_req_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  ); (void)rd_req_mem;
-  void *  _ring_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct io_uring), sizeof(struct io_uring)                            );
-  void *  uring_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(),   fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
-  #endif
+  fd_snaplh_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t),      sizeof(fd_snaplh_t)                                );
+  void * pair_mem    = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          ); (void)pair_mem;
+  void * pair_tmp    = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          ); (void)pair_tmp;
+  void * rd_req_mem  = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  ); (void)rd_req_mem;
+  void * uring_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(),    fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
+  void * uring_shmem = FD_SCRATCH_ALLOC_APPEND( l, fd_io_uring_shmem_align(), fd_io_uring_shmem_footprint( VINYL_LTHASH_IORING_DEPTH, VINYL_LTHASH_IORING_DEPTH ) );
 
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
 
@@ -673,63 +744,12 @@ privileged_init( fd_topo_t *      topo,
   ctx->vinyl.dev_sz   = bstream_sz;
   ctx->vinyl.dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
 
+  ctx->vinyl.io = NULL;
+  ctx->ioring->ioring_fd = -1;
+
   if( FD_LIKELY( tile->snaplh.io_uring_enabled ) ) {
-    #if !FD_HAS_LIBURING
-      FD_LOG_ERR(( "config has enabled io_uring but liburing is not available" ));
-    #endif
+    ctx->vinyl.io = snaplh_io_uring_init( ctx, uring_shmem, uring_mem, dev_fd );
   }
-  ctx->vinyl.io_uring_enabled = !!tile->snaplh.io_uring_enabled;
-
-  ctx->vinyl.io               = NULL;
-  ctx->vinyl.ring             = NULL;
-  #if FD_HAS_LIBURING
-  if( FD_LIKELY( tile->snaplh.io_uring_enabled ) ) {
-    /* Join the bstream using io_ur */
-    struct io_uring * ring = _ring_mem;
-    uint depth = 2 * VINYL_LTHASH_RD_REQ_MAX;
-    struct io_uring_params params = {
-      .flags = IORING_SETUP_CQSIZE |
-              IORING_SETUP_DEFER_TASKRUN |
-              IORING_SETUP_SINGLE_ISSUER |
-              IORING_SETUP_COOP_TASKRUN,
-      .cq_entries = depth
-    };
-    int init_err = io_uring_queue_init_params( depth, ring, &params );
-    if( FD_UNLIKELY( init_err==-EPERM ) ) {
-      FD_LOG_ERR(( "missing privileges to setup io_uring" ));
-    } else if( init_err<0 ) {
-      FD_LOG_ERR(( "io_uring_queue_init_params failed (%i-%s)", init_err, fd_io_strerror( -init_err ) ));
-    }
-    FD_TEST( 0==io_uring_register_files( ring, &dev_fd, 1 ) );
-
-    ulong align = fd_vinyl_io_ur_align();
-    FD_TEST( fd_ulong_is_pow2( align ) );
-
-    ulong footprint = fd_vinyl_io_ur_footprint( VINYL_LTHASH_IO_SPAD_MAX );
-    FD_TEST( fd_ulong_is_aligned( footprint, align ) );
-
-    /* Before invoking fd_vinyl_io_ur_init, the sync block must be
-       already available.  Although in principle one could keep
-       calling fd_vinyl_io_ur_init until it returns !=NULL, doing this
-       would log uncessary (and misleading) warnings. */
-    for(;;) {
-      fd_vinyl_bstream_block_t block[1];
-      ulong dev_sync = 0UL; /* Use the beginning of the file for the sync block */
-      bd_read( dev_fd, dev_sync, block, FD_VINYL_BSTREAM_BLOCK_SZ );
-      int type = fd_vinyl_bstream_ctl_type ( block->sync.ctl );
-      if( FD_UNLIKELY( type != FD_VINYL_BSTREAM_CTL_TYPE_SYNC ) ) continue;
-      ulong io_seed = block->sync.hash_trail;
-      if( FD_LIKELY( !fd_vinyl_bstream_block_test( io_seed, block ) ) ) break;
-      FD_SPIN_PAUSE();
-    }
-
-    fd_vinyl_io_t * io = fd_vinyl_io_ur_init( uring_mem, VINYL_LTHASH_IO_SPAD_MAX, dev_fd, ring );
-    FD_TEST( io );
-    ctx->vinyl.io = io;
-
-    ctx->vinyl.ring = ring;
-  }
-  #endif
 }
 
 static void
@@ -742,9 +762,7 @@ unprivileged_init( fd_topo_t *      topo,
   void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                         );
   void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                         );
   void * rd_req_mem = NULL;
-  #if FD_HAS_LIBURING
   rd_req_mem        = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ );
-  #endif
 
   FD_TEST( fd_topo_tile_name_cnt( topo, "snaplh" )<=FD_SNAPSHOT_MAX_SNAPLH_TILES );
 
@@ -835,10 +853,11 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snaplh_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snaplh_t)
 
-#define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
-#define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
-#define STEM_CALLBACK_BEFORE_CREDIT   before_credit
+#define STEM_CALLBACK_SHOULD_SHUTDOWN     should_shutdown
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../disco/stem/fd_stem.c"
 

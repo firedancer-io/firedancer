@@ -7,20 +7,21 @@
      crashes instead of silent drops
    - Sandboxing */
 
+#define _GNU_SOURCE
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../vinyl/fd_vinyl.h"
 #include "../../vinyl/fd_vinyl_base.h"
 #include "../../vinyl/io/fd_vinyl_io_ur.h"
 #include "../../util/pod/fd_pod_format.h"
+#include "../../util/io_uring/fd_io_uring_setup.h"
+#include "../../util/io_uring/fd_io_uring_register.h"
 #include "generated/fd_accdb_tile_seccomp.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <lz4.h>
-#if FD_HAS_LIBURING
-#include <liburing.h>
-#endif
+#include <linux/io_uring.h>
 
 #define NAME "accdb"
 #define MAX_INS 8
@@ -84,8 +85,12 @@ struct fd_vinyl_tile {
 
   /* I/O */
 
-  int               bstream_fd;
-  struct io_uring * ring;
+  int bstream_fd;
+
+  /* io_uring */
+
+  fd_io_uring_t ring[1];
+  void * ioring_shmem; /* shared between kernel and user */
 
   /* Clients */
 
@@ -124,32 +129,9 @@ struct fd_vinyl_tile {
 
   long sync_next_ns;
 
-  /* Place optional/external data structures last so the above struct
-     offsets are reasonably stable across builds */
-# if FD_HAS_LIBURING
-  struct io_uring _ring[1];
-# endif
-
 };
 
 typedef struct fd_vinyl_tile fd_vinyl_tile_t;
-
-#if FD_HAS_LIBURING
-
-static struct io_uring_params *
-vinyl_io_uring_params( struct io_uring_params * params,
-                       uint                     uring_depth ) {
-  memset( params, 0, sizeof(struct io_uring_params) );
-  params->flags      |= IORING_SETUP_CQSIZE;
-  params->cq_entries  = uring_depth;
-  params->flags      |= IORING_SETUP_COOP_TASKRUN;
-  params->flags      |= IORING_SETUP_SINGLE_ISSUER;
-  params->flags      |= IORING_SETUP_R_DISABLED;
-  params->features   |= IORING_SETUP_DEFER_TASKRUN;
-  return params;
-}
-
-#endif
 
 /* Vinyl state object */
 
@@ -158,67 +140,50 @@ scratch_align( void ) {
   return FD_SHMEM_HUGE_PAGE_SZ;
 }
 
+struct fd_accdb_tile_layout {
+  ulong footprint;
+  ulong io_off;
+  ulong io_uring_shmem_off;
+  ulong vinyl_line_off;
+};
+
+typedef struct fd_accdb_tile_layout fd_accdb_tile_layout_t;
+
+static void
+fd_accdb_tile_layout( fd_accdb_tile_layout_t * layout,
+                      fd_topo_tile_t const *   tile ) {
+  memset( layout, 0, sizeof(fd_accdb_tile_layout_t) );
+
+  FD_SCRATCH_ALLOC_INIT( l, NULL );
+  ulong ctx_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
+  FD_TEST( ctx_off==0UL );
+
+  switch( tile->accdb.io_type ) {
+  case FD_VINYL_IO_TYPE_UR:
+    layout->io_off = (ulong)FD_SCRATCH_ALLOC_APPEND(
+        l, fd_vinyl_io_ur_align(), fd_vinyl_io_ur_footprint( IO_SPAD_MAX ) );
+    layout->io_uring_shmem_off = (ulong)FD_SCRATCH_ALLOC_APPEND(
+        l, FD_SHMEM_HUGE_PAGE_SZ, fd_io_uring_shmem_footprint( tile->accdb.uring_depth, tile->accdb.uring_depth ) );
+    break;
+  case FD_VINYL_IO_TYPE_BD:
+    layout->io_off = (ulong)FD_SCRATCH_ALLOC_APPEND(
+        l, fd_vinyl_io_bd_align(), fd_vinyl_io_bd_footprint( IO_SPAD_MAX ) );
+    break;
+  default:
+    FD_LOG_CRIT(( "invalid tile->accdb.io_type %d", tile->accdb.io_type ));
+  }
+
+  layout->vinyl_line_off = (ulong)FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(fd_vinyl_line_t), sizeof(fd_vinyl_line_t)*tile->accdb.line_max );
+  layout->footprint = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+}
+
 static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
-  if( tile->accdb.io_type==FD_VINYL_IO_TYPE_UR ) {
-#   if FD_HAS_LIBURING
-    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_ur_align(), fd_vinyl_io_ur_footprint( IO_SPAD_MAX ) );
-#   endif
-  } else {
-    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_bd_align(), fd_vinyl_io_bd_footprint( IO_SPAD_MAX ) );
-  }
-  l = FD_LAYOUT_APPEND( l, alignof(fd_vinyl_line_t), sizeof(fd_vinyl_line_t)*tile->accdb.line_max );
-  return FD_LAYOUT_FINI( l, scratch_align() );
+  fd_accdb_tile_layout_t layout[1];
+  fd_accdb_tile_layout( layout, tile );
+  return layout->footprint;
 }
-
-#if FD_HAS_LIBURING
-
-static void
-vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
-                     uint                  uring_depth,
-                     int                   dev_fd ) {
-  ctx->ring = ctx->_ring;
-
-  /* Setup io_uring instance */
-  struct io_uring_params params[1];
-  vinyl_io_uring_params( params, uring_depth );
-  int init_err = io_uring_queue_init_params( uring_depth, ctx->ring, params );
-  if( FD_UNLIKELY( init_err<0 ) ) FD_LOG_ERR(( "io_uring_queue_init_params failed (%i-%s)", init_err, fd_io_strerror( -init_err ) ));
-
-  /* Setup io_uring file access */
-  FD_TEST( 0==io_uring_register_files( ctx->ring, &dev_fd, 1 ) );
-
-  /* Register restrictions */
-  struct io_uring_restriction res[3] = {
-    { .opcode    = IORING_RESTRICTION_SQE_OP,
-      .sqe_op    = IORING_OP_READ },
-    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
-      .sqe_flags = IOSQE_FIXED_FILE },
-    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
-      .sqe_flags = IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS }
-  };
-  int res_err = io_uring_register_restrictions( ctx->ring, res, 3U );
-  if( FD_UNLIKELY( res_err<0 ) ) FD_LOG_ERR(( "io_uring_register_restrictions failed (%i-%s)", res_err, fd_io_strerror( -res_err ) ));
-
-  /* Enable rings */
-  int enable_err = io_uring_enable_rings( ctx->ring );
-  if( FD_UNLIKELY( enable_err<0 ) ) FD_LOG_ERR(( "io_uring_enable_rings failed (%i-%s)", enable_err, fd_io_strerror( -enable_err ) ));
-}
-
-#else /* no io_uring */
-
-static void
-vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
-                     uint                  uring_depth,
-                     int                   dev_fd ) {
-  (void)ctx; (void)uring_depth; (void)dev_fd;
-  FD_LOG_ERR(( "Sorry, this build does not support io_uring" ));
-}
-
-#endif
 
 static ulong
 populate_allowed_fds( fd_topo_t      const * topo,
@@ -239,9 +204,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
 
   out_fds[ out_cnt++ ] = ctx->bstream_fd;
 
-  #if FD_HAS_LIBURING
-  if( FD_LIKELY( !!ctx->ring ) ) out_fds[ out_cnt++ ] = ctx->ring->ring_fd;
-  #endif
+  if( ctx->ring->ioring_fd>=0 ) out_fds[ out_cnt++ ] = ctx->ring->ioring_fd;
 
   return out_cnt;
 }
@@ -255,12 +218,46 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_vinyl_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
 
-  int ring_fd = INT_MAX;
-  #if FD_HAS_LIBURING
-  if( FD_LIKELY( !!ctx->ring ) ) ring_fd = ctx->ring->ring_fd;
-  #endif
-  populate_sock_filter_policy_fd_accdb_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->bstream_fd, (uint)ring_fd );
+  populate_sock_filter_policy_fd_accdb_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->bstream_fd, (uint)ctx->ring->ioring_fd );
   return sock_filter_policy_fd_accdb_tile_instr_cnt;
+}
+
+static void
+vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
+                     uint              uring_depth,
+                     int               dev_fd ) {
+  struct io_uring_params params[1];
+  fd_io_uring_params_init( params, uring_depth );
+
+  /* We busy poll the kernel syscall interface and use GETEVENTS.
+     Therefore inhibit interrupt-driven completions. */
+  params->flags    |= IORING_SETUP_COOP_TASKRUN;
+  params->features |= IORING_SETUP_DEFER_TASKRUN;
+
+  if( FD_UNLIKELY( !fd_io_uring_init_shmem( ctx->ring, params, ctx->ioring_shmem, uring_depth, uring_depth ) ) ) {
+    FD_LOG_ERR(( "fd_io_uring_init_shmem failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( fd_io_uring_register_files( ctx->ring->ioring_fd, &dev_fd, 1 )<0 ) ) {
+    FD_LOG_ERR(( "io_uring_register_files failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  struct io_uring_restriction res[3] = {
+    { .opcode    = IORING_RESTRICTION_SQE_OP,
+      .sqe_op    = IORING_OP_READ },
+    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
+      .sqe_flags = IOSQE_FIXED_FILE },
+    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
+      .sqe_flags = IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS }
+  };
+  if( FD_UNLIKELY( fd_io_uring_register_restrictions( ctx->ring->ioring_fd, res, 3U )<0 ) ) {
+    FD_LOG_ERR(( "io_uring_register_restrictions failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  /* Enable rings */
+  if( FD_UNLIKELY( fd_io_uring_enable_rings( ctx->ring->ioring_fd )<0 ) ) {
+    FD_LOG_ERR(( "io_uring_enable_rings failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 static void
@@ -271,26 +268,24 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "invalid vinyl_line_max %lu", tile->accdb.line_max ));
   }
 
-  void * tile_mem = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  FD_SCRATCH_ALLOC_INIT( l, tile_mem );
-  fd_vinyl_tile_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
-  fd_vinyl_t *      vinyl = ctx->vinyl;
-  void * _io = NULL;
-  if( tile->accdb.io_type==FD_VINYL_IO_TYPE_UR ) {
-#   if FD_HAS_LIBURING
-    _io = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(), fd_vinyl_io_ur_footprint( IO_SPAD_MAX ) );
-#   endif
-  } else {
-    _io = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_bd_align(), fd_vinyl_io_bd_footprint( IO_SPAD_MAX ) );
-  }
-  fd_vinyl_line_t * _line = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_line_t), line_footprint );
-  ulong             _end  = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-  FD_TEST( (ulong)tile_mem==(ulong)ctx );
-  FD_TEST( (ulong)_end-(ulong)tile_mem==scratch_footprint( tile ) );
+  fd_vinyl_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  ulong ctx_laddr = (ulong)ctx;
 
   memset( ctx, 0, sizeof(fd_vinyl_tile_t) );
+  ctx->bstream_fd      = -1;
+  ctx->ring->ioring_fd = -1;
 
-  ctx->io_mem = _io;
+  fd_accdb_tile_layout_t layout[1];
+  fd_accdb_tile_layout( layout, tile );
+
+  fd_vinyl_t * vinyl = ctx->vinyl;
+  ctx->io_mem = (void *)( ctx_laddr + layout->io_off );
+
+  if( tile->accdb.io_type==FD_VINYL_IO_TYPE_UR ) {
+    ctx->ioring_shmem = (void *)( ctx_laddr + layout->io_uring_shmem_off );
+  }
+
+  fd_vinyl_line_t * _line = (void *)( ctx_laddr + layout->vinyl_line_off );
 
   vinyl->cnc            = NULL;
   vinyl->io             = NULL;
@@ -494,7 +489,7 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
       return;
     }
 
-    if( ctx->ring ) {
+    if( ctx->ring->ioring_fd!=-1 ) {
       vinyl->io = fd_vinyl_io_ur_init( ctx->io_mem, IO_SPAD_MAX, ctx->bstream_fd, ctx->ring );
       if( FD_UNLIKELY( !vinyl->io ) ) FD_LOG_ERR(( "Failed to initialize io_uring I/O backend for account database" ));
     } else {
@@ -581,6 +576,20 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
   if( now >= ctx->sync_next_ns ) {
     ctx->sync_next_ns = now + (long)30e9; /* every 30 seconds */
     fd_vinyl_io_sync( vinyl->io, FD_VINYL_IO_FLAG_BLOCKING );
+  }
+
+  /* Service io_uring instance */
+
+  if( ctx->ring->ioring_fd!=-1 ) {
+    uint sq_drops = fd_io_uring_sq_dropped( ctx->ring->sq );
+    if( FD_UNLIKELY( sq_drops ) ) {
+      FD_LOG_CRIT(( "kernel io_uring dropped I/O requests, cannot continue (sq_dropped=%u)", sq_drops ));
+    }
+
+    uint cq_drops = fd_io_uring_cq_overflow( ctx->ring->cq );
+    if( FD_UNLIKELY( cq_drops ) ) {
+      FD_LOG_CRIT(( "kernel io_uring dropped I/O completions, cannot continue (cq_overflow=%u)", cq_drops ));
+    }
   }
 
 }
