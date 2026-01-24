@@ -120,6 +120,10 @@
 #define FD_RPC_ERROR_SLOT_NOT_EPOCH_BOUNDARY                     (-32018)
 #define FD_RPC_ERROR_LONG_TERM_STORAGE_UNREACHABLE               (-32019)
 
+#define DEQUE_NAME ref_q
+#define DEQUE_T    ulong
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
 static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
   return (fd_http_server_params_t) {
@@ -182,6 +186,7 @@ struct fd_rpc_tile {
 
   bank_info_t * banks;
   ulong         max_live_slots;
+  ulong *       ref_q;
 
   ulong cluster_confirmed_slot;
 
@@ -228,6 +233,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),   http_fp                                      );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                         );
   l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t) );
+  l = FD_LAYOUT_APPEND( l, ref_q_align(),            ref_q_footprint( tile->rpc.max_live_slots )  );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -254,6 +260,19 @@ before_credit( fd_rpc_tile_t *     ctx,
   if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
     *charge_busy = fd_http_server_poll( ctx->http, 0 );
     ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL )*128L*1000L);
+  }
+}
+
+static inline void
+after_credit( fd_rpc_tile_t *     ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  if( FD_LIKELY( !ref_q_empty( ctx->ref_q ) ) ) {
+    ulong bank_idx = ref_q_pop_head( ctx->ref_q );
+    fd_stem_publish( stem, ctx->replay_out->idx, bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+    *opt_poll_in = 0;
+    *charge_busy = 1;
   }
 }
 
@@ -345,11 +364,11 @@ returnable_frag( fd_rpc_tile_t *     ctx,
           else if ( FD_LIKELY( ctx->banks[ ctx->finalized_idx ].slot==ULONG_MAX || ctx->banks[ ctx->finalized_idx ].slot<msg->slot ) ) {
             FD_TEST( msg->bank_idx!=ULONG_MAX );
             for( ulong i=0UL; i<ctx->max_live_slots; i++ ) {
-              /* release ownership of any banks older than
-                 finalized_idx. TODO: release ownership of any
-                 descendants of released banks. */
+              /* Release ownership of any banks older than
+                 finalized_idx. */
               if( FD_UNLIKELY( ctx->banks[ i ].slot!=ULONG_MAX && ctx->banks[ i ].slot<msg->slot ) ) {
-                fd_stem_publish( stem, ctx->replay_out->idx, i, 0UL, 0UL, 0UL, 0UL, 0UL );
+                if( FD_UNLIKELY( !ref_q_avail( ctx->ref_q ) ) ) FD_LOG_CRIT(( "ref_q full" ));
+                ref_q_push_tail( ctx->ref_q, i );
                 ctx->banks[ i ].slot = ULONG_MAX;
               }
             }
@@ -1494,6 +1513,7 @@ unprivileged_init( fd_topo_t *      topo,
                         FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( derive_http_params( tile ) ) );
   void * _alloc       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
   void * _banks       = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)           );
+  void * _ref_q       = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),            ref_q_footprint( tile->rpc.max_live_slots )            );
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( alloc );
@@ -1513,6 +1533,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->banks = _banks;
   ctx->max_live_slots = tile->rpc.max_live_slots;
   for( ulong i=0UL; i<ctx->max_live_slots; i++ ) ctx->banks[ i ].slot = ULONG_MAX;
+
+  ctx->ref_q = ref_q_join( ref_q_new( _ref_q, tile->rpc.max_live_slots ) );
+  FD_TEST( ctx->ref_q );
 
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
@@ -1589,6 +1612,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
