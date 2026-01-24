@@ -11,12 +11,11 @@
 /* Follows message structure in fd_stake_ci_stake_msg_init.
    Frankendancer only */
 struct fd_stake_weight_msg_t {
-  ulong             epoch;          /* Epoch for which the stake weights are valid */
-  ulong             staked_cnt;     /* Number of staked nodes */
-  ulong             start_slot;     /* Start slot of the epoch */
-  ulong             slot_cnt;       /* Number of slots in the epoch */
-  ulong             excluded_stake; /* Total stake that is excluded from leader selection */
-  ulong             vote_keyed_lsched; /* 1=use vote-keyed leader schedule, 0=use old leader schedule */
+  ulong                  epoch;          /* Epoch for which the stake weights are valid */
+  ulong                  staked_cnt;     /* Number of staked nodes */
+  ulong                  start_slot;     /* Start slot of the epoch */
+  ulong                  slot_cnt;       /* Number of slots in the epoch */
+  ulong                  excluded_stake; /* Total stake that is excluded from leader selection */
   fd_vote_stake_weight_t weights[]; /* Stake weights for each staked node */
 };
 typedef struct fd_stake_weight_msg_t fd_stake_weight_msg_t;
@@ -38,7 +37,6 @@ struct fd_epoch_info_msg_t {
   ulong                  start_slot;        /* Start slot of the epoch */
   ulong                  slot_cnt;          /* Number of slots in the epoch */
   ulong                  excluded_stake;    /* Total stake that is excluded from leader selection */
-  ulong                  vote_keyed_lsched; /* Whether vote account keyed leader schedule is active */
   fd_features_t          features;          /* Feature activation slots */
   fd_vote_stake_weight_t weights[];         /* Flexible array member (must be last) */
 };

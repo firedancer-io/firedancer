@@ -39,9 +39,8 @@ fd_stake_ci_new( void             * mem,
     ei->start_slot     = 0UL;
     ei->slot_cnt       = 0UL;
     ei->excluded_stake = 0UL;
-    ei->vote_keyed_lsched = 0UL;
 
-    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL,    info->vote_stake_weight,  0UL, ei->vote_keyed_lsched ) );
+    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL, info->vote_stake_weight, 0UL ) );
     ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, ei->lsched, identity_key, 0UL ) );
   }
   info->identity_key[ 0 ] = *identity_key;
@@ -67,7 +66,6 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
   info->scratch->slot_cnt       = msg->slot_cnt;
   info->scratch->staked_cnt     = msg->staked_cnt;
   info->scratch->excluded_stake = msg->excluded_stake;
-  info->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
 
   fd_memcpy( info->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
 }
@@ -79,12 +77,11 @@ fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
                  " but the maximum allowed is %lu", msg->staked_cnt, MAX_SHRED_DESTS ));
 
-  info->scratch->epoch             = msg->epoch;
-  info->scratch->start_slot        = msg->start_slot;
-  info->scratch->slot_cnt          = msg->slot_cnt;
-  info->scratch->staked_cnt        = msg->staked_cnt;
-  info->scratch->excluded_stake    = msg->excluded_stake;
-  info->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
+  info->scratch->epoch          = msg->epoch;
+  info->scratch->start_slot     = msg->start_slot;
+  info->scratch->slot_cnt       = msg->slot_cnt;
+  info->scratch->staked_cnt     = msg->staked_cnt;
+  info->scratch->excluded_stake = msg->excluded_stake;
 
   fd_memcpy( info->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
 }
@@ -155,7 +152,6 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   ulong epoch                  = info->scratch->epoch;
   ulong staked_cnt             = info->scratch->staked_cnt;
   ulong unchanged_staked_cnt   = info->scratch->staked_cnt;
-  ulong vote_keyed_lsched      = info->scratch->vote_keyed_lsched;
 
   /* Just take the first one arbitrarily because they both have the same
      contact info, other than possibly some staked nodes with no contact
@@ -227,10 +223,9 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   new_ei->start_slot     = info->scratch->start_slot;
   new_ei->slot_cnt       = info->scratch->slot_cnt;
   new_ei->excluded_stake = excluded_stake;
-  new_ei->vote_keyed_lsched = vote_keyed_lsched;
 
   new_ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( new_ei->_lsched, epoch, new_ei->start_slot, new_ei->slot_cnt,
-                                                                unchanged_staked_cnt, info->vote_stake_weight, excluded_stake, vote_keyed_lsched ) );
+                                                                unchanged_staked_cnt, info->vote_stake_weight, excluded_stake ) );
   new_ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( new_ei->_sdest, info->shred_dest, j,
                                                                 new_ei->lsched, info->identity_key,  excluded_stake ) );
   log_summary( "stake update", info );

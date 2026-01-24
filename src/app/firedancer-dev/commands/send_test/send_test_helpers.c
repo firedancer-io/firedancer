@@ -153,7 +153,6 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
   msg->start_slot = ctx->epoch*MAX_SLOTS_PER_EPOCH;
   msg->slot_cnt = MAX_SLOTS_PER_EPOCH;
   msg->excluded_stake = 0;
-  msg->vote_keyed_lsched = 0;
 
   fd_vote_stake_weight_t * stake_weights = msg->weights;
   ulong stake_count = 0;
