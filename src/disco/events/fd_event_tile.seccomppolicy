@@ -1,0 +1,91 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+unsigned int logfile_fd, uint etc_hosts_fd, uint etc_resolv_conf
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# client: need to be able to establish connections to the event server.
+socket: (and (eq (arg 0) "AF_INET")
+#             (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK") TODO: UNCOMMENTING CAUSES SIGSYS ?
+             (eq (arg 2) 0))
+
+# resolv: Bind DNS request socket
+bind: (or (eq (arg 2) "sizeof(struct sockaddr_in)")
+          (eq (arg 2) "sizeof(struct sockaddr_in6)"))
+
+# resolv: Wait for DNS responses
+ppoll
+
+# resolv: Receive DNS responses
+recvmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
+             (eq (arg 2) 0))
+
+# resolv: Send DNS queries via UDP or TCP
+sendmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
+             (eq (arg 2) "MSG_FASTOPEN|MSG_NOSIGNAL")
+             (eq (arg 2) "MSG_NOSIGNAL"))
+
+# client: need to be able to connect to the event server to send events.
+#
+# arg 0 is the file descriptor of the socket to connect to.  We will
+# restrict this being called on STDERR or the logfile.
+connect: (not (or (eq (arg 0) 2)
+                  (eq (arg 0) etc_resolv_conf)
+                  (eq (arg 0) etc_hosts_fd)
+                  (eq (arg 0) logfile_fd)))
+
+# client: need to close sockets that were opened when calls to connect
+# fail.
+#
+# arg 0 is the file descriptor that we would like to close.  We will
+# restrict this being called on STDERR or the logfile.
+close: (not (or (eq (arg 0) 2)
+                (eq (arg 0) etc_resolv_conf)
+                (eq (arg 0) etc_hosts_fd)
+                (eq (arg 0) logfile_fd)))
+
+# client: we need to send tcp event data to the server.
+#
+# arg 0 is the file descriptor that we would like to send a request to.
+# We will restrict this being called on STDERR or the logfile.
+sendto: (and (not (or (eq (arg 0) 2)
+                      (eq (arg 0) etc_resolv_conf)
+                      (eq (arg 0) etc_hosts_fd)
+                      (eq (arg 0) logfile_fd)))
+             (eq (arg 3) "MSG_NOSIGNAL"))
+
+# client: we need to be able to receive response data from the server.
+#
+# arg 0 is the file descriptor that we would like to send a request to.
+# We will restrict this being called on STDERR or the logfile.
+recvfrom: (and (not (or (eq (arg 0) 2)
+                        (eq (arg 0) etc_resolv_conf)
+                        (eq (arg 0) etc_hosts_fd)
+                        (eq (arg 0) logfile_fd)))
+               (eq (arg 3) "MSG_NOSIGNAL"))
+
+# resolv: Read DNS config
+lseek: (and (or (eq (arg 0) etc_resolv_conf)
+                (eq (arg 0) etc_hosts_fd))
+            (eq (arg 1) 0)
+            (eq (arg 2) "SEEK_SET"))
+
+# resolv: Read DNS config
+read: (or (eq (arg 0) etc_resolv_conf)
+          (eq (arg 0) etc_hosts_fd))
+
+# resolv: configure UDP or TCP socket (for DNS queries) TODO: PRECISE
+setsockopt

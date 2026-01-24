@@ -182,7 +182,6 @@ fd_circq_cursor_advance( fd_circq_t * circq,
   } else {
     /* Already iterating - move to next */
     if( FD_UNLIKELY( circq->cursor_seq >= circq->cursor_push_seq ) ) return NULL;
-
     uchar * buf = (uchar *)(circq+1);
     fd_circq_message_t * message = (fd_circq_message_t *)(buf+circq->cursor);
     circq->cursor = message->next;
@@ -209,7 +208,6 @@ fd_circq_pop_until( fd_circq_t * circq,
   for( ulong i=0UL; i<to_pop; i++ ) {
     fd_circq_message_t * message = (fd_circq_message_t *)(buf+circq->head);
     circq->cnt--;
-
     if( FD_UNLIKELY( !circq->cnt ) ) {
       circq->head = circq->tail = 0UL;
     } else {

@@ -1,0 +1,19 @@
+{
+    "name": "shred",
+    "id": 2,
+    "description": "The validator received a valid shred",
+    "fields": {
+        "source_ip": { "type": "IPv6", "description": "The source IP address of the shred" },
+        "source_port": { "type": "UInt16", "description": "The source port of the shred" },
+        "protocol": {
+            "type": "LowCardinality(String)",
+            "description": "The protocol used to send the shred",
+            "variants": {
+                "turbine": { "description": "Turbine" },
+                "repair": { "description": "Repair" },
+                "leader": { "description": "Leader" }
+            }
+        },
+        "payload": { "type": "String", "description": "The raw shred payload bytes" }
+    }
+}

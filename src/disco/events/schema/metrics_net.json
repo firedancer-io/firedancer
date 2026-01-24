@@ -1,0 +1,93 @@
+{
+    "name": "metrics_net",
+    "id": 100,
+    "description": "Metrics snapshot for the net tile",
+    "fields": {
+        "meta":                         {
+            "type": "Flatten",
+            "description": "Metadata about this metrics sample",
+            "fields": {
+                "kind_id":       { "type": "UInt64", "description": "The kind_id of this tile instance within its type (e.g., 0, 1, 2 for multiple tiles of same type)" },
+                "sample_id":     { "type": "UInt64", "description": "Unique identifier correlating samples taken at the same time across tiles" },
+                "sample_reason": {
+                    "type": "LowCardinality(String)",
+                    "description": "Reason for taking this sample",
+                    "variants": {
+                        "Periodic": { "description": "Periodic sampling at regular intervals" },
+                        "LeaderStarted": { "description": "Sampled because this validator started leading a slot" },
+                        "LeaderEnded": { "description": "Sampled because this validator finished leading a slot" }
+                    }
+                },
+                "sample_slot":   { "type": "UInt64", "description": "The slot number for which this sample was taken, if applicable" }
+            }
+        },
+        "tile":                         {
+            "type": "Flatten",
+            "description": "Common tile metrics shared by all tiles",
+            "fields": {
+                "pid":                              { "type": "UInt64", "description": "The process ID of the tile" },
+                "tid":                              { "type": "UInt64", "description": "The thread ID of the tile. Always the same as the Pid in production, but might be different in development" },
+                "context_switch_involuntary_count": { "type": "UInt64", "description": "The number of involuntary context switches" },
+                "context_switch_voluntary_count":   { "type": "UInt64", "description": "The number of voluntary context switches" },
+                "page_fault_major_count":           { "type": "UInt64", "description": "The number of major page faults" },
+                "page_fault_minor_count":           { "type": "UInt64", "description": "The number of minor page faults" },
+                "status":                           { "type": "UInt64", "description": "The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" },
+                "heartbeat":                        { "type": "UInt64", "description": "The last UNIX timestamp in nanoseconds that the tile heartbeated" },
+                "in_backpressure":                  { "type": "UInt64", "description": "Whether the tile is currently backpressured or not, either 1 or 0" },
+                "backpressure_count":               { "type": "UInt64", "description": "Number of times the tile has had to wait for one of more consumers to catch up to resume publishing" },
+                "regime_duration_nanos":            {
+                    "type": "FlattenSum",
+                    "description": "Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes",
+                    "fields": {
+                        "regime_duration_nanos_caught_up_housekeeping":    { "type": "UInt64", "description": "Caught up + Housekeeping" },
+                        "regime_duration_nanos_processing_housekeeping":   { "type": "UInt64", "description": "Processing + Housekeeping" },
+                        "regime_duration_nanos_backpressure_housekeeping": { "type": "UInt64", "description": "Backpressure + Housekeeping" },
+                        "regime_duration_nanos_caught_up_prefrag":         { "type": "UInt64", "description": "Caught up + Prefrag" },
+                        "regime_duration_nanos_processing_prefrag":        { "type": "UInt64", "description": "Processing + Prefrag" },
+                        "regime_duration_nanos_backpressure_prefrag":      { "type": "UInt64", "description": "Backpressure + Prefrag" },
+                        "regime_duration_nanos_caught_up_postfrag":        { "type": "UInt64", "description": "Caught up + Postfrag" },
+                        "regime_duration_nanos_processing_postfrag":       { "type": "UInt64", "description": "Processing + Postfrag" }
+                    }
+                },
+                "cpu_duration_nanos":               {
+                    "type": "FlattenSum",
+                    "description": "CPU time spent in each CPU regime",
+                    "fields": {
+                        "cpu_duration_nanos_wait":   { "type": "UInt64", "description": "Wait (task was runnable but not scheduled)" },
+                        "cpu_duration_nanos_idle":   { "type": "UInt64", "description": "Idle (task was not runnable)" },
+                        "cpu_duration_nanos_user":   { "type": "UInt64", "description": "User (task was scheduled and executing in user mode)" },
+                        "cpu_duration_nanos_system": { "type": "UInt64", "description": "System (task was scheduled and executing in kernel mode)" }
+                    }
+                }
+            }
+        },
+        "rx_pkt_cnt":                   { "type": "UInt64", "description": "Packet receive count" },
+        "rx_bytes_total":               { "type": "UInt64", "description": "Total number of bytes received (including Ethernet header)" },
+        "rx_undersz_cnt":               { "type": "UInt64", "description": "Number of incoming packets dropped due to being too small" },
+        "rx_fill_blocked_cnt":          { "type": "UInt64", "description": "Number of incoming packets dropped due to fill ring being full" },
+        "rx_backpressure_cnt":          { "type": "UInt64", "description": "Number of incoming packets dropped due to backpressure" },
+        "rx_busy_cnt":                  { "type": "UInt64", "description": "Number of receive buffers currently busy" },
+        "rx_idle_cnt":                  { "type": "UInt64", "description": "Number of receive buffers currently idle" },
+        "tx_submit_cnt":                { "type": "UInt64", "description": "Number of packet transmit jobs submitted" },
+        "tx_complete_cnt":              { "type": "UInt64", "description": "Number of packet transmit jobs marked as completed by the kernel" },
+        "tx_bytes_total":               { "type": "UInt64", "description": "Total number of bytes transmitted (including Ethernet header)" },
+        "tx_route_fail_cnt":            { "type": "UInt64", "description": "Number of packet transmit jobs dropped due to route failure" },
+        "tx_neighbor_fail_cnt":         { "type": "UInt64", "description": "Number of packet transmit jobs dropped due to unresolved neighbor" },
+        "tx_full_fail_cnt":             { "type": "UInt64", "description": "Number of packet transmit jobs dropped due to XDP TX ring full or missing completions" },
+        "tx_busy_cnt":                  { "type": "UInt64", "description": "Number of transmit buffers currently busy" },
+        "tx_idle_cnt":                  { "type": "UInt64", "description": "Number of transmit buffers currently idle" },
+        "xsk_tx_wakeup_cnt":            { "type": "UInt64", "description": "Number of XSK sendto syscalls dispatched" },
+        "xsk_rx_wakeup_cnt":            { "type": "UInt64", "description": "Number of XSK recvmsg syscalls dispatched" },
+        "xdp_rx_dropped_other":         { "type": "UInt64", "description": "Dropped for other reasons (xdp_statistics_v0.rx_dropped)" },
+        "xdp_rx_invalid_descs":         { "type": "UInt64", "description": "Dropped due to invalid descriptor (xdp_statistics_v0.rx_invalid_descs)" },
+        "xdp_tx_invalid_descs":         { "type": "UInt64", "description": "Dropped due to invalid descriptor (xdp_statistics_v0.tx_invalid_descs)" },
+        "xdp_rx_ring_full":             { "type": "UInt64", "description": "Dropped due to rx ring being full (xdp_statistics_v1.rx_ring_full)" },
+        "xdp_rx_fill_ring_empty_descs": { "type": "UInt64", "description": "Failed to retrieve item from fill ring (xdp_statistics_v1.rx_fill_ring_empty_descs)" },
+        "xdp_tx_ring_empty_descs":      { "type": "UInt64", "description": "Failed to retrieve item from tx ring (xdp_statistics_v1.tx_ring_empty_descs)" },
+        "rx_gre_cnt":                   { "type": "UInt64", "description": "Number of valid GRE packets received" },
+        "rx_gre_invalid_cnt":           { "type": "UInt64", "description": "Number of invalid GRE packets received" },
+        "rx_gre_ignored_cnt":           { "type": "UInt64", "description": "Number of received but ignored GRE packets" },
+        "tx_gre_cnt":                   { "type": "UInt64", "description": "Number of GRE packet transmit jobs submitted" },
+        "tx_gre_route_fail_cnt":        { "type": "UInt64", "description": "Number of GRE packets transmit jobs dropped due to route failure" }
+    }
+}

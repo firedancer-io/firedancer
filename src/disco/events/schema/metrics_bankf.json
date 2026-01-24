@@ -1,0 +1,107 @@
+{
+    "name": "metrics_bankf",
+    "id": 129,
+    "description": "Metrics snapshot for the bankf tile",
+    "fields": {
+        "meta":               {
+            "type": "Flatten",
+            "description": "Metadata about this metrics sample",
+            "fields": {
+                "kind_id":       { "type": "UInt64", "description": "The kind_id of this tile instance within its type (e.g., 0, 1, 2 for multiple tiles of same type)" },
+                "sample_id":     { "type": "UInt64", "description": "Unique identifier correlating samples taken at the same time across tiles" },
+                "sample_reason": {
+                    "type": "LowCardinality(String)",
+                    "description": "Reason for taking this sample",
+                    "variants": {
+                        "Periodic": { "description": "Periodic sampling at regular intervals" },
+                        "LeaderStarted": { "description": "Sampled because this validator started leading a slot" },
+                        "LeaderEnded": { "description": "Sampled because this validator finished leading a slot" }
+                    }
+                },
+                "sample_slot":   { "type": "UInt64", "description": "The slot number for which this sample was taken, if applicable" }
+            }
+        },
+        "tile":               {
+            "type": "Flatten",
+            "description": "Common tile metrics shared by all tiles",
+            "fields": {
+                "pid":                              { "type": "UInt64", "description": "The process ID of the tile" },
+                "tid":                              { "type": "UInt64", "description": "The thread ID of the tile. Always the same as the Pid in production, but might be different in development" },
+                "context_switch_involuntary_count": { "type": "UInt64", "description": "The number of involuntary context switches" },
+                "context_switch_voluntary_count":   { "type": "UInt64", "description": "The number of voluntary context switches" },
+                "page_fault_major_count":           { "type": "UInt64", "description": "The number of major page faults" },
+                "page_fault_minor_count":           { "type": "UInt64", "description": "The number of minor page faults" },
+                "status":                           { "type": "UInt64", "description": "The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" },
+                "heartbeat":                        { "type": "UInt64", "description": "The last UNIX timestamp in nanoseconds that the tile heartbeated" },
+                "in_backpressure":                  { "type": "UInt64", "description": "Whether the tile is currently backpressured or not, either 1 or 0" },
+                "backpressure_count":               { "type": "UInt64", "description": "Number of times the tile has had to wait for one of more consumers to catch up to resume publishing" },
+                "regime_duration_nanos":            {
+                    "type": "FlattenSum",
+                    "description": "Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes",
+                    "fields": {
+                        "regime_duration_nanos_caught_up_housekeeping":    { "type": "UInt64", "description": "Caught up + Housekeeping" },
+                        "regime_duration_nanos_processing_housekeeping":   { "type": "UInt64", "description": "Processing + Housekeeping" },
+                        "regime_duration_nanos_backpressure_housekeeping": { "type": "UInt64", "description": "Backpressure + Housekeeping" },
+                        "regime_duration_nanos_caught_up_prefrag":         { "type": "UInt64", "description": "Caught up + Prefrag" },
+                        "regime_duration_nanos_processing_prefrag":        { "type": "UInt64", "description": "Processing + Prefrag" },
+                        "regime_duration_nanos_backpressure_prefrag":      { "type": "UInt64", "description": "Backpressure + Prefrag" },
+                        "regime_duration_nanos_caught_up_postfrag":        { "type": "UInt64", "description": "Caught up + Postfrag" },
+                        "regime_duration_nanos_processing_postfrag":       { "type": "UInt64", "description": "Processing + Postfrag" }
+                    }
+                },
+                "cpu_duration_nanos":               {
+                    "type": "FlattenSum",
+                    "description": "CPU time spent in each CPU regime",
+                    "fields": {
+                        "cpu_duration_nanos_wait":   { "type": "UInt64", "description": "Wait (task was runnable but not scheduled)" },
+                        "cpu_duration_nanos_idle":   { "type": "UInt64", "description": "Idle (task was not runnable)" },
+                        "cpu_duration_nanos_user":   { "type": "UInt64", "description": "User (task was scheduled and executing in user mode)" },
+                        "cpu_duration_nanos_system": { "type": "UInt64", "description": "System (task was scheduled and executing in kernel mode)" }
+                    }
+                }
+            }
+        },
+        "transaction_result": {
+            "type": "FlattenSum",
+            "description": "Result of loading and executing a transaction",
+            "fields": {
+                "transaction_result_success":                                 { "type": "UInt64", "description": "Transaction executed successfully" },
+                "transaction_result_instructon_error":                        { "type": "UInt64", "description": "An error occurred while processing an instruction" },
+                "transaction_result_account_not_found":                       { "type": "UInt64", "description": "The transaction fee payer address was not found" },
+                "transaction_result_program_account_not_found":               { "type": "UInt64", "description": "A program account referenced by the transaction was not found" },
+                "transaction_result_insufficient_funds_for_fee":              { "type": "UInt64", "description": "The transaction fee payer did not have balance to pay the fee" },
+                "transaction_result_invalid_account_for_fee":                 { "type": "UInt64", "description": "The transaction fee payer account is not owned by the system program, or has data that is not a nonce" },
+                "transaction_result_already_processed":                       { "type": "UInt64", "description": "The transaction has already been processed in a recent block" },
+                "transaction_result_blockhash_not_found":                     { "type": "UInt64", "description": "The transaction references a blockhash that is not recent, or advances a nonce with the wrong value" },
+                "transaction_result_invalid_program_for_execution":           { "type": "UInt64", "description": "A program account referenced by the transaction was no executable. TODO: No longer needed with SIMD-0162" },
+                "transaction_result_address_lookup_table_not_found":          { "type": "UInt64", "description": "The transaction references an ALUT account that does not exist or is inactive" },
+                "transaction_result_invalid_address_lookup_table_owner":      { "type": "UInt64", "description": "The transaction references an ALUT account that is not owned by the ALUT program account" },
+                "transaction_result_invalid_address_lookup_table_data":       { "type": "UInt64", "description": "The transaction references an ALUT account that contains data which is not a valid ALUT" },
+                "transaction_result_invalid_address_lookup_table_index":      { "type": "UInt64", "description": "The transaction references an account offset from the ALUT which does not exist" },
+                "transaction_result_max_loaded_accounts_data_size_exceeded":  { "type": "UInt64", "description": "The total account data size of the loaded accounts exceeds the consensus limit" },
+                "transaction_result_duplicate_instruction":                   { "type": "UInt64", "description": "A compute budget program instruction was invoked more than once" },
+                "transaction_result_invalid_loaded_accounts_data_size_limit": { "type": "UInt64", "description": "The compute budget program was invoked and set the loaded accounts data size to zero" },
+                "transaction_result_nonce_already_advanced":                  { "type": "UInt64", "description": "The transaction references a nonce account that is already advanced" },
+                "transaction_result_nonce_advance_failed":                    { "type": "UInt64", "description": "The transaction is a nonce transaction but the advance instruction was not valid or failed" },
+                "transaction_result_nonce_wrong_blockhash":                   { "type": "UInt64", "description": "The transaction is a nonce transaction but the blockhash is not the correct one" },
+                "transaction_result_account_in_use":                          { "type": "UInt64", "description": "The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher" },
+                "transaction_result_account_loaded_twice":                    { "type": "UInt64", "description": "The transaction references the same account twice" },
+                "transaction_result_signature_failure":                       { "type": "UInt64", "description": "The transaction had an invalid signature" },
+                "transaction_result_too_many_account_locks":                  { "type": "UInt64", "description": "The transaction references too many accounts. TODO: No longer possible with smart dispatcher" },
+                "transaction_result_insufficient_funds_for_rent":             { "type": "UInt64", "description": "The transaction would leave an account with a lower balance than the rent-exempt minimum" },
+                "transaction_result_unbalanced_transaction":                  { "type": "UInt64", "description": "The total referenced account lamports before and after the transaction was unbalanced" },
+                "transaction_result_bundle_peer":                             { "type": "UInt64", "description": "The transaction was part of a bundle and an earlier transaction in the bundle failed" }
+            }
+        },
+        "transaction_landed": {
+            "type": "FlattenSum",
+            "description": "Whether a transaction landed in the block or not",
+            "fields": {
+                "transaction_landed_landed_success":   { "type": "UInt64", "description": "Transaction landed" },
+                "transaction_landed_landed_fees_only": { "type": "UInt64", "description": "Transaction landed, but was fees only and did not execute" },
+                "transaction_landed_landed_failed":    { "type": "UInt64", "description": "Transaction landed, but failed to execute" },
+                "transaction_landed_unlanded":         { "type": "UInt64", "description": "Transaction did not land" }
+            }
+        }
+    }
+}

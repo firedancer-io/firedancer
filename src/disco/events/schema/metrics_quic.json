@@ -1,0 +1,220 @@
+{
+    "name": "metrics_quic",
+    "id": 101,
+    "description": "Metrics snapshot for the quic tile",
+    "fields": {
+        "meta":                        {
+            "type": "Flatten",
+            "description": "Metadata about this metrics sample",
+            "fields": {
+                "kind_id":       { "type": "UInt64", "description": "The kind_id of this tile instance within its type (e.g., 0, 1, 2 for multiple tiles of same type)" },
+                "sample_id":     { "type": "UInt64", "description": "Unique identifier correlating samples taken at the same time across tiles" },
+                "sample_reason": {
+                    "type": "LowCardinality(String)",
+                    "description": "Reason for taking this sample",
+                    "variants": {
+                        "Periodic": { "description": "Periodic sampling at regular intervals" },
+                        "LeaderStarted": { "description": "Sampled because this validator started leading a slot" },
+                        "LeaderEnded": { "description": "Sampled because this validator finished leading a slot" }
+                    }
+                },
+                "sample_slot":   { "type": "UInt64", "description": "The slot number for which this sample was taken, if applicable" }
+            }
+        },
+        "tile":                        {
+            "type": "Flatten",
+            "description": "Common tile metrics shared by all tiles",
+            "fields": {
+                "pid":                              { "type": "UInt64", "description": "The process ID of the tile" },
+                "tid":                              { "type": "UInt64", "description": "The thread ID of the tile. Always the same as the Pid in production, but might be different in development" },
+                "context_switch_involuntary_count": { "type": "UInt64", "description": "The number of involuntary context switches" },
+                "context_switch_voluntary_count":   { "type": "UInt64", "description": "The number of voluntary context switches" },
+                "page_fault_major_count":           { "type": "UInt64", "description": "The number of major page faults" },
+                "page_fault_minor_count":           { "type": "UInt64", "description": "The number of minor page faults" },
+                "status":                           { "type": "UInt64", "description": "The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" },
+                "heartbeat":                        { "type": "UInt64", "description": "The last UNIX timestamp in nanoseconds that the tile heartbeated" },
+                "in_backpressure":                  { "type": "UInt64", "description": "Whether the tile is currently backpressured or not, either 1 or 0" },
+                "backpressure_count":               { "type": "UInt64", "description": "Number of times the tile has had to wait for one of more consumers to catch up to resume publishing" },
+                "regime_duration_nanos":            {
+                    "type": "FlattenSum",
+                    "description": "Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes",
+                    "fields": {
+                        "regime_duration_nanos_caught_up_housekeeping":    { "type": "UInt64", "description": "Caught up + Housekeeping" },
+                        "regime_duration_nanos_processing_housekeeping":   { "type": "UInt64", "description": "Processing + Housekeeping" },
+                        "regime_duration_nanos_backpressure_housekeeping": { "type": "UInt64", "description": "Backpressure + Housekeeping" },
+                        "regime_duration_nanos_caught_up_prefrag":         { "type": "UInt64", "description": "Caught up + Prefrag" },
+                        "regime_duration_nanos_processing_prefrag":        { "type": "UInt64", "description": "Processing + Prefrag" },
+                        "regime_duration_nanos_backpressure_prefrag":      { "type": "UInt64", "description": "Backpressure + Prefrag" },
+                        "regime_duration_nanos_caught_up_postfrag":        { "type": "UInt64", "description": "Caught up + Postfrag" },
+                        "regime_duration_nanos_processing_postfrag":       { "type": "UInt64", "description": "Processing + Postfrag" }
+                    }
+                },
+                "cpu_duration_nanos":               {
+                    "type": "FlattenSum",
+                    "description": "CPU time spent in each CPU regime",
+                    "fields": {
+                        "cpu_duration_nanos_wait":   { "type": "UInt64", "description": "Wait (task was runnable but not scheduled)" },
+                        "cpu_duration_nanos_idle":   { "type": "UInt64", "description": "Idle (task was not runnable)" },
+                        "cpu_duration_nanos_user":   { "type": "UInt64", "description": "User (task was scheduled and executing in user mode)" },
+                        "cpu_duration_nanos_system": { "type": "UInt64", "description": "System (task was scheduled and executing in kernel mode)" }
+                    }
+                }
+            }
+        },
+        "txns_overrun":                { "type": "UInt64", "description": "Count of txns overrun before reassembled (too small txn_reassembly_count)" },
+        "txn_reasms_started":          { "type": "UInt64", "description": "Count of fragmented txn receive ops started" },
+        "txn_reasms_active":           { "type": "UInt64", "description": "Number of fragmented txn receive ops currently active" },
+        "frags_ok":                    { "type": "UInt64", "description": "Count of txn frags received" },
+        "frags_gap":                   { "type": "UInt64", "description": "Count of txn frags dropped due to data gap" },
+        "frags_dup":                   { "type": "UInt64", "description": "Count of txn frags dropped due to dup (stream already completed)" },
+        "txns_received":               {
+            "type": "FlattenSum",
+            "description": "Count of txns received via TPU",
+            "fields": {
+                "txns_received_udp":       { "type": "UInt64", "description": "TPU/UDP" },
+                "txns_received_quic_fast": { "type": "UInt64", "description": "TPU/QUIC unfragmented" },
+                "txns_received_quic_frag": { "type": "UInt64", "description": "TPU/QUIC fragmented" }
+            }
+        },
+        "txns_abandoned":              { "type": "UInt64", "description": "Count of txns abandoned because a conn was lost" },
+        "txn_undersz":                 { "type": "UInt64", "description": "Count of txns received via QUIC dropped because they were too small" },
+        "txn_oversz":                  { "type": "UInt64", "description": "Count of txns received via QUIC dropped because they were too large" },
+        "legacy_txn_undersz":          { "type": "UInt64", "description": "Count of packets received on the non-QUIC port that were too small to be a valid IP packet" },
+        "legacy_txn_oversz":           { "type": "UInt64", "description": "Count of packets received on the non-QUIC port that were too large to be a valid transaction" },
+        "received_packets":            { "type": "UInt64", "description": "Number of IP packets received" },
+        "received_bytes":              { "type": "UInt64", "description": "Total bytes received (including IP, UDP, QUIC headers)" },
+        "sent_packets":                { "type": "UInt64", "description": "Number of IP packets sent" },
+        "sent_bytes":                  { "type": "UInt64", "description": "Total bytes sent (including IP, UDP, QUIC headers)" },
+        "connections_alloc":           { "type": "UInt64", "description": "The number of currently allocated QUIC connections" },
+        "connections_state":           {
+            "type": "FlattenSum",
+            "description": "The number of QUIC connections in each state",
+            "fields": {
+                "connections_state_invalid":            { "type": "UInt64", "description": "Freed" },
+                "connections_state_handshake":          { "type": "UInt64", "description": "Handshaking peer" },
+                "connections_state_handshake_complete": { "type": "UInt64", "description": "Handshake complete, confirming with peer" },
+                "connections_state_active":             { "type": "UInt64", "description": "Active connection" },
+                "connections_state_peer_close":         { "type": "UInt64", "description": "Peer requested close" },
+                "connections_state_abort":              { "type": "UInt64", "description": "Connection terminating due to error" },
+                "connections_state_close_pending":      { "type": "UInt64", "description": "Connection is closing" },
+                "connections_state_dead":               { "type": "UInt64", "description": "Connection about to be freed" }
+            }
+        },
+        "connections_created":         { "type": "UInt64", "description": "The total number of connections that have been created" },
+        "connections_closed":          { "type": "UInt64", "description": "Number of connections gracefully closed" },
+        "connections_aborted":         { "type": "UInt64", "description": "Number of connections aborted" },
+        "connections_timed_out":       { "type": "UInt64", "description": "Number of connections timed out" },
+        "connections_retried":         { "type": "UInt64", "description": "Number of connections established with retry" },
+        "connection_error_no_slots":   { "type": "UInt64", "description": "Number of connections that failed to create due to lack of slots" },
+        "connection_error_retry_fail": { "type": "UInt64", "description": "Number of connections that failed during retry (e.g. invalid token)" },
+        "pkt_no_conn":                 {
+            "type": "FlattenSum",
+            "description": "Number of packets with an unknown connection ID",
+            "fields": {
+                "pkt_no_conn_initial":   { "type": "UInt64", "description": "Initial" },
+                "pkt_no_conn_retry":     { "type": "UInt64", "description": "Retry" },
+                "pkt_no_conn_handshake": { "type": "UInt64", "description": "Handshake" },
+                "pkt_no_conn_one_rtt":   { "type": "UInt64", "description": "1-RTT" }
+            }
+        },
+        "frame_tx_alloc":              {
+            "type": "FlattenSum",
+            "description": "Results of attempts to acquire QUIC frame metadata",
+            "fields": {
+                "frame_tx_alloc_success":         { "type": "UInt64", "description": "Success" },
+                "frame_tx_alloc_fail_empty_pool": { "type": "UInt64", "description": "PktMetaPoolEmpty" },
+                "frame_tx_alloc_fail_conn_max":   { "type": "UInt64", "description": "ConnMaxedInflightFrames" }
+            }
+        },
+        "initial_token_len":           {
+            "type": "FlattenSum",
+            "description": "Number of Initial packets grouped by token length",
+            "fields": {
+                "initial_token_len_zero":        { "type": "UInt64", "description": "No token" },
+                "initial_token_len_fd_quic_len": { "type": "UInt64", "description": "fd_quic retry token length" },
+                "initial_token_len_invalid_len": { "type": "UInt64", "description": "Invalid token length" }
+            }
+        },
+        "handshakes_created":          { "type": "UInt64", "description": "Number of handshake flows created" },
+        "handshake_error_alloc_fail":  { "type": "UInt64", "description": "Number of handshakes dropped due to alloc fail" },
+        "handshake_evicted":           { "type": "UInt64", "description": "Number of handshakes dropped due to eviction" },
+        "stream_received_events":      { "type": "UInt64", "description": "Number of stream RX events" },
+        "stream_received_bytes":       { "type": "UInt64", "description": "Total stream payload bytes received" },
+        "received_frames":             {
+            "type": "FlattenSum",
+            "description": "Number of QUIC frames received",
+            "fields": {
+                "received_frames_unknown":             { "type": "UInt64", "description": "Unknown frame type" },
+                "received_frames_ack":                 { "type": "UInt64", "description": "ACK frame" },
+                "received_frames_reset_stream":        { "type": "UInt64", "description": "RESET_STREAM frame" },
+                "received_frames_stop_sending":        { "type": "UInt64", "description": "STOP_SENDING frame" },
+                "received_frames_crypto":              { "type": "UInt64", "description": "CRYPTO frame" },
+                "received_frames_new_token":           { "type": "UInt64", "description": "NEW_TOKEN frame" },
+                "received_frames_stream":              { "type": "UInt64", "description": "STREAM frame" },
+                "received_frames_max_data":            { "type": "UInt64", "description": "MAX_DATA frame" },
+                "received_frames_max_stream_data":     { "type": "UInt64", "description": "MAX_STREAM_DATA frame" },
+                "received_frames_max_streams":         { "type": "UInt64", "description": "MAX_STREAMS frame" },
+                "received_frames_data_blocked":        { "type": "UInt64", "description": "DATA_BLOCKED frame" },
+                "received_frames_stream_data_blocked": { "type": "UInt64", "description": "STREAM_DATA_BLOCKED frame" },
+                "received_frames_streams_blocked":     { "type": "UInt64", "description": "STREAMS_BLOCKED(bidi) frame" },
+                "received_frames_new_conn_id":         { "type": "UInt64", "description": "NEW_CONN_ID frame" },
+                "received_frames_retire_conn_id":      { "type": "UInt64", "description": "RETIRE_CONN_ID frame" },
+                "received_frames_path_challenge":      { "type": "UInt64", "description": "PATH_CHALLENGE frame" },
+                "received_frames_path_response":       { "type": "UInt64", "description": "PATH_RESPONSE frame" },
+                "received_frames_conn_close_quic":     { "type": "UInt64", "description": "CONN_CLOSE(transport) frame" },
+                "received_frames_conn_close_app":      { "type": "UInt64", "description": "CONN_CLOSE(app) frame" },
+                "received_frames_handshake_done":      { "type": "UInt64", "description": "HANDSHAKE_DONE frame" },
+                "received_frames_ping":                { "type": "UInt64", "description": "PING frame" },
+                "received_frames_padding":             { "type": "UInt64", "description": "PADDING frame" }
+            }
+        },
+        "ack_tx":                      {
+            "type": "FlattenSum",
+            "description": "ACK events",
+            "fields": {
+                "ack_tx_noop":   { "type": "UInt64", "description": "Non-ACK-eliciting packet" },
+                "ack_tx_new":    { "type": "UInt64", "description": "New ACK range" },
+                "ack_tx_merged": { "type": "UInt64", "description": "Merged into existing ACK range" },
+                "ack_tx_drop":   { "type": "UInt64", "description": "Out of buffers" },
+                "ack_tx_cancel": { "type": "UInt64", "description": "ACK suppressed by handler" }
+            }
+        },
+        "frame_fail_parse":            { "type": "UInt64", "description": "Number of QUIC frames failed to parse" },
+        "pkt_crypto_failed":           {
+            "type": "FlattenSum",
+            "description": "Number of packets that failed decryption",
+            "fields": {
+                "pkt_crypto_failed_initial":   { "type": "UInt64", "description": "Initial" },
+                "pkt_crypto_failed_early":     { "type": "UInt64", "description": "Early data" },
+                "pkt_crypto_failed_handshake": { "type": "UInt64", "description": "Handshake" },
+                "pkt_crypto_failed_app":       { "type": "UInt64", "description": "App data" }
+            }
+        },
+        "pkt_no_key":                  {
+            "type": "FlattenSum",
+            "description": "Number of packets that failed decryption due to missing key",
+            "fields": {
+                "pkt_no_key_initial":   { "type": "UInt64", "description": "Initial" },
+                "pkt_no_key_early":     { "type": "UInt64", "description": "Early data" },
+                "pkt_no_key_handshake": { "type": "UInt64", "description": "Handshake" },
+                "pkt_no_key_app":       { "type": "UInt64", "description": "App data" }
+            }
+        },
+        "pkt_net_header_invalid":      { "type": "UInt64", "description": "Number of packets dropped due to weird IP or UDP header" },
+        "pkt_quic_header_invalid":     { "type": "UInt64", "description": "Number of packets dropped due to weird QUIC header" },
+        "pkt_undersz":                 { "type": "UInt64", "description": "Number of QUIC packets dropped due to being too small" },
+        "pkt_oversz":                  { "type": "UInt64", "description": "Number of QUIC packets dropped due to being too large" },
+        "pkt_verneg":                  { "type": "UInt64", "description": "Number of QUIC version negotiation packets received" },
+        "retry_sent":                  { "type": "UInt64", "description": "Number of QUIC Retry packets sent" },
+        "pkt_retransmissions":         {
+            "type": "FlattenSum",
+            "description": "Number of QUIC packets that retransmitted",
+            "fields": {
+                "pkt_retransmissions_initial":   { "type": "UInt64", "description": "Initial" },
+                "pkt_retransmissions_early":     { "type": "UInt64", "description": "Early data" },
+                "pkt_retransmissions_handshake": { "type": "UInt64", "description": "Handshake" },
+                "pkt_retransmissions_app":       { "type": "UInt64", "description": "App data" }
+            }
+        }
+    }
+}

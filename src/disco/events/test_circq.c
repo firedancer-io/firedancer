@@ -82,14 +82,12 @@ test_wraparound_iteration( void ) {
   uchar buf[ 256UL+4096UL ];
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 256UL ) );
   ulong msg_sz;
-
   for( ulong round=0; round<3; round++ ) {
     for( ulong i=0; i<8; i++ ) {
       uchar * msg = fd_circq_push_back( circq, 1UL, 20UL );
       msg[0] = (uchar)('0' + round);
       msg[1] = (uchar)('a' + i);
     }
-
     fd_circq_reset_cursor( circq );
     for( ulong i=0; i<circq->cnt; i++ ) {
       uchar const * msg = fd_circq_cursor_advance( circq, &msg_sz );
@@ -105,7 +103,6 @@ test_interleaved_ops( void ) {
   uchar buf[ 512UL+4096UL ];
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 512UL ) );
   ulong msg_sz;
-
   for( ulong i=0; i<4; i++ ) {
     uchar * msg = fd_circq_push_back( circq, 1UL, 16UL );
     msg[0] = (uchar)('W' + i);
@@ -138,7 +135,6 @@ test_stale_cursor_handling( void ) {
   uchar buf[ 256UL+4096UL ];
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 256UL ) );
   ulong msg_sz;
-
   for( ulong i=0; i<10; i++ ) {
     uchar * msg = fd_circq_push_back( circq, 1UL, 8UL );
     msg[0] = (uchar)('0' + i);
@@ -173,12 +169,10 @@ test_cursor_sequence_monotonicity( void ) {
     FD_TEST( msg );
     FD_TEST( circq->cursor_push_seq > last_push_seq );
     last_push_seq = circq->cursor_push_seq;
-
     if( i % 10 == 0 ) {
       fd_circq_reset_cursor( circq );
       last_cursor_seq = 0;
     }
-
     uchar const * out = fd_circq_cursor_advance( circq, &msg_sz );
     if( out ) {
       FD_TEST( circq->cursor_seq > last_cursor_seq );

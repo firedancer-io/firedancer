@@ -1,0 +1,243 @@
+{
+    "name": "metrics_gossip",
+    "id": 118,
+    "description": "Metrics snapshot for the gossip tile",
+    "fields": {
+        "meta":                                  {
+            "type": "Flatten",
+            "description": "Metadata about this metrics sample",
+            "fields": {
+                "kind_id":       { "type": "UInt64", "description": "The kind_id of this tile instance within its type (e.g., 0, 1, 2 for multiple tiles of same type)" },
+                "sample_id":     { "type": "UInt64", "description": "Unique identifier correlating samples taken at the same time across tiles" },
+                "sample_reason": {
+                    "type": "LowCardinality(String)",
+                    "description": "Reason for taking this sample",
+                    "variants": {
+                        "Periodic": { "description": "Periodic sampling at regular intervals" },
+                        "LeaderStarted": { "description": "Sampled because this validator started leading a slot" },
+                        "LeaderEnded": { "description": "Sampled because this validator finished leading a slot" }
+                    }
+                },
+                "sample_slot":   { "type": "UInt64", "description": "The slot number for which this sample was taken, if applicable" }
+            }
+        },
+        "tile":                                  {
+            "type": "Flatten",
+            "description": "Common tile metrics shared by all tiles",
+            "fields": {
+                "pid":                              { "type": "UInt64", "description": "The process ID of the tile" },
+                "tid":                              { "type": "UInt64", "description": "The thread ID of the tile. Always the same as the Pid in production, but might be different in development" },
+                "context_switch_involuntary_count": { "type": "UInt64", "description": "The number of involuntary context switches" },
+                "context_switch_voluntary_count":   { "type": "UInt64", "description": "The number of voluntary context switches" },
+                "page_fault_major_count":           { "type": "UInt64", "description": "The number of major page faults" },
+                "page_fault_minor_count":           { "type": "UInt64", "description": "The number of minor page faults" },
+                "status":                           { "type": "UInt64", "description": "The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" },
+                "heartbeat":                        { "type": "UInt64", "description": "The last UNIX timestamp in nanoseconds that the tile heartbeated" },
+                "in_backpressure":                  { "type": "UInt64", "description": "Whether the tile is currently backpressured or not, either 1 or 0" },
+                "backpressure_count":               { "type": "UInt64", "description": "Number of times the tile has had to wait for one of more consumers to catch up to resume publishing" },
+                "regime_duration_nanos":            {
+                    "type": "FlattenSum",
+                    "description": "Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes",
+                    "fields": {
+                        "regime_duration_nanos_caught_up_housekeeping":    { "type": "UInt64", "description": "Caught up + Housekeeping" },
+                        "regime_duration_nanos_processing_housekeeping":   { "type": "UInt64", "description": "Processing + Housekeeping" },
+                        "regime_duration_nanos_backpressure_housekeeping": { "type": "UInt64", "description": "Backpressure + Housekeeping" },
+                        "regime_duration_nanos_caught_up_prefrag":         { "type": "UInt64", "description": "Caught up + Prefrag" },
+                        "regime_duration_nanos_processing_prefrag":        { "type": "UInt64", "description": "Processing + Prefrag" },
+                        "regime_duration_nanos_backpressure_prefrag":      { "type": "UInt64", "description": "Backpressure + Prefrag" },
+                        "regime_duration_nanos_caught_up_postfrag":        { "type": "UInt64", "description": "Caught up + Postfrag" },
+                        "regime_duration_nanos_processing_postfrag":       { "type": "UInt64", "description": "Processing + Postfrag" }
+                    }
+                },
+                "cpu_duration_nanos":               {
+                    "type": "FlattenSum",
+                    "description": "CPU time spent in each CPU regime",
+                    "fields": {
+                        "cpu_duration_nanos_wait":   { "type": "UInt64", "description": "Wait (task was runnable but not scheduled)" },
+                        "cpu_duration_nanos_idle":   { "type": "UInt64", "description": "Idle (task was not runnable)" },
+                        "cpu_duration_nanos_user":   { "type": "UInt64", "description": "User (task was scheduled and executing in user mode)" },
+                        "cpu_duration_nanos_system": { "type": "UInt64", "description": "System (task was scheduled and executing in kernel mode)" }
+                    }
+                }
+            }
+        },
+        "ping_tracker_capacity":                 { "type": "UInt64", "description": "Metric: PingTrackerCapacity" },
+        "ping_tracker_count":                    {
+            "type": "FlattenSum",
+            "description": "Metric: PingTrackerCount",
+            "fields": {
+                "ping_tracker_count_unpinged":         { "type": "UInt64", "description": "Peer is known but has not been pinged yet" },
+                "ping_tracker_count_invalid":          { "type": "UInt64", "description": "Peer was pinged but has not yet responded, or responded with an invalid pong" },
+                "ping_tracker_count_valid":            { "type": "UInt64", "description": "Peer was pinged and is currently valid" },
+                "ping_tracker_count_valid_refreshing": { "type": "UInt64", "description": "Peer was pinged and is currently valid, and is being refreshed with a new ping" }
+            }
+        },
+        "ping_tracker_pong_result":              {
+            "type": "FlattenSum",
+            "description": "Metric: PingTrackerPongResult",
+            "fields": {
+                "ping_tracker_pong_result_staked":     { "type": "UInt64", "description": "Pong ignored as node is staked" },
+                "ping_tracker_pong_result_entrypoint": { "type": "UInt64", "description": "Pong ignored as node is an entrypoint" },
+                "ping_tracker_pong_result_untracked":  { "type": "UInt64", "description": "Pong ignored as node has no outstanding ping" },
+                "ping_tracker_pong_result_address":    { "type": "UInt64", "description": "Pong ignored as responding node doesn't match pinged address" },
+                "ping_tracker_pong_result_token":      { "type": "UInt64", "description": "Pong ignored as token was not valid" },
+                "ping_tracker_pong_result_success":    { "type": "UInt64", "description": "Pong accepted" }
+            }
+        },
+        "ping_tracker_evicted_count":            { "type": "UInt64", "description": "Metric: PingTrackerEvictedCount" },
+        "ping_tracked_count":                    { "type": "UInt64", "description": "Metric: PingTrackedCount" },
+        "ping_tracker_stake_changed_count":      { "type": "UInt64", "description": "Metric: PingTrackerStakeChangedCount" },
+        "ping_tracker_address_changed_count":    { "type": "UInt64", "description": "Metric: PingTrackerAddressChangedCount" },
+        "crds_capacity":                         { "type": "UInt64", "description": "Metric: CrdsCapacity" },
+        "crds_count":                            {
+            "type": "FlattenSum",
+            "description": "Metric: CrdsCount",
+            "fields": {
+                "crds_count_contact_info_v1":               { "type": "UInt64", "description": "Contact Info V1" },
+                "crds_count_vote":                          { "type": "UInt64", "description": "Vote" },
+                "crds_count_lowest_slot":                   { "type": "UInt64", "description": "Lowest Slot" },
+                "crds_count_snapshot_hashes":               { "type": "UInt64", "description": "Snapshot Hashes" },
+                "crds_count_accounts_hashes":               { "type": "UInt64", "description": "Accounts Hashes" },
+                "crds_count_epoch_slots":                   { "type": "UInt64", "description": "Epoch Slots" },
+                "crds_count_version_v1":                    { "type": "UInt64", "description": "Version V1" },
+                "crds_count_version_v2":                    { "type": "UInt64", "description": "Version V2" },
+                "crds_count_node_instance":                 { "type": "UInt64", "description": "Node Instance" },
+                "crds_count_duplicate_shred":               { "type": "UInt64", "description": "Duplicate Shred" },
+                "crds_count_incremental_snapshot_hashes":   { "type": "UInt64", "description": "Incremental Snapshot Hashes" },
+                "crds_count_contact_info_v2":               { "type": "UInt64", "description": "Contact Info V2" },
+                "crds_count_restart_last_voted_fork_slots": { "type": "UInt64", "description": "Restart Last Voted Fork Slots" },
+                "crds_count_restart_heaviest_fork":         { "type": "UInt64", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_expired_count":                    { "type": "UInt64", "description": "Metric: CrdsExpiredCount" },
+        "crds_evicted_count":                    { "type": "UInt64", "description": "Metric: CrdsEvictedCount" },
+        "crds_peer_capacity":                    { "type": "UInt64", "description": "Metric: CrdsPeerCapacity" },
+        "crds_peer_staked_count":                { "type": "UInt64", "description": "Metric: CrdsPeerStakedCount" },
+        "crds_peer_unstaked_count":              { "type": "UInt64", "description": "Metric: CrdsPeerUnstakedCount" },
+        "crds_peer_total_stake":                 { "type": "UInt64", "description": "Metric: CrdsPeerTotalStake" },
+        "crds_peer_evicted_count":               { "type": "UInt64", "description": "Metric: CrdsPeerEvictedCount" },
+        "crds_purged_capacity":                  { "type": "UInt64", "description": "Metric: CrdsPurgedCapacity" },
+        "crds_purged_count":                     { "type": "UInt64", "description": "Metric: CrdsPurgedCount" },
+        "crds_purged_expired_count":             { "type": "UInt64", "description": "Metric: CrdsPurgedExpiredCount" },
+        "crds_purged_evicted_count":             { "type": "UInt64", "description": "Metric: CrdsPurgedEvictedCount" },
+        "contact_info_unrecognized_socket_tags": { "type": "UInt64", "description": "Metric: ContactInfoUnrecognizedSocketTags" },
+        "contact_info_ipv6":                     { "type": "UInt64", "description": "Metric: ContactInfoIpv6" },
+        "crds_rx_count":                         {
+            "type": "FlattenSum",
+            "description": "Metric: CrdsRxCount",
+            "fields": {
+                "crds_rx_count_upserted_pull_response":          { "type": "UInt64", "description": "Pull Response (upserted)" },
+                "crds_rx_count_upserted_push":                   { "type": "UInt64", "description": "Push (upserted)" },
+                "crds_rx_count_dropped_pull_response_stale":     { "type": "UInt64", "description": "Pull Response (newer entry already present in table)" },
+                "crds_rx_count_dropped_pull_response_wallclock": { "type": "UInt64", "description": "Pull Response (outside expiry window and no contact info entry)" },
+                "crds_rx_count_dropped_pull_response_duplicate": { "type": "UInt64", "description": "Pull Response (duplicate)" },
+                "crds_rx_count_dropped_push_stale":              { "type": "UInt64", "description": "Push (newer entry already present in table)" },
+                "crds_rx_count_dropped_push_duplicate":          { "type": "UInt64", "description": "Push (duplicate)" }
+            }
+        },
+        "message_tx_count":                      {
+            "type": "FlattenSum",
+            "description": "Metric: MessageTxCount",
+            "fields": {
+                "message_tx_count_pull_request":  { "type": "UInt64", "description": "Pull Request" },
+                "message_tx_count_pull_response": { "type": "UInt64", "description": "Pull Response" },
+                "message_tx_count_push":          { "type": "UInt64", "description": "Push" },
+                "message_tx_count_prune":         { "type": "UInt64", "description": "Prune" },
+                "message_tx_count_ping":          { "type": "UInt64", "description": "Ping" },
+                "message_tx_count_pong":          { "type": "UInt64", "description": "Pong" }
+            }
+        },
+        "message_tx_bytes":                      {
+            "type": "FlattenSum",
+            "description": "Metric: MessageTxBytes",
+            "fields": {
+                "message_tx_bytes_pull_request":  { "type": "UInt64", "description": "Pull Request" },
+                "message_tx_bytes_pull_response": { "type": "UInt64", "description": "Pull Response" },
+                "message_tx_bytes_push":          { "type": "UInt64", "description": "Push" },
+                "message_tx_bytes_prune":         { "type": "UInt64", "description": "Prune" },
+                "message_tx_bytes_ping":          { "type": "UInt64", "description": "Ping" },
+                "message_tx_bytes_pong":          { "type": "UInt64", "description": "Pong" }
+            }
+        },
+        "crds_tx_push_count":                    {
+            "type": "FlattenSum",
+            "description": "Metric: CrdsTxPushCount",
+            "fields": {
+                "crds_tx_push_count_contact_info_v1":               { "type": "UInt64", "description": "Contact Info V1" },
+                "crds_tx_push_count_vote":                          { "type": "UInt64", "description": "Vote" },
+                "crds_tx_push_count_lowest_slot":                   { "type": "UInt64", "description": "Lowest Slot" },
+                "crds_tx_push_count_snapshot_hashes":               { "type": "UInt64", "description": "Snapshot Hashes" },
+                "crds_tx_push_count_accounts_hashes":               { "type": "UInt64", "description": "Accounts Hashes" },
+                "crds_tx_push_count_epoch_slots":                   { "type": "UInt64", "description": "Epoch Slots" },
+                "crds_tx_push_count_version_v1":                    { "type": "UInt64", "description": "Version V1" },
+                "crds_tx_push_count_version_v2":                    { "type": "UInt64", "description": "Version V2" },
+                "crds_tx_push_count_node_instance":                 { "type": "UInt64", "description": "Node Instance" },
+                "crds_tx_push_count_duplicate_shred":               { "type": "UInt64", "description": "Duplicate Shred" },
+                "crds_tx_push_count_incremental_snapshot_hashes":   { "type": "UInt64", "description": "Incremental Snapshot Hashes" },
+                "crds_tx_push_count_contact_info_v2":               { "type": "UInt64", "description": "Contact Info V2" },
+                "crds_tx_push_count_restart_last_voted_fork_slots": { "type": "UInt64", "description": "Restart Last Voted Fork Slots" },
+                "crds_tx_push_count_restart_heaviest_fork":         { "type": "UInt64", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_tx_push_bytes":                    {
+            "type": "FlattenSum",
+            "description": "Metric: CrdsTxPushBytes",
+            "fields": {
+                "crds_tx_push_bytes_contact_info_v1":               { "type": "UInt64", "description": "Contact Info V1" },
+                "crds_tx_push_bytes_vote":                          { "type": "UInt64", "description": "Vote" },
+                "crds_tx_push_bytes_lowest_slot":                   { "type": "UInt64", "description": "Lowest Slot" },
+                "crds_tx_push_bytes_snapshot_hashes":               { "type": "UInt64", "description": "Snapshot Hashes" },
+                "crds_tx_push_bytes_accounts_hashes":               { "type": "UInt64", "description": "Accounts Hashes" },
+                "crds_tx_push_bytes_epoch_slots":                   { "type": "UInt64", "description": "Epoch Slots" },
+                "crds_tx_push_bytes_version_v1":                    { "type": "UInt64", "description": "Version V1" },
+                "crds_tx_push_bytes_version_v2":                    { "type": "UInt64", "description": "Version V2" },
+                "crds_tx_push_bytes_node_instance":                 { "type": "UInt64", "description": "Node Instance" },
+                "crds_tx_push_bytes_duplicate_shred":               { "type": "UInt64", "description": "Duplicate Shred" },
+                "crds_tx_push_bytes_incremental_snapshot_hashes":   { "type": "UInt64", "description": "Incremental Snapshot Hashes" },
+                "crds_tx_push_bytes_contact_info_v2":               { "type": "UInt64", "description": "Contact Info V2" },
+                "crds_tx_push_bytes_restart_last_voted_fork_slots": { "type": "UInt64", "description": "Restart Last Voted Fork Slots" },
+                "crds_tx_push_bytes_restart_heaviest_fork":         { "type": "UInt64", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_tx_pull_response_count":           {
+            "type": "FlattenSum",
+            "description": "Metric: CrdsTxPullResponseCount",
+            "fields": {
+                "crds_tx_pull_response_count_contact_info_v1":               { "type": "UInt64", "description": "Contact Info V1" },
+                "crds_tx_pull_response_count_vote":                          { "type": "UInt64", "description": "Vote" },
+                "crds_tx_pull_response_count_lowest_slot":                   { "type": "UInt64", "description": "Lowest Slot" },
+                "crds_tx_pull_response_count_snapshot_hashes":               { "type": "UInt64", "description": "Snapshot Hashes" },
+                "crds_tx_pull_response_count_accounts_hashes":               { "type": "UInt64", "description": "Accounts Hashes" },
+                "crds_tx_pull_response_count_epoch_slots":                   { "type": "UInt64", "description": "Epoch Slots" },
+                "crds_tx_pull_response_count_version_v1":                    { "type": "UInt64", "description": "Version V1" },
+                "crds_tx_pull_response_count_version_v2":                    { "type": "UInt64", "description": "Version V2" },
+                "crds_tx_pull_response_count_node_instance":                 { "type": "UInt64", "description": "Node Instance" },
+                "crds_tx_pull_response_count_duplicate_shred":               { "type": "UInt64", "description": "Duplicate Shred" },
+                "crds_tx_pull_response_count_incremental_snapshot_hashes":   { "type": "UInt64", "description": "Incremental Snapshot Hashes" },
+                "crds_tx_pull_response_count_contact_info_v2":               { "type": "UInt64", "description": "Contact Info V2" },
+                "crds_tx_pull_response_count_restart_last_voted_fork_slots": { "type": "UInt64", "description": "Restart Last Voted Fork Slots" },
+                "crds_tx_pull_response_count_restart_heaviest_fork":         { "type": "UInt64", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_tx_pull_response_bytes":           {
+            "type": "FlattenSum",
+            "description": "Metric: CrdsTxPullResponseBytes",
+            "fields": {
+                "crds_tx_pull_response_bytes_contact_info_v1":               { "type": "UInt64", "description": "Contact Info V1" },
+                "crds_tx_pull_response_bytes_vote":                          { "type": "UInt64", "description": "Vote" },
+                "crds_tx_pull_response_bytes_lowest_slot":                   { "type": "UInt64", "description": "Lowest Slot" },
+                "crds_tx_pull_response_bytes_snapshot_hashes":               { "type": "UInt64", "description": "Snapshot Hashes" },
+                "crds_tx_pull_response_bytes_accounts_hashes":               { "type": "UInt64", "description": "Accounts Hashes" },
+                "crds_tx_pull_response_bytes_epoch_slots":                   { "type": "UInt64", "description": "Epoch Slots" },
+                "crds_tx_pull_response_bytes_version_v1":                    { "type": "UInt64", "description": "Version V1" },
+                "crds_tx_pull_response_bytes_version_v2":                    { "type": "UInt64", "description": "Version V2" },
+                "crds_tx_pull_response_bytes_node_instance":                 { "type": "UInt64", "description": "Node Instance" },
+                "crds_tx_pull_response_bytes_duplicate_shred":               { "type": "UInt64", "description": "Duplicate Shred" },
+                "crds_tx_pull_response_bytes_incremental_snapshot_hashes":   { "type": "UInt64", "description": "Incremental Snapshot Hashes" },
+                "crds_tx_pull_response_bytes_contact_info_v2":               { "type": "UInt64", "description": "Contact Info V2" },
+                "crds_tx_pull_response_bytes_restart_last_voted_fork_slots": { "type": "UInt64", "description": "Restart Last Voted Fork Slots" },
+                "crds_tx_pull_response_bytes_restart_heaviest_fork":         { "type": "UInt64", "description": "Restart Heaviest Fork" }
+            }
+        }
+    }
+}

@@ -38,6 +38,19 @@ name = "fd1"
 # which invoked sudo, not the root user.
 user = ""
 
+# Whether to enable telemetry reporting.  When enabled, Firedancer will
+# periodically send diagnostic information including performance
+# statistics, metric counters, and other notable events to a centralized
+# server for collection and analysis by the Firedancer development team.
+#
+# This data helps the development team debug during emergencies,
+# understand how Firedancer is being used by operators, identify common
+# problems and performance bottlenecks, and prioritize future development
+# work.  It is similar in nature to the `SOLANA_METRICS_CONFIG`
+# environment variable used by the Agave validator, but is more
+# comprehensive and configured automatically.
+telemetry = true
+
 # Firedancer uses the filesystem to store various data for running the
 # validator.  This includes account data, log files, and things like the
 # genesis file.
@@ -1476,6 +1489,20 @@ user = ""
         # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
 
+    # The event tile captures significant events from the system and
+    # reports them a remote collection server for analysis.  Whether
+    # event reporting is enabled or not is controlled by the top level
+    # `telemetry` option, and if disabled no options here have any
+    # effect.
+    [tiles.event]
+        # The URL of the remote event collection server.  By default,
+        # this is set to the Firedancer public event collection server.
+        #
+        # If no URL is provided, event reporting is disabled, although
+        # it is suggested to leave the default URL in place and set
+        # `telemetry` to false to disable event reporting.
+        url = "http://events-in.firedancer.io"
+
     # The gui tile receives data from the validator and serves an HTTP
     # endpoint to clients to view it.
     [tiles.gui]
@@ -1828,6 +1855,22 @@ user = ""
         # file can be used to decrypt packet captures of gRPC conns
         # made by the bundle tile.
         ssl_key_log_file = ""
+    
+    # Development and diagnostic only options for the event tile.  These
+    # options should not be changed on a production validator or it may
+    # cause stability or performance issues.
+    [development.event]
+        # Whether to report all shreds that are received by the
+        # validator to the remote server.  This generates a very high
+        # volume of events and should only be used for debugging and
+        # development purposes.
+        report_shreds = false
+
+        # Whether to report all transactions that are processed by the
+        # validator to the remote server.  This generates a very high
+        # volume of events and should only be used for debugging and
+        # development purposes.
+        report_transactions = false
 
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a

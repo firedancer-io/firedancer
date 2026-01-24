@@ -1,0 +1,153 @@
+{
+    "name": "metrics_gossvf",
+    "id": 128,
+    "description": "Metrics snapshot for the gossvf tile",
+    "fields": {
+        "meta":             {
+            "type": "Flatten",
+            "description": "Metadata about this metrics sample",
+            "fields": {
+                "kind_id":       { "type": "UInt64", "description": "The kind_id of this tile instance within its type (e.g., 0, 1, 2 for multiple tiles of same type)" },
+                "sample_id":     { "type": "UInt64", "description": "Unique identifier correlating samples taken at the same time across tiles" },
+                "sample_reason": {
+                    "type": "LowCardinality(String)",
+                    "description": "Reason for taking this sample",
+                    "variants": {
+                        "Periodic": { "description": "Periodic sampling at regular intervals" },
+                        "LeaderStarted": { "description": "Sampled because this validator started leading a slot" },
+                        "LeaderEnded": { "description": "Sampled because this validator finished leading a slot" }
+                    }
+                },
+                "sample_slot":   { "type": "UInt64", "description": "The slot number for which this sample was taken, if applicable" }
+            }
+        },
+        "tile":             {
+            "type": "Flatten",
+            "description": "Common tile metrics shared by all tiles",
+            "fields": {
+                "pid":                              { "type": "UInt64", "description": "The process ID of the tile" },
+                "tid":                              { "type": "UInt64", "description": "The thread ID of the tile. Always the same as the Pid in production, but might be different in development" },
+                "context_switch_involuntary_count": { "type": "UInt64", "description": "The number of involuntary context switches" },
+                "context_switch_voluntary_count":   { "type": "UInt64", "description": "The number of voluntary context switches" },
+                "page_fault_major_count":           { "type": "UInt64", "description": "The number of major page faults" },
+                "page_fault_minor_count":           { "type": "UInt64", "description": "The number of minor page faults" },
+                "status":                           { "type": "UInt64", "description": "The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" },
+                "heartbeat":                        { "type": "UInt64", "description": "The last UNIX timestamp in nanoseconds that the tile heartbeated" },
+                "in_backpressure":                  { "type": "UInt64", "description": "Whether the tile is currently backpressured or not, either 1 or 0" },
+                "backpressure_count":               { "type": "UInt64", "description": "Number of times the tile has had to wait for one of more consumers to catch up to resume publishing" },
+                "regime_duration_nanos":            {
+                    "type": "FlattenSum",
+                    "description": "Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes",
+                    "fields": {
+                        "regime_duration_nanos_caught_up_housekeeping":    { "type": "UInt64", "description": "Caught up + Housekeeping" },
+                        "regime_duration_nanos_processing_housekeeping":   { "type": "UInt64", "description": "Processing + Housekeeping" },
+                        "regime_duration_nanos_backpressure_housekeeping": { "type": "UInt64", "description": "Backpressure + Housekeeping" },
+                        "regime_duration_nanos_caught_up_prefrag":         { "type": "UInt64", "description": "Caught up + Prefrag" },
+                        "regime_duration_nanos_processing_prefrag":        { "type": "UInt64", "description": "Processing + Prefrag" },
+                        "regime_duration_nanos_backpressure_prefrag":      { "type": "UInt64", "description": "Backpressure + Prefrag" },
+                        "regime_duration_nanos_caught_up_postfrag":        { "type": "UInt64", "description": "Caught up + Postfrag" },
+                        "regime_duration_nanos_processing_postfrag":       { "type": "UInt64", "description": "Processing + Postfrag" }
+                    }
+                },
+                "cpu_duration_nanos":               {
+                    "type": "FlattenSum",
+                    "description": "CPU time spent in each CPU regime",
+                    "fields": {
+                        "cpu_duration_nanos_wait":   { "type": "UInt64", "description": "Wait (task was runnable but not scheduled)" },
+                        "cpu_duration_nanos_idle":   { "type": "UInt64", "description": "Idle (task was not runnable)" },
+                        "cpu_duration_nanos_user":   { "type": "UInt64", "description": "User (task was scheduled and executing in user mode)" },
+                        "cpu_duration_nanos_system": { "type": "UInt64", "description": "System (task was scheduled and executing in kernel mode)" }
+                    }
+                }
+            }
+        },
+        "message_rx_count": {
+            "type": "FlattenSum",
+            "description": "Metric: MessageRxCount",
+            "fields": {
+                "message_rx_count_success_pull_request":                  { "type": "UInt64", "description": "Pull Request (success)" },
+                "message_rx_count_success_pull_response":                 { "type": "UInt64", "description": "Pull Response (success)" },
+                "message_rx_count_success_push":                          { "type": "UInt64", "description": "Push (success)" },
+                "message_rx_count_success_prune":                         { "type": "UInt64", "description": "Prune (success)" },
+                "message_rx_count_success_ping":                          { "type": "UInt64", "description": "Ping (success)" },
+                "message_rx_count_success_pong":                          { "type": "UInt64", "description": "Pong (success)" },
+                "message_rx_count_dropped_unparseable":                   { "type": "UInt64", "description": "Unparseable" },
+                "message_rx_count_dropped_pull_request_not_contact_info": { "type": "UInt64", "description": "Pull Request (not contact info)" },
+                "message_rx_count_dropped_pull_request_loopback":         { "type": "UInt64", "description": "Pull Request (loopback)" },
+                "message_rx_count_dropped_pull_request_inactive":         { "type": "UInt64", "description": "Pull Request (inactive)" },
+                "message_rx_count_dropped_pull_request_wallclock":        { "type": "UInt64", "description": "Pull Request (wallclock)" },
+                "message_rx_count_dropped_pull_request_signature":        { "type": "UInt64", "description": "Pull Request (signature)" },
+                "message_rx_count_dropped_pull_request_shred_version":    { "type": "UInt64", "description": "Pull Request (shred version)" },
+                "message_rx_count_dropped_prune_destination":             { "type": "UInt64", "description": "Prune (destination)" },
+                "message_rx_count_dropped_prune_wallclock":               { "type": "UInt64", "description": "Prune (wallclock)" },
+                "message_rx_count_dropped_prune_signature":               { "type": "UInt64", "description": "Prune (signature)" },
+                "message_rx_count_dropped_push_no_valid_crds":            { "type": "UInt64", "description": "Push (no valid crds)" },
+                "message_rx_count_dropped_pull_response_no_valid_crds":   { "type": "UInt64", "description": "Pull Response (no valid crds)" },
+                "message_rx_count_dropped_ping_signature":                { "type": "UInt64", "description": "Ping (signature)" },
+                "message_rx_count_dropped_pong_signature":                { "type": "UInt64", "description": "Pong (signature)" }
+            }
+        },
+        "message_rx_bytes": {
+            "type": "FlattenSum",
+            "description": "Metric: MessageRxBytes",
+            "fields": {
+                "message_rx_bytes_success_pull_request":                  { "type": "UInt64", "description": "Pull Request (success)" },
+                "message_rx_bytes_success_pull_response":                 { "type": "UInt64", "description": "Pull Response (success)" },
+                "message_rx_bytes_success_push":                          { "type": "UInt64", "description": "Push (success)" },
+                "message_rx_bytes_success_prune":                         { "type": "UInt64", "description": "Prune (success)" },
+                "message_rx_bytes_success_ping":                          { "type": "UInt64", "description": "Ping (success)" },
+                "message_rx_bytes_success_pong":                          { "type": "UInt64", "description": "Pong (success)" },
+                "message_rx_bytes_dropped_unparseable":                   { "type": "UInt64", "description": "Unparseable" },
+                "message_rx_bytes_dropped_pull_request_not_contact_info": { "type": "UInt64", "description": "Pull Request (not contact info)" },
+                "message_rx_bytes_dropped_pull_request_loopback":         { "type": "UInt64", "description": "Pull Request (loopback)" },
+                "message_rx_bytes_dropped_pull_request_inactive":         { "type": "UInt64", "description": "Pull Request (inactive)" },
+                "message_rx_bytes_dropped_pull_request_wallclock":        { "type": "UInt64", "description": "Pull Request (wallclock)" },
+                "message_rx_bytes_dropped_pull_request_signature":        { "type": "UInt64", "description": "Pull Request (signature)" },
+                "message_rx_bytes_dropped_pull_request_shred_version":    { "type": "UInt64", "description": "Pull Request (shred version)" },
+                "message_rx_bytes_dropped_prune_destination":             { "type": "UInt64", "description": "Prune (destination)" },
+                "message_rx_bytes_dropped_prune_wallclock":               { "type": "UInt64", "description": "Prune (wallclock)" },
+                "message_rx_bytes_dropped_prune_signature":               { "type": "UInt64", "description": "Prune (signature)" },
+                "message_rx_bytes_dropped_push_no_valid_crds":            { "type": "UInt64", "description": "Push (no valid crds)" },
+                "message_rx_bytes_dropped_pull_response_no_valid_crds":   { "type": "UInt64", "description": "Pull Response (no valid crds)" },
+                "message_rx_bytes_dropped_ping_signature":                { "type": "UInt64", "description": "Ping (signature)" },
+                "message_rx_bytes_dropped_pong_signature":                { "type": "UInt64", "description": "Pong (signature)" }
+            }
+        },
+        "crds_rx_count":    {
+            "type": "FlattenSum",
+            "description": "Metric: CrdsRxCount",
+            "fields": {
+                "crds_rx_count_success_pull_response":                        { "type": "UInt64", "description": "Pull Response (success)" },
+                "crds_rx_count_success_push":                                 { "type": "UInt64", "description": "Push (success)" },
+                "crds_rx_count_dropped_pull_response_duplicate":              { "type": "UInt64", "description": "Pull Response (duplicate)" },
+                "crds_rx_count_dropped_pull_response_signature":              { "type": "UInt64", "description": "Pull Response (signature)" },
+                "crds_rx_count_dropped_pull_response_origin_no_contact_info": { "type": "UInt64", "description": "Pull Response (origin no contact info)" },
+                "crds_rx_count_dropped_pull_response_origin_shred_version":   { "type": "UInt64", "description": "Pull Response (origin shred version)" },
+                "crds_rx_count_dropped_pull_response_inactive":               { "type": "UInt64", "description": "Pull Response (inactive)" },
+                "crds_rx_count_dropped_push_signature":                       { "type": "UInt64", "description": "Push (signature)" },
+                "crds_rx_count_dropped_push_origin_no_contact_info":          { "type": "UInt64", "description": "Push (origin no contact info)" },
+                "crds_rx_count_dropped_push_origin_shred_version":            { "type": "UInt64", "description": "Push (origin shred version)" },
+                "crds_rx_count_dropped_push_inactive":                        { "type": "UInt64", "description": "Push (inactive)" },
+                "crds_rx_count_dropped_push_wallclock":                       { "type": "UInt64", "description": "Push (wallclock)" }
+            }
+        },
+        "crds_rx_bytes":    {
+            "type": "FlattenSum",
+            "description": "Metric: CrdsRxBytes",
+            "fields": {
+                "crds_rx_bytes_success_pull_response":                        { "type": "UInt64", "description": "Pull Response (success)" },
+                "crds_rx_bytes_success_push":                                 { "type": "UInt64", "description": "Push (success)" },
+                "crds_rx_bytes_dropped_pull_response_duplicate":              { "type": "UInt64", "description": "Pull Response (duplicate)" },
+                "crds_rx_bytes_dropped_pull_response_signature":              { "type": "UInt64", "description": "Pull Response (signature)" },
+                "crds_rx_bytes_dropped_pull_response_origin_no_contact_info": { "type": "UInt64", "description": "Pull Response (origin no contact info)" },
+                "crds_rx_bytes_dropped_pull_response_origin_shred_version":   { "type": "UInt64", "description": "Pull Response (origin shred version)" },
+                "crds_rx_bytes_dropped_pull_response_inactive":               { "type": "UInt64", "description": "Pull Response (inactive)" },
+                "crds_rx_bytes_dropped_push_signature":                       { "type": "UInt64", "description": "Push (signature)" },
+                "crds_rx_bytes_dropped_push_origin_no_contact_info":          { "type": "UInt64", "description": "Push (origin no contact info)" },
+                "crds_rx_bytes_dropped_push_origin_shred_version":            { "type": "UInt64", "description": "Push (origin shred version)" },
+                "crds_rx_bytes_dropped_push_inactive":                        { "type": "UInt64", "description": "Push (inactive)" },
+                "crds_rx_bytes_dropped_push_wallclock":                       { "type": "UInt64", "description": "Push (wallclock)" }
+            }
+        }
+    }
+}

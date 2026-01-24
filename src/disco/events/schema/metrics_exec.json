@@ -1,0 +1,104 @@
+{
+    "name": "metrics_exec",
+    "id": 132,
+    "description": "Metrics snapshot for the exec tile",
+    "fields": {
+        "meta":                    {
+            "type": "Flatten",
+            "description": "Metadata about this metrics sample",
+            "fields": {
+                "kind_id":       { "type": "UInt64", "description": "The kind_id of this tile instance within its type (e.g., 0, 1, 2 for multiple tiles of same type)" },
+                "sample_id":     { "type": "UInt64", "description": "Unique identifier correlating samples taken at the same time across tiles" },
+                "sample_reason": {
+                    "type": "LowCardinality(String)",
+                    "description": "Reason for taking this sample",
+                    "variants": {
+                        "Periodic": { "description": "Periodic sampling at regular intervals" },
+                        "LeaderStarted": { "description": "Sampled because this validator started leading a slot" },
+                        "LeaderEnded": { "description": "Sampled because this validator finished leading a slot" }
+                    }
+                },
+                "sample_slot":   { "type": "UInt64", "description": "The slot number for which this sample was taken, if applicable" }
+            }
+        },
+        "tile":                    {
+            "type": "Flatten",
+            "description": "Common tile metrics shared by all tiles",
+            "fields": {
+                "pid":                              { "type": "UInt64", "description": "The process ID of the tile" },
+                "tid":                              { "type": "UInt64", "description": "The thread ID of the tile. Always the same as the Pid in production, but might be different in development" },
+                "context_switch_involuntary_count": { "type": "UInt64", "description": "The number of involuntary context switches" },
+                "context_switch_voluntary_count":   { "type": "UInt64", "description": "The number of voluntary context switches" },
+                "page_fault_major_count":           { "type": "UInt64", "description": "The number of major page faults" },
+                "page_fault_minor_count":           { "type": "UInt64", "description": "The number of minor page faults" },
+                "status":                           { "type": "UInt64", "description": "The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" },
+                "heartbeat":                        { "type": "UInt64", "description": "The last UNIX timestamp in nanoseconds that the tile heartbeated" },
+                "in_backpressure":                  { "type": "UInt64", "description": "Whether the tile is currently backpressured or not, either 1 or 0" },
+                "backpressure_count":               { "type": "UInt64", "description": "Number of times the tile has had to wait for one of more consumers to catch up to resume publishing" },
+                "regime_duration_nanos":            {
+                    "type": "FlattenSum",
+                    "description": "Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes",
+                    "fields": {
+                        "regime_duration_nanos_caught_up_housekeeping":    { "type": "UInt64", "description": "Caught up + Housekeeping" },
+                        "regime_duration_nanos_processing_housekeeping":   { "type": "UInt64", "description": "Processing + Housekeeping" },
+                        "regime_duration_nanos_backpressure_housekeeping": { "type": "UInt64", "description": "Backpressure + Housekeeping" },
+                        "regime_duration_nanos_caught_up_prefrag":         { "type": "UInt64", "description": "Caught up + Prefrag" },
+                        "regime_duration_nanos_processing_prefrag":        { "type": "UInt64", "description": "Processing + Prefrag" },
+                        "regime_duration_nanos_backpressure_prefrag":      { "type": "UInt64", "description": "Backpressure + Prefrag" },
+                        "regime_duration_nanos_caught_up_postfrag":        { "type": "UInt64", "description": "Caught up + Postfrag" },
+                        "regime_duration_nanos_processing_postfrag":       { "type": "UInt64", "description": "Processing + Postfrag" }
+                    }
+                },
+                "cpu_duration_nanos":               {
+                    "type": "FlattenSum",
+                    "description": "CPU time spent in each CPU regime",
+                    "fields": {
+                        "cpu_duration_nanos_wait":   { "type": "UInt64", "description": "Wait (task was runnable but not scheduled)" },
+                        "cpu_duration_nanos_idle":   { "type": "UInt64", "description": "Idle (task was not runnable)" },
+                        "cpu_duration_nanos_user":   { "type": "UInt64", "description": "User (task was scheduled and executing in user mode)" },
+                        "cpu_duration_nanos_system": { "type": "UInt64", "description": "System (task was scheduled and executing in kernel mode)" }
+                    }
+                }
+            }
+        },
+        "progcache_misses":        { "type": "UInt64", "description": "Number of program cache misses" },
+        "progcache_hits":          { "type": "UInt64", "description": "Number of program cache hits" },
+        "progcache_fills":         { "type": "UInt64", "description": "Number of program cache insertions" },
+        "progcache_fill_tot_sz":   { "type": "UInt64", "description": "Total number of bytes inserted into program cache" },
+        "progcache_fill_fails":    { "type": "UInt64", "description": "Number of program cache load fails (tombstones inserted)" },
+        "progcache_dup_inserts":   { "type": "UInt64", "description": "Number of time two tiles raced to insert the same cache entry" },
+        "progcache_invalidations": { "type": "UInt64", "description": "Number of program cache invalidations" },
+        "accdb_created":           { "type": "UInt64", "description": "Number of account database records created" },
+        "txn_regime":              {
+            "type": "FlattenSum",
+            "description": "Mutually exclusive and exhaustive duration of time spent in transaction execution regimes",
+            "fields": {
+                "txn_regime_setup":  { "type": "UInt64", "description": "Transaction setup" },
+                "txn_regime_exec":   { "type": "UInt64", "description": "Transaction execution (includes VM setup/execution)" },
+                "txn_regime_commit": { "type": "UInt64", "description": "Transaction result commit" }
+            }
+        },
+        "vm_regime":               {
+            "type": "FlattenSum",
+            "description": "Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes",
+            "fields": {
+                "vm_regime_setup":       { "type": "UInt64", "description": "VM setup" },
+                "vm_regime_commit":      { "type": "UInt64", "description": "VM commit" },
+                "vm_regime_setup_cpi":   { "type": "UInt64", "description": "VM setup (CPI)" },
+                "vm_regime_commit_cpi":  { "type": "UInt64", "description": "VM commit (CPI)" },
+                "vm_regime_interpreter": { "type": "UInt64", "description": "VM interpreter execution" }
+            }
+        },
+        "txn_account_changes":     {
+            "type": "FlattenSum",
+            "description": "Transaction account change event counters",
+            "fields": {
+                "txn_account_changes_unchanged_nonexist": { "type": "UInt64", "description": "Account did not exist before and still does not" },
+                "txn_account_changes_created":            { "type": "UInt64", "description": "Account created" },
+                "txn_account_changes_delete":             { "type": "UInt64", "description": "Account deleted" },
+                "txn_account_changes_modify":             { "type": "UInt64", "description": "Account modified" },
+                "txn_account_changes_unchanged":          { "type": "UInt64", "description": "Account unchanged" }
+            }
+        }
+    }
+}

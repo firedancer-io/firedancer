@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package events.v1;
+
+import "events.proto";
+
+// Nanosecond resolution timestamp
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+// An event sent from the application to the event server
+message StreamEventsRequest {
+  // A nonce provided by the application to identify this event, should be acknowledged back in StreamEventsResponse
+  uint64 nonce = 1;
+  // The unique ID of the event from this application, monotonically increasing from zero, may have gaps if events get dropped
+  uint64 event_id = 2;
+  // The wall clock time when the event was recorded
+  Timestamp timestamp = 3;
+  // The actual event
+  Event event = 4;
+}
+
+// Acknowledgement of an event received by the server
+message StreamEventsResponse {
+  // The nonce of the acknowledged event
+  uint64 nonce = 1;
+}
+
+message GenerateAuthChallengeRequest {
+  bytes identity_pubkey = 1;
+  string version = 2;
+  bytes genesis_hash = 3;
+  uint64 shred_version = 4;
+  uint64 instance_id = 5;
+  uint64 machine_id = 6;
+  uint64 boot_id = 7;
+}
+
+message GenerateAuthChallengeResponse {
+  bytes challenge = 1;
+}
+
+message ConfirmAuthChallengeRequest {
+  bytes signed_challenge = 1;
+}
+
+message ConfirmAuthChallengeResponse {
+}
+
+// An event server for receiving application reported events
+service EventService {
+  // Generate an authentication challenge for the client to sign
+  rpc Authenticate(GenerateAuthChallengeRequest) returns (GenerateAuthChallengeResponse) {}
+
+  // Confirm the signed authentication challenge from the client
+  rpc ConfirmAuthChallenge(ConfirmAuthChallengeRequest) returns (ConfirmAuthChallengeResponse) {}
+
+  // Stream of events from client to server, and acknowledgements from server to client
+  rpc StreamEvents (stream StreamEventsRequest) returns (stream StreamEventsResponse);
+}
