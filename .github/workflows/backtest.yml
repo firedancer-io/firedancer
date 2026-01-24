@@ -7,7 +7,7 @@ on:
         default: linux_gcc_zen2
       extras:
         type: string
-        default: "handholding liburing"
+        default: handholding
       script:
         type: string
         default: src/flamenco/runtime/tests/run_backtest_ci.sh
@@ -21,7 +21,7 @@ on:
         default: linux_gcc_zen2
       extras:
         type: string
-        default: "handholding liburing"
+        default: handholding
       script:
         type: string
         default: src/flamenco/runtime/tests/run_backtest_ci.sh
@@ -50,7 +50,7 @@ jobs:
 
       - uses: ./.github/actions/deps
         with:
-          extras: "+dev +uring"
+          extras: +dev
 
       - uses: ./.github/actions/hugepages
         with:
