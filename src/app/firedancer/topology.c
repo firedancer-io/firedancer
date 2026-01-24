@@ -1051,7 +1051,7 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( FD_UNLIKELY( rpc_enabled ) ) {
-    fd_topob_link( topo, "rpc_replay", "rpc_replay", 4UL, 0UL, 1UL );
+    fd_topob_link( topo, "rpc_replay", "rpc_replay", 8UL, 0UL, 1UL );
     fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
 
     fd_topob_tile_in( topo, "rpc",    0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
