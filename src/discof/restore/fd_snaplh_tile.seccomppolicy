@@ -3,8 +3,8 @@
 #
 # bstream_fd: vinyl bstream file descriptor.
 #
-# ring_fd: io_uring file descriptor, when liburing is available and
-# io_uring is enabled in the configuration, otherwise INT_MAX.
+# ring_fd: io_uring file descriptor, if io_uring is enabled in the
+# configuration, otherwise UINT_MAX.
 unsigned int logfile_fd, unsigned int bstream_fd, unsigned int ring_fd
 
 # logging: all log messages are written to a file and/or pipe

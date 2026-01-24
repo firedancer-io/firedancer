@@ -1,15 +1,14 @@
+#define _GNU_SOURCE
 #include "fd_vinyl_io_ur.h"
-#include <liburing/io_uring.h>
-
-#if !FD_HAS_LIBURING
-#error "This test requires liburing"
-#endif
+#include "../../util/io_uring/fd_io_uring_setup.h"
+#include "../../util/io_uring/fd_io_uring_register.h"
 
 #include <stdlib.h> /* mkstemp */
 #include <errno.h>
 #include <unistd.h> /* ftruncate */
 #include <fcntl.h>  /* open */
-#include <liburing.h>
+#include <linux/io_uring.h> /* io_uring_params */
+#include <sys/mman.h> /* mmap */
 
 #include "test_vinyl_io_common.c"
 
@@ -18,10 +17,12 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong        spad_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--spad-max", NULL, 131072UL );
-  char const * path     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--path",     NULL, NULL     );
-  ulong        seed     = fd_env_strip_cmdline_ulong( &argc, &argv, "--seed",     NULL, 1234UL   );
-  uint         depth    = fd_env_strip_cmdline_uint ( &argc, &argv, "--depth",    NULL, 256U     );
+  ulong        spad_max = fd_env_strip_cmdline_ulong   ( &argc, &argv, "--spad-max", NULL, 131072UL );
+  char const * path     = fd_env_strip_cmdline_cstr    ( &argc, &argv, "--path",     NULL, NULL     );
+  ulong        seed     = fd_env_strip_cmdline_ulong   ( &argc, &argv, "--seed",     NULL, 1234UL   );
+  uint         depth    = fd_env_strip_cmdline_uint    ( &argc, &argv, "--depth",    NULL, 256U     );
+  _Bool        umem     = fd_env_strip_cmdline_contains( &argc, &argv, "--umem"     );
+  _Bool        defer_io = fd_env_strip_cmdline_contains( &argc, &argv, "--defer-io" );
 
   FD_LOG_NOTICE(( "Testing with --spad-max %lu --seed %lu", spad_max, seed ));
 
@@ -65,29 +66,43 @@ main( int     argc,
     FD_TEST( fd_vinyl_io_fini( io_bd )==mem );
   }
 
+  void * ring_umem = NULL;
+  if( umem ) {
+    ulong ring_sz = fd_io_uring_shmem_footprint( depth, depth );
+    ring_umem = mmap( NULL, ring_sz, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0 );
+    if( FD_UNLIKELY( ring_umem==MAP_FAILED ) ) {
+      FD_LOG_ERR(( "mmap ring_umem failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
   /* Join the bstream using io_ur */
-  struct io_uring ring[1];
+  fd_io_uring_t ring[1];
   fd_vinyl_io_t * io = NULL;
   {
-    struct io_uring_params params = {
-      .flags = IORING_SETUP_CQSIZE |
-               IORING_SETUP_COOP_TASKRUN |
-               IORING_SETUP_SINGLE_ISSUER,
-      .features = IORING_SETUP_DEFER_TASKRUN,
-      .cq_entries = depth
-    };
-
-    int init_err = io_uring_queue_init_params( depth, ring, &params );
-    if( FD_UNLIKELY( init_err==-EPERM ) ) {
-      FD_LOG_WARNING(( "skip: unit test is missing privileges to setup io_uring" ));
-      if( FD_UNLIKELY( unlink( path ) ) ) FD_LOG_WARNING(( "unlink failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      fd_rng_delete( fd_rng_leave( rng ) );
-      return 0;
-    } else if( init_err<0 ) {
-      FD_LOG_ERR(( "io_uring_queue_init_params failed (%i-%s)", init_err, fd_io_strerror( -init_err ) ));
+    struct io_uring_params params[1];
+    fd_io_uring_params_init( params, depth );
+    if( defer_io ) {
+      params->flags    |= IORING_SETUP_COOP_TASKRUN;
+      params->features |= IORING_SETUP_DEFER_TASKRUN;
     }
 
-    FD_TEST( 0==io_uring_register_files( ring, &fd, 1 ) );
+    int map_ok;
+    if( umem ) map_ok = !!fd_io_uring_init_shmem( ring, params, ring_umem, depth, depth );
+    else       map_ok = !!fd_io_uring_init_mmap ( ring, params );
+    if( FD_UNLIKELY( !map_ok ) ) {
+      if( FD_UNLIKELY( errno==-EPERM ) ) {
+        FD_LOG_WARNING(( "skip: unit test is missing privileges to setup io_uring" ));
+        if( FD_UNLIKELY( unlink( path ) ) ) FD_LOG_WARNING(( "unlink failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        fd_rng_delete( fd_rng_leave( rng ) );
+        return 0;
+      } else {
+        FD_LOG_ERR(( "fd_io_uring_init_mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+    }
+
+    FD_TEST( 0==fd_io_uring_register_files( ring->ioring_fd, &fd, 1 ) );
+
+    FD_TEST( 0==fd_io_uring_enable_rings( ring->ioring_fd ) );
 
     ulong align = fd_vinyl_io_ur_align();
     FD_TEST( fd_ulong_is_pow2( align ) );
@@ -173,7 +188,12 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  io_uring_queue_exit( ring );
+  if( ring_umem ) {
+    if( FD_UNLIKELY( munmap( ring_umem, fd_io_uring_shmem_footprint( depth, depth ) ) ) ) {
+      FD_LOG_WARNING(( "munmap ring_umem failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+  (void)fd_io_uring_fini( ring );
 
   if( FD_UNLIKELY( unlink( path ) ) ) FD_LOG_WARNING(( "unlink failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
