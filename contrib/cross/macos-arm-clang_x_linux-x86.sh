@@ -53,7 +53,6 @@ sysroot () {
     libstdc++-devel
     # Project dependencies
     kernel-headers
-    liburing-devel liburing
     bzip2-devel bzip2-static
     lz4-devel lz4-static
     libzstd-devel libzstd-static

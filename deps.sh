@@ -35,7 +35,6 @@ PREFIX="$(pwd)/opt"
 
 DEVMODE=0
 MSAN=0
-LIBURING=0
 _CC="${CC:=gcc}"
 _CXX="${CXX:=g++}"
 EXTRA_CFLAGS="-g3 -fno-omit-frame-pointer"
@@ -136,7 +135,6 @@ fetch () {
   fi
   checkout_repo zstd      https://github.com/facebook/zstd            "v1.5.7"
   checkout_repo lz4       https://github.com/lz4/lz4                  "v1.10.0"
-  checkout_repo liburing  https://github.com/axboe/liburing           "liburing-2.12"
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "4d2e22a"
   checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.0"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1   "v0.7.0"
@@ -437,16 +435,6 @@ install_lz4 () {
   echo "[+] Successfully installed lz4"
 }
 
-install_liburing () {
-  cd "$PREFIX/git/liburing"
-
-  echo "[+] Installing liburing to $PREFIX"
-  ./configure --prefix="$PREFIX" --cc="$CC -fPIC $EXTRA_CFLAGS"
-  "${MAKE[@]}"
-  "${MAKE[@]}" install
-  echo "[+] Successfully installed liburing"
-}
-
 install_s2n () {
   cd "$PREFIX/git/s2n"
 
@@ -667,11 +655,6 @@ install () {
   fi
   ( install_zstd      )
   ( install_lz4       )
-  if [[ $LIBURING == 1 ]]; then
-    if [[ "$OS" == "Linux" ]]; then
-      ( install_liburing )
-    fi
-  fi
   if [[ "$(uname -m)" == x86_64 ]]; then
     ( install_s2n )
   fi
@@ -717,10 +700,6 @@ while [[ $# -gt 0 ]]; do
     "+dev")
       shift
       DEVMODE=1
-      ;;
-    "+uring")
-      shift
-      LIBURING=1
       ;;
     nuke)
       shift

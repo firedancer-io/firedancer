@@ -32,10 +32,6 @@ LDFLAGS+=--ld-path=$(shell brew --prefix lld)/bin/ld.lld
 CPPFLAGS+=-isystem ./opt/cross/$(CROSS)/usr/local/include
 LDFLAGS+=-L./opt/cross/$(CROSS)/usr/local/lib
 
-FD_HAS_LIBURING:=1
-CFLAGS+=-DFD_HAS_LIBURING=1
-LDFLAGS+=-luring
-
 FD_HAS_BZIP2:=1
 CFLAGS+=-DFD_HAS_BZIP2=1
 LDFLAGS+=-lbz2
