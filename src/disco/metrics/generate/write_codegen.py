@@ -71,10 +71,6 @@ def _write_common(metrics: Metrics):
         for tile in metrics.tiles.keys():
             f.write(f'#include "fd_metrics_{tile.name.lower()}.h"\n')
 
-        f.write('/* Start of LINK OUT metrics */\n\n')
-        for metric in metrics.link_out:
-            _write_metric(f, metric, "link")
-
         f.write('/* Start of LINK IN metrics */\n\n')
         for metric in metrics.link_in:
             _write_metric(f, metric, "link")
@@ -88,8 +84,6 @@ def _write_common(metrics: Metrics):
         f.write(f'extern const fd_metrics_meta_t FD_METRICS_ALL[FD_METRICS_ALL_TOTAL];\n')
         f.write(f'\n#define FD_METRICS_ALL_LINK_IN_TOTAL ({len(metrics.link_in)}UL)\n')
         f.write(f'extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOTAL];\n')
-        f.write(f'\n#define FD_METRICS_ALL_LINK_OUT_TOTAL ({len(metrics.link_out)}UL)\n')
-        f.write(f'extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_TOTAL];\n')
 
         # Max size of any particular tiles metrics
         max_offset = 0
@@ -118,12 +112,6 @@ def _write_common(metrics: Metrics):
 
         f.write('const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOTAL] = {\n')
         for metric in metrics.link_in:
-            full_name = f'LINK_{camel2snake(metric.name)}'
-            _write_metric_descriptor(f, full_name, metric)
-        f.write('};\n\n')
-
-        f.write(f'const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_TOTAL] = {{\n')
-        for metric in metrics.link_out:
             full_name = f'LINK_{camel2snake(metric.name)}'
             _write_metric_descriptor(f, full_name, metric)
         f.write('};\n\n')

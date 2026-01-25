@@ -116,38 +116,6 @@ tile_snap( tile_snap_t *     snap_cur, /* Snapshot for each tile, indexed [0,til
   }
 }
 
-static ulong
-find_producer_out_idx( fd_topo_t const *      topo,
-                       fd_topo_tile_t const * producer,
-                       fd_topo_tile_t const * consumer,
-                       ulong                  consumer_in_idx ) {
-  /* This finds all reliable consumers of the producers primary output,
-     and then returns the position of the consumer (specified by tile
-     and index of the in of that tile) in that list. The list ordering
-     is not important, except that it matches the ordering of fseqs
-     provided to fd_stem, so that metrics written for each link index
-     are retrieved at the same index here.
-
-     This is why we only count reliable links, because fd_stem only
-     looks at and writes producer side diagnostics (is the link slow)
-     for reliable links. */
-
-  ulong reliable_cons_cnt = 0UL;
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t const * consumer_tile = &topo->tiles[ i ];
-    for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
-      for( ulong k=0UL; k<producer->out_cnt; k++ ) {
-        if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==producer->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
-          if( FD_UNLIKELY( consumer==consumer_tile && consumer_in_idx==j ) ) return reliable_cons_cnt;
-          reliable_cons_cnt++;
-        }
-      }
-    }
-  }
-
-  return ULONG_MAX;
-}
-
 static void
 link_snap( link_snap_t *     snap_cur,
            fd_topo_t const * topo ) {
@@ -167,16 +135,6 @@ link_snap( link_snap_t *     snap_cur,
         in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
       }
 
-      fd_topo_link_t const * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
-      ulong producer_id = fd_topo_find_link_producer( topo, link );
-      FD_TEST( producer_id!=ULONG_MAX );
-      volatile ulong const * out_metrics = NULL;
-      if( FD_LIKELY( topo->tiles[ tile_idx ].in_link_reliable[ in_idx ] ) ) {
-        fd_topo_tile_t const * producer = &topo->tiles[ producer_id ];
-        ulong cons_idx = find_producer_out_idx( topo, producer, &topo->tiles[ tile_idx ], in_idx );
-
-        out_metrics = fd_metrics_link_out( producer->metrics, cons_idx );
-      }
       FD_COMPILER_MFENCE();
       if( FD_LIKELY( in_metrics ) ) {
         snap->fseq_diag_tot_cnt   = in_metrics[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ];
@@ -185,6 +143,7 @@ link_snap( link_snap_t *     snap_cur,
         snap->fseq_diag_filt_sz   = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_SIZE_BYTES_OFF ];
         snap->fseq_diag_ovrnp_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ];
         snap->fseq_diag_ovrnr_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ];
+        snap->fseq_diag_slow_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ];
       } else {
         snap->fseq_diag_tot_cnt   = 0UL;
         snap->fseq_diag_tot_sz    = 0UL;
@@ -192,12 +151,8 @@ link_snap( link_snap_t *     snap_cur,
         snap->fseq_diag_filt_sz   = 0UL;
         snap->fseq_diag_ovrnp_cnt = 0UL;
         snap->fseq_diag_ovrnr_cnt = 0UL;
-      }
-
-      if( FD_LIKELY( out_metrics ) )
-        snap->fseq_diag_slow_cnt  = out_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ];
-      else
         snap->fseq_diag_slow_cnt  = 0UL;
+      }
       FD_COMPILER_MFENCE();
       snap->fseq_diag_tot_cnt += snap->fseq_diag_filt_cnt;
       snap->fseq_diag_tot_sz  += snap->fseq_diag_filt_sz;

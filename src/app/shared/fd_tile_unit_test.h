@@ -247,7 +247,7 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
                                                                netns, is_firedancer, is_local_cluster,
                                                                fd_topo_initialize, &fd_tile_pack, config );
          FD_TEST( test_tile );
-         fd_metrics_register( fd_metrics_new( metrics_scratch, 10, 10 ) );
+         fd_metrics_register( fd_metrics_new( metrics_scratch, 10 ) );
 
          mock_privileged_init( &config->topo, test_tile );
          unprivileged_init(    &config->topo, test_tile );

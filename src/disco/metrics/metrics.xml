@@ -19,11 +19,8 @@ metric introduced.
     <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling" />
     <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer" />
     <counter name="OverrunReadingFragCount" summary="The number of fragments the link has not processed because it was overrun while reading" />
-</linkin>
-
-<linkout>
     <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer" />
-</linkout>
+</linkin>
 
 <enum name="TileRegime">
     <int value="0" name="CaughtUpHousekeeping" label="Caught up + Housekeeping" />

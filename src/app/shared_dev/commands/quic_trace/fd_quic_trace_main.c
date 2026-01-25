@@ -201,7 +201,6 @@ quic_trace_cmd_fn( args_t *   args,
   if( !target_tile ) FD_LOG_ERR(( "%s tile not found in topology", tile_names[trace_send] ));
 
   ulong const target_in_cnt  = target_tile->in_cnt;
-  ulong const target_out_cnt = target_tile->out_cnt;
   if( FD_UNLIKELY( !trace_send && target_in_cnt != 1UL ) ) { /* FIXME */
     FD_LOG_ERR(( "Sorry, fd_quic_trace does not support multiple net tiles yet" ));
   }
@@ -352,9 +351,9 @@ quic_trace_cmd_fn( args_t *   args,
      into the target topology which is read-only. */
 
   /* ... redirect metric updates */
-  ulong * metrics = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( target_in_cnt, target_out_cnt ) );
+  ulong * metrics = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( target_in_cnt ) );
   if( !metrics ) FD_LOG_ERR(( "out of memory" ));
-  fd_memset( metrics, 0, FD_METRICS_FOOTPRINT( target_in_cnt, target_out_cnt ) );
+  fd_memset( metrics, 0, FD_METRICS_FOOTPRINT( target_in_cnt ) );
   fd_metrics_register( metrics );
 
   fd_quic_trace_link_metrics = fd_metrics_link_in( fd_metrics_base_tl, 0 );

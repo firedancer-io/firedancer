@@ -105,7 +105,7 @@ struct fd_tile_test_locals {
 /* Global config. */
 config_t config[1];
 
-static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 10, 10 ) ] __attribute__((aligned(FD_METRICS_ALIGN))) = {0};
+static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 10 ) ] __attribute__((aligned(FD_METRICS_ALIGN))) = {0};
 
 /* ********************* Pack Tile Test Configuration TBC ******************* */
 #define MAX_TEST_TXNS (26)
@@ -1055,7 +1055,7 @@ main( int     argc,
                                                        netns, is_firedancer, is_local_cluster,
                                                        fd_topo_initialize, &fd_tile_pack, config );
   FD_TEST( pack_tile );
-  fd_metrics_register( fd_metrics_new( metrics_scratch, 10, 10 ) );
+  fd_metrics_register( fd_metrics_new( metrics_scratch, 10 ) );
 
   fd_pack_ctx_t * ctx = fd_topo_obj_laddr( &config->topo, pack_tile->tile_obj_id );
   FD_TEST( ctx );

@@ -59,11 +59,10 @@ extern FD_TL ulong * fd_metrics_base_tl;
 extern FD_TL volatile ulong * fd_metrics_tl;
 
 #define FD_METRICS_ALIGN (128UL)
-#define FD_METRICS_FOOTPRINT(in_link_cnt, out_link_reliable_consumer_cnt)                                   \
-  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND ( FD_LAYOUT_APPEND ( FD_LAYOUT_INIT, \
-    8UL, 16UL ),                                                                                            \
+#define FD_METRICS_FOOTPRINT(in_link_cnt)                                                                   \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND ( FD_LAYOUT_INIT,                    \
+    8UL, 8UL ),                                                                                             \
     8UL, (in_link_cnt)*FD_METRICS_ALL_LINK_IN_TOTAL*sizeof(ulong) ),                                        \
-    8UL, (out_link_reliable_consumer_cnt)*FD_METRICS_ALL_LINK_OUT_TOTAL*sizeof(ulong) ),                    \
     8UL, FD_METRICS_TOTAL_SZ ),                                                                             \
     FD_METRICS_ALIGN )
 
@@ -125,17 +124,12 @@ FD_PROTOTYPES_BEGIN
 /* fd_metrics_tile returns a pointer to the tile-specific metrics area
    for the given metrics object.  */
 static inline volatile ulong *
-fd_metrics_tile( ulong * metrics ) { return metrics + 2UL + FD_METRICS_ALL_LINK_IN_TOTAL*metrics[ 0 ] + FD_METRICS_ALL_LINK_OUT_TOTAL*metrics[ 1 ]; }
+fd_metrics_tile( ulong * metrics ) { return metrics + 1UL + FD_METRICS_ALL_LINK_IN_TOTAL*metrics[ 0 ]; }
 
 /* fd_metrics_link_in returns a pointer the in-link metrics area for the
    given in link index of this metrics object. */
 static inline volatile ulong *
-fd_metrics_link_in( ulong * metrics, ulong in_idx ) { return metrics + 2UL + FD_METRICS_ALL_LINK_IN_TOTAL*in_idx; }
-
-/* fd_metrics_link_in returns a pointer the in-link metrics area for the
-   given out link index of this metrics object. */
-static inline volatile ulong *
-fd_metrics_link_out( ulong * metrics, ulong out_idx ) { return metrics + 2UL + FD_METRICS_ALL_LINK_IN_TOTAL*metrics[0] + FD_METRICS_ALL_LINK_OUT_TOTAL*out_idx; }
+fd_metrics_link_in( ulong * metrics, ulong in_idx ) { return metrics + 1UL + FD_METRICS_ALL_LINK_IN_TOTAL*in_idx; }
 
 /* fd_metrics_new formats an unused memory region for use as a metrics.
    Assumes shmem is a non-NULL pointer to this region in the local
@@ -146,12 +140,10 @@ fd_metrics_link_out( ulong * metrics, ulong out_idx ) { return metrics + 2UL + F
 
 static inline void *
 fd_metrics_new( void * shmem,
-                ulong  in_link_cnt,
-                ulong  out_link_consumer_cnt ) {
-  fd_memset( shmem, 0, FD_METRICS_FOOTPRINT(in_link_cnt, out_link_consumer_cnt) );
+                ulong  in_link_cnt ) {
+  fd_memset( shmem, 0, FD_METRICS_FOOTPRINT(in_link_cnt) );
   ulong * metrics = shmem;
   metrics[0] = in_link_cnt;
-  metrics[1] = out_link_consumer_cnt;
   return shmem;
 }
 
