@@ -28,7 +28,7 @@ FD_IMPORT_BINARY( test_bin,         "src/disco/shred/fixtures/demo-shreds.bin"  
 FD_IMPORT_BINARY( chained_test,     "src/disco/shred/fixtures/chained-5XDmMEZpXM2GBXNjhgRCti4qLGeFQvx4RnzWeRgfupYk.ar"  );
 FD_IMPORT_BINARY( resigned_test,    "src/disco/shred/fixtures/resigned-AmKFVSAQ7DyhiW94pWfDexYDCSn8GB6SG2zbQqLhuufU.ar" );
 
-uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
+uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
 fd_shredder_t _shredder[ 1 ];
 
@@ -882,7 +882,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) );
 
   (void)perf_test;
 

@@ -315,7 +315,7 @@ dump_cmd_fn( args_t      * args,
 
     uchar * scratch = fd_alloca( FD_STEM_SCRATCH_ALIGN, stem_scratch_footprint( ctx.link_cnt, 0UL, 0UL ) );
 
-    ctx.metrics_base = fd_metrics_join( fd_metrics_new( fd_alloca( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( ctx.link_cnt, 0UL ) ), ctx.link_cnt, 0UL ) );
+    ctx.metrics_base = fd_metrics_join( fd_metrics_new( fd_alloca( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( ctx.link_cnt ) ), ctx.link_cnt ) );
     fd_metrics_register( ctx.metrics_base );
 
     /* The purpose of the warmup period is to ensure that all frags in
@@ -338,6 +338,7 @@ dump_cmd_fn( args_t      * args,
                0UL,          /* cons_cnt */
                NULL,         /* _cons_out */
                NULL,         /* _cons_fseq */
+               NULL,         /* cons_slow */
                0UL,          /* burst */
                0UL,          /* lazy */
                rng,          /* rng */

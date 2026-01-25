@@ -245,6 +245,7 @@ STEM_(run1)( ulong                        in_cnt,
              ulong                        cons_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
+             volatile ulong **            _cons_slow,
              ulong                        burst,
              long                         lazy,
              fd_rng_t *                   rng,
@@ -264,7 +265,7 @@ STEM_(run1)( ulong                        in_cnt,
   ulong *        cr_avail;     /* number of flow control credits available to publish downstream across all outs */
   ulong          min_cr_avail; /* minimum number of flow control credits available to publish downstream */
   ulong const ** cons_fseq;    /* cons_fseq[cons_idx] for cons_idx in [0,cons_cnt) is where to receive fctl credits from consumers */
-  ulong **       cons_slow;    /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
+  volatile ulong ** cons_slow; /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
   ulong *        cons_out;     /* cons_out[cons_idx] for cons_idx in [0,cons_ct) is which out the consumer consumes from */
   ulong *        cons_seq;     /* cons_seq [cons_idx] is the most recent observation of cons_fseq[cons_idx] */
 
@@ -341,16 +342,18 @@ STEM_(run1)( ulong                        in_cnt,
   }
 
   cons_fseq = (ulong const **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong const *), cons_cnt*sizeof(ulong const *) );
-  cons_slow = (ulong **)      FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong *),       cons_cnt*sizeof(ulong *)       );
+  cons_slow = (volatile ulong **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong *),       cons_cnt*sizeof(ulong *)       );
   cons_out  = (ulong *)       FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),         cons_cnt*sizeof(ulong)         );
   cons_seq  = (ulong *)       FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),         cons_cnt*sizeof(ulong)         );
 
   if( FD_UNLIKELY( !!cons_cnt && !_cons_fseq ) ) FD_LOG_ERR(( "NULL cons_fseq" ));
+  if( FD_UNLIKELY( !!cons_cnt && !_cons_slow ) ) FD_LOG_ERR(( "NULL cons_slow" ));
   for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
     if( FD_UNLIKELY( !_cons_fseq[ cons_idx ] ) ) FD_LOG_ERR(( "NULL cons_fseq[%lu]", cons_idx ));
+    if( FD_UNLIKELY( !_cons_slow[ cons_idx ] ) ) FD_LOG_ERR(( "NULL cons_slow[%lu]", cons_idx ));
     cons_fseq[ cons_idx ] = _cons_fseq[ cons_idx ];
     cons_out [ cons_idx ] = _cons_out [ cons_idx ];
-    cons_slow[ cons_idx ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
+    cons_slow[ cons_idx ] = _cons_slow[ cons_idx ];
     cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
 
     cr_max = fd_ulong_min( cr_max, out_depth[ cons_out[ cons_idx ] ] );
@@ -750,14 +753,18 @@ STEM_(run)( fd_topo_t *      topo,
   ulong   reliable_cons_cnt = 0UL;
   ulong   cons_out[ FD_TOPO_MAX_LINKS ];
   ulong * cons_fseq[ FD_TOPO_MAX_LINKS ];
+  volatile ulong * cons_slow[ FD_TOPO_MAX_LINKS ];
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
+    ulong polled_in_idx = 0UL;
     for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
+      int is_polled = consumer_tile->in_link_poll[ j ];
       for( ulong k=0UL; k<tile->out_cnt; k++ ) {
         if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
           cons_out[ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
+          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF;
           reliable_cons_cnt++;
           /* Need to test this, since each link may connect to many outs,
              you could construct a topology which has more than this
@@ -765,6 +772,7 @@ STEM_(run)( fd_topo_t *      topo,
           FD_TEST( reliable_cons_cnt<FD_TOPO_MAX_LINKS );
         }
       }
+      if( FD_LIKELY( is_polled ) ) polled_in_idx++;
     }
   }
 
@@ -781,6 +789,7 @@ STEM_(run)( fd_topo_t *      topo,
                reliable_cons_cnt,
                cons_out,
                cons_fseq,
+               cons_slow,
                STEM_BURST,
                STEM_LAZY,
                rng,

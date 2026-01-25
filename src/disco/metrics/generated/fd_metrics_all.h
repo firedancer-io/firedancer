@@ -46,14 +46,6 @@
 #include "fd_metrics_tower.h"
 #include "fd_metrics_gui.h"
 #include "fd_metrics_accdb.h"
-/* Start of LINK OUT metrics */
-
-#define FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF  (0UL)
-#define FD_METRICS_COUNTER_LINK_SLOW_COUNT_NAME "link_slow_count"
-#define FD_METRICS_COUNTER_LINK_SLOW_COUNT_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_LINK_SLOW_COUNT_DESC "The number of times the consumer was detected as rate limiting consumer by the producer."
-#define FD_METRICS_COUNTER_LINK_SLOW_COUNT_CVT  (FD_METRICS_CONVERTER_NONE)
-
 /* Start of LINK IN metrics */
 
 #define FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF  (0UL)
@@ -103,6 +95,12 @@
 #define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_TYPE (FD_METRICS_TYPE_COUNTER)
 #define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_DESC "The number of fragments the link has not processed because it was overrun while reading."
 #define FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF  (8UL)
+#define FD_METRICS_COUNTER_LINK_SLOW_COUNT_NAME "link_slow_count"
+#define FD_METRICS_COUNTER_LINK_SLOW_COUNT_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_LINK_SLOW_COUNT_DESC "The number of times the consumer was detected as rate limiting consumer by the producer."
+#define FD_METRICS_COUNTER_LINK_SLOW_COUNT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 /* Start of TILE metrics */
 
@@ -198,11 +196,8 @@
 #define FD_METRICS_ALL_TOTAL (22UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL[FD_METRICS_ALL_TOTAL];
 
-#define FD_METRICS_ALL_LINK_IN_TOTAL (8UL)
+#define FD_METRICS_ALL_LINK_IN_TOTAL (9UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOTAL];
-
-#define FD_METRICS_ALL_LINK_OUT_TOTAL (1UL)
-extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_TOTAL];
 
 #define FD_METRICS_TOTAL_SZ (8UL*260UL)
 

@@ -130,27 +130,20 @@ class GaugeEnumMetric(Metric):
         return len(self.enum.values)
 
 class Metrics:
-    def __init__(self, common: List[Metric], tiles: Dict[Tile, List[Metric]], link_in: List[Metric], link_out: List[Metric], enums: List[MetricEnum]):
+    def __init__(self, common: List[Metric], tiles: Dict[Tile, List[Metric]], link_in: List[Metric], enums: List[MetricEnum]):
         self.common = common
         self.tiles = tiles
         self.link_in = link_in
-        self.link_out = link_out
         self.enums = enums
 
     def count(self):
         return sum([metric.count() for metric in self.common]) + \
             sum([sum([metric.count() for metric in tile_metrics]) for tile_metrics in self.tiles.values()]) + \
-            sum([metric.count() for metric in self.link_in]) + \
-            sum([metric.count() for metric in self.link_out])
+            sum([metric.count() for metric in self.link_in])
 
     def layout(self):
         offset: int = 0
         for metric in self.link_in:
-            metric.offset = offset
-            offset += int(metric.footprint() / 8)
-
-        offset: int = 0
-        for metric in self.link_out:
             metric.offset = offset
             offset += int(metric.footprint() / 8)
 
@@ -243,8 +236,4 @@ def parse_metrics(xml_data: str) -> Metrics:
     assert link_in is not None
     link_in = [parse_metric(None, metric, enums) for metric in link_in]
 
-    link_out = root.find('linkout')
-    assert link_out is not None
-    link_out = [parse_metric(None, metric, enums) for metric in link_out]
-
-    return Metrics(common=common, tiles=tiles, link_in=link_in, link_out=link_out, enums=enums)
+    return Metrics(common=common, tiles=tiles, link_in=link_in, enums=enums)

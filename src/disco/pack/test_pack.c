@@ -31,7 +31,7 @@ ulong payload_sz[ MAX_TEST_TXNS ];
 uchar pack_scratch[ PACK_SCRATCH_SZ ] __attribute__((aligned(128)));
 uchar pack_verify_scratch[ PACK_SCRATCH_SZ ] __attribute__((aligned(128)));
 
-uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
+uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
 const char SIGNATURE_SUFFIX[ FD_TXN_SIGNATURE_SZ - sizeof(ulong) - sizeof(uint) ] = ": this is the fake signature of transaction number ";
 const char WORK_PROGRAM_ID[ FD_TXN_ACCT_ADDR_SZ ] = "Work Program Id Consumes 1<<j CU";
@@ -1611,7 +1611,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) );
 
   int extra_benchmark = fd_env_strip_cmdline_contains( &argc, &argv, "--extra-bench" );
   extra_verify = fd_env_strip_cmdline_contains( &argc, &argv, "--extra-verify" );
