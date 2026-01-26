@@ -475,9 +475,7 @@ fd_progcache_lock_best_txn( fd_progcache_t * cache,
   for( ulong xid_idx=0UL; xid_idx<fork_depth && cache->fork[ xid_idx ].ul[0]>target_slot; xid_idx++ ) {
     target_xid_idx = xid_idx;
   }
-  if( FD_UNLIKELY( target_xid_idx==ULONG_MAX ) ) {
-    FD_LOG_CRIT(( "no target xid idx found" ));
-  }
+  if( FD_UNLIKELY( target_xid_idx==ULONG_MAX ) ) FD_LOG_CRIT(( "no target xid idx found for slot %lu", target_slot ));
 
   /* Backtrack up to newer fork graph nodes (>= access slot)
      Very old slots could have been rooted at this point */
