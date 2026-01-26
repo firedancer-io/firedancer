@@ -2015,8 +2015,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         /* Max msg_sz: 17 - 2 + 45 = 60 < 127 => we can use printf */
-        FD_BASE58_ENCODE_32_BYTES( close_key->uc, close_key_b58 );
-        fd_log_collector_printf_dangerous_max_127( instr_ctx, "Closed Program %s", close_key_b58 );
+        FD_BASE58_ENCODE_32_BYTES( program_account.pubkey->uc, program_account_b58 );
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "Closed Program %s", program_account_b58 );
 
         /* program account is dropped when it goes out of scope */
       } else {
