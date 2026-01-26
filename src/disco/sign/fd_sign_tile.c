@@ -43,7 +43,7 @@ typedef struct {
   ulong public_key_base58_sz;
   uchar concat[ FD_BASE58_ENCODED_32_SZ+1UL+9UL ];
 
-  uchar event_concat[ 18UL+32UL ];
+  uchar event_auth_concat[ 15UL+32UL ];
 
   fd_sign_in_ctx_t  in[ MAX_IN ];
   fd_sign_out_ctx_t out[ MAX_IN ];
@@ -86,7 +86,7 @@ derive_fields( fd_sign_ctx_t * ctx ) {
   fd_base58_encode_32( ctx->public_key, &ctx->public_key_base58_sz, (char *)ctx->concat );
   ctx->concat[ ctx->public_key_base58_sz ] = '-';
 
-  memcpy( ctx->event_concat, "FD_METRICS_REPORT-", 18UL );
+  memcpy( ctx->event_auth_concat, "FD_EVENTS_AUTH-", 15UL );
 }
 
 static void FD_FN_SENSITIVE
@@ -215,9 +215,9 @@ after_frag_sensitive( void *              _ctx,
     fd_ed25519_sign( dst, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
-  case FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519: {
-    memcpy( ctx->event_concat+18UL, ctx->_data, 32UL );
-    fd_ed25519_sign( dst, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+  case FD_KEYGUARD_SIGN_TYPE_FD_EVENTS_AUTH_CONCAT_ED25519: {
+    memcpy( ctx->event_auth_concat+15UL, ctx->_data, 32UL );
+    fd_ed25519_sign( dst, ctx->event_auth_concat, 15UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
   default:
