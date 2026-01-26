@@ -41,6 +41,7 @@ extern const fd_pubkey_t fd_solana_compute_budget_program_id;
 extern const fd_pubkey_t fd_solana_address_lookup_table_program_id;
 extern const fd_pubkey_t fd_solana_spl_native_mint_id;
 extern const fd_pubkey_t fd_solana_spl_token_id;
+extern const fd_pubkey_t fd_solana_spl_token_2022_id;
 extern const fd_pubkey_t fd_solana_zk_token_proof_program_id;
 extern const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id;
 extern const fd_pubkey_t fd_solana_slashing_program_id;
