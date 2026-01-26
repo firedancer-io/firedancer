@@ -502,7 +502,10 @@ get_authority( ctx_t *       ctx,
            !fd_vote_authorized_voters_treap_rev_iter_done( iter );
            iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v1_14_11.authorized_voters.pool ) ) {
         fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v1_14_11.authorized_voters.pool );
-        if( FD_LIKELY( ele->epoch<=epoch ) ) auth_voter = &ele->pubkey; break;
+        if( FD_LIKELY( ele->epoch<=epoch ) ) {
+          auth_voter = &ele->pubkey;
+          break;
+        }
       }
       break;
     case fd_vote_state_versioned_enum_v3:
@@ -510,7 +513,10 @@ get_authority( ctx_t *       ctx,
           !fd_vote_authorized_voters_treap_rev_iter_done( iter );
           iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v3.authorized_voters.pool ) ) {
         fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v3.authorized_voters.pool );
-        if( FD_LIKELY( ele->epoch<=epoch ) ) auth_voter = &ele->pubkey; break;
+        if( FD_LIKELY( ele->epoch<=epoch ) ) {
+          auth_voter = &ele->pubkey;
+          break;
+        }
       }
       break;
     case fd_vote_state_versioned_enum_v4:
@@ -518,7 +524,10 @@ get_authority( ctx_t *       ctx,
           !fd_vote_authorized_voters_treap_rev_iter_done( iter );
           iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v4.authorized_voters.pool ) ) {
         fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v4.authorized_voters.pool );
-        if( FD_LIKELY( ele->epoch<=epoch ) ) auth_voter = &ele->pubkey; break;
+        if( FD_LIKELY( ele->epoch<=epoch ) ) {
+          auth_voter = &ele->pubkey;
+          break;
+        }
       }
       break;
     default:
