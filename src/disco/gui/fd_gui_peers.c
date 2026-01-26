@@ -1030,6 +1030,7 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
     cJSON * c;
     ulong i;
     for( c = _col->child, i=0UL; c; c = c->next, i++ ) {
+      if( FD_UNLIKELY( !cJSON_IsString( c ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
       if( FD_UNLIKELY( i >= fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
       sort_key.col[ i ] = fd_gui_peers_live_table_col_name_to_idx( peers->live_table, c->valuestring );
       if( FD_UNLIKELY( sort_key.col[ i ]==ULONG_MAX ) ) {
