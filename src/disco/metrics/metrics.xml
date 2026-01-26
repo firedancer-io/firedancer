@@ -46,6 +46,7 @@ metric introduced.
 <common>
     <gauge name="Pid" summary="The process ID of the tile" />
     <gauge name="Tid" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development" />
+    <gauge name="LastCpu" summary="Index of the CPU last executed on" />
     <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches" />
     <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches" />
     <counter name="PageFaultMajorCount" summary="The number of major page faults" />

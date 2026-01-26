@@ -90,7 +90,11 @@ after_credit( fd_ipecho_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   (void)opt_poll_in;
 
-  int timeout = ctx->retrieving ? 0 : 10;
+  /* 1ms timeout is sufficient here. Large timeouts (e.g. 10ms) can
+     cause housekeeping tasks to run very infrequently (> 0.05Hz) since
+     they incur a prolonged context switch every single iteration of the
+     STEM loop. */
+  int timeout = ctx->retrieving ? 0 : 1;
 
   if( FD_UNLIKELY( ctx->retrieving ) ) poll_client( ctx, stem, charge_busy );
   else                                 fd_ipecho_server_poll( ctx->server, charge_busy, timeout );

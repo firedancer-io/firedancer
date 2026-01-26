@@ -26,6 +26,7 @@
 |--------|------|-------------|
 | <span class="metrics-name">tile_&#8203;pid</span> | gauge | The process ID of the tile |
 | <span class="metrics-name">tile_&#8203;tid</span> | gauge | The thread ID of the tile. Always the same as the Pid in production, but might be different in development |
+| <span class="metrics-name">tile_&#8203;last_&#8203;cpu</span> | gauge | Index of the CPU last executed on |
 | <span class="metrics-name">tile_&#8203;context_&#8203;switch_&#8203;involuntary_&#8203;count</span> | counter | The number of involuntary context switches |
 | <span class="metrics-name">tile_&#8203;context_&#8203;switch_&#8203;voluntary_&#8203;count</span> | counter | The number of voluntary context switches |
 | <span class="metrics-name">tile_&#8203;page_&#8203;fault_&#8203;major_&#8203;count</span> | counter | The number of major page faults |
