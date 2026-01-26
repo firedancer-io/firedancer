@@ -6,20 +6,138 @@ categories.
 These metrics must be backwards compatible and you should not change
 existing metric names.  Instead they should be deprecated and a new
 metric introduced.
+
+=============================================================================
+                    AI WRITTEN METRIC NAMING CONVENTIONS
+=============================================================================
+
+These conventions are written with help from AI mostly to help ensure
+consistent naming conventions, or flag bad ones during review.  If
+you're unsure how to name something, just ask AI to write it following
+these conventions.
+
+The main principle is to align with Prometheus best practices
+(https://prometheus.io/docs/practices/naming/).  Names in this file use
+PascalCase but for export to Prometheus are converted to
+lower_snake_case.
+
+METRIC NAME STRUCTURE
+=====================
+Metric names follow a consistent pattern of
+
+<Domain><Subject><Action><Unit>
+
+  - Domain: Broad system area within tile (Gre, Log, Pkt, Cpu)
+  - Subject: Countable domain object being measured (Pkt, Txn, Frag)
+  - Action: What is being done (Rx, Tx, Abandoned)
+  - Unit: Physical unit of measurement (Bytes, Seconds)
+
+Units are optional.  Some things are countable objects, are do not need
+a unit.  For example, transactions, fragments, and packets are countable
+and have no units.
+
+Actions should be past participles describing what happened to the
+subject.  A past participle is the verb form used in passive voice
+("was created", "were dropped") - use the form that fits "It was ___".
+
+  GOOD: ConnectionsCreated, PacketsReceived, TransactionsOverrun
+  BAD:  ConnectionCreates, PacketReceive, TransactionOverruns
+
+The pattern is "<Subject> was/were <Action>":
+
+  - "Connections were created" -> ConnectionsCreated
+  - "Packets were dropped" -> PacketsDropped
+  - "Transactions were overrun" -> TransactionsOverrun (not Overran)
+
+The Prometheus exporter automatically appends "_total" to counters on
+export.  Do not include suffixes like "Total" or "Count" in names in
+this file.
+
+SINGULAR VS PLURAL
+==================
+Counters and gauges use plural subjects, for example ConnectionsFailed
+or StreamsOpened, or ConnectionsActive for a gauge.
+
+For compound subjects like "connection error" or "handshake error", the
+plural goes on the thing being counted:
+
+  - ConnectionErrorsNoSlots  (counting connection errors)
+  - HandshakeErrorsAllocFail (counting handshake errors)
+  - NOT: ConnectionsErrorNoSlots or HandshakesErrorAllocFail
+
+Histograms use singular subjects.  For example, FileOpenDurationSeconds or
+ConnectionLatencyNanos.
+
+Units should always be plural, Bytes, Seconds, Nanos.
+
+BASE UNITS (Prometheus Standard)
+================================
+Always use Prometheus base units.  Never use derived units. Only these
+are considered "units" for naming purposes:
+
+  | Family | Base Unit | Notes                |
+  |- - - - |- - - - - -|- - - - - - - - - - - |
+  | Time   | seconds   | Use for durations.   |
+  | Data   | bytes     | Not bits, KB, MB, GB |
+
+Things like transactions, connections, and packets are NOT units, they
+are subjects and follow different rules.
+
+Exception: Use Nanos when sub-microsecond precision is needed and
+converting to seconds would lose meaningful precision.
+
+ENUMS (labels)
+==============
+Use enums to differentiate characteristics of the same metric.  Do NOT
+encode enum values in the metric name.
+
+  GOOD: TransactionResult with enum values {Success, Failed, Timeout}
+  BAD:  TransactionResultSuccess, TransactionResultFailed, ...
+
+Enum names: PascalCase describing the dimension (TransactionResult)
+Enum values: PascalCase, self-descriptive (Success, ParseFailed)
+
+SUMMARIES
+=========
+Every metric MUST have a summary that describes what is measured in
+plain English and mentions units if not obvious from the name.
+Summaries should be simple and concise, and not duplicate information
+for example,
+
+  GOOD: "Packets received"
+  BAD:  "Total count of packets received over the network interface"
+
+Summaries should begin with a capital, and end without a period, and be
+a human readable label, not a code identifier.  It is allowed to have a
+code identifier or reference in parentheses if needed for clarity.
+
+EXAMPLES
+========
+
+  GOOD: PktRxBytes
+  BAD: RxBytes, RxPktBytes, ReceivedPktBytes, TotalPktRxBytes
+
+  GOOD: StreamsOpened
+  BAD:  StreamOpenCount, OpenedStreamsTotal, StreamOpened
+
+  GOOD: TxnRx
+  BAD:  TransactionsRx, TxnsRx, ReceivedTxns, RxTxn
+
+=============================================================================
 -->
 
 <metrics>
 
 <linkin>
-    <counter name="ConsumedCount" summary="The number of times the link reader has consumed a fragment" />
-    <counter name="ConsumedSizeBytes" summary="The total number of bytes read by the link consumer" />
-    <counter name="FilteredCount" summary="The number of fragments that were filtered and not consumed" />
-    <counter name="FilteredSizeBytes" summary="The total number of bytes read by the link consumer that were filtered" />
-    <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling" />
-    <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling" />
-    <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer" />
-    <counter name="OverrunReadingFragCount" summary="The number of fragments the link has not processed because it was overrun while reading" />
-    <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer" />
+    <counter name="FragRx" summary="Fragments received by link consumer" />
+    <counter name="FragRxBytes" summary="Bytes received by link consumer" />
+    <counter name="FragFiltered" summary="Fragments filtered and not consumed" />
+    <counter name="FragFilteredBytes" summary="Bytes filtered and not consumed" />
+    <counter name="OverrunsPolling" summary="Overruns detected while polling" />
+    <counter name="FragOverrunPolling" summary="Fragments dropped due to overrun while polling" />
+    <counter name="OverrunsReading" summary="Overruns detected while reading metadata" />
+    <counter name="FragOverrunReading" summary="Fragments dropped due to overrun while reading" />
+    <counter name="Slow" summary="Producer was rate limited by this consumer" />
 </linkin>
 
 <enum name="TileRegime">
@@ -44,55 +162,56 @@ metric introduced.
 </enum>
 
 <common>
-    <gauge name="Pid" clickhouse_exclude="true" summary="The process ID of the tile" />
-    <gauge name="Tid" clickhouse_exclude="true" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development" />
-    <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches" />
-    <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches" />
-    <counter name="PageFaultMajorCount" summary="The number of major page faults" />
-    <counter name="PageFaultMinorCount" summary="The number of minor page faults" />
-    <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" />
-    <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated" />
-    <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0" />
-    <counter name="BackpressureCount" summary="Number of times the tile has had to wait for one of more consumers to catch up to resume publishing" />
-    <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes" />
-    <counter name="CpuDurationNanos" enum="CpuRegime" summary="CPU time spent in each CPU regime" />
+    <gauge name="Pid" clickhouse_exclude="true" summary="Process ID of the tile" />
+    <gauge name="Tid" clickhouse_exclude="true" summary="Thread ID of the tile" />
+    <counter name="ContextSwitchesInvoluntary" summary="Involuntary context switches" />
+    <counter name="ContextSwitchesVoluntary" summary="Voluntary context switches" />
+    <counter name="PageFaultsMajor" summary="Major page faults" />
+    <counter name="PageFaultsMinor" summary="Minor page faults" />
+    <gauge name="Status" summary="Current status of the tile (0=booting, 1=running, 2=shutdown)" />
+    <gauge name="Heartbeat" summary="Last heartbeat UNIX timestamp in ticks" />
+    <gauge name="InBackpressure" summary="Whether the tile is currently backpressured (0 or 1)" />
+    <counter name="Backpressured" summary="Times the tile waited for consumers to catch up" />
+    <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Duration in each tile regime" />
+    <counter name="CpuDurationNanos" enum="CpuRegime" summary="Duration in each CPU regime" />
 </common>
 
 <tile name="net">
-    <counter name="RxPktCnt" summary="Packet receive count" />
-    <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)" />
-    <counter name="RxUnderszCnt" summary="Number of incoming packets dropped due to being too small" />
-    <counter name="RxFillBlockedCnt" summary="Number of incoming packets dropped due to fill ring being full" />
-    <counter name="RxBackpressureCnt" summary="Number of incoming packets dropped due to backpressure" />
-    <gauge name="RxBusyCnt" summary="Number of receive buffers currently busy" />
-    <gauge name="RxIdleCnt" summary="Number of receive buffers currently idle" />
+    <counter name="PktRx" summary="Packets received" />
+    <counter name="PktRxBytes" summary="Bytes received (including Ethernet header)" />
+    <counter name="PktRxUndersized" summary="Packets dropped due to being too small" />
+    <counter name="PktRxFillBlocked" summary="Packets dropped due to fill ring full" />
+    <counter name="PktRxBackpressure" summary="Packets dropped due to backpressure" />
 
-    <counter name="TxSubmitCnt" summary="Number of packet transmit jobs submitted" />
-    <counter name="TxCompleteCnt" summary="Number of packet transmit jobs marked as completed by the kernel" />
-    <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)" />
-    <counter name="TxRouteFailCnt" summary="Number of packet transmit jobs dropped due to route failure" />
-    <counter name="TxNeighborFailCnt" summary="Number of packet transmit jobs dropped due to unresolved neighbor" />
-    <counter name="TxFullFailCnt" summary="Number of packet transmit jobs dropped due to XDP TX ring full or missing completions" />
-    <gauge name="TxBusyCnt" summary="Number of transmit buffers currently busy" />
-    <gauge name="TxIdleCnt" summary="Number of transmit buffers currently idle" />
+    <counter name="PktTxSubmitted" summary="Packet transmit jobs submitted" />
+    <counter name="PktTxCompleted" summary="Packet transmit jobs completed by kernel" />
+    <counter name="PktTxSubmittedBytes" summary="Bytes transmitted (including Ethernet header)" />
+    <counter name="PktTxRouteFailed" summary="Transmit jobs dropped due to route failure" />
+    <counter name="PktTxNeighborFailed" summary="Transmit jobs dropped due to unresolved neighbor" />
+    <counter name="PktTxFullFailed" summary="Transmit jobs dropped due to TX ring full" />
 
-    <counter name="XskTxWakeupCnt" summary="Number of XSK sendto syscalls dispatched" />
-    <counter name="XskRxWakeupCnt" summary="Number of XSK recvmsg syscalls dispatched" />
+    <gauge name="BuffersRxBusy" summary="Receive buffers currently busy" />
+    <gauge name="BuffersRxIdle" summary="Receive buffers currently idle" />
+    <gauge name="BuffersTxBusy" summary="Transmit buffers currently busy" />
+    <gauge name="BuffersTxIdle" summary="Transmit buffers currently idle" />
+
+    <counter name="XskWakeupsTx" summary="XSK sendto syscalls dispatched" />
+    <counter name="XskWakeupsRx" summary="XSK recvmsg syscalls dispatched" />
 
     <!-- Kernel xdp_statistics struct -->
-    <counter name="XdpRxDroppedOther" summary="Dropped for other reasons (xdp_statistics_v0.rx_dropped)" />
-    <counter name="XdpRxInvalidDescs" summary="Dropped due to invalid descriptor (xdp_statistics_v0.rx_invalid_descs)" />
-    <counter name="XdpTxInvalidDescs" summary="Dropped due to invalid descriptor (xdp_statistics_v0.tx_invalid_descs)" />
-    <counter name="XdpRxRingFull" summary="Dropped due to rx ring being full (xdp_statistics_v1.rx_ring_full)" />
-    <counter name="XdpRxFillRingEmptyDescs" summary="Failed to retrieve item from fill ring (xdp_statistics_v1.rx_fill_ring_empty_descs)" />
-    <counter name="XdpTxRingEmptyDescs" summary="Failed to retrieve item from tx ring (xdp_statistics_v1.tx_ring_empty_descs)" />
+    <counter name="XdpPktRxDroppedOther" summary="Packets dropped for other reasons (xdp_statistics_v0.rx_dropped)" />
+    <counter name="XdpPktRxInvalidDesc" summary="Packets dropped due to invalid RX descriptor (xdp_statistics_v0.rx_invalid_descs)" />
+    <counter name="XdpPktRxRingFull" summary="Packets dropped due to RX ring full (xdp_statistics_v1.rx_ring_full)" />
+    <counter name="XdpPktTxInvalidDesc" summary="Packets dropped due to invalid TX descriptor (xdp_statistics_v0.tx_invalid_descs)" />
+    <counter name="XdpPktRxFillRingEmpty" summary="Packets dropped due to no descriptors in fill ring (xdp_statistics_v1.rx_fill_ring_empty_descs)" />
+    <counter name="XdpPktTxRingEmpty" summary="Packets dropped due to no descriptors in TX ring (xdp_statistics_v1.tx_ring_empty_descs)" />
 
     <!-- GRE metrics -->
-    <counter name="RxGreCnt" summary="Number of valid GRE packets received" />
-    <counter name="RxGreInvalidCnt" summary="Number of invalid GRE packets received" />
-    <counter name="RxGreIgnoredCnt" summary="Number of received but ignored GRE packets" />
-    <counter name="TxGreCnt" summary="Number of GRE packet transmit jobs submitted" />
-    <counter name="TxGreRouteFailCnt" summary="Number of GRE packets transmit jobs dropped due to route failure" />
+    <counter name="GrePktRx" summary="GRE packets received" />
+    <counter name="GrePktRxInvalid" summary="Invalid GRE packets received" />
+    <counter name="GrePktRxIgnored" summary="GRE packets received but ignored" />
+    <counter name="GrePktTx" summary="GRE packet transmit jobs submitted" />
+    <counter name="GrePktTxRouteFailed" summary="GRE packet transmit jobs dropped due to route failure" />
 </tile>
 
 <enum name="SockErr">
@@ -105,13 +224,13 @@ metric introduced.
 </enum>
 
 <tile name="sock">
-    <counter name="SyscallsSendmmsg" enum="SockErr" summary="Number of sendmmsg syscalls dispatched" />
-    <counter name="SyscallsRecvmmsg" summary="Number of recvmsg syscalls dispatched" />
-    <counter name="RxPktCnt" summary="Number of packets received" />
-    <counter name="TxPktCnt" summary="Number of packets sent" />
-    <counter name="TxDropCnt" summary="Number of packets failed to send" />
-    <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)" />
-    <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)" />
+    <counter name="SyscallsSendmmsg" enum="SockErr" summary="sendmmsg syscalls dispatched" />
+    <counter name="SyscallsRecvmmsg" summary="recvmsg syscalls dispatched" />
+    <counter name="PktRx" summary="Packets received" />
+    <counter name="PktRxBytes" summary="Bytes received (including Ethernet header)" />
+    <counter name="PktTx" summary="Packets sent" />
+    <counter name="PktTxDropped" summary="Packets failed to send" />
+    <counter name="PktTxBytes" summary="Bytes transmitted (including Ethernet header)" />
 </tile>
 
 <enum name="TpuRecvType">
@@ -200,50 +319,52 @@ metric introduced.
 </enum>
 
 <tile name="quic">
-    <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)" />
-    <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started" />
-    <gauge name="TxnReasmsActive" summary="Number of fragmented txn receive ops currently active" />
-    <counter name="FragsOk" summary="Count of txn frags received" />
-    <counter name="FragsGap" summary="Count of txn frags dropped due to data gap" />
-    <counter name="FragsDup" summary="Count of txn frags dropped due to dup (stream already completed)" />
-    <counter name="TxnsReceived" enum="TpuRecvType" summary="Count of txns received via TPU" />
-    <counter name="TxnsAbandoned" summary="Count of txns abandoned because a conn was lost" />
+    <counter name="TxnRx" enum="TpuRecvType" summary="Transactions received via TPU" />
 
-    <counter name="TxnUndersz" summary="Count of txns received via QUIC dropped because they were too small" />
-    <counter name="TxnOversz" summary="Count of txns received via QUIC dropped because they were too large" />
+    <counter name="TxnOverrun" summary="Transactions overrun before reassembly" />
+    <counter name="TxnReassembliesStarted" summary="Fragmented transaction reassemblies started" />
+    <gauge name="TxnReassembliesActive" summary="Fragmented transaction reassemblies currently active" />
+    <counter name="FragRxOk" summary="Transaction fragments received ok" />
+    <counter name="FragRxDroppedGap" summary="Transaction fragments dropped due to data gap" />
+    <counter name="FragRxDroppedDup" summary="Transaction fragments dropped as duplicate (stream already completed)" />
+    <counter name="TxnAbandoned" summary="Transactions abandoned due to connection loss" />
 
-    <counter name="LegacyTxnUndersz" summary="Count of packets received on the non-QUIC port that were too small to be a valid IP packet" />
-    <counter name="LegacyTxnOversz" summary="Count of packets received on the non-QUIC port that were too large to be a valid transaction" />
+    <counter name="TxnUndersized" summary="QUIC transactions dropped due to being too small" />
+    <counter name="TxnOversized" summary="QUIC transactions dropped due to being too large" />
 
-    <counter name="ReceivedPackets" summary="Number of IP packets received" />
-    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)" />
-    <counter name="SentPackets" summary="Number of IP packets sent" />
-    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)" />
+    <counter name="LegacyTxnUndersized" summary="Legacy transactions dropped due to being too small" />
+    <counter name="LegacyTxnOversized" summary="Legacy transactions dropped due to being too large" />
 
-    <gauge name="ConnectionsAlloc" summary="The number of currently allocated QUIC connections" />
-    <gauge name="ConnectionsState" enum="QuicConnState" summary="The number of QUIC connections in each state" />
-    <counter name="ConnectionsCreated" summary="The total number of connections that have been created" />
-    <counter name="ConnectionsClosed" summary="Number of connections gracefully closed" />
-    <counter name="ConnectionsAborted" summary="Number of connections aborted" />
-    <counter name="ConnectionsTimedOut" summary="Number of connections timed out" />
-    <counter name="ConnectionsRetried" summary="Number of connections established with retry" />
-    <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots" />
-    <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)" />
+    <counter name="PktRx" summary="IP packets received" />
+    <counter name="PktRxBytes" summary="Bytes received (including IP, UDP, QUIC headers)" />
+    <counter name="PktTx" summary="IP packets sent" />
+    <counter name="PktTxBytes" summary="Bytes sent (including IP, UDP, QUIC headers)" />
 
-    <counter name="PktNoConn" enum="QuicPktHandle" summary="Number of packets with an unknown connection ID" />
-    <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata" />
-    <counter name="InitialTokenLen" enum="QuicInitialTokenLen" summary="Number of Initial packets grouped by token length" />
+    <gauge name="ConnectionsAllocated" summary="Currently allocated QUIC connections" />
+    <gauge name="ConnectionsState" enum="QuicConnState" summary="QUIC connections in each state" />
 
-    <counter name="HandshakesCreated" summary="Number of handshake flows created" />
-    <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail" />
-    <counter name="HandshakeEvicted" summary="Number of handshakes dropped due to eviction" />
+    <counter name="ConnectionsCreated" summary="Connections created" />
+    <counter name="ConnectionsClosed" summary="Connections gracefully closed" />
+    <counter name="ConnectionsAborted" summary="Connections aborted" />
+    <counter name="ConnectionsTimedOut" summary="Connections timed out" />
+    <counter name="ConnectionsRetried" summary="Connections established with retry" />
+    <counter name="ConnectionErrorsNoSlots" summary="Connections that failed due to lack of slots" />
+    <counter name="ConnectionErrorsRetryFail" summary="Connections that failed during retry" />
 
-    <counter name="StreamReceivedEvents" summary="Number of stream RX events" />
-    <counter name="StreamReceivedBytes" summary="Total stream payload bytes received" />
+    <counter name="PktNoConnection" enum="QuicPktHandle" summary="Packets with unknown connection ID" />
+    <counter name="FramesTxAlloc" enum="FrameTxAllocResult" summary="Attempts to acquire QUIC frame metadata" />
+    <counter name="PktInitialTokenLen" enum="QuicInitialTokenLen" summary="Initial packets grouped by token length" />
 
-    <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received" />
+    <counter name="HandshakesCreated" summary="Handshake flows created" />
+    <counter name="HandshakesEvicted" summary="Handshakes dropped due to eviction" />
+    <counter name="HandshakeErrorsAllocFail" summary="Handshakes dropped due to alloc fail" />
 
-    <counter name="AckTx" enum="QuicAckTx" summary="ACK events" />
+    <counter name="StreamsRx" summary="Stream receive events" />
+    <counter name="StreamsRxBytes" summary="Stream payload bytes received" />
+
+    <counter name="FramesRx" enum="QuicFrameType" summary="QUIC frames received" />
+
+    <counter name="AcksTx" enum="QuicAckTx" summary="ACK events" />
 
     <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
       <summary>Duration spent in service</summary>
@@ -252,16 +373,16 @@ metric introduced.
       <summary>Duration spent processing packets</summary>
     </histogram>
 
-    <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse" />
-    <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Number of packets that failed decryption" />
-    <counter name="PktNoKey" enum="QuicEncLevel" summary="Number of packets that failed decryption due to missing key" />
-    <counter name="PktNetHeaderInvalid" summary="Number of packets dropped due to weird IP or UDP header" />
-    <counter name="PktQuicHeaderInvalid" summary="Number of packets dropped due to weird QUIC header" />
-    <counter name="PktUndersz" summary="Number of QUIC packets dropped due to being too small" />
-    <counter name="PktOversz" summary="Number of QUIC packets dropped due to being too large" />
-    <counter name="PktVerneg" summary="Number of QUIC version negotiation packets received" />
-    <counter name="RetrySent" summary="Number of QUIC Retry packets sent" />
-    <counter name="PktRetransmissions" enum="QuicEncLevel" summary="Number of QUIC packets that retransmitted" />
+    <counter name="FramesParseFailed" summary="QUIC frames that failed to parse" />
+    <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Packets that failed decryption" />
+    <counter name="PktNoKey" enum="QuicEncLevel" summary="Packets that failed decryption due to missing key" />
+    <counter name="PktNetHeaderInvalid" summary="Packets dropped due to invalid IP or UDP header" />
+    <counter name="PktQuicHeaderInvalid" summary="Packets dropped due to invalid QUIC header" />
+    <counter name="PktUndersized" summary="QUIC packets dropped due to being too small" />
+    <counter name="PktOversized" summary="QUIC packets dropped due to being too large" />
+    <counter name="PktVersionNegotiation" summary="QUIC version negotiation packets received" />
+    <counter name="PktRetrySent" summary="QUIC Retry packets sent" />
+    <counter name="PktRetransmitted" enum="QuicEncLevel" summary="QUIC packets retransmitted" />
 </tile>
 
 <enum name="NewContactOutcome">
@@ -309,18 +430,18 @@ metric introduced.
     <counter name="EnsureConnResultQuicVote" enum="SendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC Vote port" />
     <counter name="EnsureConnResultQuicTpu" enum="SendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC TPU port" />
 
-    <counter name="HandshakeComplete" enum="SendQuicPorts" summary="Total number of times we completed a handshake" />
-    <counter name="QuicConnFinal" enum="SendQuicPorts" summary="Total number of times QUIC connection closed" />
+    <counter name="HandshakesCompleted" enum="SendQuicPorts" summary="Handshakes completed" />
+    <counter name="ConnectionsFinalized" enum="SendQuicPorts" summary="QUIC connections closed" />
 
     <!-- QUIC packet metrics -->
-    <counter name="ReceivedPackets" summary="Total count of QUIC packets received" />
-    <counter name="ReceivedBytes" summary="Total bytes received via QUIC" />
-    <counter name="SentPackets" summary="Total count of QUIC packets sent" />
-    <counter name="SentBytes" summary="Total bytes sent via QUIC" />
-    <counter name="RetrySent" summary="Total count of QUIC retry packets sent" />
+    <counter name="PktRx" summary="QUIC packets received" />
+    <counter name="PktRxBytes" summary="Bytes received via QUIC" />
+    <counter name="PktTx" summary="QUIC packets sent" />
+    <counter name="PktTxBytes" summary="Bytes sent via QUIC" />
+    <counter name="PktRetrySent" summary="QUIC retry packets sent" />
 
     <!-- QUIC connection metrics -->
-    <gauge name="ConnectionsAlloc" summary="Number of currently allocated QUIC connections" />
+    <gauge name="ConnectionsAllocated" summary="Currently allocated QUIC connections" />
     <gauge name="ConnectionsState" enum="QuicConnState" summary="Number of QUIC connections in each state" />
     <counter name="ConnectionsCreated" summary="Total count of QUIC connections created" />
     <counter name="ConnectionsClosed" summary="Total count of QUIC connections closed" />
@@ -329,37 +450,37 @@ metric introduced.
     <counter name="ConnectionsRetried" summary="Total count of QUIC connections retried" />
 
     <!-- QUIC connection error metrics -->
-    <counter name="ConnectionErrorNoSlots" summary="Total count of connection errors due to no slots" />
-    <counter name="ConnectionErrorRetryFail" summary="Total count of connection retry failures" />
+    <counter name="ConnectionErrorsNoSlots" summary="Connection errors due to no slots" />
+    <counter name="ConnectionErrorsRetryFail" summary="Connection errors during retry" />
 
     <!-- QUIC packet error metrics -->
-    <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Total count of packets with crypto failures" />
-    <counter name="PktNoKey" enum="QuicEncLevel" summary="Total count of packets with no key" />
-    <counter name="PktNoConn" enum="QuicPktHandle" summary="Total count of packets with no connection" />
-    <counter name="PktTxAllocFail" summary="Total count of packet TX allocation failures" />
+    <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Packets with crypto failures" />
+    <counter name="PktNoKey" enum="QuicEncLevel" summary="Packets failed due to no key" />
+    <counter name="PktNoConnection" enum="QuicPktHandle" summary="Packets with no connection" />
+    <counter name="PktTxAllocFailed" summary="Packet TX allocation failures" />
     <counter name="PktNetHeaderInvalid" summary="Total count of packets with invalid network headers" />
     <counter name="PktQuicHeaderInvalid" summary="Total count of packets with invalid QUIC headers" />
-    <counter name="PktUndersz" summary="Total count of undersized packets" />
-    <counter name="PktOversz" summary="Total count of oversized packets" />
-    <counter name="PktVerneg" summary="Total count of version negotiation packets" />
-    <counter name="PktRetransmissions" enum="QuicEncLevel" summary="Total count of QUIC packet retransmissions" />
+    <counter name="PktUndersized" summary="Packets dropped due to being too small" />
+    <counter name="PktOversized" summary="Packets dropped due to being too large" />
+    <counter name="PktVersionNegotiation" summary="Version negotiation packets received" />
+    <counter name="PktRetransmitted" enum="QuicEncLevel" summary="QUIC packets retransmitted" />
 
     <!-- QUIC handshake metrics -->
-    <counter name="HandshakesCreated" summary="Total count of QUIC handshakes created" />
-    <counter name="HandshakeErrorAllocFail" summary="Total count of handshake allocation failures" />
-    <counter name="HandshakeEvicted" summary="Total count of handshakes evicted" />
+    <counter name="HandshakesCreated" summary="Handshakes created" />
+    <counter name="HandshakeErrorsAllocFail" summary="Handshake errors due to allocation failure" />
+    <counter name="HandshakesEvicted" summary="Handshakes evicted" />
 
     <!-- QUIC stream metrics -->
-    <counter name="StreamReceivedEvents" summary="Total count of stream events received" />
-    <counter name="StreamReceivedBytes" summary="Total bytes received via streams" />
+    <counter name="StreamsRx" summary="Stream receive events" />
+    <counter name="StreamsRxBytes" summary="Stream payload bytes received" />
 
     <!-- QUIC frame metrics -->
-    <counter name="ReceivedFrames" enum="QuicFrameType" summary="Total count of QUIC frames received" />
-    <counter name="FrameFailParse" summary="Total count of frame parse failures" />
-    <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata" />
+    <counter name="FramesRx" enum="QuicFrameType" summary="QUIC frames received" />
+    <counter name="FramesParseFailed" summary="QUIC frames that failed to parse" />
+    <counter name="FramesTxAlloc" enum="FrameTxAllocResult" summary="Attempts to acquire QUIC frame metadata" />
 
     <!-- QUIC ACK metrics -->
-    <counter name="AckTx" enum="QuicAckTx" summary="Total count of ACK frames transmitted" />
+    <counter name="AcksTx" enum="QuicAckTx" summary="ACK events" />
 
     <!-- QUIC timing metrics -->
     <histogram name="ServiceDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
