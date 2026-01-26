@@ -76,9 +76,9 @@ jobs:
       - name: run backtest
         timeout-minutes: 30
         run: |
-          sudo $OBJDIR/bin/firedancer-dev configure init keys
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
+          sudo $OBJDIR/bin/firedancer-dev configure fini all || true
           DUMP_DIR=../dump ${{ inputs.script }}
 
       - name: fini

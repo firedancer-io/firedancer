@@ -306,15 +306,11 @@ fi
 
 echo_notice "Running backtest for $LEDGER"
 
-sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
-
 sudo killall firedancer-dev &> /dev/null || true
 
 set -x
-"${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"&> /dev/null
-{ status=$?; set +x; } &> /dev/null
-
-sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
+"${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
+{ status=$?; set +x; }
 
 echo "Log for ledger $LEDGER at $LOG"
 
