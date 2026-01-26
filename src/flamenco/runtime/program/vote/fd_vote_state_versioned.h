@@ -78,15 +78,16 @@ fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
    version.  Only supported for v3 and v4 vote states.
    authorized_withdrawer_signer and signers are parameters to a closure
    called verify, which is passed into the associated Agave method.
-   https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L855-L870 */
+   https://github.com/anza-xyz/agave/blob/v4.0.0/programs/vote/src/vote_state/handler.rs#L690-L717 */
 int
-fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
-                                 fd_vote_state_versioned_t * self,
-                                 fd_pubkey_t const *         authorized_pubkey,
-                                 ulong                       current_epoch,
-                                 ulong                       target_epoch,
-                                 int                         authorized_withdrawer_signer,
-                                 fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX] );
+fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *              ctx,
+                                 fd_vote_state_versioned_t *        self,
+                                 fd_pubkey_t const *                authorized_pubkey,
+                                 ulong                              current_epoch,
+                                 ulong                              target_epoch,
+                                 fd_bls_pubkey_compressed_t const * bls_pubkey,
+                                 int                                authorized_withdrawer_signer,
+                                 fd_pubkey_t const *                signers[ FD_TXN_SIG_MAX ] );
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L738-L743 */
 void

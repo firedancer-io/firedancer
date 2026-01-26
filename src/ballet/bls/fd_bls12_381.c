@@ -408,3 +408,93 @@ fd_bls12_381_pairing_syscall( uchar       _r[ 48*12 ],
 
   return 0;
 }
+
+/* Proof of possession */
+
+#define FD_BLS_SIG_DOMAIN_NUL "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_"
+#define FD_BLS_SIG_DOMAIN_POP "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
+#define FD_BLS_SIG_DOMAIN_SZ  (43UL)
+
+/* fd_bls12_381_core_verify verifies a BLS signature in the mathematical
+   sense, i.e. computes a pairing to check that the signature is correct.
+   This is the core computation both for "real world" signatures and proofs
+   of possession. In both cases, the difference between the math paper and
+   the RFC implementation is an additional domain separator that's used
+   in computing the hash to G2.
+
+   See also:
+   https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-bls-signature-06#name-coreverify
+
+   We use a1, a2 for points in G1, b1, b2 for points in G2.
+   We have to check that e( pk, H(msg) ) == e( g1, sig ), or equivalently
+   e( pk, H(msg) ) * e( -g1, sig ) == 1.
+
+   Replacing the variables we get:
+   - a1 <- public_key, input needs to be decompressed in G1
+   - b1 <- msg, input needs to be hashed to G2
+   - a2 <- -g1, the const generator of G1, negated
+   - b2 <- signature, input needs to be decompressed in G2
+   */
+static inline int
+fd_bls12_381_core_verify( uchar const  msg[], /* msg_sz */
+                          ulong        msg_sz,
+                          uchar const  signature[ 96 ],
+                          uchar const  public_key[ 48 ],
+                          char const * domain ) {
+  fd_bls12_381_g1aff_t a1[1]; /* a2 is const, we don't need a var */
+  fd_bls12_381_g2aff_t b1[1], b2[1];
+
+  /* decompress public_key into a1 and check that it's a valid point in G1 */
+  if( FD_UNLIKELY( blst_p1_uncompress( a1, public_key )!=BLST_SUCCESS ) ) {
+    return -1;
+  }
+  if( FD_UNLIKELY( !blst_p1_affine_in_g1( a1 ) ) ) {
+    return -1;
+  }
+
+  /* hash msg into b1. the check that it's a valid point in G2 is implicit/guaranteed */
+  fd_bls12_381_g2_t _b1[1];
+  blst_hash_to_g2( _b1, msg, msg_sz, (uchar *)domain, FD_BLS_SIG_DOMAIN_SZ, NULL, 0UL );
+  blst_p2_to_affine( b1, _b1 );
+
+  /* decompress signature into b2 and check that it's a valid point in G2 */
+  if( FD_UNLIKELY( blst_p2_uncompress( b2, signature )!=BLST_SUCCESS ) ) {
+    return -1;
+  }
+  if( FD_UNLIKELY( !blst_p2_affine_in_g2( b2 ) ) ) {
+    return -1;
+  }
+
+  /* prepare pairing input: blst needs 2 arrays of pointers, and the result
+     needs to be initialized to 1. */
+  fd_bls12_381_g1aff_t const * aptr[ 2 ] = { a1, &BLS12_381_NEG_G1 };
+  fd_bls12_381_g2aff_t const * bptr[ 2 ] = { b1, b2 };
+  blst_fp12 r[1];
+  memcpy( r, blst_fp12_one(), sizeof(blst_fp12) );
+
+  /* compute the actual pairing and check that it's 1 */
+  blst_miller_loop_n( r, bptr, aptr, 2 );
+  if( FD_LIKELY( blst_fp12_finalverify( r, blst_fp12_one() ) ) ) {
+    return 0; /* success */
+  }
+  return -1;
+}
+
+int
+fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
+                                         ulong       msg_sz,
+                                         uchar const proof[ 96 ],
+                                         uchar const public_key[ 48 ] ) {
+  /* Agave supports the case of empty msg, where the public key is used
+     instead (i.e. the plain RFC proof of possession). But that's not really
+     used anywhere, and probably shouldn't be used for security reasons.
+     In order to avoid accidental future changes, we prefer to not implement
+     the case msg_sz==0 and instead explicitly throw an error.
+     Since the public key must be part of the message, we check that
+     msg_sz >= public key size, again to avoid accidental mistakes. */
+  if( FD_UNLIKELY( msg_sz<48 ) ) {
+    return -1;
+  }
+
+  return fd_bls12_381_core_verify( msg, msg_sz, proof, public_key, FD_BLS_SIG_DOMAIN_POP );
+}
