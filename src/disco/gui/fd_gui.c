@@ -66,11 +66,11 @@ fd_gui_new( void *                shmem,
   gui->summary.schedule_strategy = schedule_strategy;
 
 
-  gui->next_sample_400millis  = now;
-  gui->next_sample_100millis  = now;
-  gui->next_sample_50millis   = now;
-  gui->next_sample_12_5millis = now;
-  gui->next_sample_10millis   = now;
+  gui->next_sample_400millis = now;
+  gui->next_sample_100millis = now;
+  gui->next_sample_50millis  = now;
+  gui->next_sample_25millis  = now;
+  gui->next_sample_10millis  = now;
 
   memcpy( gui->summary.identity_key->uc, identity_key, 32UL );
   fd_base58_encode_32( identity_key, NULL, gui->summary.identity_key_base58 );
@@ -308,12 +308,20 @@ fd_gui_tile_timers_snap( fd_gui_t * gui ) {
     cur[ i ].timers[ FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_POSTFRAG_IDX        ] = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG )        ];
     cur[ i ].timers[ FD_METRICS_ENUM_TILE_REGIME_V_PROCESSING_POSTFRAG_IDX       ] = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_POSTFRAG )       ];
 
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_WAIT_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_WAIT )   ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_USER_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_USER )   ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_SYSTEM_IDX ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_SYSTEM ) ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_IDLE_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_IDLE )   ];
+
     cur[ i ].in_backp  = (int)tile_metrics[ MIDX(GAUGE, TILE, IN_BACKPRESSURE) ];
-    cur[ i ].status    = (uint)tile_metrics[ MIDX( GAUGE, TILE, STATUS ) ];
+    cur[ i ].status    = (uchar)tile_metrics[ MIDX( GAUGE, TILE, STATUS ) ];
     cur[ i ].heartbeat = tile_metrics[ MIDX( GAUGE, TILE, HEARTBEAT ) ];
     cur[ i ].backp_cnt = tile_metrics[ MIDX( COUNTER, TILE, BACKPRESSURE_COUNT ) ];
     cur[ i ].nvcsw     = tile_metrics[ MIDX( COUNTER, TILE, CONTEXT_SWITCH_VOLUNTARY_COUNT ) ];
     cur[ i ].nivcsw    = tile_metrics[ MIDX( COUNTER, TILE, CONTEXT_SWITCH_INVOLUNTARY_COUNT ) ];
+    cur[ i ].minflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MINOR_COUNT ) ];
+    cur[ i ].majflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MAJOR_COUNT ) ];
+    cur[ i ].last_cpu  = (ushort)tile_metrics[ MIDX( GAUGE, TILE, LAST_CPU ) ];
   }
 }
 
@@ -1005,28 +1013,25 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     return 1;
   }
 
-  if( FD_LIKELY( now>gui->next_sample_12_5millis ) ) {
-    fd_gui_printf_server_time_nanos( gui, now );
-    fd_http_server_ws_broadcast( gui->http );
-
+  if( FD_LIKELY( now>gui->next_sample_25millis ) ) {
     fd_gui_tile_timers_snap( gui );
 
-    /* every 25ms */
-    if( (gui->next_sample_12_5millis % (25L*1000L*1000L)) >= (long)(12.5*1000L*1000L) ) {
-      fd_gui_printf_live_tile_timers( gui );
-      fd_http_server_ws_broadcast( gui->http );
+    fd_gui_printf_live_tile_timers( gui );
+    fd_http_server_ws_broadcast( gui->http );
 
-      fd_gui_printf_live_tile_metrics( gui );
-      fd_http_server_ws_broadcast( gui->http );
-    }
+    fd_gui_printf_live_tile_metrics( gui );
+    fd_http_server_ws_broadcast( gui->http );
 
-    gui->next_sample_12_5millis += (long)(12.5*1000L*1000L);
+    gui->next_sample_25millis += (long)(25*1000L*1000L);
     return 1;
   }
 
 
   if( FD_LIKELY( now>gui->next_sample_10millis ) ) {
     fd_gui_scheduler_counts_snap( gui, now );
+
+    fd_gui_printf_server_time_nanos( gui, now );
+    fd_http_server_ws_broadcast( gui->http );
 
     gui->next_sample_10millis += 10L*1000L*1000L;
     return 1;

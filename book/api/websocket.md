@@ -1128,6 +1128,8 @@ regardless of the presence of incoming messages
 - handling: the portion of the run loop that executes as a side effect
 of an incoming message from an upstream producer tile
 
+##### `regimes`
+
 ```json
 [
     "running_maintenance",
@@ -1138,9 +1140,37 @@ of an incoming message from an upstream producer tile
     "stalled_routine",
     "running_handling",
     "processing_handling",
-    // "stalled_handling" is an impossible state, and is therefore excluded
 ]
 ```
+
+"stalled_handling" is an impossible state, and is therefore excluded.
+
+The sched_timers field is structured the same as the timers field, but
+represents a different set of regimes that together make up the total
+scheduling and execution time for a tile. Like the timers field, these
+regimes when combined make up the wallclock time elapsed since a
+previous sample. Unlike timers field, these regimes are designed to
+highlight context switches and kernel task scheduling overhead. The
+timers field also includes context switches but just bookkeeps it to
+whatever regime was running when the tile got switched out.
+
+##### `sched_regimes`
+
+```json
+[
+    "wait",
+    "idle",
+    "user",
+    "system",
+]
+```
+
+The regimes mean the following
+
+- wait: the time a tile's process spent waiting in the runqueue before being dispatched
+- user: the time a tile's process spent executing in user mode
+- system: the time a tile's process spent executing in kernel mode
+- idle: Any remaining wallclock time not accounted for by the other 3 regimes
 
 The tiles indicies `i` appear in the same order here that they are
 reported when you first connect by the `summary.tiles` message.
@@ -1155,6 +1185,11 @@ reported when you first connect by the `summary.tiles` message.
         "timers": [
             [10.1, 0, 0, 15.3, 17, 58, 0, 0],
             [10, 0, 0, 15, 17, 58, 0, 0],
+            ...
+        ],
+        "sched_timers": [
+            [20.5, 29.5, 49.0, 1.0],
+            [10.5, 39.5, 39.0, 11.0],
             ...
         ],
         "in_backp": [
@@ -1181,6 +1216,21 @@ reported when you first connect by the `summary.tiles` message.
             0,
             3,
             ...
+        ],
+        "minflt": [
+            1,
+            3,
+            ...
+        ],
+        "majflt": [
+            0,
+            0,
+            ...
+        ],
+        "last_cpu": [
+            23,
+            12,
+            ...
         ]
     }
 }
@@ -1189,14 +1239,38 @@ reported when you first connect by the `summary.tiles` message.
 :::
 
 **`TileMetrics`**
-| Field      | Type         | Description |
-|------------|--------------|-------------|
-| timers     | `(number[]\|null)[]` | `timers[i]` is `null` if no sample was taken in the window, typically because the tile was context switched out by the kernel or it is hung. Otherwise, `timers[i][j]` is the percentage of time from the last 10ms tile `i` spent in regime `regimes[j]` |
-| in_backp   | `(boolean\|null)[]`  | `in_backp[i]` is `null` if no sample was taken in the window. `in_backp[i]` is `true` if tile `i` is currently backpressured and `false` otherwise. See description of regimes above for more context |
-| backp_msgs | `(number\|null)[]`   | `backp_msgs[i]` is `null` if no sample was taken in the window. Otherwise, `backp_msgs[i]` is the number of times since startup that tile `i` has had to wait for one of more consumers to catch up to resume publishing |
-| alive      | `(number\|null)[]`   | `alive[i]` is `null` if no sample was taken in the window. Otherwise, `alive[i]` is `2` if tile `i` has permanently shut down, `1` if tile `i` has updated its heartbeat timer any time in the last 10ms, and `0` otherwise |
-| nvcsw      | `(number\|null)[]`   | `nvcsw[i]` is `null` if no sample was taken in the window. Otherwise, `nvcsw[i]` is the number of voluntary context switches the occurred for tile `i` since startup |
-| nivcsw     | `(number\|null)[]`   | `nivcsw[i]` is `null` if no sample was taken in the window. Otherwise, `nivcsw[i]` is the number of involuntary context switches the occurred for tile `i` since startup |
+| Field        | Type                 | Description |
+|--------------|----------------------|-------------|
+| timers       | `(number[]\|null)[]` | `timers[i]` is `null` if no sample was taken in the window, typically because the tile was context switched out by the kernel or it is hung. Otherwise, `timers[i][j]` is the percentage of time from the last 10ms tile `i` spent in regime `regimes[j]` |
+| sched_timers | `(number\|null)[]`   | `sched_timers[i]` is the percentage of time from the last 10ms tile `i` spent in regime `sched_regimes[j]` |
+| alive        | `number[]`           | `alive[i]` is `2` if tile `i` has permanently shut down, `1` if tile `i` has updated its heartbeat timer any time in the last 100ms, and `0` otherwise |
+| in_backp     | `boolean[]`          | `in_backp[i]` is `true` if tile `i` is currently backpressured and `false` otherwise. |
+| backp_msgs   | `number[]`           | `backp_msgs[i]` is the number of times since startup that tile `i` has had to wait for one of more consumers to catch up to resume publishing |
+| nvcsw        | `number[]`           | `nvcsw[i]` is the number of voluntary context switches the occurred for tile `i` since startup |
+| nivcsw       | `number[]`           | `nivcsw[i]` is the number of involuntary context switches the occurred for tile `i` since startup |
+| minflt       | `number[]`           | `minflt[i]` is the number of minor page faults the occurred for tile `i` since startup. Minor page faults occur for requested pages already in memory, but not in the page table |
+| majflt       | `number[]`           | `majflt[i]` is the number of major page faults the occurred for tile `i` since startup. Major page faults occur for requested pages not in memory or the page table |
+| last_cpu     | `number[]`           | `last_cpu[i]` is the CPU index that tile `i` was last recorded executing on |
+
+Note that a `null` entry in `timers` field indicates that the tile has
+not published new information about the following fields
+
+- timers
+- alive
+- in_backp
+- backp_msgs
+
+Similarly, a `null` entry in `sched_timers` means that updates for that
+tile have not been published for the following fields
+
+- nvcsw
+- nivcsw
+- minflt
+- majflt
+- cpu_idx
+
+Since the fields are not nullable, they contain the previously held
+value. The client should ignore / interpolate them where applicable.
 
 ### block_engine
 Block engines are providers of additional transactions to the validator,

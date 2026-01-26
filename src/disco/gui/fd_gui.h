@@ -239,12 +239,17 @@ struct fd_gui_validator_info {
 
 struct fd_gui_tile_timers {
   ulong timers[ FD_METRICS_ENUM_TILE_REGIME_CNT ];
-  int   in_backp;
-  uint  status;
-  ulong heartbeat;
-  ulong backp_cnt;
-  ulong nvcsw;
-  ulong nivcsw;
+  ulong sched_timers[ FD_METRICS_ENUM_CPU_REGIME_CNT ];
+
+  int    in_backp;
+  ushort last_cpu;
+  uchar  status;
+  ulong  heartbeat;
+  ulong  backp_cnt;
+  ulong  nvcsw;
+  ulong  nivcsw;
+  ulong  minflt;
+  ulong  majflt;
 };
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
@@ -549,7 +554,7 @@ struct fd_gui {
   long next_sample_400millis;
   long next_sample_100millis;
   long next_sample_50millis;
-  long next_sample_12_5millis;
+  long next_sample_25millis;
   long next_sample_10millis;
 
   ulong leader_slot;

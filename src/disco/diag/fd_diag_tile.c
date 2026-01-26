@@ -90,13 +90,18 @@ read_stat_file( int              fd,
       ulong stime_ticks = strtoul( token, &endptr, 10 );
       if( FD_UNLIKELY( *endptr!='\0' || stime_ticks==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul failed for stime" ));
       metrics[ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_SYSTEM_OFF ] = stime_ticks*ns_per_tick;
+    } else if( FD_UNLIKELY( 39UL==field_idx ) ) {
+      char * endptr;
+      ulong last_cpu_ticks = strtoul( token, &endptr, 10 );
+      if( FD_UNLIKELY( *endptr!='\0' || last_cpu_ticks==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul failed for processor" ));
+      metrics[ FD_METRICS_GAUGE_TILE_LAST_CPU_OFF ] = last_cpu_ticks*ns_per_tick;
       break; /* No need to parse stat further */
     }
     token = strtok_r( NULL, " ", &saveptr );
     field_idx++;
   }
 
-  if( FD_UNLIKELY( field_idx!=14UL ) ) FD_LOG_ERR(( "stime (field 15) not found in stat" ));
+  if( FD_UNLIKELY( field_idx!=39UL ) ) FD_LOG_ERR(( "failed to parse /proc/<pid>/task/<tid>/stat" ));
 
   return 0;
 }

@@ -6,13 +6,13 @@
 #include "../fd_metrics_base.h"
 #include "fd_metrics_enums.h"
 
-#define FD_METRICS_GAUGE_SNAPWR_STATE_OFF  (22UL)
+#define FD_METRICS_GAUGE_SNAPWR_STATE_OFF  (23UL)
 #define FD_METRICS_GAUGE_SNAPWR_STATE_NAME "snapwr_state"
 #define FD_METRICS_GAUGE_SNAPWR_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPWR_STATE_DESC "State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN"
 #define FD_METRICS_GAUGE_SNAPWR_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPWR_VINYL_BYTES_WRITTEN_OFF  (23UL)
+#define FD_METRICS_GAUGE_SNAPWR_VINYL_BYTES_WRITTEN_OFF  (24UL)
 #define FD_METRICS_GAUGE_SNAPWR_VINYL_BYTES_WRITTEN_NAME "snapwr_vinyl_bytes_written"
 #define FD_METRICS_GAUGE_SNAPWR_VINYL_BYTES_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPWR_VINYL_BYTES_WRITTEN_DESC "Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted"
