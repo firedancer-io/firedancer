@@ -52,8 +52,6 @@
    block_id when possible to interface with the protocol but otherwise
    falling back to slot number when block_id is unsupported. */
 
-static const fd_pubkey_t NULL_AUTHORITY = {0};
-
 #define IN_KIND_DEDUP   (0)
 #define IN_KIND_EXEC    (1)
 #define IN_KIND_REPLAY  (2)
@@ -475,13 +473,14 @@ query_acct_stake_from_bank( fd_tower_accts_t *  tower_accts_deque,
   return total_stake;
 }
 
-static fd_pubkey_t
-get_authority( ctx_t * ctx,
-               ulong   epoch,
-               int     vote_acc_found,
-               ulong * authority_idx_out ) {
+static int
+get_authority( ctx_t *       ctx,
+               ulong         epoch,
+               int           vote_acc_found,
+               fd_pubkey_t * authority_out,
+               ulong *       authority_idx_out ) {
 
-  if( FD_UNLIKELY( !vote_acc_found ) ) return NULL_AUTHORITY;
+  if( FD_UNLIKELY( !vote_acc_found ) ) return 0;
 
   fd_bincode_decode_ctx_t decode_ctx = {
     .data    = ctx->our_vote_acct,
@@ -499,26 +498,58 @@ get_authority( ctx_t * ctx,
       auth_voter = &vsv->inner.v0_23_5.authorized_voter;
       break;
     case fd_vote_state_versioned_enum_v1_14_11:
-      auth_voter = &fd_vote_authorized_voters_treap_ele_query( vsv->inner.v1_14_11.authorized_voters.treap, epoch, vsv->inner.v1_14_11.authorized_voters.pool )->pubkey;
+      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->inner.v1_14_11.authorized_voters.treap, vsv->inner.v1_14_11.authorized_voters.pool );
+           !fd_vote_authorized_voters_treap_rev_iter_done( iter );
+           iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v1_14_11.authorized_voters.pool ) ) {
+        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v1_14_11.authorized_voters.pool );
+        if( FD_LIKELY( ele->epoch<=epoch ) ) {
+          auth_voter = &ele->pubkey;
+          break;
+        }
+      }
       break;
     case fd_vote_state_versioned_enum_v3:
-     auth_voter = &fd_vote_authorized_voters_treap_ele_query( vsv->inner.v3.authorized_voters.treap, epoch, vsv->inner.v3.authorized_voters.pool )->pubkey;
+      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->inner.v3.authorized_voters.treap, vsv->inner.v3.authorized_voters.pool );
+          !fd_vote_authorized_voters_treap_rev_iter_done( iter );
+          iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v3.authorized_voters.pool ) ) {
+        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v3.authorized_voters.pool );
+        if( FD_LIKELY( ele->epoch<=epoch ) ) {
+          auth_voter = &ele->pubkey;
+          break;
+        }
+      }
       break;
     case fd_vote_state_versioned_enum_v4:
-      auth_voter = &fd_vote_authorized_voters_treap_ele_query( vsv->inner.v4.authorized_voters.treap, epoch, vsv->inner.v4.authorized_voters.pool )->pubkey;
+      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->inner.v4.authorized_voters.treap, vsv->inner.v4.authorized_voters.pool );
+          !fd_vote_authorized_voters_treap_rev_iter_done( iter );
+          iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v4.authorized_voters.pool ) ) {
+        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v4.authorized_voters.pool );
+        if( FD_LIKELY( ele->epoch<=epoch ) ) {
+          auth_voter = &ele->pubkey;
+          break;
+        }
+      }
       break;
     default:
       FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", vsv->discriminant ));
   }
 
-  fd_auth_key_t * auth_key = fd_auth_key_set_query( ctx->auth_key_set, *auth_voter, NULL );
-  if( auth_key ) *authority_idx_out = auth_key->idx;
+  FD_CRIT( !auth_voter, "unable to find authorized voter, likely corrupt vote account state" );
 
-  if( auth_key || fd_pubkey_eq( auth_voter, ctx->identity_key ) ) {
-    return *auth_voter;
+  if( fd_pubkey_eq( auth_voter, ctx->identity_key ) ) {
+    *authority_idx_out = ULONG_MAX;
+    *authority_out     = *auth_voter;
+    return 1;
   }
 
-  return NULL_AUTHORITY;
+  fd_auth_key_t * auth_key = fd_auth_key_set_query( ctx->auth_key_set, *auth_voter, NULL );
+  if( FD_LIKELY( auth_key ) ) {
+    *authority_idx_out = auth_key->idx;
+    *authority_out     = *auth_voter;
+    return 1;
+  }
+
+  return 0;
 }
 
 static void
@@ -578,9 +609,6 @@ replay_slot_completed( ctx_t *                      ctx,
     fd_tower_vote_t const * last_vote = fd_tower_peek_tail_const( ctx->tower );
     FD_TEST( !last_vote || fd_forks_query( ctx->forks, last_vote->slot ) );
   }
-
-  ulong       authority_idx = ULONG_MAX;
-  fd_pubkey_t authority     = get_authority( ctx, slot_completed->epoch, found, &authority_idx );
 
   /* Insert the vote acct addrs and stakes from the bank into accts. */
 
@@ -827,7 +855,11 @@ done_vote_iter:
 
      TODO only do this on refresh_last_vote? */
 
-  if( FD_LIKELY( memcmp( authority.key, NULL_AUTHORITY.key, sizeof(fd_pubkey_t) ) ) ) {
+  ulong       authority_idx = ULONG_MAX;
+  fd_pubkey_t authority[1];
+  int         found_authority = get_authority( ctx, slot_completed->epoch, found, authority, &authority_idx );
+
+  if( FD_LIKELY( found_authority ) ) {
     msg->is_valid_vote = 1;
     fd_lockout_offset_t lockouts[FD_TOWER_VOTE_MAX];
     fd_txn_p_t          txn[1];
@@ -837,7 +869,7 @@ done_vote_iter:
                           &slot_completed->bank_hash,
                           &slot_completed->block_hash,
                           ctx->identity_key,
-                          &authority,
+                          authority,
                           ctx->vote_account,
                           txn );
     FD_TEST( !fd_tower_empty( ctx->tower ) );
