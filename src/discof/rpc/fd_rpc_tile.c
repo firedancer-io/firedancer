@@ -340,21 +340,19 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         }
         case FD_TOWER_SLOT_CONFIRMED_ROOTED: {
           /* TODO: rooted != finalized. Fix in fd_notar */
+          FD_TEST( msg->bank_idx!=ULONG_MAX );
+          FD_TEST( ctx->banks[ msg->bank_idx ].slot!=ULONG_MAX ); /* rooted implies replayed */
 
-          if( FD_UNLIKELY( ctx->finalized_idx==ULONG_MAX ) ) ctx->finalized_idx = msg->bank_idx;
-          else if ( FD_LIKELY( ctx->banks[ ctx->finalized_idx ].slot==ULONG_MAX || ctx->banks[ ctx->finalized_idx ].slot<msg->slot ) ) {
-            FD_TEST( msg->bank_idx!=ULONG_MAX );
-            for( ulong i=0UL; i<ctx->max_live_slots; i++ ) {
-              /* release ownership of any banks older than
-                 finalized_idx. TODO: release ownership of any
-                 descendants of released banks. */
-              if( FD_UNLIKELY( ctx->banks[ i ].slot!=ULONG_MAX && ctx->banks[ i ].slot<msg->slot ) ) {
-                fd_stem_publish( stem, ctx->replay_out->idx, i, 0UL, 0UL, 0UL, 0UL, 0UL );
-                ctx->banks[ i ].slot = ULONG_MAX;
-              }
+          ctx->finalized_idx = msg->bank_idx;
+
+          for( ulong i=0UL; i<ctx->max_live_slots; i++ ) {
+            /* release ownership of any banks older than
+                finalized_idx. TODO: release ownership of any
+                descendants of released banks. */
+            if( FD_UNLIKELY( ctx->banks[ i ].slot!=ULONG_MAX && ctx->banks[ i ].slot<msg->slot ) ) {
+              fd_stem_publish( stem, ctx->replay_out->idx, i, 0UL, 0UL, 0UL, 0UL, 0UL );
+              ctx->banks[ i ].slot = ULONG_MAX;
             }
-
-            ctx->finalized_idx = msg->bank_idx;
           }
           break;
         }
