@@ -139,6 +139,26 @@ fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self ) {
   }
 }
 
+/* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L938 */
+int
+fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self ) {
+  /* Implementation slightly simplified */
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_v0_23_5:
+      return 0;
+    case fd_vote_state_versioned_enum_v1_14_11:
+      return 0;
+    case fd_vote_state_versioned_enum_v3:
+      /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L483 */
+      return 0;
+    case fd_vote_state_versioned_enum_v4:
+      /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L676 */
+      return !!self->inner.v4.has_bls_pubkey_compressed;
+    default:
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+  }
+}
+
 /**********************************************************************/
 /* Mutable getters                                                    */
 /**********************************************************************/
@@ -232,14 +252,15 @@ fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
 }
 
 int
-fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
-                                 fd_vote_state_versioned_t * self,
-                                 fd_pubkey_t const *         authorized_pubkey,
-                                 ulong                       current_epoch,
-                                 ulong                       target_epoch,
-                                 int                         authorized_withdrawer_signer,
-                                 fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX],
-                                 ulong                       signers_cnt ) {
+fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *              ctx,
+                                 fd_vote_state_versioned_t *        self,
+                                 fd_pubkey_t const *                authorized_pubkey,
+                                 ulong                              current_epoch,
+                                 ulong                              target_epoch,
+                                 fd_bls_pubkey_compressed_t const * bls_pubkey,
+                                 int                                authorized_withdrawer_signer,
+                                 fd_pubkey_t const *                signers[ FD_TXN_SIG_MAX ],
+                                 ulong                              signers_cnt ) {
   switch( self->discriminant ) {
     case fd_vote_state_versioned_enum_v3:
       return fd_vote_state_v3_set_new_authorized_voter(
@@ -248,6 +269,7 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
           authorized_pubkey,
           current_epoch,
           target_epoch,
+          bls_pubkey,
           authorized_withdrawer_signer,
           signers,
           signers_cnt
@@ -259,6 +281,7 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
           authorized_pubkey,
           current_epoch,
           target_epoch,
+          bls_pubkey,
           authorized_withdrawer_signer,
           signers,
           signers_cnt
