@@ -5,12 +5,13 @@
 #include "../fd_vote_program.h"
 #include "../../fd_runtime.h"
 
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/vote_state_v4.rs#L80 */
 void
-fd_vote_state_v4_create_new( fd_pubkey_t const *           vote_pubkey,
-                             fd_vote_init_t const *        vote_init,
-                             fd_sol_sysvar_clock_t const * clock,
-                             uchar *                       authorized_voters_mem,
-                             fd_vote_state_versioned_t *   versioned /* out */ ) {
+fd_vote_state_v4_create_new_with_defaults( fd_pubkey_t const *           vote_pubkey,
+                                           fd_vote_init_t const *        vote_init,
+                                           fd_sol_sysvar_clock_t const * clock,
+                                           uchar *                       authorized_voters_mem,
+                                           fd_vote_state_versioned_t *   versioned /* out */ ) {
   versioned->discriminant = fd_vote_state_versioned_enum_v4;
 
   fd_vote_state_v4_t * vote_state              = &versioned->inner.v4;
@@ -21,6 +22,30 @@ fd_vote_state_v4_create_new( fd_pubkey_t const *           vote_pubkey,
   vote_state->inflation_rewards_collector      = *vote_pubkey;
   vote_state->block_revenue_collector          = vote_init->node_pubkey;
   vote_state->block_revenue_commission_bps     = DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
+  vote_state->has_bls_pubkey_compressed        = 0;
+}
+
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/vote_state_v4.rs#L95 */
+void
+fd_vote_state_v4_create_new( fd_vote_init_v2_t const *     vote_init_v2,
+                             fd_sol_sysvar_clock_t const * clock,
+                             uchar *                       authorized_voters_mem,
+                             fd_vote_state_versioned_t *   versioned /* out */ ) {
+  versioned->discriminant = fd_vote_state_versioned_enum_v4;
+
+  fd_vote_state_v4_t * vote_state              = &versioned->inner.v4;
+  vote_state->node_pubkey                      = vote_init_v2->node_pubkey;
+  vote_state->authorized_voters                = *fd_authorized_voters_new(clock->epoch, &vote_init_v2->authorized_voter, authorized_voters_mem);
+
+  /* Important: BLS pubkey proof of possesion MUST be validated first */
+  vote_state->has_bls_pubkey_compressed        = 1;
+  memcpy( &vote_state->bls_pubkey_compressed, &vote_init_v2->authorized_voter_bls_pubkey, sizeof(fd_bls_pubkey_compressed_t) );
+
+  vote_state->authorized_withdrawer            = vote_init_v2->authorized_withdrawer;
+  vote_state->inflation_rewards_commission_bps = vote_init_v2->inflation_rewards_commission_bps;
+  vote_state->inflation_rewards_collector      = vote_init_v2->inflation_rewards_collector;
+  vote_state->block_revenue_commission_bps     = vote_init_v2->block_revenue_commission_bps;
+  vote_state->block_revenue_collector          = vote_init_v2->block_revenue_collector;
 }
 
 int
@@ -70,14 +95,15 @@ fd_vote_state_v4_get_and_update_authorized_voter( fd_vote_state_v4_t * self,
 }
 
 int
-fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
-                                           fd_vote_state_v4_t *  self,
-                                           fd_pubkey_t const *   authorized_pubkey,
-                                           ulong                 current_epoch,
-                                           ulong                 target_epoch,
-                                           int                   authorized_withdrawer_signer,
-                                           fd_pubkey_t const *   signers[static FD_TXN_SIG_MAX],
-                                           ulong                 signers_cnt ) {
+fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t *              ctx,
+                                           fd_vote_state_v4_t *               self,
+                                           fd_pubkey_t const *                authorized_pubkey,
+                                           ulong                              current_epoch,
+                                           ulong                              target_epoch,
+                                           fd_bls_pubkey_compressed_t const * bls_pubkey,
+                                           int                                authorized_withdrawer_signer,
+                                           fd_pubkey_t const *                signers[ FD_TXN_SIG_MAX ],
+                                           ulong                              signers_cnt ) {
   int           rc;
   fd_pubkey_t * epoch_authorized_voter = NULL;
 
@@ -107,6 +133,12 @@ fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
   ele->prio   = (ulong)&ele->pubkey;
   fd_vote_authorized_voters_treap_ele_insert(
       self->authorized_voters.treap, ele, self->authorized_voters.pool );
+
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L528-L530 */
+  if( FD_LIKELY( bls_pubkey!=NULL ) ) {
+    self->has_bls_pubkey_compressed = 1;
+    memcpy( &self->bls_pubkey_compressed, bls_pubkey, sizeof(fd_bls_pubkey_compressed_t) );
+  }
 
   return 0;
 }

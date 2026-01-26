@@ -3,6 +3,8 @@
 
 #include "../fd_ballet_base.h"
 
+#define FD_BLS_SUCCESS (0)
+
 /* Max size for the pairing function */
 #define FD_BLS12_381_PAIRING_BATCH_SZ (8UL)
 
@@ -145,6 +147,29 @@ fd_bls12_381_pairing_syscall( uchar       r[ 48*12 ], /* GT element */
                               uchar const b[], /* 96*2*n - array of n G2 points */
                               ulong const n,
                               int         big_endian );
+
+/* Alpenglow */
+
+/* fd_bls12_381_proof_of_possession_verify verifies proof of possession
+   `proof` for the public key `public_key` against a message `msg` of
+   size `msg_sz`.  The function returns 0 on success, -1 on failure.
+   Note: it is responsibility of the caller to include the bytes of
+   the public key also in `msg`.
+
+   For context, see:
+   https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-bls-signature-06#section-3.3.3
+
+   Note that Solana uses a slightly more general definition of proof
+   of possession, and accepts a generic payload `msg` that must
+   contain the public key.  This allows to include additional data,
+   such as a domain separator and chain-specific info to avoid replay
+   attacks.  Specifically, step 6 of the "Procedure" in the RFC is
+   replaced with Q = hash_pubkey_to_point(msg). */
+int
+fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
+                                         ulong       msg_sz,
+                                         uchar const proof[ 96 ],        /* Compressed G2 point */
+                                         uchar const public_key[ 48 ] ); /* Compressed G1 point */
 
 FD_PROTOTYPES_END
 
