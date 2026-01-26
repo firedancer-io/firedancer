@@ -176,9 +176,14 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   FD_TEST( bank_slot==slot );
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
+
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ 0 ];
     fd_txn_out_t * txn_out = &ctx->txn_out[ 0 ];
+
+    uchar * signature = (uchar *)txn->payload + TXN( txn )->signature_off;
+    FD_BASE58_ENCODE_32_BYTES( signature, signature_b58 );
+    FD_LOG_INFO(( "executing txn %s", signature_b58 ));
 
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
@@ -367,6 +372,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_txn_p_t *   txn     = &txns[ i ];
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ i ];
     fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
+
+    uchar * signature = (uchar *)txn->payload + TXN( txn )->signature_off;
+    FD_BASE58_ENCODE_32_BYTES( signature, signature_b58 );
+    FD_LOG_INFO(( "executing txn %s source_tpu %u source_ipv4 %u", signature_b58, txn->source_tpu, txn->source_ipv4 ));
 
     txn_out->err.txn_err = FD_RUNTIME_EXECUTE_SUCCESS;
 
