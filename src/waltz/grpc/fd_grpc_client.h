@@ -227,7 +227,10 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
 #endif /* FD_HAS_OPENSSL */
 
 /* fd_grpc_client_rxtx_socket drives I/O against a TCP socket.
-   (recvmsg(2) and sendmsg(2)).  Uses MSG_NOSIGNAL|MSG_DONTWAIT flags. */
+   (recvmsg(2) and sendmsg(2)).  Uses MSG_NOSIGNAL|MSG_DONTWAIT flags.
+
+   Returns -1 if an error was encountered, and errno will be set.
+   Otherwise, returns 0. */
 
 int
 fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
@@ -253,6 +256,12 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
    auth_token is an optional authorization header.  The header value is
    prepended with "Bearer ".  auth_token_sz==0 omits the auth header.
 
+   is_streaming: If 0, this is a unary request and the stream is closed
+   after sending the first message (END_STREAM flag set).  If non-zero,
+   this is a client streaming request and the stream remains open for
+   additional messages via fd_grpc_client_stream_send_msg().  The stream
+   must be explicitly closed with fd_grpc_client_stream_close().
+
    Conditions for starting send:
    - The connection is not dead and the HTTP/2 handshake is complete.
    - Client has quota to open a new stream (MAX_CONCURRENT_STREAMS)
@@ -270,7 +279,70 @@ fd_grpc_client_request_start(
     pb_msgdesc_t const * fields,
     void const *         message,
     char const *         auth_token,
-    ulong                auth_token_sz
+    ulong                auth_token_sz,
+    int                  is_streaming
+);
+
+fd_grpc_h2_stream_t *
+fd_grpc_client_request_start1(
+    fd_grpc_client_t *   client,
+    char const *         path,
+    ulong                path_len, /* in [0,128) */
+    ulong                request_ctx,
+    uchar const *        protobuf,
+    ulong                protobuf_sz,
+    char const *         auth_token,
+    ulong                auth_token_sz,
+    int                  is_streaming );
+
+/* fd_grpc_client_stream_send_msg sends an additional message on an
+   already-open client streaming request.  This function can only be
+   called after fd_grpc_client_request_start() was called with
+   is_streaming=1.
+
+   Returns 1 on success, 0 if the operation failed (connection dead,
+   buffers blocked, or encoding failure).
+
+   Conditions for sending:
+   - The connection is alive
+   - No other send operation is in progress
+   - rbuf_tx is empty
+   - The message serialized size does not exceed buf_max */
+
+int
+fd_grpc_client_stream_send_msg(
+    fd_grpc_client_t *    client,
+    fd_grpc_h2_stream_t * stream,
+    pb_msgdesc_t const *  fields,
+    void const *          message
+);
+
+int
+fd_grpc_client_stream_send_msg1(
+    fd_grpc_client_t *    client,
+    fd_grpc_h2_stream_t * stream,
+    uchar const *         protobuf,
+    ulong                 protobuf_sz );
+
+/* fd_grpc_client_stream_close explicitly closes a client streaming
+   request by sending an empty DATA frame with the END_STREAM flag.
+   This signals to the server that no more messages will be sent.
+
+   This function should be called after all messages have been sent via
+   fd_grpc_client_stream_send_msg() to complete the client stream.
+
+   Returns 1 on success, 0 if the operation failed (connection dead or
+   buffers blocked).
+
+   Conditions for closing:
+   - The connection is alive
+   - No other send operation is in progress
+   - rbuf_tx is empty */
+
+int
+fd_grpc_client_stream_close(
+    fd_grpc_client_t *    client,
+    fd_grpc_h2_stream_t * stream
 );
 
 /* fd_grpc_client_deadline_set sets a request deadline (used to
@@ -305,6 +377,9 @@ fd_grpc_client_is_connected( fd_grpc_client_t * client );
 
 int
 fd_grpc_client_request_is_blocked( fd_grpc_client_t * client );
+
+int
+fd_grpc_client_request_stream_busy( fd_grpc_client_t * client );
 
 /* Pointers to internals for testing */
 
