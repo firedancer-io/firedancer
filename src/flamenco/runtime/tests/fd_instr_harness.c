@@ -52,7 +52,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_features_t * features = fd_bank_features_modify( runner->bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
   if( !fd_solfuzz_pb_restore_features( features, feature_set ) ) {
-    return 0;
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
   /* Blockhash queue init */
@@ -129,7 +129,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   if( FD_UNLIKELY( test_ctx->accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
     FD_LOG_NOTICE(( "too many accounts" ));
-    return 0;
+    return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED;
   }
 
   /* Load accounts into database */
@@ -252,7 +252,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   if( FD_UNLIKELY( test_ctx->instr_accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
     FD_LOG_NOTICE(( "too many instruction accounts" ));
-    return 0;
+    return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED;
   }
 
   /* Restore sysvar cache */
@@ -271,7 +271,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
-  if( FD_UNLIKELY( !epoch_schedule ) ) { return 0; }
+  if( FD_UNLIKELY( !epoch_schedule ) ) { return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR; }
   fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
 
   fd_rent_t rent_[1];
@@ -299,7 +299,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     uint index = test_ctx->instr_accounts[j].index;
     if( index >= test_ctx->accounts_count ) {
       FD_LOG_NOTICE( ( "instruction account index out of range (%u > %u)", index, test_ctx->instr_accounts_count ) );
-      return 0;
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
 
     /* Setup instruction accounts */
@@ -323,10 +323,12 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
   }
 
-  /* Early returning only happens in instruction execution. */
+  /* For non-syscalls (instruction execution), program_id must be in the input accounts.
+     For syscalls, we skip this check because the program_id was already added to
+     txn_out->accounts at lines 169-181 if it wasn't in the input. */
   if( !is_syscall && !found_program_id ) {
     FD_LOG_NOTICE(( " Unable to find program_id in accounts" ));
-    return 0;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   ctx->instr              = info;
@@ -338,7 +340,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_log_collector_init( ctx->runtime->log.log_collector, 1 );
   fd_base58_encode_32( txn_out->accounts.keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
 
-  return 1;
+  return 0;  /* Success */
 }
 
 void
@@ -364,20 +366,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   fd_exec_test_instr_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_instr_effects_t **      output = fd_type_pun( output_ );
 
-  /* Convert the Protobuf inputs to a fd_exec context */
-  fd_exec_instr_ctx_t ctx[1];
-  if( !fd_solfuzz_pb_instr_ctx_create( runner, ctx, input, false ) ) {
-    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
-    return 0UL;
-  }
-
-  fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
-
-  /* Execute the test */
-  int exec_result = fd_execute_instr( ctx->runtime, runner->bank, ctx->txn_in, ctx->txn_out, instr );
-
-  /* Allocate space to capture outputs */
-
+  /* Allocate space to capture outputs first so we can return errors */
   ulong output_end = (ulong)output_buf + output_bufsz;
   FD_SCRATCH_ALLOC_INIT( l, output_buf );
 
@@ -385,10 +374,26 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_instr_effects_t),
                                 sizeof (fd_exec_test_instr_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
     return 0UL;
   }
   fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
+
+  /* Convert the Protobuf inputs to a fd_exec context */
+  fd_exec_instr_ctx_t ctx[1];
+  int ctx_err = fd_solfuzz_pb_instr_ctx_create( runner, ctx, input, false );
+  if( FD_UNLIKELY( ctx_err ) ) {
+    /* Return effects with the error from context creation */
+    effects->result   = -ctx_err;
+    effects->cu_avail = input->cu_avail;
+    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
+    *output = effects;
+    return FD_SCRATCH_ALLOC_FINI( l, 1UL ) - (ulong)output_buf;
+  }
+
+  fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
+
+  /* Execute the test */
+  int exec_result = fd_execute_instr( ctx->runtime, runner->bank, ctx->txn_in, ctx->txn_out, instr );
 
   /* Capture error code */
 

@@ -109,12 +109,29 @@ fd_solfuzz_pb_vm_interp_run( fd_solfuzz_runner_t * runner,
   fd_exec_test_syscall_context_t const * input = fd_type_pun_const( input_ );
   fd_exec_test_syscall_effects_t      ** output = fd_type_pun( output_ );
 
+  /* Allocate effects first so we can return errors */
+  ulong output_end = (ulong) output_buf + output_bufsz;
+  FD_SCRATCH_ALLOC_INIT( l, output_buf );
+  fd_exec_test_syscall_effects_t * effects =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
+                                sizeof (fd_exec_test_syscall_effects_t) );
+  if( FD_UNLIKELY( _l > output_end ) ) {
+    return 0UL;
+  }
+  *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
+
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t instr_ctx[1];
-  if( !fd_solfuzz_pb_instr_ctx_create( runner, instr_ctx, input_instr_ctx, true /* is_syscall avoids certain checks we don't want */ ) ) {
+  int ctx_err = fd_solfuzz_pb_instr_ctx_create( runner, instr_ctx, input_instr_ctx, true /* is_syscall avoids certain checks we don't want */ );
+  if( FD_UNLIKELY( ctx_err ) ) {
+    /* Return effects with the error from context creation */
+    effects->error      = -ctx_err;
+    effects->error_kind = FD_EXEC_TEST_ERR_KIND_INSTRUCTION;
+    effects->cu_avail   = input->instr_ctx.cu_avail;
     fd_solfuzz_pb_instr_ctx_destroy( runner, instr_ctx );
-    return 0UL;
+    *output = effects;
+    return FD_SCRATCH_ALLOC_FINI( l, 1UL ) - (ulong)output_buf;
   }
 
   if( !( input->has_vm_ctx ) ) {
@@ -124,19 +141,6 @@ fd_solfuzz_pb_vm_interp_run( fd_solfuzz_runner_t * runner,
 
   fd_spad_t * spad = runner->spad;
   instr_ctx->bank  = runner->bank;
-
-  /* Create effects */
-  ulong output_end = (ulong) output_buf + output_bufsz;
-  FD_SCRATCH_ALLOC_INIT( l, output_buf );
-  fd_exec_test_syscall_effects_t * effects =
-    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
-                                sizeof (fd_exec_test_syscall_effects_t) );
-  *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
-
-  if( FD_UNLIKELY( _l > output_end ) ) {
-    fd_solfuzz_pb_instr_ctx_destroy( runner, instr_ctx );
-    return 0UL;
-  }
 
 do{
   /* Setup regions */
@@ -393,6 +397,17 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   fd_exec_test_syscall_context_t const * input =  fd_type_pun_const( input_ );
   fd_exec_test_syscall_effects_t **      output = fd_type_pun( output_ );
 
+  /* Capture outputs - allocate effects first so we can return errors */
+  ulong output_end = (ulong)output_buf + output_bufsz;
+  FD_SCRATCH_ALLOC_INIT( l, output_buf );
+  fd_exec_test_syscall_effects_t * effects =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
+                                sizeof (fd_exec_test_syscall_effects_t) );
+  if( FD_UNLIKELY( _l > output_end ) ) {
+    return 0;
+  }
+  *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
+
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
@@ -400,22 +415,18 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   int is_cpi            = !strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
   int skip_extra_checks = !is_cpi;
 
-  if( !fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks ) )
+  int ctx_err = fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks );
+  if( ctx_err ) {
+    /* Set effects with the error from context creation. */
+    effects->error      = -ctx_err;
+    effects->error_kind = FD_EXEC_TEST_ERR_KIND_INSTRUCTION;
+    effects->cu_avail   = input->instr_ctx.cu_avail;
     goto error;
+  }
 
   ctx->txn_out->err.exec_err = 0;
   ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
   ctx->bank = runner->bank;
-
-  /* Capture outputs */
-  ulong output_end = (ulong)output_buf + output_bufsz;
-  FD_SCRATCH_ALLOC_INIT( l, output_buf );
-  fd_exec_test_syscall_effects_t * effects =
-    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
-                                sizeof (fd_exec_test_syscall_effects_t) );
-  if( FD_UNLIKELY( _l > output_end ) ) {
-    goto error;
-  }
 
   if( input->vm_ctx.return_data.program_id && input->vm_ctx.return_data.program_id->size == sizeof(fd_pubkey_t) ) {
     fd_memcpy( ctx->txn_out->details.return_data.program_id.uc, input->vm_ctx.return_data.program_id->bytes, sizeof(fd_pubkey_t) );
@@ -425,8 +436,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
     ctx->txn_out->details.return_data.len = input->vm_ctx.return_data.data->size;
     fd_memcpy( ctx->txn_out->details.return_data.data, input->vm_ctx.return_data.data->bytes, ctx->txn_out->details.return_data.len );
   }
-
-  *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
 
   /* Set up the VM instance */
   fd_spad_t * spad = runner->spad;
@@ -490,7 +499,12 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                                                       &instr_data_offset,
                                                       &input_sz );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "bpf loader input serialize parameters err" ));
+    /* Set effects with the serialization error.
+       Error codes in FD are negative, but effects use positive values.
+       Use goto error for proper cleanup. */
+    effects->error      = -err;
+    effects->error_kind = FD_EXEC_TEST_ERR_KIND_INSTRUCTION;
+    effects->cu_avail   = ctx->txn_out->details.compute_budget.compute_meter;
     goto error;
   }
 
@@ -676,5 +690,11 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
 error:
   fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
+  /* If we set an error in effects, return effects instead of 0 */
+  if( effects->error ) {
+    ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+    *output = effects;
+    return actual_end - (ulong)output_buf;
+  }
   return 0;
 }

@@ -16,6 +16,9 @@ FD_PROTOTYPES_BEGIN
    Setting is_syscall avoids some operations/checks only relevant for
    program instructions.
 
+   Returns 0 on success, or a negative FD_EXECUTOR_INSTR_ERR_* error
+   code on failure.
+
    Should be coupled with fd_solfuzz_pb_instr_ctx_destroy when the
    instr_ctx is no longer needed. */
 int
