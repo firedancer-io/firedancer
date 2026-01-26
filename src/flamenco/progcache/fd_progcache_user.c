@@ -469,11 +469,11 @@ fd_progcache_lock_best_txn( fd_progcache_t * cache,
     return NULL; /* publishing record immediately */
   }
 
-  /* Scan fork graph for oldest node (>= program update slot) */
+  /* Scan fork graph for oldest node >= the target slot. */
   ulong target_xid_idx;
   ulong fork_depth = cache->fork_depth;
-  for( target_xid_idx=0UL; target_xid_idx<fork_depth; target_xid_idx++ ) {
-    if( cache->fork[ target_xid_idx ].ul[0]<=target_slot ) break;
+  for( ulong xid_idx=0UL; xid_idx<fork_depth && cache->fork[ xid_idx ].ul[0]>target_slot; xid_idx++ ) {
+    if( cache->fork[ xid_idx ].ul[0]>=target_slot ) target_xid_idx = xid_idx;
   }
 
   /* Backtrack up to newer fork graph nodes (>= access slot)
