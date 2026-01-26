@@ -534,6 +534,7 @@ configure_args( void ) {
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_snapshots;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_accdb;
+  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_keys;
   args.configure.stages[ stage_idx++ ] = NULL;
 
   return args;
