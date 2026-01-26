@@ -106,7 +106,7 @@ read_sched_file( int              fd,
                  volatile ulong * metrics ) {
   if( FD_UNLIKELY( -1==lseek( fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
 
-  char contents[ 4096 ] = {0};
+  char contents[ 8192 ] = {0};
   ulong contents_len = 0UL;
 
   while( 1 ) {
