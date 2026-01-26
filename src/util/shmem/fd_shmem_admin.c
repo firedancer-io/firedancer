@@ -682,7 +682,7 @@ fd_shmem_private_boot( int *    pargc,
                        char *** pargv ) {
   FD_LOG_INFO(( "fd_shmem: booting" ));
 
-  /* Initialize the phtread mutex */
+  /* Initialize the pthread mutex */
 
 # if FD_HAS_THREADS
   pthread_mutexattr_t lockattr[1];
