@@ -93,7 +93,7 @@ char const *
 fd_gai_strerror( int gai ) {
   if( gai<=FD_EAI_SYSTEM ) {
     int err = gai-FD_EAI_SYSTEM;
-    return fd_io_strerror( err );
+    return fd_io_strerror( -err );
   }
   switch( gai ) {
   case FD_EAI_BADFLAGS:  return "bad flags";
