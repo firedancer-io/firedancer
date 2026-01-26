@@ -22,7 +22,6 @@
 
 #define NAME "snapct"
 
-/* FIXME: Implement full_effective_age_cancel_threshold */
 /* FIXME: Add more timeout config options and have consistent behavior */
 /* FIXME: Do a finishing pass over the default.toml config options / comments */
 /* FIXME: Improve behavior when using incremental_snapshots = false */
@@ -109,7 +108,7 @@ struct fd_snapct_tile {
   struct {
     ulong full_slot;
     ulong slot;
-    int   dirty;
+    int   pending;
   } predicted_incremental;
 
   struct {
@@ -148,6 +147,8 @@ struct fd_snapct_tile {
     int                 saturated;
     long                next_saturated_check;
   } gossip;
+
+  fd_stem_context_t *  stem;
 
   fd_snapct_out_link_t out_ld;
   fd_snapct_out_link_t out_gui;
@@ -267,6 +268,31 @@ snapshot_path_gui_publish( fd_snapct_tile_t *  ctx,
 }
 
 static void
+check_full_effective_age_cancel( fd_snapct_tile_t * ctx,
+                                 ulong              incr_slot ) {
+  if( ctx->state!=FD_SNAPCT_STATE_READING_FULL_FILE && ctx->state!=FD_SNAPCT_STATE_READING_FULL_HTTP ) return;
+  if( ctx->predicted_incremental.full_slot==ULONG_MAX ) return;
+
+  /* The effective slot of a full snapshot is its associated incremental
+     snapshot slot if any exists */
+  ulong effective_slot = ctx->predicted_incremental.slot==ULONG_MAX ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
+
+  if( FD_UNLIKELY( fd_ulong_sat_sub( incr_slot, effective_slot )>ctx->config.full_effective_age_cancel_threshold ) ) {
+    /* A full snapshot is outdated if it's effective slot age is greater
+     than the full_effective_age_cancel_threshold.  At this point, it
+     is better to redownload a newer full snapshot to minimize catchup
+     time. */
+    ctx->predicted_incremental.full_slot = ULONG_MAX;
+    fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
+    fd_sspeer_selector_remove( ctx->selector, ctx->addr );
+    fd_stem_publish( ctx->stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
+    if( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP ) ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
+    else                                                ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET;
+    FD_LOG_WARNING((" canceling full snapshot because its effective age has exceeded the full_effective_age_cancel_threshold (%u)", ctx->config.full_effective_age_cancel_threshold) );
+  }
+}
+
+static void
 predict_incremental( fd_snapct_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) return;
   if( FD_UNLIKELY( ctx->predicted_incremental.full_slot==ULONG_MAX ) ) return;
@@ -275,31 +301,35 @@ predict_incremental( fd_snapct_tile_t * ctx ) {
 
   if( FD_LIKELY( best.addr.l ) ) {
     if( FD_UNLIKELY( ctx->predicted_incremental.slot!=best.incr_slot ) ) {
-      ctx->predicted_incremental.slot  = best.incr_slot;
-      ctx->predicted_incremental.dirty = 1;
+      ctx->predicted_incremental.slot    = best.incr_slot;
+      ctx->predicted_incremental.pending = 1;
     }
   }
 }
 
 static void
-on_resolve( void *              _ctx,
-            fd_ip4_port_t       addr,
-            ulong               full_slot,
-            ulong               incr_slot ) {
+on_resolve( void *        _ctx,
+            fd_ip4_port_t addr,
+            ulong         full_slot,
+            ulong         incr_slot ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
   fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot );
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
+
+  fd_sscluster_slot_t cluster_slot = fd_sspeer_selector_cluster_slot( ctx->selector );
+  ulong               slot         = ctx->config.incremental_snapshots ? cluster_slot.incremental : cluster_slot.full;
+  check_full_effective_age_cancel( ctx, slot );
 }
 
 static void
 on_ping( void *        _ctx,
          fd_ip4_port_t addr,
-         ulong         latency ) {
+         ulong         latency_nanos ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
-  fd_sspeer_selector_add( ctx->selector, addr, latency, ULONG_MAX, ULONG_MAX);
+  fd_sspeer_selector_add( ctx->selector, addr, latency_nanos, ULONG_MAX, ULONG_MAX);
   predict_incremental( ctx );
 }
 
@@ -319,6 +349,10 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
   fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot );
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
+
+  fd_sscluster_slot_t cluster_slot = fd_sspeer_selector_cluster_slot( ctx->selector );
+  ulong               slot         = ctx->config.incremental_snapshots ? cluster_slot.incremental : cluster_slot.full;
+  check_full_effective_age_cancel( ctx, slot );
 }
 
 static void
@@ -496,6 +530,7 @@ after_credit( fd_snapct_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy FD_PARAM_UNUSED ) {
+  ctx->stem = stem;
   long now = fd_log_wallclock();
 
   if( FD_LIKELY( ctx->ssping ) ) fd_ssping_advance( ctx->ssping, now, ctx->selector );
@@ -504,9 +539,9 @@ after_credit( fd_snapct_tile_t *  ctx,
   /* send an expected slot message as the predicted incremental
      could have changed as a result of the pinger, resolver, or from
      processing gossip frags in gossip_frag. */
-  if( FD_LIKELY( ctx->predicted_incremental.dirty ) ) {
+  if( FD_LIKELY( ctx->predicted_incremental.pending ) ) {
     send_expected_slot( ctx, stem, ctx->predicted_incremental.slot );
-    ctx->predicted_incremental.dirty = 0;
+    ctx->predicted_incremental.pending = 0;
   }
 
   /* Note: All state transitions should occur within this switch
@@ -884,18 +919,22 @@ after_credit( fd_snapct_tile_t *  ctx,
     /* ============================================================== */
     default: FD_LOG_ERR(( "unexpected state %d", ctx->state ));
   }
+  ctx->stem = NULL;
 }
 
 static void
 gossip_frag( fd_snapct_tile_t *  ctx,
              ulong               sig,
              ulong               sz FD_PARAM_UNUSED,
-             ulong               chunk ) {
+             ulong               chunk,
+             fd_stem_context_t * stem ) {
   FD_TEST( ctx->gossip_enabled );
 
   if( !( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
          sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
          sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES ) ) return;
+
+  ctx->stem = stem;
 
   fd_gossip_update_message_t const * msg    = fd_chunk_to_laddr_const( ctx->gossip_in_mem, chunk );
   fd_pubkey_t const *                pubkey = (fd_pubkey_t const *)msg->origin_pubkey;
@@ -988,6 +1027,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       FD_LOG_ERR(( "snapct: unexpected gossip tag %u", (uint)msg->tag ));
       break;
   }
+  ctx->stem = NULL;
 }
 
 static void
@@ -1185,7 +1225,7 @@ returnable_frag( fd_snapct_tile_t *  ctx,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
-    gossip_frag( ctx, sig, sz, chunk );
+    gossip_frag( ctx, sig, sz, chunk, stem );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPLD ) {
     snapld_frag( ctx, sig, sz, chunk, stem );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_ACK ) {
@@ -1331,7 +1371,7 @@ unprivileged_init( fd_topo_t *      topo,
                             FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX ) );
   void * _selector        = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
 
-  ctx->config = tile->snapct;
+  ctx->config           = tile->snapct;
   ctx->gossip_enabled   = gossip_enabled( tile );
   ctx->download_enabled = download_enabled( tile );
 
@@ -1381,7 +1421,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->predicted_incremental.full_slot = ULONG_MAX;
   ctx->predicted_incremental.slot      = ULONG_MAX;
-  ctx->predicted_incremental.dirty     = 0;
+  ctx->predicted_incremental.pending   = 0;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 

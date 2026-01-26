@@ -2,6 +2,7 @@ ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_SSE
 $(call add-hdrs,fd_snapct_tile.h)
 $(call add-objs,fd_snapct_tile,fd_discof)
+$(call add-objs,test/fd_snapct_test_topo,fd_discof)
 $(call add-objs,fd_snapld_tile,fd_discof)
 ifdef FD_HAS_ZSTD
 $(call add-objs,fd_snapdc_tile,fd_discof)
@@ -28,8 +29,10 @@ ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_ssmanifest_parser,utils/test_ssmanifest_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_slot_delta_parser,utils/test_slot_delta_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_sspeer_selector,utils/test_sspeer_selector,fd_discof fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_snapct_tile,test/test_snapct_tile, fd_discof fd_disco fd_tango fd_flamenco fd_waltz fd_ballet fd_util fdctl_platform, $(OPENSSL_LIBS))
 $(call run-unit-test,test_slot_delta_parser)
 $(call run-unit-test,test_sspeer_selector)
+$(call run-unit-test,test_snapct_tile,test/test_snapct_tile, fd_discof fd_disco fd_tango fd_flamenco fd_waltz fd_ballet fd_util fdctl_platform,$(OPENSSL_LIBS))
 endif
 
 ifdef FD_HAS_HOSTED

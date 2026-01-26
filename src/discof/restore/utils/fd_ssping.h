@@ -29,7 +29,7 @@ typedef struct fd_ssping_private fd_ssping_t;
 typedef void
 (* fd_ssping_on_ping_fn_t)( void *        _ctx,
                             fd_ip4_port_t addr,
-                            ulong         latency );
+                            ulong         latency_nanos );
 
 FD_PROTOTYPES_BEGIN
 

@@ -221,13 +221,13 @@ fd_http_resolver_add( fd_http_resolver_t * resolver,
     FD_LOG_ERR(( "peer pool exhausted" ));
   }
   fd_ssresolve_peer_t * peer = peer_pool_ele_acquire( resolver->pool );
-  peer->state                        = PEER_STATE_UNRESOLVED;
-  peer->addr                         = addr;
-  peer->hostname                     = hostname;
-  peer->is_https                     = is_https;
-  peer->fd.idx                       = ULONG_MAX;
-  peer->full_slot                    = ULONG_MAX;
-  peer->incr_slot                    = ULONG_MAX;
+  peer->state     = PEER_STATE_UNRESOLVED;
+  peer->addr      = addr;
+  peer->hostname  = hostname;
+  peer->is_https  = is_https;
+  peer->fd.idx    = ULONG_MAX;
+  peer->full_slot = ULONG_MAX;
+  peer->incr_slot = ULONG_MAX;
   deadline_list_ele_push_tail( resolver->unresolved, peer, resolver->pool );
 }
 
