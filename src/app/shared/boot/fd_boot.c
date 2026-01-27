@@ -151,7 +151,7 @@ determine_override_config( int *                      pargc,
   }
 }
 
-void
+int
 fd_main_init( int *                      pargc,
               char ***                   pargv,
               config_t   *               config,
@@ -159,8 +159,7 @@ fd_main_init( int *                      pargc,
               int                        is_firedancer,
               int                        is_local_cluster,
               char const *               log_path,
-              fd_config_file_t * const * configs,
-              void (* topo_init )( config_t * config ) ) {
+              fd_config_file_t * const * configs ) {
   fd_log_enable_unclean_exit(); /* Don't call atexit handlers on FD_LOG_ERR */
   fd_log_level_core_set( 5 ); /* Don't dump core for FD_LOG_ERR during boot */
   fd_log_colorize_set( should_colorize() ); /* Colorize during boot until we can determine from config */
@@ -203,7 +202,6 @@ fd_main_init( int *                      pargc,
                                &override_config, &override_config_path, &override_config_sz );
 
     fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config );
-    topo_init( config );
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -270,6 +268,8 @@ fd_main_init( int *                      pargc,
   fd_log_level_logfile_set( config->log.level_logfile1 );
   fd_log_level_stderr_set( config->log.level_stderr1 );
   fd_log_level_flush_set( config->log.level_flush1 );
+
+  return config_fd<0;
 }
 
 static config_t config;
@@ -328,7 +328,8 @@ fd_main( int                        argc,
   }
 
   int is_local_cluster = action ? action->is_local_cluster : 0;
-  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs, topo_init );
+  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs );
+  topo_init( &config );
 
   if( FD_UNLIKELY( !action ) ) {
     help_action->fn( NULL, NULL );
