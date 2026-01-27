@@ -13,3 +13,8 @@
 /src/waltz/quic @nbridge-jump @ripatel-fd @akhinvasara-jumptrading
 /src/waltz/tls @ripatel-fd @mmcgee-jump
 /src/waltz/xdp @ripatel-fd @mmcgee-jump
+
+/src/flamenco/runtime/tests/*solfuzz* @mjain-jump
+/src/flamenco/runtime/tests/*harness* @mjain-jump
+/src/flamenco/runtime/tests/*dump_pb* @mjain-jump
+/src/flamenco/runtime/tests/fd_sol_compat.* @mjain-jump
