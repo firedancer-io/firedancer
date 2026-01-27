@@ -50,7 +50,8 @@ struct fd_backt_tile {
   fd_backtest_rocksdb_t *  rocksdb;
   fd_backtest_shredcap_t * shredcap;
 
-  int ingests_dead;
+  int   ingests_dead_slots;
+  ulong root_distance;
 
   ulong prev_slot;
   ulong prev_fec_set_idx;
@@ -388,12 +389,12 @@ returnable_frag( fd_backt_tile_t *   ctx,
       dst->vote_slot             = msg->slot;
       dst->reset_slot            = msg->slot;
       dst->reset_block_id        = msg->block_id;
-      dst->root_slot             = msg->slot;
+      dst->root_slot             = fd_ulong_max( msg->slot-ctx->root_distance, ctx->start_slot );
       dst->root_block_id         = msg->block_id;
       dst->replay_bank_idx       = msg->bank_idx;
 
-      // fd_stem_publish( stem, ctx->tower_out->idx, 0UL, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      // ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
+      fd_stem_publish( stem, ctx->tower_out->idx, 0UL, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
       break;
     }
     default: FD_LOG_ERR(( "unhandled in_kind: %d in_idx: %lu", ctx->in_kind[ in_idx ], in_idx ));
@@ -466,7 +467,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   memset( ctx->fec_set_idxs, 0UL, sizeof(ctx->fec_set_idxs) );
 
-  tile->backtest.ingests_dead_slots = 1;
+  ctx->ingests_dead_slots = tile->backtest.ingest_dead_slots;
+  ctx->root_distance      = tile->backtest.root_distance;
 
   if( tile->backtest.shredcap_path[0] ) {
     ctx->shredcap = fd_backtest_shredcap_new( _backtest_shredcap, tile->backtest.shredcap_path );
@@ -474,7 +476,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 # if FD_HAS_ROCKSDB
   if( !ctx->shredcap ) {
-    ctx->rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( _backtest_rocksdb, tile->backtest.rocksdb_path, tile->backtest.ingests_dead_slots ) );
+    ctx->rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( _backtest_rocksdb, tile->backtest.rocksdb_path, tile->backtest.ingest_dead_slots ) );
     FD_TEST( ctx->rocksdb );
   }
 # endif

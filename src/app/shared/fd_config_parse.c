@@ -276,7 +276,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   tiles.tower.debug_logging                        );
 
   CFG_POP      ( bool,   tiles.archiver.enabled                           );
+  CFG_POP      ( bool,   tiles.archiver.ingest_dead_slots                 );
   CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
+  CFG_POP      ( ulong,  tiles.archiver.root_distance                     );
   CFG_POP      ( cstr,   tiles.archiver.rocksdb_path                      );
   CFG_POP      ( cstr,   tiles.archiver.shredcap_path                     );
   CFG_POP      ( cstr,   tiles.archiver.ingest_mode                       );

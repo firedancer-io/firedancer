@@ -189,8 +189,10 @@ main( int     argc,
 
     ulong root_slot;
     ulong shred_cnt;
-    int root_ok = fd_backtest_rocksdb_next_root_slot( rocksdb, &root_slot, &shred_cnt );
+    int   is_slot_rooted = 0;
+    int root_ok = fd_backtest_rocksdb_next_slot( rocksdb, &root_slot, &shred_cnt, &is_slot_rooted );
     if( !root_ok ) break;
+    FD_TEST( is_slot_rooted );
     uchar const * bank_hash = fd_backtest_rocksdb_bank_hash( rocksdb, root_slot );
     if( FD_UNLIKELY( !bank_hash ) ) FD_LOG_ERR(( "failed to extract bank hash for root slot %lu", root_slot ));
     if( root_slot>end_slot ) break;

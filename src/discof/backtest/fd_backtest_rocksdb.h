@@ -31,11 +31,6 @@ fd_backtest_rocksdb_init( fd_backtest_rocksdb_t * db,
                           ulong                   root_slot );
 
 int
-fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
-                                    ulong *                 root_slot,
-                                    ulong *                 shred_cnt );
-
-int
 fd_backtest_rocksdb_next_slot( fd_backtest_rocksdb_t * db,
                                ulong *                 slot_out,
                                ulong *                 shred_cnt_out,

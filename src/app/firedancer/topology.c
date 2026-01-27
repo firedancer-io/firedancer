@@ -1709,7 +1709,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 
-    tile->backtest.end_slot = config->tiles.archiver.end_slot;
+    tile->backtest.end_slot          = config->tiles.archiver.end_slot;
+    tile->backtest.ingest_dead_slots = config->tiles.archiver.ingest_dead_slots;
+    tile->backtest.root_distance     = config->tiles.archiver.root_distance;
 
     /* Validate arguments based on the ingest mode */
     if( !strcmp( config->tiles.archiver.ingest_mode, "rocksdb" ) ) {
