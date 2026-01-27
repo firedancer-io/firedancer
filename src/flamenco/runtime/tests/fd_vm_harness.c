@@ -648,7 +648,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   }
 
   /* Capture input regions */
-  effects->inputdata = NULL; /* Deprecated, using input_data_regions instead */
   ulong tmp_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   ulong input_regions_size = fd_solfuzz_vm_load_from_input_regions(
       vm->input_mem_regions,

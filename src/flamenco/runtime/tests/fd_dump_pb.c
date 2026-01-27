@@ -747,7 +747,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   dump_sorted_features( fd_bank_features_query( parent_bank ), &block_context->epoch_ctx.features, spad );
   block_context->epoch_ctx.hashes_per_tick            = fd_bank_hashes_per_tick_get( parent_bank );
   block_context->epoch_ctx.ticks_per_slot             = fd_bank_ticks_per_slot_get( parent_bank );
-  block_context->epoch_ctx.slots_per_year             = fd_bank_slots_per_year_get( parent_bank );
   block_context->epoch_ctx.has_inflation              = true;
 
   fd_inflation_t const * inflation = fd_bank_inflation_query( parent_bank );
@@ -1187,12 +1186,6 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   sys_ctx.vm_ctx.rodata = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->rodata_sz ) );
   sys_ctx.vm_ctx.rodata->size = (pb_size_t) vm->rodata_sz;
   fd_memcpy( sys_ctx.vm_ctx.rodata->bytes, vm->rodata, vm->rodata_sz );
-
-  /* SyscallContext -> vm_ctx -> rodata_text_section_offset */
-  sys_ctx.vm_ctx.rodata_text_section_offset = vm->text_off;
-
-  /* SyscallContext -> vm_ctx -> rodata_text_section_length */
-  sys_ctx.vm_ctx.rodata_text_section_length = vm->text_sz;
 
   /* SyscallContext -> vm_ctx -> r0-11 */
   sys_ctx.vm_ctx.r0  = vm->reg[0];

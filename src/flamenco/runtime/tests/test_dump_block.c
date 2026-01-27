@@ -334,7 +334,6 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   fd_bank_capitalization_set( test_ctx->parent_bank, input_ctx.slot_ctx.prev_epoch_capitalization );
   fd_bank_hashes_per_tick_set( test_ctx->parent_bank, input_ctx.epoch_ctx.hashes_per_tick );
   fd_bank_ticks_per_slot_set( test_ctx->parent_bank, input_ctx.epoch_ctx.ticks_per_slot );
-  fd_bank_slots_per_year_set( test_ctx->parent_bank, input_ctx.epoch_ctx.slots_per_year );
   fd_bank_genesis_creation_time_set( test_ctx->parent_bank, input_ctx.epoch_ctx.genesis_creation_time );
 
   /* Set parent bank hash */
@@ -552,7 +551,6 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   /* Verify epoch context fields */
   FD_TEST( output_ctx.epoch_ctx.hashes_per_tick == input_ctx.epoch_ctx.hashes_per_tick );
   FD_TEST( output_ctx.epoch_ctx.ticks_per_slot == input_ctx.epoch_ctx.ticks_per_slot );
-  FD_TEST( output_ctx.epoch_ctx.slots_per_year == input_ctx.epoch_ctx.slots_per_year );
   FD_TEST( output_ctx.epoch_ctx.genesis_creation_time == input_ctx.epoch_ctx.genesis_creation_time );
 
   /* Verify inflation */
