@@ -225,6 +225,8 @@ fi
 CONFIG_FILE="$DUMP_DIR/${LEDGER}_backtest.toml"
 cat <<EOF > ${CONFIG_FILE}
 [snapshots]
+    max_full_snapshots_to_keep = 5
+    max_incremental_snapshots_to_keep = 5
     incremental_snapshots = $HAS_INCREMENTAL
     [snapshots.sources]
         servers = []
