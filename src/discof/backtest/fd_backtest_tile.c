@@ -9,12 +9,17 @@
 
 #include <stdlib.h> /* exit(2) */
 
-#define SHRED_BUFFER_LEN (1048576UL)
+#define SHRED_BUFFER_LEN     (1048576UL)
 #define BANK_HASH_BUFFER_LEN (4096UL)
+#define OUT_FECS_BUFFER_LEN  (2048UL)
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_SNAP   (1)
 #define IN_KIND_GENESI (2)
+
+#define DEQUE_NAME rooted_slots
+#define DEQUE_T    ulong
+#include "../../util/tmpl/fd_deque_dynamic.c"
 
 struct fd_backt_in {
   fd_wksp_t * mem;
@@ -53,6 +58,7 @@ struct fd_backt_tile {
   int   ingests_dead_slots;
   ulong root_distance;
 
+  ulong prev_root;
   ulong prev_slot;
   ulong prev_fec_set_idx;
 
@@ -87,11 +93,13 @@ struct fd_backt_tile {
   ulong shreds_cnt;
   uchar shreds[ SHRED_BUFFER_LEN ][ FD_SHRED_MAX_SZ ];
 
-  ulong fec_set_idxs[ 2048UL ];
+  ulong fec_set_idxs[ OUT_FECS_BUFFER_LEN ];
 
   ulong bank_hash_idx;
   ulong bank_hash_cnt;
   uchar bank_hashes[ BANK_HASH_BUFFER_LEN ][ 32UL ];
+
+  ulong * rooted_slots;
 };
 
 typedef struct fd_backt_tile fd_backt_tile_t;
@@ -105,11 +113,13 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)          );
-  l = FD_LAYOUT_APPEND( l, fd_backtest_shredcap_align(), fd_backtest_shredcap_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)                        );
+  l = FD_LAYOUT_APPEND( l, rooted_slots_align(),         rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
+  l = FD_LAYOUT_APPEND( l, fd_backtest_shredcap_align(), fd_backtest_shredcap_footprint()               );
 # if FD_HAS_ROCKSDB
-  l = FD_LAYOUT_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()  );
+  l = FD_LAYOUT_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()                );
 # endif
+
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -177,6 +187,7 @@ before_credit( fd_backt_tile_t *   ctx,
 
   if( FD_UNLIKELY( ctx->reading_shred_cnt==ctx->reading_shred_idx ) ) {
     if( FD_UNLIKELY( ctx->bank_hash_cnt==BANK_HASH_BUFFER_LEN ) ) return; /* out of space */
+    if( FD_UNLIKELY( rooted_slots_full( ctx->rooted_slots ) ) ) return; /* out of space */
 
     int is_slot_rooted = 0;
     int success = source_next_slot( ctx, &ctx->reading_slot, &ctx->reading_shred_cnt, &is_slot_rooted );
@@ -190,6 +201,7 @@ before_credit( fd_backt_tile_t *   ctx,
       uchar const * bank_hash = source_bank_hash( ctx, ctx->reading_slot );
       fd_memcpy( ctx->bank_hashes[ (ctx->bank_hash_idx+ctx->bank_hash_cnt)%BANK_HASH_BUFFER_LEN ], bank_hash, 32UL );
       ctx->bank_hash_cnt++;
+      rooted_slots_push_tail( ctx->rooted_slots, ctx->reading_slot );
     }
   }
 
@@ -253,9 +265,10 @@ after_credit( fd_backt_tile_t *   ctx,
   } else {
     ulong chained_slot = shred->fec_set_idx==0 ? shred->slot - shred->data.parent_off : shred->slot;
     cmr.ul[ 0 ] = chained_slot;
-    cmr.ul[ 1 ] = ctx->fec_set_idxs[ chained_slot % 2048UL ];
+    cmr.ul[ 1 ] = ctx->fec_set_idxs[ chained_slot % OUT_FECS_BUFFER_LEN ];
   }
-  ctx->fec_set_idxs[ shred->slot % 2048UL ] = shred->fec_set_idx;
+
+  ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = shred->fec_set_idx;
 
   ctx->chained_prev_slot = shred->slot;
   ctx->chained_prev_fec_set_idx = shred->fec_set_idx;
@@ -340,6 +353,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         /* Even though this is the first slot, we need to simulate tower
            publishing the slot done message to replay so replay can
            release the bank reference count on it. */
+        ctx->prev_root             = msg->slot;
         fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
         dst->vote_slot             = msg->slot;
         dst->reset_slot            = msg->slot;
@@ -367,6 +381,14 @@ returnable_frag( fd_backt_tile_t *   ctx,
         FD_BASE58_ENCODE_32_BYTES( ctx->bank_hashes[ ctx->bank_hash_idx ], bh_exp_b58 );
         FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
       }
+
+      ulong root_slot;
+      if( FD_LIKELY( msg->slot >= ctx->root_distance + *rooted_slots_peek_head_const( ctx->rooted_slots ) ) ) {
+        root_slot = rooted_slots_pop_head( ctx->rooted_slots );
+      } else {
+        root_slot = ctx->prev_root;
+      }
+
       ctx->bank_hash_idx = (ctx->bank_hash_idx+1UL)%(sizeof(ctx->bank_hashes)/sizeof(ctx->bank_hashes[0]));
       ctx->bank_hash_cnt--;
       ctx->slot_cnt++;
@@ -385,11 +407,12 @@ returnable_frag( fd_backt_tile_t *   ctx,
         exit(0);
       }
 
+      ctx->prev_root             = root_slot;
       fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
       dst->vote_slot             = msg->slot;
       dst->reset_slot            = msg->slot;
       dst->reset_block_id        = msg->block_id;
-      dst->root_slot             = fd_ulong_max( msg->slot-ctx->root_distance, ctx->start_slot );
+      dst->root_slot             = root_slot;
       dst->root_block_id         = msg->block_id;
       dst->replay_bank_idx       = msg->bank_idx;
 
@@ -432,10 +455,11 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_backt_tile_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)          );
-  void * _backtest_shredcap = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_shredcap_align(), fd_backtest_shredcap_footprint() );
+  fd_backt_tile_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)                        );
+  void * _rooted_slots      = FD_SCRATCH_ALLOC_APPEND( l, rooted_slots_align(),         rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
+  void * _backtest_shredcap = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_shredcap_align(), fd_backtest_shredcap_footprint()               );
 # if FD_HAS_ROCKSDB
-  void * _backtest_rocksdb  = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()  );
+  void * _backtest_rocksdb  = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()                );
 # endif
 
   ctx->snapshot_done = 0;
@@ -452,6 +476,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->bank_hash_cnt = 0UL;
   ctx->bank_hash_idx = 0UL;
+
+  ctx->rooted_slots = rooted_slots_join( rooted_slots_new( _rooted_slots, BANK_HASH_BUFFER_LEN ) );
+  FD_TEST( ctx->rooted_slots );
 
   ctx->reading_slot_cnt = 0UL;
   ctx->reading_shred_cnt = 0UL;
