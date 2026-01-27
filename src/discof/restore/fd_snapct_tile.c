@@ -109,7 +109,7 @@ struct fd_snapct_tile {
   struct {
     ulong full_slot;
     ulong slot;
-    int   dirty;
+    int   pending;
   } predicted_incremental;
 
   struct {
@@ -275,8 +275,8 @@ predict_incremental( fd_snapct_tile_t * ctx ) {
 
   if( FD_LIKELY( best.addr.l ) ) {
     if( FD_UNLIKELY( ctx->predicted_incremental.slot!=best.incr_slot ) ) {
-      ctx->predicted_incremental.slot  = best.incr_slot;
-      ctx->predicted_incremental.dirty = 1;
+      ctx->predicted_incremental.slot    = best.incr_slot;
+      ctx->predicted_incremental.pending = 1;
     }
   }
 }
@@ -504,9 +504,9 @@ after_credit( fd_snapct_tile_t *  ctx,
   /* send an expected slot message as the predicted incremental
      could have changed as a result of the pinger, resolver, or from
      processing gossip frags in gossip_frag. */
-  if( FD_LIKELY( ctx->predicted_incremental.dirty ) ) {
+  if( FD_LIKELY( ctx->predicted_incremental.pending ) ) {
     send_expected_slot( ctx, stem, ctx->predicted_incremental.slot );
-    ctx->predicted_incremental.dirty = 0;
+    ctx->predicted_incremental.pending = 0;
   }
 
   /* Note: All state transitions should occur within this switch
@@ -1076,15 +1076,18 @@ snapld_frag( fd_snapct_tile_t *  ctx,
   else       ctx->metrics.incremental.bytes_read += sz;
 
   if( !file && -1!=ctx->local_out.dir_fd ) {
-    uchar const * data = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
-    int fd = full ? ctx->local_out.full_snapshot_fd : ctx->local_out.incremental_snapshot_fd;
-    long result = write( fd, data, sz );
-    if( FD_UNLIKELY( -1==result && errno==ENOSPC ) ) {
-      FD_LOG_ERR(( "Out of disk space when writing out snapshot data to `%s`", ctx->config.snapshots_path ));
-    } else if( FD_UNLIKELY( 0L>result ) ) {
-      FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    } else if( FD_UNLIKELY( sz!=(ulong)result ) ) {
-      FD_LOG_ERR(( "paritial write(%lu)=%ld", sz, result ));
+    ulong written_sz = 0;
+    while( written_sz<sz ) {
+      uchar const * data = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
+      int fd = full ? ctx->local_out.full_snapshot_fd : ctx->local_out.incremental_snapshot_fd;
+      long result = write( fd, data, sz );
+      if( FD_UNLIKELY( -1==result && errno==ENOSPC ) ) {
+        FD_LOG_ERR(( "Out of disk space when writing out snapshot data to `%s`", ctx->config.snapshots_path ));
+      } else if( FD_UNLIKELY( 0L>result ) ) {
+        FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+
+      written_sz += (ulong)result;
     }
     if( full ) ctx->metrics.full.bytes_written        += sz;
     else       ctx->metrics.incremental.bytes_written += sz;
@@ -1381,7 +1384,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->predicted_incremental.full_slot = ULONG_MAX;
   ctx->predicted_incremental.slot      = ULONG_MAX;
-  ctx->predicted_incremental.dirty     = 0;
+  ctx->predicted_incremental.pending   = 0;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
