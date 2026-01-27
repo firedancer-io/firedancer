@@ -76,9 +76,6 @@ fd_dev_main( int                        argc,
   fd_env_strip_cmdline_cstr( &argc, &argv, "--log-level-stderr", NULL, NULL );
   char const * log_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--log-path", NULL, NULL );
 
-  int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
-  int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
-
   const char * opt_user_config_path = fd_env_strip_cmdline_cstr(
     &argc,
     &argv,
@@ -118,18 +115,13 @@ fd_dev_main( int                        argc,
 # if !FD_HAS_ASAN && !FD_HAS_MSAN
   fd_log_enable_signal_handler();
 # endif
-  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, topo_init );
-
-  config.development.no_clone = config.development.no_clone || no_clone;
-  config.development.sandbox = config.development.sandbox && !no_sandbox && !config.development.no_clone;
+  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, action->topo ? action->topo : topo_init );
 
   int is_allowed_live = action->is_diagnostic==1;
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )
     FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
                  "configuration targets a live cluster. Use `fdctl` if this is a "
                  "production environment" ));
-
-  if( FD_LIKELY( action->topo ) ) action->topo( &config );
 
   args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );

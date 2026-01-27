@@ -166,6 +166,9 @@ fd_main_init( int *                      pargc,
   fd_log_colorize_set( should_colorize() ); /* Colorize during boot until we can determine from config */
   fd_log_level_stderr_set( 2 ); /* Only NOTICE and above will be logged during boot until fd_log is initialized */
 
+  int no_sandbox = fd_env_strip_cmdline_contains( pargc, pargv, "--no-sandbox" );
+  int no_clone = fd_env_strip_cmdline_contains( pargc, pargv, "--no-clone" );
+
   int config_fd = fd_env_strip_cmdline_int( pargc, pargv, "--config-fd", NULL, -1 );
 
   fd_memset( config, 0, sizeof( config_t ) );
@@ -204,6 +207,9 @@ fd_main_init( int *                      pargc,
 
     fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config );
     topo_init( config );
+
+    config->development.no_clone = config->development.no_clone || no_clone;
+    config->development.sandbox  = config->development.sandbox && !no_sandbox && !config->development.no_clone;
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
