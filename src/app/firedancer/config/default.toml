@@ -337,8 +337,8 @@ user = ""
     # Firedancer does not currently support creating snapshots, and so
     # these values are only checked once on boot.  Any excess snapshots
     # will be deleted, oldest snapshot slot first.
-    max_full_snapshots_to_keep = 1
-    max_incremental_snapshots_to_keep = 1
+    max_full_snapshots_to_keep = 5
+    max_incremental_snapshots_to_keep = 5
 
     # If an in-progress loading (local, or download) of a full snapshot
     # has its effective slot age rise above this threshold, we will
