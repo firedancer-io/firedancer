@@ -233,4 +233,4 @@ def parse_metrics(xml_data: str) -> Metrics:
     assert link_in is not None
     link_in = [parse_metric(None, metric, enums) for metric in link_in]
 
-    return Metrics(common=common, tiles=tiles, link_in=link_in, enums=enums)
+    return Metrics(common=common, tiles=tiles, link_in=link_in, enums=enums, tiles_no_telemetry=tiles_no_telemetry)
