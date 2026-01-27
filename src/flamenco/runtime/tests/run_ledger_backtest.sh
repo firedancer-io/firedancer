@@ -27,6 +27,8 @@ LOG_LEVEL_STDERR=NOTICE
 DISABLE_LTHASH_VERIFICATION=true
 DB=${DB:="funk"}
 EXECRP_TILE_COUNT="10"
+INGEST_DEAD_SLOTS="false"
+ROOT_DISTANCE="32"
 
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
@@ -126,6 +128,15 @@ while [[ $# -gt 0 ]]; do
         ;;
     --exec)
         EXECRP_TILE_COUNT="$2"
+        shift
+        shift
+        ;;
+    --ingest-dead-slots)
+        INGEST_DEAD_SLOTS="true"
+        shift
+        ;;
+    --root-distance)
+        ROOT_DISTANCE="$2"
         shift
         shift
         ;;
@@ -243,6 +254,8 @@ cat <<EOF > ${CONFIG_FILE}
         rocksdb_path = "$DUMP/$LEDGER/rocksdb"
         shredcap_path = "$DUMP/$LEDGER/shreds.pcapng.zst"
         ingest_mode = "$INGEST_MODE"
+        ingest_dead_slots = $INGEST_DEAD_SLOTS
+        root_distance = $ROOT_DISTANCE
     [tiles.replay]
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
