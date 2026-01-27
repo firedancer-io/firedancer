@@ -3,6 +3,20 @@
 #include "../runtime/fd_system_ids.h"
 #include "../accdb/fd_accdb_sync.h"
 
+FD_STATIC_ASSERT( sizeof  ( fd_feature_t                  )==9UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_feature_t, is_active       )==0UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_feature_t, activation_slot )==1UL, layout );
+
+fd_feature_t *
+fd_feature_decode( fd_feature_t * feature,
+                   uchar const *  data,
+                   ulong          data_sz ) {
+  if( FD_UNLIKELY( data_sz < sizeof(fd_feature_t) ) ) return NULL;
+  *feature = FD_LOAD( fd_feature_t, data );
+  if( FD_UNLIKELY( feature->is_active>1 ) ) return NULL;
+  return feature;
+}
+
 void
 fd_features_enable_all( fd_features_t * f ) {
   for( fd_feature_id_t const * id = fd_feature_iter_init();
@@ -61,9 +75,6 @@ fd_feature_restore( fd_bank_t *               bank,
 
   fd_features_t * features = fd_bank_features_modify( bank );
 
-  /* https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L36-L38 */
-  #define FD_FEATURE_SIZEOF      (9UL)
-
   /* Skip reverted features */
   if( FD_UNLIKELY( id->reverted ) ) return;
 
@@ -81,7 +92,7 @@ fd_feature_restore( fd_bank_t *               bank,
 
   /* Account data size must be >= FD_FEATURE_SIZEOF (9 bytes)
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L45-L47 */
-  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro )<FD_FEATURE_SIZEOF ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro ) < sizeof(fd_feature_t) ) ) {
     fd_accdb_close_ro( accdb, ro );
     return;
   }
@@ -89,22 +100,21 @@ fd_feature_restore( fd_bank_t *               bank,
   /* Deserialize the feature account data
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L48-L50 */
   fd_feature_t feature[1];
-  if( FD_UNLIKELY( !fd_bincode_decode_static(
-      feature, feature,
+  if( FD_UNLIKELY( !fd_feature_decode(
+      feature,
       fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ),
-      NULL ) ) ) {
+      fd_accdb_ref_data_sz   ( ro ) ) ) ) {
     fd_accdb_close_ro( accdb, ro );
     return;
   }
   fd_accdb_close_ro( accdb, ro );
 
   FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
-  if( feature->has_activated_at ) {
-    FD_LOG_DEBUG(( "Feature %s activated at %lu", addr_b58, feature->activated_at ));
-    fd_features_set( features, id, feature->activated_at );
+  if( feature->is_active ) {
+    FD_LOG_DEBUG(( "feature %s activated at slot %lu", addr_b58, feature->activation_slot ));
+    fd_features_set( features, id, feature->activation_slot );
   } else {
-    FD_LOG_DEBUG(( "Feature %s not activated at %lu", addr_b58, feature->activated_at ));
+    FD_LOG_DEBUG(( "feature %s not activated at slot %lu", addr_b58, feature->activation_slot ));
   }
 }
 

@@ -464,35 +464,34 @@ fd_feature_activate( fd_bank_t *               bank,
     return;
   }
 
-  FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
-  fd_feature_t feature[1];
-  int decode_err = 0;
-  if( FD_UNLIKELY( !fd_bincode_decode_static( feature, feature, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ), &decode_err ) ) ) {
+  if( FD_UNLIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_feature_program_id ) ) ) {
+    /* Feature account not yet initialized */
     fd_accdb_close_ro( accdb, ro );
-    FD_LOG_WARNING(( "Failed to decode feature account %s (%d)", addr_b58, decode_err ));
     return;
   }
-  fd_accdb_close_ro( accdb, ro );
 
-  if( feature->has_activated_at ) {
-    FD_LOG_DEBUG(( "feature already activated - acc: %s, slot: %lu", addr_b58, feature->activated_at ));
-    fd_features_set( features, id, feature->activated_at);
+  FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
+
+  fd_feature_t feature;
+  if( FD_UNLIKELY( !fd_feature_decode( &feature, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ) ) ) {
+    FD_LOG_WARNING(( "cannot activate feature %s, corrupt account data", addr_b58 ));
+    FD_LOG_HEXDUMP_NOTICE(( "corrupt feature account", fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ));
+    fd_accdb_close_ro( accdb, ro );
+  }
+
+  if( feature.is_active ) {
+    FD_LOG_DEBUG(( "feature %s already activated at slot %lu", addr_b58, feature.activation_slot ));
+    fd_features_set( features, id, feature.activation_slot);
   } else {
-    FD_LOG_DEBUG(( "Feature %s not activated at %lu, activating", addr_b58, feature->activated_at ));
-
+    FD_LOG_DEBUG(( "feature %s not activated at slot %lu, activating", addr_b58, fd_bank_slot_get( bank ) ));
     fd_accdb_rw_t rw[1];
     if( FD_UNLIKELY( !fd_accdb_open_rw( accdb, rw, xid, addr, 0UL, 0 ) ) ) return;
     fd_lthash_value_t prev_hash[1];
     fd_hashes_account_lthash( addr, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
-    feature->has_activated_at = 1;
-    feature->activated_at     = fd_bank_slot_get( bank );
-    fd_bincode_encode_ctx_t encode_ctx = {
-      .data    = fd_accdb_ref_data( rw ),
-      .dataend = (uchar *)fd_accdb_ref_data( rw ) + fd_accdb_ref_data_sz( rw->ro ),
-    };
-    if( FD_UNLIKELY( fd_feature_encode( feature, &encode_ctx ) != FD_BINCODE_SUCCESS ) ) {
-      FD_LOG_CRIT(( "failed to encode feature account %s (account too small)", addr_b58 ));
-    }
+    feature.is_active       = 1;
+    feature.activation_slot = fd_bank_slot_get( bank );
+    FD_CRIT( fd_accdb_ref_data_sz( rw->ro )>=sizeof(fd_feature_t), "unreachable" );
+    FD_STORE( fd_feature_t, fd_accdb_ref_data( rw ), feature );
     fd_hashes_update_lthash( addr, rw->meta, prev_hash, bank, capture_ctx );
     fd_accdb_close_rw( accdb, rw );
   }
@@ -1550,16 +1549,19 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       if( found ) {
         /* Load feature activation */
         fd_feature_t feature[1];
-        FD_TEST( fd_bincode_decode_static( feature, feature, acc_data, account->meta.dlen, NULL ) );
-
+        if( FD_UNLIKELY( !fd_feature_decode( feature, acc_data, account->meta.dlen ) ) ) {
+          FD_BASE58_ENCODE_32_BYTES( account->pubkey, addr_b58 );
+          FD_LOG_WARNING(( "genesis contains corrupt feature account %s", addr_b58 ));
+          FD_LOG_HEXDUMP_ERR(( "data", acc_data, account->meta.dlen ));
+        }
         fd_features_t * features = fd_bank_features_modify( bank );
-        if( feature->has_activated_at ) {
+        if( feature->is_active ) {
           FD_BASE58_ENCODE_32_BYTES( account->pubkey, pubkey_b58 );
-          FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", pubkey_b58, feature->activated_at ));
-          fd_features_set( features, found, feature->activated_at );
+          FD_LOG_DEBUG(( "feature %s activated at slot %lu (genesis)", pubkey_b58, feature->activation_slot ));
+          fd_features_set( features, found, feature->activation_slot );
         } else {
           FD_BASE58_ENCODE_32_BYTES( account->pubkey, pubkey_b58 );
-          FD_LOG_DEBUG(( "Feature %s not activated (genesis)", pubkey_b58 ));
+          FD_LOG_DEBUG(( "feature %s not activated (genesis)", pubkey_b58 ));
           fd_features_set( features, found, ULONG_MAX );
         }
       }
