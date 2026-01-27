@@ -4,6 +4,8 @@ struct fd_sspeer_private {
   fd_ip4_port_t addr;
   ulong         full_slot;
   ulong         incr_slot;
+  uchar         full_hash[ FD_HASH_FOOTPRINT ];
+  uchar         incr_hash[ FD_HASH_FOOTPRINT ];
   ulong         latency;
   ulong         score;
   int           valid;
@@ -250,7 +252,9 @@ fd_sspeer_selector_update( fd_sspeer_selector_t * selector,
                            fd_sspeer_private_t *  peer,
                            ulong                  latency,
                            ulong                  full_slot,
-                           ulong                  incr_slot ) {
+                           ulong                  incr_slot,
+                           uchar const            full_hash[ FD_HASH_FOOTPRINT ],
+                           uchar const            incr_hash[ FD_HASH_FOOTPRINT ] ) {
   score_treap_ele_remove( selector->score_treap, peer, selector->pool );
 
   ulong peer_latency = latency!=ULONG_MAX ? latency : peer->latency;
@@ -258,6 +262,8 @@ fd_sspeer_selector_update( fd_sspeer_selector_t * selector,
 
   peer->full_slot = full_slot!=ULONG_MAX ? full_slot : peer->full_slot;
   peer->incr_slot = incr_slot!=ULONG_MAX ? incr_slot : peer->incr_slot;
+  if( FD_LIKELY( full_hash ) ) fd_memcpy( peer->full_hash, full_hash, FD_HASH_FOOTPRINT );
+  if( FD_LIKELY( incr_hash ) ) fd_memcpy( peer->incr_hash, incr_hash, FD_HASH_FOOTPRINT );
 
   if( FD_LIKELY( latency!=ULONG_MAX ) ) {
     peer->latency = latency;
@@ -271,10 +277,12 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
                         fd_ip4_port_t          addr,
                         ulong                  latency,
                         ulong                  full_slot,
-                        ulong                  incr_slot ) {
+                        ulong                  incr_slot,
+                        uchar const            full_hash[ FD_HASH_FOOTPRINT ],
+                        uchar const            incr_hash[ FD_HASH_FOOTPRINT ] ) {
   fd_sspeer_private_t * peer = peer_map_ele_query( selector->map, &addr, NULL, selector->pool );
   if( FD_LIKELY( peer ) ) {
-    fd_sspeer_selector_update( selector, peer, latency, full_slot, incr_slot );
+    fd_sspeer_selector_update( selector, peer, latency, full_slot, incr_slot, full_hash, incr_hash );
   } else {
     if( FD_UNLIKELY( !peer_pool_free( selector->pool ) ) ) return ULONG_MAX;
 
@@ -284,6 +292,8 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
     peer->score     = fd_sspeer_selector_score( selector, latency, full_slot, incr_slot );
     peer->full_slot = full_slot;
     peer->incr_slot = incr_slot;
+    if( FD_LIKELY( full_hash ) ) fd_memcpy( peer->full_hash, full_hash, FD_HASH_FOOTPRINT );
+    if( FD_LIKELY( incr_hash ) ) fd_memcpy( peer->incr_hash, incr_hash, FD_HASH_FOOTPRINT );
     peer_map_ele_insert( selector->map, peer, selector->pool );
     score_treap_ele_insert( selector->score_treap, peer, selector->pool );
   }
@@ -317,12 +327,15 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
     if( FD_LIKELY( peer->valid &&
                    (!incremental ||
                    (incremental && peer->full_slot==base_slot) ) ) ) {
-      return (fd_sspeer_t){
+      fd_sspeer_t best = {
         .addr      = peer->addr,
         .full_slot = peer->full_slot,
         .incr_slot = peer->incr_slot,
         .score     = peer->score,
       };
+      fd_memcpy( best.full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
+      fd_memcpy( best.incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
+      return best;
     }
   }
 
@@ -331,6 +344,8 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
     .full_slot = ULONG_MAX,
     .incr_slot = ULONG_MAX,
     .score     = ULONG_MAX,
+    .full_hash = {0},
+    .incr_hash = {0},
   };
 }
 
@@ -371,6 +386,8 @@ fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
     shadow_peer->addr      = peer->addr;
     shadow_peer->score     = fd_sspeer_selector_score( selector, shadow_peer->latency, shadow_peer->full_slot, shadow_peer->incr_slot );
     shadow_peer->valid     = peer->valid;
+    fd_memcpy( shadow_peer->full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
+    fd_memcpy( shadow_peer->incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
     score_treap_ele_insert( selector->shadow_score_treap, shadow_peer, selector->pool );
     selector->peer_idx_list[ idx++ ] = peer_pool_idx( selector->pool, peer );
     peer_map_ele_remove( selector->map, &peer->addr, NULL, selector->pool );

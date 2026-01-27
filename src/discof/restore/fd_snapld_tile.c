@@ -283,9 +283,6 @@ after_credit( fd_snapld_tile_t *  ctx,
           memmove( fd_chunk_to_laddr( ctx->out_dc.mem, next_chunk ), out, data_len );
           meta->total_sz = fd_sshttp_content_len( ctx->sshttp );
           FD_TEST( meta->total_sz!=ULONG_MAX );
-          fd_memcpy( meta->name, fd_sshttp_snapshot_name( ctx->sshttp ), PATH_MAX );
-          meta->slot = fd_sshttp_snapshot_slot( ctx->sshttp );
-          FD_TEST( meta->slot!=ULONG_MAX );
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = next_chunk;
         }
@@ -355,8 +352,8 @@ returnable_frag( fd_snapld_tile_t *  ctx,
         if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
           FD_LOG_ERR(( "lseek(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       } else {
-        if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, "/snapshot.tar.bz2", 17UL, fd_log_wallclock() );
-        else                 fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
+        if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, fd_log_wallclock() );
+        else                 fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, fd_log_wallclock() );
       }
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
       fd_memcpy( msg_out, msg_in, sz );

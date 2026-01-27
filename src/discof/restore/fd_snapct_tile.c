@@ -91,7 +91,7 @@ struct fd_snapct_tile {
   int           malformed;
   long          deadline_nanos;
   int           flush_ack;
-  fd_ip4_port_t addr;
+  fd_sspeer_t   peer;
 
   struct {
     int dir_fd;
@@ -282,13 +282,15 @@ predict_incremental( fd_snapct_tile_t * ctx ) {
 }
 
 static void
-on_resolve( void *              _ctx,
-            fd_ip4_port_t       addr,
-            ulong               full_slot,
-            ulong               incr_slot ) {
+on_resolve( void *        _ctx,
+            fd_ip4_port_t addr,
+            ulong         full_slot,
+            ulong         incr_slot,
+            uchar         full_hash[ FD_HASH_FOOTPRINT ],
+            uchar         incr_hash[ FD_HASH_FOOTPRINT ] ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
-  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot );
+  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot, full_hash, incr_hash );
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
@@ -299,7 +301,7 @@ on_ping( void *        _ctx,
          ulong         latency ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
-  fd_sspeer_selector_add( ctx->selector, addr, latency, ULONG_MAX, ULONG_MAX);
+  fd_sspeer_selector_add( ctx->selector, addr, latency, ULONG_MAX, ULONG_MAX, NULL, NULL );
   predict_incremental( ctx );
 }
 
@@ -307,16 +309,18 @@ static void
 on_snapshot_hash( fd_snapct_tile_t *                 ctx,
                   fd_ip4_port_t                      addr,
                   fd_gossip_update_message_t const * msg ) {
-  ulong full_slot = msg->snapshot_hashes.full->slot;
-  ulong incr_slot = 0UL;
+  ulong         full_slot = msg->snapshot_hashes.full->slot;
+  ulong         incr_slot = 0UL;
+  uchar const * incr_hash = NULL;
 
   for( ulong i=0UL; i<msg->snapshot_hashes.incremental_len; i++ ) {
     if( FD_LIKELY( msg->snapshot_hashes.incremental[ i ].slot>incr_slot ) ) {
       incr_slot = msg->snapshot_hashes.incremental[ i ].slot;
+      incr_hash = msg->snapshot_hashes.incremental[ i ].hash;
     }
   }
 
-  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot );
+  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot, msg->snapshot_hashes.full->hash, incr_hash );
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
@@ -409,8 +413,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 static void
 init_load( fd_snapct_tile_t *  ctx,
            fd_stem_context_t * stem,
-           int full,
-           int file ) {
+           int                 full,
+           int                 file ) {
   fd_ssctrl_init_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
   out->file = file;
   out->zstd = !file || (full ? ctx->local_in.full_snapshot_zstd : ctx->local_in.incremental_snapshot_zstd);
@@ -418,9 +422,20 @@ init_load( fd_snapct_tile_t *  ctx,
   else       out->slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
 
   if( !file ) {
-    out->addr = ctx->addr;
+    out->addr = ctx->peer.addr;
+    char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
+    if( full ) {
+      fd_base58_encode_32( ctx->peer.full_hash, NULL, encoded_hash );
+      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot-%lu-%s.tar.zst", ctx->peer.full_slot, encoded_hash ) );
+      FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", ctx->peer.full_slot, encoded_hash ) );
+    } else {
+      fd_base58_encode_32( ctx->peer.incr_hash, NULL, encoded_hash );
+      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->peer.full_slot, ctx->peer.incr_slot, encoded_hash ) );
+      FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->peer.full_slot, ctx->peer.incr_slot, encoded_hash ) );
+    }
+
     for( ulong i=0UL; i<SERVER_PEERS_MAX; i++ ) {
-      if( FD_UNLIKELY( ctx->addr.l==ctx->config.sources.servers[ i ].addr.l ) ) {
+      if( FD_UNLIKELY( ctx->peer.addr.l==ctx->config.sources.servers[ i ].addr.l ) ) {
         fd_cstr_ncpy( out->hostname, ctx->config.sources.servers[ i ].hostname, sizeof(out->hostname) );
         out->is_https = ctx->config.sources.servers[ i ].is_https;
         break;
@@ -431,21 +446,37 @@ init_load( fd_snapct_tile_t *  ctx,
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
   ctx->flush_ack = 0;
 
+  /* If we are downloading the snapshot, we will get the snapshot size
+     in bytes from a metadata message sent from snapld. */
   if( file ) {
-    /* When loading from a local file and not from HTTP, there is no
-       future metadata message to initialize total size / filename, as
-       these are already known immediately. */
-    if( full ) {
-      ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
-      fd_cstr_fini( ctx->http_full_snapshot_name );
-      if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
+    if( full ) ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
+    else       ctx->metrics.incremental.bytes_total = ctx->local_in.incremental_snapshot_size;
+  }
+
+  /* Regardless of whether we load the snapshot from a file or download
+     it, we know the name of the snapshot and can publish it to the gui
+     here. */
+  if( full ) {
+    if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
+      if( file ) {
+        fd_cstr_fini( ctx->http_full_snapshot_name );
         snapshot_path_gui_publish( ctx, stem, ctx->local_in.full_snapshot_path, 1 );
       }
-    } else {
-      ctx->metrics.incremental.bytes_total = ctx->local_in.incremental_snapshot_size;
-      fd_cstr_fini( ctx->http_incr_snapshot_name );
-      if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
+      else {
+        char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
+        FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ) );
+        snapshot_path_gui_publish( ctx, stem, snapshot_path, 1 );
+      }
+    }
+  } else {
+    if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
+      if( file ) {
+        fd_cstr_fini( ctx->http_incr_snapshot_name );
         snapshot_path_gui_publish( ctx, stem, ctx->local_in.incremental_snapshot_path, 0 );
+      } else {
+        char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
+        FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ) );
+        snapshot_path_gui_publish( ctx, stem, snapshot_path, 0 );
       }
     }
   }
@@ -608,7 +639,7 @@ after_credit( fd_snapct_tile_t *  ctx,
           send_expected_slot( ctx, stem, best_incremental.incr_slot );
         }
 
-        ctx->addr                            = best.addr;
+        ctx->peer                            = best;
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_HTTP;
         ctx->predicted_incremental.full_slot = best.full_slot;
         init_load( ctx, stem, 1, 0 );
@@ -630,7 +661,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->predicted_incremental.slot = best.incr_slot;
       send_expected_slot( ctx, stem, best.incr_slot );
 
-      ctx->addr = best.addr;
+      ctx->peer  = best;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
       init_load( ctx, stem, 0, 0 );
       log_download( ctx, 0, best.addr, best.incr_slot );
@@ -664,9 +695,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
         FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2",
-                         FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
-        fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove( ctx->selector, ctx->addr );
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
         break;
       }
 
@@ -714,9 +745,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
         FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                         FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
-        fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove( ctx->selector, ctx->addr );
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
         break;
       }
 
@@ -741,7 +772,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->predicted_incremental.slot = best.incr_slot;
       send_expected_slot( ctx, stem, best.incr_slot );
 
-      ctx->addr = best.addr;
+      ctx->peer  = best;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
       init_load( ctx, stem, 0, 0 );
       log_download( ctx, 0, best.addr, best.incr_slot );
@@ -843,9 +874,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
         FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                         FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
-        fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove( ctx->selector, ctx->addr );
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
         break;
       }
       if( FD_UNLIKELY( ctx->metrics.full.bytes_total!=0UL && ctx->metrics.full.bytes_read==ctx->metrics.full.bytes_total ) ) {
@@ -865,9 +896,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
         FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2",
-                         FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
-        fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove( ctx->selector, ctx->addr );
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
         break;
       }
       if ( FD_UNLIKELY( ctx->metrics.incremental.bytes_total!=0UL && ctx->metrics.incremental.bytes_read==ctx->metrics.incremental.bytes_total ) ) {
@@ -994,8 +1025,7 @@ static void
 snapld_frag( fd_snapct_tile_t *  ctx,
              ulong               sig,
              ulong               sz,
-             ulong               chunk,
-             fd_stem_context_t * stem ) {
+             ulong               chunk ) {
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) {
     /* Before snapld starts sending down data fragments, it first sends
        a metadata message containing the total size of the snapshot as
@@ -1013,14 +1043,6 @@ snapld_frag( fd_snapct_tile_t *  ctx,
 
     FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
     fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
-
-    fd_memcpy( full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name, meta->name, PATH_MAX );
-
-    if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
-      char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
-      FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ), meta->name ) );
-      snapshot_path_gui_publish( ctx, stem, snapshot_path, full );
-    }
 
     if( full ) ctx->metrics.full.bytes_total        = meta->total_sz;
     else       ctx->metrics.incremental.bytes_total = meta->total_sz;
@@ -1186,11 +1208,11 @@ returnable_frag( fd_snapct_tile_t *  ctx,
                  ulong               ctl    FD_PARAM_UNUSED,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
-                 fd_stem_context_t * stem ) {
+                 fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     gossip_frag( ctx, sig, sz, chunk );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPLD ) {
-    snapld_frag( ctx, sig, sz, chunk, stem );
+    snapld_frag( ctx, sig, sz, chunk );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_ACK ) {
     snapin_frag( ctx, sig );
   } else FD_LOG_ERR(( "invalid in_kind %lu %u", in_idx, (uint)ctx->in_kind[ in_idx ] ));
@@ -1354,7 +1376,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->malformed      = 0;
   ctx->deadline_nanos = fd_log_wallclock() + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
   ctx->flush_ack      = 0;
-  ctx->addr.l         = 0UL;
+  ctx->peer.addr.l    = 0UL;
 
   fd_memset( ctx->http_full_snapshot_name, 0, PATH_MAX );
   fd_memset( ctx->http_incr_snapshot_name, 0, PATH_MAX );

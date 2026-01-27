@@ -288,6 +288,7 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
+  fd_memcpy( result->hash, decoded_hash, FD_HASH_FOOTPRINT );
   if( FD_LIKELY( incremental_entry_slot==ULONG_MAX ) ) {
     result->slot      = full_entry_slot;
     result->base_slot = ULONG_MAX;

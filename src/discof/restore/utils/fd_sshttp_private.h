@@ -44,7 +44,6 @@ struct fd_sshttp_private {
   char  response[ USHORT_MAX ];
 
   char  snapshot_name[ PATH_MAX ];
-  ulong snapshot_slot;
 
 #if FD_HAS_OPENSSL
   SSL_CTX * ssl_ctx;

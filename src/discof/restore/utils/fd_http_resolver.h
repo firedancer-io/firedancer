@@ -16,7 +16,9 @@ typedef void
 (* fd_http_resolver_on_resolve_fn_t)( void *        _ctx,
                                       fd_ip4_port_t addr,
                                       ulong         full_slot,
-                                      ulong         incr_slot );
+                                      ulong         incr_slot,
+                                      uchar         full_hash[ FD_HASH_FOOTPRINT ],
+                                      uchar         incr_hash[ FD_HASH_FOOTPRINT ] );
 
 FD_PROTOTYPES_BEGIN
 
