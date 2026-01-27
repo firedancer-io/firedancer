@@ -744,13 +744,13 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->data->refcnt++; /* rpc tile */
   if( FD_LIKELY( ctx->gui_enabled ) ) bank->data->refcnt++; /* gui tile */
   slot_info->bank_idx = bank->data->idx;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu", bank->data->idx, slot, bank->data->refcnt ));
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for tower, rpc, gui", bank->data->idx, slot, bank->data->refcnt ));
 
   slot_info->parent_bank_idx = ULONG_MAX;
   fd_bank_t parent_bank[1];
   if( FD_LIKELY( fd_banks_get_parent( parent_bank, ctx->banks, bank ) && ctx->gui_enabled ) ) {
     parent_bank->data->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu", parent_bank->data->idx, fd_bank_slot_get( parent_bank ), parent_bank->data->refcnt ));
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", parent_bank->data->idx, fd_bank_slot_get( parent_bank ), parent_bank->data->refcnt ));
     slot_info->parent_bank_idx = parent_bank->data->idx;
   }
 
@@ -980,6 +980,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   /* Increment the reference count on the consensus root bank to account
      for the number of exec tiles that are waiting on it. */
   bank->data->refcnt += ctx->resolv_tile_cnt;
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
 
   fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->bank_idx = bank->data->idx;
@@ -2127,7 +2128,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   fd_bank_t replay_bank[1];
   if( FD_UNLIKELY( !fd_banks_bank_query( replay_bank, ctx->banks, msg->replay_bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", msg->replay_bank_idx ));
   replay_bank->data->refcnt--;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu", replay_bank->data->idx, msg->replay_slot, replay_bank->data->refcnt ));
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for tower", replay_bank->data->idx, msg->replay_slot, replay_bank->data->refcnt ));
 
   ctx->reset_block_id = msg->reset_block_id;
   ctx->reset_slot     = msg->reset_slot;
@@ -2241,7 +2242,7 @@ process_resolv_slot_completed( fd_replay_tile_t * ctx, ulong bank_idx ) {
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, bank_idx ) );
 
   bank->data->refcnt--;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for resolv", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
 }
 
 static void
@@ -2418,7 +2419,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       fd_bank_t bank[1];
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, sig ) );
       bank->data->refcnt--;
-      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for %s", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt, ctx->in_kind[in_idx]==IN_KIND_RPC ? "rpc" : "gui" ));
       break;
     }
     default:
