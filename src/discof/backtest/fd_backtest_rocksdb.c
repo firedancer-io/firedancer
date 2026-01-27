@@ -202,18 +202,16 @@ fd_backtest_rocksdb_next_slot( fd_backtest_rocksdb_t * db,
   }
 
   /* Pick the next slot with the lowest slot number.  This is a policy
-     decision and not necesarily the next slot that will be replayed.
-     Reverse the iterator of the cf with the greater slot value. */
+     decision and not necesarily the next slot that would've been
+     replayed on a live node.  Reverse the iterator of the cf with the
+     greater slot value.  If dead slots are not being ingested, there
+     is no dead slots iterator to reverse. */
 
-  if( !db->ingests_dead_slots ) {
+  if( !db->ingests_dead_slots || next_root_meta->slot<next_dead_meta->slot ) {
     *slot_out       = next_root_meta->slot;
     *shred_cnt_out  = next_root_meta->received;
     *is_slot_rooted = 1;
-  } else if( next_root_meta->slot<next_dead_meta->slot ) {
-    *slot_out       = next_root_meta->slot;
-    *shred_cnt_out  = next_root_meta->received;
-    *is_slot_rooted = 1;
-    rocksdb_iter_prev( db->iter_dead );
+    if( db->ingests_dead_slots ) rocksdb_iter_prev( db->iter_dead );
   } else {
     *slot_out       = next_dead_meta->slot;
     *shred_cnt_out  = next_dead_meta->received;
