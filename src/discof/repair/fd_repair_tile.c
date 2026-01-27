@@ -768,7 +768,7 @@ after_frag( ctx_t * ctx,
   if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
     if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
       fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( ctx->buffer );
-      if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) fd_forest_publish( ctx->forest, msg->root_slot );
+      if( FD_LIKELY( msg->root_slot!=ULONG_MAX && msg->root_slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->root_slot );
     }
     return;
   }
