@@ -91,7 +91,14 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
                      ulong               sig,
                      ulong               chunk,
                      ulong               sz ) {
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) return;
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) {
+    fd_ssctrl_meta_t const * msg_in  = fd_chunk_to_laddr_const( ctx->in.mem, chunk );
+    fd_ssctrl_meta_t *       msg_out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
+    fd_memcpy( msg_out, msg_in, sz );
+    fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
+    ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
+    return;
+  }
 
   /* All control messages cause us to want to reset the decompression stream */
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );

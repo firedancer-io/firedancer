@@ -250,9 +250,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Load instruction accounts */
 
-  if( FD_UNLIKELY( test_ctx->instr_accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
+  if( FD_UNLIKELY( test_ctx->instr_accounts_count > FD_INSTR_ACCT_MAX ) ) {
     FD_LOG_ERR(( "invariant violation: too many instruction accounts (%lu > %lu)",
-                 (ulong)test_ctx->instr_accounts_count, (ulong)MAX_TX_ACCOUNT_LOCKS ));
+                 (ulong)test_ctx->instr_accounts_count, (ulong)FD_INSTR_ACCT_MAX ));
   }
 
   /* Restore sysvar cache */
@@ -311,7 +311,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                        test_ctx->instr_accounts[j].is_writable,
                                        test_ctx->instr_accounts[j].is_signer );
   }
-  info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
+  info->acct_cnt = (ushort)test_ctx->instr_accounts_count;
 
   /* The remaining checks enforce that the program is in the accounts list. */
   bool found_program_id = false;

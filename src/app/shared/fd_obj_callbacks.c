@@ -104,7 +104,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_fseq = {
 static ulong
 metrics_footprint( fd_topo_t const *     topo,
                    fd_topo_obj_t const * obj ) {
-  return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("cons_cnt") );
+  return FD_METRICS_FOOTPRINT( VAL("in_cnt") );
 }
 
 static ulong
@@ -116,7 +116,7 @@ metrics_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 metrics_new( fd_topo_t const *     topo,
              fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_metrics_new( fd_topo_obj_laddr( topo, obj->id ), VAL("in_cnt"), VAL("cons_cnt") ) );
+  FD_TEST( fd_metrics_new( fd_topo_obj_laddr( topo, obj->id ), VAL("in_cnt") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_metrics = {

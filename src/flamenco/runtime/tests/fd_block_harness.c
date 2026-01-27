@@ -243,7 +243,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_banks_clear_bank( banks, bank, FD_RUNTIME_MAX_VOTE_ACCOUNTS );
 
   /* Generate unique ID for funk txn */
-  fd_funk_txn_xid_t xid[1] = {{ .ul={ LONG_MAX, LONG_MAX } }};
+  fd_funk_txn_xid_t xid[1] = {{ .ul={ 0UL, 0UL } }};
 
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );

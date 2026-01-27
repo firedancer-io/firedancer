@@ -617,12 +617,30 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
-         against the slot in the snapshot manifest. */
+         against the slot in the snapshot manifest.  For downloaded
+         snapshots, this is simply a best estimate.  The actual
+         advertised slot for downloaded snapshots is received in a
+         separate fd_ssctrl_meta_t message below. */
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->advertised_slot = msg->slot;
       break;
 
+    case FD_SNAPSHOT_MSG_META: {
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
+        transition_malformed( ctx, stem );
+        break;
+      }
+
+      /* update the advertised slot with the slot from the metadata
+         message.  For downloaded snapshots, the advertised slot is only
+         known after receiving the fd_ssctrl_meta_t message. */
+      fd_ssctrl_meta_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      ctx->advertised_slot = msg->slot;
+      break;
+    }
+
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
+      FD_LOG_WARNING(("failing current snapshot!"));
       if( ctx->state!=FD_SNAPSHOT_STATE_IDLE ) {
         ctx->state = FD_SNAPSHOT_STATE_IDLE;
 

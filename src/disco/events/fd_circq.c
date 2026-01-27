@@ -1,9 +1,11 @@
 #include "fd_circq.h"
 
+#include "../../util/log/fd_log.h"
+
 struct __attribute__((aligned(8UL))) fd_circq_message_private {
   ulong align;
   ulong footprint;
-  
+
   /* Offset withn the circular buffer data region of where the next
      message starts, if there is one.  This is not always the same as
      aligning up this message + footprint, because the next message may
@@ -25,12 +27,18 @@ fd_circq_footprint( ulong sz ) {
 
 void *
 fd_circq_new( void * shmem,
-                ulong  sz ) {
+              ulong  sz ) {
   fd_circq_t * circq = (fd_circq_t *)shmem;
   circq->cnt  = 0UL;
   circq->head = 0UL;
   circq->tail = 0UL;
   circq->size = sz;
+  circq->cursor = ULONG_MAX;
+  circq->cursor_seq = 0UL;
+  circq->cursor_push_seq = 0UL;
+
+  memset( &circq->metrics, 0, sizeof( circq->metrics ) );
+
   return shmem;
 }
 
@@ -147,17 +155,87 @@ fd_circq_push_back( fd_circq_t * circq,
   fd_circq_message_t * next_message = (fd_circq_message_t *)(buf+circq->tail);
   next_message->align = align;
   next_message->footprint = footprint;
+  circq->cursor_push_seq++;
   return (uchar *)(next_message+1);
 }
 
-uchar const *
-fd_circq_pop_front( fd_circq_t * circq ) {
-  if( FD_UNLIKELY( !circq->cnt ) ) return NULL;
+void
+fd_circq_resize_back( fd_circq_t * circq,
+                      ulong        new_footprint ) {
+  FD_TEST( circq->cnt );
 
-  circq->cnt--;
-  fd_circq_message_t * message = (fd_circq_message_t *)((uchar *)(circq+1)+circq->head);
-  if( FD_UNLIKELY( !circq->cnt ) ) circq->head = circq->tail = 0UL;
-  else                             circq->head = message->next;
-  FD_TEST( circq->head<circq->size );
-  return (uchar *)(message+1);
+  uchar * buf = (uchar *)(circq+1);
+  fd_circq_message_t * message = (fd_circq_message_t *)(buf+circq->tail);
+  FD_TEST( new_footprint<=message->footprint );
+
+  message->footprint = new_footprint;
+}
+
+uchar const *
+fd_circq_cursor_advance( fd_circq_t * circq,
+                         ulong *      msg_sz ) {
+  /* First call or after reset - start from head */
+  if( FD_UNLIKELY( circq->cursor==ULONG_MAX ) ) {
+    if( FD_UNLIKELY( !circq->cnt ) ) return NULL;
+    circq->cursor = circq->head;
+    circq->cursor_seq = circq->cursor_push_seq - circq->cnt;
+  } else {
+    /* Already iterating - move to next */
+    if( FD_UNLIKELY( circq->cursor_seq >= circq->cursor_push_seq ) ) return NULL;
+
+    uchar * buf = (uchar *)(circq+1);
+    fd_circq_message_t * message = (fd_circq_message_t *)(buf+circq->cursor);
+    circq->cursor = message->next;
+  }
+
+  uchar * buf = (uchar *)(circq+1);
+  fd_circq_message_t * current_msg = (fd_circq_message_t *)(buf+circq->cursor);
+  circq->cursor_seq++;
+  if( FD_LIKELY( msg_sz ) ) *msg_sz = current_msg->footprint;
+  return (uchar *)(current_msg+1);
+}
+
+int
+fd_circq_pop_until( fd_circq_t * circq,
+                    ulong        cursor ) {
+  if( FD_UNLIKELY( cursor>=circq->cursor_push_seq ) ) return -1;
+
+  ulong oldest_seq = circq->cursor_push_seq-circq->cnt;
+  if( FD_UNLIKELY( cursor<oldest_seq ) ) return 0;
+
+  ulong to_pop = fd_ulong_min( cursor-oldest_seq+1UL, circq->cnt );
+
+  uchar * buf = (uchar *)(circq+1);
+  for( ulong i=0UL; i<to_pop; i++ ) {
+    fd_circq_message_t * message = (fd_circq_message_t *)(buf+circq->head);
+    circq->cnt--;
+
+    if( FD_UNLIKELY( !circq->cnt ) ) {
+      circq->head = circq->tail = 0UL;
+    } else {
+      circq->head = message->next;
+      FD_TEST( circq->head<circq->size );
+    }
+  }
+
+  if( FD_UNLIKELY( !circq->cnt ) ) circq->cursor = ULONG_MAX;
+  return 0;
+}
+
+void
+fd_circq_reset_cursor( fd_circq_t * circq ) {
+  circq->cursor = ULONG_MAX;
+}
+
+ulong
+fd_circq_bytes_used( fd_circq_t const * circq ) {
+  if( FD_UNLIKELY( !circq->cnt ) ) return 0UL;
+
+  uchar const * buf = (uchar const *)(circq+1);
+
+  fd_circq_message_t const * tail_msg = (fd_circq_message_t const *)(buf+circq->tail);
+  ulong tail_end = fd_ulong_align_up( circq->tail + sizeof(fd_circq_message_t), tail_msg->align ) + tail_msg->footprint;
+
+  if( FD_LIKELY( circq->tail>=circq->head ) ) return tail_end - circq->head;
+  else return (circq->size - circq->head) + tail_end;
 }

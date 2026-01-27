@@ -195,7 +195,8 @@ fd_bundle_client_request_builder_info( fd_bundle_tile_t * ctx ) {
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo,
       &block_engine_BlockBuilderFeeInfoRequest_msg, &req,
-      ctx->auther.access_token, ctx->auther.access_token_sz
+      ctx->auther.access_token, ctx->auther.access_token_sz,
+      0 /* is_streaming */
   );
   if( FD_UNLIKELY( !request ) ) return;
   fd_grpc_client_deadline_set(
@@ -217,7 +218,8 @@ fd_bundle_client_subscribe_packets( fd_bundle_tile_t * ctx ) {
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets,
       &block_engine_SubscribePacketsRequest_msg, &req,
-      ctx->auther.access_token, ctx->auther.access_token_sz
+      ctx->auther.access_token, ctx->auther.access_token_sz,
+      0 /* is_streaming */
   );
   if( FD_UNLIKELY( !request ) ) return;
   fd_grpc_client_deadline_set(
@@ -239,7 +241,8 @@ fd_bundle_client_subscribe_bundles( fd_bundle_tile_t * ctx ) {
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles,
       &block_engine_SubscribeBundlesRequest_msg, &req,
-      ctx->auther.access_token, ctx->auther.access_token_sz
+      ctx->auther.access_token, ctx->auther.access_token_sz,
+      0 /* is_streaming */
   );
   if( FD_UNLIKELY( !request ) ) return;
   fd_grpc_client_deadline_set(
@@ -366,8 +369,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
   }
 
   /* Drive I/O, SSL handshake, and any inflight requests */
-  if( FD_UNLIKELY( !fd_bundle_client_drive_io( ctx, charge_busy ) ||
-                   ctx->defer_reset /* new error? */ ) ) {
+  if( FD_UNLIKELY( -1==fd_bundle_client_drive_io( ctx, charge_busy ) || ctx->defer_reset /* new error? */ ) ) {
     fd_bundle_client_reset( ctx );
     ctx->metrics.transport_fail_cnt++;
     *charge_busy = 1;

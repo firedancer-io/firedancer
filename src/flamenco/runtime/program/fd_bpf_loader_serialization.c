@@ -792,6 +792,12 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           ulong *                   instr_data_offset,
                                           ulong *                   serialized_bytes_written ) {
 
+  /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L234-L237 */
+  ulong num_ix_accounts = instr_ctx->instr->acct_cnt;
+  if( FD_UNLIKELY( num_ix_accounts>FD_BPF_INSTR_ACCT_MAX ) ) {
+    return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED;
+  }
+
   /* https://github.com/anza-xyz/agave/blob/v2.1.11/programs/bpf_loader/src/serialization.rs#L237-L251 */
   if( FD_UNLIKELY( is_deprecated ) ) {
     return fd_bpf_loader_input_serialize_unaligned( instr_ctx, pre_lens,

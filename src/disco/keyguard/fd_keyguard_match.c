@@ -306,7 +306,7 @@ fd_keyguard_payload_matches_event( uchar const * data,
                                    int           sign_type ) {
   (void)data;
 
-  if( sign_type != FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519 ) return 0;
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_FD_EVENTS_AUTH_CONCAT_ED25519 ) return 0;
   if( sz!=32UL ) return 0;
 
   return 1;

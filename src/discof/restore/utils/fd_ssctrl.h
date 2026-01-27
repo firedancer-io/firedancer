@@ -113,6 +113,7 @@ typedef struct fd_ssctrl_init {
 typedef struct fd_ssctrl_meta {
   ulong total_sz;
   char  name[ PATH_MAX ];
+  ulong slot;
 } fd_ssctrl_meta_t;
 
 struct fd_snapshot_account_hdr {

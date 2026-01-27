@@ -73,7 +73,7 @@ struct fd_tile_test_locals {
 #define TEST_DEFAULT_TOPO_CONFIG_PATH ("src/app/firedancer/config/default.toml")
 #endif
 
-static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 10, 10 ) ] __attribute__((aligned(FD_METRICS_ALIGN))) = {0};
+static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 10 ) ] __attribute__((aligned(FD_METRICS_ALIGN))) = {0};
 
 config_t config[1];
 
@@ -767,7 +767,7 @@ int main( int     argc,
                                                        netns, is_firedancer, is_local_cluster,
                                                        fd_topo_initialize, &fd_tile_net, config );
   FD_TEST( test_tile );
-  fd_metrics_register( fd_metrics_new( metrics_scratch, 10, 10 ) );
+  fd_metrics_register( fd_metrics_new( metrics_scratch, 10 ) );
 
   /* [tile-unit-test] config tile-unit-test. */
   ulong topo_net_tile_idx        = fd_topo_find_tile( &config->topo, "net", 0UL );

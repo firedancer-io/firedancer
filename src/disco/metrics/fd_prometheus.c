@@ -150,33 +150,6 @@ render_links_in( fd_prom_render_t *        r,
 }
 
 static void
-render_links_out( fd_prom_render_t *        r,
-                  fd_topo_t const *         topo,
-                  ulong                     metrics_cnt,
-                  fd_metrics_meta_t const * metrics ) {
-  for( ulong i=0UL; i<metrics_cnt; i++ ) {
-    fd_metrics_meta_t const * metric = &metrics[ i ];
-    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
-      fd_topo_tile_t const * tile = &topo->tiles[ j ];
-      ulong reliable_conns_idx = 0UL;
-      for( ulong k=0UL; k<topo->tile_cnt; k++ ) {
-        fd_topo_tile_t const * consumer_tile = &topo->tiles[ k ];
-        for( ulong l=0UL; l<consumer_tile->in_cnt; l++ ) {
-          for( ulong m=0UL; m<tile->out_cnt; m++ ) {
-            if( FD_UNLIKELY( consumer_tile->in_link_id[ l ]==tile->out_link_id[ m ] && consumer_tile->in_link_reliable[ l ] ) ) {
-              fd_topo_link_t const * link = &topo->links[ consumer_tile->in_link_id[ l ] ];
-              ulong value = *(fd_metrics_link_out( tile->metrics, reliable_conns_idx ) + metric->offset );
-              render_link( r, metric, consumer_tile, link, value );
-              reliable_conns_idx++;
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-static void
 render_tile_metric( fd_prom_render_t *        r,
                     fd_topo_tile_t const *    tile,
                     fd_metrics_meta_t const * metric ) {
@@ -220,7 +193,6 @@ fd_prometheus_render_all( fd_topo_t const *  topo,
   fd_prom_render_t r = fd_prom_render_create( http );
   render_tile( &r, topo, NULL, FD_METRICS_ALL_TOTAL, FD_METRICS_ALL );
   render_links_in( &r, topo, FD_METRICS_ALL_LINK_IN_TOTAL, FD_METRICS_ALL_LINK_IN );
-  render_links_out( &r, topo, FD_METRICS_ALL_LINK_OUT_TOTAL, FD_METRICS_ALL_LINK_OUT );
   for( ulong i=0UL; i<FD_METRICS_TILE_KIND_CNT; i++ ) {
     render_tile( &r, topo, FD_METRICS_TILE_KIND_NAMES[ i ], FD_METRICS_TILE_KIND_SIZES[ i ], FD_METRICS_TILE_KIND_METRICS[ i ] );
   }

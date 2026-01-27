@@ -26,8 +26,6 @@ def write_docs(metrics: Metrics):
         f.write('\n<div class="metrics">\n\n')
         f.write('| Metric | Type | Description |\n')
         f.write('|--------|------|-------------|\n')
-        for metric in metrics.link_out:
-            _write_metric(f, metric, "link")
         for metric in metrics.link_in:
             _write_metric(f, metric, "link")
         f.write('</div>\n')

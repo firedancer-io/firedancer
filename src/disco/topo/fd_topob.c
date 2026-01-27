@@ -626,20 +626,7 @@ fd_topob_finish( fd_topo_t *                topo,
       in_cnt++;
     }
 
-    ulong cons_cnt = 0UL;
-    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-      fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
-      for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
-        for( ulong k=0UL; k<tile->out_cnt; k++ ) {
-          if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
-            cons_cnt++;
-          }
-        }
-      }
-    }
-
     FD_TEST( !fd_pod_replacef_ulong( topo->props, in_cnt, "obj.%lu.in_cnt", tile->metrics_obj_id ) );
-    FD_TEST( !fd_pod_replacef_ulong( topo->props, cons_cnt, "obj.%lu.cons_cnt", tile->metrics_obj_id ) );
   }
 
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {

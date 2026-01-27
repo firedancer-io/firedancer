@@ -6,7 +6,6 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">link_&#8203;slow_&#8203;count</span> | counter | The number of times the consumer was detected as rate limiting consumer by the producer. |
 | <span class="metrics-name">link_&#8203;consumed_&#8203;count</span> | counter | The number of times the link reader has consumed a fragment. |
 | <span class="metrics-name">link_&#8203;consumed_&#8203;size_&#8203;bytes</span> | counter | The total number of bytes read by the link consumer. |
 | <span class="metrics-name">link_&#8203;filtered_&#8203;count</span> | counter | The number of fragments that were filtered and not consumed. |
@@ -15,6 +14,7 @@
 | <span class="metrics-name">link_&#8203;overrun_&#8203;polling_&#8203;frag_&#8203;count</span> | counter | The number of fragments the link has not processed because it was overrun while polling. |
 | <span class="metrics-name">link_&#8203;overrun_&#8203;reading_&#8203;count</span> | counter | The number of input overruns detected while reading metadata by the consumer. |
 | <span class="metrics-name">link_&#8203;overrun_&#8203;reading_&#8203;frag_&#8203;count</span> | counter | The number of fragments the link has not processed because it was overrun while reading. |
+| <span class="metrics-name">link_&#8203;slow_&#8203;count</span> | counter | The number of times the consumer was detected as rate limiting consumer by the producer. |
 </div>
 
 ## All Tiles

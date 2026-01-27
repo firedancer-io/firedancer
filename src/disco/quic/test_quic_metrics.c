@@ -29,8 +29,8 @@ main( int     argc,
   uchar * http_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( http_mem, params, callbacks, NULL ) );
 
-  void * metric_mem = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( 0, 0 ) );
-  ulong * metrics = fd_metrics_join( fd_metrics_new( metric_mem, 0, 0 ) );
+  void * metric_mem = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( 0 ) );
+  ulong * metrics = fd_metrics_join( fd_metrics_new( metric_mem, 0 ) );
 
   /* Write some fake metric values */
   ulong volatile * tile_metrics = fd_metrics_tile( metrics );

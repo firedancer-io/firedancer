@@ -1192,7 +1192,6 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
         rooted_child = child_bank;
       } else {
         /* This is a minority fork. */
-        FD_LOG_DEBUG(( "abandoning minority fork on bank idx %lu", child_bank->idx ));
         fd_banks_subtree_mark_dead( bank_pool, child_bank );
       }
       child_idx = child_bank->sibling_idx;
