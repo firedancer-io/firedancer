@@ -279,11 +279,12 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_bank_ticks_per_slot_set( bank, test_ctx->epoch_ctx.ticks_per_slot );
 
+  /* https://github.com/anza-xyz/solana-sdk/blob/time-utils%40v3.0.0/time-utils/src/lib.rs#L18-L27 */
+  fd_bank_slots_per_year_set( runner->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( runner->bank )) );
+
   fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ul={ 400000000,0 } } ); // TODO: restore from input
 
   fd_bank_genesis_creation_time_set( bank, test_ctx->epoch_ctx.genesis_creation_time );
-
-  fd_bank_slots_per_year_set( bank, test_ctx->epoch_ctx.slots_per_year );
 
   fd_bank_parent_signature_cnt_set( bank, test_ctx->slot_ctx.parent_signature_count );
 

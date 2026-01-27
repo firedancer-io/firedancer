@@ -68,8 +68,6 @@ typedef struct fd_exec_test_epoch_context {
     uint64_t hashes_per_tick;
     /* Ticks per slot */
     uint64_t ticks_per_slot;
-    /* Slots per year */
-    double slots_per_year;
     /* Inflation */
     bool has_inflation;
     fd_exec_test_inflation_t inflation;
@@ -119,14 +117,14 @@ extern "C" {
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT   {false, FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT {0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, {0}}
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO      {false, FD_EXEC_TEST_ACCT_STATE_INIT_ZERO, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO {0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, {0}, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -151,7 +149,6 @@ extern "C" {
 #define FD_EXEC_TEST_EPOCH_CONTEXT_FEATURES_TAG  1
 #define FD_EXEC_TEST_EPOCH_CONTEXT_HASHES_PER_TICK_TAG 2
 #define FD_EXEC_TEST_EPOCH_CONTEXT_TICKS_PER_SLOT_TAG 3
-#define FD_EXEC_TEST_EPOCH_CONTEXT_SLOTS_PER_YEAR_TAG 4
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INFLATION_TAG 5
 #define FD_EXEC_TEST_EPOCH_CONTEXT_GENESIS_CREATION_TIME_TAG 6
 #define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_1_TAG 11
@@ -211,7 +208,6 @@ X(a, STATIC,   SINGULAR, UINT32,   burn_percent,      5)
 X(a, STATIC,   OPTIONAL, MESSAGE,  features,          1) \
 X(a, STATIC,   SINGULAR, UINT64,   hashes_per_tick,   2) \
 X(a, STATIC,   SINGULAR, UINT64,   ticks_per_slot,    3) \
-X(a, STATIC,   SINGULAR, DOUBLE,   slots_per_year,    4) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  inflation,         5) \
 X(a, STATIC,   SINGULAR, UINT64,   genesis_creation_time,   6) \
 X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_1,  11) \
