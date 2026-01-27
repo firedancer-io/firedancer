@@ -35,6 +35,7 @@ struct fd_configh {
     char  account_index_include_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
     ulong account_index_exclude_keys_cnt;
     char  account_index_exclude_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
+    int   enable_accounts_disk_index;
     char  accounts_index_path[ PATH_MAX ];
     char  accounts_hash_cache_path[ PATH_MAX ];
     int   require_tower;

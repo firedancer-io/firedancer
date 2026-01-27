@@ -109,8 +109,11 @@ agave_boot( config_t const * config ) {
   ADDU( "--limit-ledger-size", config->frankendancer.ledger.limit_size );
   if( strcmp( "", config->frankendancer.paths.accounts_path ) )
     ADD( "--accounts", config->frankendancer.paths.accounts_path );
-  if( strcmp( "", config->frankendancer.ledger.accounts_index_path ) )
+  if( strcmp( "", config->frankendancer.ledger.accounts_index_path ) ) {
     ADD( "--accounts-index-path", config->frankendancer.ledger.accounts_index_path );
+    ADD1( "--enable-accounts-disk-index" );
+  } else if( config->frankendancer.ledger.enable_accounts_disk_index )
+    ADD1( "--enable-accounts-disk-index" );
   if( strcmp( "", config->frankendancer.ledger.accounts_hash_cache_path ) )
     ADD( "--accounts-hash-cache-path", config->frankendancer.ledger.accounts_hash_cache_path );
   for( ulong i=0UL; i<config->frankendancer.ledger.account_indexes_cnt; i++ )
