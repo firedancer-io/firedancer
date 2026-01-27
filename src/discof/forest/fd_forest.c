@@ -721,7 +721,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
       if( FD_UNLIKELY( !fd_hash_eq( current_mr, mr ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( current_mr->key, current_mr_b58 );
         FD_BASE58_ENCODE_32_BYTES( mr->key, mr_b58 );
-        FD_LOG_WARNING(( "fd_forest_data_shred_insert: multiple versions detected for slot %lu, fec_set_idx %u. current_mr %s, received_mr %s", slot, fec_set_idx, current_mr_b58, mr_b58 ));
+        FD_LOG_INFO(( "fd_forest_data_shred_insert: multiple versions detected for slot %lu, fec_set_idx %u. current_mr %s, received_mr %s", slot, fec_set_idx, current_mr_b58, mr_b58 ));
         ele->merkle_roots[fec_idx].mr = (fd_hash_t){ .key = { 0 } }; /* invalidate the merkle root */
       }
     }
@@ -774,7 +774,32 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
                    && !fd_hash_eq( &ele->merkle_roots[fec_idx].mr, mr ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[fec_idx].mr.key, mr_b58 );
     FD_BASE58_ENCODE_32_BYTES( mr->key, mr_recv_b58 );
-    FD_LOG_CRIT(( "fd_forest_fec_insert: fec_resolver delivered two versions of fec_set_idx %u. current_mr %s, received_mr %s", fec_set_idx, mr_b58, mr_recv_b58 ));
+    FD_LOG_WARNING(( "fd_forest_fec_insert: fec_resolver a version of fec_set_idx %u we dont have recorded. current_mr %s, received_mr %s", fec_set_idx, mr_b58, mr_recv_b58 ));
+    /* there are two cases:
+
+       (1) the most common is that we've received several shreds from
+           version A, and all the shreds from version B.  In forest we
+           have recorded hash = { 0 } for this fec set because we've
+           received a mix of merkle roots, so we nulled the FEC set.
+           Then fec_resolver completes version B, and delivers.  We can
+           safely overwrite our recorded merkle root with B because
+           we know we must've received all the data for version B!
+       (2) the second case is that maybe both version B and version A
+           get completed, one after the other.  In this case we've first
+           overwritten from { 0 } to B.  But when version A arrives,
+           what do we do ???? if A is the correct version but we ignore it,
+           when we chain verify down the line we'll evict B and try to repair
+           for A, but fec_resolver AINT gonna let it through! vice versa
+           if B is the correct version, but we choose to overwrite the fec when A arrive.
+           no way around it (unless) we ask shred to re-deliver ouch. or
+           we refactor so that we do fec-based forest ouch.
+
+        Since neither are implemented yet there's a chance we could stall
+        if we hit case (2).
+    */
+    // overwrite the merkle root with the new one
+    ele->merkle_roots[fec_idx].mr  = *mr;
+    ele->merkle_roots[fec_idx].cmr = *cmr;
   }
   /* It's important that we set the cmpl idx here. If this happens to be
      the last fec_complete we needed to finish the slot, then we rely on
