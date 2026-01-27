@@ -554,13 +554,51 @@ telemetry = true
 
 # FIXME rename 'vinyl' to human-readable name like 'accounts.root_db'
 [vinyl]
+    # If set to true, enable the disk-backed account storage engine.
+    # This causes rooted (finalized) accounts to get moved to disk.
+    #
+    # If set to false, all accounts are stored in DRAM.
     enabled = false
+
+    # Max number of accounts that can be stored in the vinyl index.
+    # The index is stored in DRAM.  Each record consumes about 120 bytes
+    # of space.
     max_account_records = 30_000_000
+
+    # File size of the account database file (see [paths.accounts]).
+    # The entire account database is physically preallocated.
     file_size_gib = 16
+
+    # Number of accounts of the vinyl in-memory cache.
     max_cache_entries = 1_000_000
+
+    # DRAM reservation for the vinyl in-memory cache.
     cache_size_gib = 2
+
+    # Faster disk I/O using io_uring.
+    #
+    # Firedancer can use modern kernel APIs to improve database
+    # performance.  Under the hood, this enables parallel disk reads,
+    # and improved bandwidth by offloading data copies to hardware.
+    #
+    # io_uring requires a recent kernel (Linux 6.5 feature equivalent).
+    # Popular OS distributions (e.g. Ubuntu or RHEL) backport newer
+    # io_uring features to older kernel versions.
+    # FIXME Add a link to a book page with further kernel requirements,
+    #       and known working distros (e.g. RHEL 9 kernel 5.14).
+    #
+    # Firedancer uses the following io_uring extensions:
+    # - IORING_SETUP_COOP_TASKRUN (Linux 5.19)
+    # - IORING_SETUP_DEFER_TASKRUN (Linux 6.1)
+    # - IORING_SETUP_CQSIZE (Linux 5.5)
+    # - IORING_SETUP_NO_MMAP (Linux 6.5)
+    # - IORING_REGISTER_RESTRICTIONS (Linux 5.16)
     [vinyl.io_uring]
-        enabled = false
+        # If io_uring is disabled, Firedancer falls back to portable
+        # blocking I/O.
+        enabled = true
+
+        # Pipeline depth for parallel I/O operations.
         queue_depth = 2048
 
 [runtime]
