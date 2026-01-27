@@ -47,13 +47,13 @@
 #define FD_METRICS_COUNTER_SOCK_TX_BYTES_TOTAL_OFF  (32UL)
 #define FD_METRICS_COUNTER_SOCK_TX_BYTES_TOTAL_NAME "sock_tx_bytes_total"
 #define FD_METRICS_COUNTER_SOCK_TX_BYTES_TOTAL_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_SOCK_TX_BYTES_TOTAL_DESC "Total number of bytes transmitted (including Ethernet header)."
+#define FD_METRICS_COUNTER_SOCK_TX_BYTES_TOTAL_DESC "Total number of bytes transmitted (including Ethernet header)"
 #define FD_METRICS_COUNTER_SOCK_TX_BYTES_TOTAL_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_SOCK_RX_BYTES_TOTAL_OFF  (33UL)
 #define FD_METRICS_COUNTER_SOCK_RX_BYTES_TOTAL_NAME "sock_rx_bytes_total"
 #define FD_METRICS_COUNTER_SOCK_RX_BYTES_TOTAL_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_SOCK_RX_BYTES_TOTAL_DESC "Total number of bytes received (including Ethernet header)."
+#define FD_METRICS_COUNTER_SOCK_RX_BYTES_TOTAL_DESC "Total number of bytes received (including Ethernet header)"
 #define FD_METRICS_COUNTER_SOCK_RX_BYTES_TOTAL_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_SOCK_TOTAL (12UL)

@@ -57,7 +57,7 @@
 #define FD_METRICS_COUNTER_EXEC_TXN_REGIME_OFF  (30UL)
 #define FD_METRICS_COUNTER_EXEC_TXN_REGIME_NAME "exec_txn_regime"
 #define FD_METRICS_COUNTER_EXEC_TXN_REGIME_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_EXEC_TXN_REGIME_DESC "Mutually exclusive and exhaustive duration of time spent in transaction execution regimes."
+#define FD_METRICS_COUNTER_EXEC_TXN_REGIME_DESC "Mutually exclusive and exhaustive duration of time spent in transaction execution regimes"
 #define FD_METRICS_COUNTER_EXEC_TXN_REGIME_CVT  (FD_METRICS_CONVERTER_NANOSECONDS)
 #define FD_METRICS_COUNTER_EXEC_TXN_REGIME_CNT  (3UL)
 
@@ -68,7 +68,7 @@
 #define FD_METRICS_COUNTER_EXEC_VM_REGIME_OFF  (33UL)
 #define FD_METRICS_COUNTER_EXEC_VM_REGIME_NAME "exec_vm_regime"
 #define FD_METRICS_COUNTER_EXEC_VM_REGIME_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_EXEC_VM_REGIME_DESC "Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes."
+#define FD_METRICS_COUNTER_EXEC_VM_REGIME_DESC "Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes"
 #define FD_METRICS_COUNTER_EXEC_VM_REGIME_CVT  (FD_METRICS_CONVERTER_NANOSECONDS)
 #define FD_METRICS_COUNTER_EXEC_VM_REGIME_CNT  (5UL)
 

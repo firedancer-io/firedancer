@@ -72,7 +72,7 @@ poll_client( fd_ipecho_tile_ctx_t * ctx,
     }
 
     FD_LOG_INFO(( "retrieved shred version %hu from entrypoint", shred_version ));
-    FD_MGAUGE_SET( IPECHO, SHRED_VERSION, shred_version );
+    FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, shred_version );
     fd_stem_publish( stem, 0UL, shred_version, 0UL, 0UL, 0UL, 0UL, 0UL );
     fd_ipecho_server_set_shred_version( ctx->server, shred_version );
     ctx->retrieving = 0;
@@ -127,7 +127,7 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
 
     FD_TEST( xor );
 
-    FD_MGAUGE_SET( IPECHO, SHRED_VERSION, xor );
+    FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, xor );
     fd_stem_publish( stem, 0UL, xor, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
     fd_ipecho_server_set_shred_version( ctx->server, xor );
     ctx->retrieving = 0;
@@ -177,7 +177,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_ipecho_tile_ctx_t ), sizeof( fd_ipecho_tile_ctx_t )       );
 
-  FD_MGAUGE_SET( IPECHO, SHRED_VERSION, tile->ipecho.expected_shred_version );
+  FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, tile->ipecho.expected_shred_version );
 
   /* In some topologies (e.g. firedancer-dev gossip), the ipecho tile
      has no input links. Guard against dereferencing a missing

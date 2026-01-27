@@ -44,8 +44,8 @@ metric introduced.
 </enum>
 
 <common>
-    <gauge name="Pid" clickhouse_exclude="true" summary="The process ID of the tile" />
-    <gauge name="Tid" clickhouse_exclude="true" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development" />
+    <gauge name="Pid" summary="The process ID of the tile" />
+    <gauge name="Tid" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development" />
     <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches" />
     <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches" />
     <counter name="PageFaultMajorCount" summary="The number of major page faults" />
@@ -439,7 +439,7 @@ metric introduced.
     <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
 </tile>
 
-<tile name="resolv">
+<tile name="resolv" telemetry="false">
     <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
     <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
@@ -689,7 +689,7 @@ metric introduced.
     <counter name="TransactionLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not" />
 </tile>
 
-<tile name="bank">
+<tile name="bank" telemetry="false">
     <counter name="TransactionSanitizeFailure" summary="Number of transactions that failed to sanitize" />
     <counter name="TransactionNotExecutedFailure" summary="Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain" />
 
@@ -766,7 +766,7 @@ metric introduced.
     </histogram>
 </tile>
 
-<tile name="store">
+<tile name="store" telemetry="false">
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
@@ -821,11 +821,6 @@ metric introduced.
   <counter name="AccdbReclaimed" summary="Number of account database entries reclaimed (deletion rooted)" />
 </tile>
 
-<tile name="storei">
-  <gauge name="FirstTurbineSlot" label="The first slot for which we have received a turbine shred" />
-  <gauge name="CurrentTurbineSlot" label="The latest slot for which we have received a turbine shred" />
-</tile>
-
 <enum name="RepairSentRequestTypes">
     <int value="0" name="NeededWindow" label="Need Window" />
     <int value="1" name="NeededHighestWindow" label="Need Highest Window" />
@@ -843,8 +838,8 @@ metric introduced.
 
 
 <tile name="repair">
-    <counter name="TotalPktCount" clickhouse_exclude="true" summary="How many network packets we have sent, including reqs, pings, pongs, etc" />
-    <counter name="SentPktTypes" clickhouse_exclude="true" enum="RepairSentRequestTypes" summary="What types of client messages are we sending" />
+    <counter name="TotalPktCount" summary="How many network packets we have sent, including reqs, pings, pongs, etc" />
+    <counter name="SentPktTypes" enum="RepairSentRequestTypes" summary="What types of client messages are we sending" />
     <counter name="RepairedSlots" summary="Until which slots have we fully repaired" />
     <counter name="CurrentSlot" summary="Our view of the current cluster slot, max slot received" />
     <counter name="RequestPeers" summary="How many peers have we requested" />
@@ -859,7 +854,6 @@ metric introduced.
       <summary>Time in nanoseconds it took to receive a repair request response</summary>
     </histogram>
     <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
-
 </tile>
 
 <enum name="CrdsValue">
@@ -1129,8 +1123,17 @@ metric introduced.
     <counter name="BytesRead" summary="The total number of bytes read from all requests to the Prometheus endpoint" />
 </tile>
 
+<tile name="rpc">
+</tile>
+
+<tile name="diag">
+</tile>
+
+<tile name="genesi">
+</tile>
+
 <tile name="ipecho">
-    <gauge name="ShredVersion" summary="The current shred version used by the validator" />
+    <gauge name="CurrentShredVersion" summary="The current shred version used by the validator" />
     <gauge name="ConnectionCount" summary="The number of active connections to the ipecho service" />
     <counter name="ConnectionsClosedOk" summary="The number of connections to the ipecho service that have been made and closed normally" />
     <counter name="ConnectionsClosedError" summary="The number of connections to the ipecho service that have been made and closed abnormally" />
@@ -1138,7 +1141,7 @@ metric introduced.
     <counter name="BytesWritten" summary="The total number of bytes written to all connections to the ipecho service" />
 </tile>
 
-<tile name="backt">
+<tile name="backt" telemetry="false">
     <gauge name="FinalSlot" summary="The slot after which the backtest will complete" />
     <gauge name="StartSlot" summary="The slot at which the backtest started" />
 </tile>
@@ -1181,7 +1184,7 @@ metric introduced.
     <counter name="TxnAccountChanges" enum="AccountChange" summary="Transaction account change event counters" />
 </tile>
 
-<tile name="benchs">
+<tile name="benchs" telemetry="false">
     <counter name="TransactionsSent" summary="Number of benchmark packets sent" />
 </tile>
 

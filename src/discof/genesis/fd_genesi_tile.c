@@ -284,8 +284,6 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     fd_memcpy( dst, hash, sizeof(fd_hash_t) );
-    FD_BASE58_ENCODE_32_BYTES( dst, dst_b58 );
-    FD_LOG_WARNING(( "Genesis hash from peer: %s", dst_b58 ));
     fd_stem_publish( stem, 0UL, GENESI_SIG_GENESIS_HASH, ctx->out_chunk, 32UL, 0UL, 0UL, 0UL );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_hash_t), ctx->out_chunk0, ctx->out_wmark );
 
@@ -373,7 +371,7 @@ process_local_genesis( fd_genesi_tile_t * ctx,
     FD_BASE58_ENCODE_32_BYTES( ctx->expected_genesis_hash, expected_genesis_hash_b58 );
     FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash,          genesis_hash_b58          );
     FD_LOG_ERR(( "An expected genesis hash of `%s` has been set in your configuration file at [consensus.expected_genesis_hash] "
-                 "but the genesis hash derived from the genesis file at `%s` has unexpected hash (expected `%s`)", expected_genesis_hash_b58, genesis_path, genesis_hash_b58 ));
+                 "but the genesis hash derived from the genesis file at `%s` has unexpected hash `%s`", expected_genesis_hash_b58, genesis_path, genesis_hash_b58 ));
   }
 }
 

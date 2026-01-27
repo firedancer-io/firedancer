@@ -123,7 +123,7 @@
 #define FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RCV_BYTES_OFF  (123UL)
 #define FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RCV_BYTES_NAME "shred_shred_repair_rcv_bytes"
 #define FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RCV_BYTES_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RCV_BYTES_DESC "The number bytes received from network packets with repair shreds. Bytes include network headers."
+#define FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RCV_BYTES_DESC "The number bytes received from network packets with repair shreds. Bytes include network headers"
 #define FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RCV_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_OFF  (124UL)
@@ -135,7 +135,7 @@
 #define FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_BYTES_OFF  (125UL)
 #define FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_BYTES_NAME "shred_shred_turbine_rcv_bytes"
 #define FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_BYTES_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_BYTES_DESC "The number bytes received from network packets with turbine shreds. Bytes include network headers."
+#define FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_BYTES_DESC "The number bytes received from network packets with turbine shreds. Bytes include network headers"
 #define FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_HISTOGRAM_SHRED_STORE_INSERT_WAIT_OFF  (126UL)
