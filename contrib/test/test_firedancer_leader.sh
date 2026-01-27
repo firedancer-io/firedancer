@@ -28,9 +28,9 @@ fi
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
 PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
 
-#while [ $($AGAVE_PATH/solana -u localhost epoch-info --output json | jq .blockHeight) -le 150 ]; do
-  #sleep 1
-#done
+while [ $(solana -u http://64.130.55.36:8899 epoch-info --output json | jq .blockHeight) -le 120 ]; do
+  sleep 1
+done
 
 sudo rm -f firedancer-dev.log
 # clear snapshot cache always
