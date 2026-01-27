@@ -52,7 +52,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_features_t * features = fd_bank_features_modify( runner->bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
   if( !fd_solfuzz_pb_restore_features( features, feature_set ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    FD_LOG_ERR(( "invariant violation: unsupported feature ID" ));
   }
 
   /* Blockhash queue init */
@@ -128,8 +128,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Prepare borrowed account table (correctly handles aliasing) */
 
   if( FD_UNLIKELY( test_ctx->accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
-    FD_LOG_NOTICE(( "too many accounts" ));
-    return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED;
+    FD_LOG_ERR(( "invariant violation: too many accounts (%lu > %lu)",
+                 (ulong)test_ctx->accounts_count, (ulong)MAX_TX_ACCOUNT_LOCKS ));
   }
 
   /* Load accounts into database */
@@ -251,8 +251,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Load instruction accounts */
 
   if( FD_UNLIKELY( test_ctx->instr_accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
-    FD_LOG_NOTICE(( "too many instruction accounts" ));
-    return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED;
+    FD_LOG_ERR(( "invariant violation: too many instruction accounts (%lu > %lu)",
+                 (ulong)test_ctx->instr_accounts_count, (ulong)MAX_TX_ACCOUNT_LOCKS ));
   }
 
   /* Restore sysvar cache */
@@ -271,7 +271,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
-  if( FD_UNLIKELY( !epoch_schedule ) ) { return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR; }
+  FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
 
   fd_rent_t rent_[1];
@@ -298,8 +298,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
     if( index >= test_ctx->accounts_count ) {
-      FD_LOG_NOTICE( ( "instruction account index out of range (%u > %u)", index, test_ctx->instr_accounts_count ) );
-      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      FD_LOG_ERR(( "invariant violation: instruction account index out of range (%u > %u)",
+                   index, test_ctx->instr_accounts_count ));
     }
 
     /* Setup instruction accounts */
@@ -327,8 +327,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
      For syscalls, we skip this check because the program_id was already added to
      txn_out->accounts at lines 169-181 if it wasn't in the input. */
   if( !is_syscall && !found_program_id ) {
-    FD_LOG_NOTICE(( " Unable to find program_id in accounts" ));
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    FD_LOG_ERR(( "invariant violation: Unable to find program_id in accounts" ));
   }
 
   ctx->instr              = info;
