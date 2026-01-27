@@ -1014,6 +1014,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
          blocks with in-flight transactions cannot be abandoned or
          demoted from rdisp.  So a dying block has to be the head of one
          of the staging lanes. */
+      // FIXME This contract no longer true if we implement immediate
+      // demotion of abandoned blocks.
       ulong total_in_flight = 0UL;
       for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
         if( fd_ulong_extract_bit( sched->staged_bitset, l ) ) {
@@ -1174,6 +1176,8 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
 
       block->txn_exec_done_cnt++;
       block->txn_exec_in_flight_cnt--;
+      FD_TEST( !fd_ulong_extract_bit( sched->txn_exec_ready_bitset[ 0 ], exec_tile_idx ) );
+      sched->txn_exec_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->txn_exec_ready_bitset[ 0 ], exec_tile_idx );
       sched->metrics->txn_exec_done_cnt++;
       txn_bitset_insert( sched->exec_done_set, txn_idx );
       if( txn_bitset_test( sched->sigverify_done_set, txn_idx ) && txn_bitset_test( sched->poh_mixin_done_set, txn_idx ) ) {
@@ -1187,14 +1191,13 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       } else {
         fd_rdisp_complete_txn( sched->rdisp, txn_idx, 0 );
       }
-
-      FD_TEST( !fd_ulong_extract_bit( sched->txn_exec_ready_bitset[ 0 ], exec_tile_idx ) );
-      sched->txn_exec_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->txn_exec_ready_bitset[ 0 ], exec_tile_idx );
       break;
     }
     case FD_SCHED_TT_TXN_SIGVERIFY: {
       block->txn_sigverify_done_cnt++;
       block->txn_sigverify_in_flight_cnt--;
+      FD_TEST( !fd_ulong_extract_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx ) );
+      sched->sigverify_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
       sched->metrics->txn_sigverify_done_cnt++;
       txn_bitset_insert( sched->sigverify_done_set, txn_idx );
       if( txn_bitset_test( sched->exec_done_set, txn_idx ) && txn_bitset_test( sched->poh_mixin_done_set, txn_idx ) ) {
@@ -1206,13 +1209,12 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         block->txn_done_cnt++;
         sched->metrics->txn_done_cnt++;
       }
-
-      FD_TEST( !fd_ulong_extract_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx ) );
-      sched->sigverify_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
       break;
     }
     case FD_SCHED_TT_POH_HASH: {
       block->poh_hashing_in_flight_cnt--;
+      FD_TEST( !fd_ulong_extract_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx ) );
+      sched->poh_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx );
       fd_exec_poh_hash_done_msg_t * msg = fd_type_pun( data );
       fd_sched_mblk_in_progress_t * mblk = block->mblk_in_progress_pool+msg->mblk_idx;
       mblk->curr_hashcnt += msg->hashcnt;
@@ -1249,8 +1251,6 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       } else {
         mblk_in_progress_slist_idx_push_tail( block->mblks_hashing_in_progress, msg->mblk_idx, block->mblk_in_progress_pool );
       }
-      FD_TEST( !fd_ulong_extract_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx ) );
-      sched->poh_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx );
       FD_TEST( block->hashes_per_tick!=ULONG_MAX );
       if( FD_UNLIKELY( block->curr_tick_hashcnt>block->hashes_per_tick && block->hashes_per_tick>1UL ) ) { /* >1 to ignore low power hashing or no hashing cases */
         /* We couldn't really check this at parse time because we may
