@@ -1,4 +1,5 @@
 #include "../../vinyl/fd_vinyl.h"
+#include "../../vinyl/fd_vinyl_admin.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/accdb/fd_vinyl_req_pool.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -196,3 +197,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_vinyl_cq = {
   .align     = vinyl_cq_align,
   .new       = vinyl_cq_new,
 };
+
+
+static ulong
+vinyl_admin_footprint( fd_topo_t const *     topo FD_PARAM_UNUSED,
+                       fd_topo_obj_t const * obj FD_PARAM_UNUSED ) {
+  return sizeof(fd_vinyl_admin_t);
+}
+
+static ulong
+vinyl_admin_align( fd_topo_t const *     topo FD_PARAM_UNUSED,
+                   fd_topo_obj_t const * obj FD_PARAM_UNUSED ) {
+  return alignof(fd_vinyl_admin_t);
+}
+
+static void
+vinyl_admin_new( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj ) {
+  fd_vinyl_admin_new( fd_topo_obj_laddr( topo, obj->id ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_vinyl_admin = {
+  .name      = "vinyl_admin",
+  .footprint = vinyl_admin_footprint,
+  .align     = vinyl_admin_align,
+  .new       = vinyl_admin_new,
+};
+
+#undef VAL

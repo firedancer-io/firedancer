@@ -12,6 +12,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
+#include "../../vinyl/fd_vinyl_admin.h"
 
 #define FD_SNAPWM_WR_MTU             (16UL<<20)
 #define FD_SNAPWM_PAIR_BATCH_CNT_MAX (FD_SSPARSE_ACC_BATCH_MAX)
@@ -93,6 +94,8 @@ struct fd_snapwm_tile {
 
     fd_lthash_adder_t adder;
     fd_lthash_value_t running_lthash;
+
+    fd_vinyl_admin_t * admin;
   } vinyl;
 };
 

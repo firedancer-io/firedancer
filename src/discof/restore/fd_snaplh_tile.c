@@ -2,6 +2,8 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/lthash/fd_lthash_adder.h"
+#include "../../util/pod/fd_pod.h"
+#include "../../vinyl/fd_vinyl_admin.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
@@ -70,6 +72,8 @@ struct fd_snaplh_tile {
   ulong pairs_seen;
   ulong lthash_req_seen;
 
+  ulong * report_lh_state;
+
   /* Database params */
   ulong const * io_seed;
 
@@ -81,19 +85,20 @@ struct fd_snaplh_tile {
   fd_lthash_value_t   running_lthash_sub;
 
   struct {
-    int               dev_fd;
-    ulong             dev_sz;
-    ulong             dev_base;
-    void *            pair_mem;
-    void *            pair_tmp;
+    int                 dev_fd;
+    ulong               dev_sz;
+    ulong               dev_base;
+    void *              pair_mem;
+    void *              pair_tmp;
 
     struct {
       fd_vinyl_bstream_phdr_t phdr  [VINYL_LTHASH_RD_REQ_MAX];
       fd_vinyl_io_rd_t        rd_req[VINYL_LTHASH_RD_REQ_MAX];
     } pending;
-    ulong             pending_rd_req_cnt;
+    ulong               pending_rd_req_cnt;
 
-    fd_vinyl_io_t *   io;
+    fd_vinyl_io_t *     io;
+    fd_vinyl_admin_t *  admin;
   } vinyl;
 
   struct {
@@ -285,6 +290,11 @@ FD_FN_UNUSED static inline ulong
 rd_req_ctx_update_status( ulong rd_req_ctx,
                           ulong status ) {
   return rd_req_ctx_from_parts( rd_req_ctx_get_idx( rd_req_ctx ), status );
+}
+
+FD_FN_UNUSED static inline void
+handle_report_lh_state( fd_snaplh_t * ctx ) {
+  fd_mcache_seq_update( ctx->report_lh_state, (ulong)ctx->state );
 }
 
 FD_FN_UNUSED static void
@@ -546,12 +556,17 @@ handle_control_frag( fd_snaplh_t * ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_ERROR:
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      if( FD_LIKELY( ctx->vinyl.io->type==FD_VINYL_IO_TYPE_UR ) ) {
+        handle_vinyl_lthash_request_ur_consume_all( ctx );
+      }
       break;
 
     default:
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
       return;
   }
+
+  handle_report_lh_state( ctx );
 }
 
 static inline int
@@ -785,6 +800,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].base     = NULL;
       ctx->in[ i ].seq_sync = NULL;
       ctx->in_kind[ i ]     = IN_KIND_SNAPLV;
+      ctx->report_lh_state  = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, in_link->mcache_obj_id ) ) ) + tile->kind_id;
     } else if( FD_LIKELY( 0==strcmp( in_link->name, "snapwh_wr" ) ) ) {
       ctx->in[ i ].wksp     = in_wksp->wksp;
       ctx->in[ i ].chunk0   = 0;
@@ -845,6 +861,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->lthash_req_seen         = 0UL;
   fd_lthash_zero( &ctx->running_lthash );
   fd_lthash_zero( &ctx->running_lthash_sub );
+
+  handle_report_lh_state( ctx );
+
+  ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
+  FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
+  fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
+  FD_TEST( vinyl_admin );
+  ctx->vinyl.admin = vinyl_admin;
+  fd_vinyl_admin_wait_for_status( vinyl_admin, FD_VINYL_ADMIN_STATUS_INIT_DONE, (long)1e6/*1ms*/ );
 }
 
 #define STEM_BURST 1UL

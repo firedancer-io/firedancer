@@ -150,6 +150,7 @@ backtest_topo( config_t * config ) {
         fd_topob_wksp( topo, "snaplv"    );
         FOR(snaplh_tile_cnt) fd_topob_tile( topo, "snaplh", "snaplh", "metric_in", ULONG_MAX, 0, 0 )->allow_shutdown = 1;
         /**/                 fd_topob_tile( topo, "snaplv", "snaplv", "metric_in", ULONG_MAX, 0, 0 )->allow_shutdown = 1;
+        fd_topob_wksp( topo, "vinyl_admin" );
       } else {
         fd_topob_wksp( topo, "snapla" );
         fd_topob_wksp( topo, "snapls" );
@@ -205,7 +206,6 @@ backtest_topo( config_t * config ) {
         fd_topob_wksp( topo, "snaplh_lv" );
         fd_topob_wksp( topo, "snapwm_lv" );
         fd_topob_wksp( topo, "snaplv_ct" );
-        fd_topob_wksp( topo, "snaplv_wr" );
       } else {
         fd_topob_wksp( topo, "snapla_ls" );
         fd_topob_wksp( topo, "snapin_ls" );
@@ -250,7 +250,6 @@ backtest_topo( config_t * config ) {
         /**/                 fd_topob_link( topo, "snapwm_lv",  "snapwm_lv",  32768UL, FD_SNAPWM_DUP_META_BATCH_SZ,     1UL );
         /**/                 fd_topob_link( topo, "snaplv_lh",  "snaplv_lh", 262144UL,       FD_SNAPLV_DUP_META_SZ, FD_SNAPLV_STEM_BURST ); /* FD_SNAPWM_DUP_META_BATCH_CNT_MAX times the depth of snapwm_lv */
         /**/                 fd_topob_link( topo, "snaplv_ct",  "snaplv_ct",    128UL,                         0UL,     1UL );
-        /**/                 fd_topob_link( topo, "snaplv_wr",  "snaplv_wr",    128UL,                         0UL,     1UL ); /* no dcache, only mcache fseq is used on this link. */
       } else {
         FOR(lta_tile_cnt) fd_topob_link( topo, "snapla_ls",  "snapla_ls",   128UL,  sizeof(fd_lthash_value_t),          1UL );
         /**/              fd_topob_link( topo, "snapin_ls",  "snapin_ls",   256UL,  sizeof(fd_snapshot_full_account_t), 1UL );
@@ -310,14 +309,20 @@ backtest_topo( config_t * config ) {
         FOR(snaplh_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplh", i ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapwm_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
         FOR(snaplh_tile_cnt) fd_topob_tile_in ( topo, "snaplh", i,   "metric_in", "snaplv_lh",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
         /**/                 fd_topob_tile_out( topo, "snaplv", 0UL,              "snaplv_lh",  0UL                                       );
+        FOR(snaplh_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplh", i   ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snaplv_lh", 0UL ) ].mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+        /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplv", 0UL ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snaplv_lh", 0UL ) ].mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY  );
         FOR(snaplh_tile_cnt) fd_topob_tile_out( topo, "snaplh", i,                "snaplh_lv",  i                                         );
         /**/                 fd_topob_tile_in ( topo, "snaplv", 0UL, "metric_in", "snapwm_lv",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
         FOR(snaplh_tile_cnt) fd_topob_tile_in ( topo, "snaplv", 0UL, "metric_in", "snaplh_lv",  i,   FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-        /**/                 fd_topob_tile_out( topo, "snaplv", 0UL,              "snaplv_wr",  0UL                                       );
-        FOR(snapwr_tile_cnt) fd_topob_tile_in ( topo, "snapwr", i,   "metric_in", "snaplv_wr",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
         /**/                 fd_topob_tile_out( topo, "snaplv", 0UL,              "snaplv_ct",  0UL                                       );
         /**/                 fd_topob_tile_out( topo, "snapwm", 0UL,              "snapwm_lv",  0UL                                       );
-        FOR(snapwr_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", i ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snaplv_wr", 0UL ) ].mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+        fd_topo_obj_t * vinyl_admin_obj = setup_topo_vinyl_admin( topo, "vinyl_admin" );
+        /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwm", 0UL ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+        FOR(snapwr_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", i   ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+        /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplv", 0UL ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+        FOR(snaplh_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplh", i   ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+        FD_TEST( fd_pod_insertf_ulong( topo->props, vinyl_admin_obj->id, "vinyl_admin" ) );
       } else {
         FOR(lta_tile_cnt)    fd_topob_tile_in ( topo, "snapla", i,   "metric_in", "snapdc_in",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
         FOR(lta_tile_cnt)    fd_topob_tile_out( topo, "snapla", i,                "snapla_ls",  i                                         );

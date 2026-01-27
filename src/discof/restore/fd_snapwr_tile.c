@@ -54,7 +54,9 @@
 #include "utils/fd_ssctrl.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
+#include "../../vinyl/fd_vinyl_admin.h"
 #include "generated/fd_snapwr_tile_seccomp.h"
 
 #include <errno.h>
@@ -72,7 +74,11 @@ struct fd_snapwr {
   void const * base;
   ulong *      seq_sync;  /* fseq->seq[0] */
   uint         idle_cnt;
+
+  fd_vinyl_admin_t * vinyl_admin;
   ulong *      bstream_seq;
+  ulong        bstream_seq_cnt;
+  uint         lthash_disabled : 1; /* disable lthash checking? */
 
   ulong        req_seen;
   ulong        tile_cnt;
@@ -132,21 +138,29 @@ unprivileged_init( fd_topo_t *      topo,
   snapwr->base     = in_dcache;
   snapwr->seq_sync = tile->in_link_fseq[ 0 ];
 
-  snapwr->bstream_seq = NULL; /* set to NULL by default, before checking input links. */
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
 
     if( FD_LIKELY( 0==strcmp( in_link->name, "snapwh_wr" ) ) ) {
       if( FD_UNLIKELY( !tile->in_link_reliable[ i ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link %lu must be reliable", i ));
 
-    } else if( FD_LIKELY( 0==strcmp( in_link->name, "snaplv_wr" ) ) ) {
-      if( FD_UNLIKELY( !tile->in_link_reliable[ i ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link %lu must be reliable", i ));
-      snapwr->bstream_seq = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, in_link->mcache_obj_id ) ) ) + tile->kind_id;
-      fd_mcache_seq_update( snapwr->bstream_seq, 0UL );
-
     } else {
       FD_LOG_ERR(( "tile `" NAME "` has unexpected in link name `%s`", in_link->name ));
     }
+  }
+
+  snapwr->vinyl_admin     = NULL;
+  snapwr->bstream_seq     = NULL;
+  snapwr->bstream_seq_cnt = 0UL;
+  snapwr->lthash_disabled = !!tile->snapwr.lthash_disabled;
+  if( !snapwr->lthash_disabled ) {
+    ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
+    FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
+    fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
+    FD_TEST( vinyl_admin );
+    snapwr->vinyl_admin     = vinyl_admin;
+    snapwr->bstream_seq     = &snapwr->vinyl_admin->wr_seq[ tile->kind_id ];
+    snapwr->bstream_seq_cnt = fd_topo_tile_name_cnt( topo, "snapwr" );
   }
 
   snapwr->state = FD_SNAPSHOT_STATE_IDLE;
@@ -262,7 +276,18 @@ handle_data_frag( fd_snapwr_t * ctx,
   ctx->req_seen++;
 
   if( !!ctx->bstream_seq ) {
-    fd_mcache_seq_update( ctx->bstream_seq, (dev_off+src_sz)-ctx->dev_base );
+    fd_rwlock_write( &ctx->vinyl_admin->lock );
+    fd_vinyl_admin_ulong_update( ctx->bstream_seq, (dev_off+src_sz)-ctx->dev_base );
+
+    if( FD_LIKELY( fd_vinyl_admin_ulong_query( &ctx->vinyl_admin->status )==FD_VINYL_ADMIN_STATUS_INIT_DONE ) ) {
+      ulong bstream_seq_min = ULONG_MAX;
+      for( ulong i=0; i<ctx->bstream_seq_cnt; i++ ) {
+        ulong bstream_seq = fd_vinyl_admin_ulong_query( ctx->vinyl_admin->wr_seq + i );
+        bstream_seq_min = fd_ulong_min( bstream_seq_min, bstream_seq );
+      }
+      fd_mcache_seq_update( &ctx->vinyl_admin->bstream_seq.present, bstream_seq_min );
+    }
+    fd_rwlock_unwrite( &ctx->vinyl_admin->lock );
   }
 
   ctx->metrics.last_off = dev_off+src_sz;

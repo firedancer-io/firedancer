@@ -2,7 +2,9 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
+#include "../../vinyl/fd_vinyl_admin.h"
 #include "generated/fd_snaplv_tile_seccomp.h"
 
 #include "utils/fd_ssctrl.h"
@@ -13,10 +15,9 @@
 #define IN_KIND_SNAPLH (1)
 #define MAX_IN_LINKS   (16UL) /* at least 1 snapwm and FD_SNAPSHOT_MAX_SNAPLH_TILES */
 
-#define OUT_LINK_CNT (3UL)
+#define OUT_LINK_CNT (2UL)
 #define OUT_LINK_LH  (0)
 #define OUT_LINK_CT  (1)
-#define OUT_LINK_WR  (2)
 
 struct out_link {
   ulong       idx;
@@ -32,6 +33,7 @@ struct fd_snaplv_tile {
   int                 full;
 
   ulong               num_hash_tiles;
+  ulong *             hash_tile_state;
 
   uchar               in_kind[MAX_IN_LINKS];
   ulong               adder_in_offset;
@@ -39,15 +41,14 @@ struct fd_snaplv_tile {
   out_link_t          out_link[OUT_LINK_CNT];
 
   struct {
-    ulong const *     bstream_seq;
-    ulong             bstream_seq_last;
-    ulong             bstream_seq_cnt;
+    ulong               bstream_seq_last;
     struct {
       int                     active[FD_SNAPLV_DUP_PENDING_CNT_MAX];
       ulong                   seq   [FD_SNAPLV_DUP_PENDING_CNT_MAX];
       fd_vinyl_bstream_phdr_t phdr  [FD_SNAPLV_DUP_PENDING_CNT_MAX];
     } pending;
-    ulong             pending_cnt;
+    ulong               pending_cnt;
+    fd_vinyl_admin_t *  admin;
   } vinyl;
 
   struct {
@@ -143,12 +144,9 @@ handle_vinyl_lthash_request( fd_snaplv_t *             ctx,
 
 static inline void
 handle_vinyl_lthash_seq_sync( fd_snaplv_t * ctx ) {
-  ulong bstream_seq_min = ULONG_MAX;
-  for( ulong i=0; i<ctx->vinyl.bstream_seq_cnt; i++ ){
-    ulong bstream_seq = fd_mcache_seq_query( ctx->vinyl.bstream_seq + i );
-    bstream_seq_min = fd_ulong_min( bstream_seq_min, bstream_seq );
-  }
-  ctx->vinyl.bstream_seq_last = bstream_seq_min;
+  fd_rwlock_read( &ctx->vinyl.admin->lock );
+  ctx->vinyl.bstream_seq_last = fd_mcache_seq_query( &ctx->vinyl.admin->bstream_seq.present );
+  fd_rwlock_unread( &ctx->vinyl.admin->lock );
 }
 
 static inline int
@@ -180,6 +178,31 @@ handle_vinyl_lthash_request_drain_all( fd_snaplv_t *       ctx,
     ctx->vinyl.pending_cnt--;
   }
   FD_TEST( !ctx->vinyl.pending_cnt );
+}
+
+static inline void
+handle_vinyl_msg_ctrl_error( fd_snaplv_t * ctx ) {
+  /* drain pending queue */
+  for( ulong i=0; i<FD_SNAPLV_DUP_PENDING_CNT_MAX; i++ ) {
+    if( !ctx->vinyl.pending.active[ i ] ) continue;
+    ctx->vinyl.pending.active[ i ] = 0;
+    ctx->vinyl.pending_cnt--;
+  }
+  FD_TEST( !ctx->vinyl.pending_cnt );
+}
+
+static inline void
+handle_vinyl_msg_ctrl_fail( fd_snaplv_t * ctx ) {
+  /* wait until all hash tiles have reached previous error state. */
+  for(;;) {
+    ulong i=0;
+    for( ; i<ctx->num_hash_tiles; i++ ) {
+      uint state = (uint)fd_mcache_seq_query( ctx->hash_tile_state+i );
+      if( FD_UNLIKELY( state!=FD_SNAPSHOT_STATE_ERROR ) ) break;
+    }
+    if( FD_LIKELY( i==ctx->num_hash_tiles ) ) break;
+    FD_SPIN_PAUSE();
+  }
 }
 
 static inline void
@@ -298,6 +321,7 @@ handle_control_frag( fd_snaplv_t *       ctx,
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       fd_lthash_zero( &ctx->running_lthash );
+      handle_vinyl_msg_ctrl_fail( ctx );
       break;
     }
 
@@ -323,6 +347,7 @@ handle_control_frag( fd_snaplv_t *       ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_ERROR:
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      handle_vinyl_msg_ctrl_error( ctx );
       break;
 
     default:
@@ -472,8 +497,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_topo_tile_name_cnt( topo, "snaplh" )<=FD_SNAPSHOT_MAX_SNAPLH_TILES );
 
   ulong expected_in_cnt = 1UL + fd_topo_tile_name_cnt( topo, "snaplh" );
-  if( FD_UNLIKELY( tile->in_cnt!=expected_in_cnt ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected %lu",  tile->in_cnt, expected_in_cnt ));
-  if( FD_UNLIKELY( tile->out_cnt!=3UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 3", tile->out_cnt ));
+  if( FD_UNLIKELY( tile->in_cnt!=expected_in_cnt ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected %lu",  tile->in_cnt, expected_in_cnt ));
+  if( FD_UNLIKELY( tile->out_cnt!=OUT_LINK_CNT   ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected %lu", tile->out_cnt, OUT_LINK_CNT   ));
 
   ulong adder_idx = 0UL;
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
@@ -502,9 +527,7 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  ctx->vinyl.bstream_seq      = NULL; /* set to NULL by default, before checking output links. */
   ctx->vinyl.bstream_seq_last = 0UL;
-  ctx->vinyl.bstream_seq_cnt  = fd_topo_tile_name_cnt( topo, "snapwr" );
 
   for( uint i=0U; i<(tile->out_cnt); i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->out_link_id[ i ] ];
@@ -524,23 +547,22 @@ unprivileged_init( fd_topo_t *      topo,
       o_link->chunk0 = fd_dcache_compact_chunk0( o_link->mem, link->dcache );
       o_link->wmark  = fd_dcache_compact_wmark( o_link->mem, link->dcache, link->mtu );
       o_link->chunk  = o_link->chunk0;
+      ctx->hash_tile_state = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, link->mcache_obj_id ) ) ) + tile->kind_id;
 
-    } else if( 0==strcmp( link->name, "snaplv_wr" ) ) {
-      out_link_t * o_link = &ctx->out_link[ OUT_LINK_WR ];
-      o_link->idx    = i;
-      o_link->mem    = NULL;
-      o_link->chunk0 = 0UL;
-      o_link->wmark  = 0UL;
-      o_link->chunk  = 0UL;
-      ctx->vinyl.bstream_seq = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, link->mcache_obj_id ) ) );
     } else {
       FD_LOG_ERR(( "unexpected output link %s", link->name ));
     }
   }
 
-  FD_TEST( !!ctx->vinyl.bstream_seq );
   memset( ctx->vinyl.pending.active, 0, FD_SNAPLV_DUP_PENDING_CNT_MAX*sizeof(int) );
   ctx->vinyl.pending_cnt = 0;
+
+  ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
+  FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
+  fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
+  FD_TEST( vinyl_admin );
+  ctx->vinyl.admin = vinyl_admin;
+  fd_vinyl_admin_wait_for_status( vinyl_admin, FD_VINYL_ADMIN_STATUS_INIT_DONE, (long)1e6/*1ms*/ );
 
   ctx->metrics.full.duplicate_accounts_hashed        = 0UL;
   ctx->metrics.incremental.duplicate_accounts_hashed = 0UL;

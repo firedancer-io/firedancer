@@ -5,6 +5,7 @@
 #include "utils/fd_vinyl_io_wd.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/lthash/fd_lthash_adder.h"
+#include "../../util/pod/fd_pod.h"
 
 #include <errno.h>
 #include <fcntl.h>     /* open */
@@ -209,6 +210,16 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
 
   fd_lthash_adder_new( &ctx->vinyl.adder );
   fd_lthash_zero( &ctx->vinyl.running_lthash );
+
+  ctx->vinyl.admin = NULL;
+  if( FD_LIKELY( !ctx->lthash_disabled ) ) {
+    ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
+    FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
+    fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
+    FD_TEST( vinyl_admin );
+    ctx->vinyl.admin = vinyl_admin;
+    fd_vinyl_admin_ulong_update( &vinyl_admin->status, FD_VINYL_ADMIN_STATUS_INIT_DONE );
+  }
 }
 
 ulong
