@@ -132,6 +132,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   name                                             );
   CFG_POP      ( cstr,   user                                             );
 
+  CFG_POP      ( bool,   telemetry                                        );
+
   CFG_POP      ( cstr,   log.path                                         );
   CFG_POP      ( cstr,   log.colorize                                     );
   CFG_POP      ( cstr,   log.level_logfile                                );
@@ -232,6 +234,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.metric.prometheus_listen_address           );
   CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
 
+  CFG_POP      ( cstr,   tiles.event.url                                  );
+
   CFG_POP      ( bool,   tiles.gui.enabled                                );
   CFG_POP      ( cstr,   tiles.gui.gui_listen_address                     );
   CFG_POP      ( ushort, tiles.gui.gui_listen_port                        );
@@ -316,6 +320,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   development.bundle.ssl_key_log_file              );
   CFG_POP      ( uint,   development.bundle.buffer_size_kib               );
   CFG_POP      ( uint,   development.bundle.ssl_heap_size_mib             );
+
+  CFG_POP      ( bool,   development.event.report_shreds                  );
+  CFG_POP      ( bool,   development.event.report_transactions            );
 
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );

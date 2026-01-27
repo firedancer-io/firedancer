@@ -364,6 +364,7 @@ fd_topo_initialize( config_t * config ) {
   int vinyl_enabled     = !!config->firedancer.vinyl.enabled;
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
   int rpc_enabled       = config->tiles.rpc.enabled;
+  int telemetry_enabled = config->telemetry && strcmp( config->tiles.event.url, "" );
 
   fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
 
@@ -950,6 +951,32 @@ fd_topo_initialize( config_t * config ) {
   FOR(exec_tile_cnt)   fd_topob_tile_out(   topo, "exec",    i,                         "exec_replay",  i                                                  );
   FOR(exec_tile_cnt)   fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "exec_replay",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
+  if( FD_LIKELY( telemetry_enabled ) ) {
+    fd_topob_wksp( topo, "event"      );
+    fd_topob_wksp( topo, "event_sign" );
+    fd_topob_wksp( topo, "sign_event" );
+    fd_topob_link( topo, "event_sign", "event_sign", 128UL, 32UL, 1UL );
+    fd_topob_link( topo, "sign_event", "sign_event", 128UL, 64UL, 1UL );
+    fd_topob_tile( topo, "event", "event", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
+    fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "ipecho_out", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+
+    if( FD_UNLIKELY( config->development.event.report_shreds ) ) {
+      /* TODO: This needs to be reliable, else we could miss shreds that
+         are required to replay the chain, but we can't change it yet as
+         the XDP tile does not support reliable consumers. */
+      FOR(shred_tile_cnt) fd_topob_tile_in(  topo, "event", 0UL, "metric_in", "net_shred", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_transactions ) ) {
+      fd_topob_tile_in( topo, "event", 0UL, "metric_in", "dedup_resolv", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    fd_topob_tile_in(  topo, "sign",   0UL, "metric_in", "event_sign", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    fd_topob_tile_out( topo, "event",  0UL,              "event_sign", 0UL                                         );
+    fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "sign_event", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    fd_topob_tile_out( topo, "sign",   0UL,              "sign_event", 0UL                                         );
+  }
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
     fd_topob_wksp( topo, "bundle_verif" );
@@ -1281,7 +1308,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
     tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
-  } else  if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "event" ) ) ) {
+
+    strncpy( tile->event.identity_key_path, config->paths.identity_key, sizeof(tile->event.identity_key_path) );
+    strncpy( tile->event.url, config->tiles.event.url, sizeof(tile->event.url) );
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
 
     tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
     tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;

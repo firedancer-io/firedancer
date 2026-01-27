@@ -1233,6 +1233,21 @@ metric introduced.
     <counter name="BytesRead" summary="The total number of bytes read from all connections to the GUI service" />
 </tile>
 
+<tile name="event">
+    <gauge name="ConnectionState" summary="0 = disconnected, 1 = connecting, 2 = connected" />
+    <gauge name="EventQueueCount" summary="The current number of events in the event queue waiting to be sent to the event service" />
+
+    <counter name="EventQueueDrops" summary="The total number of events dropped because the event queue was full" />
+    <gauge name="EventQueueBytesUsed" summary="The current number of bytes used in the event queue" />
+    <gauge name="EventQueueBytesCapacity" summary="The total capacity in bytes of the event queue" />
+
+    <counter name="EventsSent" summary="The total number of events sent to the event service" />
+    <counter name="EventsAcked" summary="The total number of events acknowledged by the event service" />
+
+    <counter name="BytesWritten" summary="The total number of bytes written to the event service" />
+    <counter name="BytesRead" summary="The total number of bytes read from the event service" />
+</tile>
+
 <enum name="VinylRequest">
     <int value="0" name="Acquire" label="Acquire record" />
     <int value="1" name="Release" label="Release record" />

@@ -184,6 +184,14 @@ static ulong snapshot_rx_idx = 0UL;
 static ulong snapshot_rx_samples[ 100UL ];
 static ulong snapshot_acc_idx = 0UL;
 static ulong snapshot_acc_samples[ 100UL ];
+static ulong events_sent_samples_idx = 0UL;
+static ulong events_sent_samples[ 100UL ];
+static ulong events_acked_samples_idx = 0UL;
+static ulong events_acked_samples[ 100UL ];
+static ulong event_bytes_written_samples_idx = 0UL;
+static ulong event_bytes_written_samples[ 100UL ];
+static ulong event_bytes_read_samples_idx = 0UL;
+static ulong event_bytes_read_samples[ 100UL ];
 
 #define PRINT(...) do {                          \
   char * _buf = fd_alloca_check( 1UL, 1024UL );  \
@@ -505,6 +513,66 @@ write_gui( config_t const * config,
   return 1U;
 }
 
+static uint
+write_event( config_t const * config,
+             ulong const *    cur_tile ) {
+  ulong event_tile_idx = fd_topo_find_tile( &config->topo, "event", 0UL );
+  if( event_tile_idx==ULONG_MAX ) return 0U;
+
+  ulong connection_state = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, CONNECTION_STATE ) ];
+  char const * connection_state_str;
+  switch( connection_state ) {
+    case 0UL: connection_state_str = "disconnected";    break;
+    case 1UL: connection_state_str = "connecting";      break;
+    case 2UL: connection_state_str = "authenticating";  break;
+    case 3UL: connection_state_str = "confirming_auth"; break;
+    case 4UL: connection_state_str = "connected";       break;
+    default:  connection_state_str = "unknown";         break;
+  }
+
+  ulong event_queue_count = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, EVENT_QUEUE_COUNT ) ];
+  ulong event_queue_drops = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, EVENT, EVENT_QUEUE_DROPS ) ];
+  ulong event_queue_bytes_used = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, EVENT_QUEUE_BYTES_USED ) ];
+  ulong event_queue_bytes_capacity = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, EVENT_QUEUE_BYTES_CAPACITY ) ];
+
+  double event_queue_pct_full = event_queue_bytes_capacity>0UL ? 100.0*(double)event_queue_bytes_used/(double)event_queue_bytes_capacity : 0.0;
+
+  ulong events_sent_sum = 0UL;
+  ulong num_events_sent_samples = fd_ulong_min( events_sent_samples_idx, sizeof(events_sent_samples)/sizeof(events_sent_samples[0]));
+  for( ulong i=0UL; i<num_events_sent_samples; i++ ) events_sent_sum += events_sent_samples[ i ];
+  char * events_sent_str = COUNTF( 100.0*(double)events_sent_sum/(double)num_events_sent_samples );
+
+  ulong events_acked_sum = 0UL;
+  ulong num_events_acked_samples = fd_ulong_min( events_acked_samples_idx, sizeof(events_acked_samples)/sizeof(events_acked_samples[0]));
+  for( ulong i=0UL; i<num_events_acked_samples; i++ ) events_acked_sum += events_acked_samples[ i ];
+  char * events_acked_str = COUNTF( 100.0*(double)events_acked_sum/(double)num_events_acked_samples );
+
+  ulong bytes_written_sum = 0UL;
+  ulong num_bytes_written_samples = fd_ulong_min( event_bytes_written_samples_idx, sizeof(event_bytes_written_samples)/sizeof(event_bytes_written_samples[0]));
+  for( ulong i=0UL; i<num_bytes_written_samples; i++ ) bytes_written_sum += event_bytes_written_samples[ i ];
+  long bytes_written_per_sec = (long)(100.0*(double)bytes_written_sum/(double)num_bytes_written_samples);
+  char * bytes_written_str = fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, bytes_written_per_sec );
+
+  ulong bytes_read_sum = 0UL;
+  ulong num_bytes_read_samples = fd_ulong_min( event_bytes_read_samples_idx, sizeof(event_bytes_read_samples)/sizeof(event_bytes_read_samples[0]));
+  for( ulong i=0UL; i<num_bytes_read_samples; i++ ) bytes_read_sum += event_bytes_read_samples[ i ];
+  long bytes_read_per_sec = (long)(100.0*(double)bytes_read_sum/(double)num_bytes_read_samples);
+  char * bytes_read_str = fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, bytes_read_per_sec );
+
+  char * event_queue_count_s = COUNT( event_queue_count );
+
+  PRINT( "📡 \033[1m\033[33mEVENT.......\033[0m\033[22m \033[1mSTATE\033[22m %12s \033[1mQUEUE\033[22m %s \033[1mSENT\033[22m %s /s \033[1mACKED\033[22m %s /s \033[1mBW\033[22m %s in %s out \033[1mDROPS\033[22m %s \033[1mFULL\033[22m %3.0f%%\033[K\n",
+    connection_state_str,
+    event_queue_count_s,
+    events_sent_str,
+    events_acked_str,
+    bytes_read_str,
+    bytes_written_str,
+    COUNT( event_queue_drops ),
+    event_queue_pct_full );
+  return 1U;
+}
+
 static void
 write_summary( config_t const * config,
                ulong const *    cur_tile,
@@ -548,6 +616,7 @@ write_summary( config_t const * config,
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
   lines_printed += write_gui( config, cur_tile, prev_tile );
+  lines_printed += write_event( config, cur_tile );
 
   PRINT( "\033[?7h" ); /* enable autowrap mode */
 }
@@ -639,6 +708,14 @@ run( config_t const * config,
       snapshot_rx_idx++;
       snapshot_acc_samples[ snapshot_acc_idx%(sizeof(snapshot_acc_samples)/sizeof(snapshot_acc_samples[0])) ] = (ulong)diff_tile( config, "snapin", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPIN, ACCOUNTS_LOADED ) );
       snapshot_acc_idx++;
+      events_sent_samples[ events_sent_samples_idx%(sizeof(events_sent_samples)/sizeof(events_sent_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, EVENTS_SENT ) );
+      events_sent_samples_idx++;
+      events_acked_samples[ events_acked_samples_idx%(sizeof(events_acked_samples)/sizeof(events_acked_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, EVENTS_ACKED ) );
+      events_acked_samples_idx++;
+      event_bytes_written_samples[ event_bytes_written_samples_idx%(sizeof(event_bytes_written_samples)/sizeof(event_bytes_written_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, BYTES_WRITTEN ) );
+      event_bytes_written_samples_idx++;
+      event_bytes_read_samples[ event_bytes_read_samples_idx%(sizeof(event_bytes_read_samples)/sizeof(event_bytes_read_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, BYTES_READ ) );
+      event_bytes_read_samples_idx++;
 
       /* move up n lines, delete n lines, and restore cursor and clear to end of screen */
       char erase[ 128UL ];
