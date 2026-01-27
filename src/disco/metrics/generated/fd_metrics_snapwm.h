@@ -33,7 +33,7 @@
 #define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_OFF  (26UL)
 #define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_NAME "snapwm_accounts_active"
 #define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_DESC "Current number of accounts in index. Resets if snapshot load restarts."
+#define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_DESC "Current number of accounts in index. Resets if snapshot load restarts"
 #define FD_METRICS_GAUGE_SNAPWM_ACCOUNTS_ACTIVE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_SNAPWM_TOTAL (5UL)

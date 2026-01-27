@@ -9,7 +9,7 @@
 #define FD_METRICS_COUNTER_REPAIR_TOTAL_PKT_COUNT_OFF  (22UL)
 #define FD_METRICS_COUNTER_REPAIR_TOTAL_PKT_COUNT_NAME "repair_total_pkt_count"
 #define FD_METRICS_COUNTER_REPAIR_TOTAL_PKT_COUNT_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_REPAIR_TOTAL_PKT_COUNT_DESC "How many network packets we have sent, including reqs, pings, pongs, etc."
+#define FD_METRICS_COUNTER_REPAIR_TOTAL_PKT_COUNT_DESC "How many network packets we have sent, including reqs, pings, pongs, etc"
 #define FD_METRICS_COUNTER_REPAIR_TOTAL_PKT_COUNT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_REPAIR_SENT_PKT_TYPES_OFF  (23UL)

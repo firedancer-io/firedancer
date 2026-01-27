@@ -171,7 +171,7 @@
 #define FD_METRICS_GAUGE_PACK_PENDING_TRANSACTIONS_HEAP_SIZE_OFF  (174UL)
 #define FD_METRICS_GAUGE_PACK_PENDING_TRANSACTIONS_HEAP_SIZE_NAME "pack_pending_transactions_heap_size"
 #define FD_METRICS_GAUGE_PACK_PENDING_TRANSACTIONS_HEAP_SIZE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_PACK_PENDING_TRANSACTIONS_HEAP_SIZE_DESC "The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions."
+#define FD_METRICS_GAUGE_PACK_PENDING_TRANSACTIONS_HEAP_SIZE_DESC "The maximum number of pending transactions that pack can consider. This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions"
 #define FD_METRICS_GAUGE_PACK_PENDING_TRANSACTIONS_HEAP_SIZE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_PACK_SMALLEST_PENDING_TRANSACTION_OFF  (175UL)
@@ -228,7 +228,7 @@
 #define FD_METRICS_HISTOGRAM_PACK_CUS_SCHEDULED_OFF  (190UL)
 #define FD_METRICS_HISTOGRAM_PACK_CUS_SCHEDULED_NAME "pack_cus_scheduled"
 #define FD_METRICS_HISTOGRAM_PACK_CUS_SCHEDULED_TYPE (FD_METRICS_TYPE_HISTOGRAM)
-#define FD_METRICS_HISTOGRAM_PACK_CUS_SCHEDULED_DESC "The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs."
+#define FD_METRICS_HISTOGRAM_PACK_CUS_SCHEDULED_DESC "The number of cost units scheduled for each block pack produced. This can be higher than the block limit because of returned CUs."
 #define FD_METRICS_HISTOGRAM_PACK_CUS_SCHEDULED_CVT  (FD_METRICS_CONVERTER_NONE)
 #define FD_METRICS_HISTOGRAM_PACK_CUS_SCHEDULED_MIN  (1000000UL)
 #define FD_METRICS_HISTOGRAM_PACK_CUS_SCHEDULED_MAX  (240000000UL)
@@ -236,7 +236,7 @@
 #define FD_METRICS_HISTOGRAM_PACK_CUS_REBATED_OFF  (207UL)
 #define FD_METRICS_HISTOGRAM_PACK_CUS_REBATED_NAME "pack_cus_rebated"
 #define FD_METRICS_HISTOGRAM_PACK_CUS_REBATED_TYPE (FD_METRICS_TYPE_HISTOGRAM)
-#define FD_METRICS_HISTOGRAM_PACK_CUS_REBATED_DESC "The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses."
+#define FD_METRICS_HISTOGRAM_PACK_CUS_REBATED_DESC "The number of compute units rebated for each block pack produced. Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses."
 #define FD_METRICS_HISTOGRAM_PACK_CUS_REBATED_CVT  (FD_METRICS_CONVERTER_NONE)
 #define FD_METRICS_HISTOGRAM_PACK_CUS_REBATED_MIN  (1000000UL)
 #define FD_METRICS_HISTOGRAM_PACK_CUS_REBATED_MAX  (240000000UL)
