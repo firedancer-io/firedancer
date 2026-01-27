@@ -12,7 +12,7 @@
 #include "../../log_collector/fd_log_collector.h"
 #include <assert.h>
 
-int
+void
 fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                 fd_exec_instr_ctx_t *                ctx,
                                 fd_exec_test_instr_context_t const * test_ctx,
@@ -52,7 +52,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_features_t * features = fd_bank_features_modify( runner->bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
   if( !fd_solfuzz_pb_restore_features( features, feature_set ) ) {
-    return 0;
+    FD_LOG_ERR(( "invariant violation: unsupported feature ID" ));
   }
 
   /* Blockhash queue init */
@@ -128,8 +128,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Prepare borrowed account table (correctly handles aliasing) */
 
   if( FD_UNLIKELY( test_ctx->accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
-    FD_LOG_NOTICE(( "too many accounts" ));
-    return 0;
+    FD_LOG_ERR(( "invariant violation: too many accounts (%lu > %lu)",
+                 (ulong)test_ctx->accounts_count, (ulong)MAX_TX_ACCOUNT_LOCKS ));
   }
 
   /* Load accounts into database */
@@ -251,8 +251,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Load instruction accounts */
 
   if( FD_UNLIKELY( test_ctx->instr_accounts_count > FD_INSTR_ACCT_MAX ) ) {
-    FD_LOG_NOTICE(( "too many instruction accounts" ));
-    return 0;
+    FD_LOG_ERR(( "invariant violation: too many instruction accounts (%lu > %lu)",
+                 (ulong)test_ctx->instr_accounts_count, (ulong)FD_INSTR_ACCT_MAX ));
   }
 
   /* Restore sysvar cache */
@@ -271,7 +271,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
-  if( FD_UNLIKELY( !epoch_schedule ) ) { return 0; }
+  FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
 
   fd_rent_t rent_[1];
@@ -298,8 +298,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
     if( index >= test_ctx->accounts_count ) {
-      FD_LOG_NOTICE( ( "instruction account index out of range (%u > %u)", index, test_ctx->instr_accounts_count ) );
-      return 0;
+      FD_LOG_ERR(( "invariant violation: instruction account index out of range (%u > %u)",
+                   index, test_ctx->instr_accounts_count ));
     }
 
     /* Setup instruction accounts */
@@ -323,10 +323,11 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
   }
 
-  /* Early returning only happens in instruction execution. */
+  /* For non-syscalls (instruction execution), program_id must be in the input accounts.
+     For syscalls, we skip this check because the program_id was already added to
+     txn_out->accounts at lines 169-181 if it wasn't in the input. */
   if( !is_syscall && !found_program_id ) {
-    FD_LOG_NOTICE(( " Unable to find program_id in accounts" ));
-    return 0;
+    FD_LOG_ERR(( "invariant violation: Unable to find program_id in accounts" ));
   }
 
   ctx->instr              = info;
@@ -337,8 +338,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_log_collector_init( ctx->runtime->log.log_collector, 1 );
   fd_base58_encode_32( txn_out->accounts.keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
-
-  return 1;
 }
 
 void
@@ -366,10 +365,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
   /* Convert the Protobuf inputs to a fd_exec context */
   fd_exec_instr_ctx_t ctx[1];
-  if( !fd_solfuzz_pb_instr_ctx_create( runner, ctx, input, false ) ) {
-    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
-    return 0UL;
-  }
+  fd_solfuzz_pb_instr_ctx_create( runner, ctx, input, false );
 
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 
@@ -377,7 +373,6 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   int exec_result = fd_execute_instr( ctx->runtime, runner->bank, ctx->txn_in, ctx->txn_out, instr );
 
   /* Allocate space to capture outputs */
-
   ulong output_end = (ulong)output_buf + output_bufsz;
   FD_SCRATCH_ALLOC_INIT( l, output_buf );
 

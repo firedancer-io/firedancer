@@ -112,10 +112,7 @@ fd_solfuzz_pb_vm_interp_run( fd_solfuzz_runner_t * runner,
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t instr_ctx[1];
-  if( !fd_solfuzz_pb_instr_ctx_create( runner, instr_ctx, input_instr_ctx, true /* is_syscall avoids certain checks we don't want */ ) ) {
-    fd_solfuzz_pb_instr_ctx_destroy( runner, instr_ctx );
-    return 0UL;
-  }
+  fd_solfuzz_pb_instr_ctx_create( runner, instr_ctx, input_instr_ctx, true /* is_syscall avoids certain checks we don't want */ );
 
   if( !( input->has_vm_ctx ) ) {
     fd_solfuzz_pb_instr_ctx_destroy( runner, instr_ctx );
@@ -400,8 +397,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   int is_cpi            = !strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
   int skip_extra_checks = !is_cpi;
 
-  if( !fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks ) )
-    goto error;
+  fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks );
 
   ctx->txn_out->err.exec_err = 0;
   ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
