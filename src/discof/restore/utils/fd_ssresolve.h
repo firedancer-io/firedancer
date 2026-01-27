@@ -3,6 +3,7 @@
 
 #include "../../../util/fd_util_base.h"
 #include "../../../util/net/fd_net_headers.h"
+#include "../../../flamenco/types/fd_types_custom.h"
 
 #if FD_HAS_OPENSSL
 #include <openssl/ssl.h>
@@ -12,8 +13,9 @@
 #define FD_SSRESOLVE_ALIGN (8UL)
 
 struct fd_ssresolve_result {
-  ulong     slot;      /* slot of the snapshot */
-  ulong     base_slot; /* base slot of incremental snapshot or ULONG_MAX */
+  ulong     slot;                      /* slot of the snapshot */
+  ulong     base_slot;                 /* base slot of incremental snapshot or ULONG_MAX */
+  uchar     hash[ FD_HASH_FOOTPRINT ]; /* hash of the snapshot */
 };
 
 typedef struct fd_ssresolve_result fd_ssresolve_result_t;

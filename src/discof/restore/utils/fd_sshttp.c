@@ -50,7 +50,6 @@ fd_sshttp_new( void * shmem ) {
   sshttp->state = FD_SSHTTP_STATE_INIT;
   sshttp->content_len = 0UL;
   fd_cstr_fini( sshttp->snapshot_name );
-  sshttp->snapshot_slot = ULONG_MAX;
 
 #if FD_HAS_OPENSSL
   sshttp->ssl     = NULL;
@@ -442,10 +441,8 @@ follow_redirect( fd_sshttp_t *        http,
 
       if( FD_LIKELY( incremental_entry_slot!=ULONG_MAX ) ) {
         FD_TEST( fd_cstr_printf_check( http->snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", full_entry_slot, incremental_entry_slot, encoded_hash ) );
-        http->snapshot_slot = incremental_entry_slot;
       } else {
         FD_TEST( fd_cstr_printf_check( http->snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", full_entry_slot, encoded_hash ) );
-        http->snapshot_slot = full_entry_slot;
       }
       break;
     }
@@ -608,11 +605,6 @@ read_body( fd_sshttp_t * http,
 char const *
 fd_sshttp_snapshot_name( fd_sshttp_t const * http ) {
   return http->snapshot_name;
-}
-
-ulong
-fd_sshttp_snapshot_slot( fd_sshttp_t const * http ) {
-  return http->snapshot_slot;
 }
 
 ulong

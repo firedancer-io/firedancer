@@ -24,9 +24,6 @@ char const *
 fd_sshttp_snapshot_name( fd_sshttp_t const * http );
 
 ulong
-fd_sshttp_snapshot_slot( fd_sshttp_t const * http );
-
-ulong
 fd_sshttp_content_len( fd_sshttp_t const * http );
 
 void

@@ -34,6 +34,8 @@ struct fd_ssresolve_peer {
   int           is_https;
   ulong         full_slot;
   ulong         incr_slot;
+  uchar         full_hash[ FD_HASH_FOOTPRINT ];
+  uchar         incr_hash[ FD_HASH_FOOTPRINT ];
 
   fd_ssresolve_t * full_ssresolve;
   fd_ssresolve_t * inc_ssresolve;
@@ -378,9 +380,11 @@ poll_resolve( fd_http_resolver_t *  resolver,
 
       if( resolve_result.base_slot==ULONG_MAX ) {
         peer->full_slot = resolve_result.slot;
+        fd_memcpy( peer->full_hash, resolve_result.hash, FD_HASH_FOOTPRINT );
       } else {
         peer->full_slot = resolve_result.base_slot;
         peer->incr_slot = resolve_result.slot;
+        fd_memcpy( peer->incr_hash, resolve_result.hash, FD_HASH_FOOTPRINT );
       }
     }
   }
@@ -428,7 +432,7 @@ poll_advance( fd_http_resolver_t * resolver,
       deadline_list_ele_push_tail( resolver->valid, peer, resolver->pool );
       remove_peer( resolver, peer->fd.idx );
 
-      resolver->on_resolve_cb( resolver->cb_arg, peer->addr, peer->full_slot, peer->incr_slot );
+      resolver->on_resolve_cb( resolver->cb_arg, peer->addr, peer->full_slot, peer->incr_slot, peer->full_hash, peer->incr_hash );
     }
   }
 }

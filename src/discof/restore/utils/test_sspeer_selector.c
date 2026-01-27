@@ -8,7 +8,7 @@ add_peer( fd_sspeer_selector_t * selector,
           ulong                  full_slot,
           ulong                  incremental_slot,
           ulong                  latency ) {
-  return fd_sspeer_selector_add( selector, addr, latency, full_slot, incremental_slot );
+  return fd_sspeer_selector_add( selector, addr, latency, full_slot, incremental_slot, NULL, NULL );
 }
 
 static void

@@ -8,6 +8,7 @@
 
 #include "../../../util/fd_util_base.h"
 #include "../../../util/net/fd_net_headers.h"
+#include "../../../flamenco/types/fd_types_custom.h"
 
 #define FD_SSPEER_SELECTOR_MAGIC (0xF17EDA2CE5593350) /* FIREDANCE SSPING V0 */
 
@@ -28,6 +29,8 @@ struct fd_sspeer {
   ulong         full_slot;
   ulong         incr_slot;
   ulong         score;    /* selector score of peer */
+  uchar         full_hash[ FD_HASH_FOOTPRINT ];
+  uchar         incr_hash[ FD_HASH_FOOTPRINT ];
 };
 
 typedef struct fd_sspeer fd_sspeer_t;
@@ -66,7 +69,9 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
                         fd_ip4_port_t          addr,
                         ulong                  peer_latency,
                         ulong                  full_slot,
-                        ulong                  incr_slot );
+                        ulong                  incr_slot,
+                        uchar const            full_hash[ FD_HASH_FOOTPRINT ],
+                        uchar const            incr_hash[ FD_HASH_FOOTPRINT ] );
 
 /* Remove a peer from the selector.  Peers are removed when they are
    not reachable or serving corrupted/malformed snapshots.  This is a

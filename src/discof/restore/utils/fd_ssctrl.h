@@ -106,14 +106,14 @@ typedef struct fd_ssctrl_init {
   ulong         slot; /* slot advertised by the snapshot peer */
   fd_ip4_port_t addr;
   char          hostname[ 256UL ];
+  char          path[ PATH_MAX ];
+  ulong         path_len;
   int           is_https;
 } fd_ssctrl_init_t;
 
 /* Sent by snapld to tell snapct metadata about a downloaded snapshot. */
 typedef struct fd_ssctrl_meta {
   ulong total_sz;
-  char  name[ PATH_MAX ];
-  ulong slot;
 } fd_ssctrl_meta_t;
 
 struct fd_snapshot_account_hdr {
