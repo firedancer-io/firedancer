@@ -118,7 +118,7 @@ fd_dev_main( int                        argc,
 # if !FD_HAS_ASAN && !FD_HAS_MSAN
   fd_log_enable_signal_handler();
 # endif
-  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, topo_init );
+  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs );
 
   config.development.no_clone = config.development.no_clone || no_clone;
   config.development.sandbox = config.development.sandbox && !no_sandbox && !config.development.no_clone;
@@ -129,7 +129,10 @@ fd_dev_main( int                        argc,
                  "configuration targets a live cluster. Use `fdctl` if this is a "
                  "production environment" ));
 
-  if( FD_LIKELY( action->topo ) ) action->topo( &config );
+  if( FD_LIKELY( load_topo ) ) {
+    if( FD_LIKELY( action->topo ) ) action->topo( &config );
+    else                            topo_init( &config );
+  }
 
   args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
