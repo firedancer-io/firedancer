@@ -114,10 +114,7 @@ fd_solfuzz_pb_vm_interp_run( fd_solfuzz_runner_t * runner,
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_solfuzz_pb_instr_ctx_create( runner, instr_ctx, input_instr_ctx, true /* is_syscall avoids certain checks we don't want */ );
 
-  if( !( input->has_vm_ctx ) ) {
-    fd_solfuzz_pb_instr_ctx_destroy( runner, instr_ctx );
-    return 0UL;
-  }
+  FD_TEST( input->has_vm_ctx );
 
   fd_spad_t * spad = runner->spad;
   instr_ctx->bank  = runner->bank;
