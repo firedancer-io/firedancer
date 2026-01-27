@@ -509,6 +509,24 @@
 
 </div>
 
+## Event Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">event_&#8203;connection_&#8203;state</span> | gauge | 0 = disconnected, 1 = connecting, 2 = connected |
+| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;count</span> | gauge | The current number of events in the event queue waiting to be sent to the event service |
+| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;drops</span> | counter | The total number of events dropped because the event queue was full |
+| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;bytes_&#8203;used</span> | gauge | The current number of bytes used in the event queue |
+| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;bytes_&#8203;capacity</span> | gauge | The total capacity in bytes of the event queue |
+| <span class="metrics-name">event_&#8203;events_&#8203;sent</span> | counter | The total number of events sent to the event service |
+| <span class="metrics-name">event_&#8203;events_&#8203;acked</span> | counter | The total number of events acknowledged by the event service |
+| <span class="metrics-name">event_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to the event service |
+| <span class="metrics-name">event_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from the event service |
+
+</div>
+
 ## Gui Tile
 
 <div class="metrics">

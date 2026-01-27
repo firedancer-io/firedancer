@@ -281,6 +281,11 @@ struct fd_topo_tile {
     } bundle;
 
     struct {
+      char  url[ 256 ];
+      char  identity_key_path[ PATH_MAX ];
+    } event;
+
+    struct {
       ulong max_pending_transactions;
       ulong bank_tile_count;
       int   larger_max_cost_per_block;
