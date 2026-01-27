@@ -229,11 +229,19 @@ dynamic_port_range = "8900-9000"
     # Agave client with the `--account-index-include-key` argument.
     account_index_include_keys = []
 
+    # If account indexes are enabled, they are flushed to disk
+    # periodically.  Otherwise, the entire index is kept in memory.
+    # Setting this to false may reduce disk I/O strain.  This option is
+    # passed to the Agave client with the `--enable-accounts-disk-index`
+    # argument.
+    enable_accounts_disk_index = false
+
     # If account indexes are enabled, this is the absolute directory
     # path to place the accounts index in.  If this is empty, it
     # will default to the `accounts_index` subdirectory of the ledger
     # `path` above.  This option is passed to the Agave client with
-    # the `--accounts-index-path` argument.
+    # the `--accounts-index-path` argument.  Setting this will
+    # automatically set the [ledger.enable_accounts_disk_index] to true.
     accounts_index_path = ""
 
     # Every epoch, the client calculates a hash of all the accounts
