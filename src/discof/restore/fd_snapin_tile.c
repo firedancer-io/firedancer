@@ -585,6 +585,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig,
                      ulong               chunk ) {
+  int forward_control_frag = 1;
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
@@ -628,6 +629,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_META: {
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
         transition_malformed( ctx, stem );
+        forward_control_frag = 0;
         break;
       }
 
@@ -636,6 +638,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
          known after receiving the fd_ssctrl_meta_t message. */
       fd_ssctrl_meta_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->advertised_slot = msg->slot;
+      forward_control_frag = 0;
       break;
     }
 
@@ -730,7 +733,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_control_frag ) ) {
+    fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 }
 
 static inline int
