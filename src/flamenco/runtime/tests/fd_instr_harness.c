@@ -12,7 +12,7 @@
 #include "../../log_collector/fd_log_collector.h"
 #include <assert.h>
 
-int
+void
 fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                 fd_exec_instr_ctx_t *                ctx,
                                 fd_exec_test_instr_context_t const * test_ctx,
@@ -338,8 +338,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_log_collector_init( ctx->runtime->log.log_collector, 1 );
   fd_base58_encode_32( txn_out->accounts.keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
-
-  return 0;  /* Success */
 }
 
 void
@@ -365,7 +363,16 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   fd_exec_test_instr_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_instr_effects_t **      output = fd_type_pun( output_ );
 
-  /* Allocate space to capture outputs first so we can return errors */
+  /* Convert the Protobuf inputs to a fd_exec context */
+  fd_exec_instr_ctx_t ctx[1];
+  fd_solfuzz_pb_instr_ctx_create( runner, ctx, input, false );
+
+  fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
+
+  /* Execute the test */
+  int exec_result = fd_execute_instr( ctx->runtime, runner->bank, ctx->txn_in, ctx->txn_out, instr );
+
+  /* Allocate space to capture outputs */
   ulong output_end = (ulong)output_buf + output_bufsz;
   FD_SCRATCH_ALLOC_INIT( l, output_buf );
 
@@ -373,26 +380,10 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_instr_effects_t),
                                 sizeof (fd_exec_test_instr_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
+    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
     return 0UL;
   }
   fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
-
-  /* Convert the Protobuf inputs to a fd_exec context */
-  fd_exec_instr_ctx_t ctx[1];
-  int ctx_err = fd_solfuzz_pb_instr_ctx_create( runner, ctx, input, false );
-  if( FD_UNLIKELY( ctx_err ) ) {
-    /* Return effects with the error from context creation */
-    effects->result   = -ctx_err;
-    effects->cu_avail = input->cu_avail;
-    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
-    *output = effects;
-    return FD_SCRATCH_ALLOC_FINI( l, 1UL ) - (ulong)output_buf;
-  }
-
-  fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
-
-  /* Execute the test */
-  int exec_result = fd_execute_instr( ctx->runtime, runner->bank, ctx->txn_in, ctx->txn_out, instr );
 
   /* Capture error code */
 
