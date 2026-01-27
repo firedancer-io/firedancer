@@ -6,6 +6,7 @@
    invalid signatures are filtered out of the frag stream. */
 
 #include "../topo/fd_topo.h"
+#include "../metrics/generated/fd_metrics_enums.h"
 
 #define FD_TXN_VERIFY_SUCCESS  0
 #define FD_TXN_VERIFY_FAILED  -1
@@ -49,10 +50,7 @@ typedef struct {
   ulong       hashmap_seed;
 
   struct {
-    ulong parse_fail_cnt;
-    ulong verify_fail_cnt;
-    ulong dedup_fail_cnt;
-    ulong bundle_peer_fail_cnt;
+    ulong verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_CNT ];
     ulong gossiped_votes_cnt;
   } metrics;
 } fd_verify_ctx_t;

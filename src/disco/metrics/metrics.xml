@@ -401,17 +401,27 @@ metric introduced.
     </histogram>
 </tile>
 
+<enum name="VerifyTileResult">
+    <int value="0" name="Success" label="Transaction verified successfully" />
+    <int value="1" name="BundlePeerFailure" label="Peer transaction in the bundle failed" />
+    <int value="2" name="ParseFailure" label="Transaction failed to parse" />
+    <int value="3" name="DedupFailure" label="Transaction failed deduplication" />
+    <int value="4" name="VerifyFailure" label="Transaction failed signature verification" />
+</enum>
+
 <tile name="verify">
-    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to verify because a peer transaction in the bundle failed" />
-    <counter name="TransactionParseFailure" summary="Count of transactions that failed to parse" />
-    <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
-    <counter name="TransactionVerifyFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
+    <counter name="TransactionResult" enum="VerifyTileResult" summary="Count of transaction results through verify tile" />
     <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
 </tile>
 
+<enum name="DedupTileResult">
+    <int value="0" name="Success" label="Transaction deduplicated successfully" />
+    <int value="1" name="BundlePeerFailure" label="Peer transaction in the bundle failed" />
+    <int value="2" name="DedupFailure" label="Transaction failed deduplication" />
+</enum>
+
 <tile name="dedup">
-    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to dedup because a peer transaction in the bundle failed" />
-    <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the dedup stage" />
+    <counter name="TransactionResult" enum="DedupTileResult" summary="Count of transaction results through dedup tile" />
     <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
 </tile>
 

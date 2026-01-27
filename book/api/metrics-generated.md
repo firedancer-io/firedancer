@@ -225,10 +225,11 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">verify_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to verify because a peer transaction in the bundle failed |
-| <span class="metrics-name">verify_&#8203;transaction_&#8203;parse_&#8203;failure</span> | counter | Count of transactions that failed to parse |
-| <span class="metrics-name">verify_&#8203;transaction_&#8203;dedup_&#8203;failure</span> | counter | Count of transactions that failed to deduplicate in the verify stage |
-| <span class="metrics-name">verify_&#8203;transaction_&#8203;verify_&#8203;failure</span> | counter | Count of transactions that failed to deduplicate in the verify stage |
+| <span class="metrics-name">verify_&#8203;transaction_&#8203;result</span><br/>{verify_&#8203;tile_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of transaction results through verify tile (Transaction verified successfully) |
+| <span class="metrics-name">verify_&#8203;transaction_&#8203;result</span><br/>{verify_&#8203;tile_&#8203;result="<span class="metrics-enum">bundle_&#8203;peer_&#8203;failure</span>"} | counter | Count of transaction results through verify tile (Peer transaction in the bundle failed) |
+| <span class="metrics-name">verify_&#8203;transaction_&#8203;result</span><br/>{verify_&#8203;tile_&#8203;result="<span class="metrics-enum">parse_&#8203;failure</span>"} | counter | Count of transaction results through verify tile (Transaction failed to parse) |
+| <span class="metrics-name">verify_&#8203;transaction_&#8203;result</span><br/>{verify_&#8203;tile_&#8203;result="<span class="metrics-enum">dedup_&#8203;failure</span>"} | counter | Count of transaction results through verify tile (Transaction failed deduplication) |
+| <span class="metrics-name">verify_&#8203;transaction_&#8203;result</span><br/>{verify_&#8203;tile_&#8203;result="<span class="metrics-enum">verify_&#8203;failure</span>"} | counter | Count of transaction results through verify tile (Transaction failed signature verification) |
 | <span class="metrics-name">verify_&#8203;gossiped_&#8203;votes_&#8203;received</span> | counter | Count of simple vote transactions received over gossip instead of via the normal TPU path |
 
 </div>
@@ -239,8 +240,9 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">dedup_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to dedup because a peer transaction in the bundle failed |
-| <span class="metrics-name">dedup_&#8203;transaction_&#8203;dedup_&#8203;failure</span> | counter | Count of transactions that failed to deduplicate in the dedup stage |
+| <span class="metrics-name">dedup_&#8203;transaction_&#8203;result</span><br/>{dedup_&#8203;tile_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of transaction results through dedup tile (Transaction deduplicated successfully) |
+| <span class="metrics-name">dedup_&#8203;transaction_&#8203;result</span><br/>{dedup_&#8203;tile_&#8203;result="<span class="metrics-enum">bundle_&#8203;peer_&#8203;failure</span>"} | counter | Count of transaction results through dedup tile (Peer transaction in the bundle failed) |
+| <span class="metrics-name">dedup_&#8203;transaction_&#8203;result</span><br/>{dedup_&#8203;tile_&#8203;result="<span class="metrics-enum">dedup_&#8203;failure</span>"} | counter | Count of transaction results through dedup tile (Transaction failed deduplication) |
 | <span class="metrics-name">dedup_&#8203;gossiped_&#8203;votes_&#8203;received</span> | counter | Count of simple vote transactions received over gossip instead of via the normal TPU path |
 
 </div>

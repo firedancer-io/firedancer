@@ -27,11 +27,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_verify_ctx_t * ctx ) {
-  FD_MCNT_SET( VERIFY, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_fail_cnt );
-  FD_MCNT_SET( VERIFY, TRANSACTION_PARSE_FAILURE,       ctx->metrics.parse_fail_cnt );
-  FD_MCNT_SET( VERIFY, TRANSACTION_DEDUP_FAILURE,       ctx->metrics.dedup_fail_cnt );
-  FD_MCNT_SET( VERIFY, GOSSIPED_VOTES_RECEIVED,         ctx->metrics.gossiped_votes_cnt );
-  FD_MCNT_SET( VERIFY, TRANSACTION_VERIFY_FAILURE,      ctx->metrics.verify_fail_cnt );
+  FD_MCNT_ENUM_COPY( VERIFY, TRANSACTION_RESULT, ctx->metrics.verify_tile_result );
+  FD_MCNT_SET( VERIFY, GOSSIPED_VOTES_RECEIVED,  ctx->metrics.gossiped_votes_cnt );
 }
 
 static int
@@ -127,13 +124,13 @@ after_frag( fd_verify_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( is_bundle & (!!ctx->bundle_failed) ) ) {
-    ctx->metrics.bundle_peer_fail_cnt++;
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_BUNDLE_PEER_FAILURE_IDX ]++;
     return;
   }
 
   if( FD_UNLIKELY( !txnm->txn_t_sz ) ) {
     if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
-    ctx->metrics.parse_fail_cnt++;
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_PARSE_FAILURE_IDX ]++;
     return;
   }
 
@@ -148,8 +145,8 @@ after_frag( fd_verify_ctx_t *   ctx,
   if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
     if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
 
-    if( FD_LIKELY( res==FD_TXN_VERIFY_DEDUP ) ) ctx->metrics.dedup_fail_cnt++;
-    else                                        ctx->metrics.verify_fail_cnt++;
+    if( FD_LIKELY( res==FD_TXN_VERIFY_DEDUP ) ) ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_DEDUP_FAILURE_IDX ]++;
+    else                                        ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_VERIFY_FAILURE_IDX ]++;
 
     return;
   }
@@ -158,6 +155,8 @@ after_frag( fd_verify_ctx_t *   ctx,
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
+
+  ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_SUCCESS_IDX ]++;
 }
 
 static void
