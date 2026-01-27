@@ -1,0 +1,51 @@
+{
+    "name": "metrics_bankf",
+    "id": 1029,
+    "description": "Metrics snapshot for the bankf tile",
+    "fields": {
+        "meta":               { "type": "ref:MetricMeta" },
+        "tile":               { "type": "ref:MetricTile" },
+        "transaction_result": {
+            "type": "Flatten",
+            "description": "Result of loading and executing a transaction",
+            "fields": {
+                "transaction_result_success":                                 { "type": "UInt64", "description": "Transaction executed successfully" },
+                "transaction_result_instructon_error":                        { "type": "UInt64", "description": "An error occurred while processing an instruction" },
+                "transaction_result_account_not_found":                       { "type": "UInt64", "description": "The transaction fee payer address was not found" },
+                "transaction_result_program_account_not_found":               { "type": "UInt64", "description": "A program account referenced by the transaction was not found" },
+                "transaction_result_insufficient_funds_for_fee":              { "type": "UInt64", "description": "The transaction fee payer did not have balance to pay the fee" },
+                "transaction_result_invalid_account_for_fee":                 { "type": "UInt64", "description": "The transaction fee payer account is not owned by the system program, or has data that is not a nonce" },
+                "transaction_result_already_processed":                       { "type": "UInt64", "description": "The transaction has already been processed in a recent block" },
+                "transaction_result_blockhash_not_found":                     { "type": "UInt64", "description": "The transaction references a blockhash that is not recent, or advances a nonce with the wrong value" },
+                "transaction_result_invalid_program_for_execution":           { "type": "UInt64", "description": "A program account referenced by the transaction was no executable. TODO: No longer needed with SIMD-0162" },
+                "transaction_result_address_lookup_table_not_found":          { "type": "UInt64", "description": "The transaction references an ALUT account that does not exist or is inactive" },
+                "transaction_result_invalid_address_lookup_table_owner":      { "type": "UInt64", "description": "The transaction references an ALUT account that is not owned by the ALUT program account" },
+                "transaction_result_invalid_address_lookup_table_data":       { "type": "UInt64", "description": "The transaction references an ALUT account that contains data which is not a valid ALUT" },
+                "transaction_result_invalid_address_lookup_table_index":      { "type": "UInt64", "description": "The transaction references an account offset from the ALUT which does not exist" },
+                "transaction_result_max_loaded_accounts_data_size_exceeded":  { "type": "UInt64", "description": "The total account data size of the loaded accounts exceeds the consensus limit" },
+                "transaction_result_duplicate_instruction":                   { "type": "UInt64", "description": "A compute budget program instruction was invoked more than once" },
+                "transaction_result_invalid_loaded_accounts_data_size_limit": { "type": "UInt64", "description": "The compute budget program was invoked and set the loaded accounts data size to zero" },
+                "transaction_result_nonce_already_advanced":                  { "type": "UInt64", "description": "The transaction references a nonce account that is already advanced" },
+                "transaction_result_nonce_advance_failed":                    { "type": "UInt64", "description": "The transaction is a nonce transaction but the advance instruction was not valid or failed" },
+                "transaction_result_nonce_wrong_blockhash":                   { "type": "UInt64", "description": "The transaction is a nonce transaction but the blockhash is not the correct one" },
+                "transaction_result_account_in_use":                          { "type": "UInt64", "description": "The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher" },
+                "transaction_result_account_loaded_twice":                    { "type": "UInt64", "description": "The transaction references the same account twice" },
+                "transaction_result_signature_failure":                       { "type": "UInt64", "description": "The transaction had an invalid signature" },
+                "transaction_result_too_many_account_locks":                  { "type": "UInt64", "description": "The transaction references too many accounts. TODO: No longer possible with smart dispatcher" },
+                "transaction_result_insufficient_funds_for_rent":             { "type": "UInt64", "description": "The transaction would leave an account with a lower balance than the rent-exempt minimum" },
+                "transaction_result_unbalanced_transaction":                  { "type": "UInt64", "description": "The total referenced account lamports before and after the transaction was unbalanced" },
+                "transaction_result_bundle_peer":                             { "type": "UInt64", "description": "The transaction was part of a bundle and an earlier transaction in the bundle failed" }
+            }
+        },
+        "transaction_landed": {
+            "type": "Flatten",
+            "description": "Whether a transaction landed in the block or not",
+            "fields": {
+                "transaction_landed_landed_success":   { "type": "UInt64", "description": "Transaction landed" },
+                "transaction_landed_landed_fees_only": { "type": "UInt64", "description": "Transaction landed, but was fees only and did not execute" },
+                "transaction_landed_landed_failed":    { "type": "UInt64", "description": "Transaction landed, but failed to execute" },
+                "transaction_landed_unlanded":         { "type": "UInt64", "description": "Transaction did not land" }
+            }
+        }
+    }
+}

@@ -1,0 +1,9 @@
+{
+    "name": "metrics_diag",
+    "id": 1013,
+    "description": "Metrics snapshot for the diag tile",
+    "fields": {
+        "meta": { "type": "ref:MetricMeta" },
+        "tile": { "type": "ref:MetricTile" }
+    }
+}

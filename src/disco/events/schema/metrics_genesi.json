@@ -1,0 +1,9 @@
+{
+    "name": "metrics_genesi",
+    "id": 1043,
+    "description": "Metrics snapshot for the genesi tile",
+    "fields": {
+        "meta": { "type": "ref:MetricMeta" },
+        "tile": { "type": "ref:MetricTile" }
+    }
+}

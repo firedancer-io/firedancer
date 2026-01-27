@@ -1,0 +1,12 @@
+{
+    "name": "metrics_snapls",
+    "id": 1037,
+    "description": "Metrics snapshot for the snapls tile",
+    "fields": {
+        "meta":                        { "type": "ref:MetricMeta" },
+        "tile":                        { "type": "ref:MetricTile" },
+        "state":                       { "type": "UInt64", "description": "State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" },
+        "full_accounts_hashed":        { "type": "UInt64", "description": "Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" },
+        "incremental_accounts_hashed": { "type": "UInt64", "description": "Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" }
+    }
+}

@@ -1,0 +1,15 @@
+{
+    "name": "metrics_ipecho",
+    "id": 1027,
+    "description": "Metrics snapshot for the ipecho tile",
+    "fields": {
+        "meta":                     { "type": "ref:MetricMeta" },
+        "tile":                     { "type": "ref:MetricTile" },
+        "current_shred_version":    { "type": "UInt64", "description": "The current shred version used by the validator" },
+        "connection_count":         { "type": "UInt64", "description": "The number of active connections to the ipecho service" },
+        "connections_closed_ok":    { "type": "UInt64", "description": "The number of connections to the ipecho service that have been made and closed normally" },
+        "connections_closed_error": { "type": "UInt64", "description": "The number of connections to the ipecho service that have been made and closed abnormally" },
+        "bytes_read":               { "type": "UInt64", "description": "The total number of bytes read from all connections to the ipecho service" },
+        "bytes_written":            { "type": "UInt64", "description": "The total number of bytes written to all connections to the ipecho service" }
+    }
+}

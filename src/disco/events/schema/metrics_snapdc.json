@@ -1,0 +1,14 @@
+{
+    "name": "metrics_snapdc",
+    "id": 1025,
+    "description": "Metrics snapshot for the snapdc tile",
+    "fields": {
+        "meta":                                   { "type": "ref:MetricMeta" },
+        "tile":                                   { "type": "ref:MetricTile" },
+        "state":                                  { "type": "UInt64", "description": "State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" },
+        "full_compressed_bytes_read":             { "type": "UInt64", "description": "Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted" },
+        "full_decompressed_bytes_written":        { "type": "UInt64", "description": "Number of bytes decompressed so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" },
+        "incremental_compressed_bytes_read":      { "type": "UInt64", "description": "Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted" },
+        "incremental_decompressed_bytes_written": { "type": "UInt64", "description": "Number of bytes decompressed so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" }
+    }
+}

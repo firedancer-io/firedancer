@@ -20,6 +20,1303 @@ enum ShredProtocol {
   SHRED_PROTOCOL_LEADER = 3;  // Leader
 }
 
+// Reason for taking this sample
+enum MetricMetaSampleReason {
+  METRIC_META_SAMPLE_REASON_UNSPECIFIED = 0;
+  METRIC_META_SAMPLE_REASON_PERIODIC = 1;  // Periodic sampling at regular intervals
+  METRIC_META_SAMPLE_REASON_LEADER = 2;  // Sampled because this validator was leader in the slot
+}
+
+// CPU time spent in each CPU regime
+message MetricTileCpuDurationNanos {
+  // Wait (task was runnable but not scheduled)
+  uint64 cpu_duration_nanos_wait = 1;
+  // Idle (task was not runnable)
+  uint64 cpu_duration_nanos_idle = 2;
+  // User (task was scheduled and executing in user mode)
+  uint64 cpu_duration_nanos_user = 3;
+  // System (task was scheduled and executing in kernel mode)
+  uint64 cpu_duration_nanos_system = 4;
+}
+
+// Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes
+message MetricTileRegimeDurationNanos {
+  // Caught up + Housekeeping
+  uint64 regime_duration_nanos_caught_up_housekeeping = 1;
+  // Processing + Housekeeping
+  uint64 regime_duration_nanos_processing_housekeeping = 2;
+  // Backpressure + Housekeeping
+  uint64 regime_duration_nanos_backpressure_housekeeping = 3;
+  // Caught up + Prefrag
+  uint64 regime_duration_nanos_caught_up_prefrag = 4;
+  // Processing + Prefrag
+  uint64 regime_duration_nanos_processing_prefrag = 5;
+  // Backpressure + Prefrag
+  uint64 regime_duration_nanos_backpressure_prefrag = 6;
+  // Caught up + Postfrag
+  uint64 regime_duration_nanos_caught_up_postfrag = 7;
+  // Processing + Postfrag
+  uint64 regime_duration_nanos_processing_postfrag = 8;
+}
+
+// Common tile metrics shared by all tiles
+message MetricTile {
+  // The process ID of the tile
+  uint64 pid = 1;
+  // The thread ID of the tile. Always the same as the Pid in production, but might be different in development
+  uint64 tid = 2;
+  // The number of involuntary context switches
+  uint64 context_switch_involuntary_count = 3;
+  // The number of voluntary context switches
+  uint64 context_switch_voluntary_count = 4;
+  // The number of major page faults
+  uint64 page_fault_major_count = 5;
+  // The number of minor page faults
+  uint64 page_fault_minor_count = 6;
+  // The current status of the tile. 0 is booting, 1 is running. 2 is shutdown
+  uint64 status = 7;
+  // The last UNIX timestamp in nanoseconds that the tile heartbeated
+  uint64 heartbeat = 8;
+  // Whether the tile is currently backpressured or not, either 1 or 0
+  uint64 in_backpressure = 9;
+  // Number of times the tile has had to wait for one of more consumers to catch up to resume publishing
+  uint64 backpressure_count = 10;
+  // Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes
+  MetricTileRegimeDurationNanos regime_duration_nanos = 11;
+  // CPU time spent in each CPU regime
+  MetricTileCpuDurationNanos cpu_duration_nanos = 12;
+}
+
+// Metadata about this metrics sample
+message MetricMeta {
+  // The kind_id of this tile instance within its type (e.g., 0, 1, 2 for multiple tiles of same type)
+  uint64 kind_id = 1;
+  // Unique identifier correlating samples taken at the same time across tiles
+  uint64 sample_id = 2;
+  // Reason for taking this sample
+  MetricMetaSampleReason sample_reason = 3;
+  // The slot number for which this sample was taken, if applicable
+  uint64 sample_slot = 4;
+}
+
+// Number of QUIC packets that retransmitted
+message MetricsQuicPktRetransmissions {
+  // Initial
+  uint64 pkt_retransmissions_initial = 1;
+  // Early data
+  uint64 pkt_retransmissions_early = 2;
+  // Handshake
+  uint64 pkt_retransmissions_handshake = 3;
+  // App data
+  uint64 pkt_retransmissions_app = 4;
+}
+
+// Number of packets that failed decryption due to missing key
+message MetricsQuicPktNoKey {
+  // Initial
+  uint64 pkt_no_key_initial = 1;
+  // Early data
+  uint64 pkt_no_key_early = 2;
+  // Handshake
+  uint64 pkt_no_key_handshake = 3;
+  // App data
+  uint64 pkt_no_key_app = 4;
+}
+
+// Number of packets that failed decryption
+message MetricsQuicPktCryptoFailed {
+  // Initial
+  uint64 pkt_crypto_failed_initial = 1;
+  // Early data
+  uint64 pkt_crypto_failed_early = 2;
+  // Handshake
+  uint64 pkt_crypto_failed_handshake = 3;
+  // App data
+  uint64 pkt_crypto_failed_app = 4;
+}
+
+// ACK events
+message MetricsQuicAckTx {
+  // Non-ACK-eliciting packet
+  uint64 ack_tx_noop = 1;
+  // New ACK range
+  uint64 ack_tx_new = 2;
+  // Merged into existing ACK range
+  uint64 ack_tx_merged = 3;
+  // Out of buffers
+  uint64 ack_tx_drop = 4;
+  // ACK suppressed by handler
+  uint64 ack_tx_cancel = 5;
+}
+
+// Number of QUIC frames received
+message MetricsQuicReceivedFrames {
+  // Unknown frame type
+  uint64 received_frames_unknown = 1;
+  // ACK frame
+  uint64 received_frames_ack = 2;
+  // RESET_STREAM frame
+  uint64 received_frames_reset_stream = 3;
+  // STOP_SENDING frame
+  uint64 received_frames_stop_sending = 4;
+  // CRYPTO frame
+  uint64 received_frames_crypto = 5;
+  // NEW_TOKEN frame
+  uint64 received_frames_new_token = 6;
+  // STREAM frame
+  uint64 received_frames_stream = 7;
+  // MAX_DATA frame
+  uint64 received_frames_max_data = 8;
+  // MAX_STREAM_DATA frame
+  uint64 received_frames_max_stream_data = 9;
+  // MAX_STREAMS frame
+  uint64 received_frames_max_streams = 10;
+  // DATA_BLOCKED frame
+  uint64 received_frames_data_blocked = 11;
+  // STREAM_DATA_BLOCKED frame
+  uint64 received_frames_stream_data_blocked = 12;
+  // STREAMS_BLOCKED(bidi) frame
+  uint64 received_frames_streams_blocked = 13;
+  // NEW_CONN_ID frame
+  uint64 received_frames_new_conn_id = 14;
+  // RETIRE_CONN_ID frame
+  uint64 received_frames_retire_conn_id = 15;
+  // PATH_CHALLENGE frame
+  uint64 received_frames_path_challenge = 16;
+  // PATH_RESPONSE frame
+  uint64 received_frames_path_response = 17;
+  // CONN_CLOSE(transport) frame
+  uint64 received_frames_conn_close_quic = 18;
+  // CONN_CLOSE(app) frame
+  uint64 received_frames_conn_close_app = 19;
+  // HANDSHAKE_DONE frame
+  uint64 received_frames_handshake_done = 20;
+  // PING frame
+  uint64 received_frames_ping = 21;
+  // PADDING frame
+  uint64 received_frames_padding = 22;
+}
+
+// Number of Initial packets grouped by token length
+message MetricsQuicInitialTokenLen {
+  // No token
+  uint64 initial_token_len_zero = 1;
+  // fd_quic retry token length
+  uint64 initial_token_len_fd_quic_len = 2;
+  // Invalid token length
+  uint64 initial_token_len_invalid_len = 3;
+}
+
+// Results of attempts to acquire QUIC frame metadata
+message MetricsQuicFrameTxAlloc {
+  // Success
+  uint64 frame_tx_alloc_success = 1;
+  // PktMetaPoolEmpty
+  uint64 frame_tx_alloc_fail_empty_pool = 2;
+  // ConnMaxedInflightFrames
+  uint64 frame_tx_alloc_fail_conn_max = 3;
+}
+
+// Number of packets with an unknown connection ID
+message MetricsQuicPktNoConn {
+  // Initial
+  uint64 pkt_no_conn_initial = 1;
+  // Retry
+  uint64 pkt_no_conn_retry = 2;
+  // Handshake
+  uint64 pkt_no_conn_handshake = 3;
+  // 1-RTT
+  uint64 pkt_no_conn_one_rtt = 4;
+}
+
+// The number of QUIC connections in each state
+message MetricsQuicConnectionsState {
+  // Freed
+  uint64 connections_state_invalid = 1;
+  // Handshaking peer
+  uint64 connections_state_handshake = 2;
+  // Handshake complete, confirming with peer
+  uint64 connections_state_handshake_complete = 3;
+  // Active connection
+  uint64 connections_state_active = 4;
+  // Peer requested close
+  uint64 connections_state_peer_close = 5;
+  // Connection terminating due to error
+  uint64 connections_state_abort = 6;
+  // Connection is closing
+  uint64 connections_state_close_pending = 7;
+  // Connection about to be freed
+  uint64 connections_state_dead = 8;
+}
+
+// Count of txns received via TPU
+message MetricsQuicTxnsReceived {
+  // TPU/UDP
+  uint64 txns_received_udp = 1;
+  // TPU/QUIC unfragmented
+  uint64 txns_received_quic_fast = 2;
+  // TPU/QUIC fragmented
+  uint64 txns_received_quic_frag = 3;
+}
+
+// Number of gRPC errors encountered
+message MetricsBundleErrors {
+  // Protobuf decode/encode error
+  uint64 errors_protobuf = 1;
+  // Transport error
+  uint64 errors_transport = 2;
+  // I/O timeout
+  uint64 errors_timeout = 3;
+  // Bundle dropped due to missing fee info
+  uint64 errors_no_fee_info = 4;
+  // OpenSSL alloc fail
+  uint64 errors_ssl_alloc = 5;
+}
+
+// Count of transaction results through verify tile
+message MetricsVerifyTransactionResult {
+  // Transaction verified successfully
+  uint64 transaction_result_success = 1;
+  // Peer transaction in the bundle failed
+  uint64 transaction_result_bundle_peer_failure = 2;
+  // Transaction failed to parse
+  uint64 transaction_result_parse_failure = 3;
+  // Transaction failed deduplication
+  uint64 transaction_result_dedup_failure = 4;
+  // Transaction failed signature verification
+  uint64 transaction_result_verify_failure = 5;
+}
+
+// Count of transaction results through dedup tile
+message MetricsDedupTransactionResult {
+  // Transaction deduplicated successfully
+  uint64 transaction_result_success = 1;
+  // Peer transaction in the bundle failed
+  uint64 transaction_result_bundle_peer_failure = 2;
+  // Transaction failed deduplication
+  uint64 transaction_result_dedup_failure = 3;
+}
+
+// Result of considering whether bundle cranks are needed
+message MetricsPackBundleCrankStatus {
+  // On-chain state in the correct state
+  uint64 bundle_crank_status_not_needed = 1;
+  // Inserted an initializer bundle to update the on-chain state
+  uint64 bundle_crank_status_inserted = 2;
+  // Tried to insert an initializer bundle to update the on-chain state, but creation failed
+  uint64 bundle_crank_status_creation_failed = 3;
+  // Tried to insert an initializer bundle to update the on-chain state, but insertion failed
+  uint64 bundle_crank_status_insertion_failed = 4;
+}
+
+// Result of trying to consider a transaction for scheduling
+message MetricsPackTransactionSchedule {
+  // Pack included the transaction in the microblock
+  uint64 transaction_schedule_taken = 1;
+  // Pack skipped the transaction because it would have exceeded the block CU limit
+  uint64 transaction_schedule_cu_limit = 2;
+  // Pack skipped the transaction because of account conflicts using the fast bitvector check
+  uint64 transaction_schedule_fast_path = 3;
+  // Pack skipped the transaction because it would have exceeded the block data size limit
+  uint64 transaction_schedule_byte_limit = 4;
+  // Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit
+  uint64 transaction_schedule_write_cost = 5;
+  // Pack skipped the transaction because of account conflicts using the full slow check
+  uint64 transaction_schedule_slow_path = 6;
+  // Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times
+  uint64 transaction_schedule_defer_skip = 7;
+}
+
+// The total number of pending transactions in pack's pool that are available to be scheduled
+message MetricsPackAvailableTransactions {
+  // All transactions in any treap
+  uint64 available_transactions_all = 1;
+  // Non-votes in the main treap
+  uint64 available_transactions_regular = 2;
+  // Simple votes
+  uint64 available_transactions_votes = 3;
+  // Non-votes that write to a hotly-contended account
+  uint64 available_transactions_conflicting = 4;
+  // Transactions that are part of a bundle
+  uint64 available_transactions_bundles = 5;
+}
+
+// Time in nanos spent in each state
+message MetricsPackMetricTiming {
+  // Pack had no transactions available, and wasn't leader
+  uint64 metric_timing_no_txn_no_bank_no_leader_no_microblock = 1;
+  // Pack had transactions available, but wasn't leader or had hit a limit
+  uint64 metric_timing_txn_no_bank_no_leader_no_microblock = 2;
+  // Pack had no transactions available, had banks but wasn't leader
+  uint64 metric_timing_no_txn_bank_no_leader_no_microblock = 3;
+  // Pack had transactions available, had banks but wasn't leader
+  uint64 metric_timing_txn_bank_no_leader_no_microblock = 4;
+  // Pack had no transactions available, and was leader but had no available banks
+  uint64 metric_timing_no_txn_no_bank_leader_no_microblock = 5;
+  // Pack had transactions available, was leader, but had no available banks
+  uint64 metric_timing_txn_no_bank_leader_no_microblock = 6;
+  // Pack had available banks but no transactions
+  uint64 metric_timing_no_txn_bank_leader_no_microblock = 7;
+  // Pack had banks and transactions available but couldn't schedule anything non-conflicting
+  uint64 metric_timing_txn_bank_leader_no_microblock = 8;
+  // Pack scheduled a non-empty microblock while not leader
+  uint64 metric_timing_no_txn_no_bank_no_leader_microblock = 9;
+  // Pack scheduled a non-empty microblock while not leader
+  uint64 metric_timing_txn_no_bank_no_leader_microblock = 10;
+  // Pack scheduled a non-empty microblock while not leader
+  uint64 metric_timing_no_txn_bank_no_leader_microblock = 11;
+  // Pack scheduled a non-empty microblock while not leader
+  uint64 metric_timing_txn_bank_no_leader_microblock = 12;
+  // Pack scheduled a non-empty microblock but all banks were busy
+  uint64 metric_timing_no_txn_no_bank_leader_microblock = 13;
+  // Pack scheduled a non-empty microblock but all banks were busy
+  uint64 metric_timing_txn_no_bank_leader_microblock = 14;
+  // Pack scheduled a non-empty microblock and now has no transactions
+  uint64 metric_timing_no_txn_bank_leader_microblock = 15;
+  // Pack scheduled a non-empty microblock
+  uint64 metric_timing_txn_bank_leader_microblock = 16;
+}
+
+// Result of inserting a transaction into the pack object
+message MetricsPackTransactionInserted {
+  // Bundle with two conflicting durable nonce transactions
+  uint64 transaction_inserted_nonce_conflict = 1;
+  // Transaction uses an account on the bundle blacklist
+  uint64 transaction_inserted_bundle_blacklist = 2;
+  // Transaction is an invalid durable nonce transaction
+  uint64 transaction_inserted_invalid_nonce = 3;
+  // Transaction tries to write to a sysvar
+  uint64 transaction_inserted_write_sysvar = 4;
+  // Estimating compute cost and/or fee failed
+  uint64 transaction_inserted_estimation_fail = 5;
+  // Transaction included an account address twice
+  uint64 transaction_inserted_duplicate_account = 6;
+  // Transaction tried to load too many accounts
+  uint64 transaction_inserted_too_many_accounts = 7;
+  // Transaction requests too many CUs
+  uint64 transaction_inserted_too_large = 8;
+  // Transaction already expired
+  uint64 transaction_inserted_expired = 9;
+  // Transaction loaded accounts from a lookup table
+  uint64 transaction_inserted_addr_lut = 10;
+  // Fee payer's balance below transaction fee
+  uint64 transaction_inserted_unaffordable = 11;
+  // Pack aware of transaction with same signature
+  uint64 transaction_inserted_duplicate = 12;
+  // Transaction's fee was too low given its compute unit requirement and another competing transactions that uses the same durable nonce
+  uint64 transaction_inserted_nonce_priority = 13;
+  // Transaction's fee was too low given its compute unit requirement and other competing transactions
+  uint64 transaction_inserted_priority = 14;
+  // Transaction that was not a simple vote added to pending transactions
+  uint64 transaction_inserted_nonvote_add = 15;
+  // Simple vote transaction was added to pending transactions
+  uint64 transaction_inserted_vote_add = 16;
+  // Transaction that was not a simple vote replaced a lower priority transaction
+  uint64 transaction_inserted_nonvote_replace = 17;
+  // Simple vote transaction replaced a lower priority transaction
+  uint64 transaction_inserted_vote_replace = 18;
+  // Durable nonce transaction added to pending transactions
+  uint64 transaction_inserted_nonce_nonvote_add = 19;
+  // Unused because durable nonce transactions can't be simple votes
+  uint64 transaction_inserted_unused = 20;
+  // Durable nonce transaction replaced a lower priority transaction, likely one that uses the same durable nonce
+  uint64 transaction_inserted_nonce_nonvote_replace = 21;
+}
+
+// The result of processing a shred from the network
+message MetricsShredShredProcessed {
+  // Shred was for a slot for which we don't know the leader
+  uint64 shred_processed_bad_slot = 1;
+  // Shred parsing failed
+  uint64 shred_processed_parse_failed = 2;
+  // Shred was invalid for one of many reasons
+  uint64 shred_processed_rejected = 3;
+  // Shred was ignored because we had already received or reconstructed it
+  uint64 shred_processed_ignored = 4;
+  // Shred accepted to an incomplete FEC set
+  uint64 shred_processed_okay = 5;
+  // Shred accepted and resulted in a valid, complete FEC set
+  uint64 shred_processed_completes = 6;
+}
+
+// Total wire bytes of CRDS sent out in pull response messages
+message MetricsGossipCrdsTxPullResponseBytes {
+  // Contact Info V1
+  uint64 crds_tx_pull_response_bytes_contact_info_v1 = 1;
+  // Vote
+  uint64 crds_tx_pull_response_bytes_vote = 2;
+  // Lowest Slot
+  uint64 crds_tx_pull_response_bytes_lowest_slot = 3;
+  // Snapshot Hashes
+  uint64 crds_tx_pull_response_bytes_snapshot_hashes = 4;
+  // Accounts Hashes
+  uint64 crds_tx_pull_response_bytes_accounts_hashes = 5;
+  // Epoch Slots
+  uint64 crds_tx_pull_response_bytes_epoch_slots = 6;
+  // Version V1
+  uint64 crds_tx_pull_response_bytes_version_v1 = 7;
+  // Version V2
+  uint64 crds_tx_pull_response_bytes_version_v2 = 8;
+  // Node Instance
+  uint64 crds_tx_pull_response_bytes_node_instance = 9;
+  // Duplicate Shred
+  uint64 crds_tx_pull_response_bytes_duplicate_shred = 10;
+  // Incremental Snapshot Hashes
+  uint64 crds_tx_pull_response_bytes_incremental_snapshot_hashes = 11;
+  // Contact Info V2
+  uint64 crds_tx_pull_response_bytes_contact_info_v2 = 12;
+  // Restart Last Voted Fork Slots
+  uint64 crds_tx_pull_response_bytes_restart_last_voted_fork_slots = 13;
+  // Restart Heaviest Fork
+  uint64 crds_tx_pull_response_bytes_restart_heaviest_fork = 14;
+}
+
+// Number of CRDS values sent in pull response messages
+message MetricsGossipCrdsTxPullResponseCount {
+  // Contact Info V1
+  uint64 crds_tx_pull_response_count_contact_info_v1 = 1;
+  // Vote
+  uint64 crds_tx_pull_response_count_vote = 2;
+  // Lowest Slot
+  uint64 crds_tx_pull_response_count_lowest_slot = 3;
+  // Snapshot Hashes
+  uint64 crds_tx_pull_response_count_snapshot_hashes = 4;
+  // Accounts Hashes
+  uint64 crds_tx_pull_response_count_accounts_hashes = 5;
+  // Epoch Slots
+  uint64 crds_tx_pull_response_count_epoch_slots = 6;
+  // Version V1
+  uint64 crds_tx_pull_response_count_version_v1 = 7;
+  // Version V2
+  uint64 crds_tx_pull_response_count_version_v2 = 8;
+  // Node Instance
+  uint64 crds_tx_pull_response_count_node_instance = 9;
+  // Duplicate Shred
+  uint64 crds_tx_pull_response_count_duplicate_shred = 10;
+  // Incremental Snapshot Hashes
+  uint64 crds_tx_pull_response_count_incremental_snapshot_hashes = 11;
+  // Contact Info V2
+  uint64 crds_tx_pull_response_count_contact_info_v2 = 12;
+  // Restart Last Voted Fork Slots
+  uint64 crds_tx_pull_response_count_restart_last_voted_fork_slots = 13;
+  // Restart Heaviest Fork
+  uint64 crds_tx_pull_response_count_restart_heaviest_fork = 14;
+}
+
+// Total wire bytes of CRDS sent out in push messages
+message MetricsGossipCrdsTxPushBytes {
+  // Contact Info V1
+  uint64 crds_tx_push_bytes_contact_info_v1 = 1;
+  // Vote
+  uint64 crds_tx_push_bytes_vote = 2;
+  // Lowest Slot
+  uint64 crds_tx_push_bytes_lowest_slot = 3;
+  // Snapshot Hashes
+  uint64 crds_tx_push_bytes_snapshot_hashes = 4;
+  // Accounts Hashes
+  uint64 crds_tx_push_bytes_accounts_hashes = 5;
+  // Epoch Slots
+  uint64 crds_tx_push_bytes_epoch_slots = 6;
+  // Version V1
+  uint64 crds_tx_push_bytes_version_v1 = 7;
+  // Version V2
+  uint64 crds_tx_push_bytes_version_v2 = 8;
+  // Node Instance
+  uint64 crds_tx_push_bytes_node_instance = 9;
+  // Duplicate Shred
+  uint64 crds_tx_push_bytes_duplicate_shred = 10;
+  // Incremental Snapshot Hashes
+  uint64 crds_tx_push_bytes_incremental_snapshot_hashes = 11;
+  // Contact Info V2
+  uint64 crds_tx_push_bytes_contact_info_v2 = 12;
+  // Restart Last Voted Fork Slots
+  uint64 crds_tx_push_bytes_restart_last_voted_fork_slots = 13;
+  // Restart Heaviest Fork
+  uint64 crds_tx_push_bytes_restart_heaviest_fork = 14;
+}
+
+// Number of CRDS values sent in push messages
+message MetricsGossipCrdsTxPushCount {
+  // Contact Info V1
+  uint64 crds_tx_push_count_contact_info_v1 = 1;
+  // Vote
+  uint64 crds_tx_push_count_vote = 2;
+  // Lowest Slot
+  uint64 crds_tx_push_count_lowest_slot = 3;
+  // Snapshot Hashes
+  uint64 crds_tx_push_count_snapshot_hashes = 4;
+  // Accounts Hashes
+  uint64 crds_tx_push_count_accounts_hashes = 5;
+  // Epoch Slots
+  uint64 crds_tx_push_count_epoch_slots = 6;
+  // Version V1
+  uint64 crds_tx_push_count_version_v1 = 7;
+  // Version V2
+  uint64 crds_tx_push_count_version_v2 = 8;
+  // Node Instance
+  uint64 crds_tx_push_count_node_instance = 9;
+  // Duplicate Shred
+  uint64 crds_tx_push_count_duplicate_shred = 10;
+  // Incremental Snapshot Hashes
+  uint64 crds_tx_push_count_incremental_snapshot_hashes = 11;
+  // Contact Info V2
+  uint64 crds_tx_push_count_contact_info_v2 = 12;
+  // Restart Last Voted Fork Slots
+  uint64 crds_tx_push_count_restart_last_voted_fork_slots = 13;
+  // Restart Heaviest Fork
+  uint64 crds_tx_push_count_restart_heaviest_fork = 14;
+}
+
+// Total wire bytes sent in gossip messages
+message MetricsGossipMessageTxBytes {
+  // Pull Request
+  uint64 message_tx_bytes_pull_request = 1;
+  // Pull Response
+  uint64 message_tx_bytes_pull_response = 2;
+  // Push
+  uint64 message_tx_bytes_push = 3;
+  // Prune
+  uint64 message_tx_bytes_prune = 4;
+  // Ping
+  uint64 message_tx_bytes_ping = 5;
+  // Pong
+  uint64 message_tx_bytes_pong = 6;
+}
+
+// Number of gossip messages sent
+message MetricsGossipMessageTxCount {
+  // Pull Request
+  uint64 message_tx_count_pull_request = 1;
+  // Pull Response
+  uint64 message_tx_count_pull_response = 2;
+  // Push
+  uint64 message_tx_count_push = 3;
+  // Prune
+  uint64 message_tx_count_prune = 4;
+  // Ping
+  uint64 message_tx_count_ping = 5;
+  // Pong
+  uint64 message_tx_count_pong = 6;
+}
+
+// Outcome of incoming CRDS messages
+message MetricsGossipCrdsRxCount {
+  // Pull Response (upserted)
+  uint64 crds_rx_count_upserted_pull_response = 1;
+  // Push (upserted)
+  uint64 crds_rx_count_upserted_push = 2;
+  // Pull Response (newer entry already present in table)
+  uint64 crds_rx_count_dropped_pull_response_stale = 3;
+  // Pull Response (outside expiry window and no contact info entry)
+  uint64 crds_rx_count_dropped_pull_response_wallclock = 4;
+  // Pull Response (duplicate)
+  uint64 crds_rx_count_dropped_pull_response_duplicate = 5;
+  // Push (newer entry already present in table)
+  uint64 crds_rx_count_dropped_push_stale = 6;
+  // Push (duplicate)
+  uint64 crds_rx_count_dropped_push_duplicate = 7;
+}
+
+// The number of entries in the data store
+message MetricsGossipCrdsCount {
+  // Contact Info V1
+  uint64 crds_count_contact_info_v1 = 1;
+  // Vote
+  uint64 crds_count_vote = 2;
+  // Lowest Slot
+  uint64 crds_count_lowest_slot = 3;
+  // Snapshot Hashes
+  uint64 crds_count_snapshot_hashes = 4;
+  // Accounts Hashes
+  uint64 crds_count_accounts_hashes = 5;
+  // Epoch Slots
+  uint64 crds_count_epoch_slots = 6;
+  // Version V1
+  uint64 crds_count_version_v1 = 7;
+  // Version V2
+  uint64 crds_count_version_v2 = 8;
+  // Node Instance
+  uint64 crds_count_node_instance = 9;
+  // Duplicate Shred
+  uint64 crds_count_duplicate_shred = 10;
+  // Incremental Snapshot Hashes
+  uint64 crds_count_incremental_snapshot_hashes = 11;
+  // Contact Info V2
+  uint64 crds_count_contact_info_v2 = 12;
+  // Restart Last Voted Fork Slots
+  uint64 crds_count_restart_last_voted_fork_slots = 13;
+  // Restart Heaviest Fork
+  uint64 crds_count_restart_heaviest_fork = 14;
+}
+
+// The result of processing a pong response to a ping
+message MetricsGossipPingTrackerPongResult {
+  // Pong ignored as node is staked
+  uint64 ping_tracker_pong_result_staked = 1;
+  // Pong ignored as node is an entrypoint
+  uint64 ping_tracker_pong_result_entrypoint = 2;
+  // Pong ignored as node has no outstanding ping
+  uint64 ping_tracker_pong_result_untracked = 3;
+  // Pong ignored as responding node doesn't match pinged address
+  uint64 ping_tracker_pong_result_address = 4;
+  // Pong ignored as token was not valid
+  uint64 ping_tracker_pong_result_token = 5;
+  // Pong accepted
+  uint64 ping_tracker_pong_result_success = 6;
+}
+
+// The number of peers being tracked for ping/pong
+message MetricsGossipPingTrackerCount {
+  // Peer is known but has not been pinged yet
+  uint64 ping_tracker_count_unpinged = 1;
+  // Peer was pinged but has not yet responded, or responded with an invalid pong
+  uint64 ping_tracker_count_invalid = 2;
+  // Peer was pinged and is currently valid
+  uint64 ping_tracker_count_valid = 3;
+  // Peer was pinged and is currently valid, and is being refreshed with a new ping
+  uint64 ping_tracker_count_valid_refreshing = 4;
+}
+
+// Number of IPv4 routes
+message MetricsNetlnkRouteCount {
+  // Local
+  uint64 route_count_local = 1;
+  // Main
+  uint64 route_count_main = 2;
+}
+
+// Number of netlink live updates processed
+message MetricsNetlnkUpdates {
+  // Link
+  uint64 updates_link = 1;
+  // Neighbor Table Entry
+  uint64 updates_neigh = 2;
+  // IPv4 Route Table Entry
+  uint64 updates_ipv4_route = 3;
+}
+
+// Number of sendmmsg syscalls dispatched
+message MetricsSockSyscallsSendmmsg {
+  // No error
+  uint64 syscalls_sendmmsg_no_error = 1;
+  // ENOBUFS, EAGAIN error
+  uint64 syscalls_sendmmsg_slow = 2;
+  // EPERM error (blocked by netfilter)
+  uint64 syscalls_sendmmsg_perm = 3;
+  // ENETUNREACH, EHOSTUNREACH error
+  uint64 syscalls_sendmmsg_unreach = 4;
+  // ENONET, ENETDOWN, EHOSTDOWN error
+  uint64 syscalls_sendmmsg_down = 5;
+  // Unrecognized error code
+  uint64 syscalls_sendmmsg_other = 6;
+}
+
+// What types of client messages are we sending
+message MetricsRepairSentPktTypes {
+  // Need Window
+  uint64 sent_pkt_types_needed_window = 1;
+  // Need Highest Window
+  uint64 sent_pkt_types_needed_highest_window = 2;
+  // Need Orphans
+  uint64 sent_pkt_types_needed_orphan = 3;
+  // Pong
+  uint64 sent_pkt_types_pong = 4;
+}
+
+// Total count of ACK frames transmitted
+message MetricsSendAckTx {
+  // Non-ACK-eliciting packet
+  uint64 ack_tx_noop = 1;
+  // New ACK range
+  uint64 ack_tx_new = 2;
+  // Merged into existing ACK range
+  uint64 ack_tx_merged = 3;
+  // Out of buffers
+  uint64 ack_tx_drop = 4;
+  // ACK suppressed by handler
+  uint64 ack_tx_cancel = 5;
+}
+
+// Results of attempts to acquire QUIC frame metadata
+message MetricsSendFrameTxAlloc {
+  // Success
+  uint64 frame_tx_alloc_success = 1;
+  // PktMetaPoolEmpty
+  uint64 frame_tx_alloc_fail_empty_pool = 2;
+  // ConnMaxedInflightFrames
+  uint64 frame_tx_alloc_fail_conn_max = 3;
+}
+
+// Total count of QUIC frames received
+message MetricsSendReceivedFrames {
+  // Unknown frame type
+  uint64 received_frames_unknown = 1;
+  // ACK frame
+  uint64 received_frames_ack = 2;
+  // RESET_STREAM frame
+  uint64 received_frames_reset_stream = 3;
+  // STOP_SENDING frame
+  uint64 received_frames_stop_sending = 4;
+  // CRYPTO frame
+  uint64 received_frames_crypto = 5;
+  // NEW_TOKEN frame
+  uint64 received_frames_new_token = 6;
+  // STREAM frame
+  uint64 received_frames_stream = 7;
+  // MAX_DATA frame
+  uint64 received_frames_max_data = 8;
+  // MAX_STREAM_DATA frame
+  uint64 received_frames_max_stream_data = 9;
+  // MAX_STREAMS frame
+  uint64 received_frames_max_streams = 10;
+  // DATA_BLOCKED frame
+  uint64 received_frames_data_blocked = 11;
+  // STREAM_DATA_BLOCKED frame
+  uint64 received_frames_stream_data_blocked = 12;
+  // STREAMS_BLOCKED(bidi) frame
+  uint64 received_frames_streams_blocked = 13;
+  // NEW_CONN_ID frame
+  uint64 received_frames_new_conn_id = 14;
+  // RETIRE_CONN_ID frame
+  uint64 received_frames_retire_conn_id = 15;
+  // PATH_CHALLENGE frame
+  uint64 received_frames_path_challenge = 16;
+  // PATH_RESPONSE frame
+  uint64 received_frames_path_response = 17;
+  // CONN_CLOSE(transport) frame
+  uint64 received_frames_conn_close_quic = 18;
+  // CONN_CLOSE(app) frame
+  uint64 received_frames_conn_close_app = 19;
+  // HANDSHAKE_DONE frame
+  uint64 received_frames_handshake_done = 20;
+  // PING frame
+  uint64 received_frames_ping = 21;
+  // PADDING frame
+  uint64 received_frames_padding = 22;
+}
+
+// Total count of QUIC packet retransmissions
+message MetricsSendPktRetransmissions {
+  // Initial
+  uint64 pkt_retransmissions_initial = 1;
+  // Early data
+  uint64 pkt_retransmissions_early = 2;
+  // Handshake
+  uint64 pkt_retransmissions_handshake = 3;
+  // App data
+  uint64 pkt_retransmissions_app = 4;
+}
+
+// Total count of packets with no connection
+message MetricsSendPktNoConn {
+  // Initial
+  uint64 pkt_no_conn_initial = 1;
+  // Retry
+  uint64 pkt_no_conn_retry = 2;
+  // Handshake
+  uint64 pkt_no_conn_handshake = 3;
+  // 1-RTT
+  uint64 pkt_no_conn_one_rtt = 4;
+}
+
+// Total count of packets with no key
+message MetricsSendPktNoKey {
+  // Initial
+  uint64 pkt_no_key_initial = 1;
+  // Early data
+  uint64 pkt_no_key_early = 2;
+  // Handshake
+  uint64 pkt_no_key_handshake = 3;
+  // App data
+  uint64 pkt_no_key_app = 4;
+}
+
+// Total count of packets with crypto failures
+message MetricsSendPktCryptoFailed {
+  // Initial
+  uint64 pkt_crypto_failed_initial = 1;
+  // Early data
+  uint64 pkt_crypto_failed_early = 2;
+  // Handshake
+  uint64 pkt_crypto_failed_handshake = 3;
+  // App data
+  uint64 pkt_crypto_failed_app = 4;
+}
+
+// Number of QUIC connections in each state
+message MetricsSendConnectionsState {
+  // Freed
+  uint64 connections_state_invalid = 1;
+  // Handshaking peer
+  uint64 connections_state_handshake = 2;
+  // Handshake complete, confirming with peer
+  uint64 connections_state_handshake_complete = 3;
+  // Active connection
+  uint64 connections_state_active = 4;
+  // Peer requested close
+  uint64 connections_state_peer_close = 5;
+  // Connection terminating due to error
+  uint64 connections_state_abort = 6;
+  // Connection is closing
+  uint64 connections_state_close_pending = 7;
+  // Connection about to be freed
+  uint64 connections_state_dead = 8;
+}
+
+// Total number of times QUIC connection closed
+message MetricsSendQuicConnFinal {
+  // QUIC Vote port
+  uint64 quic_conn_final_quic_vote = 1;
+  // QUIC TPU port
+  uint64 quic_conn_final_quic_tpu = 2;
+}
+
+// Total number of times we completed a handshake
+message MetricsSendHandshakeComplete {
+  // QUIC Vote port
+  uint64 handshake_complete_quic_vote = 1;
+  // QUIC TPU port
+  uint64 handshake_complete_quic_tpu = 2;
+}
+
+// Total count of results from trying to ensure a connection for a leader for QUIC TPU port
+message MetricsSendEnsureConnResultQuicTpu {
+  // No QUIC connection
+  uint64 ensure_conn_result_quic_tpu_no_leader = 1;
+  // No contact info
+  uint64 ensure_conn_result_quic_tpu_no_ci = 2;
+  // Initiated connection
+  uint64 ensure_conn_result_quic_tpu_new_connection = 3;
+  // Connection failed
+  uint64 ensure_conn_result_quic_tpu_conn_failed = 4;
+  // Connection exists
+  uint64 ensure_conn_result_quic_tpu_connected = 5;
+  // Connection cooldown
+  uint64 ensure_conn_result_quic_tpu_cooldown = 6;
+}
+
+// Total count of results from trying to ensure a connection for a leader for QUIC Vote port
+message MetricsSendEnsureConnResultQuicVote {
+  // No QUIC connection
+  uint64 ensure_conn_result_quic_vote_no_leader = 1;
+  // No contact info
+  uint64 ensure_conn_result_quic_vote_no_ci = 2;
+  // Initiated connection
+  uint64 ensure_conn_result_quic_vote_new_connection = 3;
+  // Connection failed
+  uint64 ensure_conn_result_quic_vote_conn_failed = 4;
+  // Connection exists
+  uint64 ensure_conn_result_quic_vote_connected = 5;
+  // Connection cooldown
+  uint64 ensure_conn_result_quic_vote_cooldown = 6;
+}
+
+// Total count of results from trying to send via UDP TPU port
+message MetricsSendSendResultUdpTpu {
+  // Success
+  uint64 send_result_udp_tpu_success = 1;
+  // No contact info
+  uint64 send_result_udp_tpu_no_ci = 2;
+  // No QUIC connection
+  uint64 send_result_udp_tpu_no_conn = 3;
+  // No QUIC stream
+  uint64 send_result_udp_tpu_no_stream = 4;
+}
+
+// Total count of results from trying to send via UDP Vote port
+message MetricsSendSendResultUdpVote {
+  // Success
+  uint64 send_result_udp_vote_success = 1;
+  // No contact info
+  uint64 send_result_udp_vote_no_ci = 2;
+  // No QUIC connection
+  uint64 send_result_udp_vote_no_conn = 3;
+  // No QUIC stream
+  uint64 send_result_udp_vote_no_stream = 4;
+}
+
+// Total count of results from trying to send via QUIC TPU port
+message MetricsSendSendResultQuicTpu {
+  // Success
+  uint64 send_result_quic_tpu_success = 1;
+  // No contact info
+  uint64 send_result_quic_tpu_no_ci = 2;
+  // No QUIC connection
+  uint64 send_result_quic_tpu_no_conn = 3;
+  // No QUIC stream
+  uint64 send_result_quic_tpu_no_stream = 4;
+}
+
+// Total count of results from trying to send via QUIC Vote port
+message MetricsSendSendResultQuicVote {
+  // Success
+  uint64 send_result_quic_vote_success = 1;
+  // No contact info
+  uint64 send_result_quic_vote_no_ci = 2;
+  // No QUIC connection
+  uint64 send_result_quic_vote_no_conn = 3;
+  // No QUIC stream
+  uint64 send_result_quic_vote_no_stream = 4;
+}
+
+// Total number of contact infos received and handled for UDP TPU port
+message MetricsSendNewContactInfoUdpTpu {
+  // Skipped (unroutable)
+  uint64 new_contact_info_udp_tpu_unroutable = 1;
+  // Initialized
+  uint64 new_contact_info_udp_tpu_initialized = 2;
+  // Contact info changed
+  uint64 new_contact_info_udp_tpu_changed = 3;
+  // Contact info unchanged
+  uint64 new_contact_info_udp_tpu_no_change = 4;
+}
+
+// Total number of contact infos received and handled for UDP Vote port
+message MetricsSendNewContactInfoUdpVote {
+  // Skipped (unroutable)
+  uint64 new_contact_info_udp_vote_unroutable = 1;
+  // Initialized
+  uint64 new_contact_info_udp_vote_initialized = 2;
+  // Contact info changed
+  uint64 new_contact_info_udp_vote_changed = 3;
+  // Contact info unchanged
+  uint64 new_contact_info_udp_vote_no_change = 4;
+}
+
+// Total number of contact infos received and handled for QUIC TPU port
+message MetricsSendNewContactInfoQuicTpu {
+  // Skipped (unroutable)
+  uint64 new_contact_info_quic_tpu_unroutable = 1;
+  // Initialized
+  uint64 new_contact_info_quic_tpu_initialized = 2;
+  // Contact info changed
+  uint64 new_contact_info_quic_tpu_changed = 3;
+  // Contact info unchanged
+  uint64 new_contact_info_quic_tpu_no_change = 4;
+}
+
+// Total number of contact infos received and handled for QUIC Vote port
+message MetricsSendNewContactInfoQuicVote {
+  // Skipped (unroutable)
+  uint64 new_contact_info_quic_vote_unroutable = 1;
+  // Initialized
+  uint64 new_contact_info_quic_vote_initialized = 2;
+  // Contact info changed
+  uint64 new_contact_info_quic_vote_changed = 3;
+  // Contact info unchanged
+  uint64 new_contact_info_quic_vote_no_change = 4;
+}
+
+// Total wire bytes of CRDS values processed
+message MetricsGossvfCrdsRxBytes {
+  // Pull Response (success)
+  uint64 crds_rx_bytes_success_pull_response = 1;
+  // Push (success)
+  uint64 crds_rx_bytes_success_push = 2;
+  // Pull Response (duplicate)
+  uint64 crds_rx_bytes_dropped_pull_response_duplicate = 3;
+  // Pull Response (signature)
+  uint64 crds_rx_bytes_dropped_pull_response_signature = 4;
+  // Pull Response (origin no contact info)
+  uint64 crds_rx_bytes_dropped_pull_response_origin_no_contact_info = 5;
+  // Pull Response (origin shred version)
+  uint64 crds_rx_bytes_dropped_pull_response_origin_shred_version = 6;
+  // Pull Response (inactive)
+  uint64 crds_rx_bytes_dropped_pull_response_inactive = 7;
+  // Push (signature)
+  uint64 crds_rx_bytes_dropped_push_signature = 8;
+  // Push (origin no contact info)
+  uint64 crds_rx_bytes_dropped_push_origin_no_contact_info = 9;
+  // Push (origin shred version)
+  uint64 crds_rx_bytes_dropped_push_origin_shred_version = 10;
+  // Push (inactive)
+  uint64 crds_rx_bytes_dropped_push_inactive = 11;
+  // Push (wallclock)
+  uint64 crds_rx_bytes_dropped_push_wallclock = 12;
+}
+
+// Number of CRDS values processed
+message MetricsGossvfCrdsRxCount {
+  // Pull Response (success)
+  uint64 crds_rx_count_success_pull_response = 1;
+  // Push (success)
+  uint64 crds_rx_count_success_push = 2;
+  // Pull Response (duplicate)
+  uint64 crds_rx_count_dropped_pull_response_duplicate = 3;
+  // Pull Response (signature)
+  uint64 crds_rx_count_dropped_pull_response_signature = 4;
+  // Pull Response (origin no contact info)
+  uint64 crds_rx_count_dropped_pull_response_origin_no_contact_info = 5;
+  // Pull Response (origin shred version)
+  uint64 crds_rx_count_dropped_pull_response_origin_shred_version = 6;
+  // Pull Response (inactive)
+  uint64 crds_rx_count_dropped_pull_response_inactive = 7;
+  // Push (signature)
+  uint64 crds_rx_count_dropped_push_signature = 8;
+  // Push (origin no contact info)
+  uint64 crds_rx_count_dropped_push_origin_no_contact_info = 9;
+  // Push (origin shred version)
+  uint64 crds_rx_count_dropped_push_origin_shred_version = 10;
+  // Push (inactive)
+  uint64 crds_rx_count_dropped_push_inactive = 11;
+  // Push (wallclock)
+  uint64 crds_rx_count_dropped_push_wallclock = 12;
+}
+
+// Total wire bytes of gossip messages processed
+message MetricsGossvfMessageRxBytes {
+  // Pull Request (success)
+  uint64 message_rx_bytes_success_pull_request = 1;
+  // Pull Response (success)
+  uint64 message_rx_bytes_success_pull_response = 2;
+  // Push (success)
+  uint64 message_rx_bytes_success_push = 3;
+  // Prune (success)
+  uint64 message_rx_bytes_success_prune = 4;
+  // Ping (success)
+  uint64 message_rx_bytes_success_ping = 5;
+  // Pong (success)
+  uint64 message_rx_bytes_success_pong = 6;
+  // Unparseable
+  uint64 message_rx_bytes_dropped_unparseable = 7;
+  // Pull Request (not contact info)
+  uint64 message_rx_bytes_dropped_pull_request_not_contact_info = 8;
+  // Pull Request (loopback)
+  uint64 message_rx_bytes_dropped_pull_request_loopback = 9;
+  // Pull Request (inactive)
+  uint64 message_rx_bytes_dropped_pull_request_inactive = 10;
+  // Pull Request (wallclock)
+  uint64 message_rx_bytes_dropped_pull_request_wallclock = 11;
+  // Pull Request (signature)
+  uint64 message_rx_bytes_dropped_pull_request_signature = 12;
+  // Pull Request (shred version)
+  uint64 message_rx_bytes_dropped_pull_request_shred_version = 13;
+  // Prune (destination)
+  uint64 message_rx_bytes_dropped_prune_destination = 14;
+  // Prune (wallclock)
+  uint64 message_rx_bytes_dropped_prune_wallclock = 15;
+  // Prune (signature)
+  uint64 message_rx_bytes_dropped_prune_signature = 16;
+  // Push (no valid crds)
+  uint64 message_rx_bytes_dropped_push_no_valid_crds = 17;
+  // Pull Response (no valid crds)
+  uint64 message_rx_bytes_dropped_pull_response_no_valid_crds = 18;
+  // Ping (signature)
+  uint64 message_rx_bytes_dropped_ping_signature = 19;
+  // Pong (signature)
+  uint64 message_rx_bytes_dropped_pong_signature = 20;
+}
+
+// Number of gossip messages processed
+message MetricsGossvfMessageRxCount {
+  // Pull Request (success)
+  uint64 message_rx_count_success_pull_request = 1;
+  // Pull Response (success)
+  uint64 message_rx_count_success_pull_response = 2;
+  // Push (success)
+  uint64 message_rx_count_success_push = 3;
+  // Prune (success)
+  uint64 message_rx_count_success_prune = 4;
+  // Ping (success)
+  uint64 message_rx_count_success_ping = 5;
+  // Pong (success)
+  uint64 message_rx_count_success_pong = 6;
+  // Unparseable
+  uint64 message_rx_count_dropped_unparseable = 7;
+  // Pull Request (not contact info)
+  uint64 message_rx_count_dropped_pull_request_not_contact_info = 8;
+  // Pull Request (loopback)
+  uint64 message_rx_count_dropped_pull_request_loopback = 9;
+  // Pull Request (inactive)
+  uint64 message_rx_count_dropped_pull_request_inactive = 10;
+  // Pull Request (wallclock)
+  uint64 message_rx_count_dropped_pull_request_wallclock = 11;
+  // Pull Request (signature)
+  uint64 message_rx_count_dropped_pull_request_signature = 12;
+  // Pull Request (shred version)
+  uint64 message_rx_count_dropped_pull_request_shred_version = 13;
+  // Prune (destination)
+  uint64 message_rx_count_dropped_prune_destination = 14;
+  // Prune (wallclock)
+  uint64 message_rx_count_dropped_prune_wallclock = 15;
+  // Prune (signature)
+  uint64 message_rx_count_dropped_prune_signature = 16;
+  // Push (no valid crds)
+  uint64 message_rx_count_dropped_push_no_valid_crds = 17;
+  // Pull Response (no valid crds)
+  uint64 message_rx_count_dropped_pull_response_no_valid_crds = 18;
+  // Ping (signature)
+  uint64 message_rx_count_dropped_ping_signature = 19;
+  // Pong (signature)
+  uint64 message_rx_count_dropped_pong_signature = 20;
+}
+
+// Whether a transaction landed in the block or not
+message MetricsBankfTransactionLanded {
+  // Transaction landed
+  uint64 transaction_landed_landed_success = 1;
+  // Transaction landed, but was fees only and did not execute
+  uint64 transaction_landed_landed_fees_only = 2;
+  // Transaction landed, but failed to execute
+  uint64 transaction_landed_landed_failed = 3;
+  // Transaction did not land
+  uint64 transaction_landed_unlanded = 4;
+}
+
+// Result of loading and executing a transaction
+message MetricsBankfTransactionResult {
+  // Transaction executed successfully
+  uint64 transaction_result_success = 1;
+  // An error occurred while processing an instruction
+  uint64 transaction_result_instructon_error = 2;
+  // The transaction fee payer address was not found
+  uint64 transaction_result_account_not_found = 3;
+  // A program account referenced by the transaction was not found
+  uint64 transaction_result_program_account_not_found = 4;
+  // The transaction fee payer did not have balance to pay the fee
+  uint64 transaction_result_insufficient_funds_for_fee = 5;
+  // The transaction fee payer account is not owned by the system program, or has data that is not a nonce
+  uint64 transaction_result_invalid_account_for_fee = 6;
+  // The transaction has already been processed in a recent block
+  uint64 transaction_result_already_processed = 7;
+  // The transaction references a blockhash that is not recent, or advances a nonce with the wrong value
+  uint64 transaction_result_blockhash_not_found = 8;
+  // A program account referenced by the transaction was no executable. TODO: No longer needed with SIMD-0162
+  uint64 transaction_result_invalid_program_for_execution = 9;
+  // The transaction references an ALUT account that does not exist or is inactive
+  uint64 transaction_result_address_lookup_table_not_found = 10;
+  // The transaction references an ALUT account that is not owned by the ALUT program account
+  uint64 transaction_result_invalid_address_lookup_table_owner = 11;
+  // The transaction references an ALUT account that contains data which is not a valid ALUT
+  uint64 transaction_result_invalid_address_lookup_table_data = 12;
+  // The transaction references an account offset from the ALUT which does not exist
+  uint64 transaction_result_invalid_address_lookup_table_index = 13;
+  // The total account data size of the loaded accounts exceeds the consensus limit
+  uint64 transaction_result_max_loaded_accounts_data_size_exceeded = 14;
+  // A compute budget program instruction was invoked more than once
+  uint64 transaction_result_duplicate_instruction = 15;
+  // The compute budget program was invoked and set the loaded accounts data size to zero
+  uint64 transaction_result_invalid_loaded_accounts_data_size_limit = 16;
+  // The transaction references a nonce account that is already advanced
+  uint64 transaction_result_nonce_already_advanced = 17;
+  // The transaction is a nonce transaction but the advance instruction was not valid or failed
+  uint64 transaction_result_nonce_advance_failed = 18;
+  // The transaction is a nonce transaction but the blockhash is not the correct one
+  uint64 transaction_result_nonce_wrong_blockhash = 19;
+  // The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher
+  uint64 transaction_result_account_in_use = 20;
+  // The transaction references the same account twice
+  uint64 transaction_result_account_loaded_twice = 21;
+  // The transaction had an invalid signature
+  uint64 transaction_result_signature_failure = 22;
+  // The transaction references too many accounts. TODO: No longer possible with smart dispatcher
+  uint64 transaction_result_too_many_account_locks = 23;
+  // The transaction would leave an account with a lower balance than the rent-exempt minimum
+  uint64 transaction_result_insufficient_funds_for_rent = 24;
+  // The total referenced account lamports before and after the transaction was unbalanced
+  uint64 transaction_result_unbalanced_transaction = 25;
+  // The transaction was part of a bundle and an earlier transaction in the bundle failed
+  uint64 transaction_result_bundle_peer = 26;
+}
+
+// Count of address lookup tables resolved
+message MetricsResolfLutResolved {
+  // The transaction referenced an index in a LUT that didn't exist
+  uint64 lut_resolved_invalid_lookup_index = 1;
+  // The account referenced as a LUT hasn't been initialized
+  uint64 lut_resolved_account_uninitialized = 2;
+  // The account referenced as a LUT couldn't be parsed
+  uint64 lut_resolved_invalid_account_data = 3;
+  // The account referenced as a LUT wasn't owned by the ALUT program ID
+  uint64 lut_resolved_invalid_account_owner = 4;
+  // The account referenced as a LUT couldn't be found
+  uint64 lut_resolved_account_not_found = 5;
+  // Resolved successfully
+  uint64 lut_resolved_success = 6;
+}
+
+// Count of operations that happened on the transaction stash
+message MetricsResolfStashOperation {
+  // A transaction with an unknown blockhash was added to the stash
+  uint64 stash_operation_inserted = 1;
+  // A transaction with an unknown blockhash was dropped because the stash was full
+  uint64 stash_operation_overrun = 2;
+  // A transaction with an unknown blockhash was published as the blockhash became known
+  uint64 stash_operation_published = 3;
+  // A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories
+  uint64 stash_operation_removed = 4;
+}
+
+// Transaction account change event counters
+message MetricsExecTxnAccountChanges {
+  // Account did not exist before and still does not
+  uint64 txn_account_changes_unchanged_nonexist = 1;
+  // Account created
+  uint64 txn_account_changes_created = 2;
+  // Account deleted
+  uint64 txn_account_changes_delete = 3;
+  // Account modified
+  uint64 txn_account_changes_modify = 4;
+  // Account unchanged
+  uint64 txn_account_changes_unchanged = 5;
+}
+
+// Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes
+message MetricsExecVmRegime {
+  // VM setup
+  uint64 vm_regime_setup = 1;
+  // VM commit
+  uint64 vm_regime_commit = 2;
+  // VM setup (CPI)
+  uint64 vm_regime_setup_cpi = 3;
+  // VM commit (CPI)
+  uint64 vm_regime_commit_cpi = 4;
+  // VM interpreter execution
+  uint64 vm_regime_interpreter = 5;
+}
+
+// Mutually exclusive and exhaustive duration of time spent in transaction execution regimes
+message MetricsExecTxnRegime {
+  // Transaction setup
+  uint64 txn_regime_setup = 1;
+  // Transaction execution (includes VM setup/execution)
+  uint64 txn_regime_exec = 2;
+  // Transaction result commit
+  uint64 txn_regime_commit = 3;
+}
+
+// Number of blocks written to bstream
+message MetricsAccdbBlocks {
+  // Record
+  uint64 blocks_pair = 1;
+  // Record deletion
+  uint64 blocks_dead = 2;
+  // Partition/divider
+  uint64 blocks_part = 3;
+}
+
+// Number of requests processed
+message MetricsAccdbRequests {
+  // Acquire record
+  uint64 requests_acquire = 1;
+  // Release record
+  uint64 requests_release = 2;
+  // Erase record
+  uint64 requests_erase = 3;
+}
+
+// Current bstream sequence number
+message MetricsAccdbBstreamSeq {
+  // Blocks between ancient and past have been written and forgotten (no read, no write)
+  uint64 bstream_seq_ancient = 1;
+  // Blocks between past and present have been written (read only)
+  uint64 bstream_seq_past = 2;
+  // Blocks between present and future are being written (write only)
+  uint64 bstream_seq_present = 3;
+  // Blocks between future and ancient have not been written (no read, no write)
+  uint64 bstream_seq_future = 4;
+}
+
 // The validator received a verified, deduplicated transaction
 message Txn {
   // The source IP address of the transaction sender
@@ -52,10 +1349,1076 @@ message Shred {
   bytes payload = 4;
 }
 
+// Metrics snapshot for the net tile
+message MetricsNet {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Packet receive count
+  uint64 rx_pkt_cnt = 3;
+  // Total number of bytes received (including Ethernet header)
+  uint64 rx_bytes_total = 4;
+  // Number of incoming packets dropped due to being too small
+  uint64 rx_undersz_cnt = 5;
+  // Number of incoming packets dropped due to fill ring being full
+  uint64 rx_fill_blocked_cnt = 6;
+  // Number of incoming packets dropped due to backpressure
+  uint64 rx_backpressure_cnt = 7;
+  // Number of receive buffers currently busy
+  uint64 rx_busy_cnt = 8;
+  // Number of receive buffers currently idle
+  uint64 rx_idle_cnt = 9;
+  // Number of packet transmit jobs submitted
+  uint64 tx_submit_cnt = 10;
+  // Number of packet transmit jobs marked as completed by the kernel
+  uint64 tx_complete_cnt = 11;
+  // Total number of bytes transmitted (including Ethernet header)
+  uint64 tx_bytes_total = 12;
+  // Number of packet transmit jobs dropped due to route failure
+  uint64 tx_route_fail_cnt = 13;
+  // Number of packet transmit jobs dropped due to unresolved neighbor
+  uint64 tx_neighbor_fail_cnt = 14;
+  // Number of packet transmit jobs dropped due to XDP TX ring full or missing completions
+  uint64 tx_full_fail_cnt = 15;
+  // Number of transmit buffers currently busy
+  uint64 tx_busy_cnt = 16;
+  // Number of transmit buffers currently idle
+  uint64 tx_idle_cnt = 17;
+  // Number of XSK sendto syscalls dispatched
+  uint64 xsk_tx_wakeup_cnt = 18;
+  // Number of XSK recvmsg syscalls dispatched
+  uint64 xsk_rx_wakeup_cnt = 19;
+  // Dropped for other reasons (xdp_statistics_v0.rx_dropped)
+  uint64 xdp_rx_dropped_other = 20;
+  // Dropped due to invalid descriptor (xdp_statistics_v0.rx_invalid_descs)
+  uint64 xdp_rx_invalid_descs = 21;
+  // Dropped due to invalid descriptor (xdp_statistics_v0.tx_invalid_descs)
+  uint64 xdp_tx_invalid_descs = 22;
+  // Dropped due to rx ring being full (xdp_statistics_v1.rx_ring_full)
+  uint64 xdp_rx_ring_full = 23;
+  // Failed to retrieve item from fill ring (xdp_statistics_v1.rx_fill_ring_empty_descs)
+  uint64 xdp_rx_fill_ring_empty_descs = 24;
+  // Failed to retrieve item from tx ring (xdp_statistics_v1.tx_ring_empty_descs)
+  uint64 xdp_tx_ring_empty_descs = 25;
+  // Number of valid GRE packets received
+  uint64 rx_gre_cnt = 26;
+  // Number of invalid GRE packets received
+  uint64 rx_gre_invalid_cnt = 27;
+  // Number of received but ignored GRE packets
+  uint64 rx_gre_ignored_cnt = 28;
+  // Number of GRE packet transmit jobs submitted
+  uint64 tx_gre_cnt = 29;
+  // Number of GRE packets transmit jobs dropped due to route failure
+  uint64 tx_gre_route_fail_cnt = 30;
+}
+
+// Metrics snapshot for the quic tile
+message MetricsQuic {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Count of txns overrun before reassembled (too small txn_reassembly_count)
+  uint64 txns_overrun = 3;
+  // Count of fragmented txn receive ops started
+  uint64 txn_reasms_started = 4;
+  // Number of fragmented txn receive ops currently active
+  uint64 txn_reasms_active = 5;
+  // Count of txn frags received
+  uint64 frags_ok = 6;
+  // Count of txn frags dropped due to data gap
+  uint64 frags_gap = 7;
+  // Count of txn frags dropped due to dup (stream already completed)
+  uint64 frags_dup = 8;
+  // Count of txns received via TPU
+  MetricsQuicTxnsReceived txns_received = 9;
+  // Count of txns abandoned because a conn was lost
+  uint64 txns_abandoned = 10;
+  // Count of txns received via QUIC dropped because they were too small
+  uint64 txn_undersz = 11;
+  // Count of txns received via QUIC dropped because they were too large
+  uint64 txn_oversz = 12;
+  // Count of packets received on the non-QUIC port that were too small to be a valid IP packet
+  uint64 legacy_txn_undersz = 13;
+  // Count of packets received on the non-QUIC port that were too large to be a valid transaction
+  uint64 legacy_txn_oversz = 14;
+  // Number of IP packets received
+  uint64 received_packets = 15;
+  // Total bytes received (including IP, UDP, QUIC headers)
+  uint64 received_bytes = 16;
+  // Number of IP packets sent
+  uint64 sent_packets = 17;
+  // Total bytes sent (including IP, UDP, QUIC headers)
+  uint64 sent_bytes = 18;
+  // The number of currently allocated QUIC connections
+  uint64 connections_alloc = 19;
+  // The number of QUIC connections in each state
+  MetricsQuicConnectionsState connections_state = 20;
+  // The total number of connections that have been created
+  uint64 connections_created = 21;
+  // Number of connections gracefully closed
+  uint64 connections_closed = 22;
+  // Number of connections aborted
+  uint64 connections_aborted = 23;
+  // Number of connections timed out
+  uint64 connections_timed_out = 24;
+  // Number of connections established with retry
+  uint64 connections_retried = 25;
+  // Number of connections that failed to create due to lack of slots
+  uint64 connection_error_no_slots = 26;
+  // Number of connections that failed during retry (e.g. invalid token)
+  uint64 connection_error_retry_fail = 27;
+  // Number of packets with an unknown connection ID
+  MetricsQuicPktNoConn pkt_no_conn = 28;
+  // Results of attempts to acquire QUIC frame metadata
+  MetricsQuicFrameTxAlloc frame_tx_alloc = 29;
+  // Number of Initial packets grouped by token length
+  MetricsQuicInitialTokenLen initial_token_len = 30;
+  // Number of handshake flows created
+  uint64 handshakes_created = 31;
+  // Number of handshakes dropped due to alloc fail
+  uint64 handshake_error_alloc_fail = 32;
+  // Number of handshakes dropped due to eviction
+  uint64 handshake_evicted = 33;
+  // Number of stream RX events
+  uint64 stream_received_events = 34;
+  // Total stream payload bytes received
+  uint64 stream_received_bytes = 35;
+  // Number of QUIC frames received
+  MetricsQuicReceivedFrames received_frames = 36;
+  // ACK events
+  MetricsQuicAckTx ack_tx = 37;
+  // Number of QUIC frames failed to parse
+  uint64 frame_fail_parse = 38;
+  // Number of packets that failed decryption
+  MetricsQuicPktCryptoFailed pkt_crypto_failed = 39;
+  // Number of packets that failed decryption due to missing key
+  MetricsQuicPktNoKey pkt_no_key = 40;
+  // Number of packets dropped due to weird IP or UDP header
+  uint64 pkt_net_header_invalid = 41;
+  // Number of packets dropped due to weird QUIC header
+  uint64 pkt_quic_header_invalid = 42;
+  // Number of QUIC packets dropped due to being too small
+  uint64 pkt_undersz = 43;
+  // Number of QUIC packets dropped due to being too large
+  uint64 pkt_oversz = 44;
+  // Number of QUIC version negotiation packets received
+  uint64 pkt_verneg = 45;
+  // Number of QUIC Retry packets sent
+  uint64 retry_sent = 46;
+  // Number of QUIC packets that retransmitted
+  MetricsQuicPktRetransmissions pkt_retransmissions = 47;
+}
+
+// Metrics snapshot for the bundle tile
+message MetricsBundle {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Total count of transactions received, including transactions within bundles
+  uint64 transaction_received = 3;
+  // Total count of packets received
+  uint64 packet_received = 4;
+  // Total count of bytes from received grpc protobuf payloads
+  uint64 proto_received_bytes = 5;
+  // Total count of bundles received
+  uint64 bundle_received = 6;
+  // Number of gRPC errors encountered
+  MetricsBundleErrors errors = 7;
+  // Workspace heap size
+  uint64 heap_size = 8;
+  // Approx free space in workspace
+  uint64 heap_free_bytes = 9;
+  // Number of ShredStream heartbeats successfully sent
+  uint64 shredstream_heartbeats = 10;
+  // Number of HTTP/2 PINGs acknowledged by server
+  uint64 keepalives = 11;
+  // 1 if connected to the bundle server, 0 if not
+  uint64 connected = 12;
+  // Latest RTT sample at scrape time (nanoseconds)
+  uint64 rtt_sample = 13;
+  // RTT moving average (nanoseconds)
+  uint64 rtt_smoothed = 14;
+  // RTT variance (nanoseconds)
+  uint64 rtt_var = 15;
+}
+
+// Metrics snapshot for the verify tile
+message MetricsVerify {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Count of transaction results through verify tile
+  MetricsVerifyTransactionResult transaction_result = 3;
+  // Count of simple vote transactions received over gossip instead of via the normal TPU path
+  uint64 gossiped_votes_received = 4;
+}
+
+// Metrics snapshot for the dedup tile
+message MetricsDedup {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Count of transaction results through dedup tile
+  MetricsDedupTransactionResult transaction_result = 3;
+  // Count of simple vote transactions received over gossip instead of via the normal TPU path
+  uint64 gossiped_votes_received = 4;
+}
+
+// Metrics snapshot for the pack tile
+message MetricsPack {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Count of transactions received via the normal TPU path
+  uint64 normal_transaction_received = 3;
+  // Result of inserting a transaction into the pack object
+  MetricsPackTransactionInserted transaction_inserted = 4;
+  // Time in nanos spent in each state
+  MetricsPackMetricTiming metric_timing = 5;
+  // Transactions dropped from the extra transaction storage because it was full
+  uint64 transaction_dropped_from_extra = 6;
+  // Transactions inserted into the extra transaction storage because pack's primary storage was full
+  uint64 transaction_inserted_to_extra = 7;
+  // Transactions pulled from the extra transaction storage and inserted into pack's primary storage
+  uint64 transaction_inserted_from_extra = 8;
+  // Transactions deleted from pack because their TTL expired
+  uint64 transaction_expired = 9;
+  // Transactions dropped from pack because they were requested to be deleted
+  uint64 transaction_deleted = 10;
+  // Transactions dropped from pack because they were already executed (in either the replay or leader pipeline)
+  uint64 transaction_already_executed = 11;
+  // Transactions dropped from pack because they were part of a partial bundle
+  uint64 transaction_dropped_partial_bundle = 12;
+  // The total number of pending transactions in pack's pool that are available to be scheduled
+  MetricsPackAvailableTransactions available_transactions = 13;
+  // The maximum number of pending transactions that pack can consider. This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions
+  uint64 pending_transactions_heap_size = 14;
+  // A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling
+  uint64 smallest_pending_transaction = 15;
+  // The number of times pack did not pack a microblock because the limit on microblocks/block had been reached
+  uint64 microblock_per_block_limit = 16;
+  // The number of times pack did not pack a microblock because it reached the data per block limit at the start of trying to schedule a microblock
+  uint64 data_per_block_limit = 17;
+  // Result of trying to consider a transaction for scheduling
+  MetricsPackTransactionSchedule transaction_schedule = 18;
+  // Result of considering whether bundle cranks are needed
+  MetricsPackBundleCrankStatus bundle_crank_status = 19;
+  // The number of cost units consumed in the current block, or 0 if pack is not currently packing a block
+  uint64 cus_consumed_in_block = 20;
+  // Count of attempts to delete a transaction that wasn't found
+  uint64 delete_missed = 21;
+  // Count of attempts to delete a transaction that was found and deleted
+  uint64 delete_hit = 22;
+}
+
+// Metrics snapshot for the poh tile
+message MetricsPoh {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+}
+
+// Metrics snapshot for the shred tile
+message MetricsShred {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // The number of microblocks that were abandoned because we switched slots without finishing the current slot
+  uint64 microblocks_abandoned = 3;
+  // The number of times a block was created with unknown parent block_id
+  uint64 invalid_block_id = 4;
+  // The result of processing a shred from the network
+  MetricsShredShredProcessed shred_processed = 5;
+  // The number of FEC sets that were spilled because they didn't complete in time and we needed space
+  uint64 fec_set_spilled = 6;
+  // The number of shreds that were rejected before any resources were allocated for the FEC set
+  uint64 shred_rejected_initial = 7;
+  // The number of shreds that were rejected because they're not chained merkle shreds
+  uint64 shred_rejected_unchained = 8;
+  // The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid
+  uint64 fec_rejected_fatal = 9;
+  // The number of times we received a FEC force complete message
+  uint64 force_complete_request = 10;
+  // The number of times we failed to force complete a FEC set on request
+  uint64 force_complete_failure = 11;
+  // The number of times we successfully forced completed a FEC set on request
+  uint64 force_complete_success = 12;
+  // The number of times we received a repair shred
+  uint64 shred_repair_rcv = 13;
+  // The number bytes received from network packets with repair shreds. Bytes include network headers
+  uint64 shred_repair_rcv_bytes = 14;
+  // The number of times we received a turbine shred
+  uint64 shred_turbine_rcv = 15;
+  // The number bytes received from network packets with turbine shreds. Bytes include network headers
+  uint64 shred_turbine_rcv_bytes = 16;
+}
+
+// Metrics snapshot for the sign tile
+message MetricsSign {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+}
+
+// Metrics snapshot for the metric tile
+message MetricsMetric {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Timestamp when validator was started (nanoseconds since epoch)
+  uint64 boot_timestamp_nanos = 3;
+  // The number of active http connections to the Prometheus endpoint
+  uint64 connection_count = 4;
+  // The total number of bytes written to all responses on the Prometheus endpoint
+  uint64 bytes_written = 5;
+  // The total number of bytes read from all requests to the Prometheus endpoint
+  uint64 bytes_read = 6;
+}
+
+// Metrics snapshot for the diag tile
+message MetricsDiag {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+}
+
+// Metrics snapshot for the gui tile
+message MetricsGui {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // The number of active http connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection
+  uint64 connection_count = 3;
+  // The number of active websocket connections to the GUI service
+  uint64 websocket_connection_count = 4;
+  // The total number of websocket frames sent to all connections to the GUI service
+  uint64 websocket_frames_sent = 5;
+  // The total number of websocket frames received from all connections to the GUI service
+  uint64 websocket_frames_received = 6;
+  // The total number of bytes written to all connections to the GUI service
+  uint64 bytes_written = 7;
+  // The total number of bytes read from all connections to the GUI service
+  uint64 bytes_read = 8;
+}
+
+// Metrics snapshot for the replay tile
+message MetricsReplay {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // The slot at which our node has most recently rooted
+  uint64 root_slot = 3;
+  // The distance in slots between our current root and the current reset slot
+  uint64 root_distance = 4;
+  // The slot at which we are currently leader, or 0 if none
+  uint64 leader_slot = 5;
+  // The slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot
+  uint64 next_leader_slot = 6;
+  // The slot at which we last reset the replay stage, or 0 if unknown
+  uint64 reset_slot = 7;
+  // The maximum number of banks we can have alive
+  uint64 max_live_banks = 8;
+  // The number of banks we currently have alive
+  uint64 live_banks = 9;
+  // The number of free FEC sets in the reassembly queue
+  uint64 reasm_free = 10;
+  // Slot of the latest FEC set in the reassembly queue that can be replayed
+  uint64 reasm_latest_slot = 11;
+  // FEC set index of the latest FEC set in the reassembly queue that can be replayed
+  uint64 reasm_latest_fec_idx = 12;
+  // Count of slots replayed successfully
+  uint64 slots_total = 13;
+  // Count of transactions processed overall on the current fork
+  uint64 transactions_total = 14;
+  // Times where sched is full and a FEC set can't be processed
+  uint64 sched_full = 15;
+  // Times where reasm is empty and a FEC set can't be processed
+  uint64 reasm_empty = 16;
+  // Times where replay is blocked by the PoH tile not sending an end of leader message
+  uint64 leader_bid_wait = 17;
+  // Times where banks are full and a FEC set can't be processed
+  uint64 banks_full = 18;
+  // Times where the storage root is behind the consensus root and can't be advanced
+  uint64 storage_root_behind = 19;
+  // Number of program cache entries rooted
+  uint64 progcache_rooted = 20;
+  // Number of program cache entries garbage collected while rooting
+  uint64 progcache_gc_root = 21;
+  // Number of account database records created
+  uint64 accdb_created = 22;
+  // Number of account database records reverted
+  uint64 accdb_reverted = 23;
+  // Number of account database entries rooted
+  uint64 accdb_rooted = 24;
+  // Number of account database entries garbage collected
+  uint64 accdb_gc_root = 25;
+  // Number of account database entries reclaimed (deletion rooted)
+  uint64 accdb_reclaimed = 26;
+}
+
+// Metrics snapshot for the gossip tile
+message MetricsGossip {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // The peer tracking capacity of the ping tracker
+  uint64 ping_tracker_capacity = 3;
+  // The number of peers being tracked for ping/pong
+  MetricsGossipPingTrackerCount ping_tracker_count = 4;
+  // The result of processing a pong response to a ping
+  MetricsGossipPingTrackerPongResult ping_tracker_pong_result = 5;
+  // The number of peers evicted from the ping tracker to make space for new peers
+  uint64 ping_tracker_evicted_count = 6;
+  // The total number of peers ever tracked for ping/pong
+  uint64 ping_tracked_count = 7;
+  // The number of times a tracked peer was removed from tracking as it became staked
+  uint64 ping_tracker_stake_changed_count = 8;
+  // The number of times a tracked peer was removed from tracking as it's gossip address changed
+  uint64 ping_tracker_address_changed_count = 9;
+  // The capacity of the data store
+  uint64 crds_capacity = 10;
+  // The number of entries in the data store
+  MetricsGossipCrdsCount crds_count = 11;
+  // The number of entries expired from the data store due to age
+  uint64 crds_expired_count = 12;
+  // The number of entries evicted from the data store to make space for new entries
+  uint64 crds_evicted_count = 13;
+  // The capacity for storing peers in the data store
+  uint64 crds_peer_capacity = 14;
+  // The number of staked peers in the data store
+  uint64 crds_peer_staked_count = 15;
+  // The number of unstaked peers in the data store
+  uint64 crds_peer_unstaked_count = 16;
+  // The total visible stake in the data store, in lamports
+  uint64 crds_peer_total_stake = 17;
+  // The number of peers evicted from the data store to make space for new peers
+  uint64 crds_peer_evicted_count = 18;
+  // The capacity of the list of purged data store entries
+  uint64 crds_purged_capacity = 19;
+  // The number of purged data store entries
+  uint64 crds_purged_count = 20;
+  // The number of purged entries expired from the purged list due to age
+  uint64 crds_purged_expired_count = 21;
+  // The number of purged entries evicted from the data store to make space for new entries
+  uint64 crds_purged_evicted_count = 22;
+  // The number of unrecognized socket tags seen in Contact Infos
+  uint64 contact_info_unrecognized_socket_tags = 23;
+  // The number of IPv6 addresses seen in Contact Infos
+  uint64 contact_info_ipv6 = 24;
+  // Outcome of incoming CRDS messages
+  MetricsGossipCrdsRxCount crds_rx_count = 25;
+  // Number of gossip messages sent
+  MetricsGossipMessageTxCount message_tx_count = 26;
+  // Total wire bytes sent in gossip messages
+  MetricsGossipMessageTxBytes message_tx_bytes = 27;
+  // Number of CRDS values sent in push messages
+  MetricsGossipCrdsTxPushCount crds_tx_push_count = 28;
+  // Total wire bytes of CRDS sent out in push messages
+  MetricsGossipCrdsTxPushBytes crds_tx_push_bytes = 29;
+  // Number of CRDS values sent in pull response messages
+  MetricsGossipCrdsTxPullResponseCount crds_tx_pull_response_count = 30;
+  // Total wire bytes of CRDS sent out in pull response messages
+  MetricsGossipCrdsTxPullResponseBytes crds_tx_pull_response_bytes = 31;
+}
+
+// Metrics snapshot for the netlnk tile
+message MetricsNetlnk {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Number of netlink drop events caught
+  uint64 drop_events = 3;
+  // Number of full link table syncs done
+  uint64 link_full_syncs = 4;
+  // Number of full route table syncs done
+  uint64 route_full_syncs = 5;
+  // Number of netlink live updates processed
+  MetricsNetlnkUpdates updates = 6;
+  // Number of network interfaces
+  uint64 interface_count = 7;
+  // Number of IPv4 routes
+  MetricsNetlnkRouteCount route_count = 8;
+  // Number of neighbor solicit requests sent to kernel
+  uint64 neigh_probe_sent = 9;
+  // Number of neighbor solicit requests that failed to send (kernel too slow)
+  uint64 neigh_probe_fails = 10;
+  // Number of neighbor solicit that exceeded the per-host rate limit
+  uint64 neigh_probe_rate_limit_host = 11;
+  // Number of neighbor solicit that exceeded the global rate limit
+  uint64 neigh_probe_rate_limit_global = 12;
+}
+
+// Metrics snapshot for the sock tile
+message MetricsSock {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Number of sendmmsg syscalls dispatched
+  MetricsSockSyscallsSendmmsg syscalls_sendmmsg = 3;
+  // Number of recvmsg syscalls dispatched
+  uint64 syscalls_recvmmsg = 4;
+  // Number of packets received
+  uint64 rx_pkt_cnt = 5;
+  // Number of packets sent
+  uint64 tx_pkt_cnt = 6;
+  // Number of packets failed to send
+  uint64 tx_drop_cnt = 7;
+  // Total number of bytes transmitted (including Ethernet header)
+  uint64 tx_bytes_total = 8;
+  // Total number of bytes received (including Ethernet header)
+  uint64 rx_bytes_total = 9;
+}
+
+// Metrics snapshot for the repair tile
+message MetricsRepair {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // How many network packets we have sent, including reqs, pings, pongs, etc
+  uint64 total_pkt_count = 3;
+  // What types of client messages are we sending
+  MetricsRepairSentPktTypes sent_pkt_types = 4;
+  // Until which slots have we fully repaired
+  uint64 repaired_slots = 5;
+  // Our view of the current cluster slot, max slot received
+  uint64 current_slot = 6;
+  // How many peers have we requested
+  uint64 request_peers = 7;
+  // How many times no sign tiles were available to send request
+  uint64 sign_tile_unavail = 8;
+  // How many times we pass eager repair threshold
+  uint64 eager_repair_aggresses = 9;
+  // How many times we re-request a shred from the inflights queue
+  uint64 rerequest_queue = 10;
+  // How many times we received a malformed ping
+  uint64 malformed_ping = 11;
+}
+
+// Metrics snapshot for the send tile
+message MetricsSend {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Total number of times we received contact info for an unstaked node
+  uint64 unstaked_ci = 3;
+  // Total number of times we removed contact info
+  uint64 ci_removed = 4;
+  // Total number of contact infos received and handled for QUIC Vote port
+  MetricsSendNewContactInfoQuicVote new_contact_info_quic_vote = 5;
+  // Total number of contact infos received and handled for QUIC TPU port
+  MetricsSendNewContactInfoQuicTpu new_contact_info_quic_tpu = 6;
+  // Total number of contact infos received and handled for UDP Vote port
+  MetricsSendNewContactInfoUdpVote new_contact_info_udp_vote = 7;
+  // Total number of contact infos received and handled for UDP TPU port
+  MetricsSendNewContactInfoUdpTpu new_contact_info_udp_tpu = 8;
+  // Total count of results from trying to send via QUIC Vote port
+  MetricsSendSendResultQuicVote send_result_quic_vote = 9;
+  // Total count of results from trying to send via QUIC TPU port
+  MetricsSendSendResultQuicTpu send_result_quic_tpu = 10;
+  // Total count of results from trying to send via UDP Vote port
+  MetricsSendSendResultUdpVote send_result_udp_vote = 11;
+  // Total count of results from trying to send via UDP TPU port
+  MetricsSendSendResultUdpTpu send_result_udp_tpu = 12;
+  // Total count of results from trying to ensure a connection for a leader for QUIC Vote port
+  MetricsSendEnsureConnResultQuicVote ensure_conn_result_quic_vote = 13;
+  // Total count of results from trying to ensure a connection for a leader for QUIC TPU port
+  MetricsSendEnsureConnResultQuicTpu ensure_conn_result_quic_tpu = 14;
+  // Total number of times we completed a handshake
+  MetricsSendHandshakeComplete handshake_complete = 15;
+  // Total number of times QUIC connection closed
+  MetricsSendQuicConnFinal quic_conn_final = 16;
+  // Total count of QUIC packets received
+  uint64 received_packets = 17;
+  // Total bytes received via QUIC
+  uint64 received_bytes = 18;
+  // Total count of QUIC packets sent
+  uint64 sent_packets = 19;
+  // Total bytes sent via QUIC
+  uint64 sent_bytes = 20;
+  // Total count of QUIC retry packets sent
+  uint64 retry_sent = 21;
+  // Number of currently allocated QUIC connections
+  uint64 connections_alloc = 22;
+  // Number of QUIC connections in each state
+  MetricsSendConnectionsState connections_state = 23;
+  // Total count of QUIC connections created
+  uint64 connections_created = 24;
+  // Total count of QUIC connections closed
+  uint64 connections_closed = 25;
+  // Total count of QUIC connections aborted
+  uint64 connections_aborted = 26;
+  // Total count of QUIC connections timed out
+  uint64 connections_timed_out = 27;
+  // Total count of QUIC connections retried
+  uint64 connections_retried = 28;
+  // Total count of connection errors due to no slots
+  uint64 connection_error_no_slots = 29;
+  // Total count of connection retry failures
+  uint64 connection_error_retry_fail = 30;
+  // Total count of packets with crypto failures
+  MetricsSendPktCryptoFailed pkt_crypto_failed = 31;
+  // Total count of packets with no key
+  MetricsSendPktNoKey pkt_no_key = 32;
+  // Total count of packets with no connection
+  MetricsSendPktNoConn pkt_no_conn = 33;
+  // Total count of packet TX allocation failures
+  uint64 pkt_tx_alloc_fail = 34;
+  // Total count of packets with invalid network headers
+  uint64 pkt_net_header_invalid = 35;
+  // Total count of packets with invalid QUIC headers
+  uint64 pkt_quic_header_invalid = 36;
+  // Total count of undersized packets
+  uint64 pkt_undersz = 37;
+  // Total count of oversized packets
+  uint64 pkt_oversz = 38;
+  // Total count of version negotiation packets
+  uint64 pkt_verneg = 39;
+  // Total count of QUIC packet retransmissions
+  MetricsSendPktRetransmissions pkt_retransmissions = 40;
+  // Total count of QUIC handshakes created
+  uint64 handshakes_created = 41;
+  // Total count of handshake allocation failures
+  uint64 handshake_error_alloc_fail = 42;
+  // Total count of handshakes evicted
+  uint64 handshake_evicted = 43;
+  // Total count of stream events received
+  uint64 stream_received_events = 44;
+  // Total bytes received via streams
+  uint64 stream_received_bytes = 45;
+  // Total count of QUIC frames received
+  MetricsSendReceivedFrames received_frames = 46;
+  // Total count of frame parse failures
+  uint64 frame_fail_parse = 47;
+  // Results of attempts to acquire QUIC frame metadata
+  MetricsSendFrameTxAlloc frame_tx_alloc = 48;
+  // Total count of ACK frames transmitted
+  MetricsSendAckTx ack_tx = 49;
+}
+
+// Metrics snapshot for the snapct tile
+message MetricsSnapct {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile
+  uint64 state = 3;
+  // Number of times we aborted and retried full snapshot download because the peer was too slow
+  uint64 full_num_retries = 4;
+  // Number of times we aborted and retried incremental snapshot download because the peer was too slow
+  uint64 incremental_num_retries = 5;
+  // Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted
+  uint64 full_bytes_read = 6;
+  // Number of bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted
+  uint64 full_bytes_written = 7;
+  // Total size of the full snapshot file. Might change if snapshot load is aborted and restarted
+  uint64 full_bytes_total = 8;
+  // Number of times we retried the full snapshot download because the peer was too slow
+  uint64 full_download_retries = 9;
+  // Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted
+  uint64 incremental_bytes_read = 10;
+  // Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted
+  uint64 incremental_bytes_written = 11;
+  // Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted
+  uint64 incremental_bytes_total = 12;
+  // Number of times we retried the incremental snapshot download because the peer was too slow
+  uint64 incremental_download_retries = 13;
+  // The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted
+  uint64 predicted_slot = 14;
+  // Number of fresh gossip peers seen when collecting gossip peers. 
+  uint64 gossip_fresh_count = 15;
+  // Number of total gossip peers seen when collecting gossip peers. 
+  uint64 gossip_total_count = 16;
+  // Number of SSL allocation errors encountered. 
+  uint64 ssl_alloc_errors = 17;
+}
+
+// Metrics snapshot for the snapld tile
+message MetricsSnapld {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN
+  uint64 state = 3;
+  // Number of SSL allocation errors encountered. 
+  uint64 ssl_alloc_errors = 4;
+}
+
+// Metrics snapshot for the snapdc tile
+message MetricsSnapdc {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN
+  uint64 state = 3;
+  // Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted
+  uint64 full_compressed_bytes_read = 4;
+  // Number of bytes decompressed so far from the full snapshot. Might decrease if snapshot load is aborted and restarted
+  uint64 full_decompressed_bytes_written = 5;
+  // Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted
+  uint64 incremental_compressed_bytes_read = 6;
+  // Number of bytes decompressed so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted
+  uint64 incremental_decompressed_bytes_written = 7;
+}
+
+// Metrics snapshot for the snapin tile
+message MetricsSnapin {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN
+  uint64 state = 3;
+  // Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted
+  uint64 full_bytes_read = 4;
+  // Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted
+  uint64 incremental_bytes_read = 5;
+  // Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts
+  uint64 accounts_loaded = 6;
+  // Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts
+  uint64 accounts_replaced = 7;
+  // Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts
+  uint64 accounts_ignored = 8;
+}
+
+// Metrics snapshot for the ipecho tile
+message MetricsIpecho {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // The current shred version used by the validator
+  uint64 current_shred_version = 3;
+  // The number of active connections to the ipecho service
+  uint64 connection_count = 4;
+  // The number of connections to the ipecho service that have been made and closed normally
+  uint64 connections_closed_ok = 5;
+  // The number of connections to the ipecho service that have been made and closed abnormally
+  uint64 connections_closed_error = 6;
+  // The total number of bytes read from all connections to the ipecho service
+  uint64 bytes_read = 7;
+  // The total number of bytes written to all connections to the ipecho service
+  uint64 bytes_written = 8;
+}
+
+// Metrics snapshot for the gossvf tile
+message MetricsGossvf {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Number of gossip messages processed
+  MetricsGossvfMessageRxCount message_rx_count = 3;
+  // Total wire bytes of gossip messages processed
+  MetricsGossvfMessageRxBytes message_rx_bytes = 4;
+  // Number of CRDS values processed
+  MetricsGossvfCrdsRxCount crds_rx_count = 5;
+  // Total wire bytes of CRDS values processed
+  MetricsGossvfCrdsRxBytes crds_rx_bytes = 6;
+}
+
+// Metrics snapshot for the bankf tile
+message MetricsBankf {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Result of loading and executing a transaction
+  MetricsBankfTransactionResult transaction_result = 3;
+  // Whether a transaction landed in the block or not
+  MetricsBankfTransactionLanded transaction_landed = 4;
+}
+
+// Metrics snapshot for the resolf tile
+message MetricsResolf {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Count of transactions dropped because the bank was not available
+  uint64 no_bank_drop = 3;
+  // Count of operations that happened on the transaction stash
+  MetricsResolfStashOperation stash_operation = 4;
+  // Count of address lookup tables resolved
+  MetricsResolfLutResolved lut_resolved = 5;
+  // Count of transactions that failed to resolve because the blockhash was expired
+  uint64 blockhash_expired = 6;
+  // Count of transactions that failed to resolve because a peer transaction in the bundle failed
+  uint64 transaction_bundle_peer_failure = 7;
+}
+
+// Metrics snapshot for the exec tile
+message MetricsExec {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Number of program cache misses
+  uint64 progcache_misses = 3;
+  // Number of program cache hits
+  uint64 progcache_hits = 4;
+  // Number of program cache insertions
+  uint64 progcache_fills = 5;
+  // Total number of bytes inserted into program cache
+  uint64 progcache_fill_tot_sz = 6;
+  // Number of program cache load fails (tombstones inserted)
+  uint64 progcache_fill_fails = 7;
+  // Number of time two tiles raced to insert the same cache entry
+  uint64 progcache_dup_inserts = 8;
+  // Number of program cache invalidations
+  uint64 progcache_invalidations = 9;
+  // Number of account database records created
+  uint64 accdb_created = 10;
+  // Mutually exclusive and exhaustive duration of time spent in transaction execution regimes
+  MetricsExecTxnRegime txn_regime = 11;
+  // Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes
+  MetricsExecVmRegime vm_regime = 12;
+  // Transaction account change event counters
+  MetricsExecTxnAccountChanges txn_account_changes = 13;
+}
+
+// Metrics snapshot for the snapwr tile
+message MetricsSnapwr {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN
+  uint64 state = 3;
+  // Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted
+  uint64 vinyl_bytes_written = 4;
+}
+
+// Metrics snapshot for the snapwh tile
+message MetricsSnapwh {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN
+  uint64 state = 3;
+}
+
+// Metrics snapshot for the snapla tile
+message MetricsSnapla {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN
+  uint64 state = 3;
+  // Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted
+  uint64 full_accounts_hashed = 4;
+  // Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted
+  uint64 incremental_accounts_hashed = 5;
+}
+
+// Metrics snapshot for the snapls tile
+message MetricsSnapls {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN
+  uint64 state = 3;
+  // Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted
+  uint64 full_accounts_hashed = 4;
+  // Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted
+  uint64 incremental_accounts_hashed = 5;
+}
+
+// Metrics snapshot for the tower tile
+message MetricsTower {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.)
+  uint64 vote_txn_invalid = 3;
+  // Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind)
+  uint64 vote_txn_ignored = 4;
+  // Number of times a vote txn mismatched our own block id
+  uint64 vote_txn_mismatch = 5;
+  // Rollback to an ancestor of our prev vote (can't vote)
+  uint64 ancestor_rollback = 6;
+  // Duplicate sibling got confirmed (can't vote)
+  uint64 sibling_confirmed = 7;
+  // Same fork as prev vote (can vote)
+  uint64 same_fork = 8;
+  // Prev vote was on a different fork, but we are allowed to switch (can vote)
+  uint64 switch_pass = 9;
+  // Prev vote was on a different fork, and we are not allowed to switch (can't vote)
+  uint64 switch_fail = 10;
+  // Locked out (can't vote)
+  uint64 lockout_fail = 11;
+  // Did not pass threshold check (can't vote)
+  uint64 threshold_fail = 12;
+  // Prev leader block did not propagate (can't vote)
+  uint64 propagated_fail = 13;
+  // Current Tower root slot
+  uint64 root_slot = 14;
+  // Current Tower vote slot
+  uint64 vote_slot = 15;
+  // Current Tower reset slot
+  uint64 reset_slot = 16;
+  // Number of times we ignored a slot likely due to minority fork publish
+  uint64 slot_ignored = 17;
+  // Number of hard forks we've seen (block ids with multiple candidate bank hashes)
+  uint64 hard_forks_seen = 18;
+  // Number of hard forks (candidate bank hashes) we've pruned
+  uint64 hard_forks_pruned = 19;
+  // Currently active hard forks
+  uint64 hard_forks_active = 20;
+  // Max number of candidate bank hashes for a given block id
+  uint64 hard_forks_max_width = 21;
+}
+
+// Metrics snapshot for the accdb tile
+message MetricsAccdb {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // Current bstream sequence number
+  MetricsAccdbBstreamSeq bstream_seq = 3;
+  // Number of request batches processed
+  uint64 request_batches = 4;
+  // Number of requests processed
+  MetricsAccdbRequests requests = 5;
+  // Number of blocks written to bstream
+  MetricsAccdbBlocks blocks = 6;
+  // 
+  uint64 garbage_bytes = 7;
+  // Total number of record bytes that were garbage collected
+  uint64 cum_gc_bytes = 8;
+  // Total number of cache hits
+  uint64 cache_hits = 9;
+}
+
+// Metrics snapshot for the snapwm tile
+message MetricsSnapwm {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN
+  uint64 state = 3;
+  // Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts
+  uint64 accounts_loaded = 4;
+  // Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts
+  uint64 accounts_replaced = 5;
+  // Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts
+  uint64 accounts_ignored = 6;
+  // Current number of accounts in index. Resets if snapshot load restarts
+  uint64 accounts_active = 7;
+}
+
+// Metrics snapshot for the snaplh tile
+message MetricsSnaplh {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN
+  uint64 state = 3;
+  // Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted
+  uint64 full_accounts_hashed = 4;
+  // Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted
+  uint64 incremental_accounts_hashed = 5;
+}
+
+// Metrics snapshot for the snaplv tile
+message MetricsSnaplv {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+  // State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN
+  uint64 state = 3;
+  // Number of duplicate accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted
+  uint64 full_duplicate_accounts_hashed = 4;
+  // Number of duplicate accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted
+  uint64 incremental_duplicate_accounts_hashed = 5;
+}
+
+// Metrics snapshot for the genesi tile
+message MetricsGenesi {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+}
+
+// Metrics snapshot for the rpc tile
+message MetricsRpc {
+  // Metadata about this metrics sample
+  MetricMeta meta = 1;
+  // Common tile metrics shared by all tiles
+  MetricTile tile = 2;
+}
+
 // Combined event type
 message Event {
   oneof event {
     Txn txn = 1;
     Shred shred = 2;
+    MetricsNet metrics_net = 1000;
+    MetricsQuic metrics_quic = 1001;
+    MetricsBundle metrics_bundle = 1002;
+    MetricsVerify metrics_verify = 1003;
+    MetricsDedup metrics_dedup = 1004;
+    MetricsPack metrics_pack = 1006;
+    MetricsPoh metrics_poh = 1008;
+    MetricsShred metrics_shred = 1009;
+    MetricsSign metrics_sign = 1011;
+    MetricsMetric metrics_metric = 1012;
+    MetricsDiag metrics_diag = 1013;
+    MetricsGui metrics_gui = 1016;
+    MetricsReplay metrics_replay = 1017;
+    MetricsGossip metrics_gossip = 1018;
+    MetricsNetlnk metrics_netlnk = 1019;
+    MetricsSock metrics_sock = 1020;
+    MetricsRepair metrics_repair = 1021;
+    MetricsSend metrics_send = 1022;
+    MetricsSnapct metrics_snapct = 1023;
+    MetricsSnapld metrics_snapld = 1024;
+    MetricsSnapdc metrics_snapdc = 1025;
+    MetricsSnapin metrics_snapin = 1026;
+    MetricsIpecho metrics_ipecho = 1027;
+    MetricsGossvf metrics_gossvf = 1028;
+    MetricsBankf metrics_bankf = 1029;
+    MetricsResolf metrics_resolf = 1030;
+    MetricsExec metrics_exec = 1032;
+    MetricsSnapwr metrics_snapwr = 1033;
+    MetricsSnapwh metrics_snapwh = 1035;
+    MetricsSnapla metrics_snapla = 1036;
+    MetricsSnapls metrics_snapls = 1037;
+    MetricsTower metrics_tower = 1038;
+    MetricsAccdb metrics_accdb = 1039;
+    MetricsSnapwm metrics_snapwm = 1040;
+    MetricsSnaplh metrics_snaplh = 1041;
+    MetricsSnaplv metrics_snaplv = 1042;
+    MetricsGenesi metrics_genesi = 1043;
+    MetricsRpc metrics_rpc = 1044;
   }
 }

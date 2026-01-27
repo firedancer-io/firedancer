@@ -1,0 +1,32 @@
+{
+    "name": "metrics_bundle",
+    "id": 1002,
+    "description": "Metrics snapshot for the bundle tile",
+    "fields": {
+        "meta":                   { "type": "ref:MetricMeta" },
+        "tile":                   { "type": "ref:MetricTile" },
+        "transaction_received":   { "type": "UInt64", "description": "Total count of transactions received, including transactions within bundles" },
+        "packet_received":        { "type": "UInt64", "description": "Total count of packets received" },
+        "proto_received_bytes":   { "type": "UInt64", "description": "Total count of bytes from received grpc protobuf payloads" },
+        "bundle_received":        { "type": "UInt64", "description": "Total count of bundles received" },
+        "errors":                 {
+            "type": "Flatten",
+            "description": "Number of gRPC errors encountered",
+            "fields": {
+                "errors_protobuf":    { "type": "UInt64", "description": "Protobuf decode/encode error" },
+                "errors_transport":   { "type": "UInt64", "description": "Transport error" },
+                "errors_timeout":     { "type": "UInt64", "description": "I/O timeout" },
+                "errors_no_fee_info": { "type": "UInt64", "description": "Bundle dropped due to missing fee info" },
+                "errors_ssl_alloc":   { "type": "UInt64", "description": "OpenSSL alloc fail" }
+            }
+        },
+        "heap_size":              { "type": "UInt64", "description": "Workspace heap size" },
+        "heap_free_bytes":        { "type": "UInt64", "description": "Approx free space in workspace" },
+        "shredstream_heartbeats": { "type": "UInt64", "description": "Number of ShredStream heartbeats successfully sent" },
+        "keepalives":             { "type": "UInt64", "description": "Number of HTTP/2 PINGs acknowledged by server" },
+        "connected":              { "type": "UInt64", "description": "1 if connected to the bundle server, 0 if not" },
+        "rtt_sample":             { "type": "UInt64", "description": "Latest RTT sample at scrape time (nanoseconds)" },
+        "rtt_smoothed":           { "type": "UInt64", "description": "RTT moving average (nanoseconds)" },
+        "rtt_var":                { "type": "UInt64", "description": "RTT variance (nanoseconds)" }
+    }
+}

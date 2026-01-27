@@ -1,0 +1,34 @@
+{
+    "name": "metrics_netlnk",
+    "id": 1019,
+    "description": "Metrics snapshot for the netlnk tile",
+    "fields": {
+        "meta":                          { "type": "ref:MetricMeta" },
+        "tile":                          { "type": "ref:MetricTile" },
+        "drop_events":                   { "type": "UInt64", "description": "Number of netlink drop events caught" },
+        "link_full_syncs":               { "type": "UInt64", "description": "Number of full link table syncs done" },
+        "route_full_syncs":              { "type": "UInt64", "description": "Number of full route table syncs done" },
+        "updates":                       {
+            "type": "Flatten",
+            "description": "Number of netlink live updates processed",
+            "fields": {
+                "updates_link":       { "type": "UInt64", "description": "Link" },
+                "updates_neigh":      { "type": "UInt64", "description": "Neighbor Table Entry" },
+                "updates_ipv4_route": { "type": "UInt64", "description": "IPv4 Route Table Entry" }
+            }
+        },
+        "interface_count":               { "type": "UInt64", "description": "Number of network interfaces" },
+        "route_count":                   {
+            "type": "Flatten",
+            "description": "Number of IPv4 routes",
+            "fields": {
+                "route_count_local": { "type": "UInt64", "description": "Local" },
+                "route_count_main":  { "type": "UInt64", "description": "Main" }
+            }
+        },
+        "neigh_probe_sent":              { "type": "UInt64", "description": "Number of neighbor solicit requests sent to kernel" },
+        "neigh_probe_fails":             { "type": "UInt64", "description": "Number of neighbor solicit requests that failed to send (kernel too slow)" },
+        "neigh_probe_rate_limit_host":   { "type": "UInt64", "description": "Number of neighbor solicit that exceeded the per-host rate limit" },
+        "neigh_probe_rate_limit_global": { "type": "UInt64", "description": "Number of neighbor solicit that exceeded the global rate limit" }
+    }
+}
