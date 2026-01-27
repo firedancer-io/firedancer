@@ -250,7 +250,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Load instruction accounts */
 
-  if( FD_UNLIKELY( test_ctx->instr_accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
+  if( FD_UNLIKELY( test_ctx->instr_accounts_count > FD_INSTR_ACCT_MAX ) ) {
     FD_LOG_NOTICE(( "too many instruction accounts" ));
     return 0;
   }
@@ -311,7 +311,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                        test_ctx->instr_accounts[j].is_writable,
                                        test_ctx->instr_accounts[j].is_signer );
   }
-  info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
+  info->acct_cnt = (ushort)test_ctx->instr_accounts_count;
 
   /* The remaining checks enforce that the program is in the accounts list. */
   bool found_program_id = false;
