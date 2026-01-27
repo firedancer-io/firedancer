@@ -15,9 +15,12 @@ struct fd_backtest_rocksdb_private {
   rocksdb_readoptions_t * readoptions;
 
   rocksdb_iterator_t * iter_root;
+  rocksdb_iterator_t * iter_dead;
   rocksdb_iterator_t * iter_shred;
 
-  rocksdb_column_family_handle_t * cfs[ 5 ];
+  rocksdb_column_family_handle_t * cfs[ 6 ];
+
+  int ingests_dead_slots;
 
   ulong magic;
 };
@@ -34,7 +37,8 @@ fd_backtest_rocksdb_footprint( void ) {
 
 void *
 fd_backtest_rocksdb_new( void *       shmem,
-                         char const * path ) {
+                         char const * path,
+                         int          ingests_dead_slots ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -47,17 +51,19 @@ fd_backtest_rocksdb_new( void *       shmem,
 
   fd_backtest_rocksdb_t * db = (fd_backtest_rocksdb_t *)shmem;
 
-  char const * cf_names[ 5 ] = {
+  char const * cf_names[ 6 ] = {
     "default",
     "root",
     "meta",
     "data_shred",
     "bank_hashes",
+    "dead_slots"
   };
 
   rocksdb_options_t * options = rocksdb_options_create();
 
-  rocksdb_options_t const * cf_options[ 5 ] = {
+  rocksdb_options_t const * cf_options[ 6 ] = {
+    options,
     options,
     options,
     options,
@@ -69,7 +75,7 @@ fd_backtest_rocksdb_new( void *       shmem,
   db->db = rocksdb_open_for_read_only_column_families(
     options,
     path,
-    5,
+    6,
     cf_names,
     cf_options,
     db->cfs,
@@ -79,6 +85,12 @@ fd_backtest_rocksdb_new( void *       shmem,
   FD_TEST( db->db );
 
   db->readoptions = rocksdb_readoptions_create();
+
+  db->ingests_dead_slots = ingests_dead_slots;
+  if( db->ingests_dead_slots )  {
+    db->iter_dead = rocksdb_create_iterator_cf( db->db, db->readoptions, db->cfs[ 5 ] );
+    FD_TEST( db->iter_dead );
+  }
 
   db->iter_root = rocksdb_create_iterator_cf( db->db, db->readoptions, db->cfs[ 1 ] );
   FD_TEST( db->iter_root );
@@ -123,11 +135,60 @@ fd_backtest_rocksdb_init( fd_backtest_rocksdb_t * db,
   rocksdb_iter_seek( db->iter_root, (char const *)&key, sizeof(ulong) );
   FD_TEST( rocksdb_iter_valid( db->iter_root ) );
 
+  rocksdb_iter_seek( db->iter_dead, (char const *)&key, sizeof(ulong) );
+  FD_TEST( rocksdb_iter_valid( db->iter_dead ) );
+
   char shred_key[ 16UL ];
   FD_STORE( ulong, shred_key, fd_ulong_bswap( root_slot ) );
   FD_STORE( ulong, shred_key+8UL, 0UL );
   rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
 }
+
+int
+fd_backtest_rocksdb_next_dead_slot( fd_backtest_rocksdb_t * db,
+                                    ulong                   curr_root,
+                                    ulong *                 root_slot,
+                                    ulong *                 shred_cnt ) {
+
+
+  FD_TEST( rocksdb_iter_valid( db->iter_dead ) );
+  rocksdb_iter_next( db->iter_dead );
+
+  ulong keylen;
+  char const * key = rocksdb_iter_key( db->iter_dead, &keylen );
+
+  ulong vallen;
+  char * err = NULL;
+  char * slot_meta = rocksdb_get_cf( db->db, db->readoptions, db->cfs[ 2 ], key, keylen, &vallen, &err );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_get_cf(\"meta\",...) failed: %s", err ));
+
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = slot_meta,
+    .dataend = slot_meta+vallen,
+  };
+
+  ulong total_sz = 0UL;
+  FD_TEST( !fd_slot_meta_decode_footprint( &ctx, &total_sz ) );
+
+  void * mem = fd_alloca_check( FD_SLOT_META_ALIGN, total_sz );
+  fd_slot_meta_t const * meta = fd_slot_meta_decode( mem, &ctx );
+
+  if( meta->slot>curr_root ) {
+    rocksdb_iter_prev( db->iter_dead );
+    return 0;
+  }
+
+  *root_slot = meta->slot;
+  *shred_cnt = meta->received;
+
+  char shred_key[ 16UL ];
+  FD_STORE( ulong, shred_key, fd_ulong_bswap( meta->slot ) );
+  FD_STORE( ulong, shred_key+8UL, 0UL );
+  rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
+
+  return 1;
+}
+
 
 int
 fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
@@ -164,6 +225,88 @@ fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
   FD_STORE( ulong, shred_key+8UL, 0UL );
   rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
 
+  return 1;
+}
+
+int
+fd_backtest_rocksdb_next_slot( fd_backtest_rocksdb_t * db,
+                               ulong *                 slot_out,
+                               ulong *                 shred_cnt_out,
+                               int *                   is_slot_rooted ) {
+
+  FD_TEST( rocksdb_iter_valid( db->iter_root ) );
+  rocksdb_iter_next( db->iter_root );
+  if( FD_UNLIKELY( !rocksdb_iter_valid(db->iter_root) ) ) return 0;
+
+  ulong keylen;
+  char const * key = rocksdb_iter_key( db->iter_root, &keylen );
+
+  ulong vallen;
+  char * err = NULL;
+  char * slot_meta = rocksdb_get_cf( db->db, db->readoptions, db->cfs[ 2 ], key, keylen, &vallen, &err );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_get_cf(\"meta\",...) failed: %s", err ));
+
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = slot_meta,
+    .dataend = slot_meta+vallen,
+  };
+
+  ulong total_sz = 0UL;
+  FD_TEST( !fd_slot_meta_decode_footprint( &ctx, &total_sz ) );
+
+  void * mem = fd_alloca_check( FD_SLOT_META_ALIGN, total_sz );
+  fd_slot_meta_t * next_root_meta = fd_slot_meta_decode( mem, &ctx );
+
+  fd_slot_meta_t * next_dead_meta = NULL;
+  if( db->ingests_dead_slots ) {
+    FD_TEST( rocksdb_iter_valid( db->iter_dead ) );
+    rocksdb_iter_next( db->iter_dead );
+    if( FD_UNLIKELY( !rocksdb_iter_valid( db->iter_dead ) ) ) return 0;
+
+    ulong keylen;
+    char const * key = rocksdb_iter_key( db->iter_dead, &keylen );
+
+    ulong vallen;
+    char * err = NULL;
+    char * slot_meta = rocksdb_get_cf( db->db, db->readoptions, db->cfs[ 2 ], key, keylen, &vallen, &err );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_get_cf(\"meta\",...) failed: %s", err ));
+
+    fd_bincode_decode_ctx_t ctx = {
+      .data    = slot_meta,
+      .dataend = slot_meta+vallen,
+    };
+
+    ulong total_sz = 0UL;
+    FD_TEST( !fd_slot_meta_decode_footprint( &ctx, &total_sz ) );
+
+    void * mem = fd_alloca_check( FD_SLOT_META_ALIGN, total_sz );
+    next_dead_meta = fd_slot_meta_decode( mem, &ctx );
+  }
+
+  /* Pick the next slot with the lowest slot number.  This is a policy
+     decision and not necesarily the next slot that will be replayed.
+     Reverse the iterator of the cf with the greater slot value. */
+
+  if( !db->ingests_dead_slots ) {
+    *slot_out       = next_root_meta->slot;
+    *shred_cnt_out  = next_root_meta->received;
+    *is_slot_rooted = 1;
+  } else if( next_root_meta->slot<next_dead_meta->slot ) {
+    *slot_out       = next_root_meta->slot;
+    *shred_cnt_out  = next_root_meta->received;
+    *is_slot_rooted = 1;
+    rocksdb_iter_prev( db->iter_dead );
+  } else {
+    *slot_out       = next_dead_meta->slot;
+    *shred_cnt_out  = next_dead_meta->received;
+    *is_slot_rooted = 0;
+    rocksdb_iter_prev( db->iter_root );
+  }
+
+  char shred_key[ 16UL ];
+  FD_STORE( ulong, shred_key, fd_ulong_bswap( *slot_out ) );
+  FD_STORE( ulong, shred_key+8UL, 0UL );
+  rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
   return 1;
 }
 

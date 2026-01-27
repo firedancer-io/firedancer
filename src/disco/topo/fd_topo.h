@@ -492,6 +492,7 @@ struct fd_topo_tile {
     } archiver;
 
     struct {
+      int   ingests_dead_slots;
       ulong end_slot;
       char rocksdb_path[ PATH_MAX ];
       char shredcap_path[ PATH_MAX ];

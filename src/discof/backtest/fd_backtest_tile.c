@@ -50,6 +50,8 @@ struct fd_backt_tile {
   fd_backtest_rocksdb_t *  rocksdb;
   fd_backtest_shredcap_t * shredcap;
 
+  int ingests_dead;
+
   ulong prev_slot;
   ulong prev_fec_set_idx;
 
@@ -83,6 +85,8 @@ struct fd_backt_tile {
   ulong shreds_idx;
   ulong shreds_cnt;
   uchar shreds[ SHRED_BUFFER_LEN ][ FD_SHRED_MAX_SZ ];
+
+  ulong fec_set_idxs[ 2048UL ];
 
   ulong bank_hash_idx;
   ulong bank_hash_cnt;
@@ -121,16 +125,19 @@ source_init( fd_backt_tile_t * ctx,
 }
 
 static int
-source_next_root_slot( fd_backt_tile_t * ctx,
-                       ulong *           root_slot,
-                       ulong *           shred_cnt ) {
+source_next_slot( fd_backt_tile_t * ctx,
+                       ulong *           slot_out,
+                       ulong *           shred_cnt,
+                       int *             is_slot_rooted ) {
 # if FD_HAS_ROCKSDB
-  if( ctx->rocksdb ) return fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, root_slot, shred_cnt );
+  if( ctx->rocksdb ) return fd_backtest_rocksdb_next_slot( ctx->rocksdb, slot_out, shred_cnt, is_slot_rooted );
 # endif
-  return fd_backtest_shredcap_next_root_slot( ctx->shredcap, root_slot, shred_cnt );
+  /* TODO: shredcap doesn't support dead slots yet. */
+  *is_slot_rooted = 1;
+  return fd_backtest_shredcap_next_root_slot( ctx->shredcap, slot_out, shred_cnt );
 }
 
-static uchar const *
+static uchar const * FD_FN_UNUSED
 source_bank_hash( fd_backt_tile_t * ctx,
                   ulong             slot ) {
 # if FD_HAS_ROCKSDB
@@ -170,15 +177,19 @@ before_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( ctx->reading_shred_cnt==ctx->reading_shred_idx ) ) {
     if( FD_UNLIKELY( ctx->bank_hash_cnt==BANK_HASH_BUFFER_LEN ) ) return; /* out of space */
 
-    int success = source_next_root_slot( ctx, &ctx->reading_slot, &ctx->reading_shred_cnt );
+    int is_slot_rooted = 0;
+    int success = source_next_slot( ctx, &ctx->reading_slot, &ctx->reading_shred_cnt, &is_slot_rooted );
     if( FD_UNLIKELY( !success ) ) ctx->reading_slot = ctx->end_slot+1UL; /* no more shreds, mark finished */
     if( FD_UNLIKELY( ctx->reading_slot>ctx->end_slot ) ) return; /* finished iterating */
 
     ctx->reading_slot_cnt++;
     ctx->reading_shred_idx = 0UL;
-    uchar const * bank_hash = source_bank_hash( ctx, ctx->reading_slot );
-    fd_memcpy( ctx->bank_hashes[ (ctx->bank_hash_idx+ctx->bank_hash_cnt)%BANK_HASH_BUFFER_LEN ], bank_hash, 32UL );
-    ctx->bank_hash_cnt++;
+
+    if( is_slot_rooted ) {
+      uchar const * bank_hash = source_bank_hash( ctx, ctx->reading_slot );
+      fd_memcpy( ctx->bank_hashes[ (ctx->bank_hash_idx+ctx->bank_hash_cnt)%BANK_HASH_BUFFER_LEN ], bank_hash, 32UL );
+      ctx->bank_hash_cnt++;
+    }
   }
 
   void const * shred = source_shred( ctx, ctx->reading_slot, ctx->reading_shred_idx );
@@ -239,9 +250,11 @@ after_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( ctx->chained_prev_slot==ULONG_MAX ) ) {
     cmr.ul[ 0 ] = FD_RUNTIME_INITIAL_BLOCK_ID;
   } else {
-    cmr.ul[ 0 ] = ctx->chained_prev_slot;
-    cmr.ul[ 1 ] = ctx->chained_prev_fec_set_idx;
+    ulong chained_slot = shred->fec_set_idx==0 ? shred->slot - shred->data.parent_off : shred->slot;
+    cmr.ul[ 0 ] = chained_slot;
+    cmr.ul[ 1 ] = ctx->fec_set_idxs[ chained_slot % 2048UL ];
   }
+  ctx->fec_set_idxs[ shred->slot % 2048UL ] = shred->fec_set_idx;
 
   ctx->chained_prev_slot = shred->slot;
   ctx->chained_prev_fec_set_idx = shred->fec_set_idx;
@@ -379,8 +392,8 @@ returnable_frag( fd_backt_tile_t *   ctx,
       dst->root_block_id         = msg->block_id;
       dst->replay_bank_idx       = msg->bank_idx;
 
-      fd_stem_publish( stem, ctx->tower_out->idx, 0UL, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
+      // fd_stem_publish( stem, ctx->tower_out->idx, 0UL, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      // ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
       break;
     }
     default: FD_LOG_ERR(( "unhandled in_kind: %d in_idx: %lu", ctx->in_kind[ in_idx ], in_idx ));
@@ -451,13 +464,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->rocksdb = NULL;
   ctx->shredcap = NULL;
 
+  memset( ctx->fec_set_idxs, 0UL, sizeof(ctx->fec_set_idxs) );
+
+  tile->backtest.ingests_dead_slots = 1;
+
   if( tile->backtest.shredcap_path[0] ) {
     ctx->shredcap = fd_backtest_shredcap_new( _backtest_shredcap, tile->backtest.shredcap_path );
     FD_TEST( ctx->shredcap );
   }
 # if FD_HAS_ROCKSDB
   if( !ctx->shredcap ) {
-    ctx->rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( _backtest_rocksdb, tile->backtest.rocksdb_path ) );
+    ctx->rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( _backtest_rocksdb, tile->backtest.rocksdb_path, tile->backtest.ingests_dead_slots ) );
     FD_TEST( ctx->rocksdb );
   }
 # endif
