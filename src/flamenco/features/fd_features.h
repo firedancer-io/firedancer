@@ -31,6 +31,12 @@
 #define FD_FEATURE_ACTIVE_BANK_OFFSET(_bank, _offset)                     FD_FEATURE_ACTIVE_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
 #define FD_FEATURE_JUST_ACTIVATED_BANK(_bank, _feature_name)              FD_FEATURE_JUST_ACTIVATED_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _feature_name )
 
+struct __attribute__((packed)) fd_feature {
+  uchar is_active;  /* 0 or 1 */
+  ulong activation_slot;
+};
+
+typedef struct fd_feature fd_feature_t;
 
 /* fd_features_t is the current set of enabled feature flags.
 
@@ -69,6 +75,11 @@ struct fd_feature_id {
 typedef struct fd_feature_id fd_feature_id_t;
 
 FD_PROTOTYPES_BEGIN
+
+fd_feature_t *
+fd_feature_decode( fd_feature_t * feature,
+                   uchar const *  data,
+                   ulong          data_sz );
 
 /* fd_feature_ids is the list of known feature IDs.
    The last element has offset==ULONG_MAX. */

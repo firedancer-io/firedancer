@@ -8,69 +8,6 @@
 #endif
 #define SOURCE_fd_src_flamenco_types_fd_types_c
 #include "fd_types_custom.h"
-int fd_feature_encode( fd_feature_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_bool_encode( self->has_activated_at, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  if( self->has_activated_at ) {
-    err = fd_bincode_uint64_encode( self->activated_at, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_feature_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  {
-    uchar o;
-    err = fd_bincode_bool_decode( &o, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    if( o ) {
-      err = fd_bincode_uint64_decode_footprint( ctx );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    }
-  }
-  return 0;
-}
-int fd_feature_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_feature_t);
-  void const * start_data = ctx->data;
-  int err = fd_feature_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_feature_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_feature_t * self = (fd_feature_t *)struct_mem;
-  {
-    uchar o;
-    fd_bincode_bool_decode_unsafe( &o, ctx );
-    self->has_activated_at = !!o;
-    if( o ) {
-      fd_bincode_uint64_decode_unsafe( &self->activated_at, ctx );
-    }
-  }
-}
-void * fd_feature_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_feature_t * self = (fd_feature_t *)mem;
-  fd_feature_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_feature_t);
-  void * * alloc_mem = &alloc_region;
-  fd_feature_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_feature_new(fd_feature_t * self) {
-  fd_memset( self, 0, sizeof(fd_feature_t) );
-}
-ulong fd_feature_size( fd_feature_t const * self ) {
-  ulong size = 0;
-  size += sizeof(char);
-  if( self->has_activated_at ) {
-    size += sizeof(ulong);
-  }
-  return size;
-}
-
 int fd_fee_calculator_encode( fd_fee_calculator_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint64_encode( self->lamports_per_signature, ctx );

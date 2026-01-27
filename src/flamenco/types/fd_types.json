@@ -21,14 +21,6 @@
       "agave": "solana_pubkey::Pubkey"
     },
     {
-      "name": "feature",
-      "type": "struct",
-      "fields": [
-        { "name": "activated_at", "type": "option", "element": "ulong", "flat": true }
-      ],
-      "comment": "sdk/program/src/feature.rs#L22"
-    },
-    {
       "name": "fee_calculator",
       "type": "struct",
       "fields": [
