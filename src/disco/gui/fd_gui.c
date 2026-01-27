@@ -578,8 +578,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   fd_topo_tile_t const * dedup = &topo->tiles[ fd_topo_find_tile( topo, "dedup", 0UL ) ];
   volatile ulong const * dedup_metrics = fd_metrics_tile( dedup->metrics );
 
-  cur->out.dedup_duplicate = dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_DEDUP_FAILURE ) ]
-                           + dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_BUNDLE_PEER_FAILURE ) ];
+  cur->out.dedup_duplicate = dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_RESULT_DEDUP_FAILURE ) ]
+                           + dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_RESULT_BUNDLE_PEER_FAILURE ) ];
 
 
   cur->out.verify_overrun   = 0UL;
@@ -597,10 +597,10 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
       cur->out.verify_overrun += fd_metrics_link_in( verify->metrics, j )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ];
     }
 
-    cur->out.verify_failed    += verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_VERIFY_FAILURE ) ] +
-                                 verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_BUNDLE_PEER_FAILURE ) ];
-    cur->out.verify_parse     += verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_PARSE_FAILURE ) ];
-    cur->out.verify_duplicate += verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_DEDUP_FAILURE ) ];
+    cur->out.verify_failed    += verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_RESULT_VERIFY_FAILURE ) ] +
+                                 verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_RESULT_BUNDLE_PEER_FAILURE ) ];
+    cur->out.verify_parse     += verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_RESULT_PARSE_FAILURE ) ];
+    cur->out.verify_duplicate += verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_RESULT_DEDUP_FAILURE ) ];
   }
 
 
