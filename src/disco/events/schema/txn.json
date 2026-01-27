@@ -1,0 +1,25 @@
+{
+    "name": "txn",
+    "id": 1,
+    "description": "The validator received a verified, deduplicated transaction",
+    "fields": {
+        "source_ip":   { "type": "IPv6",   "description": "The source IP address of the transaction sender" },
+        "source_port": { "type": "UInt16", "description": "The source port of the transaction sender" },
+        "protocol": {
+            "type": "LowCardinality(String)",
+            "description": "The protocol used to submit the transaction (e.g., QUIC, UDP, ...)",
+            "variants": {
+                "quic":   { "description": "QUIC" },
+                "udp":    { "description": "UDP" },
+                "gossip": { "description": "Gossip" },
+                "bundle": { "description": "Bundle" },
+                "send":   { "description": "Internal vote sender" }
+            }
+        },
+        "bundle_id":                { "type": "UInt64", "description": "The ID of the bundle this transaction belongs to, if any.  Zero indicates not a bundle transaction" },
+        "bundle_txn_count":         { "type": "UInt8",  "description": "The total number of transactions in the bundle this transaction belongs to, if any" },
+        "bundle_commission":        { "type": "UInt8",  "description": "The commission percentage for the bundle this transaction belongs to, if any" },
+        "bundle_commission_pubkey": { "type": "String", "description": "The public key of the commission recipient for the bundle this transaction belongs to, if any" },
+        "payload":                  { "type": "Bytes", "description": "The raw transaction payload bytes" }
+    }
+}

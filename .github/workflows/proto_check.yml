@@ -1,0 +1,60 @@
+name: Protobuf Compatibility Check
+
+on:
+  pull_request:
+    paths:
+      - 'src/disco/events/**'
+      - 'src/disco/metrics/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/disco/events/**'
+      - 'src/disco/metrics/**'
+
+concurrency:
+  group: proto-check-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  proto-breaking-check:
+    name: Check Protobuf Breaking Changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: '1.28.1'
+
+      - name: Regenerate proto file
+        run: |
+          cd src/disco/metrics
+          python3 gen_metrics.py
+
+      - name: Check for breaking changes against base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          # Check if proto files exist in base branch
+          if git ls-tree -r "origin/${{ github.base_ref }}" --name-only | grep -q "src/disco/events/schema/.*\.proto$"; then
+            echo "Proto files exist in base branch, checking for breaking changes..."
+            buf breaking src/disco/events/schema --against ".git#branch=origin/${{ github.base_ref }},subdir=src/disco/events/schema"
+          else
+            echo "No proto files in base branch, skipping breaking change check (this is expected for initial proto addition)"
+          fi
+
+      - name: Lint proto file
+        run: |
+          buf lint src/disco/events/schema
