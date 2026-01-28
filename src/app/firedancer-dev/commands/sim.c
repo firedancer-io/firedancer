@@ -62,9 +62,9 @@ sim_topo( config_t * config ) {
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
-  fd_topob_wksp( topo, "exec" );
-  ulong exec_tile_cnt = config->firedancer.layout.exec_tile_count;
-  FOR(exec_tile_cnt) fd_topob_tile( topo, "exec", "exec", "metric_in", static_end_idx+i, 0, 0 );
+  fd_topob_wksp( topo, "execrp" );
+  ulong exec_tile_cnt = config->firedancer.layout.execrp_tile_count;
+  FOR(exec_tile_cnt) fd_topob_tile( topo, "execrp", "execrp", "metric_in", static_end_idx+i, 0, 0 );
 
   /**********************************************************************/
   /* Setup playback<->storei and storei<->replay links in topo          */
@@ -104,11 +104,11 @@ sim_topo( config_t * config ) {
   /**********************************************************************/
   /* Setup replay-->exec links in topo                                  */
   /**********************************************************************/
-  fd_topob_wksp( topo, "replay_exec" );
-  fd_topob_link( topo, "replay_exec", "replay_exec", 16384UL, 2240UL, 1UL );
-  fd_topob_tile_out( topo, "replay", 0UL, "replay_exec", 0UL );
-  for( ulong i=0; i<config->firedancer.layout.exec_tile_count; i++ ) {
-    fd_topob_tile_in( topo, "exec", i, "metric_in", "replay_exec", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_wksp( topo, "replay_execr" );
+  fd_topob_link( topo, "replay_execr", "replay_execr", 16384UL, 2240UL, 1UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_execr", 0UL );
+  for( ulong i=0; i<config->firedancer.layout.execrp_tile_count; i++ ) {
+    fd_topob_tile_in( topo, "execrp", i, "metric_in", "replay_execr", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /**********************************************************************/

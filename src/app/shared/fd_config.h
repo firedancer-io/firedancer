@@ -117,10 +117,10 @@ struct fd_configf {
   } vinyl;
 
   struct {
-    uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint sign_tile_count;
     uint gossvf_tile_count;
     uint execle_tile_count;
+    uint execrp_tile_count;
     uint snapshot_hash_tile_count;
     uint snapwr_tile_count;
   } layout;

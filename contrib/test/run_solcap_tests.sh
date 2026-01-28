@@ -77,7 +77,7 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
     shred_tile_count = 4
     snapshot_hash_tile_count = 1
     verify_tile_count = 2
-    exec_tile_count = 6
+    execrp_tile_count = 6
 [tiles]
     [tiles.archiver]
         enabled = true

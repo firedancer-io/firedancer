@@ -26,7 +26,7 @@ WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
 DISABLE_LTHASH_VERIFICATION=true
 DB=${DB:="funk"}
-EXEC_TILE_COUNT="10"
+EXECRP_TILE_COUNT="10"
 
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
@@ -125,7 +125,7 @@ while [[ $# -gt 0 ]]; do
         shift
         ;;
     --exec)
-        EXEC_TILE_COUNT="$2"
+        EXECRP_TILE_COUNT="$2"
         shift
         shift
         ;;
@@ -235,7 +235,7 @@ cat <<EOF > ${CONFIG_FILE}
             allow_list = []
 [layout]
     snapshot_hash_tile_count = 1
-    exec_tile_count = $EXEC_TILE_COUNT
+    execrp_tile_count = $EXECRP_TILE_COUNT
 [tiles]
     [tiles.archiver]
         enabled = true

@@ -35,7 +35,7 @@ class Tile(Enum):
     EXECLE = 29
     RESOLF = 30
     BACKT = 31
-    EXEC = 32
+    EXECRP = 32
     SNAPWR = 33
     BENCHS = 34
     SNAPWH = 35

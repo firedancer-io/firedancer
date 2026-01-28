@@ -1,6 +1,6 @@
 #include "fd_replay_tile.h"
 #include "fd_sched.h"
-#include "fd_exec.h"
+#include "fd_execrp.h"
 #include "fd_vote_tracker.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
@@ -85,7 +85,7 @@
 #define IN_KIND_TOWER   ( 3)
 #define IN_KIND_RESOLV  ( 4)
 #define IN_KIND_POH     ( 5)
-#define IN_KIND_EXEC    ( 6)
+#define IN_KIND_EXECRP  ( 6)
 #define IN_KIND_SHRED   ( 7)
 #define IN_KIND_TXSEND  ( 8)
 #define IN_KIND_GUI     ( 9)
@@ -1573,14 +1573,14 @@ dispatch_task( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( !bank->data->first_transaction_scheduled_nanos ) ) bank->data->first_transaction_scheduled_nanos = fd_log_wallclock();
 
       fd_replay_out_link_t *   exec_out = ctx->exec_out;
-      fd_exec_txn_exec_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      fd_execrp_txn_exec_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       memcpy( exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
       exec_msg->bank_idx = task->txn_exec->bank_idx;
       exec_msg->txn_idx  = task->txn_exec->txn_idx;
       if( FD_UNLIKELY( ctx->capture_ctx ) ) {
         exec_msg->capture_txn_idx = ctx->capture_ctx->current_txn_idx++;
       }
-      fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_EXEC<<32) | task->txn_exec->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_EXEC<<32) | task->txn_exec->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
     }
@@ -1592,11 +1592,11 @@ dispatch_task( fd_replay_tile_t *  ctx,
       bank->data->refcnt++;
 
       fd_replay_out_link_t *        exec_out = ctx->exec_out;
-      fd_exec_txn_sigverify_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      fd_execrp_txn_sigverify_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       memcpy( exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
       exec_msg->bank_idx = task->txn_sigverify->bank_idx;
       exec_msg->txn_idx  = task->txn_sigverify->txn_idx;
-      fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
     };
@@ -1606,12 +1606,12 @@ dispatch_task( fd_replay_tile_t *  ctx,
       bank->data->refcnt++;
 
       fd_replay_out_link_t *   exec_out = ctx->exec_out;
-      fd_exec_poh_hash_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      fd_execrp_poh_hash_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       exec_msg->bank_idx = task->poh_hash->bank_idx;
       exec_msg->mblk_idx = task->poh_hash->mblk_idx;
       exec_msg->hashcnt  = task->poh_hash->hashcnt;
       memcpy( exec_msg->hash, task->poh_hash->hash, sizeof(fd_hash_t) );
-      fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_POH_HASH<<32) | task->poh_hash->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_POH_HASH<<32) | task->poh_hash->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
     };
@@ -2027,10 +2027,10 @@ before_frag( fd_replay_tile_t * ctx,
 }
 
 static void
-process_exec_task_done( fd_replay_tile_t *        ctx,
-                        fd_stem_context_t *       stem,
-                        fd_exec_task_done_msg_t * msg,
-                        ulong                     sig ) {
+process_exec_task_done( fd_replay_tile_t *          ctx,
+                        fd_stem_context_t *         stem,
+                        fd_execrp_task_done_msg_t * msg,
+                        ulong                       sig ) {
 
   ulong exec_tile_idx = sig&0xFFFFFFFFUL;
 
@@ -2040,7 +2040,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
   bank->data->refcnt--;
 
   switch( sig>>32 ) {
-    case FD_EXEC_TT_TXN_EXEC: {
+    case FD_EXECRP_TT_TXN_EXEC: {
       if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
         /* Query the txn signature against our recently generated vote
            txn signatures.  If the query is successful, then we have
@@ -2071,7 +2071,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
       FD_TEST( res==0 );
       break;
     }
-    case FD_EXEC_TT_TXN_SIGVERIFY: {
+    case FD_EXECRP_TT_TXN_SIGVERIFY: {
       if( FD_UNLIKELY( msg->txn_sigverify->err && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
         /* Every transaction in a valid block has to sigverify.
            Otherwise, we should mark the block as dead.  Also freeze the
@@ -2092,7 +2092,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
       FD_TEST( res==0 );
       break;
     }
-    case FD_EXEC_TT_POH_HASH: {
+    case FD_EXECRP_TT_POH_HASH: {
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash );
       if( FD_UNLIKELY( res<0 && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
         fd_banks_mark_bank_dead( ctx->banks, bank );
@@ -2363,7 +2363,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       maybe_verify_shred_version( ctx );
       break;
-    case IN_KIND_EXEC: {
+    case IN_KIND_EXECRP: {
       process_exec_task_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sig );
       break;
     }
@@ -2609,7 +2609,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 # endif
 
-  ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
+  ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "execrp" );
 
   ctx->is_booted = 0;
 
@@ -2666,7 +2666,7 @@ unprivileged_init( fd_topo_t *      topo,
     if(      !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
     else if( !strcmp( link->name, "ipecho_out"   ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( !strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
-    else if( !strcmp( link->name, "exec_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_EXEC;
+    else if( !strcmp( link->name, "execr_replay" ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
     else if( !strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "poh_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_repla" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
@@ -2680,7 +2680,7 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
 
-  ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", 0UL );
+  ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_execr", 0UL );
   FD_TEST( idx!=ULONG_MAX );
   fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
 
