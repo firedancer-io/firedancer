@@ -129,9 +129,6 @@ fd_backtest_rocksdb_init( fd_backtest_rocksdb_t * db,
   rocksdb_iter_seek( db->iter_root, (char const *)&key, sizeof(ulong) );
   FD_TEST( rocksdb_iter_valid( db->iter_root ) );
 
-  rocksdb_iter_seek( db->iter_dead, (char const *)&key, sizeof(ulong) );
-  FD_TEST( rocksdb_iter_valid( db->iter_dead ) );
-
   char shred_key[ 16UL ];
   FD_STORE( ulong, shred_key, fd_ulong_bswap( root_slot ) );
   FD_STORE( ulong, shred_key+8UL, 0UL );
@@ -189,23 +186,31 @@ void const *
 fd_backtest_rocksdb_shred( fd_backtest_rocksdb_t * db,
                            ulong                   slot,
                            ulong                   shred_idx ) {
-  if( shred_idx==0UL ) {
-    char shred_key[ 16UL ];
-    FD_STORE( ulong, shred_key, fd_ulong_bswap( slot ) );
-    FD_STORE( ulong, shred_key+8UL, 0UL );
-    rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
-  } else {
-    rocksdb_iter_next( db->iter_shred );
-  }
-
-  FD_TEST( rocksdb_iter_valid( db->iter_shred ) );
 
   ulong keylen;
   char const * key = rocksdb_iter_key( db->iter_shred, &keylen );
   FD_TEST( keylen==16UL );
 
+  /* Optimize for common case of seeking to the next shred instead of
+     re-seeking for the correct key. */
   ulong key_slot      = fd_ulong_bswap( FD_LOAD( ulong, key ) );
   ulong key_shred_idx = fd_ulong_bswap( FD_LOAD( ulong, key+8UL ) );
+  if( FD_LIKELY( key_slot==slot && key_shred_idx+1UL==shred_idx ) ) {
+    rocksdb_iter_next( db->iter_shred );
+  } else {
+    char shred_key[ 16UL ];
+    FD_STORE( ulong, shred_key, fd_ulong_bswap( slot ) );
+    FD_STORE( ulong, shred_key+8UL, fd_ulong_bswap( shred_idx ) );
+    rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
+  }
+
+  FD_TEST( rocksdb_iter_valid( db->iter_shred ) );
+
+  key = rocksdb_iter_key( db->iter_shred, &keylen );
+  FD_TEST( keylen==16UL );
+
+  key_slot      = fd_ulong_bswap( FD_LOAD( ulong, key ) );
+  key_shred_idx = fd_ulong_bswap( FD_LOAD( ulong, key+8UL ) );
   FD_TEST( key_slot==slot );
   FD_TEST( key_shred_idx==shred_idx );
 

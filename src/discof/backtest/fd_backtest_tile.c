@@ -56,7 +56,7 @@ struct fd_backt_tile {
   fd_backtest_rocksdb_t *  rocksdb;
   fd_backtest_shredcap_t * shredcap;
 
-  int   ingests_dead_slots;
+  int   ingest_dead_slots;
   ulong root_distance;
 
   ulong prev_root;
@@ -148,14 +148,14 @@ source_next_slot( fd_backt_tile_t * ctx,
 # if FD_HAS_ROCKSDB
   if( ctx->rocksdb ) {
     if( FD_UNLIKELY( ctx->prev_source_slot==ULONG_MAX ) ) {
-      fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
+      if( ctx->ingest_dead_slots ) fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
       fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
     }
 
-    if( ctx->prev_source_slot==ctx->dead_slot ) fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
+    if( ctx->ingest_dead_slots && ctx->prev_source_slot==ctx->dead_slot ) fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
     if( ctx->prev_source_slot==ctx->root_slot ) fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
 
-    if( ctx->dead_slot<ctx->root_slot ) {
+    if( ctx->ingest_dead_slots && ctx->dead_slot<ctx->root_slot ) {
       *slot_out  = ctx->dead_slot;
       *shred_cnt = ctx->dead_shred_cnt;
       *is_slot_rooted = 0;
@@ -371,7 +371,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
     case IN_KIND_REPLAY: {
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
         fd_replay_slot_dead_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        if( FD_UNLIKELY( !ctx->ingests_dead_slots ) ) FD_LOG_ERR(( "unexpectedly marked slot=%lu as dead", msg->slot ));
+        if( FD_UNLIKELY( !ctx->ingest_dead_slots ) ) FD_LOG_ERR(( "unexpectedly marked slot=%lu as dead", msg->slot ));
         FD_LOG_NOTICE(( "replay marked slot=%lu as dead", msg->slot ));
         return 0;
       }
@@ -526,8 +526,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   memset( ctx->fec_set_idxs, 0UL, sizeof(ctx->fec_set_idxs) );
 
-  ctx->ingests_dead_slots = tile->backtest.ingest_dead_slots;
-  ctx->root_distance      = tile->backtest.root_distance;
+  ctx->ingest_dead_slots = tile->backtest.ingest_dead_slots;
+  ctx->root_distance     = tile->backtest.root_distance;
 
   if( tile->backtest.shredcap_path[0] ) {
     ctx->shredcap = fd_backtest_shredcap_new( _backtest_shredcap, tile->backtest.shredcap_path );
