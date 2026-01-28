@@ -335,8 +335,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
    with a subsequent descendant's confirmation. */
 
 void
-fd_reasm_confirm( fd_reasm_t * reasm,
-                  fd_hash_t *  block_id );
+fd_reasm_confirm( fd_reasm_t      * reasm,
+                  fd_hash_t const * block_id );
 
 /* fd_reasm_publish publishes merkle root as the new reasm root, pruning
    (ie. map remove and pool release) any FEC sets that do not descend
