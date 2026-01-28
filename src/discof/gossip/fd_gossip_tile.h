@@ -38,7 +38,8 @@ struct fd_gossip_tile_ctx {
   fd_gossip_out_ctx_t sign_out[ 1 ];
 
   fd_keyguard_client_t keyguard_client[ 1 ];
-  fd_keyswitch_t * keyswitch;
+  fd_keyswitch_t *     keyswitch;
+  int                  is_halting_signing;
 
   ushort            net_id;
   fd_ip4_udp_hdrs_t net_out_hdr[ 1 ];

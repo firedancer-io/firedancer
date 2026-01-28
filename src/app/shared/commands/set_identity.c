@@ -344,7 +344,7 @@ set_identity_cmd_args( int *    pargc,
   return;
 
 err:
-  FD_LOG_ERR(( "Usage: fdctl set-identity <keypair> [--require-tower]" ));
+  FD_LOG_ERR(( "Usage: fdctl set-identity <keypair> [--require-tower] [--force]" ));
 }
 
 static void FD_FN_SENSITIVE

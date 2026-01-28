@@ -12,6 +12,7 @@
 #include "../../disco/fd_disco.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../util/clock/fd_clock.h"
@@ -95,12 +96,16 @@ struct fd_txsend_tile_ctx {
   /* link things */
   #define FD_TXSEND_MAX_IN_LINK_CNT 32UL
   fd_stem_context_t *  stem;
-  fd_txsend_link_in_t    in_links[ FD_TXSEND_MAX_IN_LINK_CNT ];
+  fd_txsend_link_in_t  in_links[ FD_TXSEND_MAX_IN_LINK_CNT ];
   fd_net_rx_bounds_t   net_in_bounds[ FD_TXSEND_MAX_IN_LINK_CNT ];
-  fd_txsend_link_out_t   gossip_verify_out[ 1 ];
-  fd_txsend_link_out_t   net_out          [ 1 ];
+  fd_txsend_link_out_t gossip_verify_out[ 1 ];
+  fd_txsend_link_out_t net_out          [ 1 ];
 
   fd_keyguard_client_t keyguard_client  [ 1 ];
+
+  ulong tower_in_expect_seq;
+
+  fd_keyswitch_t * keyswitch;
 
   /* buffers btwn during_frag and after_frag :( */
   union {
@@ -122,6 +127,7 @@ struct fd_txsend_tile_ctx {
 
   /* identity pubkey used for tls */
   fd_pubkey_t identity_key[ 1 ];
+
   /* Leader schedule tracking */
   fd_multi_epoch_leaders_t * mleaders;
 
