@@ -707,7 +707,7 @@ metric introduced.
     <counter name="CostModelUndercount" summary="Count of transactions that used more CUs than the cost model should have permitted them to" />
 </tile>
 
-<tile name="poh">
+<tile name="pohh" telemetry="false">
     <histogram name="BeginLeaderDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
         <summary>Delay between when we become leader in a slot and when we receive the bank.</summary>
     </histogram>
@@ -720,6 +720,9 @@ metric introduced.
     <histogram name="BundleInitializeDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
         <summary>Delay in starting the slot caused by loading the information needed to generate the bundle crank transactions</summary>
     </histogram>
+</tile>
+
+<tile name="poh">
 </tile>
 
 <enum name="ShredProcessingResult">
