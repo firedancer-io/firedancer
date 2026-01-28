@@ -964,12 +964,10 @@ returnable_frag( ctx_t *             ctx,
     return 0;
   }
   case IN_KIND_REPLAY: {
-    if( FD_UNLIKELY( ctx->is_halting_signing ) ) {
-      /* In the case that the tower tile is halting signing, we don't
-         want to process any replay fragments that will cause us to
-         produce a vote txn. */
-      return 1;
-    }
+    /* In the case that the tower tile is halting signing, we don't
+       want to process any replay fragments that will cause us to
+       produce a vote txn. */
+    if( FD_UNLIKELY( ctx->is_halting_signing ) ) return 1;
     if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
       fd_memcpy( &ctx->replay_slot_completed, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_completed_t) );
       replay_slot_completed( ctx, &ctx->replay_slot_completed, tsorig, stem );
