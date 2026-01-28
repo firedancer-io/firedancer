@@ -314,8 +314,7 @@ after_credit( fd_snapld_tile_t *  ctx,
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         break;
       case FD_SSHTTP_ADVANCE_ERROR:
-        ctx->state = FD_SNAPSHOT_STATE_ERROR;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+        transition_malformed( ctx, stem );
         fd_sshttp_cancel( ctx->sshttp );
         break;
       default: FD_LOG_ERR(( "unexpected fd_sshttp_advance result %d", result ));
