@@ -72,7 +72,7 @@ fd_topo_run_tile_t dummy_tile_gossip = { .name = "gossip" };
 fd_topo_run_tile_t dummy_tile_repair = { .name = "repair" };
 fd_topo_run_tile_t dummy_tile_txsend = { .name = "txsend"  };
 fd_topo_run_tile_t dummy_tile_replay = { .name = "replay" };
-fd_topo_run_tile_t dummy_tile_exec   = { .name = "exec"   };
+fd_topo_run_tile_t dummy_tile_execrp = { .name = "execrp" };
 fd_topo_run_tile_t dummy_tile_tower  = { .name = "tower"  };
 fd_topo_run_tile_t dummy_tile_snapct = { .name = "snapct" };
 fd_topo_run_tile_t dummy_tile_snapld = { .name = "snapld" };
@@ -114,7 +114,7 @@ fd_topo_run_tile_t * TILES[] = {
   &dummy_tile_repair,
   &dummy_tile_txsend,
   &dummy_tile_replay,
-  &dummy_tile_exec,
+  &dummy_tile_execrp,
   &dummy_tile_tower,
   &dummy_tile_snapct,
   &dummy_tile_snapld,

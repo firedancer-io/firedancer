@@ -1172,7 +1172,7 @@ metric introduced.
     <int value="4" name="Unchanged" label="Account unchanged" />
 </enum>
 
-<tile name="exec">
+<tile name="execrp">
     <counter name="ProgcacheMisses" summary="Number of program cache misses" />
     <counter name="ProgcacheHits" summary="Number of program cache hits" />
     <counter name="ProgcacheFills" summary="Number of program cache insertions" />

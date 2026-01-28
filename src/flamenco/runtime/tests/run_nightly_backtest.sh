@@ -83,7 +83,7 @@ echo "
     affinity = \"auto\"
     execle_tile_count = 1
     shred_tile_count = 4
-    exec_tile_count = 4
+    execrp_tile_count = 4
 [tiles]
     [tiles.archiver]
         enabled = true

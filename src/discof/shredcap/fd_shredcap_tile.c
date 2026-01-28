@@ -9,7 +9,7 @@
 #include "../../discof/fd_discof.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
-#include "../../discof/replay/fd_exec.h"
+#include "../../discof/replay/fd_execrp.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_ssmanifest_parser.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"

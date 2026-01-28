@@ -24,7 +24,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/gui/fd_gui.h"
 #include "../../disco/plugin/fd_plugin.h"
-#include "../../discof/replay/fd_exec.h"
+#include "../../discof/replay/fd_execrp.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
@@ -39,23 +39,23 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../flamenco/gossip/fd_gossip_private.h"
 #include "../../flamenco/runtime/fd_bank.h"
 
-#define IN_KIND_PLUGIN       ( 0UL)
-#define IN_KIND_POH_PACK     ( 1UL)
-#define IN_KIND_PACK_EXECLE  ( 2UL)
-#define IN_KIND_PACK_POH     ( 3UL)
-#define IN_KIND_EXECLE_POH   ( 4UL)
-#define IN_KIND_SHRED_OUT    ( 5UL) /* firedancer only */
-#define IN_KIND_NET_GOSSVF   ( 6UL) /* firedancer only */
-#define IN_KIND_GOSSIP_NET   ( 7UL) /* firedancer only */
-#define IN_KIND_GOSSIP_OUT   ( 8UL) /* firedancer only */
-#define IN_KIND_SNAPCT       ( 9UL) /* firedancer only */
-#define IN_KIND_REPAIR_NET   (10UL) /* firedancer only */
-#define IN_KIND_TOWER_OUT    (11UL) /* firedancer only */
-#define IN_KIND_REPLAY_OUT   (12UL) /* firedancer only */
-#define IN_KIND_EPOCH        (13UL) /* firedancer only */
-#define IN_KIND_GENESI_OUT   (14UL) /* firedancer only */
-#define IN_KIND_SNAPIN       (15UL) /* firedancer only */
-#define IN_KIND_EXEC_REPLAY  (16UL) /* firedancer only */
+#define IN_KIND_PLUGIN        ( 0UL)
+#define IN_KIND_POH_PACK      ( 1UL)
+#define IN_KIND_PACK_EXECLE   ( 2UL)
+#define IN_KIND_PACK_POH      ( 3UL)
+#define IN_KIND_EXECLE_POH    ( 4UL)
+#define IN_KIND_SHRED_OUT     ( 5UL) /* firedancer only */
+#define IN_KIND_NET_GOSSVF    ( 6UL) /* firedancer only */
+#define IN_KIND_GOSSIP_NET    ( 7UL) /* firedancer only */
+#define IN_KIND_GOSSIP_OUT    ( 8UL) /* firedancer only */
+#define IN_KIND_SNAPCT        ( 9UL) /* firedancer only */
+#define IN_KIND_REPAIR_NET    (10UL) /* firedancer only */
+#define IN_KIND_TOWER_OUT     (11UL) /* firedancer only */
+#define IN_KIND_REPLAY_OUT    (12UL) /* firedancer only */
+#define IN_KIND_EPOCH         (13UL) /* firedancer only */
+#define IN_KIND_GENESI_OUT    (14UL) /* firedancer only */
+#define IN_KIND_SNAPIN        (15UL) /* firedancer only */
+#define IN_KIND_EXECRP_REPLAY (16UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -337,10 +337,10 @@ after_frag( fd_gui_ctx_t *      ctx,
       fd_gui_plugin_message( ctx->gui, sig, src, fd_clock_now( ctx->clock ) );
       break;
     }
-    case IN_KIND_EXEC_REPLAY: {
+    case IN_KIND_EXECRP_REPLAY: {
       FD_TEST( ctx->is_full_client );
-      if( FD_LIKELY( sig>>32==FD_EXEC_TT_TXN_EXEC ) ) {
-        fd_exec_task_done_msg_t * msg = (fd_exec_task_done_msg_t *)src;
+      if( FD_LIKELY( sig>>32==FD_EXECRP_TT_TXN_EXEC ) ) {
+        fd_execrp_task_done_msg_t * msg = (fd_execrp_task_done_msg_t *)src;
 
         long tickcount = fd_tickcount();
         long tsorig_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, tickcount ) - ctx->ref_tickcount) / ctx->tick_per_ns);
@@ -823,7 +823,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN; /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "exec_replay"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXEC_REPLAY;  /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "execr_replay" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_REPLAY;  /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) || !strcmp( link->name, "execle_poh" ) ) ) {

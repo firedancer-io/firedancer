@@ -2,12 +2,11 @@
 #include <stdarg.h> /* for va_list */
 
 #include "fd_sched.h"
-#include "fd_exec.h" /* for poh hash value */
+#include "fd_execrp.h" /* for poh hash value */
 #include "../../util/math/fd_stat.h" /* for sorted search */
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
 #include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
 
@@ -1215,7 +1214,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       block->poh_hashing_in_flight_cnt--;
       FD_TEST( !fd_ulong_extract_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx ) );
       sched->poh_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx );
-      fd_exec_poh_hash_done_msg_t * msg = fd_type_pun( data );
+      fd_execrp_poh_hash_done_msg_t * msg = fd_type_pun( data );
       fd_sched_mblk_in_progress_t * mblk = block->mblk_in_progress_pool+msg->mblk_idx;
       mblk->curr_hashcnt += msg->hashcnt;
       memcpy( mblk->curr_hash, msg->hash, sizeof(fd_hash_t) );

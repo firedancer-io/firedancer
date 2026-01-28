@@ -853,24 +853,24 @@ telemetry = true
     # values around 10-20.
     execle_tile_count = 2
 
-    # How many exec tiles to run.  These tiles execute transactions that
-    # are being replayed when our validator is not leader, and is
+    # How many execrp tiles to run.  These tiles execute transactions
+    # that are being replayed when our validator is not leader, and is
     # verifying a block produced by someone else.  Transactions can be
     # executed in parallel up to a point, but there are dependencies
     # among transactions that reference similar accounts that limit how
     # much parallelism is possible.
     #
-    # More exec tiles can allow the validator to replay through blocks
-    # faster, subject to Amdahl's law.  Empirically, we've found 10 exec
-    # tiles to achieve near optimal replay speed under current
+    # More execrp tiles can allow the validator to replay through blocks
+    # faster, subject to Amdahl's law.  Empirically, we've found 10
+    # execrp tiles to achieve near optimal replay speed under current
     # `mainnet-beta` conditions.
     #
-    # Exec tiles are also responsible for writing account changes back
+    # Execrp tiles are also responsible for writing account changes back
     # to the accounts database.  Since the accounts database is designed
     # to be highly concurrent, most of the time account writeback can be
-    # done in parallel without blocking.  Multiple exec tiles exploit
+    # done in parallel without blocking.  Multiple execrp tiles exploit
     # this parallelism supported by the accounts database.
-    exec_tile_count = 10
+    execrp_tile_count = 10
 
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network

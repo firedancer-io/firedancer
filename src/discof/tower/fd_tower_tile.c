@@ -16,7 +16,7 @@
 #include "../../choreo/tower/fd_epoch_stakes.h"
 #include "../../discof/fd_accdb_topo.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
-#include "../../discof/replay/fd_exec.h"
+#include "../../discof/replay/fd_execrp.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_accdb_pipe.h"
@@ -52,9 +52,9 @@
    block_id when possible to interface with the protocol but otherwise
    falling back to slot number when block_id is unsupported. */
 
-#define IN_KIND_DEDUP   (0)
-#define IN_KIND_EXEC    (1)
-#define IN_KIND_REPLAY  (2)
+#define IN_KIND_DEDUP  (0)
+#define IN_KIND_EXECRP (1)
+#define IN_KIND_REPLAY (2)
 
 #define VOTE_TXN_SIG_MAX (2UL) /* validator identity and vote authority */
 
@@ -948,9 +948,9 @@ returnable_frag( ctx_t *             ctx,
     count_vote_txn( ctx, fd_txn_m_txn_t_const( txnm ), fd_txn_m_payload_const( txnm ) );
     return 0;
   }
-  case IN_KIND_EXEC: {
-    if( FD_LIKELY( (sig>>32)==FD_EXEC_TT_TXN_EXEC ) ) {
-      fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
+  case IN_KIND_EXECRP: {
+    if( FD_LIKELY( (sig>>32)==FD_EXECRP_TT_TXN_EXEC ) ) {
+      fd_execrp_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
       count_vote_txn( ctx, TXN(msg->txn), msg->txn->payload );
     }
     return 0;
@@ -1091,7 +1091,7 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     if     ( FD_LIKELY( !strcmp( link->name, "dedup_resolv" ) ) ) ctx->in_kind[ i ] = IN_KIND_DEDUP;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_exec"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXEC;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_execr" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else     FD_LOG_ERR(( "tower tile has unexpected input link %lu %s", i, link->name ));
 

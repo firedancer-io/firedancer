@@ -1,4 +1,4 @@
-$(call add-hdrs,fd_exec.h)
+$(call add-hdrs,fd_execrp.h)
 $(call add-objs,fd_rdisp,fd_discof)
 $(call make-unit-test,test_rdisp,test_rdisp,fd_discof fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_rdisp,)
