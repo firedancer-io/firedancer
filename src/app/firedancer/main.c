@@ -101,7 +101,7 @@ extern fd_topo_run_tile_t fd_tile_gossip;
 extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execor;
-extern fd_topo_run_tile_t fd_tile_send;
+extern fd_topo_run_tile_t fd_tile_txsend;
 extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_vinyl;
 extern fd_topo_run_tile_t fd_tile_solcap;
@@ -143,7 +143,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_replay,
   &fd_tile_execor,
   &fd_tile_poh,
-  &fd_tile_send,
+  &fd_tile_txsend,
   &fd_tile_tower,
   &fd_tile_snapct,
   &fd_tile_snapld,

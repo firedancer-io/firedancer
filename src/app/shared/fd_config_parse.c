@@ -269,7 +269,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
 
-  CFG_POP      ( ushort, tiles.send.send_src_port                         );
+  CFG_POP      ( ushort, tiles.txsend.txsend_src_port                     );
 
   CFG_POP      ( ulong,  tiles.tower.max_vote_lookahead                   );
   CFG_POP      ( bool,   tiles.tower.debug_logging                        );

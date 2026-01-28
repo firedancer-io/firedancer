@@ -25,7 +25,7 @@ class Tile(Enum):
     NETLNK = 19
     SOCK = 20
     REPAIR = 21
-    SEND = 22
+    TXSEND = 22
     SNAPCT = 23
     SNAPLD = 24
     SNAPDC = 25

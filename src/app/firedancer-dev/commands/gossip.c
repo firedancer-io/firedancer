@@ -33,7 +33,7 @@ gossip_cmd_topo( config_t * config ) {
   config->tiles.quic.regular_transaction_listen_port = 0U;
   config->tiles.repair.repair_intake_listen_port = 0U;
   config->tiles.repair.repair_serve_listen_port = 0U;
-  config->tiles.send.send_src_port = 0U;
+  config->tiles.txsend.txsend_src_port = 0U;
 
   static ulong tile_to_cpu[ FD_TILE_MAX ] = {0}; /* TODO */
 

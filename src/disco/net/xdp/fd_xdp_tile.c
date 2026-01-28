@@ -211,7 +211,7 @@ typedef struct {
   ushort gossip_listen_port;
   ushort repair_intake_listen_port;
   ushort repair_serve_listen_port;
-  ushort send_src_port;
+  ushort txsend_src_port;
 
   ulong in_cnt;
   fd_net_in_ctx_t in[ MAX_NET_INS ];
@@ -220,7 +220,7 @@ typedef struct {
   fd_net_out_ctx_t shred_out[1];
   fd_net_out_ctx_t gossvf_out[1];
   fd_net_out_ctx_t repair_out[1];
-  fd_net_out_ctx_t send_out[1];
+  fd_net_out_ctx_t txsend_out[1];
 
   /* XDP stats refresh timer */
   long xdp_stats_interval_ticks;
@@ -989,9 +989,9 @@ net_rx_packet( fd_net_ctx_t * ctx,
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
     proto = DST_PROTO_REPAIR;
     out = ctx->repair_out;
-  } else if( FD_UNLIKELY( udp_dstport==ctx->send_src_port ) ) {
+  } else if( FD_UNLIKELY( udp_dstport==ctx->txsend_src_port ) ) {
     proto = DST_PROTO_SEND;
-    out = ctx->send_out;
+    out = ctx->txsend_out;
   } else {
 
     FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
@@ -1413,7 +1413,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip_listen_port             = tile->net.gossip_listen_port;
   ctx->repair_intake_listen_port      = tile->net.repair_intake_listen_port;
   ctx->repair_serve_listen_port       = tile->net.repair_serve_listen_port;
-  ctx->send_src_port                  = tile->net.send_src_port;
+  ctx->txsend_src_port                = tile->net.txsend_src_port;
 
   /* Put a bound on chunks we read from the input, to make sure they
      are within in the data region of the workspace. */
@@ -1461,12 +1461,12 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->neigh4_solicit->mcache = netlink_out->mcache;
       ctx->neigh4_solicit->depth  = fd_mcache_depth( ctx->neigh4_solicit->mcache );
       ctx->neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->neigh4_solicit->mcache ) );
-    } else if( strcmp( out_link->name, "net_send" ) == 0 ) {
-      fd_topo_link_t * send_out = out_link;
-      ctx->send_out->mcache = send_out->mcache;
-      ctx->send_out->sync   = fd_mcache_seq_laddr( ctx->send_out->mcache );
-      ctx->send_out->depth  = fd_mcache_depth( ctx->send_out->mcache );
-      ctx->send_out->seq    = fd_mcache_seq_query( ctx->send_out->sync );
+    } else if( strcmp( out_link->name, "net_txsend" ) == 0 ) {
+      fd_topo_link_t * txsend_out = out_link;
+      ctx->txsend_out->mcache = txsend_out->mcache;
+      ctx->txsend_out->sync   = fd_mcache_seq_laddr( ctx->txsend_out->mcache );
+      ctx->txsend_out->depth  = fd_mcache_depth( ctx->txsend_out->mcache );
+      ctx->txsend_out->seq    = fd_mcache_seq_query( ctx->txsend_out->sync );
     } else {
       FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
     }
@@ -1487,8 +1487,8 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->neigh4_solicit->mcache==NULL ) ) {
     FD_LOG_ERR(( "netlink request link not found" ));
-  } else if( FD_UNLIKELY( ctx->send_src_port!=0 && ctx->send_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "send listen port set but no out link was found" ));
+  } else if( FD_UNLIKELY( ctx->txsend_src_port!=0 && ctx->txsend_out->mcache==NULL ) ) {
+    FD_LOG_ERR(( "txsend listen port set but no out link was found" ));
   }
 
   for( uint j=0U; j<2U; j++ ) {

@@ -70,7 +70,7 @@ typedef struct fd_quic_trace_frame_ctx fd_quic_trace_frame_ctx_t;
 })
 
 #define tile_member( ctx_ptr, field, is_send ) \
-*fd_ptr_if( is_send, &(((fd_send_tile_ctx_t*)(ctx_ptr))->field), &(((fd_quic_ctx_t*)(ctx_ptr))->field))
+*fd_ptr_if( is_send, &(((fd_txsend_tile_ctx_t*)(ctx_ptr))->field), &(((fd_quic_ctx_t*)(ctx_ptr))->field))
 
 
 FD_PROTOTYPES_BEGIN

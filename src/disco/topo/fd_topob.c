@@ -400,7 +400,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
     "exec",   /* FIREDANCER only */
-    "send",   /* FIREDANCER only */
+    "txsend", /* FIREDANCER only */
     "tower",  /* FIREDANCER only */
     "rpc",    /* FIREDANCER only */
     "pktgen",

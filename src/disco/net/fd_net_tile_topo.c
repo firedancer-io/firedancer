@@ -336,7 +336,7 @@ fd_topo_install_xdp( fd_topo_t const * topo,
     (ushort)net0_tile->xdp.net.gossip_listen_port,
     (ushort)net0_tile->xdp.net.repair_intake_listen_port,
     (ushort)net0_tile->xdp.net.repair_serve_listen_port,
-    (ushort)net0_tile->xdp.net.send_src_port,
+    (ushort)net0_tile->xdp.net.txsend_src_port,
   };
 
   for( uint i=0U; i<if_cnt; i++ ) {

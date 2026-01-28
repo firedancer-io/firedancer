@@ -12,7 +12,7 @@
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
 #define IN_KIND_SIGN          (2)
-#define IN_KIND_SEND          (3)
+#define IN_KIND_TXSEND        (3)
 #define IN_KIND_EPOCH         (4)
 
 /* Symbols exported by version.c */
@@ -251,7 +251,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
 
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
-    case IN_KIND_SEND:          handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
+    case IN_KIND_TXSEND:        handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
     case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_GOSSVF:        handle_packet( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
   }
@@ -335,8 +335,8 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( FD_UNLIKELY( !strcmp( link->name, "sign_gossip" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SIGN;
       sign_in_tile_idx = i;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "send_out" ) ) ) {
-      ctx->in[ i ].kind = IN_KIND_SEND;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "txsend_out" ) ) ) {
+      ctx->in[ i ].kind = IN_KIND_TXSEND;
     } else if( FD_UNLIKELY( !strcmp( link->name, "replay_epoch" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_EPOCH;
     } else {

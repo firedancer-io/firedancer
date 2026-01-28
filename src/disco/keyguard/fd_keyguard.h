@@ -16,7 +16,7 @@ FD_PROTOTYPES_BEGIN
 
 /* Role definitions ***************************************************/
 
-#define FD_KEYGUARD_ROLE_SEND         (0)  /* vote transaction sender */
+#define FD_KEYGUARD_ROLE_TXSEND       (0)  /* vote transaction sender */
 #define FD_KEYGUARD_ROLE_GOSSIP       (1)  /* gossip participant */
 #define FD_KEYGUARD_ROLE_LEADER       (2)  /* block producer (shreds) */
 #define FD_KEYGUARD_ROLE_REPAIR       (4)  /* Repair tile */

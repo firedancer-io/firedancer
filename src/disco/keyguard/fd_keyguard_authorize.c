@@ -167,7 +167,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
 
   switch( role ) {
 
-  case FD_KEYGUARD_ROLE_SEND: {
+  case FD_KEYGUARD_ROLE_TXSEND: {
     int txn_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TXN )) &&
                  fd_keyguard_authorize_vote_txn( authority, data, sz, sign_type );
     int tls_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
