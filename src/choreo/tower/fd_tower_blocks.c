@@ -148,6 +148,11 @@ fd_tower_blocks_replayed( fd_tower_blocks_t *       forks,
   fork->replayed          = 1;
   fork->replayed_block_id = *block_id;
 
+  if( FD_UNLIKELY( fd_tower_leaves_map_ele_query( forks->tower_leaves_map, &fork->slot, NULL, forks->tower_leaves_pool ) ) ) {
+    /* slot already is a leaf - equivocation occurred */
+    return fork;
+  }
+
   fd_tower_leaf_t * parent;
   if( ( parent = fd_tower_leaves_map_ele_remove( forks->tower_leaves_map, &fork->parent_slot, NULL, forks->tower_leaves_pool ) ) ) {
     fd_tower_leaves_dlist_ele_remove( forks->tower_leaves_dlist, parent, forks->tower_leaves_pool );
@@ -171,6 +176,8 @@ fd_tower_blocks_insert( fd_tower_blocks_t *      forks,
   memset( fork, 0, sizeof(fd_tower_blk_t) );
   fork->parent_slot = parent_slot;
   fork->slot        = slot;
+  fork->confirmed   = 0;
+  fork->voted       = 0;
   return fork;
 }
 

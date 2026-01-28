@@ -638,21 +638,17 @@ replay_slot_completed( ctx_t *                      ctx,
     return;
   }
 
-  /* This is a temporary patch for equivocation. */
-
+  /* Handle equivocation */
   if( FD_UNLIKELY( fd_tower_blocks_query( ctx->tower_blocks, slot_completed->slot ) ) ) {
+
     FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, block_id );
-    FD_LOG_WARNING(( "tower ignoring replay of equivocating slot %lu %s", slot_completed->slot, block_id ));
+    FD_LOG_WARNING(( "tower received replay of equivocating slot %lu %s", slot_completed->slot, block_id ));
 
-    /* Still need to return a message to replay so the refcnt on the bank is decremented. */
-
-    fd_tower_slot_ignored_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-    msg->slot     = slot_completed->slot;
-    msg->bank_idx = slot_completed->bank_idx;
-
-    fd_stem_publish( stem, OUT_IDX, FD_TOWER_SIG_SLOT_IGNORED, ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), ctx->out_chunk0, ctx->out_wmark );
-    return;
+    /* clear out structures from other version of the fork. TODO: do we want
+       an explicit purge call after the confirmation is sent? */
+    fd_tower_stakes_blk_t * slot_stakes = fd_tower_stakes_blk_query ( ctx->tower_stakes->blk_map, slot_completed->slot, NULL );
+    if( FD_LIKELY( slot_stakes ) )        fd_tower_stakes_blk_remove( ctx->tower_stakes->blk_map, slot_stakes );
+    fd_tower_blocks_lockouts_clear( ctx->tower_blocks, slot_completed->slot );
   }
 
   /* Query our on-chain tower (stored inside our vote account) and
@@ -673,12 +669,11 @@ replay_slot_completed( ctx_t *                      ctx,
 
   /* Insert into tower_blocks. */
 
-  FD_TEST( !fd_tower_blocks_query( ctx->tower_blocks, slot_completed->slot ) );
-  fd_tower_blk_t * tower_block = fd_tower_blocks_insert( ctx->tower_blocks, slot_completed->slot, slot_completed->parent_slot );
+  fd_tower_blk_t *                tower_block = fd_tower_blocks_query( ctx->tower_blocks, slot_completed->slot ); /* non-NULL if second replay of equivocating slot */
+  if( FD_LIKELY( !tower_block ) ) tower_block = fd_tower_blocks_insert( ctx->tower_blocks, slot_completed->slot, slot_completed->parent_slot );
   tower_block->parent_slot       = slot_completed->parent_slot;
   fd_tower_blocks_replayed( ctx->tower_blocks, tower_block, slot_completed->bank_idx, &slot_completed->block_id );
   tower_block->voted             = 0;
-  tower_block->confirmed         = 0;
   tower_block->bank_idx          = slot_completed->bank_idx;
   fd_tower_blocks_lockouts_clear( ctx->tower_blocks, slot_completed->parent_slot );
 
@@ -811,8 +806,8 @@ done_vote_iter:
     for(ulong slot = ctx->root_slot; slot < out.root_slot; slot++ ) {
       fd_tower_blk_t * fork = fd_tower_blocks_query ( ctx->tower_blocks, slot );
       if( FD_LIKELY( fork ) )   fd_tower_blocks_remove( ctx->tower_blocks, slot );
-      fd_tower_stakes_blk_t * slot_stakes = fd_tower_stakes_blk_query    ( ctx->tower_stakes->blk_map, slot, NULL );
-      if( FD_LIKELY( slot_stakes ) )         fd_tower_stakes_blk_prune( ctx->tower_stakes, slot_stakes );
+      fd_tower_stakes_blk_t * slot_stakes = fd_tower_stakes_blk_query( ctx->tower_stakes->blk_map, slot, NULL );
+      if( FD_LIKELY( slot_stakes ) )        fd_tower_stakes_blk_prune( ctx->tower_stakes, slot_stakes );
     }
 
     /* ghost */
