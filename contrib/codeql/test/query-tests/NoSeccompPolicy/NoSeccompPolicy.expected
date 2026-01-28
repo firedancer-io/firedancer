@@ -1,0 +1,5 @@
+| NoSeccompPolicy.c:163:20:163:37 | fd_tile_dummy_tile | This tile does not use a seccomp policy or does not ALWAYS call a function to populate one. |
+| NoSeccompPolicy.c:177:20:177:47 | fd_tile_missing_seccomp_tile | This tile does not use a seccomp policy or does not ALWAYS call a function to populate one. |
+| NoSeccompPolicy.c:191:20:191:42 | fd_tile_incomplete_tile | This tile does not use a seccomp policy or does not ALWAYS call a function to populate one. |
+| NoSeccompPolicy.c:201:20:201:43 | fd_tile_conditional_tile | This tile does not use a seccomp policy or does not ALWAYS call a function to populate one. |
+| NoSeccompPolicy.c:229:20:229:44 | fd_tile_indirect_bad_tile | This tile does not use a seccomp policy or does not ALWAYS call a function to populate one. |
