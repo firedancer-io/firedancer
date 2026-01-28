@@ -359,7 +359,8 @@ struct fd_replay_tile {
      a message from PoH that the leader slot has ended.  After both of
      these conditions are met, then we are free to unbecome the leader.
   */
-  int         is_leader;
+  uint        is_leader : 1;
+  uint        supports_leader : 1;
   int         recv_poh;
   ulong       next_leader_slot;
   long        next_leader_tickcount;
@@ -1139,6 +1140,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->has_identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
+  if( !ctx->supports_leader ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
@@ -2701,6 +2703,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->mleaders );
 
   ctx->is_leader             = 0;
+  ctx->supports_leader       = fd_topo_find_tile( topo, "pack", 0UL )!=ULONG_MAX;
   ctx->reset_slot            = 0UL;
   fd_memset( ctx->reset_bank, 0, sizeof(fd_bank_t) );
   ctx->reset_block_id        = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };

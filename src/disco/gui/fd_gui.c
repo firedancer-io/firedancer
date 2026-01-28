@@ -751,7 +751,7 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
 
   ulong pack_tile_idx = fd_topo_find_tile( topo, "pack", 0UL );
   if( pack_tile_idx!=ULONG_MAX ) {
-    fd_topo_tile_t const * pack  = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
+    fd_topo_tile_t const * pack  = &topo->tiles[ pack_tile_idx ];
     volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
     stats->pack_buffer_cnt      = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS ) ];
     stats->pack_buffer_capacity = pack->pack.max_pending_transactions;
