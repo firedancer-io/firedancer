@@ -27,7 +27,7 @@
 #define IN_KIND_SNAPLV (0UL)
 #define IN_KIND_SNAPWH (1UL)
 
-#define VINYL_LTHASH_BLOCK_ALIGN  (512UL) /* O_DIRECT would require 4096UL */
+#define VINYL_LTHASH_BLOCK_ALIGN  FD_VINYL_BSTREAM_BLOCK_SZ
 #define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
 FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
 
@@ -213,9 +213,9 @@ handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
 
   /* dev_seq shows where the seq is physically located in device. */
   ulong dev_seq  = ( seq + ctx->vinyl.dev_base ) % ctx->vinyl.dev_sz;
-  ulong rd_off   = fd_ulong_align_dn( dev_seq, VINYL_LTHASH_BLOCK_ALIGN );
+  ulong rd_off   = fd_ulong_align_dn( dev_seq, FD_VINYL_BSTREAM_BLOCK_SZ );
   ulong pair_off = (dev_seq - rd_off);
-  ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, VINYL_LTHASH_BLOCK_ALIGN );
+  ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, FD_VINYL_BSTREAM_BLOCK_SZ );
   FD_TEST( rd_sz < VINYL_LTHASH_BLOCK_MAX_SZ );
 
   uchar * pair = ((uchar*)ctx->vinyl.pair_mem) + pair_off;
@@ -234,7 +234,7 @@ handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
          This means: increase the size multiple of the alignment,
          read into a temporary buffer, and memcpy into the dst at the
          correct offset. */
-      bd_read( ctx->vinyl.dev_fd, 0, tmp, sz + VINYL_LTHASH_BLOCK_ALIGN );
+      bd_read( ctx->vinyl.dev_fd, 0, tmp, sz + FD_VINYL_BSTREAM_BLOCK_SZ );
       fd_memcpy( dst + rsz, tmp + ctx->vinyl.dev_base, sz );
     }
 
@@ -472,9 +472,7 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
 static void
 handle_lv_data_frag( fd_snaplh_t * ctx,
                      ulong         in_idx,
-                     ulong         chunk,      /* compressed input pointer */
-                     ulong         sz_comp ) { /* compressed input size */
-  (void)sz_comp;
+                     ulong         chunk ) { /* compressed input pointer */
   if( FD_LIKELY( should_process_lthash_request( ctx ) ) ) {
     uchar const * indata = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
     ulong seq;
@@ -564,14 +562,15 @@ returnable_frag( fd_snaplh_t *       ctx,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               ctl,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
+  (void)sz; (void)ctl;
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH ) )          handle_wh_data_frag( ctx, in_idx, chunk, sz/*sz_comp*/, stem );
-  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) ) handle_lv_data_frag( ctx, in_idx, chunk, sz );
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH ) )          handle_wh_data_frag( ctx, in_idx, chunk, tsorig, stem );
+  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) ) handle_lv_data_frag( ctx, in_idx, chunk );
   else                                                               handle_control_frag( ctx, sig, tsorig, tspub, stem );
 
   /* Because fd_stem may not return flow control credits fast enough,
