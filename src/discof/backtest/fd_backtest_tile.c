@@ -369,6 +369,12 @@ returnable_frag( fd_backt_tile_t *   ctx,
       break;
     }
     case IN_KIND_REPLAY: {
+      if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
+        fd_replay_slot_dead_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        if( FD_UNLIKELY( !ctx->ingests_dead_slots ) ) FD_LOG_ERR(( "unexpectedly marked slot=%lu as dead", msg->slot ));
+        FD_LOG_NOTICE(( "replay marked slot=%lu as dead", msg->slot ));
+        return 0;
+      }
       if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED ) ) return 0;
       if( FD_UNLIKELY( !ctx->initialized ) ) return 1;
 

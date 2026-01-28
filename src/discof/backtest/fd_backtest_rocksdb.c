@@ -138,51 +138,17 @@ fd_backtest_rocksdb_init( fd_backtest_rocksdb_t * db,
   rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
 }
 
-int
-fd_backtest_rocksdb_next_dead_slot( fd_backtest_rocksdb_t * db,
-                                    ulong *                 slot_out,
-
-                                    ulong *                 shred_cnt_out ) {
-
-    FD_TEST( rocksdb_iter_valid( db->iter_dead ) );
-    rocksdb_iter_next( db->iter_dead );
-    if( FD_UNLIKELY( !rocksdb_iter_valid( db->iter_dead ) ) ) return 0;
-
-    ulong keylen;
-    char const * key = rocksdb_iter_key( db->iter_dead, &keylen );
-
-    ulong vallen;
-    char * err = NULL;
-    char * slot_meta = rocksdb_get_cf( db->db, db->readoptions, db->cfs[ 2 ], key, keylen, &vallen, &err );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_get_cf(\"meta\",...) failed: %s", err ));
-
-    fd_bincode_decode_ctx_t ctx = {
-      .data    = slot_meta,
-      .dataend = slot_meta+vallen,
-    };
-
-    ulong total_sz = 0UL;
-    FD_TEST( !fd_slot_meta_decode_footprint( &ctx, &total_sz ) );
-
-    void * mem = fd_alloca_check( FD_SLOT_META_ALIGN, total_sz );
-    fd_slot_meta_t * meta = fd_slot_meta_decode( mem, &ctx );
-
-    *slot_out       = meta->slot;
-    *shred_cnt_out  = meta->received;
-    return 1;
-}
-
-int
-fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
-                                    ulong *                 slot_out,
-                                    ulong *                 shred_cnt_out ) {
-
-  FD_TEST( rocksdb_iter_valid( db->iter_root ) );
-  rocksdb_iter_next( db->iter_root );
-  if( FD_UNLIKELY( !rocksdb_iter_valid( db->iter_root ) ) ) return 0;
+static int
+fd_backtest_rocksdb_next_slot_private( fd_backtest_rocksdb_t * db,
+                                       rocksdb_iterator_t *    iter,
+                                       ulong *                 slot_out,
+                                       ulong *                 shred_cnt_out ) {
+  FD_TEST( rocksdb_iter_valid( iter ) );
+  rocksdb_iter_next( iter );
+  if( FD_UNLIKELY( !rocksdb_iter_valid( iter ) ) ) return 0;
 
   ulong keylen;
-  char const * key = rocksdb_iter_key( db->iter_root, &keylen );
+  char const * key = rocksdb_iter_key( iter, &keylen );
 
   ulong vallen;
   char * err = NULL;
@@ -203,6 +169,20 @@ fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
   *slot_out       = meta->slot;
   *shred_cnt_out  = meta->received;
   return 1;
+}
+
+int
+fd_backtest_rocksdb_next_dead_slot( fd_backtest_rocksdb_t * db,
+                                    ulong *                 slot_out,
+                                    ulong *                 shred_cnt_out ) {
+  return fd_backtest_rocksdb_next_slot_private( db, db->iter_dead, slot_out, shred_cnt_out );
+}
+
+int
+fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
+                                    ulong *                 slot_out,
+                                    ulong *                 shred_cnt_out ) {
+  return fd_backtest_rocksdb_next_slot_private( db, db->iter_root, slot_out, shred_cnt_out );
 }
 
 void const *
