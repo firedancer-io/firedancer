@@ -640,11 +640,6 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
 int
 fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_EXEC_CU_UPDATE( ctx, 150UL );
-
-  if( FD_UNLIKELY( ctx->instr->data_sz>FD_SYSTEM_PROGRAM_INSTR_FOOTPRINT ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
-
   uchar instr_mem[ FD_SYSTEM_PROGRAM_INSTR_FOOTPRINT ] __attribute__((aligned(alignof(fd_system_program_instruction_t))));
 
   int decode_err;
