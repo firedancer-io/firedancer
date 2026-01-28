@@ -78,6 +78,16 @@ fd_bundle_client_do_connect( fd_bundle_tile_t const * ctx,
   return errno;
 }
 
+static int
+fd_bundle_client_get_connect_result( fd_bundle_tile_t const * ctx ) {
+  int so_err = 0;
+  socklen_t so_err_sz = sizeof(so_err);
+  if( FD_UNLIKELY( getsockopt( ctx->tcp_sock, SOL_SOCKET, SO_ERROR, &so_err, &so_err_sz )==-1 ) ) {
+    return errno;
+  }
+  return so_err;
+}
+
 static void
 fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
   fd_bundle_client_reset( ctx );
@@ -325,15 +335,21 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
     }
     if( poll_res==0 ) return;
 
+    int connect_result = 0;
     if( pfds[0].revents & (POLLERR|POLLHUP) ) {
-      int connect_err = fd_bundle_client_do_connect( ctx, 0 );
-      FD_LOG_INFO(( "Bundle gRPC connect attempt failed (%i-%s)", connect_err, fd_io_strerror( connect_err ) ));
+      connect_result = fd_bundle_client_get_connect_result( ctx );
+    connect_failed:
+      FD_LOG_INFO(( "Bundle gRPC connect attempt failed (%i-%s)", connect_result, fd_io_strerror( connect_result ) ));
       fd_bundle_client_reset( ctx );
       ctx->metrics.transport_fail_cnt++;
       *charge_busy = 1;
       return;
     }
     if( pfds[0].revents & POLLOUT ) {
+      connect_result = fd_bundle_client_get_connect_result( ctx );
+      if( FD_UNLIKELY( connect_result!=0 ) ) {
+        goto connect_failed;
+      }
       FD_LOG_DEBUG(( "Bundle TCP socket connected" ));
       ctx->tcp_sock_connected = 1;
       *charge_busy = 1;
