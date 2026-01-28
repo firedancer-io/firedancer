@@ -130,7 +130,8 @@ fd_backtest_rocksdb_init( fd_backtest_rocksdb_t * db,
   FD_TEST( rocksdb_iter_valid( db->iter_root ) );
 
   rocksdb_iter_seek( db->iter_dead, (char const *)&key, sizeof(ulong) );
-  /* The Iter does not need to be valid here. */
+  /* The tter does not need to be valid here since the rocksdb might
+     have no dead slots. */
 
   char shred_key[ 16UL ];
   FD_STORE( ulong, shred_key, fd_ulong_bswap( root_slot ) );
@@ -143,7 +144,8 @@ fd_backtest_rocksdb_next_slot_private( fd_backtest_rocksdb_t * db,
                                        rocksdb_iterator_t *    iter,
                                        ulong *                 slot_out,
                                        ulong *                 shred_cnt_out ) {
-  FD_TEST( rocksdb_iter_valid( iter ) );
+  if( FD_UNLIKELY( !rocksdb_iter_valid( iter ) ) ) return 0;
+
   rocksdb_iter_next( iter );
   if( FD_UNLIKELY( !rocksdb_iter_valid( iter ) ) ) return 0;
 
@@ -175,6 +177,7 @@ int
 fd_backtest_rocksdb_next_dead_slot( fd_backtest_rocksdb_t * db,
                                     ulong *                 slot_out,
                                     ulong *                 shred_cnt_out ) {
+
   return fd_backtest_rocksdb_next_slot_private( db, db->iter_dead, slot_out, shred_cnt_out );
 }
 

@@ -140,29 +140,37 @@ source_init( fd_backt_tile_t * ctx,
 }
 
 static int
+source_next_slot_rocksdb( fd_backt_tile_t * ctx,
+                          ulong *           slot_out,
+                          ulong *           shred_cnt,
+                          int *             is_slot_rooted ) {
+  /* Replaying by lowest to highest slot number is simply a policy
+     choice and doesn't necesarily reflect the order in which slots
+     were replayed when running on a live node. */
+  int result = 0;
+  if( ctx->ingest_dead_slots && ctx->prev_source_slot==ctx->dead_slot ) result = fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
+  if( ctx->prev_source_slot==ctx->root_slot )                           result = fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
+
+  if( FD_UNLIKELY( ctx->dead_slot<ctx->root_slot ) ) {
+    *slot_out       = ctx->dead_slot;
+    *shred_cnt      = ctx->dead_shred_cnt;
+    *is_slot_rooted = 0;
+  } else {
+    *slot_out       = ctx->root_slot;
+    *shred_cnt      = ctx->root_shred_cnt;
+    *is_slot_rooted = 1;
+  }
+  ctx->prev_source_slot = *slot_out;
+  return result;
+}
+
+static int
 source_next_slot( fd_backt_tile_t * ctx,
                   ulong *           slot_out,
                   ulong *           shred_cnt,
                   int *             is_slot_rooted ) {
 # if FD_HAS_ROCKSDB
-  if( ctx->rocksdb ) {
-
-    int result = 0;
-    if( ctx->ingest_dead_slots && ctx->prev_source_slot==ctx->dead_slot ) result = fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
-    if( ctx->prev_source_slot==ctx->root_slot )                           result = fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
-
-    if( ctx->ingest_dead_slots && ctx->dead_slot<ctx->root_slot ) {
-      *slot_out       = ctx->dead_slot;
-      *shred_cnt      = ctx->dead_shred_cnt;
-      *is_slot_rooted = 0;
-    } else {
-      *slot_out       = ctx->root_slot;
-      *shred_cnt      = ctx->root_shred_cnt;
-      *is_slot_rooted = 1;
-    }
-    ctx->prev_source_slot = *slot_out;
-    return result;
-  }
+  if( ctx->rocksdb ) return source_next_slot_rocksdb( ctx, slot_out, shred_cnt, is_slot_rooted );
 # endif
   /* TODO: shredcap doesn't support dead slots yet. */
   *is_slot_rooted = 1;
