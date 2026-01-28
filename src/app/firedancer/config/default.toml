@@ -765,6 +765,18 @@ telemetry = true
     # often run on these cores.
     blocklist_cores = "0h"
 
+    # Whether to run tiles involved in block production.
+    #
+    # If disabled, the validator will skip its leader slots.
+    # Disabling block production is useful to reduce CPU and memory
+    # requirements for unstaked nodes.
+    #
+    # The following tiles will only run if this option is enabled:
+    # quic, bundle, verify, dedup, resolv, pack, execle, poh.
+    # The [layout.*_tile_count] settings for those tiles are ignored if
+    # block production is disabled.
+    enable_block_production = true
+
     # How many net tiles to run.  This is configurable and designed to
     # scale out for future network conditions, but there is no need to
     # run more than 2 net tiles given current `mainnet-beta` conditions.
