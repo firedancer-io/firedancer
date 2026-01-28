@@ -360,6 +360,7 @@ http_recv( fd_sshttp_t * http,
     }
     return FD_SSHTTP_ADVANCE_AGAIN;
   } else if( FD_UNLIKELY( -1==read ) ) {
+    FD_LOG_WARNING(( "recvfrom() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -372,6 +373,7 @@ static int
 send_request( fd_sshttp_t * http,
               long          now ) {
   if( FD_UNLIKELY( now>http->deadline ) ) {
+    FD_LOG_WARNING(( "timeout sending request" ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -417,6 +419,7 @@ follow_redirect( fd_sshttp_t *        http,
       location     = headers[ i ].value;
 
       if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) {
+        FD_LOG_WARNING(( "location header too long `%.*s`", (int)location_len, location ));
         fd_sshttp_cancel( http );
         return FD_SSHTTP_ADVANCE_ERROR;
       }

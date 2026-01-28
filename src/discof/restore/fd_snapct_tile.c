@@ -28,8 +28,6 @@
 /* FIXME: Improve behavior when using incremental_snapshots = false */
 /* FIXME: Handle cases where no explicitly allowed peers advertise RPC */
 /* FIXME: Make the code more strict about duplicate IP:port's */
-/* FIXME: Handle cases where the slot number we start downloading differs from advertised */
-/* FIXME: Ensure local files are not selected again if they fail the first time. */
 
 #define GOSSIP_PEERS_MAX (FD_CONTACT_INFO_TABLE_SIZE)
 #define SERVER_PEERS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED)
@@ -497,7 +495,7 @@ log_download( fd_snapct_tile_t * ctx,
       FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from allowed gossip peer %s at http://" FD_IP4_ADDR_FMT ":%hu/%s",
                       full ? "full" : "incremental", slot, pubkey_b58,
                       FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ),
-                      full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ));
+                      full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name ));
       return;
     }
   }
@@ -785,10 +783,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( !ctx->flush_ack ) break;
 
       if( ctx->metrics.full.num_retries==ctx->config.max_retry_abort ) {
-        FD_LOG_WARNING(( "hit retry limit of %u for full snapshot, aborting", ctx->config.max_retry_abort ));
-        ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
-        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
-        break;
+        FD_LOG_ERR(( "hit retry limit of %u for full snapshot, aborting", ctx->config.max_retry_abort ));
       }
 
       ctx->metrics.full.num_retries++;
@@ -801,8 +796,14 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->metrics.incremental.bytes_written = 0UL;
       ctx->metrics.incremental.bytes_total   = 0UL;
 
-      ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS;
-      ctx->deadline_nanos = 0L;
+      if( !ctx->download_enabled ) {
+        /* if we are unable to download new snapshots and unable to load
+           our local snapshot, we must shutdown the validator. */
+        FD_LOG_ERR(( "unable to load local snapshot %s and no snapshot peers were configured. aborting.", ctx->local_in.full_snapshot_path ));
+      } else {
+        ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS;
+        ctx->deadline_nanos = 0L;
+      }
       break;
 
     /* ============================================================== */
@@ -811,10 +812,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( !ctx->flush_ack ) break;
 
       if( ctx->metrics.incremental.num_retries==ctx->config.max_retry_abort ) {
-        FD_LOG_WARNING(("hit retry limit of %u for incremental snapshot, aborting", ctx->config.max_retry_abort ));
-        ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
-        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
-        break;
+        FD_LOG_ERR(("hit retry limit of %u for incremental snapshot. aborting", ctx->config.max_retry_abort ));
       }
 
       ctx->metrics.incremental.num_retries++;
@@ -823,8 +821,14 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->metrics.incremental.bytes_written = 0UL;
       ctx->metrics.incremental.bytes_total   = 0UL;
 
-      ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
-      ctx->deadline_nanos = 0L;
+      if( !ctx->download_enabled ) {
+        /* if we are unable to download new snapshots and unable to load
+           our local snapshot, we must shutdown the validator. */
+        FD_LOG_ERR(( "unable to load local snapshot %s and no snapshot peers were configured. aborting.", ctx->local_in.full_snapshot_path ));
+      } else {
+        ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
+        ctx->deadline_nanos = 0L;
+      }
       break;
 
     /* ============================================================== */
@@ -847,7 +851,7 @@ after_credit( fd_snapct_tile_t *  ctx,
              incremental snapshot and download is not enabled. */
           FD_LOG_WARNING(( "incremental snapshots were enabled via [snapshots.incremental_snapshots] "
                            "but no incremental snapshot exists on disk and no snapshot peers are configured. "
-                           "Skipping incremental snapshot load." ));
+                           "skipping incremental snapshot load." ));
           ctx->config.incremental_snapshots = 0;
         }
         fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -920,6 +924,9 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_SHUTDOWN:
+      /* Transitioning to the shutdown state indicates snapshot load is
+         completed without errors.  Otherwise, snapct would have aborted
+         earlier. */
       break;
 
     /* ============================================================== */
