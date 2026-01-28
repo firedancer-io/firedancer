@@ -73,9 +73,12 @@ fd_bundle_client_do_connect( fd_bundle_tile_t const * ctx,
     .sin_addr.s_addr = ip4_addr,
     .sin_port        = fd_ushort_bswap( ctx->server_tcp_port )
   };
-  errno = 0;
-  connect( ctx->tcp_sock, fd_type_pun_const( &addr ), sizeof(struct sockaddr_in) );
-  return errno;
+  int err = connect( ctx->tcp_sock, fd_type_pun_const( &addr ), sizeof(struct sockaddr_in) );
+  /* FD_LIKELY is used here as EINPROGRESS is expected even to local tcp ports */
+  if( FD_LIKELY( err==-1 ) ) {
+      return errno;
+  }
+  return 0;
 }
 
 static void
@@ -128,7 +131,8 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
                 (int)ctx->server_sni_len, ctx->server_sni ));
 
   int connect_err = fd_bundle_client_do_connect( ctx, ip4_addr );
-  if( FD_UNLIKELY( connect_err ) ) {
+  /* FD_LIKELY as EINPROGRESS is expected */
+  if( FD_LIKELY( connect_err ) ) {
     if( FD_UNLIKELY( connect_err!=EINPROGRESS ) ) {
       FD_LOG_WARNING(( "connect(tcp_sock," FD_IP4_ADDR_FMT ":%u) failed (%i-%s)",
                       FD_IP4_ADDR_FMT_ARGS( ip4_addr ), ctx->server_tcp_port,
