@@ -169,6 +169,8 @@ struct fd_configf {
 
   struct {
     int hard_fork_fatal;
+
+    int disable_leader_pipeline;
   } development;
 
   struct {

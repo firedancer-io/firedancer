@@ -125,6 +125,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.min_download_speed_mibs                   );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
+  CFG_POP      ( bool,   development.disable_leader_pipeline                 );
 
   return config;
 }
