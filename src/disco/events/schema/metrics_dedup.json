@@ -1,0 +1,19 @@
+{
+    "name": "metrics_dedup",
+    "id": 1004,
+    "description": "Metrics snapshot for the dedup tile",
+    "fields": {
+        "meta":                    { "type": "ref:MetricMeta" },
+        "tile":                    { "type": "ref:MetricTile" },
+        "transaction_result":      {
+            "type": "Flatten",
+            "description": "Count of transaction results through dedup tile",
+            "fields": {
+                "transaction_result_success":             { "type": "UInt64", "description": "Transaction deduplicated successfully" },
+                "transaction_result_bundle_peer_failure": { "type": "UInt64", "description": "Peer transaction in the bundle failed" },
+                "transaction_result_dedup_failure":       { "type": "UInt64", "description": "Transaction failed deduplication" }
+            }
+        },
+        "gossiped_votes_received": { "type": "UInt64", "description": "Count of simple vote transactions received over gossip instead of via the normal TPU path" }
+    }
+}
