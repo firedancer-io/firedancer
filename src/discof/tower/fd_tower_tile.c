@@ -619,16 +619,13 @@ replay_slot_completed( ctx_t *                      ctx,
 
   if( FD_UNLIKELY( fd_forks_query( ctx->forks, slot_completed->slot ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, block_id );
-    FD_LOG_WARNING(( "tower ignoring replay of equivocating slot %lu %s", slot_completed->slot, block_id ));
+    FD_LOG_WARNING(( "tower received replay of equivocating slot %lu %s", slot_completed->slot, block_id ));
 
-    /* Still need to return a message to replay so the refcnt on the bank is decremented. */
-    fd_tower_slot_ignored_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-    msg->slot     = slot_completed->slot;
-    msg->bank_idx = slot_completed->bank_idx;
-
-    fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_IGNORED, ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), ctx->out_chunk0, ctx->out_wmark );
-    return;
+    /* clear out structures from other version of the fork. TODO: do we want
+       an explicit purge call after the confirmation is sent? */
+    fd_epoch_stakes_slot_t * slot_stakes = fd_epoch_stakes_slot_map_query( ctx->slot_stakes->slot_stakes_map, slot_completed->slot, NULL );
+    if( FD_LIKELY( slot_stakes ) )         fd_epoch_stakes_slot_stakes_remove( ctx->slot_stakes, slot_stakes );
+    fd_forks_lockouts_clear( ctx->forks, slot_completed->slot );
   }
 
   /* Initialize the xid. */
@@ -663,13 +660,10 @@ replay_slot_completed( ctx_t *                      ctx,
 
   /* Insert the just replayed block into forks. */
 
-  FD_TEST( !fd_forks_query( ctx->forks, slot_completed->slot ) );
-  fd_tower_forks_t * fork = fd_forks_insert( ctx->forks, slot_completed->slot, slot_completed->parent_slot );
+  fd_tower_forks_t *       fork = fd_forks_query ( ctx->forks, slot_completed->slot ); /* equivocation if non-NULL */
+  if( FD_LIKELY( !fork ) ) fork = fd_forks_insert( ctx->forks, slot_completed->slot, slot_completed->parent_slot );
   fork->parent_slot       = slot_completed->parent_slot;
-  fork->confirmed         = 0;
   fork->voted             = 0;
-  fork->replayed_block_id = slot_completed->block_id;
-  fork->bank_idx          = slot_completed->bank_idx;
   fd_forks_replayed( ctx->forks, fork, slot_completed->bank_idx, &slot_completed->block_id );
   fd_forks_lockouts_clear( ctx->forks, slot_completed->parent_slot );
 
@@ -930,8 +924,9 @@ done_vote_iter:
   if( FD_UNLIKELY( ctx->debug_fd!=-1 ) ) {
     /* standard buf_sz used by below prints is ~3400 bytes, so buf_max of
        4096 is sufficient to keep the debug file mostly up to date */
-    fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ), &ctx->debug_ostream );
+    fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ),       &ctx->debug_ostream );
     fd_tower_print( ctx->tower, fd_ghost_root( ctx->ghost )->slot, &ctx->debug_ostream );
+    fd_io_buffered_ostream_flush( &ctx->debug_ostream );
   }
 }
 
