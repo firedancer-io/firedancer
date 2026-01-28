@@ -94,7 +94,7 @@ before_frag( fd_bank_ctx_t * ctx,
   /* Pack also outputs "leader slot done" which we can ignore. */
   if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK ) ) return 1;
 
-  ulong target_bank_idx = fd_disco_poh_sig_bank_tile( sig );
+  ulong target_bank_idx = fd_disco_poh_sig_execle_tile( sig );
   if( FD_UNLIKELY( target_bank_idx!=ctx->kind_id ) ) return 1;
 
   return 0;
@@ -120,8 +120,8 @@ during_frag( fd_bank_ctx_t * ctx,
   if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
 
-  fd_memcpy( dst, src, sz-sizeof(fd_microblock_bank_trailer_t) );
-  fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
+  fd_memcpy( dst, src, sz-sizeof(fd_microblock_execle_trailer_t) );
+  fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
   ctx->_bank = trailer->bank;
   ctx->_pack_idx = trailer->pack_idx;
   ctx->_txn_idx = trailer->pack_txn_idx;
@@ -159,7 +159,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_p_t);
 
   fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
 
@@ -212,8 +212,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     /* Assume failure, set below if success.  If it doesn't land cin the
        block, rebate the non-execution CUs too. */
-    txn->bank_cu.actual_consumed_cus = 0U;
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
+    txn->execle_cu.actual_consumed_cus = 0U;
+    txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
     txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
@@ -245,8 +245,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        before they even reach the VM stage. They have zero execution
        cost but do charge for the account data they are able to load.
        FeesOnly votes are charged the fixed voe cost. */
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+    txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
+    txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
@@ -313,7 +313,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
-  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_bank_trailer_t), poh_shred_mtu );
+  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_execle_trailer_t), poh_shred_mtu );
 
   /* We have a race window with the GUI, where if the slot is ending it
      will snap these metrics to draw the waterfall, but see them outdated
@@ -321,7 +321,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      PoH should eventually flush the pipeline before ending the slot. */
   metrics_write( ctx );
 
-  ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx );
+  ulong bank_sig = fd_disco_execle_sig( slot, ctx->_pack_idx );
 
   /* We always need to publish, even if there are no successfully executed
      transactions so the PoH tile can keep an accurate count of microblocks
@@ -342,7 +342,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   fd_txn_p_t * txns = (fd_txn_p_t *)dst;
 
   ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_p_t);
 
   fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
 
@@ -428,14 +428,14 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     /* Assume failure, set below if success.  If it doesn't land in the
        block, rebate the non-execution CUs too. */
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
+    txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
 
     /* We want to include consumed CUs for failed bundles for
        monitoring, even though they aren't included in the block.  This
        is safe because the poh tile first checks if a txn is included in
        the block before counting its "actual_consumed_cus" towards the
        block tally. */
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
+    txn->execle_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
 
     if( FD_LIKELY( execution_success ) ) {
       if( FD_UNLIKELY( consumed_cus[ i ] > requested_exec_plus_acct_data_cus ) ) {
@@ -443,8 +443,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
         FD_LOG_ERR(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
       }
 
-      txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
-      txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
+      txn->execle_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
+      txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
     }
   }
 
@@ -467,7 +467,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     trailer->pack_txn_idx = ctx->_txn_idx + i;
     trailer->tips = tips[ i ];
 
-    ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx+i );
+    ulong bank_sig = fd_disco_execle_sig( slot, ctx->_pack_idx+i );
 
     long tickcount                 = fd_tickcount();
     long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
@@ -547,7 +547,7 @@ unprivileged_init( fd_topo_t *      topo,
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
 
-  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
+  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
   ctx->busy_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
   if( FD_UNLIKELY( !ctx->busy_fseq ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", tile->kind_id ));

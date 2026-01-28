@@ -72,7 +72,7 @@ typedef struct {
    zero means no dcache is needed, as there is no data. */
 typedef struct {
   ulong id;           /* The ID of this link.  Indexed from [0, link_cnt).  When placed in a topology, the ID must be the index of the link in the links list. */
-  char  name[ 13UL ]; /* The name of this link, like "pack_bank". There can be multiple of each link name in a topology. */
+  char  name[ 13UL ]; /* The name of this link, like "pack_execle". There can be multiple of each link name in a topology. */
   ulong kind_id;      /* The ID of this link within its name.  If there are N links of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a link, as does "id" on its own. */
 
   ulong depth;    /* The depth of the mcache representing the link. */
@@ -287,7 +287,7 @@ struct fd_topo_tile {
 
     struct {
       ulong max_pending_transactions;
-      ulong bank_tile_count;
+      ulong execle_tile_count;
       int   larger_max_cost_per_block;
       int   larger_shred_limits_per_block;
       int   use_consumed_cus;
@@ -306,7 +306,7 @@ struct fd_topo_tile {
     struct {
       int   lagged_consecutive_leader_start;
       int   plugins_enabled;
-      ulong bank_cnt;
+      ulong execle_cnt;
       char  identity_key_path[ PATH_MAX ];
       struct {
         int   enabled;
@@ -608,7 +608,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong acc_pool_obj_id;
-    } bank;
+    } execle;
 
     struct {
       int allow_download;

@@ -373,14 +373,14 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "replay_poh"   );
 
   fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL, FD_EPOCH_OUT_MTU, 1UL );
-  ulong bank_tile_cnt   = config->layout.bank_tile_count;
-  FOR(bank_tile_cnt) fd_topob_link( topo, "replay_poh", "replay_poh", 128UL, (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL );
+  ulong execle_tile_cnt = config->firedancer.layout.execle_tile_count;
+  FOR(execle_tile_cnt) fd_topob_link( topo, "replay_poh", "replay_poh", 128UL, (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL );
 
   fd_topob_tile_out( topo, "replay", 0UL, "replay_epoch",   0UL );
-  FOR(bank_tile_cnt) fd_topob_tile_out( topo, "replay", 0UL, "replay_poh", i );
+  FOR(execle_tile_cnt) fd_topob_tile_out( topo, "replay", 0UL, "replay_poh", i );
 
   topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_epoch",   0 ) ] ].permit_no_consumers = 1;
-  FOR(bank_tile_cnt) topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_poh", i ) ] ].permit_no_consumers = 1;
+  FOR(execle_tile_cnt) topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_poh", i ) ] ].permit_no_consumers = 1;
 
   /**********************************************************************/
   /* Setup replay->backtest link (replay_notif) in topo                 */
@@ -461,7 +461,7 @@ backtest_topo( config_t * config ) {
 
   /* txncache_obj, busy_obj and poh_slot_obj only by replay tile */
   fd_topob_wksp( topo, "txncache"    );
-  fd_topob_wksp( topo, "bank_busy"   );
+  fd_topob_wksp( topo, "execle_busy" );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
       config->firedancer.runtime.max_live_slots,
       fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
@@ -482,10 +482,10 @@ backtest_topo( config_t * config ) {
   }
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
-  for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
-    fd_topo_obj_t * busy_obj = fd_topob_obj( topo, "fseq", "bank_busy" );
+  for( ulong i=0UL; i<execle_tile_cnt; i++ ) {
+    fd_topo_obj_t * busy_obj = fd_topob_obj( topo, "fseq", "execle_busy" );
     fd_topob_tile_uses( topo, replay_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "execle_busy.%lu", i ) );
   }
 
   if( FD_LIKELY( !disable_snap_loader ) ) {

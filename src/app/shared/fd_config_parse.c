@@ -23,6 +23,7 @@ fd_config_extract_podh( uchar *        pod,
 
   CFG_POP      ( cstr,   layout.agave_affinity                            );
   CFG_POP      ( uint,   layout.agave_unified_scheduler_handler_threads   );
+  CFG_POP      ( uint,   layout.bank_tile_count                           );
 
   CFG_POP1      ( cstr,  ledger.accounts_path,             paths.accounts_path          );
   CFG_POP1_ARRAY( cstr,  consensus.authorized_voter_paths, paths.authorized_voter_paths );
@@ -84,6 +85,7 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( uint,   layout.exec_tile_count                              );
   CFG_POP      ( uint,   layout.sign_tile_count                              );
+  CFG_POP      ( uint,   layout.execle_tile_count                            );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
   CFG_POP      ( uint,   layout.snapshot_hash_tile_count                     );
   CFG_POP      ( uint,   layout.snapwr_tile_count                            );
@@ -168,7 +170,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   layout.quic_tile_count                           );
   CFG_POP      ( uint,   layout.resolv_tile_count                         );
   CFG_POP      ( uint,   layout.verify_tile_count                         );
-  CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );

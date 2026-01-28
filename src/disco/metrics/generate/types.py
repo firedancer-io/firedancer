@@ -32,7 +32,7 @@ class Tile(Enum):
     SNAPIN = 26
     IPECHO = 27
     GOSSVF = 28
-    BANKF = 29
+    EXECLE = 29
     RESOLF = 30
     BACKT = 31
     EXEC = 32

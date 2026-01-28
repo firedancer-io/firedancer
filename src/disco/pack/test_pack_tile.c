@@ -495,7 +495,7 @@ bank_out_check( fd_tile_test_ctx_t  * test_ctx,
       return -1;
     }
 
-    fd_fseq_update( ctx->bank_current[ 0 ], ctx->bank_expect[ 0 ] );
+    fd_fseq_update( ctx->execle_current[ 0 ], ctx->execle_expect[ 0 ] );
     bank_out_link->prod_seq   = fd_seq_inc( bank_out_link->prod_seq, 1 );
     bank_out_link->chunk      = fd_dcache_compact_next( bank_out_link->chunk, mline->sz, bank_out_link->chunk0, bank_out_link->wmark );
     locals->rebate_checked = 1;
@@ -503,7 +503,7 @@ bank_out_check( fd_tile_test_ctx_t  * test_ctx,
     return 0;
   }
 
-  ulong txn_out_cnt = (mline->sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_out_cnt = (mline->sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_p_t);
   if( locals->txn_cnt && !mline->sz ) {
     FD_LOG_WARNING(( "mline: %p, prod_seq: %lu sz: %u, chunk: %lu, chunk0: %lu", (void *)mline, bank_out_link->prod_seq, mline->sz, bank_out_link->chunk, bank_out_link->chunk0 ));
     FD_LOG_WARNING(( "no transaction scheduled" ));
@@ -567,8 +567,8 @@ bank_out_check( fd_tile_test_ctx_t  * test_ctx,
   bank_out_link->chunk    = fd_dcache_compact_next( bank_out_link->chunk, mline->sz, bank_out_link->chunk0, bank_out_link->wmark );
 
   locals->txn_in_pack-=locals->txn_cnt;
-  // Mock the bank tile: it has handled the microblock
-  fd_fseq_update( ctx->bank_current[ 0 ], ctx->bank_expect[ 0 ] );
+  // Mock the execle tile: it has handled the microblock
+  fd_fseq_update( ctx->execle_current[ 0 ], ctx->execle_expect[ 0 ] );
 
   locals->microblocks_in_slot += txn_out_cnt;
   return 0;
@@ -929,7 +929,7 @@ mock_privileged_init( fd_topo_t      * topo,
                       fd_topo_tile_t * tile ) {
   /* For now, pretend we only have one bank tile, so that
      ctx->bank_cnt = 1 and ctx->bank_idle_bitset = 1 */
-  tile->pack.bank_tile_count = 1;
+  tile->pack.execle_tile_count = 1;
 
   FD_TEST( CRANK_WKSP_SIZE > fd_keyswitch_footprint() );
   ulong part_max = fd_wksp_part_max_est( CRANK_WKSP_SIZE, 64UL );
@@ -1023,8 +1023,8 @@ pack_reset( fd_topo_t          * topo,
     FD_TEST( locals->txn_ref_treap );
     FD_TEST( locals->txn_ref_pool  );
   }
-  // Reset the bank_current so that we start with fresh bank's consumer seq and unprivilege_init won't crash
-  *ctx->bank_current[ 0 ] = ULONG_MAX;
+  // Reset the execle_current so that we start with fresh execle's consumer seq and unprivilege_init won't crash
+  *ctx->execle_current[ 0 ] = ULONG_MAX;
   unprivileged_init( topo, tile );
 
   /* TODO: allow waiting between scheduling microblocks.

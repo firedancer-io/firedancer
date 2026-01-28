@@ -11,7 +11,7 @@
   resolv_tile_count = 1
   verify_tile_count = 31
   gossvf_tile_count = 1
-  bank_tile_count = 3
+  execle_tile_count = 3
   exec_tile_count = 1
   shred_tile_count = 1
   sign_tile_count = 2

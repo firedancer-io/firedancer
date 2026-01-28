@@ -40,7 +40,7 @@ fd_topo_initialize( config_t * config ) {
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
   ulong verify_tile_cnt = config->layout.verify_tile_count;
   ulong resolv_tile_cnt = config->layout.resolv_tile_count;
-  ulong bank_tile_cnt   = config->layout.bank_tile_count;
+  ulong bank_tile_cnt   = config->frankendancer.layout.bank_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
@@ -387,7 +387,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topo_tile_t * pack_tile = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
     fd_topob_tile_uses( topo, poh_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, pack_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "execle_busy.%lu", i ) );
   }
 
   /* There's another special fseq that's used to communicate the shred
@@ -462,7 +462,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
     tile->pack.max_pending_transactions      = config->tiles.pack.max_pending_transactions;
-    tile->pack.bank_tile_count               = config->layout.bank_tile_count;
+    tile->pack.execle_tile_count             = config->frankendancer.layout.bank_tile_count;
     tile->pack.larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
     tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
     tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
@@ -488,7 +488,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     strncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );
 
     tile->poh.plugins_enabled = plugins_enabled;
-    tile->poh.bank_cnt = config->layout.bank_tile_count;
+    tile->poh.execle_cnt = config->frankendancer.layout.bank_tile_count;
     tile->poh.lagged_consecutive_leader_start = config->tiles.poh.lagged_consecutive_leader_start;
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {

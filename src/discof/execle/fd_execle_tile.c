@@ -1,7 +1,7 @@
-#include "fd_bank_err.h"
+#include "fd_execle_err.h"
 
 #include "../../disco/tiles.h"
-#include "generated/fd_bank_tile_seccomp.h"
+#include "generated/fd_execle_tile_seccomp.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/blake3/fd_blake3.h"
@@ -9,16 +9,15 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/pack/fd_pack_rebate_sum.h"
-#include "../../disco/metrics/generated/fd_metrics_bank.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../discof/fd_accdb_topo.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
-#include "../../flamenco/log_collector/fd_log_collector.h"
+#include "../../flamenco/log_collector/fd_log_collector_base.h"
 
-struct fd_bank_out {
+struct fd_execle_out {
   ulong       idx;
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -26,9 +25,9 @@ struct fd_bank_out {
   ulong       chunk;
 };
 
-typedef struct fd_bank_out fd_bank_out_t;
+typedef struct fd_execle_out fd_execle_out_t;
 
-struct fd_bank_ctx {
+struct fd_execle_tile {
   ulong kind_id;
 
   fd_blake3_t * blake3;
@@ -45,8 +44,8 @@ struct fd_bank_ctx {
   ulong       pack_in_chunk0;
   ulong       pack_in_wmark;
 
-  fd_bank_out_t out_poh[1];
-  fd_bank_out_t out_pack[1];
+  fd_execle_out_t out_poh[1];
+  fd_execle_out_t out_pack[1];
 
   ulong rebates_for_slot;
   int enable_rebates;
@@ -74,7 +73,7 @@ struct fd_bank_ctx {
   } metrics;
 };
 
-typedef struct fd_bank_ctx fd_bank_ctx_t;
+typedef struct fd_execle_tile fd_execle_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -84,53 +83,55 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_bank_ctx_t ),   sizeof( fd_bank_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
-  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->bank.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_execle_tile_t ), sizeof( fd_execle_tile_t ) );
+  l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,             FD_BLAKE3_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,      FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->execle.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static inline void
-metrics_write( fd_bank_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( BANKF, TRANSACTION_RESULT, ctx->metrics.txn_result );
-  FD_MCNT_ENUM_COPY( BANKF, TRANSACTION_LANDED, ctx->metrics.txn_landed );
+metrics_write( fd_execle_tile_t * ctx ) {
+  FD_MCNT_ENUM_COPY( EXECLE, TRANSACTION_RESULT, ctx->metrics.txn_result );
+  FD_MCNT_ENUM_COPY( EXECLE, TRANSACTION_LANDED, ctx->metrics.txn_landed );
 }
 
 static int
-before_frag( fd_bank_ctx_t * ctx,
-             ulong           in_idx,
-             ulong           seq,
-             ulong           sig ) {
+before_frag( fd_execle_tile_t * ctx,
+             ulong             in_idx,
+             ulong             seq,
+             ulong             sig ) {
   (void)in_idx;
   (void)seq;
 
   /* Pack also outputs "leader slot done" which we can ignore. */
   if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK ) ) return 1;
 
-  ulong target_bank_kind_id = fd_disco_poh_sig_bank_tile( sig );
-  if( FD_UNLIKELY( target_bank_kind_id!=ctx->kind_id ) ) return 1;
+  ulong target_execle_kind_id = fd_disco_poh_sig_execle_tile( sig );
+  if( FD_UNLIKELY( target_execle_kind_id!=ctx->kind_id ) ) return 1;
 
   return 0;
 }
 
 static inline void
-during_frag( fd_bank_ctx_t * ctx,
-             ulong           in_idx FD_PARAM_UNUSED,
-             ulong           seq    FD_PARAM_UNUSED,
-             ulong           sig    FD_PARAM_UNUSED,
-             ulong           chunk,
-             ulong           sz,
-             ulong           ctl    FD_PARAM_UNUSED ) {
+during_frag( fd_execle_tile_t * ctx,
+             ulong              in_idx,
+             ulong              seq,
+             ulong              sig,
+             ulong              chunk,
+             ulong              sz,
+             ulong              ctl ) {
+  (void)in_idx; (void)seq; (void)sig; (void)ctl;
+
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->pack_in_mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
 
-  fd_memcpy( dst, src, sz-sizeof(fd_microblock_bank_trailer_t) );
-  fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
+  fd_memcpy( dst, src, sz-sizeof(fd_microblock_execle_trailer_t) );
+  fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
   ctx->_bank_idx  = trailer->bank_idx;
   ctx->_pack_idx  = trailer->pack_idx;
   ctx->_txn_idx   = trailer->pack_txn_idx;
@@ -159,7 +160,7 @@ hash_transactions( void *       mem,
 }
 
 static inline void
-handle_microblock( fd_bank_ctx_t *     ctx,
+handle_microblock( fd_execle_tile_t *  ctx,
                    ulong               seq,
                    ulong               sig,
                    ulong               sz,
@@ -168,7 +169,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_p_t);
 
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
@@ -185,8 +186,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     /* Assume failure, set below if success.  If it doesn't land in the
        block, rebate the non-execution CUs too. */
-    txn->bank_cu.actual_consumed_cus = 0U;
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
+    txn->execle_cu.actual_consumed_cus = 0U;
+    txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
@@ -203,7 +204,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       fd_runtime_cancel_txn( ctx->runtime, txn_out );
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
       ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-      ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+      ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
       continue;
     }
 
@@ -215,7 +216,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        the block.  It's a bit of a misnomer now that there are fee-only
        transactions. */
     txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-    ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+    ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
 
     /* Commit must succeed so no failure path.  Once commit is called,
        the transactions MUST be mixed into the PoH otherwise we will
@@ -265,8 +266,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        before they even reach the VM stage. They have zero execution
        cost but do charge for the account data they are able to load.
        FeesOnly votes are charged the fixed voe cost. */
-    txn->bank_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+    txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
+    txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
     /* The account keys in the transaction context are laid out such
        that first the non-alt accounts are laid out, then the writable
@@ -294,7 +295,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   fd_fseq_update( ctx->busy_fseq, seq );
 
   /* Now produce the merkle hash of the transactions for inclusion
-     (mixin) to the PoH hash.  This is done on the bank tile because
+     (mixin) to the PoH hash.  This is done on the execle tile because
      it shards / scales horizontally here, while PoH does not. */
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
@@ -318,7 +319,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
-  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_bank_trailer_t), poh_shred_mtu );
+  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_execle_trailer_t), poh_shred_mtu );
 
   /* We have a race window with the GUI, where if the slot is ending it
      will snap these metrics to draw the waterfall, but see them outdated
@@ -326,18 +327,18 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      PoH should eventually flush the pipeline before ending the slot. */
   metrics_write( ctx );
 
-  ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx );
+  ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx );
 
   /* We always need to publish, even if there are no successfully executed
      transactions so the PoH tile can keep an accurate count of microblocks
      it has seen. */
   ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-  fd_stem_publish( stem, ctx->out_poh->idx, bank_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( tickcount ) );
+  fd_stem_publish( stem, ctx->out_poh->idx, execle_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( tickcount ) );
   ctx->out_poh->chunk = fd_dcache_compact_next( ctx->out_poh->chunk, new_sz, ctx->out_poh->chunk0, ctx->out_poh->wmark );
 }
 
 static inline void
-handle_bundle( fd_bank_ctx_t *     ctx,
+handle_bundle( fd_execle_tile_t *  ctx,
                ulong               seq,
                ulong               sig,
                ulong               sz,
@@ -347,7 +348,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   fd_txn_p_t * txns = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_p_t);
 
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
@@ -427,12 +428,12 @@ handle_bundle( fd_bank_ctx_t *     ctx,
         actual_acct_data_cus = 0U;
       }
 
-      uint requested_exec_plus_acct_data_cus = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
-      uint non_execution_cus                 = txns[ i ].pack_cu.non_execution_cus;
-      txns[ i ].bank_cu.rebated_cus          = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
-      txns[ i ].bank_cu.actual_consumed_cus  = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
-      txns[ i ].flags                       |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-      tips[ i ]                              = txn_out->details.tips;
+      uint requested_exec_plus_acct_data_cus  = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
+      uint non_execution_cus                  = txns[ i ].pack_cu.non_execution_cus;
+      txns[ i ].execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
+      txns[ i ].execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+      txns[ i ].flags                        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+      tips[ i ]                               = txn_out->details.tips;
     }
   } else {
     FD_TEST( failed_idx != ULONG_MAX );
@@ -448,11 +449,11 @@ handle_bundle( fd_bank_ctx_t *     ctx,
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
       }
 
-      uint requested_exec_plus_acct_data_cus = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
-      uint non_execution_cus                 = txns[ i ].pack_cu.non_execution_cus;
-      txns[ i ].bank_cu.actual_consumed_cus  = 0U;
-      txns[ i ].bank_cu.rebated_cus          = requested_exec_plus_acct_data_cus + non_execution_cus;
-      tips[ i ]                              = 0UL;
+      uint requested_exec_plus_acct_data_cus  = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
+      uint non_execution_cus                  = txns[ i ].pack_cu.non_execution_cus;
+      txns[ i ].execle_cu.actual_consumed_cus = 0U;
+      txns[ i ].execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus + non_execution_cus;
+      tips[ i ]                               = 0UL;
       txns[ i ].flags = fd_uint_if( !!(txns[ i ].flags>>24), txns[ i ].flags, txns[ i ].flags | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24) );
     }
   }
@@ -480,7 +481,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     trailer->pack_txn_idx = ctx->_txn_idx + i;
     trailer->tips         = tips[ i ];
 
-    ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx+i );
+    ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx+i );
 
     long tickcount                 = fd_tickcount();
     long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
@@ -497,7 +498,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
 
     ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-    fd_stem_publish( stem, ctx->out_poh->idx, bank_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( tickcount ) );
+    fd_stem_publish( stem, ctx->out_poh->idx, execle_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( tickcount ) );
     ctx->out_poh->chunk = fd_dcache_compact_next( ctx->out_poh->chunk, new_sz, ctx->out_poh->chunk0, ctx->out_poh->wmark );
   }
 
@@ -505,7 +506,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 }
 
 static inline void
-after_frag( fd_bank_ctx_t *     ctx,
+after_frag( fd_execle_tile_t *  ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
@@ -538,7 +539,7 @@ after_frag( fd_bank_ctx_t *     ctx,
   }
 }
 
-static inline fd_bank_out_t
+static inline fd_execle_out_t
 out1( fd_topo_t const *      topo,
       fd_topo_tile_t const * tile,
       char const *           name ) {
@@ -552,13 +553,13 @@ out1( fd_topo_t const *      topo,
     }
   }
 
-  if( FD_UNLIKELY( idx==ULONG_MAX ) ) return (fd_bank_out_t){ .idx = ULONG_MAX, .mem = NULL, .chunk0 = 0, .wmark = 0, .chunk = 0 };
+  if( FD_UNLIKELY( idx==ULONG_MAX ) ) return (fd_execle_out_t){ .idx = ULONG_MAX, .mem = NULL, .chunk0 = 0, .wmark = 0, .chunk = 0 };
 
   void * mem = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
   ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
   ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
 
-  return (fd_bank_out_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
+  return (fd_execle_out_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
 }
 
 static void
@@ -567,11 +568,11 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bank_ctx_t),     sizeof(fd_bank_ctx_t) );
-  void * blake3       = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
-  void * bmtree       = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
-  void * _txncache    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->bank.max_live_slots ) );
-  void * pc_scratch   = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  fd_execle_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execle_tile_t),  sizeof(fd_execle_tile_t) );
+  void * blake3          = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
+  void * bmtree          = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
+  void * pc_scratch      = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -587,19 +588,19 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_accdb_init_from_topo( ctx->accdb, topo, tile );
 
-  void * shprogcache = fd_topo_obj_laddr( topo, tile->bank.progcache_obj_id );
+  void * shprogcache = fd_topo_obj_laddr( topo, tile->execle.progcache_obj_id );
   FD_TEST( shprogcache );
   fd_progcache_t * progcache = fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   FD_TEST( progcache );
 
-  void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->bank.txncache_obj_id );
+  void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execle.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
   fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( txncache );
 
 
-  fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->bank.acc_pool_obj_id ) );
+  fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->execle.acc_pool_obj_id ) );
   FD_TEST( acc_pool );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
@@ -623,10 +624,10 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( banks_locks_obj_id!=ULONG_MAX );
   NONNULL( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
 
-  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
+  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
   ctx->busy_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
-  if( FD_UNLIKELY( !ctx->busy_fseq ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", tile->kind_id ));
+  if( FD_UNLIKELY( !ctx->busy_fseq ) ) FD_LOG_ERR(( "execle tile %lu has no busy flag", tile->kind_id ));
 
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
 
@@ -634,8 +635,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_in_chunk0 = fd_dcache_compact_chunk0( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache );
   ctx->pack_in_wmark  = fd_dcache_compact_wmark ( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache, topo->links[ tile->in_link_id[ 0UL ] ].mtu );
 
-  *ctx->out_poh = out1( topo, tile, "bank_poh" ); FD_TEST( ctx->out_poh->idx!=ULONG_MAX );
-  *ctx->out_pack = out1( topo, tile, "bank_pack" );
+  *ctx->out_poh = out1( topo, tile, "execle_poh" ); FD_TEST( ctx->out_poh->idx!=ULONG_MAX );
+  *ctx->out_pack = out1( topo, tile, "execle_pack" );
 
   ctx->enable_rebates = ctx->out_pack->idx!=ULONG_MAX;
 }
@@ -648,8 +649,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_bank_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_fd_bank_tile_instr_cnt;
+  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_execle_tile_instr_cnt;
 }
 
 static ulong
@@ -677,8 +678,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
 
-#define STEM_CALLBACK_CONTEXT_TYPE  fd_bank_ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_bank_ctx_t)
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_execle_tile_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_execle_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
@@ -687,8 +688,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_bank = {
-  .name                     = "bank",
+fd_topo_run_tile_t fd_tile_execle = {
+  .name                     = "execle",
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

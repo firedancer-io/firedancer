@@ -81,7 +81,7 @@ send_slack_message "$START_SLACK_MESSAGE"
 echo "
 [layout]
     affinity = \"auto\"
-    bank_tile_count = 1
+    execle_tile_count = 1
     shred_tile_count = 4
     exec_tile_count = 4
 [tiles]

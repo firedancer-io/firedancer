@@ -128,6 +128,7 @@ fd_gui_new( void *                shmem,
   gui->summary.verify_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "verify" );
   gui->summary.resolv_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "resolv" );
   gui->summary.bank_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "bank"   );
+  gui->summary.execle_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "execle" );
   gui->summary.shred_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "shred"  );
 
   gui->summary.slot_rooted                   = ULONG_MAX;
@@ -454,40 +455,43 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * bank = &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ];
 
     volatile ulong const * bank_metrics = fd_metrics_tile( bank->metrics );
-    if( FD_LIKELY( !gui->summary.is_full_client ) ) {
-      cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, SUCCESSFUL_TRANSACTIONS ) ];
+    cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, SUCCESSFUL_TRANSACTIONS ) ];
 
-      cur->out.block_fail +=
-          bank_metrics[ MIDX( COUNTER, BANK, EXECUTED_FAILED_TRANSACTIONS ) ]
-        + bank_metrics[ MIDX( COUNTER, BANK, FEE_ONLY_TRANSACTIONS        ) ];
+    cur->out.block_fail +=
+        bank_metrics[ MIDX( COUNTER, BANK, EXECUTED_FAILED_TRANSACTIONS ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, FEE_ONLY_TRANSACTIONS        ) ];
 
-      cur->out.bank_invalid +=
-          bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_ACCOUNT_UNINITIALIZED ) ]
-        + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_ACCOUNT_NOT_FOUND ) ]
-        + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_ACCOUNT_OWNER ) ]
-        + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_ACCOUNT_DATA ) ]
-        + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_LOOKUP_INDEX  ) ];
+    cur->out.bank_invalid +=
+        bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_ACCOUNT_UNINITIALIZED ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_ACCOUNT_NOT_FOUND ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_ACCOUNT_OWNER ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_ACCOUNT_DATA ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_LOOKUP_INDEX  ) ];
 
-      cur->out.bank_invalid +=
-          bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ];
+    cur->out.bank_invalid +=
+        bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ];
 
-      /* These branches are unused in Frankendancer */
-      cur->out.bank_nonce_already_advanced = 0UL;
-      cur->out.bank_nonce_advance_failed   = 0UL;
-      cur->out.bank_nonce_wrong_blockhash  = 0UL;
-    } else {
-      cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_LANDED_LANDED_SUCCESS ) ];
-      cur->out.block_fail    +=
-          bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_LANDED_LANDED_FEES_ONLY ) ]
-        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_LANDED_LANDED_FAILED ) ];
-      cur->out.bank_invalid  += bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_LANDED_UNLANDED ) ];
-
-      cur->out.bank_nonce_already_advanced = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_ALREADY_ADVANCED ) ];
-      cur->out.bank_nonce_advance_failed   = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_ADVANCE_FAILED ) ];
-      cur->out.bank_nonce_wrong_blockhash  = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_WRONG_BLOCKHASH ) ];
-    }
+    /* These branches are unused in Frankendancer */
+    cur->out.bank_nonce_already_advanced = 0UL;
+    cur->out.bank_nonce_advance_failed   = 0UL;
+    cur->out.bank_nonce_wrong_blockhash  = 0UL;
   }
 
+  for( ulong i=0UL; i<gui->summary.execle_tile_cnt; i++ ) {
+    fd_topo_tile_t const * execle = &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ];
+
+    volatile ulong const * execle_metrics = fd_metrics_tile( execle->metrics );
+
+    cur->out.block_success += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_LANDED_LANDED_SUCCESS ) ];
+    cur->out.block_fail    +=
+        execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_LANDED_LANDED_FEES_ONLY ) ]
+      + execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_LANDED_LANDED_FAILED ) ];
+    cur->out.bank_invalid  += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_LANDED_UNLANDED ) ];
+
+    cur->out.bank_nonce_already_advanced = execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_ALREADY_ADVANCED ) ];
+    cur->out.bank_nonce_advance_failed   = execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_ADVANCE_FAILED ) ];
+    cur->out.bank_nonce_wrong_blockhash  = execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_WRONG_BLOCKHASH ) ];
+  }
 
   fd_topo_tile_t const * pack = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
   volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
@@ -3175,9 +3179,9 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     fd_txn_p_t * txn_p = &txns[ i ];
 
     fd_gui_txn_t * txn_entry = gui->txs[ (pack_txn_idx + i)%FD_GUI_TXN_HISTORY_SZ ];
-    txn_entry->bank_idx                  = bank_idx                           & 0x3FU;
-    txn_entry->compute_units_consumed    = txn_p->bank_cu.actual_consumed_cus & 0x1FFFFFU;
-    txn_entry->error_code                = (txn_p->flags >> 24)               & 0x3FU;
+    txn_entry->bank_idx                  = bank_idx                             & 0x3FU;
+    txn_entry->compute_units_consumed    = txn_p->execle_cu.actual_consumed_cus & 0x1FFFFFU;
+    txn_entry->error_code                = (txn_p->flags >> 24)                 & 0x3FU;
     txn_entry->timestamp_delta_end_nanos = (int)(now - lslot->leader_start_time);
     txn_entry->txn_start_pct             = txn_start_pct;
     txn_entry->txn_load_end_pct          = txn_load_end_pct;

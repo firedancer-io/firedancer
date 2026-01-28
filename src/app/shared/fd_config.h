@@ -89,6 +89,7 @@ struct fd_configh {
   } snapshots;
 
   struct {
+    uint bank_tile_count;
     char agave_affinity[ AFFINITY_SZ ];
     uint agave_unified_scheduler_handler_threads;
   } layout;
@@ -119,6 +120,7 @@ struct fd_configf {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint sign_tile_count;
     uint gossvf_tile_count;
+    uint execle_tile_count;
     uint snapshot_hash_tile_count;
     uint snapwr_tile_count;
   } layout;
@@ -288,7 +290,6 @@ struct fd_config {
     uint quic_tile_count;
     uint resolv_tile_count;
     uint verify_tile_count;
-    uint bank_tile_count;
     uint shred_tile_count;
   } layout;
 
