@@ -76,7 +76,7 @@ fd_bundle_client_do_connect( fd_bundle_tile_t const * ctx,
   int err = connect( ctx->tcp_sock, fd_type_pun_const( &addr ), sizeof(struct sockaddr_in) );
   /* FD_LIKELY is used here as EINPROGRESS is expected even to local tcp ports */
   if( FD_LIKELY( err==-1 ) ) {
-      return errno;
+    return errno;
   }
   return 0;
 }
