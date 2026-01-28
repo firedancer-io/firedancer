@@ -1162,6 +1162,7 @@ static void
 during_housekeeping( ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: unhalting signing" ));
     FD_CRIT( ctx->is_halting_signing, "state machine corruption" );
     ctx->is_halting_signing = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -1172,6 +1173,7 @@ during_housekeeping( ctx_t * ctx ) {
        tower file.  When support for a tower file is added, we need to
        swap the file that is running and sync it to the local state of
        the tower.  */
+    FD_LOG_DEBUG(( "keyswitch: halting signing" ));
     memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     ctx->is_halting_signing = 1;

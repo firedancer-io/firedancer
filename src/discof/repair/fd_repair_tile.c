@@ -1015,9 +1015,9 @@ during_housekeeping( ctx_t * ctx ) {
     }
 
     if( fd_signs_map_key_cnt( ctx->signs_map )==0UL ) {
-      FD_LOG_DEBUG(( "keyswitch: completed, no more outstanding stale sign requests" ));
       /* Once there are no more in flight sign requests, we are ready to
          say that the keyswitch is completed. */
+      FD_LOG_DEBUG(( "keyswitch: completed, no more outstanding stale sign requests" ));
       fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     }
   }
