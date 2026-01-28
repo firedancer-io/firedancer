@@ -2393,6 +2393,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       maybe_verify_shred_version( ctx );
       break;
+    }
     case IN_KIND_EXECRP: {
       process_exec_task_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sig );
       break;
