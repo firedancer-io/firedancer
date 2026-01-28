@@ -118,6 +118,7 @@ struct fd_configf {
   } vinyl;
 
   struct {
+    int  enable_block_production;
     uint sign_tile_count;
     uint gossvf_tile_count;
     uint resolv_tile_count;
