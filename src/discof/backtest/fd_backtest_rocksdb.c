@@ -15,9 +15,10 @@ struct fd_backtest_rocksdb_private {
   rocksdb_readoptions_t * readoptions;
 
   rocksdb_iterator_t * iter_root;
+  rocksdb_iterator_t * iter_dead;
   rocksdb_iterator_t * iter_shred;
 
-  rocksdb_column_family_handle_t * cfs[ 5 ];
+  rocksdb_column_family_handle_t * cfs[ 6 ];
 
   ulong magic;
 };
@@ -47,17 +48,19 @@ fd_backtest_rocksdb_new( void *       shmem,
 
   fd_backtest_rocksdb_t * db = (fd_backtest_rocksdb_t *)shmem;
 
-  char const * cf_names[ 5 ] = {
+  char const * cf_names[ 6 ] = {
     "default",
     "root",
     "meta",
     "data_shred",
     "bank_hashes",
+    "dead_slots"
   };
 
   rocksdb_options_t * options = rocksdb_options_create();
 
-  rocksdb_options_t const * cf_options[ 5 ] = {
+  rocksdb_options_t const * cf_options[ 6 ] = {
+    options,
     options,
     options,
     options,
@@ -69,7 +72,7 @@ fd_backtest_rocksdb_new( void *       shmem,
   db->db = rocksdb_open_for_read_only_column_families(
     options,
     path,
-    5,
+    6,
     cf_names,
     cf_options,
     db->cfs,
@@ -79,6 +82,9 @@ fd_backtest_rocksdb_new( void *       shmem,
   FD_TEST( db->db );
 
   db->readoptions = rocksdb_readoptions_create();
+
+  db->iter_dead = rocksdb_create_iterator_cf( db->db, db->readoptions, db->cfs[ 5 ] );
+  FD_TEST( db->iter_dead );
 
   db->iter_root = rocksdb_create_iterator_cf( db->db, db->readoptions, db->cfs[ 1 ] );
   FD_TEST( db->iter_root );
@@ -123,22 +129,28 @@ fd_backtest_rocksdb_init( fd_backtest_rocksdb_t * db,
   rocksdb_iter_seek( db->iter_root, (char const *)&key, sizeof(ulong) );
   FD_TEST( rocksdb_iter_valid( db->iter_root ) );
 
+  rocksdb_iter_seek( db->iter_dead, (char const *)&key, sizeof(ulong) );
+  /* The tter does not need to be valid here since the rocksdb might
+     have no dead slots. */
+
   char shred_key[ 16UL ];
   FD_STORE( ulong, shred_key, fd_ulong_bswap( root_slot ) );
   FD_STORE( ulong, shred_key+8UL, 0UL );
   rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
 }
 
-int
-fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
-                                    ulong *                 root_slot,
-                                    ulong *                 shred_cnt ) {
-  FD_TEST( rocksdb_iter_valid( db->iter_root ) );
-  rocksdb_iter_next( db->iter_root );
-  if( FD_UNLIKELY( !rocksdb_iter_valid(db->iter_root) ) ) return 0;
+static int
+fd_backtest_rocksdb_next_slot_private( fd_backtest_rocksdb_t * db,
+                                       rocksdb_iterator_t *    iter,
+                                       ulong *                 slot_out,
+                                       ulong *                 shred_cnt_out ) {
+  if( FD_UNLIKELY( !rocksdb_iter_valid( iter ) ) ) return 0;
+
+  rocksdb_iter_next( iter );
+  if( FD_UNLIKELY( !rocksdb_iter_valid( iter ) ) ) return 0;
 
   ulong keylen;
-  char const * key = rocksdb_iter_key( db->iter_root, &keylen );
+  char const * key = rocksdb_iter_key( iter, &keylen );
 
   ulong vallen;
   char * err = NULL;
@@ -154,35 +166,58 @@ fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
   FD_TEST( !fd_slot_meta_decode_footprint( &ctx, &total_sz ) );
 
   void * mem = fd_alloca_check( FD_SLOT_META_ALIGN, total_sz );
-  fd_slot_meta_t const * meta = fd_slot_meta_decode( mem, &ctx );
+  fd_slot_meta_t * meta = fd_slot_meta_decode( mem, &ctx );
 
-  *root_slot = meta->slot;
-  *shred_cnt = meta->received;
-
-  char shred_key[ 16UL ];
-  FD_STORE( ulong, shred_key, fd_ulong_bswap( meta->slot ) );
-  FD_STORE( ulong, shred_key+8UL, 0UL );
-  rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
-
+  *slot_out       = meta->slot;
+  *shred_cnt_out  = meta->received;
   return 1;
+}
+
+int
+fd_backtest_rocksdb_next_dead_slot( fd_backtest_rocksdb_t * db,
+                                    ulong *                 slot_out,
+                                    ulong *                 shred_cnt_out ) {
+
+  return fd_backtest_rocksdb_next_slot_private( db, db->iter_dead, slot_out, shred_cnt_out );
+}
+
+int
+fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
+                                    ulong *                 slot_out,
+                                    ulong *                 shred_cnt_out ) {
+  return fd_backtest_rocksdb_next_slot_private( db, db->iter_root, slot_out, shred_cnt_out );
 }
 
 void const *
 fd_backtest_rocksdb_shred( fd_backtest_rocksdb_t * db,
                            ulong                   slot,
                            ulong                   shred_idx ) {
-  if( shred_idx>0UL ) {
-    rocksdb_iter_next( db->iter_shred );
-  }
-
-  FD_TEST( rocksdb_iter_valid( db->iter_shred ) );
 
   ulong keylen;
   char const * key = rocksdb_iter_key( db->iter_shred, &keylen );
   FD_TEST( keylen==16UL );
 
+  /* Optimize for common case of seeking to the next shred instead of
+     re-seeking for the correct key. */
   ulong key_slot      = fd_ulong_bswap( FD_LOAD( ulong, key ) );
   ulong key_shred_idx = fd_ulong_bswap( FD_LOAD( ulong, key+8UL ) );
+  if( FD_LIKELY( key_slot==slot && key_shred_idx+1UL==shred_idx ) ) {
+    rocksdb_iter_next( db->iter_shred );
+  } else {
+    char shred_key[ 16UL ];
+    FD_STORE( ulong, shred_key, fd_ulong_bswap( slot ) );
+    FD_STORE( ulong, shred_key+8UL, fd_ulong_bswap( shred_idx ) );
+    rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
+  }
+
+  FD_TEST( rocksdb_iter_valid( db->iter_shred ) );
+
+  key = rocksdb_iter_key( db->iter_shred, &keylen );
+  FD_TEST( keylen==16UL );
+
+  key_slot      = fd_ulong_bswap( FD_LOAD( ulong, key ) );
+  key_shred_idx = fd_ulong_bswap( FD_LOAD( ulong, key+8UL ) );
+
   FD_TEST( key_slot==slot );
   FD_TEST( key_shred_idx==shred_idx );
 

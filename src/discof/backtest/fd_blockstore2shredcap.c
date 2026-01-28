@@ -186,7 +186,6 @@ main( int     argc,
 
   ulong slot_cnt = 0UL;
   for( ;; slot_cnt++ ) {
-
     ulong root_slot;
     ulong shred_cnt;
     int root_ok = fd_backtest_rocksdb_next_root_slot( rocksdb, &root_slot, &shred_cnt );

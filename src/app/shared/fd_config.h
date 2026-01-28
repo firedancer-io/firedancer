@@ -496,7 +496,9 @@ struct fd_config {
 
     struct {
       int   enabled;
+      int   ingest_dead_slots;
       ulong end_slot;
+      ulong root_distance;
       char  rocksdb_path[ PATH_MAX ];
       char  shredcap_path[ PATH_MAX ];
       char  ingest_mode[ 32 ];
