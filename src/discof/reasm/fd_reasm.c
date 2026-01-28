@@ -202,8 +202,8 @@ fd_reasm_query( fd_reasm_t const * reasm,
 }
 
 void
-fd_reasm_confirm( fd_reasm_t * reasm,
-                  fd_hash_t *  block_id ) {
+fd_reasm_confirm( fd_reasm_t      * reasm,
+                  fd_hash_t const * block_id ) {
   fd_reasm_fec_t * fec = ancestry_ele_query( reasm->ancestry, block_id, NULL, reasm->pool );
   fec = fd_ptr_if( !fec, frontier_ele_query( reasm->frontier, block_id, NULL, reasm->pool ), fec );
 
@@ -368,8 +368,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
       bid->idx = pool_idx( pool, fec );
     }
   }
-
-  overwrite_invalid_cmr( reasm, fec ); /* case 1: received parent before child */
+  //overwrite_invalid_cmr( reasm, fec ); /* handle receiving parent before child */
 
   /* First, we search for the parent of this new FEC and link if found.
      The new FEC set may result in a new leaf or a new orphan tree root
@@ -410,7 +409,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   }
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) { /* link orphan subtrees to the new FEC */
     fd_reasm_fec_t * orphan_root = pool_ele( reasm->pool, bfs_pop_head( bfs ) );
-    overwrite_invalid_cmr( reasm, orphan_root ); /* case 2: received child before parent */
+    //overwrite_invalid_cmr( reasm, orphan_root ); /* handle receiving child before parent */
     if( FD_LIKELY( orphan_root && 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
       link( reasm, fec, orphan_root );
       subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
