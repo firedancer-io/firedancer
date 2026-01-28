@@ -527,6 +527,21 @@ telemetry = true
     # deadlocked waiting on their votes to land.
     wait_for_vote_to_start_leader = true
 
+    # If set to zero or some number smaller than the snapshot slot,
+    # this parameter is ignored. If set to a number larger than the
+    # snapshot slot, the client will fail to boot. The client will wait
+    # until a supermajority of stake is visible on gossip for the
+    # snapshot slot before attempting to make progress.
+    wait_for_supermajority_at_slot = 0
+
+    # Ignored if wait_for_supermajority_at_slot is set to zero or some
+    # number smaller than the snapshot slot. During a hard fork, this
+    # parameter may be required to provide an expected bank hash to
+    # ensure the correct fork is being selected. If this is not
+    # provided, the bank hash is not checked. Otherwise, we require the
+    # bank at the snapshot slot to have this hash.
+    expected_bank_hash = ""
+
 # This section configures the "funk" account database.  Currently, funk
 # stores all Solana accounts.  In future versions of Firedancer, most
 # accounts will be offloaded to the "groove" database.

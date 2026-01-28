@@ -390,8 +390,10 @@ struct fd_topo_tile {
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
 
-      ushort expected_shred_version;
-      int    wait_for_vote_to_start_leader;
+      ushort    expected_shred_version;
+      int       wait_for_vote_to_start_leader;
+      ulong     wait_for_supermajority_at_slot;
+      fd_hash_t expected_bank_hash;
 
       ulong heap_size_gib;
       ulong max_live_slots;

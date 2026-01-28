@@ -163,6 +163,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, consensus.expected_shred_version                 );
   CFG_POP      ( cstr,   consensus.expected_genesis_hash                  );
   CFG_POP      ( bool,   consensus.wait_for_vote_to_start_leader          );
+  CFG_POP      ( ulong,  consensus.wait_for_supermajority_at_slot         );
+  CFG_POP      ( cstr,   consensus.expected_bank_hash                     );
 
   CFG_POP      ( cstr,   layout.affinity                                  );
   CFG_POP      ( cstr,   layout.blocklist_cores                           );

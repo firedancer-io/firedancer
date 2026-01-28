@@ -20,6 +20,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../util/pod/fd_pod.h"
+#include "../../util/math/fd_stat.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v1.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v2.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
@@ -160,6 +161,16 @@ struct fd_replay_tile {
   int has_identity_vote_rooted;
   int wait_for_vote_to_start_leader;
 
+  /* These flags are initialized from config parameters. Typically used
+     during a cluster restart/hard-fork, they incur additional
+     validation checks are run at boot to ensure the correct snapshot is
+     loaded. Additionally replay is not allowed to make progress until
+     80% of the cluster has voted for that snapshot slot. */
+  ulong     wait_for_supermajority_at_slot;
+  int       done_waiting_for_supermajority;
+  fd_hash_t expected_bank_hash;
+  int       has_expected_bank_hash;
+
   ulong        reasm_seed;
   fd_reasm_t * reasm;
 
@@ -179,6 +190,7 @@ struct fd_replay_tile {
 #define FD_REPLAY_HARD_FORKS_MAX (64UL)
   ulong hard_forks_cnt;
   ulong hard_forks[ FD_REPLAY_HARD_FORKS_MAX ];
+  ulong hard_forks_cnts[ FD_REPLAY_HARD_FORKS_MAX ];
 
   ushort expected_shred_version;
   ushort ipecho_shred_version;
@@ -1110,7 +1122,7 @@ static inline int
 maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
-  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->has_identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
+  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->has_identity_vote_rooted && ctx->wait_for_vote_to_start_leader && ctx->wait_for_supermajority_at_slot==ULONG_MAX) || ctx->replay_out->idx==ULONG_MAX || !ctx->done_waiting_for_supermajority ) ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
@@ -1443,6 +1455,19 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     }
 
     ulong snapshot_slot = fd_bank_slot_get( bank );
+
+    if( FD_UNLIKELY( ctx->wait_for_supermajority_at_slot!=ULONG_MAX ) ) {
+      if( FD_UNLIKELY( ctx->wait_for_supermajority_at_slot>snapshot_slot ) ) FD_LOG_ERR(( "wait_for_supermajority_at_slot=%lu does not match snapshot_slot=%lu", ctx->wait_for_supermajority_at_slot, snapshot_slot ));
+      else if( FD_UNLIKELY( ctx->wait_for_supermajority_at_slot<snapshot_slot ) ) {
+        ctx->wait_for_supermajority_at_slot = ULONG_MAX;
+        ctx->done_waiting_for_supermajority = 1;
+      } else if( FD_UNLIKELY( ctx->has_expected_bank_hash && memcmp( ctx->expected_bank_hash.uc, fd_bank_bank_hash_get( bank ).uc, sizeof(fd_hash_t) ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
+        FD_BASE58_ENCODE_32_BYTES( fd_bank_bank_hash_get( bank ).uc, actual_bank_hash_cstr );
+        FD_LOG_ERR(( "expected_bank_hash=%s does not match actual_bank_hash=%s", expected_bank_hash_cstr, actual_bank_hash_cstr ));
+      }
+    }
+
     /* FIXME: This is a hack because the block id of the snapshot slot
        is not provided in the snapshot.  A possible solution is to get
        the block id of the snapshot slot from repair. */
@@ -1532,7 +1557,10 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       ctx->hard_forks_cnt = manifest->hard_forks_len;
-      for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
+      for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
+        ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
+        ctx->hard_forks_cnts[ i ] = manifest->hard_forks_cnts[ i ];
+      }
       break;
     }
     default: {
@@ -1926,7 +1954,7 @@ after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  if( FD_UNLIKELY( !ctx->is_booted ) ) return;
+  if( FD_UNLIKELY( !ctx->is_booted || !ctx->done_waiting_for_supermajority ) ) return;
 
   if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
     *charge_busy = 1;
@@ -2279,31 +2307,15 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
     } running_hash;
     fd_memcpy( running_hash.c, ctx->genesis_hash, sizeof(fd_hash_t) );
 
-    ulong processed = 0UL;
-    ulong min_value = 0UL;
-    while( processed<ctx->hard_forks_cnt ) {
-      ulong min_index = ULONG_MAX;
-      for( ulong i=0UL; i<ctx->hard_forks_cnt; i++ ) {
-        if( ctx->hard_forks[ i ]>=min_value && (min_index==ULONG_MAX || ctx->hard_forks[ i ]<ctx->hard_forks[ min_index ] ) ) {
-          min_index = i;
-        }
-      }
-
-      FD_TEST( min_index!=ULONG_MAX );
-      min_value = ctx->hard_forks[ min_index ];
-      ulong min_count = 0UL;
-      for( ulong i=0UL; i<ctx->hard_forks_cnt; i++ ) {
-        if( ctx->hard_forks[ i ]==min_value ) min_count++;
-      }
+    for( ulong i=0UL; i<ctx->hard_forks_cnt; i++ ) {
+      ulong slot = ctx->hard_forks[ i ];
+      ulong count = ctx->hard_forks_cnts[ i ];
 
       uchar data[ 48UL ];
       fd_memcpy( data, running_hash.c, sizeof(fd_hash_t) );
-      fd_memcpy( data+32UL, &min_value, sizeof(ulong) );
-      fd_memcpy( data+40UL, &min_count, sizeof(ulong) );
-
+      fd_memcpy( data+32UL, &slot, sizeof(ulong) );
+      fd_memcpy( data+40UL, &count, sizeof(ulong) );
       FD_TEST( fd_sha256_hash( data, 48UL, running_hash.c ) );
-      processed += min_count;
-      min_value += 1UL;
     }
 
     ushort xor = 0;
@@ -2383,9 +2395,18 @@ returnable_frag( fd_replay_tile_t *  ctx,
 
         /* Implement replay plugin API here */
 
+        FD_LOG_WARNING(("notar update slot=%lu bank_idx=%lu", msg->slot, msg->bank_idx));
         switch( msg->kind ) {
-        case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: break;
-        case FD_TOWER_SLOT_CONFIRMED_ROOTED:     break;
+          case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: break;
+          case FD_TOWER_SLOT_CONFIRMED_SUPER: {
+            FD_TEST( msg->bank_idx!=ULONG_MAX );
+            if( FD_UNLIKELY( ctx->wait_for_supermajority_at_slot!=ULONG_MAX && !ctx->done_waiting_for_supermajority && msg->bank_idx==FD_REPLAY_BOOT_BANK_IDX ) ) {
+              ctx->done_waiting_for_supermajority = 1;
+              FD_LOG_NOTICE(( "Done waiting for supermajority. More than 80 percent of cluster stake has voted for slot %lu", msg->slot ));
+            }
+            break;
+          }
+          case FD_TOWER_SLOT_CONFIRMED_ROOTED:     break;
         }
       }
       else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED   ) ) {
@@ -2627,7 +2648,11 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->vote_tracker );
 
   ctx->has_identity_vote_rooted = 0;
-  ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
+  ctx->wait_for_supermajority_at_slot = fd_ulong_if( tile->replay.wait_for_supermajority_at_slot!=0, tile->replay.wait_for_supermajority_at_slot, ULONG_MAX );
+  ctx->wait_for_vote_to_start_leader  = tile->replay.wait_for_vote_to_start_leader;
+  ctx->done_waiting_for_supermajority = ctx->wait_for_supermajority_at_slot==ULONG_MAX;
+  ctx->expected_bank_hash = tile->replay.expected_bank_hash;
+  ctx->has_expected_bank_hash = memcmp( tile->replay.expected_bank_hash.uc, ((fd_hash_t){ 0 }).uc, sizeof(fd_hash_t) );
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
   FD_TEST( ctx->mleaders );
