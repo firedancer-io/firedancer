@@ -1026,12 +1026,6 @@ pack_reset( fd_topo_t          * topo,
   // Reset the bank_current so that we start with fresh bank's consumer seq and unprivilege_init won't crash
   *ctx->bank_current[ 0 ] = ULONG_MAX;
   unprivileged_init( topo, tile );
-
-  /* TODO: allow waiting between scheduling microblocks.
-    Do not change wait_duration_ticks[ 0 ] since we wait for ULONG_MAX if no transactions are available. That's why we start at 1. */
-#if !SMALL_MICROBLOCKS
-  for( ulong i=1; i<sizeof(ctx->wait_duration_ticks)/sizeof(ctx->wait_duration_ticks[0]); i++ ) ctx->wait_duration_ticks[ i ]=10;
-#endif
 }
 
 int
