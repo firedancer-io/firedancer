@@ -2663,24 +2663,24 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].mtu    = link->mtu;
     }
 
-    if(      !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
-    else if( !strcmp( link->name, "ipecho_out"   ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
-    else if( !strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
-    else if( !strcmp( link->name, "execr_replay" ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
-    else if( !strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
-    else if( !strcmp( link->name, "poh_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( !strcmp( link->name, "resolv_repla" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( !strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
-    else if( !strcmp( link->name, "txsend_out"   ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
-    else if( !strcmp( link->name, "gui_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
-    else if( !strcmp( link->name, "rpc_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
+    if(      !strcmp( link->name, "genesi_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
+    else if( !strcmp( link->name, "ipecho_out"    ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
+    else if( !strcmp( link->name, "snapin_manif"  ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
+    else if( !strcmp( link->name, "execrp_replay" ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
+    else if( !strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
+    else if( !strcmp( link->name, "poh_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
+    else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
+    else if( !strcmp( link->name, "gui_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
+    else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
 
-  ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_execr", 0UL );
+  ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_execrp", 0UL );
   FD_TEST( idx!=ULONG_MAX );
   fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
 

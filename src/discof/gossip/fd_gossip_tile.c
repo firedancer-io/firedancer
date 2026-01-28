@@ -330,7 +330,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if( FD_UNLIKELY( !strcmp( link->name, "ipecho_out" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SHRED_VERSION;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "gossvf_gossi" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( link->name, "gossvf_gossip" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_GOSSVF;
     } else if( FD_UNLIKELY( !strcmp( link->name, "sign_gossip" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SIGN;
@@ -347,10 +347,10 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( sign_in_tile_idx==ULONG_MAX ) )
     FD_LOG_ERR(( "tile %s:%lu had no input link named sign_gossip", tile->name, tile->kind_id ));
 
-  *ctx->net_out    = out1( topo, tile, "gossip_net"   );
-  *ctx->sign_out   = out1( topo, tile, "gossip_sign"  );
-  *ctx->gossip_out = out1( topo, tile, "gossip_out"   );
-  *ctx->gossvf_out = out1( topo, tile, "gossip_gossv" );
+  *ctx->net_out    = out1( topo, tile, "gossip_net"    );
+  *ctx->sign_out   = out1( topo, tile, "gossip_sign"   );
+  *ctx->gossip_out = out1( topo, tile, "gossip_out"    );
+  *ctx->gossvf_out = out1( topo, tile, "gossip_gossvf" );
 
   fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id [ sign_in_tile_idx  ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ ctx->sign_out->idx ] ];

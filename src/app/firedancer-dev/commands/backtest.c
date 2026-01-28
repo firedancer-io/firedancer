@@ -6,7 +6,7 @@
    backtest-------------->replay------------->execrp
      ^                    |^ | ^                |
      |____________________|| | |________________|
-          replay_out       | |   execr_replay
+          replay_out       | |   execrp_replay
                            | |------------------------------>no consumer
     no producer-------------  stake_out, txsend_out, poh_out
                 store_replay
@@ -399,11 +399,11 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Setup replay->exec link in topo                                    */
   /**********************************************************************/
-  fd_topob_wksp( topo, "replay_execr" );
-  fd_topob_link( topo, "replay_execr", "replay_execr", 16384UL, 2240UL, 1UL );
-  fd_topob_tile_out( topo, "replay", 0UL, "replay_execr", 0UL );
+  fd_topob_wksp( topo, "replay_execrp" );
+  fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL, 2240UL, 1UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_execrp", 0UL );
   for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
-    fd_topob_tile_in( topo, "execrp", i, "metric_in", "replay_execr", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "execrp", i, "metric_in", "replay_execrp", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /**********************************************************************/
@@ -411,12 +411,12 @@ backtest_topo( config_t * config ) {
      so that they are serialized, and to notify replay tile that a txn
      has been finalized by the exec tile. */
   /**********************************************************************/
-  fd_topob_wksp( topo, "execr_replay" );
+  fd_topob_wksp( topo, "execrp_replay" );
 
-  FOR(execrp_tile_cnt) fd_topob_link( topo, "execr_replay", "execr_replay", 16384UL, sizeof(fd_execrp_task_done_msg_t), 1UL );
+  FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL, sizeof(fd_execrp_task_done_msg_t), 1UL );
 
-  FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "execr_replay", i );
-  FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "execr_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "execrp_replay", i );
+  FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "execrp_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
