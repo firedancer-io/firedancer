@@ -104,11 +104,11 @@ sim_topo( config_t * config ) {
   /**********************************************************************/
   /* Setup replay-->exec links in topo                                  */
   /**********************************************************************/
-  fd_topob_wksp( topo, "replay_execr" );
-  fd_topob_link( topo, "replay_execr", "replay_execr", 16384UL, 2240UL, 1UL );
-  fd_topob_tile_out( topo, "replay", 0UL, "replay_execr", 0UL );
+  fd_topob_wksp( topo, "replay_execrp" );
+  fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL, 2240UL, 1UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_execrp", 0UL );
   for( ulong i=0; i<config->firedancer.layout.execrp_tile_count; i++ ) {
-    fd_topob_tile_in( topo, "execrp", i, "metric_in", "replay_execr", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "execrp", i, "metric_in", "replay_execrp", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /**********************************************************************/

@@ -301,7 +301,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tile_idx = tile->kind_id;
 
   /* First find and setup the in-link from replay to exec. */
-  ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execr", 0UL );
+  ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execrp", 0UL );
   FD_TEST( ctx->replay_in->idx!=ULONG_MAX );
   fd_topo_link_t * replay_in_link = &topo->links[ tile->in_link_id[ ctx->replay_in->idx ] ];
   FD_TEST( replay_in_link!=NULL );
@@ -310,7 +310,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay_in->wmark  = fd_dcache_compact_wmark( ctx->replay_in->mem, replay_in_link->dcache, replay_in_link->mtu );
   ctx->replay_in->chunk  = ctx->replay_in->chunk0;
 
-  ctx->execrp_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "execr_replay", ctx->tile_idx );
+  ctx->execrp_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "execrp_replay", ctx->tile_idx );
   if( FD_LIKELY( ctx->execrp_replay_out->idx!=ULONG_MAX ) ) {
     fd_topo_link_t * execrp_replay_link = &topo->links[ tile->out_link_id[ ctx->execrp_replay_out->idx ] ];
     ctx->execrp_replay_out->mem    = topo->workspaces[ topo->objs[ execrp_replay_link->dcache_obj_id ].wksp_id ].wksp;
@@ -463,7 +463,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 #define STEM_BURST (2UL)
-/* Right now, depth of the replay_exec link and depth of the execr_replay
+/* Right now, depth of the replay_exec link and depth of the execrp_replay
    links is 16K.  At 1M TPS, that's ~16ms to fill.  But we also want to
    be conservative here, so we use 1ms. */
 #define STEM_LAZY  (1000000UL)
