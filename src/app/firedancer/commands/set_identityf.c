@@ -49,7 +49,7 @@
      In Firedancer, this halt request goes to the Replay tile, which
      causes the tile to switch the identity key it uses to determine the
      identity's balance as well as when the validator is the leader.
-     After the leaded pipeline has been halted, the validator will no
+     After the leader pipeline has been halted, the validator will no
      longer become a leader until the switch has been completed. */
 #define FD_SET_IDENTITY_STATE_LEADER_HALT_REQUESTED    (2UL)
 
@@ -79,20 +79,21 @@
            for signing requests.  Because Repair uses an asnychronous
            signing mechanism, Repair will first wait until all
            outstanding sign requests have been received back from the
-           sign tile before halting any new signing.
+           sign tile before halting any new signing requests.
        (b) Gossip.  The gossip tile sends out ContactInfo messages with
            our identity key, and also uses the identity key to sign
            outgoing gossip messages.
+           FIXME: Gossip handling for the identity key switch may be
+           buggy.
        (c) Tower.  The tower tiles uses the identity key to generate
            vote transactions which are sent to the send tile.  These
            vote transactions are then signed downstream by the Send tile
-           instead of having its own keyguard client.
-     */
+           instead of having its own keyguard client. */
 #define FD_SET_IDENTITY_STATE_REPLAY_HALT_REQUESTED    (4UL)
 
 /* State 5: REPLAY_HALTED
-     Repair, Gossip, and Tower are no longer sending requests to
-     the sign tile.  Replay can keep progressing at this point. However,
+     Repair, Gossip, and Tower are no longer sending requests to the
+     sign tile.  Replay can keep progressing at this point. However,
      the tower tile may have an in-flight vote transaction to the Send
      tile that corresponds to the old identity key. */
 #define FD_SET_IDENTITY_STATE_REPLAY_HALTED            (5UL)
@@ -137,10 +138,12 @@
            highlighting on the frontend.
        (c) Bundle.  The validator must authenticate to any connected
            bundle server with the identity key to prove it is on the
-           leader schedule.,
+           leader schedule.
        (d) Gossvf.  The gossvf tile uses the identity key to detect
            duplicate running instances of the same validator node as
            well as other message handling.
+           FIXME: keyswitch for this might need to be coordinated with
+           gossip.
        (e) Shred.  The shred tile uses the identity key to determine the
            position of the validator in the Turbine tree and to sign
            outgoing shreds. */
@@ -301,20 +304,20 @@ poll_keyswitch( fd_topo_t * topo,
     }
     case FD_SET_IDENTITY_STATE_REPLAY_HALTED: {
       ulong tower_halted_seq = find_keyswitch( topo, "tower" )->result;
-      fd_keyswitch_t * send = find_keyswitch( topo, "send" );
-      send->param = tower_halted_seq;
-      memcpy( send->bytes, keypair+32UL, 32UL );
+      fd_keyswitch_t * txsend = find_keyswitch( topo, "txsend" );
+      txsend->param = tower_halted_seq;
+      memcpy( txsend->bytes, keypair+32UL, 32UL );
       FD_COMPILER_MFENCE();
-      send->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
 
       *state = FD_SET_IDENTITY_STATE_SEND_FLUSH_REQUESTED;
       break;
     }
     case FD_SET_IDENTITY_STATE_SEND_FLUSH_REQUESTED: {
-      fd_keyswitch_t * send = find_keyswitch( topo, "send" );
-      if( FD_LIKELY( send->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        explicit_bzero( send->bytes, 64UL );
+      fd_keyswitch_t * txsend = find_keyswitch( topo, "txsend" );
+      if( FD_LIKELY( txsend->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        explicit_bzero( txsend->bytes, 64UL );
         FD_COMPILER_MFENCE();
         *state = FD_SET_IDENTITY_STATE_SEND_FLUSHED;
       } else {
