@@ -2368,7 +2368,13 @@ returnable_frag( fd_replay_tile_t *  ctx,
       }
       else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
         fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-        if( msg->kind==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC ) process_tower_optimistic_confirmed( ctx, stem, msg );
+
+        /* Implement replay plugin API here */
+        switch( msg->kind ) {
+        case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: { process_tower_optimistic_confirmed( ctx, stem, msg ); break; }
+        case FD_TOWER_SLOT_CONFIRMED_ROOTED:     break;
+        case FD_TOWER_SLOT_CONFIRMED_DUPLICATE:  { fd_reasm_confirm( ctx->reasm, &msg->block_id ); break; }
+        }
       }
       else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED ) ) {
         fd_tower_slot_ignored_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
