@@ -975,20 +975,6 @@ after_credit( ctx_t *             ctx,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
 
-  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
-    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    ctx->is_halting_signing = 1;
-    ctx->keyswitch->result  = ctx->out_seq;
-  }
-
-  if( FD_UNLIKELY( ctx->is_halting_signing ) ) {
-    /* In the case that the tower tile is halting signing, we don't want
-       to process any fragments. */
-    *opt_poll_in = 0;
-    *charge_busy = 1;
-  }
-
   if( FD_LIKELY( !notif_empty( ctx->notif ) ) ) {
 
     /* Contiguous confirmations are pushed to tail in order from child
@@ -1063,7 +1049,7 @@ returnable_frag( ctx_t *             ctx,
                  ulong               tspub FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
 
-  if( FD_UNLIKELY( !ctx->in[ in_idx ].mcache_only && ( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) )
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
