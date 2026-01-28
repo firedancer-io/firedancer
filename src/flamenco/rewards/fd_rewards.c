@@ -602,7 +602,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       continue;
     }
 
-    if ( capture_ctx && capture_ctx->capture ) {
+    if ( capture_ctx && capture_ctx->capture_solcap ) {
       fd_capture_link_write_stake_reward_event( capture_ctx,
                                                 fd_bank_slot_get( bank ),
                                                 stake_delegation->stake_account,
@@ -650,7 +650,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
   /* If there are no points, then we set the rewards to 0. */
   *rewards_out = points>0UL ? *rewards_out: 0UL;
 
-  if( capture_ctx  && capture_ctx->capture ) {
+  if( capture_ctx && capture_ctx->capture_solcap ) {
     ulong epoch = fd_bank_epoch_get( bank );
     ulong slot  = fd_bank_slot_get( bank );
     fd_capture_link_write_stake_rewards_begin( capture_ctx,
@@ -871,7 +871,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
       stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
   fd_bank_stake_delegations_delta_end_locking_modify( bank );
 
-  if( capture_ctx && capture_ctx->capture ) {
+  if( capture_ctx && capture_ctx->capture_solcap ) {
     fd_capture_link_write_stake_account_payout( capture_ctx,
                                                 fd_bank_slot_get( bank ),
                                                 *stake_pubkey,

@@ -115,7 +115,8 @@ struct fd_capture_link_vt {
 struct fd_capture_ctx {
   ulong magic; /* ==FD_CAPTURE_CTX_MAGIC */
 
-  fd_capture_link_t *        capture_link;
+  int                 capture_solcap;
+  fd_capture_link_t * capture_link;
   union {
     fd_capture_link_buf_t * buf;
     fd_capture_link_file_t * file;
