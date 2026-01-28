@@ -38,6 +38,7 @@ jobs:
         uses: bufbuild/buf-setup-action@v1
         with:
           version: '1.28.1'
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Regenerate proto file
         run: |
