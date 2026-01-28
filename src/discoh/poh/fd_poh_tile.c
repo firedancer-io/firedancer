@@ -626,7 +626,7 @@ typedef struct poh_link poh_link_t;
 static poh_link_t gossip_dedup;
 static poh_link_t stake_out;
 static poh_link_t crds_shred;
-static poh_link_t replay_resolv;
+static poh_link_t replay_resolh;
 static poh_link_t executed_txn;
 
 static poh_link_t replay_plugin;
@@ -2211,13 +2211,13 @@ fd_ext_plugin_publish_periodic( ulong   sig,
 void
 fd_ext_resolv_publish_root_bank( uchar * data,
                                  ulong   data_len ) {
-  poh_link_publish( &replay_resolv, 0UL, data, data_len );
+  poh_link_publish( &replay_resolh, 0UL, data, data_len );
 }
 
 void
 fd_ext_resolv_publish_completed_blockhash( uchar * data,
                                            ulong   data_len ) {
-  poh_link_publish( &replay_resolv, 1UL, data, data_len );
+  poh_link_publish( &replay_resolh, 1UL, data, data_len );
 }
 
 static inline fd_poh_out_ctx_t
@@ -2300,11 +2300,11 @@ unprivileged_init( fd_topo_t *      topo,
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
 
-  poh_link_init( &gossip_dedup,          topo, tile, out1( topo, tile, "gossip_dedup" ).idx );
-  poh_link_init( &stake_out,             topo, tile, out1( topo, tile, "stake_out"    ).idx );
-  poh_link_init( &crds_shred,            topo, tile, out1( topo, tile, "crds_shred"   ).idx );
-  poh_link_init( &replay_resolv,         topo, tile, out1( topo, tile, "replay_resol" ).idx );
-  poh_link_init( &executed_txn,          topo, tile, out1( topo, tile, "executed_txn" ).idx );
+  poh_link_init( &gossip_dedup,            topo, tile, out1( topo, tile, "gossip_dedup" ).idx );
+  poh_link_init( &stake_out,               topo, tile, out1( topo, tile, "stake_out"    ).idx );
+  poh_link_init( &crds_shred,              topo, tile, out1( topo, tile, "crds_shred"   ).idx );
+  poh_link_init( &replay_resolh,           topo, tile, out1( topo, tile, "replay_resol" ).idx );
+  poh_link_init( &executed_txn,            topo, tile, out1( topo, tile, "executed_txn" ).idx );
 
   if( FD_LIKELY( tile->poh.plugins_enabled ) ) {
     poh_link_init( &replay_plugin,         topo, tile, out1( topo, tile, "replay_plugi" ).idx );

@@ -3,15 +3,14 @@
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 
 #if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"
 #endif
 
-#define FD_RESOLV_IN_KIND_FRAGMENT (0)
-#define FD_RESOLV_IN_KIND_BANK     (1)
+#define FD_RESOLH_IN_KIND_FRAGMENT (0)
+#define FD_RESOLH_IN_KIND_BANK     (1)
 
 struct blockhash {
   uchar b[ 32 ];
@@ -104,16 +103,18 @@ typedef struct {
 
 #include "../../util/tmpl/fd_map_chain.c"
 
-typedef struct {
+struct fd_resolh_in {
   int         kind;
 
   fd_wksp_t * mem;
   ulong       chunk0;
   ulong       wmark;
   ulong       mtu;
-} fd_resolv_in_ctx_t;
+};
 
-typedef struct {
+typedef struct fd_resolh_in fd_resolh_in_t;
+
+struct fd_resolh_tile {
   ulong round_robin_idx;
   ulong round_robin_cnt;
 
@@ -139,84 +140,86 @@ typedef struct {
   uchar _bank_msg[ sizeof(fd_completed_bank_t) ];
 
   struct {
-    ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
+    ulong lut[ FD_METRICS_COUNTER_RESOLH_LUT_RESOLVED_CNT ];
     ulong blockhash_expired;
     ulong blockhash_unknown;
     ulong bundle_peer_failure_cnt;
-    ulong stash[ FD_METRICS_COUNTER_RESOLV_STASH_OPERATION_CNT ];
+    ulong stash[ FD_METRICS_COUNTER_RESOLH_STASH_OPERATION_CNT ];
   } metrics;
 
-  fd_resolv_in_ctx_t in[ 64UL ];
+  fd_resolh_in_t in[ 64UL ];
 
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
-} fd_resolv_ctx_t;
+};
+
+typedef struct fd_resolh_tile fd_resolh_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return alignof( fd_resolv_ctx_t );
+  return alignof( fd_resolh_tile_t );
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t )        );
-  l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( 1UL<<16UL ) );
-  l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    ) );
-  l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint()                  );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_resolh_tile_t ), sizeof( fd_resolh_tile_t )    );
+  l = FD_LAYOUT_APPEND( l, pool_align(),                pool_footprint( 1UL<<16UL )   );
+  l = FD_LAYOUT_APPEND( l, map_chain_align(),           map_chain_footprint( 8192UL ) );
+  l = FD_LAYOUT_APPEND( l, map_align(),                 map_footprint()               );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 extern void fd_ext_bank_release( void const * bank );
 
-static ulong _fd_ext_resolv_tile_cnt;
+static ulong _fd_ext_resolh_tile_cnt;
 
 ulong
 fd_ext_resolv_tile_cnt( void ) {
-  while(  !FD_VOLATILE( _fd_ext_resolv_tile_cnt ) ) {}
-  return _fd_ext_resolv_tile_cnt;
+  while(  !FD_VOLATILE( _fd_ext_resolh_tile_cnt ) ) {}
+  return _fd_ext_resolh_tile_cnt;
 }
 
 static inline void
-metrics_write( fd_resolv_ctx_t * ctx ) {
-  FD_MCNT_SET( RESOLV, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
-  FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED, ctx->metrics.lut );
-  FD_MCNT_ENUM_COPY( RESOLV, STASH_OPERATION, ctx->metrics.stash );
-  FD_MCNT_SET( RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure_cnt );
+metrics_write( fd_resolh_tile_t * ctx ) {
+  FD_MCNT_SET( RESOLH, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
+  FD_MCNT_ENUM_COPY( RESOLH, LUT_RESOLVED, ctx->metrics.lut );
+  FD_MCNT_ENUM_COPY( RESOLH, STASH_OPERATION, ctx->metrics.stash );
+  FD_MCNT_SET( RESOLH, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure_cnt );
 }
 
 static int
-before_frag( fd_resolv_ctx_t * ctx,
-             ulong             in_idx,
-             ulong             seq,
-             ulong             sig ) {
+before_frag( fd_resolh_tile_t * ctx,
+             ulong              in_idx,
+             ulong              seq,
+             ulong              sig ) {
   (void)sig;
 
-  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) return 0;
+  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLH_IN_KIND_BANK ) ) return 0;
 
   return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
 }
 
 static inline void
-during_frag( fd_resolv_ctx_t * ctx,
-             ulong             in_idx,
-             ulong             seq FD_PARAM_UNUSED,
-             ulong             sig FD_PARAM_UNUSED,
-             ulong             chunk,
-             ulong             sz,
-             ulong             ctl FD_PARAM_UNUSED ) {
+during_frag( fd_resolh_tile_t * ctx,
+             ulong              in_idx,
+             ulong              seq FD_PARAM_UNUSED,
+             ulong              sig FD_PARAM_UNUSED,
+             ulong              chunk,
+             ulong              sz,
+             ulong              ctl FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   switch( ctx->in[in_idx].kind ) {
-    case FD_RESOLV_IN_KIND_BANK:
+    case FD_RESOLH_IN_KIND_BANK:
       fd_memcpy( ctx->_bank_msg, fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk ), sz );
       break;
-    case FD_RESOLV_IN_KIND_FRAGMENT: {
+    case FD_RESOLH_IN_KIND_FRAGMENT: {
       uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
       uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       fd_memcpy( dst, src, sz );
@@ -228,7 +231,7 @@ during_frag( fd_resolv_ctx_t * ctx,
 }
 
 static inline int
-publish_txn( fd_resolv_ctx_t *          ctx,
+publish_txn( fd_resolh_tile_t *         ctx,
              fd_stem_context_t *        stem,
              fd_stashed_txn_m_t const * stashed ) {
   fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -240,12 +243,12 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
-      FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
+      FD_MCNT_INC( RESOLH, NO_BANK_DROP, 1 );
       return 0;
     } else {
       int result = fd_bank_abi_resolve_address_lookup_tables( ctx->root_bank, 0, ctx->root_slot, txnt, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ) );
       /* result is in [-5, 0]. We want to map -5 to 0, -4 to 1, etc. */
-      ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT+result-1L) ]++;
+      ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLH_LUT_RESOLVED_CNT+result-1L) ]++;
 
       if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) return 0;
     }
@@ -260,7 +263,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 }
 
 static inline void
-after_credit( fd_resolv_ctx_t *   ctx,
+after_credit( fd_resolh_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
@@ -285,7 +288,7 @@ after_credit( fd_resolv_ctx_t *   ctx,
    durable nonce transaction */
 
 FD_FN_PURE static inline int
-fd_resolv_is_durable_nonce( fd_txn_t const * txn,
+fd_resolh_is_durable_nonce( fd_txn_t const * txn,
                             uchar    const * payload ) {
   if( FD_UNLIKELY( txn->instr_cnt==0 ) ) return 0;
 
@@ -303,7 +306,7 @@ fd_resolv_is_durable_nonce( fd_txn_t const * txn,
 }
 
 static inline void
-after_frag( fd_resolv_ctx_t *   ctx,
+after_frag( fd_resolh_tile_t *  ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
@@ -315,7 +318,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   (void)sz;
   (void)_tspub;
 
-  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) {
+  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLH_IN_KIND_BANK ) ) {
     switch( sig ) {
       case 0: {
         fd_rooted_bank_t * frag = (fd_rooted_bank_t *)ctx->_bank_msg;
@@ -403,7 +406,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   int is_bundle_member = !!txnm->block_engine.bundle_id;
-  int is_durable_nonce = fd_resolv_is_durable_nonce( txnt, fd_txn_m_payload( txnm ) );
+  int is_durable_nonce = fd_resolh_is_durable_nonce( txnt, fd_txn_m_payload( txnm ) );
 
   if( FD_UNLIKELY( !is_bundle_member && !is_durable_nonce && !blockhash ) ) {
     ulong pool_idx;
@@ -437,14 +440,14 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
-      FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
+      FD_MCNT_INC( RESOLH, NO_BANK_DROP, 1 );
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }
 
     int result = fd_bank_abi_resolve_address_lookup_tables( ctx->root_bank, 0, ctx->root_slot, txnt, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ) );
     /* result is in [-5, 0]. We want to map -5 to 0, -4 to 1, etc. */
-    ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT+result-1L) ]++;
+    ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLH_LUT_RESOLVED_CNT+result-1L) ]++;
 
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) {
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
@@ -464,7 +467,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_resolv_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t ) );
+  fd_resolh_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_resolh_tile_t ), sizeof( fd_resolh_tile_t ) );
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_idx = tile->kind_id;
@@ -485,7 +488,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( ctx->lru_list==lru_list_join( lru_list_new( ctx->lru_list ) ) );
 
-  if( FD_LIKELY( !tile->kind_id ) ) _fd_ext_resolv_tile_cnt = ctx->round_robin_cnt;
+  if( FD_LIKELY( !tile->kind_id ) ) _fd_ext_resolh_tile_cnt = ctx->round_robin_cnt;
 
   ctx->root_bank = NULL;
 
@@ -500,8 +503,8 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) ) ctx->in[i].kind = FD_RESOLV_IN_KIND_BANK;
-    else                                                     ctx->in[i].kind = FD_RESOLV_IN_KIND_FRAGMENT;
+    if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) ) ctx->in[i].kind = FD_RESOLH_IN_KIND_BANK;
+    else                                                     ctx->in[i].kind = FD_RESOLH_IN_KIND_FRAGMENT;
 
     ctx->in[i].mem    = link_wksp->wksp;
     ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
@@ -521,8 +524,8 @@ unprivileged_init( fd_topo_t *      topo,
 
 #define STEM_BURST (1UL)
 
-#define STEM_CALLBACK_CONTEXT_TYPE  fd_resolv_ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_resolv_ctx_t)
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_resolh_tile_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_resolh_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
@@ -532,8 +535,8 @@ unprivileged_init( fd_topo_t *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_resolv = {
-  .name                     = "resolv",
+fd_topo_run_tile_t fd_tile_resolh = {
+  .name                     = "resolh",
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,
   .scratch_align            = scratch_align,

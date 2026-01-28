@@ -39,7 +39,7 @@ fd_topo_initialize( config_t * config ) {
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
   ulong verify_tile_cnt = config->layout.verify_tile_count;
-  ulong resolv_tile_cnt = config->layout.resolv_tile_count;
+  ulong resolh_tile_cnt = config->frankendancer.layout.resolh_tile_count;
   ulong bank_tile_cnt   = config->frankendancer.layout.bank_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
 
@@ -53,8 +53,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "net_shred"    );
   fd_topob_wksp( topo, "quic_verify"  );
   fd_topob_wksp( topo, "verify_dedup" );
-  fd_topob_wksp( topo, "dedup_resolv" );
-  fd_topob_wksp( topo, "resolv_pack"  );
+  fd_topob_wksp( topo, "dedup_resolh" );
+  fd_topob_wksp( topo, "resolh_pack"  );
   fd_topob_wksp( topo, "pack_bank"    );
   fd_topob_wksp( topo, "pack_poh"     );
   fd_topob_wksp( topo, "bank_pack"    );
@@ -72,7 +72,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "quic"         );
   fd_topob_wksp( topo, "verify"       );
   fd_topob_wksp( topo, "dedup"        );
-  fd_topob_wksp( topo, "resolv"       );
+  fd_topob_wksp( topo, "resolh"       );
   fd_topob_wksp( topo, "pack"         );
   fd_topob_wksp( topo, "bank"         );
   fd_topob_wksp( topo, "poh"          );
@@ -90,10 +90,10 @@ fd_topo_initialize( config_t * config ) {
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  config->tiles.verify.receive_buffer_size, FD_TPU_REASM_MTU,       config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,      1UL );
   /**/                 fd_topob_link( topo, "gossip_dedup", "gossip_dedup", 2048UL,                                   FD_TPU_RAW_MTU,         1UL );
-  /* dedup_resolv is large currently because pack can encounter stalls when running at very high throughput rates that would
+  /* dedup_resolh is large currently because pack can encounter stalls when running at very high throughput rates that would
      otherwise cause drops. */
-  /**/                 fd_topob_link( topo, "dedup_resolv", "dedup_resolv", 65536UL,                                  FD_TPU_PARSED_MTU,      1UL );
-  FOR(resolv_tile_cnt) fd_topob_link( topo, "resolv_pack",  "resolv_pack",  65536UL,                                  FD_TPU_RESOLVED_MTU,    1UL );
+  /**/                 fd_topob_link( topo, "dedup_resolh", "dedup_resolh", 65536UL,                                  FD_TPU_PARSED_MTU,      1UL );
+  FOR(resolh_tile_cnt) fd_topob_link( topo, "resolh_pack",  "resolh_pack",  65536UL,                                  FD_TPU_RESOLVED_MTU,    1UL );
   /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    128UL,                                    FD_STAKE_OUT_MTU,       1UL );
   /* pack_bank is shared across all banks, so if one bank stalls due to complex transactions, the buffer needs to be large so that
      other banks can keep proceeding. */
@@ -149,7 +149,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(quic_tile_cnt)   fd_topob_tile( topo, "quic",    "quic",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   FOR(verify_tile_cnt) fd_topob_tile( topo, "verify",  "verify",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                 fd_topob_tile( topo, "dedup",   "dedup",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  FOR(resolv_tile_cnt) fd_topob_tile( topo, "resolv",  "resolv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        0 );
+  FOR(resolh_tile_cnt) fd_topob_tile( topo, "resolh",  "resolh",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        0 );
   /**/                 fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        config->tiles.bundle.enabled );
   FOR(bank_tile_cnt)   fd_topob_tile( topo, "bank",    "bank",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        0 );
   /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        1 );
@@ -177,11 +177,11 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "gossip_dedup", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "verify_dedup", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "executed_txn", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_out( topo, "dedup",   0UL,                       "dedup_resolv", 0UL                                                );
-  FOR(resolv_tile_cnt) fd_topob_tile_in(  topo, "resolv",  i,            "metric_in", "dedup_resolv", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(resolv_tile_cnt) fd_topob_tile_in(  topo, "resolv",  i,            "metric_in", "replay_resol", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(resolv_tile_cnt) fd_topob_tile_out( topo, "resolv",  i,                         "resolv_pack",  i                                                  );
-  /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "resolv_pack",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_out( topo, "dedup",   0UL,                       "dedup_resolh", 0UL                                                );
+  FOR(resolh_tile_cnt) fd_topob_tile_in(  topo, "resolh",  i,            "metric_in", "dedup_resolh", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(resolh_tile_cnt) fd_topob_tile_in(  topo, "resolh",  i,            "metric_in", "replay_resol", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(resolh_tile_cnt) fd_topob_tile_out( topo, "resolh",  i,                         "resolh_pack",  i                                                  );
+  /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "resolh_pack",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /* The PoH to pack link is reliable, and must be.  The fragments going
      across here are "you became leader" which pack must respond to
      by publishing microblocks, otherwise the leader TPU will hang
@@ -458,7 +458,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "dedup" ) ) ) {
     tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "resolv" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "resolh" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
     tile->pack.max_pending_transactions      = config->tiles.pack.max_pending_transactions;

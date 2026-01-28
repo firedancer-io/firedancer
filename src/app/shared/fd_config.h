@@ -90,6 +90,7 @@ struct fd_configh {
 
   struct {
     uint bank_tile_count;
+    uint resolh_tile_count;
     char agave_affinity[ AFFINITY_SZ ];
     uint agave_unified_scheduler_handler_threads;
   } layout;
@@ -119,6 +120,7 @@ struct fd_configf {
   struct {
     uint sign_tile_count;
     uint gossvf_tile_count;
+    uint resolv_tile_count;
     uint execle_tile_count;
     uint execrp_tile_count;
     uint snapshot_hash_tile_count;
@@ -288,7 +290,6 @@ struct fd_config {
 
     uint net_tile_count;
     uint quic_tile_count;
-    uint resolv_tile_count;
     uint verify_tile_count;
     uint shred_tile_count;
   } layout;

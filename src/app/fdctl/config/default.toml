@@ -780,7 +780,7 @@ dynamic_port_range = "8900-9000"
     #
     # Resolve tiles are responsible for resolving address lookup tables
     # before transactions are scheduled.
-    resolv_tile_count = 1
+    resolh_tile_count = 1
 
     # How many verify tiles to run.  Verify tiles perform signature
     # verification on incoming transactions, an expensive operation that

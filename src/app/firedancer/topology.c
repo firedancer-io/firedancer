@@ -350,7 +350,7 @@ fd_topo_initialize( config_t * config ) {
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
   ulong verify_tile_cnt = config->layout.verify_tile_count;
-  ulong resolv_tile_cnt = config->layout.resolv_tile_count;
+  ulong resolv_tile_cnt = config->firedancer.layout.resolv_tile_count;
   ulong execle_tile_cnt = config->firedancer.layout.execle_tile_count;
 
   ulong gossvf_tile_cnt = config->firedancer.layout.gossvf_tile_count;
@@ -691,7 +691,6 @@ fd_topo_initialize( config_t * config ) {
   FOR(verify_tile_cnt) fd_topob_tile( topo, "verify",  "verify",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                 fd_topob_tile( topo, "dedup",   "dedup",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   FOR(resolv_tile_cnt) fd_topob_tile( topo, "resolv",  "resolv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  FOR(resolv_tile_cnt) strncpy( topo->tiles[ topo->tile_cnt-1UL-i ].metrics_name, "resolf", 8UL );
   /**/                 fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        config->tiles.bundle.enabled );
   FOR(execle_tile_cnt) fd_topob_tile( topo, "execle",  "execle",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
