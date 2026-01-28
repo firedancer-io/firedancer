@@ -51,6 +51,7 @@ struct fd_backt_tile {
   int initialized;
   int genesis;
   int snapshot_done;
+  int first_fec_complete;
 
   fd_backtest_rocksdb_t *  rocksdb;
   fd_backtest_shredcap_t * shredcap;
@@ -62,8 +63,6 @@ struct fd_backt_tile {
   ulong prev_slot;
   ulong prev_fec_set_idx;
 
-  ulong chained_prev_slot;
-  ulong chained_prev_fec_set_idx;
 
   ulong start_slot;
   ulong end_slot;
@@ -100,6 +99,12 @@ struct fd_backt_tile {
   uchar bank_hashes[ BANK_HASH_BUFFER_LEN ][ 32UL ];
 
   ulong * rooted_slots;
+
+  ulong prev_source_slot;
+  ulong dead_slot;
+  ulong dead_shred_cnt;
+  ulong root_slot;
+  ulong root_shred_cnt;
 };
 
 typedef struct fd_backt_tile fd_backt_tile_t;
@@ -137,11 +142,31 @@ source_init( fd_backt_tile_t * ctx,
 
 static int
 source_next_slot( fd_backt_tile_t * ctx,
-                       ulong *           slot_out,
-                       ulong *           shred_cnt,
-                       int *             is_slot_rooted ) {
+                  ulong *           slot_out,
+                  ulong *           shred_cnt,
+                  int *             is_slot_rooted ) {
 # if FD_HAS_ROCKSDB
-  if( ctx->rocksdb ) return fd_backtest_rocksdb_next_slot( ctx->rocksdb, slot_out, shred_cnt, is_slot_rooted );
+  if( ctx->rocksdb ) {
+    if( FD_UNLIKELY( ctx->prev_source_slot==ULONG_MAX ) ) {
+      fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
+      fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
+    }
+
+    if( ctx->prev_source_slot==ctx->dead_slot ) fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
+    if( ctx->prev_source_slot==ctx->root_slot ) fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
+
+    if( ctx->dead_slot<ctx->root_slot ) {
+      *slot_out  = ctx->dead_slot;
+      *shred_cnt = ctx->dead_shred_cnt;
+      *is_slot_rooted = 0;
+    } else {
+      *slot_out  = ctx->root_slot;
+      *shred_cnt = ctx->root_shred_cnt;
+      *is_slot_rooted = 1;
+    }
+    ctx->prev_source_slot = *slot_out;
+    return 1;
+  }
 # endif
   /* TODO: shredcap doesn't support dead slots yet. */
   *is_slot_rooted = 1;
@@ -184,6 +209,7 @@ before_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( ctx->reading_slot_cnt-ctx->slot_cnt>=30UL ) ) return; /* too far ahead of replay */
 
   *charge_busy = 1;
+
 
   if( FD_UNLIKELY( ctx->reading_shred_cnt==ctx->reading_shred_idx ) ) {
     if( FD_UNLIKELY( ctx->bank_hash_cnt==BANK_HASH_BUFFER_LEN ) ) return; /* out of space */
@@ -260,8 +286,9 @@ after_credit( fd_backt_tile_t *   ctx,
   if( FD_LIKELY( !completes_fec_set ) ) return;
 
   fd_hash_t cmr = {0};
-  if( FD_UNLIKELY( ctx->chained_prev_slot==ULONG_MAX ) ) {
+  if( FD_UNLIKELY( !ctx->first_fec_complete ) ) {
     cmr.ul[ 0 ] = FD_RUNTIME_INITIAL_BLOCK_ID;
+    ctx->first_fec_complete = 1;
   } else {
     ulong chained_slot = shred->fec_set_idx==0 ? shred->slot - shred->data.parent_off : shred->slot;
     cmr.ul[ 0 ] = chained_slot;
@@ -269,9 +296,6 @@ after_credit( fd_backt_tile_t *   ctx,
   }
 
   ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = shred->fec_set_idx;
-
-  ctx->chained_prev_slot = shred->slot;
-  ctx->chained_prev_fec_set_idx = shred->fec_set_idx;
 
   /* We need to simulate the FEC set completion message that is sent out
      of the shred tile.  This involves copying the data shred header and
@@ -464,6 +488,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
+  ctx->first_fec_complete = 0;
   ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
   ctx->idle_cnt = 0UL;
 
@@ -484,10 +509,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->reading_shred_cnt = 0UL;
   ctx->reading_shred_idx = 0UL;
 
-  ctx->prior_completion_timestamp = 0L;
+  ctx->dead_slot        = ULONG_MAX;
+  ctx->root_slot        = ULONG_MAX;
+  ctx->prev_source_slot = ULONG_MAX;
 
-  ctx->chained_prev_slot = ULONG_MAX;
-  ctx->prev_slot = ULONG_MAX;
+  ctx->prior_completion_timestamp = 0L;
 
   ctx->rocksdb = NULL;
   ctx->shredcap = NULL;
@@ -503,7 +529,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 # if FD_HAS_ROCKSDB
   if( !ctx->shredcap ) {
-    ctx->rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( _backtest_rocksdb, tile->backtest.rocksdb_path, tile->backtest.ingest_dead_slots ) );
+    ctx->rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( _backtest_rocksdb, tile->backtest.rocksdb_path ) );
     FD_TEST( ctx->rocksdb );
   }
 # endif

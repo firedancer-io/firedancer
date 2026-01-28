@@ -20,8 +20,7 @@ fd_backtest_rocksdb_footprint( void );
 
 void *
 fd_backtest_rocksdb_new( void *       shmem,
-                         char const * path,
-                         int          ingests_dead_slots );
+                         char const * path );
 
 fd_backtest_rocksdb_t *
 fd_backtest_rocksdb_join( void * shdb );
@@ -31,10 +30,14 @@ fd_backtest_rocksdb_init( fd_backtest_rocksdb_t * db,
                           ulong                   root_slot );
 
 int
-fd_backtest_rocksdb_next_slot( fd_backtest_rocksdb_t * db,
-                               ulong *                 slot_out,
-                               ulong *                 shred_cnt_out,
-                               int *                   is_slot_rooted );
+fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
+                                    ulong *                 slot_out,
+                                    ulong *                 shred_cnt_out );
+
+int
+fd_backtest_rocksdb_next_dead_slot( fd_backtest_rocksdb_t * db,
+                                    ulong *                 slot_out,
+                                    ulong *                 shred_cnt_out );
 
 void const *
 fd_backtest_rocksdb_shred( fd_backtest_rocksdb_t * db,

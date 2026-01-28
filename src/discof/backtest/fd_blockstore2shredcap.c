@@ -145,7 +145,7 @@ main( int     argc,
 
   void * rocks_mem = aligned_alloc( fd_backtest_rocksdb_align(), fd_backtest_rocksdb_footprint() );
   if( FD_UNLIKELY( !rocks_mem ) ) FD_LOG_ERR(( "out of memory" ));
-  fd_backtest_rocksdb_t * rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( rocks_mem, rocksdb_path, 0 ) );
+  fd_backtest_rocksdb_t * rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( rocks_mem, rocksdb_path ) );
   if( FD_UNLIKELY( !rocksdb ) ) FD_LOG_ERR(( "failed to open RocksDB at %s", rocksdb_path ));
   fd_backtest_rocksdb_init( rocksdb, start_slot );
 
@@ -190,7 +190,7 @@ main( int     argc,
     ulong root_slot;
     ulong shred_cnt;
     int   is_slot_rooted = 0;
-    int root_ok = fd_backtest_rocksdb_next_slot( rocksdb, &root_slot, &shred_cnt, &is_slot_rooted );
+    int root_ok = fd_backtest_rocksdb_next_root_slot( rocksdb, &root_slot, &shred_cnt );
     if( !root_ok ) break;
     FD_TEST( is_slot_rooted );
     uchar const * bank_hash = fd_backtest_rocksdb_bank_hash( rocksdb, root_slot );
