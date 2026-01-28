@@ -717,8 +717,8 @@ static inline void
 generate_key( fd_gossip_view_crds_value_t const * view,
               uchar const *                       payload,
               fd_crds_key_t *                     out_key ) {
-  out_key->tag = view->tag;
-  fd_memcpy( out_key->pubkey, payload+view->pubkey_off, 32UL );
+  out_key->tag = (uchar)view->tag;
+  fd_memcpy( out_key->pubkey, payload+view->from_off, 32UL );
 
   switch( out_key->tag ) {
     case FD_GOSSIP_VALUE_VOTE:
@@ -828,7 +828,7 @@ overrides_fast( fd_crds_entry_t const *             incumbent,
       break;
     case FD_GOSSIP_VALUE_NODE_INSTANCE:
       if( FD_LIKELY( candidate->node_instance->token==incumbent->node_instance.token ) ) break;
-      else if( FD_LIKELY( memcmp( payload+candidate->pubkey_off, incumbent->key.pubkey, 32UL ) ) ) break;
+      else if( FD_LIKELY( memcmp( payload+candidate->from_off, incumbent->key.pubkey, 32UL ) ) ) break;
       else if( FD_UNLIKELY( candidate_wc>existing_wc ) ) return 1;
       else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
       else if( candidate->node_instance->token<incumbent->node_instance.token ) return 0;;
