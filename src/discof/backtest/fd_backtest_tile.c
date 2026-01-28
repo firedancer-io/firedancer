@@ -63,7 +63,6 @@ struct fd_backt_tile {
   ulong prev_slot;
   ulong prev_fec_set_idx;
 
-
   ulong start_slot;
   ulong end_slot;
 
@@ -147,25 +146,22 @@ source_next_slot( fd_backt_tile_t * ctx,
                   int *             is_slot_rooted ) {
 # if FD_HAS_ROCKSDB
   if( ctx->rocksdb ) {
-    if( FD_UNLIKELY( ctx->prev_source_slot==ULONG_MAX ) ) {
-      if( ctx->ingest_dead_slots ) fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
-      fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
-    }
 
-    if( ctx->ingest_dead_slots && ctx->prev_source_slot==ctx->dead_slot ) fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
-    if( ctx->prev_source_slot==ctx->root_slot ) fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
+    int result;
+    if( ctx->ingest_dead_slots && ctx->prev_source_slot==ctx->dead_slot ) result = fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
+    if( ctx->prev_source_slot==ctx->root_slot )                           result = fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
 
     if( ctx->ingest_dead_slots && ctx->dead_slot<ctx->root_slot ) {
-      *slot_out  = ctx->dead_slot;
-      *shred_cnt = ctx->dead_shred_cnt;
+      *slot_out       = ctx->dead_slot;
+      *shred_cnt      = ctx->dead_shred_cnt;
       *is_slot_rooted = 0;
     } else {
-      *slot_out  = ctx->root_slot;
-      *shred_cnt = ctx->root_shred_cnt;
+      *slot_out       = ctx->root_slot;
+      *shred_cnt      = ctx->root_shred_cnt;
       *is_slot_rooted = 1;
     }
     ctx->prev_source_slot = *slot_out;
-    return 1;
+    return result;
   }
 # endif
   /* TODO: shredcap doesn't support dead slots yet. */
@@ -173,7 +169,7 @@ source_next_slot( fd_backt_tile_t * ctx,
   return fd_backtest_shredcap_next_root_slot( ctx->shredcap, slot_out, shred_cnt );
 }
 
-static uchar const * FD_FN_UNUSED
+static uchar const *
 source_bank_hash( fd_backt_tile_t * ctx,
                   ulong             slot ) {
 # if FD_HAS_ROCKSDB
@@ -233,8 +229,8 @@ before_credit( fd_backt_tile_t *   ctx,
 
   void const * shred = source_shred( ctx, ctx->reading_slot, ctx->reading_shred_idx );
   FD_TEST( shred );
-  fd_memcpy( ctx->shreds[ (ctx->shreds_idx+ctx->shreds_cnt)%SHRED_BUFFER_LEN ], shred, fd_shred_sz( (fd_shred_t const *)shred ) );
 
+  fd_memcpy( ctx->shreds[ (ctx->shreds_idx+ctx->shreds_cnt)%SHRED_BUFFER_LEN ], shred, fd_shred_sz( (fd_shred_t const *)shred ) );
   ctx->reading_shred_idx++;
   ctx->shreds_cnt++;
 }
@@ -271,7 +267,6 @@ after_credit( fd_backt_tile_t *   ctx,
   }
 
   fd_store_fec_t * fec = fd_store_query( ctx->store, &mr );
-  FD_TEST( fec );
   fd_store_exacq( ctx->store ); /* FIXME shacq after store changes */
   fd_memcpy( fec->data+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz += fd_shred_payload_sz( shred );
@@ -515,6 +510,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->reading_shred_cnt = 0UL;
   ctx->reading_shred_idx = 0UL;
 
+  ctx->prev_slot        = ULONG_MAX;
   ctx->dead_slot        = ULONG_MAX;
   ctx->root_slot        = ULONG_MAX;
   ctx->prev_source_slot = ULONG_MAX;

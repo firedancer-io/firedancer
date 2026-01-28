@@ -41,3 +41,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458 -y 1 -
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458 -y 1 -m 2000000 -e 385786458 --vinyl
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local -y 1 -m 3000 -e 1000 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347 -y 1 -m 2000000 -e 384169377
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384395810 -y 3 -m 2000000 -e 384395820 --ingest-dead-slots
