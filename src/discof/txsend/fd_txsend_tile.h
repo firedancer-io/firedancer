@@ -128,8 +128,6 @@ struct fd_txsend_tile_ctx {
   /* identity pubkey used for tls */
   fd_pubkey_t identity_key[ 1 ];
 
-  int is_halting_signing;
-
   /* Leader schedule tracking */
   fd_multi_epoch_leaders_t * mleaders;
 
