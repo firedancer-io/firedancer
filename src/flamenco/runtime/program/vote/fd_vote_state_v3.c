@@ -135,15 +135,21 @@ fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_v3_t * self,
 }
 
 int
-fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
-                                           fd_vote_state_v3_t *  self,
-                                           fd_pubkey_t const *   authorized_pubkey,
-                                           ulong                 current_epoch,
-                                           ulong                 target_epoch,
-                                           int                   authorized_withdrawer_signer,
-                                           fd_pubkey_t const *   signers[static FD_TXN_SIG_MAX] ) {
+fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *              ctx,
+                                           fd_vote_state_v3_t *               self,
+                                           fd_pubkey_t const *                authorized_pubkey,
+                                           ulong                              current_epoch,
+                                           ulong                              target_epoch,
+                                           fd_bls_pubkey_compressed_t const * bls_pubkey,
+                                           int                                authorized_withdrawer_signer,
+                                           fd_pubkey_t const *                signers[ FD_TXN_SIG_MAX ] ) {
   int           rc;
   fd_pubkey_t * epoch_authorized_voter = NULL;
+
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0/programs/vote/src/vote_state/handler.rs#L281-L286 */
+  if( FD_UNLIKELY( bls_pubkey!=NULL ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L778
   rc = fd_vote_state_v3_get_and_update_authorized_voter( self, current_epoch, &epoch_authorized_voter );
