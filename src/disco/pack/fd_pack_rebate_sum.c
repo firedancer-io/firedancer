@@ -91,17 +91,18 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
       }
       in_table->rebate_cus += rebated_cus;
     }
-    if( FD_LIKELY( txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
-      accts = adtl_writable[i];
-      for( ulong j=0UL; j<(ulong)TXN(txn)->addr_table_adtl_writable_cnt; j++ ) {
-        fd_pack_rebate_entry_t * in_table = rmap_query( s->map, accts[j], NULL );
-        if( FD_UNLIKELY( !in_table ) ) {
-          in_table = rmap_insert( s->map, accts[j] );
-          in_table->rebate_cus = 0UL;
-          s->inserted[ s->writer_cnt++ ] = in_table;
-        }
-        in_table->rebate_cus += rebated_cus;
+    /* ALT accounts are pre-resolved by resolv_tile and passed via
+       fd_txn_e_t, so we always rebate even if bank sanitization
+       failed (e.g. due to LUT deactivation). */
+    accts = adtl_writable[i];
+    for( ulong j=0UL; j<(ulong)TXN(txn)->addr_table_adtl_writable_cnt; j++ ) {
+      fd_pack_rebate_entry_t * in_table = rmap_query( s->map, accts[j], NULL );
+      if( FD_UNLIKELY( !in_table ) ) {
+        in_table = rmap_insert( s->map, accts[j] );
+        in_table->rebate_cus = 0UL;
+        s->inserted[ s->writer_cnt++ ] = in_table;
       }
+      in_table->rebate_cus += rebated_cus;
     }
     FD_TEST( s->writer_cnt<=FD_PACK_REBATE_SUM_CAPACITY );
   }

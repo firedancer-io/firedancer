@@ -26,6 +26,7 @@ typedef struct {
   ulong _pack_idx;
   ulong _txn_idx;
   int _is_bundle;
+  fd_txn_e_t * _pack_txn_e;
 
   ulong * busy_fseq;
 
@@ -120,7 +121,19 @@ during_frag( fd_bank_ctx_t * ctx,
   if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
 
-  fd_memcpy( dst, src, sz-sizeof(fd_microblock_execle_trailer_t) );
+  /* Pack sends fd_txn_e_t (with ALT accounts), but PoH expects fd_txn_p_t.
+     We copy only the fd_txn_p_t portion to the PoH output buffer, and keep
+     a pointer to the original fd_txn_e_t for accessing ALT accounts in rebates.
+     Credits aren't returned until we call housekeeping later so this ptr should
+     remain valid */
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
+  fd_txn_e_t * src_txn_e = (fd_txn_e_t *)src;
+  fd_txn_p_t * dst_txn_p = (fd_txn_p_t *)dst;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_memcpy( dst_txn_p + i, src_txn_e[i].txnp, sizeof(fd_txn_p_t) );
+  }
+  ctx->_pack_txn_e = src_txn_e;
+
   fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
   ctx->_bank = trailer->bank;
   ctx->_pack_idx = trailer->pack_idx;
@@ -159,9 +172,16 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
 
-  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
+  /* Use ALT accounts from the pack input fd_txn_e_t for rebates only.
+     These were resolved by resolv_tile and are needed because the LUT
+     may be deactivated by the time we get here. Execution still uses
+     the bank's current view of the LUT via fd_bank_abi_txn_init. */
+  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ];
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    writable_alt[i] = ctx->_pack_txn_e[i].alt_accts;
+  }
 
   ulong sanitized_txn_cnt = 0UL;
   ulong sidecar_footprint_bytes = 0UL;
@@ -176,7 +196,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     ctx->metrics.txn_load_address_lookup_tables[ (ulong)((long)FD_METRICS_COUNTER_BANK_TRANSACTION_LOAD_ADDRESS_TABLES_CNT+result-1L) ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) continue;
 
-    writable_alt[ i ] = fd_bank_abi_get_lookup_addresses( (fd_bank_abi_txn_t *)abi_txn );
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     fd_txn_t * txn1 = TXN(txn);
@@ -310,8 +329,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
   trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
 
-  /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
-     so there's always 64 extra bytes at the end to stash the hash. */
+  /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_p_t to PoH,
+     there's always extra bytes at the end to stash the trailer. */
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_execle_trailer_t), poh_shred_mtu );
 
@@ -342,9 +361,16 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   fd_txn_p_t * txns = (fd_txn_p_t *)dst;
 
   ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
 
-  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
+  /* Use ALT accounts from the pack input fd_txn_e_t for rebates only.
+     These were resolved by resolv_tile and are needed because the LUT
+     may be deactivated by the time we get here. Execution still uses
+     the bank's current view of the LUT via fd_bank_abi_txn_init. */
+  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ];
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    writable_alt[i] = ctx->_pack_txn_e[i].alt_accts;
+  }
 
   int execution_success = 1;
 
@@ -363,7 +389,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       continue;
     }
 
-    writable_alt[ i ] = fd_bank_abi_get_lookup_addresses( (fd_bank_abi_txn_t *)abi_txn );
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     fd_txn_t * txn1 = TXN(txn);
