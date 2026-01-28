@@ -139,6 +139,7 @@ source_init( fd_backt_tile_t * ctx,
   fd_backtest_shredcap_init( ctx->shredcap, start_slot );
 }
 
+# if FD_HAS_ROCKSDB
 static int
 source_next_slot_rocksdb( fd_backt_tile_t * ctx,
                           ulong *           slot_out,
@@ -163,6 +164,7 @@ source_next_slot_rocksdb( fd_backt_tile_t * ctx,
   ctx->prev_source_slot = *slot_out;
   return result;
 }
+# endif
 
 static int
 source_next_slot( fd_backt_tile_t * ctx,
