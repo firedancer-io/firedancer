@@ -320,7 +320,7 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
     }
   }
 
-  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot, msg->snapshot_hashes.full->hash, incr_hash );
+  fd_sspeer_selector_add( ctx->selector, addr, 10, full_slot, incr_slot, msg->snapshot_hashes.full->hash, incr_hash );
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }

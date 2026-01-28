@@ -761,6 +761,7 @@ fd_gossip_push_duplicate_shred( fd_gossip_t *                       gossip,
                                 fd_stem_context_t *                 stem,
                                 long                                now ) {
 
+  FD_LOG_NOTICE(("PUSHING DUPLICATE SHRED for slot %lu", duplicate_shred->slot));
   uchar                       buf[ FD_GOSSIP_CRDS_MAX_SZ ];
   fd_gossip_view_crds_value_t view[1];
 

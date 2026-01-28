@@ -2385,7 +2385,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
         switch( msg->kind ) {
         case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: break;
         case FD_TOWER_SLOT_CONFIRMED_ROOTED:     break;
-        case FD_TOWER_SLOT_CONFIRMED_DUPLICATE:  { fd_reasm_confirm( ctx->reasm, &msg->block_id ); break; }
+        case FD_TOWER_SLOT_CONFIRMED_DUPLICATE:  break;
         }
       }
       else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED   ) ) {

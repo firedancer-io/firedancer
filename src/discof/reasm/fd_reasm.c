@@ -185,7 +185,7 @@ fd_reasm_query( fd_reasm_t const * reasm,
   return fec;
 }
 
-static void
+static void  FD_FN_UNUSED
 overwrite_invalid_cmr( fd_reasm_t * reasm, fd_reasm_fec_t * child ) {
   if( FD_UNLIKELY( child->fec_set_idx==0 && !fd_reasm_query( reasm, &child->cmr ) ) ) {
     slot_mr_t * slot_mr_parent = slot_mr_query( reasm->slot_mr, child->slot - child->parent_off, NULL );

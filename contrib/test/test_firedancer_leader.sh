@@ -6,7 +6,7 @@ IFS=$'\n\t'
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_DIR="$SCRIPT_DIR/../.."
 OBJDIR=${OBJDIR:-build/native/${CC}}
-KEY_PATH=${KEY_PATH:="/home/${USER}/keys"}
+KEY_PATH=${KEY_PATH:="/home/${USER}/em-testnet-keys"}
 AGAVE_URL="64.130.55.36"
 
 make -j firedancer-dev
@@ -27,6 +27,7 @@ done
 sudo rm -f firedancer-dev.log
 # clear snapshot cache always
 sudo rm -rf /home/${USER}/.firedancer/fd2/snapshots/*
+#wget --trust-server-names http://${AGAVE_URL}:8899/snapshot.tar.bz2 -P /home/${USER}/.firedancer/fd2/snapshots/
 
 echo "
 [gossip]
