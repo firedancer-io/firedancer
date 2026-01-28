@@ -444,7 +444,7 @@ struct fd_config {
 
     struct {
       int lagged_consecutive_leader_start;
-    } poh;
+    } pohh;
 
     struct {
       uint   max_pending_shred_sets;

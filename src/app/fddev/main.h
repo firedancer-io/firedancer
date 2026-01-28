@@ -70,7 +70,7 @@ extern fd_topo_run_tile_t fd_tile_benchg;
 extern fd_topo_run_tile_t fd_tile_benchs;
 extern fd_topo_run_tile_t fd_tile_pktgen;
 extern fd_topo_run_tile_t fd_tile_resolh;
-extern fd_topo_run_tile_t fd_tile_poh;
+extern fd_topo_run_tile_t fd_tile_pohh;
 extern fd_topo_run_tile_t fd_tile_bank;
 extern fd_topo_run_tile_t fd_tile_store;
 extern fd_topo_run_tile_t fd_tile_udpecho;
@@ -95,7 +95,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_benchs,
   &fd_tile_pktgen,
   &fd_tile_resolh,
-  &fd_tile_poh,
+  &fd_tile_pohh,
   &fd_tile_bank,
   &fd_tile_store,
   &fd_tile_udpecho,

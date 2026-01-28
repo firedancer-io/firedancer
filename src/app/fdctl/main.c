@@ -56,7 +56,7 @@ extern fd_topo_run_tile_t fd_tile_diag;
 extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_plugin;
 extern fd_topo_run_tile_t fd_tile_resolh;
-extern fd_topo_run_tile_t fd_tile_poh;
+extern fd_topo_run_tile_t fd_tile_pohh;
 extern fd_topo_run_tile_t fd_tile_bank;
 extern fd_topo_run_tile_t fd_tile_store;
 
@@ -76,7 +76,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_gui,
   &fd_tile_plugin,
   &fd_tile_resolh,
-  &fd_tile_poh,
+  &fd_tile_pohh,
   &fd_tile_bank,
   &fd_tile_store,
   NULL,

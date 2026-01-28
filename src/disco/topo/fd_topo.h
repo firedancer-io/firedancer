@@ -313,6 +313,11 @@ struct fd_topo_tile {
         uchar tip_distribution_program_addr[ 32 ];
         char  vote_account_path[ PATH_MAX ];
       } bundle;
+    } pohh;
+
+    struct {
+      ulong execle_cnt;
+      char  identity_key_path[ PATH_MAX ];
     } poh;
 
     struct {

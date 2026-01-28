@@ -11,7 +11,7 @@ class Tile(Enum):
     RESOLH = 5
     PACK = 6
     BANK = 7
-    POH = 8
+    POHH = 8
     SHRED = 9
     STORE = 10
     SIGN = 11
@@ -48,6 +48,7 @@ class Tile(Enum):
     SNAPLV = 42
     GENESI = 43
     RPC = 44
+    POH = 45
 
 class MetricType(Enum):
     COUNTER = 0

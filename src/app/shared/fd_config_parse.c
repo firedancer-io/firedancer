@@ -227,7 +227,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );
   CFG_POP      ( cstr,   tiles.pack.schedule_strategy                     );
 
-  CFG_POP      ( bool,   tiles.poh.lagged_consecutive_leader_start        );
+  CFG_POP      ( bool,   tiles.pohh.lagged_consecutive_leader_start       );
 
   CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets                   );
   CFG_POP      ( ushort, tiles.shred.shred_listen_port                        );

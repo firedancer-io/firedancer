@@ -355,21 +355,25 @@
 #define IN_KIND_EPOCH (2)
 
 
-typedef struct {
+struct fd_pohh_in {
   fd_wksp_t * mem;
   ulong       chunk0;
   ulong       wmark;
-} fd_poh_in_ctx_t;
+};
 
-typedef struct {
+typedef struct fd_pohh_in fd_pohh_in_t;
+
+struct fd_pohh_out {
   ulong       idx;
   fd_wksp_t * mem;
   ulong       chunk0;
   ulong       wmark;
   ulong       chunk;
-} fd_poh_out_ctx_t;
+};
 
-typedef struct {
+typedef struct fd_pohh_out fd_pohh_out_t;
+
+struct fd_pohh_tile {
   fd_stem_context_t * stem;
 
   /* Static configuration determined at genesis creation time.  See
@@ -551,11 +555,11 @@ typedef struct {
   fd_microblock_trailer_t _microblock_trailer[ 1 ];
 
   int in_kind[ 64 ];
-  fd_poh_in_ctx_t in[ 64 ];
+  fd_pohh_in_t in[ 64 ];
 
-  fd_poh_out_ctx_t shred_out[ 1 ];
-  fd_poh_out_ctx_t pack_out[ 1 ];
-  fd_poh_out_ctx_t plugin_out[ 1 ];
+  fd_pohh_out_t shred_out[ 1 ];
+  fd_pohh_out_t pack_out[ 1 ];
+  fd_pohh_out_t plugin_out[ 1 ];
 
   fd_histf_t begin_leader_delay[ 1 ];
   fd_histf_t first_microblock_delay[ 1 ];
@@ -569,7 +573,9 @@ typedef struct {
   uchar parent_block_id[ 32 ];
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
-} fd_poh_ctx_t;
+};
+
+typedef struct fd_pohh_tile fd_pohh_tile_t;
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
    work with Agave, so we have a locking scheme for them to
@@ -597,7 +603,7 @@ typedef struct {
    returned lock value back to zero, and the POH tile continues with its
    day. */
 
-static fd_poh_ctx_t * fd_poh_global_ctx;
+static fd_pohh_tile_t * fd_pohh_global_ctx;
 
 static volatile ulong fd_poh_waiting_lock __attribute__((aligned(128UL)));
 static volatile ulong fd_poh_returned_lock __attribute__((aligned(128UL)));
@@ -721,7 +727,7 @@ poh_link_init( poh_link_t *     link,
    safe at each call rather than annotated. */
 #define CALLED_FROM_RUST
 
-static CALLED_FROM_RUST fd_poh_ctx_t *
+static CALLED_FROM_RUST fd_pohh_tile_t *
 fd_ext_poh_write_lock( void ) {
   for(;;) {
     /* Acquire the waiter lock to make sure we are the first writer in the queue. */
@@ -735,7 +741,7 @@ fd_ext_poh_write_lock( void ) {
     FD_SPIN_PAUSE();
   }
   FD_COMPILER_MFENCE();
-  return fd_poh_global_ctx;
+  return fd_pohh_global_ctx;
 }
 
 static CALLED_FROM_RUST void
@@ -782,10 +788,10 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
   FD_COMPILER_MFENCE();
   for(;;) {
     /* Make sure the ctx is initialized before trying to take the lock. */
-    if( FD_LIKELY( FD_VOLATILE_CONST( fd_poh_global_ctx ) ) ) break;
+    if( FD_LIKELY( FD_VOLATILE_CONST( fd_pohh_global_ctx ) ) ) break;
     FD_SPIN_PAUSE();
   }
-  fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
 
   ctx->slot                = tick_height/ticks_per_slot;
   ctx->hashcnt             = 0UL;
@@ -835,7 +841,7 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
 
 CALLED_FROM_RUST void const *
 fd_ext_poh_acquire_leader_bank( void ) {
-  fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
   void const * bank = NULL;
   if( FD_LIKELY( ctx->current_leader_bank ) ) {
     /* Clone refcount before we release the lock. */
@@ -852,7 +858,7 @@ fd_ext_poh_acquire_leader_bank( void ) {
 
 CALLED_FROM_RUST ulong
 fd_ext_poh_reset_slot( void ) {
-  fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
   ulong reset_slot = ctx->reset_slot;
   fd_ext_poh_write_unlock();
   return reset_slot;
@@ -860,7 +866,7 @@ fd_ext_poh_reset_slot( void ) {
 
 CALLED_FROM_RUST void
 fd_ext_poh_update_active_descendant( ulong max_active_descendant ) {
-  fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
   ctx->max_active_descendant = max_active_descendant;
   fd_ext_poh_write_unlock();
 }
@@ -881,7 +887,7 @@ fd_ext_poh_update_active_descendant( ulong max_active_descendant ) {
 CALLED_FROM_RUST int
 fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
                                 ulong * out_reset_slot ) {
-  fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
 
   *out_leader_slot = ctx->next_leader_slot;
   *out_reset_slot  = ctx->reset_slot;
@@ -943,9 +949,9 @@ fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
 }
 
 CALLED_FROM_RUST static inline void
-publish_plugin_slot_start( fd_poh_ctx_t * ctx,
-                           ulong          slot,
-                           ulong          parent_slot ) {
+publish_plugin_slot_start( fd_pohh_tile_t * ctx,
+                           ulong            slot,
+                           ulong            parent_slot ) {
   if( FD_UNLIKELY( !ctx->plugin_out->mem ) ) return;
 
   fd_plugin_msg_slot_start_t * slot_start = (fd_plugin_msg_slot_start_t *)fd_chunk_to_laddr( ctx->plugin_out->mem, ctx->plugin_out->chunk );
@@ -955,8 +961,8 @@ publish_plugin_slot_start( fd_poh_ctx_t * ctx,
 }
 
 CALLED_FROM_RUST static inline void
-publish_plugin_slot_end( fd_poh_ctx_t * ctx,
-                         ulong          slot,
+publish_plugin_slot_end( fd_pohh_tile_t * ctx,
+                         ulong            slot,
                          ulong          cus_used ) {
   if( FD_UNLIKELY( !ctx->plugin_out->mem ) ) return;
 
@@ -975,9 +981,9 @@ fd_ext_bank_load_account( void const *  bank,
                           ulong *       data_sz );
 
 CALLED_FROM_RUST static void
-publish_became_leader( fd_poh_ctx_t * ctx,
-                       ulong          slot,
-                       ulong          epoch ) {
+publish_became_leader( fd_pohh_tile_t * ctx,
+                       ulong            slot,
+                       ulong            epoch ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
 
@@ -1073,7 +1079,7 @@ fd_ext_poh_begin_leader( void const * bank,
                          ulong        cus_block_limit,
                          ulong        cus_vote_cost_limit,
                          ulong        cus_account_cost_limit ) {
-  fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
 
   FD_TEST( !ctx->current_leader_bank );
 
@@ -1161,7 +1167,7 @@ fd_ext_poh_begin_leader( void const * bank,
    remains of the current and next epoch, return ULONG_MAX. */
 
 static inline CALLED_FROM_RUST ulong
-next_leader_slot( fd_poh_ctx_t * ctx ) {
+next_leader_slot( fd_pohh_tile_t * ctx ) {
   /* If we have published anything in a particular slot, then we
      should never become leader for that slot again. */
   ulong min_leader_slot = fd_ulong_max( ctx->slot, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
@@ -1173,7 +1179,7 @@ fd_ext_admin_rpc_set_identity( uchar const * identity_keypair,
                                int           require_tower );
 
 static inline int FD_FN_SENSITIVE
-maybe_change_identity( fd_poh_ctx_t * ctx,
+maybe_change_identity( fd_pohh_tile_t * ctx,
                        int            definitely_not_leader ) {
   if( FD_UNLIKELY( ctx->halted_switching_key && fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     ctx->halted_switching_key = 0;
@@ -1221,7 +1227,7 @@ maybe_change_identity( fd_poh_ctx_t * ctx,
 }
 
 static CALLED_FROM_RUST void
-no_longer_leader( fd_poh_ctx_t * ctx ) {
+no_longer_leader( fd_pohh_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
   /* If we stop being leader in a slot, we can never become leader in
       that slot again, and all in-flight microblocks for that slot
@@ -1249,7 +1255,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
                   ulong         hashcnt_per_tick,    /* The hashcnt per tick of the bank that completed */
                   uchar const * parent_block_id,     /* The block id of the parent block */
                   ulong const * features_activation  /* The activation slot of shred-tile features */ ) {
-  fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
 
   ulong slot_before_reset = ctx->slot;
   int leader_before_reset = ctx->slot>=ctx->next_leader_slot;
@@ -1362,7 +1368,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
 CALLED_FROM_RUST int
 fd_ext_poh_get_leader_after_n_slots( ulong n,
                                      uchar out_pubkey[ static 32 ] ) {
-  fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
   ulong slot = ctx->slot + n;
   fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, slot );
 
@@ -1384,13 +1390,13 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, FD_SHA256_ALIGN, FD_SHA256_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_pohh_tile_t ), sizeof( fd_pohh_tile_t ) );
+  l = FD_LAYOUT_APPEND( l, FD_SHA256_ALIGN,           FD_SHA256_FOOTPRINT );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static void
-publish_tick( fd_poh_ctx_t *      ctx,
+publish_tick( fd_pohh_tile_t *      ctx,
               fd_stem_context_t * stem,
               uchar               hash[ static 32 ],
               int                 is_skipped ) {
@@ -1447,7 +1453,7 @@ publish_tick( fd_poh_ctx_t *      ctx,
 }
 
 static inline void
-publish_features_activation(  fd_poh_ctx_t *      ctx,
+publish_features_activation(  fd_pohh_tile_t *    ctx,
                               fd_stem_context_t * stem ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
   fd_shred_features_activation_t * act_data = (fd_shred_features_activation_t *)dst;
@@ -1462,7 +1468,7 @@ publish_features_activation(  fd_poh_ctx_t *      ctx,
 }
 
 static inline void
-after_credit( fd_poh_ctx_t *      ctx,
+after_credit( fd_pohh_tile_t *    ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
@@ -1778,7 +1784,7 @@ after_credit( fd_poh_ctx_t *      ctx,
 }
 
 static inline void
-during_housekeeping( fd_poh_ctx_t * ctx ) {
+during_housekeeping( fd_pohh_tile_t * ctx ) {
   if( FD_UNLIKELY( maybe_change_identity( ctx, 0 ) ) ) {
     ctx->next_leader_slot = next_leader_slot( ctx );
     FD_LOG_INFO(( "fd_poh_identity_changed(next_leader_slot=%lu)", ctx->next_leader_slot ));
@@ -1791,7 +1797,7 @@ during_housekeeping( fd_poh_ctx_t * ctx ) {
 }
 
 static inline void
-metrics_write( fd_poh_ctx_t * ctx ) {
+metrics_write( fd_pohh_tile_t * ctx ) {
   FD_MHIST_COPY( POH, BEGIN_LEADER_DELAY_SECONDS,      ctx->begin_leader_delay     );
   FD_MHIST_COPY( POH, FIRST_MICROBLOCK_DELAY_SECONDS,  ctx->first_microblock_delay );
   FD_MHIST_COPY( POH, SLOT_DONE_DELAY_SECONDS,         ctx->slot_done_delay        );
@@ -1799,7 +1805,7 @@ metrics_write( fd_poh_ctx_t * ctx ) {
 }
 
 static int
-before_frag( fd_poh_ctx_t * ctx,
+before_frag( fd_pohh_tile_t * ctx,
              ulong          in_idx,
              ulong          seq,
              ulong          sig ) {
@@ -1823,13 +1829,13 @@ before_frag( fd_poh_ctx_t * ctx,
 }
 
 static inline void
-during_frag( fd_poh_ctx_t * ctx,
-             ulong          in_idx,
-             ulong          seq FD_PARAM_UNUSED,
-             ulong          sig,
-             ulong          chunk,
-             ulong          sz,
-             ulong          ctl FD_PARAM_UNUSED ) {
+during_frag( fd_pohh_tile_t * ctx,
+             ulong            in_idx,
+             ulong            seq FD_PARAM_UNUSED,
+             ulong            sig,
+             ulong            chunk,
+             ulong            sz,
+             ulong            ctl FD_PARAM_UNUSED ) {
   ctx->skip_frag = 0;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
@@ -1898,7 +1904,7 @@ during_frag( fd_poh_ctx_t * ctx,
 }
 
 static void
-publish_microblock( fd_poh_ctx_t *      ctx,
+publish_microblock( fd_pohh_tile_t *    ctx,
                     fd_stem_context_t * stem,
                     ulong               slot,
                     ulong               hashcnt_delta,
@@ -1948,7 +1954,7 @@ publish_microblock( fd_poh_ctx_t *      ctx,
 }
 
 static inline void
-after_frag( fd_poh_ctx_t *      ctx,
+after_frag( fd_pohh_tile_t *    ctx,
             ulong               in_idx,
             ulong               seq,
             ulong               sig,
@@ -2088,20 +2094,20 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_poh_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
+  fd_pohh_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pohh_tile_t ), sizeof( fd_pohh_tile_t ) );
 
-  if( FD_UNLIKELY( !strcmp( tile->poh.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( tile->pohh.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  const uchar * identity_key = fd_keyload_load( tile->poh.identity_key_path, /* pubkey only: */ 1 );
+  const uchar * identity_key = fd_keyload_load( tile->pohh.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_key.uc, identity_key, 32UL );
 
-  if( FD_UNLIKELY( !tile->poh.bundle.vote_account_path[0] ) ) {
-    tile->poh.bundle.enabled = 0;
+  if( FD_UNLIKELY( !tile->pohh.bundle.vote_account_path[0] ) ) {
+    tile->pohh.bundle.enabled = 0;
   }
-  if( FD_UNLIKELY( tile->poh.bundle.enabled ) ) {
-    if( FD_UNLIKELY( !fd_base58_decode_32( tile->poh.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
-      const uchar * vote_key = fd_keyload_load( tile->poh.bundle.vote_account_path, /* pubkey only: */ 1 );
+  if( FD_UNLIKELY( tile->pohh.bundle.enabled ) ) {
+    if( FD_UNLIKELY( !fd_base58_decode_32( tile->pohh.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
+      const uchar * vote_key = fd_keyload_load( tile->pohh.bundle.vote_account_path, /* pubkey only: */ 1 );
       fd_memcpy( ctx->bundle.vote_account.uc, vote_key, 32UL );
     }
   }
@@ -2220,7 +2226,7 @@ fd_ext_resolv_publish_completed_blockhash( uchar * data,
   poh_link_publish( &replay_resolh, 1UL, data, data_len );
 }
 
-static inline fd_poh_out_ctx_t
+static inline fd_pohh_out_t
 out1( fd_topo_t const *      topo,
       fd_topo_tile_t const * tile,
       char const *           name ) {
@@ -2240,7 +2246,7 @@ out1( fd_topo_t const *      topo,
   ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
   ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
 
-  return (fd_poh_out_ctx_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
+  return (fd_pohh_out_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
 }
 
 static void
@@ -2249,8 +2255,8 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_poh_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
-  void * sha256   = FD_SCRATCH_ALLOC_APPEND( l, FD_SHA256_ALIGN,                  FD_SHA256_FOOTPRINT                );
+  fd_pohh_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pohh_tile_t ), sizeof( fd_pohh_tile_t ) );
+  void * sha256        = FD_SCRATCH_ALLOC_APPEND( l, FD_SHA256_ALIGN,           FD_SHA256_FOOTPRINT      );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -2275,7 +2281,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->reset_slot            = ULONG_MAX;
 
-  ctx->lagged_consecutive_leader_start = tile->poh.lagged_consecutive_leader_start;
+  ctx->lagged_consecutive_leader_start = tile->pohh.lagged_consecutive_leader_start;
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
   ctx->slot_done               = 1;
@@ -2284,20 +2290,20 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->max_active_descendant = 0UL;
 
-  if( FD_UNLIKELY( tile->poh.bundle.enabled ) ) {
+  if( FD_UNLIKELY( tile->pohh.bundle.enabled ) ) {
     ctx->bundle.enabled = 1;
-    NONNULL( fd_bundle_crank_gen_init( ctx->bundle.gen, (fd_acct_addr_t const *)tile->poh.bundle.tip_distribution_program_addr,
-             (fd_acct_addr_t const *)tile->poh.bundle.tip_payment_program_addr,
+    NONNULL( fd_bundle_crank_gen_init( ctx->bundle.gen, (fd_acct_addr_t const *)tile->pohh.bundle.tip_distribution_program_addr,
+             (fd_acct_addr_t const *)tile->pohh.bundle.tip_payment_program_addr,
              (fd_acct_addr_t const *)ctx->bundle.vote_account.uc,
              (fd_acct_addr_t const *)ctx->bundle.vote_account.uc, "NAN", 0UL ) ); /* last three arguments are properly bogus */
   } else {
     ctx->bundle.enabled = 0;
   }
 
-  ulong poh_shred_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
-  FD_TEST( poh_shred_obj_id!=ULONG_MAX );
+  ulong pohh_shred_obj_id = fd_pod_query_ulong( topo->props, "pohh_shred", ULONG_MAX );
+  FD_TEST( pohh_shred_obj_id!=ULONG_MAX );
 
-  fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
+  fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, pohh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
 
   poh_link_init( &gossip_dedup,            topo, tile, out1( topo, tile, "gossip_dedup" ).idx );
@@ -2306,7 +2312,7 @@ unprivileged_init( fd_topo_t *      topo,
   poh_link_init( &replay_resolh,           topo, tile, out1( topo, tile, "replay_resol" ).idx );
   poh_link_init( &executed_txn,            topo, tile, out1( topo, tile, "executed_txn" ).idx );
 
-  if( FD_LIKELY( tile->poh.plugins_enabled ) ) {
+  if( FD_LIKELY( tile->pohh.plugins_enabled ) ) {
     poh_link_init( &replay_plugin,         topo, tile, out1( topo, tile, "replay_plugi" ).idx );
     poh_link_init( &gossip_plugin,         topo, tile, out1( topo, tile, "gossip_plugi" ).idx );
     poh_link_init( &start_progress_plugin, topo, tile, out1( topo, tile, "startp_plugi" ).idx );
@@ -2326,7 +2332,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   FD_LOG_INFO(( "PoH waiting to be initialized by Agave client... %lu %lu", fd_poh_waiting_lock, fd_poh_returned_lock ));
-  FD_VOLATILE( fd_poh_global_ctx ) = ctx;
+  FD_VOLATILE( fd_pohh_global_ctx ) = ctx;
   FD_COMPILER_MFENCE();
   for(;;) {
     if( FD_LIKELY( FD_VOLATILE_CONST( fd_poh_waiting_lock ) ) ) break;
@@ -2363,20 +2369,20 @@ unprivileged_init( fd_topo_t *      topo,
 
     if(        !strcmp( link->name, "stake_out" ) ) {
       ctx->in_kind[ i ] = IN_KIND_EPOCH;
-    } else if( !strcmp( link->name, "pack_poh" ) ) {
+    } else if( !strcmp( link->name, "pack_pohh" ) ) {
       ctx->in_kind[ i ] = IN_KIND_PACK;
-    } else if( !strcmp( link->name, "bank_poh"  ) ) {
+    } else if( !strcmp( link->name, "bank_pohh"  ) ) {
       ctx->in_kind[ i ] = IN_KIND_BANK;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }
   }
 
-  *ctx->shred_out = out1( topo, tile, "poh_shred" );
-  *ctx->pack_out  = out1( topo, tile, "poh_pack" );
+  *ctx->shred_out = out1( topo, tile, "pohh_shred" );
+  *ctx->pack_out  = out1( topo, tile, "pohh_pack" );
   ctx->plugin_out->mem = NULL;
-  if( FD_LIKELY( tile->poh.plugins_enabled ) ) {
-    *ctx->plugin_out = out1( topo, tile, "poh_plugin" );
+  if( FD_LIKELY( tile->pohh.plugins_enabled ) ) {
+    *ctx->plugin_out = out1( topo, tile, "pohh_plugin" );
   }
 
   ctx->features_activation_avail = 0UL;
@@ -2395,8 +2401,8 @@ unprivileged_init( fd_topo_t *      topo,
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
 
-#define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_ctx_t)
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_pohh_tile_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pohh_tile_t)
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
@@ -2407,8 +2413,8 @@ unprivileged_init( fd_topo_t *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
-fd_topo_run_tile_t fd_tile_poh = {
-  .name                     = "poh",
+fd_topo_run_tile_t fd_tile_pohh = {
+  .name                     = "pohh",
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,
   .scratch_align            = scratch_align,

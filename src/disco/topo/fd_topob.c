@@ -387,12 +387,12 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "bank",   /* FRANK only */
     "execle", /* FIREDANCER only */
     "poh",    /* FRANK only */
-    "pohi",   /* FIREDANCER only */
+    "pohh",   /* FIREDANCER only */
     "shred",
     "event",  /* FIREADNCER only */
     "store",  /* FRANK only */
     "sign",
-    "plugin",
+    "plugin", /* FRANK only */
     "gui",
     "rpc",    /* FIREDANCER only */
     "gossvf", /* FIREDANCER only */
@@ -422,6 +422,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
   char const * CRITICAL_TILES[] = {
     "pack",
     "poh",
+    "pohh",
     "gui",
     "snapld", /* TODO: Snapshot loading speed depends on having full core */
     "snapdc", /* TODO: Snapshot loading speed depends on having full core */
