@@ -425,9 +425,7 @@ fd_vinyl_io_append_dead( fd_vinyl_io_t *                 io,
 ulong
 fd_vinyl_io_append_move( fd_vinyl_io_t *                 io,
                          fd_vinyl_bstream_phdr_t const * src,       /* pair header of src pair */
-                         fd_vinyl_key_t const *          dst,       /* src pair getting renamed to dst or is replacing dst */
-                         void const *                    info,      /* contains info_sz bytes, info_sz treated as 0 if NULL */
-                         ulong                           info_sz ); /* in [0,FD_VINYL_BSTREAM_MOVE_INFO_MAX] */
+                         fd_vinyl_key_t const *          dst );     /* src pair getting renamed to dst or is replacing dst */
 
 ulong
 fd_vinyl_io_append_part( fd_vinyl_io_t * io,

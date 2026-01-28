@@ -1,13 +1,12 @@
 #include "../fd_vinyl.h"
 #include <stddef.h>
 
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_BLOCK_SZ==512UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_BLOCK_LG_SZ==9,  unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_BLOCK_SZ==128UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_BLOCK_LG_SZ==7,  unit_test );
 
 FD_STATIC_ASSERT( FD_VINYL_BSTREAM_CTL_TYPE_PAIR==(int)0x9a17, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_BSTREAM_CTL_TYPE_SYNC==(int)0x512c, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_BSTREAM_CTL_TYPE_DEAD==(int)0xdead, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_CTL_TYPE_MOVE==(int)0x30c3, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_BSTREAM_CTL_TYPE_PART==(int)0xd121, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_BSTREAM_CTL_TYPE_ZPAD==0,           unit_test );
 
@@ -21,19 +20,17 @@ FD_STATIC_ASSERT( FD_VINYL_BSTREAM_FTR_SZ==16UL, unit_test );
 
 FD_STATIC_ASSERT( FD_VINYL_BSTREAM_LZ4_VAL_THRESH==440UL, unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_SYNC_INFO_MAX==464UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_DEAD_INFO_MAX==416UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_MOVE_INFO_MAX==384UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_PART_INFO_MAX==448UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_SYNC_INFO_MAX==80UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_DEAD_INFO_MAX==32UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_PART_INFO_MAX==64UL, unit_test );
 
-FD_STATIC_ASSERT( alignof(fd_vinyl_bstream_block_t)==512UL, unit_test );
-FD_STATIC_ASSERT( sizeof (fd_vinyl_bstream_block_t)==512UL, unit_test );
+FD_STATIC_ASSERT( alignof(fd_vinyl_bstream_block_t)==128UL, unit_test );
+FD_STATIC_ASSERT( sizeof (fd_vinyl_bstream_block_t)==128UL, unit_test );
 
-FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, ftr .hash_trail )==496UL, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, sync.hash_trail )==496UL, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, dead.hash_trail )==496UL, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, move.hash_trail )==496UL, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, part.hash_trail )==496UL, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, ftr .hash_trail )==112UL, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, sync.hash_trail )==112UL, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, dead.hash_trail )==112UL, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, part.hash_trail )==112UL, unit_test );
 
 int
 main( int     argc,

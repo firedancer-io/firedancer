@@ -171,8 +171,8 @@
    block.  It is a direct I/O friendly power-of-2 (i.e. a power-of-2 >=
    512).  FD_VINYL_BSTEAM_BLOCK_LG_SZ gives the log2 of this. */
 
-#define FD_VINYL_BSTREAM_BLOCK_SZ    (512UL)
-#define FD_VINYL_BSTREAM_BLOCK_LG_SZ (9)
+#define FD_VINYL_BSTREAM_BLOCK_SZ    (128UL)
+#define FD_VINYL_BSTREAM_BLOCK_LG_SZ (7)
 
 /* A FD_VINYL_BSTREAM_CTL_TYPE_* specifies how to interpret the next
    range of blocks in the bstream.  A FD_VINYL_BSTREAM_CTL_STYLE_*
@@ -220,14 +220,13 @@ typedef struct fd_vinyl_bstream_phdr fd_vinyl_bstream_phdr_t;
    compressed to 0 bytes, it would still require one block of bstream
    space.  (FIXME: make this dynamically run time configured?) */
 
-#define FD_VINYL_BSTREAM_LZ4_VAL_THRESH (FD_VINYL_BSTREAM_BLOCK_SZ - sizeof(fd_vinyl_bstream_phdr_t) - FD_VINYL_BSTREAM_FTR_SZ)
+#define FD_VINYL_BSTREAM_LZ4_VAL_THRESH (4*FD_VINYL_BSTREAM_BLOCK_SZ - sizeof(fd_vinyl_bstream_phdr_t) - FD_VINYL_BSTREAM_FTR_SZ)
 
 /* FD_VINYL_BSTREAM_*_INFO_MAX give the max app info bytes that can be
    stashed in the eponymous control block. */
 
 #define FD_VINYL_BSTREAM_SYNC_INFO_MAX (FD_VINYL_BSTREAM_BLOCK_SZ - 6UL*sizeof(ulong))
 #define FD_VINYL_BSTREAM_DEAD_INFO_MAX (FD_VINYL_BSTREAM_BLOCK_SZ - 5UL*sizeof(ulong) - sizeof(fd_vinyl_bstream_phdr_t))
-#define FD_VINYL_BSTREAM_MOVE_INFO_MAX (FD_VINYL_BSTREAM_BLOCK_SZ - 5UL*sizeof(ulong) - sizeof(fd_vinyl_bstream_phdr_t) - sizeof(fd_vinyl_key_t))
 #define FD_VINYL_BSTREAM_PART_INFO_MAX (FD_VINYL_BSTREAM_BLOCK_SZ - 8UL*sizeof(ulong))
 
 /* A fd_vinyl_bstream_block gives the binary layouts for various types
@@ -272,8 +271,7 @@ union __attribute__((aligned(FD_VINYL_BSTREAM_BLOCK_SZ))) fd_vinyl_bstream_block
     ulong                   seq;                                    /* bstream seq num of this block */
     fd_vinyl_bstream_phdr_t src;                                    /* src pair header */
     fd_vinyl_key_t          dst;                                    /* pair src.key renamed to pair dst or replaced pair dst */
-    ulong                   info_sz;                                /* info byte size, in [0,FD_VINYL_BSTREAM_MOVE_INFO_MAX] */
-    uchar                   info[ FD_VINYL_BSTREAM_MOVE_INFO_MAX ]; /* move info */
+    ulong                   reserved;
     ulong                   hash_trail;
     ulong                   hash_blocks;
   } move; /* Note: a move block is immediately followed by a matching pair */

@@ -89,12 +89,7 @@ fd_vinyl_io_append_dead( fd_vinyl_io_t *                 io,
 ulong
 fd_vinyl_io_append_move( fd_vinyl_io_t *                 io,
                          fd_vinyl_bstream_phdr_t const * src,
-                         fd_vinyl_key_t const *          dst,
-                         void const *                    info,
-                         ulong                           info_sz ) {
-
-  if( !info ) info_sz = 0UL;
-  FD_CRIT( info_sz<=FD_VINYL_BSTREAM_MOVE_INFO_MAX, "corruption detected" );
+                         fd_vinyl_key_t const *          dst ) {
 
   fd_vinyl_bstream_block_t * block = (fd_vinyl_bstream_block_t *)
     fd_vinyl_io_alloc( io, FD_VINYL_BSTREAM_BLOCK_SZ, FD_VINYL_IO_FLAG_BLOCKING );
@@ -107,8 +102,6 @@ fd_vinyl_io_append_move( fd_vinyl_io_t *                 io,
   block->move.seq     = io->seq_future;
   block->move.src     = *src;
   block->move.dst     = *dst;
-  block->move.info_sz = info_sz;
-  if( info_sz ) memcpy( block->move.info, info, info_sz );
 
   fd_vinyl_bstream_block_hash( fd_vinyl_io_seed( io ), block );
 
