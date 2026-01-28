@@ -6,7 +6,7 @@
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_PACK   (1)
-#define IN_KIND_BANK   (2)
+#define IN_KIND_EXECLE (2)
 
 struct fd_poh_in {
   fd_wksp_t * mem;
@@ -20,10 +20,10 @@ typedef struct fd_poh_in fd_poh_in_t;
 struct fd_poh_tile {
   fd_poh_t poh[1];
 
-  /* There's a race condition ... let's say two banks A and B, bank A
-     processes some transactions, then releases the account locks, and
+  /* There's a race condition ... let's say two execles A and B, execle
+     A processes some transactions, then releases the account locks, and
      sends the microblock to PoH to be stamped.  Pack now re-packs the
-     same accounts with a new microblock, sends to bank B, bank B
+     same accounts with a new microblock, sends to execle B, execle B
      executes and sends the microblock to PoH, and this all happens fast
      enough that PoH picks the 2nd block to stamp before the 1st.  The
      accounts database changes now are misordered with respect to PoH so
@@ -95,7 +95,7 @@ after_credit( fd_poh_tile_t *     ctx,
     3. pack free to start packing
     4. if poh slot in progress, refuse replay frag ... until see abandon_packing
     5. poh must process pack frags in order
-    6. when poh sees done_packing/abandon_packing, return poh -> replay saying bank unused now */
+    6. when poh sees done_packing/abandon_packing, return poh -> replay saying execle unused now */
 
 static inline int
 returnable_frag( fd_poh_tile_t *     ctx,
@@ -125,13 +125,13 @@ returnable_frag( fd_poh_tile_t *     ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   /* There's a race condition where we might receive microblocks from
-     banks before we have learned what the leader bank is from replay
-     (the become_leader message makes it from replay->pack->bank->poh)
+     execles before we have learned what the leader bank is from replay
+     (the become_leader message makes it from replay->pack->execle->poh)
      before it just makes it from replay->poh.  This is rare but
      violates invariants in poh, so we simply do not process any
      transactions for mixin until we have learned what the leader bank
      is. */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK && !fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && !fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
   /* If prior leaders skipped, it might happen that replay tells us to
@@ -143,11 +143,12 @@ returnable_frag( fd_poh_tile_t *     ctx,
      It might actually be allowed by the protocol to mixin earlier, but
      that really doesn't seem like a good idea.
 
-     It's fine to block pack/banks on hashing here, because they we are
-     going to have the wait for the full block to timeout once it starts */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK && fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) return 1;
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
-    uint pack_idx = (uint)fd_disco_bank_sig_pack_idx( sig );
+     It's fine to block pack/execles on hashing here, because they we
+     are going to have the wait for the full block to timeout once it
+     starts. */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) return 1;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
     if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
     if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return 1;
     ctx->expect_pack_idx++;
@@ -169,8 +170,8 @@ returnable_frag( fd_poh_tile_t *     ctx,
       }
       break;
     }
-    case IN_KIND_BANK: {
-      ulong target_slot = fd_disco_bank_sig_slot( sig );
+    case IN_KIND_EXECLE: {
+      ulong target_slot = fd_disco_execle_sig_slot( sig );
       ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
       fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const*)txns+sz-sizeof(fd_microblock_trailer_t) );
@@ -234,7 +235,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if(      !strcmp( link->name, "replay_out" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( !strcmp( link->name, "pack_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_PACK;
-    else if( !strcmp( link->name, "bank_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
+    else if( !strcmp( link->name, "execle_poh" ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 

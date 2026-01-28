@@ -31,10 +31,7 @@ class Tile extends File {
     /* Account for renames in topology.c */
     if this.getLocation().getFile().getRelativePath() = "src/discof/resolv/fd_resolv_tile.c"
     then result = "resolf"
-    else
-      if this.getLocation().getFile().getRelativePath() = "src/discof/bank/fd_bank_tile.c"
-      then result = "bankf"
-      else result = this.getName()
+    else result = this.getName()
   }
 }
 

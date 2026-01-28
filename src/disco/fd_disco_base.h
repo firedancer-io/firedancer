@@ -100,45 +100,28 @@ FD_FN_CONST static inline ulong  fd_disco_netmux_sig_hdr_sz( ulong sig ) { retur
 FD_FN_CONST static inline ulong
 fd_disco_poh_sig( ulong slot,
                   ulong pkt_type,
-                  ulong bank_tile ) {
-   /* The high 6 bits of the low byte of the signature field is the bank
-      idx.  Banks will filter to only handle frags with their own idx.
-      The higher 7 bytes are the slot number.  Technically, the slot
-      number is a ulong, but it won't hit 256^7 for about 10^9 years at
-      the current rate.  The lowest bits of the low byte is the packet
-      type. */
-  return (slot << 8) | ((bank_tile & 0x3FUL) << 2) | (pkt_type & 0x3UL);
+                  ulong execle_tile ) {
+   /* The high 6 bits of the low byte of the signature field is the
+      execle idx.  Execles will filter to only handle frags with their
+      own idx.  The higher 7 bytes are the slot number.  Technically,
+      the slot number is a ulong, but it won't hit 256^7 for about 10^9
+      years at the current rate.  The lowest bits of the low byte is the
+      packet type. */
+  return (slot << 8) | ((execle_tile & 0x3FUL) << 2) | (pkt_type & 0x3UL);
 }
 
 FD_FN_CONST static inline ulong fd_disco_poh_sig_pkt_type( ulong sig ) { return (sig & 0x3UL); }
 FD_FN_CONST static inline ulong fd_disco_poh_sig_slot( ulong sig ) { return (sig >> 8); }
-FD_FN_CONST static inline ulong fd_disco_poh_sig_bank_tile( ulong sig ) { return (sig >> 2) & 0x3FUL; }
+FD_FN_CONST static inline ulong fd_disco_poh_sig_execle_tile( ulong sig ) { return (sig >> 2) & 0x3FUL; }
 
 FD_FN_CONST static inline ulong
-fd_disco_bank_sig( ulong slot,
-                   ulong pack_idx ) {
+fd_disco_execle_sig( ulong slot,
+                     ulong pack_idx ) {
   return (slot << 32) | pack_idx;
 }
 
-FD_FN_CONST static inline ulong fd_disco_bank_sig_slot( ulong sig ) { return (sig >> 32); }
-FD_FN_CONST static inline ulong fd_disco_bank_sig_pack_idx( ulong sig ) { return sig & 0xFFFFFFFFUL; }
-
-/* TODO remove */
-
-FD_FN_CONST static inline ulong
-fd_disco_replay_old_sig( ulong slot,
-                     ulong flags ) {
-   /* The low byte of the signature field is the flags for replay message.
-      The higher 7 bytes are the slot number.  These flags indicate the status
-      of a microblock as it transits through the replay system.  Technically,
-      the slot number is a ulong, but it won't hit 256^7 for about 10^9 years
-      at the current rate.  The lowest bit of the low byte is the packet
-      type. */
-  return (slot << 8) | (flags & 0xFFUL);
-}
-
-FD_FN_CONST static inline ulong fd_disco_replay_old_sig_flags( ulong sig ) { return (sig & 0xFFUL); }
-FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { return (sig >> 8); }
+FD_FN_CONST static inline ulong fd_disco_execle_sig_slot( ulong sig ) { return (sig >> 32); }
+FD_FN_CONST static inline ulong fd_disco_execle_sig_pack_idx( ulong sig ) { return sig & 0xFFFFFFFFUL; }
 
 /* fd_disco_shred_out_shred_sig constructs a sig for the shred_out link.
    The encoded fields vary depending on the type of the sig.  The

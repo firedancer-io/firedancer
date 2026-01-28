@@ -15,7 +15,7 @@
 
 #define FD_PACK_ALIGN     (128UL)
 
-#define FD_PACK_MAX_BANK_TILES 62UL
+#define FD_PACK_MAX_EXECLE_TILES 62UL
 
 #define FD_PACK_FEE_PER_SIGNATURE           (5000UL) /* In lamports */
 

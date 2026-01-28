@@ -624,7 +624,7 @@ telemetry = true
 #  - pack       Collects incoming transactions and smartly schedules
 #               them for execution when we are leader
 #
-#  - bank       Executes transactions that have been scheduled when we
+#  - execle     Executes transactions that have been scheduled when we
 #               are leader
 #
 #  - poh        Continuously hashes in the background, and mixes the
@@ -648,19 +648,19 @@ telemetry = true
 # in a pipeline, where transactions flow through the system in a linear
 # sequence.
 #
-#   net -> quic -> verify -> dedup -> pack -> bank -> poh -> shred -> store
+#   net -> quic -> verify -> dedup -> pack -> execle -> poh -> shred
 #
-# Some of these jobs (net, quic, verify, bank, and shred) can be
+# Some of these jobs (net, quic, verify, execle, and shred) can be
 # parallelized, and run on multiple CPU cores at once. For example, we
 # could structure the pipeline like this for performance:
 #
-# net -> quic +-> verify -+> dedup -> pack +-> bank -+> poh -> shred -> store
-#             +-> verify -+                +-> bank -+
+# net -> quic +-> verify -+> dedup -> pack +-> execle -+> poh -> shred
+#             +-> verify -+                +-> execle -+
 #             +-> verify -+
 #             +-> verify -+
 #
 # Each instance of a job running on a CPU core is called a tile.  In
-# this configuration we are running 4 verify tiles and 2 bank tiles.
+# this configuration we are running 4 verify tiles and 2 execle tiles.
 #
 # The problem of deciding which cores to use, and what job to run on
 # each core we call layout.  Layout is system dependent and the highest
@@ -798,27 +798,22 @@ telemetry = true
     # clients, and the gossvf tiles are consistently idle.
     gossvf_tile_count = 2
 
-    # How many bank tiles to run.  Should be set to 2 for perf and
-    # balanced scheduling modes.  Bank tiles execute transactions, so
+    # How many execle tiles to run.  Should be set to 2 for perf and
+    # balanced scheduling modes.  Execle tiles execute transactions, so
     # the validator can include the results of the transaction into a
     # block when we are leader.  Because of current consensus limits
     # restricting blocks to around 32,000 transactions per block, there
-    # is typically no need to use more than 2 bank tiles on
+    # is typically no need to use more than 2 execle tiles on
     # mainnet-beta, except when using unique scheduling strategies.  For
     # development and benchmarking, it can be useful to increase this
     # number further.
     #
-    # Bank tiles do not scale linearly.  The current implementation uses
-    # the agave runtime for execution, which takes various locks and
-    # uses concurrent data structures which slow down with multiple
-    # parallel users.
-    #
     # If using the revenue scheduling strategy (see tiles.pack), the
-    # bank tile count can be increased, and more bank tiles will likely
-    # result in better blocks.  Adding too many bank tiles does have
-    # diminishing returns, and it's suggested to experiment with values
-    # around 10-20.
-    bank_tile_count = 2
+    # execle tile count can be increased, and more execle tiles will
+    # likely result in better blocks.  Adding too many execle tiles does
+    # have diminishing returns, and it's suggested to experiment with
+    # values around 10-20.
+    execle_tile_count = 2
 
     # How many exec tiles to run.  These tiles execute transactions that
     # are being replayed when our validator is not leader, and is
@@ -1323,7 +1318,7 @@ telemetry = true
         max_pending_transactions = 65524
 
         # When a transaction consumes fewer CUs than it requests, the
-        # bank and pack tiles work together to adjust the block limits
+        # execle and pack tiles work together to adjust the block limits
         # so that a different transaction can consume the unspent CUs.
         # This is normally desirable, as it typically leads to
         # producing blocks with more transactions.
@@ -1353,7 +1348,7 @@ telemetry = true
         #   consistently 100% full blocks.
         #
         #   When using the perf scheduling mode, there is no reason to
-        #   increase the bank tile count beyond the default of 4.
+        #   increase the execle tile count beyond the default of 4.
         #
         #  "balanced" (default)
         #   Try to fill the block at a rate that is just fast enough to
@@ -1363,7 +1358,7 @@ telemetry = true
         #   an external block builder.
         #
         #   When using the balanced mode, there is no reason to increase
-        #   bank tile count beyond the default of 4.
+        #   execle tile count beyond the default of 4.
         #
         #  "revenue"
         #   Fill blocks extremely lazily, saving most work for the end
@@ -1372,7 +1367,7 @@ telemetry = true
         #   priority fees compared to the balanced strategy.
         #
         #   When scheduling with the revenue mode, it is suggested to
-        #   use a high number of bank tiles.  The more bank tiles in
+        #   use a high number of execle tiles.  The more execle tiles in
         #   use, the faster the scheduler can fill blocks during the
         #   short working window at the end of each slot.
         #
@@ -1384,12 +1379,12 @@ telemetry = true
         # revert to the "balanced" strategy.
         schedule_strategy = "balanced"
 
-    # The bank tile is what executes transactions and updates the
-    # accounting state as a result of any operations performed by the
-    # transactions.
-    [tiles.bank]
+    # The execle tile is what executes transactions when we are leader
+    # and updates the accounting state as a result of any operations
+    # performed by the transactions.
+    [tiles.execle]
 
-    # The proof of history tile receives transactions from bank tiles
+    # The proof of history tile receives transactions from execle tiles
     # and mixes their hashes into a continuous stream of hashes that
     # proves to other validators time is passing.
     [tiles.poh]

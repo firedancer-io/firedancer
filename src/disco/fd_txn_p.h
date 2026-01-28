@@ -10,14 +10,14 @@ struct __attribute__((aligned(64))) fd_txn_p {
    struct {
      uint non_execution_cus;
      uint requested_exec_plus_acct_data_cus;
-   } pack_cu; /* Populated by pack. Bank reads these to populate the other struct of the union. */
+   } pack_cu; /* Populated by pack. Execle reads these to populate the other struct of the union. */
    struct {
      uint rebated_cus; /* requested_exec_plus_acct_data_cus-actual used CUs. Pack reads this for CU rebating. */
      uint actual_consumed_cus; /* non_execution_cus+real execution CUs+real account data cus. PoH reads this for block CU counting. */
-   } bank_cu; /* Populated by bank. */
+   } execle_cu; /* Populated by execle. */
    ulong blockhash_slot; /* Slot provided by resolv tile when txn arrives at the pack tile. Used when txn is in extra storage in pack. */
   };
-  /* The time that the transaction arrived to the pack tile in ticks. Set by pack and intended to be read from a transaction on a pack->bank link. */
+  /* The time that the transaction arrived to the pack tile in ticks. Set by pack and intended to be read from a transaction on a pack->execle link. */
   long scheduler_arrival_time_nanos;
 
   /* set by replay scheduler for use by monitoring tools */
@@ -28,8 +28,8 @@ struct __attribute__((aligned(64))) fd_txn_p {
   uchar source_tpu;
   uint  source_ipv4;
 
-  /* Populated by pack, bank.  A combination of the bitfields
-     FD_TXN_P_FLAGS_* defined above.  The bank sets the high byte with
+  /* Populated by pack, execle.  A combination of the bitfields
+     FD_TXN_P_FLAGS_* defined above.  The execle sets the high byte with
      the transaction result code. */
   uint  flags;
   /* union {

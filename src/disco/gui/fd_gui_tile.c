@@ -41,9 +41,9 @@ static fd_http_static_file_t * STATIC_FILES;
 
 #define IN_KIND_PLUGIN       ( 0UL)
 #define IN_KIND_POH_PACK     ( 1UL)
-#define IN_KIND_PACK_BANK    ( 2UL)
+#define IN_KIND_PACK_EXECLE  ( 2UL)
 #define IN_KIND_PACK_POH     ( 3UL)
-#define IN_KIND_BANK_POH     ( 4UL)
+#define IN_KIND_EXECLE_POH   ( 4UL)
 #define IN_KIND_SHRED_OUT    ( 5UL) /* firedancer only */
 #define IN_KIND_NET_GOSSVF   ( 6UL) /* firedancer only */
 #define IN_KIND_GOSSIP_NET   ( 7UL) /* firedancer only */
@@ -529,18 +529,18 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_PACK_POH: {
-      fd_gui_unbecame_leader( ctx->gui, fd_disco_bank_sig_slot( sig ), (fd_done_packing_t const *)src, fd_clock_now( ctx->clock ) );
+      fd_gui_unbecame_leader( ctx->gui, fd_disco_execle_sig_slot( sig ), (fd_done_packing_t const *)src, fd_clock_now( ctx->clock ) );
       break;
     }
-    case IN_KIND_PACK_BANK: {
+    case IN_KIND_PACK_EXECLE: {
       if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
-        fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
+        fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
         long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
         fd_gui_microblock_execution_begin( ctx->gui,
                                           now,
                                           fd_disco_poh_sig_slot( sig ),
                                           (fd_txn_p_t *)src,
-                                          (sz-sizeof( fd_microblock_bank_trailer_t ))/sizeof( fd_txn_p_t ),
+                                          (sz-sizeof( fd_microblock_execle_trailer_t ))/sizeof( fd_txn_p_t ),
                                           (uint)trailer->microblock_idx,
                                           trailer->pack_txn_idx );
       } else {
@@ -548,13 +548,13 @@ after_frag( fd_gui_ctx_t *      ctx,
       }
       break;
     }
-    case IN_KIND_BANK_POH: {
+    case IN_KIND_EXECLE_POH: {
       fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( src+sz-sizeof( fd_microblock_trailer_t ) );
       long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
       fd_gui_microblock_execution_end( ctx->gui,
                                       now,
                                       ctx->in_bank_idx[ in_idx ],
-                                      fd_disco_bank_sig_slot( sig ),
+                                      fd_disco_execle_sig_slot( sig ),
                                       (sz-sizeof( fd_microblock_trailer_t ))/sizeof( fd_txn_p_t ),
                                       (fd_txn_p_t *)src,
                                       trailer->pack_txn_idx,
@@ -804,9 +804,11 @@ unprivileged_init( fd_topo_t *      topo,
 
     if( FD_LIKELY( !strcmp( link->name, "plugin_out"        ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
-    else if( FD_LIKELY( !strcmp( link->name, "pack_bank"    ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_bank"    ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_EXECLE;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_execle"  ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "pack_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "execle_poh"   ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE_POH;
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;    /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "net_gossvf"   ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF;
@@ -824,7 +826,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "exec_replay"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXEC_REPLAY;  /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
-    if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {
+    if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) || !strcmp( link->name, "execle_poh" ) ) ) {
       ulong producer = fd_topo_find_link_producer( topo, &topo->links[ tile->in_link_id[ i ] ] );
       ctx->in_bank_idx[ i ] = topo->tiles[ producer ].kind_id;
     }

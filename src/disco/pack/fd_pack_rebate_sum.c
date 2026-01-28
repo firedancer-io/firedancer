@@ -60,7 +60,7 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t const * txn = txns+i;
-    ulong rebated_cus   = txn->bank_cu.rebated_cus;
+    ulong rebated_cus   = txn->execle_cu.rebated_cus;
     int   in_block      = !!(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
 
     /* For IB purposes, treat AlreadyProcessed (7) as success.  If one

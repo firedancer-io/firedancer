@@ -47,8 +47,8 @@ int extra_verify;
 
 struct pack_outcome {
   ulong microblock_cnt;
-  aset_t  r_accts_in_use[ FD_PACK_MAX_BANK_TILES ];
-  aset_t  w_accts_in_use[ FD_PACK_MAX_BANK_TILES ];
+  aset_t  r_accts_in_use[ FD_PACK_MAX_EXECLE_TILES ];
+  aset_t  w_accts_in_use[ FD_PACK_MAX_EXECLE_TILES ];
   fd_txn_p_t results[1024];
 };
 typedef struct pack_outcome pack_outcome_t;
@@ -80,7 +80,7 @@ init_all( ulong pack_depth,
 #define MAX_BANKING_THREADS 64
 
   outcome->microblock_cnt = 0UL;
-  for( ulong i=0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
+  for( ulong i=0UL; i<FD_PACK_MAX_EXECLE_TILES; i++ ) {
     outcome->r_accts_in_use[ i ] = aset_null( );
     outcome->w_accts_in_use[ i ] = aset_null( );
   }
@@ -1047,7 +1047,7 @@ static void
 test_gap( void ) {
   FD_LOG_NOTICE(( "TEST GAP" ));
 
-  for( ulong gap=1UL; gap<=FD_PACK_MAX_BANK_TILES; gap++ ) {
+  for( ulong gap=1UL; gap<=FD_PACK_MAX_EXECLE_TILES; gap++ ) {
     fd_pack_t * pack = init_all( 10240UL, gap, 2UL, &outcome );
     ulong i=0UL;
     ulong reward1, reward2;
@@ -1157,7 +1157,7 @@ test_limits( void ) {
     schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
-    outcome.results->bank_cu.rebated_cus = (uint)((total_cus + (total_cus*FD_PACK_TEST_MAX_COST_PER_BLOCK/(4*total_cus))) - FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT);
+    outcome.results->execle_cu.rebated_cus = (uint)((total_cus + (total_cus*FD_PACK_TEST_MAX_COST_PER_BLOCK/(4*total_cus))) - FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT);
     fd_pack_rebate_sum_add_txn( rebater, outcome.results, rebate_alt, 1UL );
     fd_pack_rebate_sum_report( rebater, report->rebate );
     fd_pack_rebate_cus( pack, report->rebate );
@@ -1205,7 +1205,7 @@ test_limits( void ) {
 
 
     /* rebate just enough cus to have the total_cus needed for one more */
-    outcome.results[ 0 ].bank_cu.rebated_cus = (uint)(total_cus - (FD_PACK_TEST_MAX_COST_PER_BLOCK - almost_full_iter*8UL*total_cus - 7UL*total_cus));
+    outcome.results[ 0 ].execle_cu.rebated_cus = (uint)(total_cus - (FD_PACK_TEST_MAX_COST_PER_BLOCK - almost_full_iter*8UL*total_cus - 7UL*total_cus));
     fd_pack_rebate_sum_add_txn( rebater, outcome.results, rebate_alt, 1UL );
     fd_pack_rebate_sum_report( rebater, report->rebate );
     fd_pack_rebate_cus( pack, report->rebate );

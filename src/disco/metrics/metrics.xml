@@ -493,22 +493,22 @@ metric introduced.
 </enum>
 
 <enum name="PackTimingState">
-    <int value="0" name="NoTxnNoBankNoLeaderNoMicroblock" label="Pack had no transactions available, and wasn't leader" />
-    <int value="1" name="TxnNoBankNoLeaderNoMicroblock" label="Pack had transactions available, but wasn't leader or had hit a limit" />
-    <int value="2" name="NoTxnBankNoLeaderNoMicroblock" label="Pack had no transactions available, had banks but wasn't leader" />
-    <int value="3" name="TxnBankNoLeaderNoMicroblock" label="Pack had transactions available, had banks but wasn't leader" />
-    <int value="4" name="NoTxnNoBankLeaderNoMicroblock" label="Pack had no transactions available, and was leader but had no available banks" />
-    <int value="5" name="TxnNoBankLeaderNoMicroblock" label="Pack had transactions available, was leader, but had no available banks" />
-    <int value="6" name="NoTxnBankLeaderNoMicroblock" label="Pack had available banks but no transactions" />
-    <int value="7" name="TxnBankLeaderNoMicroblock" label="Pack had banks and transactions available but couldn't schedule anything non-conflicting" />
-    <int value="8" name="NoTxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
-    <int value="9" name="TxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
-    <int value="10" name="NoTxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
-    <int value="11" name="TxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
-    <int value="12" name="NoTxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy" />
-    <int value="13" name="TxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy" />
-    <int value="14" name="NoTxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock and now has no transactions" />
-    <int value="15" name="TxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
+    <int value="0" name="NoTxnNoExecleNoLeaderNoMicroblock" label="Pack had no transactions available, and wasn't leader" />
+    <int value="1" name="TxnNoExecleNoLeaderNoMicroblock" label="Pack had transactions available, but wasn't leader or had hit a limit" />
+    <int value="2" name="NoTxnExecleNoLeaderNoMicroblock" label="Pack had no transactions available, had execle but wasn't leader" />
+    <int value="3" name="TxnExecleNoLeaderNoMicroblock" label="Pack had transactions available, had execle but wasn't leader" />
+    <int value="4" name="NoTxnNoExecleLeaderNoMicroblock" label="Pack had no transactions available, and was leader but had no available execle" />
+    <int value="5" name="TxnNoExecleLeaderNoMicroblock" label="Pack had transactions available, was leader, but had no available execle" />
+    <int value="6" name="NoTxnExecleLeaderNoMicroblock" label="Pack had available execle but no transactions" />
+    <int value="7" name="TxnExecleLeaderNoMicroblock" label="Pack had execle and transactions available but couldn't schedule anything non-conflicting" />
+    <int value="8" name="NoTxnNoExecleNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="9" name="TxnNoExecleNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="10" name="NoTxnExecleNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="11" name="TxnExecleNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="12" name="NoTxnNoExecleLeaderMicroblock" label="Pack scheduled a non-empty microblock but all execle were busy" />
+    <int value="13" name="TxnNoExecleLeaderMicroblock" label="Pack scheduled a non-empty microblock but all execle were busy" />
+    <int value="14" name="NoTxnExecleLeaderMicroblock" label="Pack scheduled a non-empty microblock and now has no transactions" />
+    <int value="15" name="TxnExecleLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
 </enum>
 
 <enum name="AvailTxnType">
@@ -586,12 +586,6 @@ metric introduced.
     <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
     <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
 </tile>
-
-<enum name="BankSlotAcquire">
-    <int value="0" name="Success" label="Success" />
-    <int value="1" name="TooHigh" label="Too high" />
-    <int value="2" name="TooLow" label="Too low" />
-</enum>
 
 <enum name="TransactionError">
     <int value="0" name="Success" label="Success" />
@@ -682,7 +676,7 @@ metric introduced.
     <int value="24" name="UnbalancedTransaction" label="The total referenced account lamports before and after the transaction was unbalanced" />
 
     <!-- Errors that aren't returned by the runtime execution itself,
-         but are used by bank as an additional reason transactions
+         but are used by execle as an additional reason transactions
          might fail. -->
     <int value="25" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
 </enum>
@@ -694,7 +688,7 @@ metric introduced.
     <int value="3" name="Unlanded" label="Transaction did not land" />
 </enum>
 
-<tile name="bankf">
+<tile name="execle">
     <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction" />
     <counter name="TransactionLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not" />
 </tile>

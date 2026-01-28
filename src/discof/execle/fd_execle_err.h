@@ -5,9 +5,8 @@
 #include "../../flamenco/runtime/fd_runtime_err.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 
-
 static inline int
-fd_bank_err_from_runtime_err( int err ) {
+fd_execle_err_from_runtime_err( int err ) {
    switch( err ) {
       case FD_RUNTIME_EXECUTE_SUCCESS:                                 return FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX;
 

@@ -134,7 +134,7 @@ struct fd_microblock_trailer {
 
   /* If the duration of a microblock is the difference between the
      publish timestamp of the microblock from pack and the publish
-     timestamp of the microblock from bank, then these represent the
+     timestamp of the microblock from execle, then these represent the
      elapsed time between the start of the microblock and the 3 state
      transitions (ready->start loading, loading -> execute, execute ->
      done) for the first transaction.
@@ -169,7 +169,7 @@ struct fd_done_packing {
 };
 typedef struct fd_done_packing fd_done_packing_t;
 
-struct fd_microblock_bank_trailer {
+struct fd_microblock_execle_trailer {
   /* An opaque pointer to the bank to use when executing and committing
      transactions.  The lifetime of the bank is owned by the PoH tile,
      which guarantees it is valid while pack or bank tiles might be
@@ -183,7 +183,7 @@ struct fd_microblock_bank_trailer {
   ulong bank_idx;
 
   /* The sequentially increasing index of the microblock, across all
-     banks.  This is used by PoH to ensure microblocks get committed
+     execles.  This is used by PoH to ensure microblocks get committed
      in the same order they are executed. */
   ulong microblock_idx;
   uint  pack_idx;
@@ -199,7 +199,7 @@ struct fd_microblock_bank_trailer {
      all either commit or fail atomically. */
   int is_bundle;
 };
-typedef struct fd_microblock_bank_trailer fd_microblock_bank_trailer_t;
+typedef struct fd_microblock_execle_trailer fd_microblock_execle_trailer_t;
 
 typedef struct __attribute__((packed)) {
   ulong  tick_duration_ns;

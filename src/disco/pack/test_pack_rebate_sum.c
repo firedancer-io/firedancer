@@ -37,7 +37,7 @@ fake_transaction( fd_txn_p_t     * txnp,
   }
   txnp->payload_sz = 111UL;
   txnp->flags = flags;
-  txnp->bank_cu.rebated_cus = (uint)rebate_cus;
+  txnp->execle_cu.rebated_cus = (uint)rebate_cus;
 }
 
 static inline void
@@ -174,7 +174,7 @@ main( int     argc,
     txn->addr_table_lookup_cnt = 1;
     microblock[i].payload_sz   = 111UL;
     microblock[i].flags        = SANITIZE | EXECUTE;
-    microblock[i].bank_cu.rebated_cus = 100U;
+    microblock[i].execle_cu.rebated_cus = 100U;
   }
   FD_TEST(         2UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 31UL ) );
   FD_TEST( 40UL*1638UL==fd_pack_rebate_sum_report ( sum, report.rebate          ) );

@@ -601,9 +601,9 @@ struct fd_pack_private {
      that use_by_bank_txn[i][j] - use_by_bank_txn[i][j-1] >= 1 (with 0
      for use_by_bank_txn[i][-1]).  This means we can stop iterating when
      use_by_bank_txn[i][j] == use_by_bank_cnt[i].  */
-  fd_pack_addr_use_t * use_by_bank    [ FD_PACK_MAX_BANK_TILES ];
-  ulong                use_by_bank_cnt[ FD_PACK_MAX_BANK_TILES ];
-  ulong *              use_by_bank_txn[ FD_PACK_MAX_BANK_TILES ];
+  fd_pack_addr_use_t * use_by_bank    [ FD_PACK_MAX_EXECLE_TILES ];
+  ulong                use_by_bank_cnt[ FD_PACK_MAX_EXECLE_TILES ];
+  ulong *              use_by_bank_txn[ FD_PACK_MAX_EXECLE_TILES ];
 
   fd_histf_t txn_per_microblock [ 1 ];
   fd_histf_t vote_per_microblock[ 1 ];
@@ -653,7 +653,7 @@ fd_pack_footprint( ulong                    pack_depth,
                    ulong                    bundle_meta_sz,
                    ulong                    bank_tile_cnt,
                    fd_pack_limits_t const * limits         ) {
-  if( FD_UNLIKELY( (bank_tile_cnt==0) | (bank_tile_cnt>FD_PACK_MAX_BANK_TILES) ) ) return 0UL;
+  if( FD_UNLIKELY( (bank_tile_cnt==0) | (bank_tile_cnt>FD_PACK_MAX_EXECLE_TILES) ) ) return 0UL;
   if( FD_UNLIKELY( pack_depth<4UL ) ) return 0UL;
 
   int enable_bundles = !!bundle_meta_sz;
@@ -807,7 +807,7 @@ fd_pack_new( void                   * mem,
     pack->use_by_bank_txn[i] = use_by_bank_txn + i*max_txn_per_mblk;
     pack->use_by_bank_txn[i][0] = 0UL;
   }
-  for( ulong i=bank_tile_cnt; i<FD_PACK_MAX_BANK_TILES; i++ ) {
+  for( ulong i=bank_tile_cnt; i<FD_PACK_MAX_EXECLE_TILES; i++ ) {
     pack->use_by_bank    [i] = NULL;
     pack->use_by_bank_cnt[i] = 0UL;
     pack->use_by_bank_txn[i] = NULL;

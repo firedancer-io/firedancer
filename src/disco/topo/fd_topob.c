@@ -385,6 +385,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "resolv", /* FRANK only */
     "pack",
     "bank",   /* FRANK only */
+    "execle", /* FIREDANCER only */
     "poh",    /* FRANK only */
     "pohi",   /* FIREDANCER only */
     "shred",

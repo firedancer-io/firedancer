@@ -317,7 +317,6 @@
 #include "../../disco/shred/fd_shredder.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
-#include "../../disco/metrics/generated/fd_metrics_poh.h"
 #include "../../disco/plugin/fd_plugin.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 
@@ -1815,7 +1814,7 @@ before_frag( fd_poh_ctx_t * ctx,
     return 1; /* discard */
   }
 
-  uint pack_idx = (uint)fd_disco_bank_sig_pack_idx( sig );
+  uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
   FD_TEST( ((int)(pack_idx-ctx->expect_pack_idx))>=0L );
   if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return -1;
   ctx->expect_pack_idx++;
@@ -1847,7 +1846,7 @@ during_frag( fd_poh_ctx_t * ctx,
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_BANK:
     case IN_KIND_PACK: {
-      slot = fd_disco_bank_sig_slot( sig );
+      slot = fd_disco_execle_sig_slot( sig );
       break;
     }
     default:
@@ -2006,7 +2005,7 @@ after_frag( fd_poh_ctx_t *      ctx,
     fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
   }
 
-  ulong target_slot = fd_disco_bank_sig_slot( sig );
+  ulong target_slot = fd_disco_execle_sig_slot( sig );
 
   if( FD_UNLIKELY( target_slot!=ctx->next_leader_slot || target_slot!=ctx->slot ) ) {
     FD_LOG_ERR(( "packed too early or late target_slot=%lu, current_slot=%lu. highwater_leader_slot=%lu",
@@ -2028,7 +2027,7 @@ after_frag( fd_poh_ctx_t *      ctx,
        transactions used for monitoring purposes */
     if( FD_LIKELY( txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
       executed_txn_cnt++;
-      cus_used += txns[ i ].bank_cu.actual_consumed_cus;
+      cus_used += txns[ i ].execle_cu.actual_consumed_cus;
     }
   }
 
