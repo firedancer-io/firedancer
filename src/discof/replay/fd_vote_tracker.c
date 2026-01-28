@@ -1,9 +1,11 @@
 #include "fd_vote_tracker.h"
+#include "../../flamenco/types/fd_types.h"
 
 #define VOTE_TRACKER_MAX (512UL)
 
 struct fd_vote_tracker_ele {
   fd_signature_t vote_sig;
+  fd_pubkey_t    identity_pubkey;
   ulong          next_; /* Internal pool/map use */
 };
 typedef struct fd_vote_tracker_ele fd_vote_tracker_ele_t;
@@ -55,7 +57,8 @@ fd_vote_tracker_footprint( void ) {
 }
 
 void *
-fd_vote_tracker_new( void * mem, ulong seed ) {
+fd_vote_tracker_new( void * mem,
+                     ulong  seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -102,6 +105,7 @@ fd_vote_tracker_join( void * mem ) {
 
 void
 fd_vote_tracker_insert( fd_vote_tracker_t *    vote_tracker,
+                        fd_pubkey_t const    * identity_pubkey,
                         fd_signature_t const * vote_sig ) {
   fd_vote_tracker_ele_t * deq = fd_vote_tracker_deq_get( vote_tracker );
   fd_vote_tracker_map_t * map = fd_vote_tracker_map_get( vote_tracker );
@@ -110,14 +114,24 @@ fd_vote_tracker_insert( fd_vote_tracker_t *    vote_tracker,
     fd_vote_tracker_map_ele_remove( map, &ele->vote_sig, NULL, deq );
   }
   fd_vote_tracker_ele_t * ele = fd_vote_tracker_deq_push_tail_nocopy( deq );
-  ele->vote_sig = *vote_sig;
+  ele->vote_sig        = *vote_sig;
+  ele->identity_pubkey = *identity_pubkey;
   fd_vote_tracker_map_ele_insert( map, ele, deq );
 }
 
 int
 fd_vote_tracker_query_sig( fd_vote_tracker_t *    vote_tracker,
-                           fd_signature_t const * vote_sig ) {
+                           fd_signature_t const * vote_sig,
+                           fd_pubkey_t * *        identity_pubkey_out ) {
   fd_vote_tracker_ele_t * deq = fd_vote_tracker_deq_get( vote_tracker );
   fd_vote_tracker_map_t * map = fd_vote_tracker_map_get( vote_tracker );
-  return fd_vote_tracker_map_ele_query( map, vote_sig, NULL, deq )!=NULL;
+  fd_vote_tracker_ele_t * ele = fd_vote_tracker_map_ele_query( map, vote_sig, NULL, deq );
+  *identity_pubkey_out = ele ? &ele->identity_pubkey : NULL;
+  return ele!=NULL;
+}
+
+void
+fd_vote_tracker_reset( fd_vote_tracker_t * vote_tracker ) {
+  fd_vote_tracker_deq_remove_all( fd_vote_tracker_deq_get( vote_tracker ) );
+  fd_vote_tracker_map_reset( fd_vote_tracker_map_get( vote_tracker ) );
 }
