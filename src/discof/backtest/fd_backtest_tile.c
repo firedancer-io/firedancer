@@ -147,7 +147,7 @@ source_next_slot( fd_backt_tile_t * ctx,
 # if FD_HAS_ROCKSDB
   if( ctx->rocksdb ) {
 
-    int result;
+    int result = 0;
     if( ctx->ingest_dead_slots && ctx->prev_source_slot==ctx->dead_slot ) result = fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
     if( ctx->prev_source_slot==ctx->root_slot )                           result = fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
 
