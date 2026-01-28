@@ -81,61 +81,60 @@ send_test_topo( config_t * config ) {
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
   /* Add send tile */
-  fd_topob_wksp( topo, "send" );
-  fd_topob_tile( topo, "send", "send", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topob_wksp( topo, "txsend" );
+  fd_topob_tile( topo, "txsend", "txsend", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
   /* wksps for send links */
-  fd_topob_wksp( topo, "send_net" );
-  fd_topob_wksp( topo, "sign_send" );
-  fd_topob_wksp( topo, "send_sign" );
+  fd_topob_wksp( topo, "txsend_net" );
+  fd_topob_wksp( topo, "sign_txsend" );
+  fd_topob_wksp( topo, "txsend_sign" );
 
   /* real links for send */
-  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_send", i, ingress_buf_sz );
+  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_txsend", i, ingress_buf_sz );
 
-  FOR(net_tile_cnt) fd_topob_link( topo, "send_net",  "send_net",  ingress_buf_sz, FD_NET_MTU, 1UL  );
-  /**/              fd_topob_link( topo, "send_sign", "send_sign", 128UL,          FD_TXN_MTU, 1UL  );
-  /**/              fd_topob_link( topo, "sign_send", "sign_send", 128UL,          64UL,       1UL  );
+  FOR(net_tile_cnt) fd_topob_link( topo, "txsend_net",  "txsend_net",  ingress_buf_sz, FD_NET_MTU, 1UL  );
+  /**/              fd_topob_link( topo, "txsend_sign", "txsend_sign", 128UL,          FD_TXN_MTU, 1UL  );
+  /**/              fd_topob_link( topo, "sign_txsend", "sign_txsend", 128UL,          64UL,       1UL  );
 
   /* mock links */
   /* braces shut up clang's 'misleading identation' warning */
   if( !use_live_gossip ) {fd_topob_wksp( topo, "gossip_out" ); }
   /**/                    fd_topob_wksp( topo, "replay_epoch"  );
   /**/                    fd_topob_wksp( topo, "tower_out" );
-  /**/                    fd_topob_wksp( topo, "send_out"  );
+  /**/                    fd_topob_wksp( topo, "txsend_out" );
 
   if( !use_live_gossip ) {fd_topob_link( topo, "gossip_out",   "gossip_out",   65536UL*4UL, sizeof(fd_gossip_update_message_t), 1UL ); }
   /**/                    fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL,       FD_STAKE_OUT_MTU,                   1UL );
   /**/                    fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,      sizeof(fd_tower_slot_done_t),       1UL );
-  /**/                    fd_topob_link( topo, "send_out",     "send_out",     128UL,       40200UL * 38UL,                     1UL );
+  /**/                    fd_topob_link( topo, "txsend_out",   "txsend_out",   128UL,       40200UL * 38UL,                     1UL );
 
   if( !use_live_gossip ) {fd_link_permit_no_producers( topo, "gossip_out" ); }
-  if( !use_live_gossip ) {fd_link_permit_no_consumers( topo, "send_out"   ); }
+  if( !use_live_gossip ) {fd_link_permit_no_consumers( topo, "txsend_out" ); }
   /**/                    fd_link_permit_no_producers( topo, "replay_epoch"  );
   /**/                    fd_link_permit_no_producers( topo, "tower_out" );
 
   if( use_live_gossip ) {
     /* finish off gossip in_links */
-    fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "send_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "txsend_out",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "sign_gossip", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   }
 
-  /* attach send in links */
-  fd_topos_tile_in_net( topo, /* ***** */  "metric_in", "send_net",     0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_in (    topo, "send", 0UL, "metric_in", "net_send",     0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  /* attach txsend in links */
+  fd_topos_tile_in_net( topo, /* ***** */  "metric_in", "txsend_net",     0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in (    topo, "txsend", 0UL, "metric_in", "net_txsend",     0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
-  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "gossip_out",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "replay_epoch", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "tower_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-
+  fd_topob_tile_in(     topo, "txsend", 0UL, "metric_in", "gossip_out",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in(     topo, "txsend", 0UL, "metric_in", "replay_epoch", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in(     topo, "txsend", 0UL, "metric_in", "tower_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /* attach out links */
-  fd_topob_tile_out( topo, "send", 0UL, "send_net", 0UL );
-  fd_topob_tile_out( topo, "send", 0UL, "send_out", 0UL );
+  fd_topob_tile_out( topo, "txsend", 0UL, "txsend_net", 0UL );
+  fd_topob_tile_out( topo, "txsend", 0UL, "txsend_out", 0UL );
 
   /* unpolled links have to be last! */
-  fd_topob_tile_in ( topo, "sign", 0UL, "metric_in", "send_sign", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  fd_topob_tile_in ( topo, "send", 0UL, "metric_in", "sign_send", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-  fd_topob_tile_out( topo, "send", 0UL, "send_sign", 0UL );
-  fd_topob_tile_out( topo, "sign", 0UL, "sign_send", 0UL );
+  fd_topob_tile_in ( topo, "sign", 0UL, "metric_in", "txsend_sign", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  fd_topob_tile_in ( topo, "txsend", 0UL, "metric_in", "sign_txsend", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  fd_topob_tile_out( topo, "txsend", 0UL, "txsend_sign", 0UL );
+  fd_topob_tile_out( topo, "sign", 0UL, "sign_txsend", 0UL );
 
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
 

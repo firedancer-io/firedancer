@@ -408,8 +408,8 @@ struct fd_config {
     } quic;
 
     struct {
-      ushort send_src_port;
-    } send;
+      ushort txsend_src_port;
+    } txsend;
 
     struct {
       uint signature_cache_size;

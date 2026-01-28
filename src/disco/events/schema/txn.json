@@ -13,7 +13,7 @@
                 "udp":    { "description": "UDP" },
                 "gossip": { "description": "Gossip" },
                 "bundle": { "description": "Bundle" },
-                "send":   { "description": "Internal vote sender" }
+                "txsend": { "description": "Internal vote sender" }
             }
         },
         "bundle_id":                { "type": "UInt64", "description": "The ID of the bundle this transaction belongs to, if any.  Zero indicates not a bundle transaction" },

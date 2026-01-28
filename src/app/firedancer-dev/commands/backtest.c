@@ -8,7 +8,7 @@
      |____________________|| | |________________|
           replay_out       | |   exec_replay
                            | |------------------------------>no consumer
-    no producer-------------  stake_out, send_out, poh_out
+    no producer-------------  stake_out, txsend_out, poh_out
                 store_replay
 
 */

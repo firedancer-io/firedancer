@@ -17,7 +17,7 @@
 
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/quic/fd_quic_tile.h"
-#include "../../../../discof/send/fd_send_tile.h"
+#include "../../../../discof/txsend/fd_txsend_tile.h"
 #include "../../../../waltz/quic/log/fd_quic_log_user.h"
 #include "../../../../ballet/hex/fd_hex.h"
 #include <stdlib.h>
@@ -190,7 +190,7 @@ quic_trace_cmd_fn( args_t *   args,
 
   int trace_send = args->quic_trace.trace_send;
 
-  char const     * tile_names[] = {"quic", "send"};
+  char const     * tile_names[] = {"quic", "txsend"};
   fd_topo_tile_t * target_tile  = NULL;
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     if( 0==strcmp( topo->tiles[tile_idx].name, tile_names[trace_send] ) ) {
@@ -212,8 +212,8 @@ quic_trace_cmd_fn( args_t *   args,
 
   fd_quic_trace_tile_ctx_remote = fd_topo_obj_laddr( topo, target_tile->tile_obj_id );
   ulong quic_raddr              = (ulong)tile_member( fd_quic_trace_tile_ctx_remote, quic, trace_send );
-  ulong tile_align              = fd_ulong_if( trace_send, alignof(fd_send_tile_ctx_t), alignof(fd_quic_ctx_t) );
-  ulong tile_ctx_sz             = fd_ulong_if( trace_send, sizeof(fd_send_tile_ctx_t), sizeof(fd_quic_ctx_t) );
+  ulong tile_align              = fd_ulong_if( trace_send, alignof(fd_txsend_tile_ctx_t), alignof(fd_quic_ctx_t) );
+  ulong tile_ctx_sz             = fd_ulong_if( trace_send, sizeof(fd_txsend_tile_ctx_t), sizeof(fd_quic_ctx_t) );
   fd_quic_trace_tile_ctx_raddr  = quic_raddr - fd_ulong_align_up( tile_ctx_sz, fd_ulong_max( tile_align, fd_quic_align() ) );
 
   FD_LOG_INFO(("quic_raddr %p", (void *)quic_raddr));

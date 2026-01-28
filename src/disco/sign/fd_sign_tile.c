@@ -178,7 +178,7 @@ after_frag_sensitive( void *              _ctx,
      significant bits are used to encode the index of the authorized
      voter that a signature is needed from. */
   int sign_type         = (int)(uint)(sig);
-  int needs_second_sign = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_SEND && ((sig>>32) & 1UL);
+  int needs_second_sign = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_TXSEND && ((sig>>32) & 1UL);
 
   FD_TEST( in_idx<MAX_IN );
 
@@ -340,9 +340,9 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       }
       FD_TEST( in_link->mtu==96 ); // FD_REPAIR_MAX_PREIMAGE_SZ
       FD_TEST( out_link->mtu==64UL );
-    } else if ( !strcmp(in_link->name, "send_sign"  ) ) {
-      ctx->in[ i ].role = FD_KEYGUARD_ROLE_SEND;
-      FD_TEST( !strcmp( out_link->name, "sign_send"  ) );
+    } else if ( !strcmp(in_link->name, "txsend_sign" ) ) {
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_TXSEND;
+      FD_TEST( !strcmp( out_link->name, "sign_txsend" ) );
       FD_TEST( in_link->mtu==FD_TXN_MTU  );
       FD_TEST( out_link->mtu==64UL*2UL );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {

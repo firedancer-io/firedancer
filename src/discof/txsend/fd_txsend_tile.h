@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_send_fd_send_tile_h
-#define HEADER_fd_src_discof_send_fd_send_tile_h
+#ifndef HEADER_fd_src_discof_txsend_fd_txsend_tile_h
+#define HEADER_fd_src_discof_txsend_fd_txsend_tile_h
 
 /* Sender tile signs and sends transactions to the current leader.
    Currently only supports transactions which require one signature.
@@ -17,19 +17,19 @@
 #include "../../util/clock/fd_clock.h"
 
 /* Send votes to next FD_SEND_TARGET_LEADER_CNT leaders (slot x, x+4, x+8, ...) */
-#define FD_SEND_TARGET_LEADER_CNT (3UL)
+#define FD_TXSEND_TARGET_LEADER_CNT (3UL)
 
 /* Connect FD_CONNECT_AHEAD_LEADER_CNT leaders ahead (slot x, x+4, x+8, ...) */
-#define FD_SEND_CONNECT_AHEAD_LEADER_CNT  (7UL)
+#define FD_TXSEND_CONNECT_AHEAD_LEADER_CNT  (7UL)
 
 /* Agave currently rate limits connections per minute per IP */
 #define FD_AGAVE_MAX_CONNS_PER_MINUTE (8UL)
 
 /* so each of our connections must survive at least 60/8 = 7.5 seconds
    Let's conservatively go to 10 */
-#define FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS (10L)
+#define FD_TXSEND_QUIC_MIN_CONN_LIFETIME_SECONDS (10L)
 
-/* Wait FD_SEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS many seconds before
+/* Wait FD_TXSEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS many seconds before
    re-establishing a conn to a quic_vote port. Why?
    After timing out, the agave server puts the conn in a draining state, during
    which time it remains in their connection map. So our new attempt gets
@@ -38,33 +38,33 @@
    That prevents us from connecting for far longer than just cooling down
    (which should be free because we connect ahead). This number is based
    on empirical observation, but has much room for improvement. */
-#define FD_SEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS (2L)
+#define FD_TXSEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS (2L)
 
 /* the 1M lets this be integer math */
-FD_STATIC_ASSERT((60*1000000)/FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS <= 1000000*FD_AGAVE_MAX_CONNS_PER_MINUTE, "QUIC conn lifetime too low for rate limit");
+FD_STATIC_ASSERT((60*1000000)/FD_TXSEND_QUIC_MIN_CONN_LIFETIME_SECONDS <= 1000000*FD_AGAVE_MAX_CONNS_PER_MINUTE, "QUIC conn lifetime too low for rate limit");
 
-#define FD_SEND_QUIC_IDLE_TIMEOUT_NS (30e9L) /* 30 s - minimize keep_alive work */
-#define FD_SEND_QUIC_ACK_DELAY_NS    (25e6L) /* 25 ms */
+#define FD_TXSEND_QUIC_IDLE_TIMEOUT_NS (30e9L) /* 30 s - minimize keep_alive work */
+#define FD_TXSEND_QUIC_ACK_DELAY_NS    (25e6L) /* 25 ms */
 
 /* quic ports first, so we can re-use idx to select conn ptr
    Don't rearrange, lots of stuff depends on this order. */
-#define FD_SEND_PORT_QUIC_VOTE_IDX  (0UL)
-#define FD_SEND_PORT_QUIC_TPU_IDX   (1UL)
-#define FD_SEND_PORT_UDP_VOTE_IDX   (2UL)
-#define FD_SEND_PORT_UDP_TPU_IDX    (3UL)
-#define FD_SEND_PORT_QUIC_CNT       (2UL)
-#define FD_SEND_PORT_CNT            (4UL)
+#define FD_TXSEND_PORT_QUIC_VOTE_IDX  (0UL)
+#define FD_TXSEND_PORT_QUIC_TPU_IDX   (1UL)
+#define FD_TXSEND_PORT_UDP_VOTE_IDX   (2UL)
+#define FD_TXSEND_PORT_UDP_TPU_IDX    (3UL)
+#define FD_TXSEND_PORT_QUIC_CNT       (2UL)
+#define FD_TXSEND_PORT_CNT            (4UL)
 
-struct fd_send_link_in {
+struct fd_txsend_link_in {
   fd_wksp_t *  mem;
   ulong        chunk0;
   ulong        wmark;
   ulong        kind;
   void      *  dcache;
 };
-typedef struct fd_send_link_in fd_send_link_in_t;
+typedef struct fd_txsend_link_in fd_txsend_link_in_t;
 
-struct fd_send_link_out {
+struct fd_txsend_link_out {
   ulong            idx;
   fd_frag_meta_t * mcache;
   ulong *          sync;
@@ -75,30 +75,30 @@ struct fd_send_link_out {
   ulong       wmark;
   ulong       chunk;
 };
-typedef struct fd_send_link_out fd_send_link_out_t;
+typedef struct fd_txsend_link_out fd_txsend_link_out_t;
 
-struct fd_send_conn_entry {
+struct fd_txsend_conn_entry {
   fd_pubkey_t      pubkey;
   uint             hash;
 
-  fd_quic_conn_t * conn[ FD_SEND_PORT_UDP_VOTE_IDX ]; /* quic ports first in enum */
+  fd_quic_conn_t * conn[ FD_TXSEND_PORT_UDP_VOTE_IDX ]; /* quic ports first in enum */
   long             last_quic_vote_close;
 
-  uint             ip4s [ FD_SEND_PORT_CNT ]; /* net order */
-  ushort           ports[ FD_SEND_PORT_CNT ]; /* host order */
+  uint             ip4s [ FD_TXSEND_PORT_CNT ]; /* net order */
+  ushort           ports[ FD_TXSEND_PORT_CNT ]; /* host order */
 };
-typedef struct fd_send_conn_entry fd_send_conn_entry_t;
+typedef struct fd_txsend_conn_entry fd_txsend_conn_entry_t;
 
 
-struct fd_send_tile_ctx {
+struct fd_txsend_tile_ctx {
 
   /* link things */
-  #define FD_SEND_MAX_IN_LINK_CNT 32UL
+  #define FD_TXSEND_MAX_IN_LINK_CNT 32UL
   fd_stem_context_t *  stem;
-  fd_send_link_in_t    in_links[ FD_SEND_MAX_IN_LINK_CNT ];
-  fd_net_rx_bounds_t   net_in_bounds[ FD_SEND_MAX_IN_LINK_CNT ];
-  fd_send_link_out_t   gossip_verify_out[ 1 ];
-  fd_send_link_out_t   net_out          [ 1 ];
+  fd_txsend_link_in_t    in_links[ FD_TXSEND_MAX_IN_LINK_CNT ];
+  fd_net_rx_bounds_t   net_in_bounds[ FD_TXSEND_MAX_IN_LINK_CNT ];
+  fd_txsend_link_out_t   gossip_verify_out[ 1 ];
+  fd_txsend_link_out_t   net_out          [ 1 ];
 
   fd_keyguard_client_t keyguard_client  [ 1 ];
 
@@ -130,7 +130,7 @@ struct fd_send_tile_ctx {
   fd_aio_t    quic_tx_aio[1];
 
   /* Connection map for outgoing QUIC connections and contact info */
-  fd_send_conn_entry_t * conn_map;
+  fd_txsend_conn_entry_t * conn_map;
 
   /* timekeeping */
   long             now;            /* current time in ns!     */
@@ -140,17 +140,17 @@ struct fd_send_tile_ctx {
   struct {
     /* Contact info */
     ulong unstaked_ci_rcvd;
-    ulong new_contact_info[FD_SEND_PORT_CNT][FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_CNT];
+    ulong new_contact_info[FD_TXSEND_PORT_CNT][FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_CNT];
     ulong ci_removed;
 
     /* Outcome of trying to send data */
-    ulong send_result_cnt[FD_SEND_PORT_CNT][FD_METRICS_ENUM_TXN_SEND_RESULT_CNT];
+    ulong send_result_cnt[FD_TXSEND_PORT_CNT][FD_METRICS_ENUM_TXN_SEND_RESULT_CNT];
 
     /* QUIC-specific metrics */
-    ulong quic_hs_complete   [FD_METRICS_ENUM_SEND_QUIC_PORTS_CNT];
-    ulong quic_conn_final    [FD_METRICS_ENUM_SEND_QUIC_PORTS_CNT];
-    ulong ensure_conn_result [FD_METRICS_ENUM_SEND_QUIC_PORTS_CNT]
-                                [FD_METRICS_ENUM_SEND_ENSURE_CONN_RESULT_CNT];
+    ulong quic_hs_complete   [FD_METRICS_ENUM_TXSEND_QUIC_PORTS_CNT];
+    ulong quic_conn_final    [FD_METRICS_ENUM_TXSEND_QUIC_PORTS_CNT];
+    ulong ensure_conn_result [FD_METRICS_ENUM_TXSEND_QUIC_PORTS_CNT]
+                                [FD_METRICS_ENUM_TXSEND_ENSURE_CONN_RESULT_CNT];
 
     /* Time spent waiting for tls_cv signatures */
     fd_histf_t sign_duration[ 1 ];
@@ -160,7 +160,7 @@ struct fd_send_tile_ctx {
   uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 };
 
-typedef struct fd_send_tile_ctx fd_send_tile_ctx_t;
+typedef struct fd_txsend_tile_ctx fd_txsend_tile_ctx_t;
 
-#endif /* HEADER_fd_src_discof_send_fd_send_tile_h */
+#endif /* HEADER_fd_src_discof_txsend_fd_txsend_tile_h */
 

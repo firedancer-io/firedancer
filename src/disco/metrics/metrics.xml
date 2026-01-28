@@ -278,12 +278,12 @@ metric introduced.
     <int value="3" name="NoStream" label="No QUIC stream" />
 </enum>
 
-<enum name="SendQuicPorts">
+<enum name="TxsendQuicPorts">
     <int value="0" name="QuicVote" label="QUIC Vote port" />
     <int value="1" name="QuicTpu" label="QUIC TPU port" />
 </enum>
 
-<enum name="SendEnsureConnResult">
+<enum name="TxsendEnsureConnResult">
     <int value="0" name="NoLeader" label="No QUIC connection" />
     <int value="1" name="NoCi" label="No contact info" />
     <int value="2" name="NewConnection" label="Initiated connection" />
@@ -292,7 +292,7 @@ metric introduced.
     <int value="5" name="Cooldown" label="Connection cooldown" />
 </enum>
 
-<tile name="send">
+<tile name="txsend">
     <counter name="UnstakedCi" summary="Total number of times we received contact info for an unstaked node" />
     <counter name="CiRemoved" summary="Total number of times we removed contact info" />
 
@@ -306,11 +306,11 @@ metric introduced.
     <counter name="SendResultUdpVote" enum="TxnSendResult" summary="Total count of results from trying to send via UDP Vote port" />
     <counter name="SendResultUdpTpu" enum="TxnSendResult" summary="Total count of results from trying to send via UDP TPU port" />
 
-    <counter name="EnsureConnResultQuicVote" enum="SendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC Vote port" />
-    <counter name="EnsureConnResultQuicTpu" enum="SendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC TPU port" />
+    <counter name="EnsureConnResultQuicVote" enum="TxsendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC Vote port" />
+    <counter name="EnsureConnResultQuicTpu" enum="TxsendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC TPU port" />
 
-    <counter name="HandshakeComplete" enum="SendQuicPorts" summary="Total number of times we completed a handshake" />
-    <counter name="QuicConnFinal" enum="SendQuicPorts" summary="Total number of times QUIC connection closed" />
+    <counter name="HandshakeComplete" enum="TxsendQuicPorts" summary="Total number of times we completed a handshake" />
+    <counter name="QuicConnFinal" enum="TxsendQuicPorts" summary="Total number of times QUIC connection closed" />
 
     <!-- QUIC packet metrics -->
     <counter name="ReceivedPackets" summary="Total count of QUIC packets received" />

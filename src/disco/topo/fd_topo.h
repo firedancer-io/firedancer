@@ -108,7 +108,7 @@ struct fd_topo_net_tile {
   ushort gossip_listen_port;
   ushort repair_intake_listen_port;
   ushort repair_serve_listen_port;
-  ushort send_src_port;
+  ushort txsend_src_port;
 };
 typedef struct fd_topo_net_tile fd_topo_net_tile_t;
 
@@ -470,13 +470,13 @@ struct fd_topo_tile {
     } repair;
 
     struct {
-      ushort  send_src_port;
+      ushort txsend_src_port;
 
       /* non-config */
 
-      uint    ip_addr;
+      uint  ip_addr;
       char  identity_key_path[ PATH_MAX ];
-    } send;
+    } txsend;
 
     struct {
       uint fake_dst_ip;

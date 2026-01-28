@@ -87,7 +87,7 @@
 #define IN_KIND_POH     ( 5)
 #define IN_KIND_EXEC    ( 6)
 #define IN_KIND_SHRED   ( 7)
-#define IN_KIND_VTXN    ( 8)
+#define IN_KIND_TXSEND  ( 8)
 #define IN_KIND_GUI     ( 9)
 #define IN_KIND_RPC     (10)
 
@@ -2410,7 +2410,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       }
       break;
     }
-    case IN_KIND_VTXN: {
+    case IN_KIND_TXSEND: {
       process_vote_txn_sent( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
@@ -2671,7 +2671,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "poh_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_repla" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
-    else if( !strcmp( link->name, "send_out"     ) ) ctx->in_kind[ i ] = IN_KIND_VTXN;
+    else if( !strcmp( link->name, "txsend_out"   ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "gui_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
     else if( !strcmp( link->name, "rpc_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
