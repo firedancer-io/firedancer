@@ -674,6 +674,9 @@ STEM_(run1)( ulong                        in_cnt,
     ulong tsorig   = (ulong)this_in_mline->tsorig; (void)tsorig;
     ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
 
+#ifdef STEM_CALLBACK_DURING_FRAG1
+    STEM_CALLBACK_DURING_FRAG1( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl, tsorig, tspub );
+#endif
 #ifdef STEM_CALLBACK_DURING_FRAG
     STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl );
 #endif
