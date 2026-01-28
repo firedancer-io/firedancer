@@ -3,52 +3,57 @@ from typing import Dict, List, Optional
 import xml.etree.ElementTree as ET
 
 class Tile(Enum):
-    NET = 0
-    QUIC = 1
-    BUNDLE = 2
-    VERIFY = 3
-    DEDUP = 4
-    RESOLH = 5
-    PACK = 6
-    BANK = 7
-    POHH = 8
-    SHRED = 9
-    STORE = 10
-    SIGN = 11
-    METRIC = 12
-    DIAG = 13
-    EVENT = 14
-    PLUGIN = 15
-    GUI = 16
-    REPLAY = 17
-    GOSSIP = 18
-    NETLNK = 19
-    SOCK = 20
-    REPAIR = 21
-    TXSEND = 22
-    SNAPCT = 23
-    SNAPLD = 24
-    SNAPDC = 25
-    SNAPIN = 26
-    IPECHO = 27
-    GOSSVF = 28
-    EXECLE = 29
-    RESOLV = 30
-    BACKT = 31
-    EXECRP = 32
-    SNAPWR = 33
-    BENCHS = 34
-    SNAPWH = 35
-    SNAPLA = 36
-    SNAPLS = 37
-    TOWER = 38
-    ACCDB = 39
-    SNAPWM = 40
-    SNAPLH = 41
-    SNAPLV = 42
-    GENESI = 43
-    RPC = 44
-    POH = 45
+    GENESI = 1
+    IPECHO = 2
+
+    SNAPCT = 3
+    SNAPLD = 4
+    SNAPDC = 5
+    SNAPIN = 6
+    SNAPWR = 7
+    SNAPWH = 8
+    SNAPLA = 9
+    SNAPLS = 10
+    SNAPWM = 11
+    SNAPLH = 12
+    SNAPLV = 13
+
+    NETLNK = 14
+    NET = 15
+    SOCK = 16
+    QUIC = 17
+    BUNDLE = 18
+    VERIFY = 19
+    DEDUP = 20
+    RESOLV = 21
+    PACK = 22
+    EXECLE = 23
+    POH = 24
+    SIGN = 25
+    SHRED = 26
+
+    GOSSVF = 27
+    GOSSIP = 28
+    REPAIR = 29
+    REPLAY = 30
+    EXECRP = 31
+    ACCDB = 32
+    TOWER = 33
+    TXSEND = 34
+
+    DIAG = 35
+    EVENT = 36
+    GUI = 37
+    METRIC = 38
+    RPC = 39
+
+    RESOLH = 100
+    BANK = 101
+    POHH = 102
+    STORE = 103
+    PLUGIN = 104
+    BACKT = 105
+    BENCHS = 106
 
 class MetricType(Enum):
     COUNTER = 0
