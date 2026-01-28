@@ -1224,7 +1224,7 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
     if( FD_LIKELY(      !strcmp( link->name, "resolv_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( FD_LIKELY( !strcmp( link->name, "dedup_pack"   ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( FD_LIKELY( !strcmp( link->name, "resolh_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "execle_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;

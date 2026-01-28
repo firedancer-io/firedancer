@@ -8,7 +8,7 @@ class Tile(Enum):
     BUNDLE = 2
     VERIFY = 3
     DEDUP = 4
-    RESOLV = 5
+    RESOLH = 5
     PACK = 6
     BANK = 7
     POH = 8
@@ -33,7 +33,7 @@ class Tile(Enum):
     IPECHO = 27
     GOSSVF = 28
     EXECLE = 29
-    RESOLF = 30
+    RESOLV = 30
     BACKT = 31
     EXECRP = 32
     SNAPWR = 33

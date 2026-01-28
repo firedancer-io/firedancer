@@ -193,10 +193,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_resolv_ctx_t * ctx ) {
-  FD_MCNT_SET(       RESOLF, BLOCKHASH_EXPIRED,               ctx->metrics.blockhash_expired );
-  FD_MCNT_ENUM_COPY( RESOLF, LUT_RESOLVED,                    ctx->metrics.lut );
-  FD_MCNT_ENUM_COPY( RESOLF, STASH_OPERATION,                 ctx->metrics.stash );
-  FD_MCNT_SET(       RESOLF, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure );
+  FD_MCNT_SET(       RESOLV, BLOCKHASH_EXPIRED,               ctx->metrics.blockhash_expired );
+  FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED,                    ctx->metrics.lut );
+  FD_MCNT_ENUM_COPY( RESOLV, STASH_OPERATION,                 ctx->metrics.stash );
+  FD_MCNT_SET(       RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure );
 }
 
 static int
@@ -329,7 +329,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->bank->data ) ) {
-      FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
+      FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
       return 0;
     }
     int err = peek_aluts( ctx, txnm );
@@ -534,7 +534,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->bank->data ) ) {
-      FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
+      FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }

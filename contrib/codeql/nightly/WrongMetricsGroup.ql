@@ -26,13 +26,6 @@ class Tile extends File {
       )
     )
   }
-
-  string metricsName() {
-    /* Account for renames in topology.c */
-    if this.getLocation().getFile().getRelativePath() = "src/discof/resolv/fd_resolv_tile.c"
-    then result = "resolf"
-    else result = this.getName()
-  }
 }
 
 from ArrayExpr arrayAccess, MacroAccess ma, Tile t, string metricsGroup
@@ -42,5 +35,5 @@ where
   ma.getMacroName().matches("FD_METRICS_%") and
   arrayAccess.getFile() = t.getLocation().getFile() and
   metricsGroup = ma.getMacroName().splitAt("_", 3) and
-  metricsGroup.toLowerCase() != t.metricsName()
+  metricsGroup.toLowerCase() != t.getName()
 select arrayAccess, "Metrics group " + metricsGroup + " unexpected for tile " + t.getName()

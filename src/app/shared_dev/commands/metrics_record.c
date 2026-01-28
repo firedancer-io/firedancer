@@ -146,9 +146,8 @@ metrics_record_cmd_fn( args_t *      args,
     if( metric->type!=FD_METRICS_TYPE_GAUGE && metric->type!=FD_METRICS_TYPE_COUNTER ) continue;
     for( ulong j=0UL; j<config->topo.tile_cnt; j++ ) {
       fd_topo_tile_t const * tile      = &config->topo.tiles[ j ];
-      char const *           tile_name = tile->metrics_name[ 0 ] ? tile->metrics_name : tile->name;
       for( ulong s=0UL; s<args->metrics_record.selectors_cnt; s++ ) {
-        if( FD_LIKELY( !selector_matches( &args->metrics_record.selectors[ s ], metric->name, tile_name, tile->kind_id ) ) ) continue;
+        if( FD_LIKELY( !selector_matches( &args->metrics_record.selectors[ s ], metric->name, tile->name, tile->kind_id ) ) ) continue;
         if( FD_UNLIKELY( metrics_cnt>=(sizeof(metrics)/sizeof(metrics[0])) ) ) FD_LOG_ERR(( "too many metrics %lu", metrics_cnt ));
         metrics[ metrics_cnt ].meta  = metric;
         metrics[ metrics_cnt ].value = fd_metrics_tile( tile->metrics ) + metric->offset;
@@ -172,10 +171,9 @@ metrics_record_cmd_fn( args_t *      args,
       if( metric->type!=FD_METRICS_TYPE_GAUGE && metric->type!=FD_METRICS_TYPE_COUNTER ) continue;
       for( ulong k=0UL; k<config->topo.tile_cnt; k++ ) {
         fd_topo_tile_t const * tile      = &config->topo.tiles[ k ];
-        char const *           tile_name = tile->metrics_name[ 0 ] ? tile->metrics_name : tile->name;
-        if( 0!=strcmp( tile_name, FD_METRICS_TILE_KIND_NAMES[ i ] ) ) continue;
+        if( 0!=strcmp( tile->name, FD_METRICS_TILE_KIND_NAMES[ i ] ) ) continue;
         for( ulong s=0UL; s<args->metrics_record.selectors_cnt; s++ ) {
-          if( FD_LIKELY( !selector_matches( &args->metrics_record.selectors[ s ], metric->name, tile_name, tile->kind_id ) ) ) continue;
+          if( FD_LIKELY( !selector_matches( &args->metrics_record.selectors[ s ], metric->name, tile->name, tile->kind_id ) ) ) continue;
           if( FD_UNLIKELY( metrics_cnt>=(sizeof(metrics)/sizeof(metrics[0])) ) ) FD_LOG_ERR(( "too many metrics %lu", metrics_cnt ));
           metrics[ metrics_cnt ].meta  = metric;
           metrics[ metrics_cnt ].value = fd_metrics_tile( tile->metrics ) + metric->offset;

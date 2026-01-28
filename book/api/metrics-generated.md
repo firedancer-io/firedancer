@@ -248,25 +248,25 @@
 
 </div>
 
-## Resolv Tile
+## Resolh Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">resolv_&#8203;no_&#8203;bank_&#8203;drop</span> | counter | Count of transactions dropped because the bank was not available |
-| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">inserted</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was added to the stash) |
-| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">overrun</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was dropped because the stash was full) |
-| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">published</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was published as the blockhash became known) |
-| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">removed</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Count of address lookup tables resolved (The transaction referenced an index in a LUT that didn't exist) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT hasn't been initialized) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be parsed) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT wasn't owned by the ALUT program ID) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
-| <span class="metrics-name">resolv_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
-| <span class="metrics-name">resolv_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
+| <span class="metrics-name">resolh_&#8203;no_&#8203;bank_&#8203;drop</span> | counter | Count of transactions dropped because the bank was not available |
+| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">inserted</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was added to the stash) |
+| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">overrun</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was dropped because the stash was full) |
+| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">published</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was published as the blockhash became known) |
+| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">removed</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Count of address lookup tables resolved (The transaction referenced an index in a LUT that didn't exist) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT hasn't been initialized) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be parsed) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT wasn't owned by the ALUT program ID) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
+| <span class="metrics-name">resolh_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
+| <span class="metrics-name">resolh_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
 
 </div>
 
@@ -1108,25 +1108,25 @@
 
 </div>
 
-## Resolf Tile
+## Resolv Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">resolf_&#8203;no_&#8203;bank_&#8203;drop</span> | counter | Count of transactions dropped because the bank was not available |
-| <span class="metrics-name">resolf_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">inserted</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was added to the stash) |
-| <span class="metrics-name">resolf_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">overrun</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was dropped because the stash was full) |
-| <span class="metrics-name">resolf_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">published</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was published as the blockhash became known) |
-| <span class="metrics-name">resolf_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">removed</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories) |
-| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Count of address lookup tables resolved (The transaction referenced an index in a LUT that didn't exist) |
-| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT hasn't been initialized) |
-| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be parsed) |
-| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT wasn't owned by the ALUT program ID) |
-| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
-| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
-| <span class="metrics-name">resolf_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
-| <span class="metrics-name">resolf_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
+| <span class="metrics-name">resolv_&#8203;no_&#8203;bank_&#8203;drop</span> | counter | Count of transactions dropped because the bank was not available |
+| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">inserted</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was added to the stash) |
+| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">overrun</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was dropped because the stash was full) |
+| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">published</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was published as the blockhash became known) |
+| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">removed</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Count of address lookup tables resolved (The transaction referenced an index in a LUT that didn't exist) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT hasn't been initialized) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be parsed) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT wasn't owned by the ALUT program ID) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
+| <span class="metrics-name">resolv_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
+| <span class="metrics-name">resolv_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
 
 </div>
 

@@ -483,6 +483,7 @@ fd_config_fill( fd_config_t * config,
 static void
 fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.sign_tile_count );
+  CFG_HAS_NON_ZERO( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO( layout.execle_tile_count );
   CFG_HAS_NON_ZERO( layout.snapshot_hash_tile_count );
   CFG_HAS_NON_ZERO( layout.snapwr_tile_count );
@@ -522,6 +523,7 @@ fd_config_validateh( fd_configh_t const * config ) {
   CFG_HAS_NON_ZERO( snapshots.maximum_snapshot_download_abort );
 
   CFG_HAS_NON_EMPTY( layout.agave_affinity );
+  CFG_HAS_NON_ZERO ( layout.resolh_tile_count );
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
 }
 
@@ -545,7 +547,6 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( layout.blocklist_cores );
   CFG_HAS_NON_ZERO ( layout.net_tile_count );
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
-  CFG_HAS_NON_ZERO ( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
 

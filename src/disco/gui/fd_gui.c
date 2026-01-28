@@ -1,5 +1,4 @@
 #include "fd_gui.h"
-#include "fd_gui_peers.h"
 #include "fd_gui_printf.h"
 #include "fd_gui_metrics.h"
 
@@ -126,6 +125,7 @@ fd_gui_new( void *                shmem,
   gui->summary.net_tile_cnt    = fd_topo_tile_name_cnt( gui->topo, "net"    );
   gui->summary.quic_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "quic"   );
   gui->summary.verify_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "verify" );
+  gui->summary.resolh_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "resolh" );
   gui->summary.resolv_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "resolv" );
   gui->summary.bank_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "bank"   );
   gui->summary.execle_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "execle" );
@@ -547,43 +547,46 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   cur->out.resolv_ancient    = 0UL;
   cur->out.resolv_no_ledger  = 0UL;
   cur->out.resolv_retained   = 0UL;
+  for( ulong i=0UL; i<gui->summary.resolh_tile_cnt; i++ ) {
+    fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolh", i ) ];
+    volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
+
+    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLH, NO_BANK_DROP ) ];
+    cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLH, BLOCKHASH_EXPIRED ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TRANSACTION_BUNDLE_PEER_FAILURE  ) ];
+    cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
+    cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_OPERATION_OVERRUN ) ];
+
+    ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_OPERATION_INSERTED ) ];
+    ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_OPERATION_OVERRUN ) ]
+                              + resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_OPERATION_PUBLISHED ) ]
+                              + resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_OPERATION_REMOVED ) ];
+    cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
+  }
+
   for( ulong i=0UL; i<gui->summary.resolv_tile_cnt; i++ ) {
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
 
-    if( FD_LIKELY( !gui->summary.is_full_client ) ) {
-      cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ];
-      cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ]
-                                  + resolv_metrics[ MIDX( COUNTER, RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE  ) ];
-      cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
-                                  + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
-                                  + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
-                                  + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
-                                  + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
-      cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ];
+    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ];
+    cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE  ) ];
+    cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
+    cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ];
 
-      ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_INSERTED ) ];
-      ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_PUBLISHED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_REMOVED ) ];
-      cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
-    } else {
-      cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLF, NO_BANK_DROP ) ];
-      cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLF, BLOCKHASH_EXPIRED ) ]
-                                  + resolv_metrics[ MIDX( COUNTER, RESOLF, TRANSACTION_BUNDLE_PEER_FAILURE  ) ];
-      cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLF, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
-                                  + resolv_metrics[ MIDX( COUNTER, RESOLF, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
-                                  + resolv_metrics[ MIDX( COUNTER, RESOLF, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
-                                  + resolv_metrics[ MIDX( COUNTER, RESOLF, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
-                                  + resolv_metrics[ MIDX( COUNTER, RESOLF, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
-      cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLF, STASH_OPERATION_OVERRUN ) ];
-
-      ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLF, STASH_OPERATION_INSERTED ) ];
-      ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLF, STASH_OPERATION_OVERRUN ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLF, STASH_OPERATION_PUBLISHED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLF, STASH_OPERATION_REMOVED ) ];
-      cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
-    }
+    ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_INSERTED ) ];
+    ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ]
+                              + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_PUBLISHED ) ]
+                              + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_REMOVED ) ];
+    cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
   }
 
 

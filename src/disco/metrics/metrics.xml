@@ -442,7 +442,7 @@ metric introduced.
     <int value="3" name="Removed" label="A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories" />
 </enum>
 
-<tile name="resolf">
+<tile name="resolv">
     <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
     <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
@@ -450,7 +450,7 @@ metric introduced.
     <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
 </tile>
 
-<tile name="resolv" telemetry="false">
+<tile name="resolh" telemetry="false">
     <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
     <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
