@@ -660,7 +660,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
                                                 int *                     is_epoch_boundary ) {
 
   ulong const slot = fd_bank_slot_get( bank );
-  if( slot != 0UL ) {
+  if( FD_LIKELY( slot != 0UL ) ) {
     fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
     ulong prev_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
@@ -675,13 +675,13 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
       FD_LOG_DEBUG(( "Epoch boundary starting" ));
       fd_runtime_process_new_epoch( banks, bank, accdb, xid, capture_ctx, prev_epoch, runtime_stack );
       *is_epoch_boundary = 1;
+    } else {
+      *is_epoch_boundary = 0;
     }
+
+    fd_distribute_partitioned_epoch_rewards( bank, accdb, xid, capture_ctx );
   } else {
     *is_epoch_boundary = 0;
-  }
-
-  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
-    fd_distribute_partitioned_epoch_rewards( bank, accdb, xid, capture_ctx );
   }
 }
 
