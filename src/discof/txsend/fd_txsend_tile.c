@@ -1,4 +1,5 @@
 #include "fd_txsend_tile.h"
+#include "../../disco/fd_txn_m.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard.h"
