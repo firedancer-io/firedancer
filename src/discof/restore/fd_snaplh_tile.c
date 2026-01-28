@@ -116,6 +116,7 @@ struct fd_snaplh_tile {
   /* io_uring setup */
 
   fd_io_uring_t ioring[1];
+  int           io_uring_enabled;
 };
 
 typedef struct fd_snaplh_tile fd_snaplh_t;
@@ -314,7 +315,7 @@ handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
 static inline ulong
 consume_available_cqe( fd_snaplh_t * ctx ) {
   if( FD_LIKELY( !ctx->vinyl.pending_rd_req_cnt ) ) return 0UL;
-  if( ctx->vinyl.io->type!=FD_VINYL_IO_TYPE_UR ) return 0UL;
+  if( FD_UNLIKELY( !ctx->io_uring_enabled ) ) return 0UL;
   if( !fd_io_uring_cq_ready( ctx->ioring->cq ) ) return 0UL;
 
   /* At this point, there is at least one unconsumed CQE */
@@ -478,7 +479,7 @@ handle_lv_data_frag( fd_snaplh_t * ctx,
     fd_vinyl_bstream_phdr_t acc_hdr[1];
     memcpy( &seq,    indata, sizeof(ulong) );
     memcpy( acc_hdr, indata + sizeof(ulong), sizeof(fd_vinyl_bstream_phdr_t) );
-    if( FD_LIKELY( ctx->vinyl.io->type==FD_VINYL_IO_TYPE_UR ) ) {
+    if( FD_LIKELY( ctx->io_uring_enabled ) ) {
       handle_vinyl_lthash_request_ur( ctx, seq, acc_hdr );
     } else {
       handle_vinyl_lthash_request_bd( ctx, seq, acc_hdr );
@@ -531,7 +532,7 @@ handle_control_frag( fd_snaplh_t * ctx,
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
 
       if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
-        if( FD_LIKELY( ctx->vinyl.io->type==FD_VINYL_IO_TYPE_UR ) ) {
+        if( FD_LIKELY( ctx->io_uring_enabled ) ) {
           handle_vinyl_lthash_request_ur_consume_all( ctx );
         }
         ctx->state = handle_lthash_completion( ctx, stem );
@@ -612,7 +613,7 @@ during_housekeeping( fd_snaplh_t * ctx ) {
 
   /* Service io_uring instance */
 
-  if( ctx->vinyl.io->type==FD_VINYL_IO_TYPE_UR ) {
+  if( FD_LIKELY( ctx->io_uring_enabled ) ) {
     uint sq_drops = fd_io_uring_sq_dropped( ctx->ioring->sq );
     if( FD_UNLIKELY( sq_drops ) ) {
       FD_LOG_CRIT(( "kernel io_uring dropped I/O requests, cannot continue (sq_dropped=%u)", sq_drops ));
@@ -750,6 +751,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_LIKELY( tile->snaplh.io_uring_enabled ) ) {
     ctx->vinyl.io = snaplh_io_uring_init( ctx, uring_shmem, uring_mem, dev_fd );
   }
+  ctx->io_uring_enabled = tile->snaplh.io_uring_enabled;
 }
 
 static void
@@ -761,8 +763,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)                               );
   void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                         );
   void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                         );
-  void * rd_req_mem = NULL;
-  rd_req_mem        = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ );
+  void * rd_req_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ );
 
   FD_TEST( fd_topo_tile_name_cnt( topo, "snaplh" )<=FD_SNAPSHOT_MAX_SNAPLH_TILES );
 
