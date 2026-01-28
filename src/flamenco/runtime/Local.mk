@@ -77,6 +77,8 @@ $(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_ren
 $(call run-unit-test,test_deprecate_rent_exemption_threshold,)
 $(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_instr_acct_bounds,)
+$(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_accounts_resize_delta,)
 endif
 endif
 endif
