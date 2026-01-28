@@ -75,8 +75,8 @@ wd_dispatch( fd_vinyl_io_wd_t * wd ) {
   ulong ctl   = FD_SNAPSHOT_MSG_DATA;
   ulong chunk = fd_laddr_to_chunk( wd->wr_base, buf->buf );
   ulong sz    = block_sz>>FD_VINYL_BSTREAM_BLOCK_LG_SZ;
-  FD_CRIT( sz<=USHORT_MAX, "block_sz too large" );
-  fd_mcache_publish( wd->wr_mcache, wd->wr_depth, seq, sig, chunk, sz, ctl, 0UL, 0UL );
+  FD_CRIT( sz<=UINT_MAX, "block_sz too large" );
+  fd_mcache_publish( wd->wr_mcache, wd->wr_depth, seq, sig, chunk, 0UL, ctl, sz, 0UL );
   wd->wr_seq = fd_seq_inc( seq, 1UL );
 
   buf->next           = NULL;
@@ -413,7 +413,7 @@ fd_vinyl_io_wd_init( void *           lmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( block_mtu > (USHORT_MAX<<FD_VINYL_BSTREAM_BLOCK_LG_SZ) ) ) {
+  if( FD_UNLIKELY( block_mtu > (UINT_MAX<<FD_VINYL_BSTREAM_BLOCK_LG_SZ) ) ) {
     FD_LOG_WARNING(( "oversz block_mtu (%lu)", block_mtu ));
     return NULL;
   }
