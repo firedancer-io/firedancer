@@ -487,7 +487,7 @@ multi_scalar_mul_edwards( fd_ed25519_point_t * r,
 /* multi_scalar_mul_ristretto computes a MSM on ristretto255.
    See multi_scalar_mul_edwards for details. */
 
-static fd_ed25519_point_t *
+static fd_ristretto255_point_t *
 multi_scalar_mul_ristretto( fd_ristretto255_point_t * r,
                             uchar const *             scalars,
                             uchar const *             points,
