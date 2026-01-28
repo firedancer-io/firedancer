@@ -50,6 +50,199 @@
 
 </div>
 
+## Genesi Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+
+</div>
+
+## Ipecho Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">ipecho_&#8203;current_&#8203;shred_&#8203;version</span> | gauge | The current shred version used by the validator |
+| <span class="metrics-name">ipecho_&#8203;connection_&#8203;count</span> | gauge | The number of active connections to the ipecho service |
+| <span class="metrics-name">ipecho_&#8203;connections_&#8203;closed_&#8203;ok</span> | counter | The number of connections to the ipecho service that have been made and closed normally |
+| <span class="metrics-name">ipecho_&#8203;connections_&#8203;closed_&#8203;error</span> | counter | The number of connections to the ipecho service that have been made and closed abnormally |
+| <span class="metrics-name">ipecho_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all connections to the ipecho service |
+| <span class="metrics-name">ipecho_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all connections to the ipecho service |
+
+</div>
+
+## Snapct Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapct_&#8203;state</span> | gauge | State of the tile |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried full snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried incremental snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;total</span> | gauge | Total size of the full snapshot file. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the full snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;total</span> | gauge | Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the incremental snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;predicted_&#8203;slot</span> | gauge | The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;gossip_&#8203;fresh_&#8203;count</span> | gauge | Number of fresh gossip peers seen when collecting gossip peers.  |
+| <span class="metrics-name">snapct_&#8203;gossip_&#8203;total_&#8203;count</span> | gauge | Number of total gossip peers seen when collecting gossip peers.  |
+| <span class="metrics-name">snapct_&#8203;ssl_&#8203;alloc_&#8203;errors</span> | counter | Number of SSL allocation errors encountered.  |
+
+</div>
+
+## Snapld Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapld_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snapld_&#8203;ssl_&#8203;alloc_&#8203;errors</span> | counter | Number of SSL allocation errors encountered.  |
+
+</div>
+
+## Snapdc Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapdc_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snapdc_&#8203;full_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes decompressed so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapdc_&#8203;incremental_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapdc_&#8203;incremental_&#8203;decompressed_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes decompressed so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+
+</div>
+
+## Snapin Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapin_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snapin_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapin_&#8203;accounts_&#8203;loaded</span> | gauge | Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts |
+| <span class="metrics-name">snapin_&#8203;accounts_&#8203;replaced</span> | gauge | Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts |
+| <span class="metrics-name">snapin_&#8203;accounts_&#8203;ignored</span> | gauge | Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts |
+
+</div>
+
+## Snapwr Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapwr_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
+| <span class="metrics-name">snapwr_&#8203;vinyl_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted |
+
+</div>
+
+## Snapwh Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapwh_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
+
+</div>
+
+## Snapla Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapla_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snapla_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapla_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+
+</div>
+
+## Snapls Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapls_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snapls_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapls_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+
+</div>
+
+## Snapwm Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapwm_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;loaded</span> | gauge | Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts |
+| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;replaced</span> | gauge | Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts |
+| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;ignored</span> | gauge | Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts |
+| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;active</span> | gauge | Current number of accounts in index. Resets if snapshot load restarts |
+
+</div>
+
+## Snaplh Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaplh_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snaplh_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snaplh_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+
+</div>
+
+## Snaplv Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaplv_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snaplv_&#8203;full_&#8203;duplicate_&#8203;accounts_&#8203;hashed</span> | gauge | Number of duplicate accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snaplv_&#8203;incremental_&#8203;duplicate_&#8203;accounts_&#8203;hashed</span> | gauge | Number of duplicate accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+
+</div>
+
+## Netlnk Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">netlnk_&#8203;drop_&#8203;events</span> | counter | Number of netlink drop events caught |
+| <span class="metrics-name">netlnk_&#8203;link_&#8203;full_&#8203;syncs</span> | counter | Number of full link table syncs done |
+| <span class="metrics-name">netlnk_&#8203;route_&#8203;full_&#8203;syncs</span> | counter | Number of full route table syncs done |
+| <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">link</span>"} | counter | Number of netlink live updates processed (Link) |
+| <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">neigh</span>"} | counter | Number of netlink live updates processed (Neighbor Table Entry) |
+| <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">ipv4_&#8203;route</span>"} | counter | Number of netlink live updates processed (IPv4 Route Table Entry) |
+| <span class="metrics-name">netlnk_&#8203;interface_&#8203;count</span> | gauge | Number of network interfaces |
+| <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">local</span>"} | gauge | Number of IPv4 routes (Local) |
+| <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">main</span>"} | gauge | Number of IPv4 routes (Main) |
+| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;sent</span> | counter | Number of neighbor solicit requests sent to kernel |
+| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;fails</span> | counter | Number of neighbor solicit requests that failed to send (kernel too slow) |
+| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;host</span> | counter | Number of neighbor solicit that exceeded the per-host rate limit |
+| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;global</span> | counter | Number of neighbor solicit that exceeded the global rate limit |
+
+</div>
+
 ## Net Tile
 
 <div class="metrics">
@@ -84,6 +277,27 @@
 | <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;ignored_&#8203;cnt</span> | counter | Number of received but ignored GRE packets |
 | <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;cnt</span> | counter | Number of GRE packet transmit jobs submitted |
 | <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of GRE packets transmit jobs dropped due to route failure |
+
+</div>
+
+## Sock Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">no_&#8203;error</span>"} | counter | Number of sendmmsg syscalls dispatched (No error) |
+| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">slow</span>"} | counter | Number of sendmmsg syscalls dispatched (ENOBUFS, EAGAIN error) |
+| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">perm</span>"} | counter | Number of sendmmsg syscalls dispatched (EPERM error (blocked by netfilter)) |
+| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">unreach</span>"} | counter | Number of sendmmsg syscalls dispatched (ENETUNREACH, EHOSTUNREACH error) |
+| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">down</span>"} | counter | Number of sendmmsg syscalls dispatched (ENONET, ENETDOWN, EHOSTDOWN error) |
+| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">other</span>"} | counter | Number of sendmmsg syscalls dispatched (Unrecognized error code) |
+| <span class="metrics-name">sock_&#8203;syscalls_&#8203;recvmmsg</span> | counter | Number of recvmsg syscalls dispatched |
+| <span class="metrics-name">sock_&#8203;rx_&#8203;pkt_&#8203;cnt</span> | counter | Number of packets received |
+| <span class="metrics-name">sock_&#8203;tx_&#8203;pkt_&#8203;cnt</span> | counter | Number of packets sent |
+| <span class="metrics-name">sock_&#8203;tx_&#8203;drop_&#8203;cnt</span> | counter | Number of packets failed to send |
+| <span class="metrics-name">sock_&#8203;tx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes transmitted (including Ethernet header) |
+| <span class="metrics-name">sock_&#8203;rx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes received (including Ethernet header) |
 
 </div>
 
@@ -248,25 +462,25 @@
 
 </div>
 
-## Resolh Tile
+## Resolv Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">resolh_&#8203;no_&#8203;bank_&#8203;drop</span> | counter | Count of transactions dropped because the bank was not available |
-| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">inserted</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was added to the stash) |
-| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">overrun</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was dropped because the stash was full) |
-| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">published</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was published as the blockhash became known) |
-| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">removed</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories) |
-| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Count of address lookup tables resolved (The transaction referenced an index in a LUT that didn't exist) |
-| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT hasn't been initialized) |
-| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be parsed) |
-| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT wasn't owned by the ALUT program ID) |
-| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
-| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
-| <span class="metrics-name">resolh_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
-| <span class="metrics-name">resolh_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
+| <span class="metrics-name">resolv_&#8203;no_&#8203;bank_&#8203;drop</span> | counter | Count of transactions dropped because the bank was not available |
+| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">inserted</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was added to the stash) |
+| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">overrun</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was dropped because the stash was full) |
+| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">published</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was published as the blockhash became known) |
+| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">removed</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Count of address lookup tables resolved (The transaction referenced an index in a LUT that didn't exist) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT hasn't been initialized) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be parsed) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT wasn't owned by the ALUT program ID) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
+| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
+| <span class="metrics-name">resolv_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
+| <span class="metrics-name">resolv_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
 
 </div>
 
@@ -357,66 +571,42 @@
 
 </div>
 
-## Bank Tile
+## Execle Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;sanitize_&#8203;failure</span> | counter | Number of transactions that failed to sanitize |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;not_&#8203;executed_&#8203;failure</span> | counter | Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (The transaction referenced an index in a LUT that didn't exist) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (The account referenced as a LUT hasn't been initialized) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (The account referenced as a LUT couldn't be parsed) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (The account referenced as a LUT wasn't owned by the ALUT program ID) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (The account referenced as a LUT couldn't be found) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (Resolved successfully) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">success</span>"} | counter | Result of loading and executing a transaction (Success) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;in_&#8203;use</span>"} | counter | Result of loading and executing a transaction (An account is already being processed in another transaction in a way that does not support parallelism) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;loaded_&#8203;twice</span>"} | counter | Result of loading and executing a transaction (A `Pubkey` appears twice in the transaction's `account_keys`. Instructions can reference `Pubkey`s more than once but the message must contain a list with no duplicate keys) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (Attempt to debit an account but found no record of a prior credit) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">program_&#8203;account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (Attempt to load a program that does not exist) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (The fee payer `Pubkey` does not have sufficient balance to pay the fee to schedule the transaction) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;account_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (This account may not be used to pay transaction fees) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">already_&#8203;processed</span>"} | counter | Result of loading and executing a transaction (The bank has seen this transaction before. This can occur under normal operation when a UDP packet is duplicated, as a user error from a client not updating its `recent_blockhash`, or as a double-spend attack) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">blockhash_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The bank has not seen the given `recent_blockhash` or the transaction is too old and the `recent_blockhash` has been discarded) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">instruction_&#8203;error</span>"} | counter | Result of loading and executing a transaction (An error occurred while processing an instruction) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">call_&#8203;chain_&#8203;too_&#8203;deep</span>"} | counter | Result of loading and executing a transaction (Loader call chain is too deep) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">missing_&#8203;signature_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (Transaction requires a fee but has no signature present) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;account_&#8203;index</span>"} | counter | Result of loading and executing a transaction (Transaction contains an invalid account reference) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">signature_&#8203;failure</span>"} | counter | Result of loading and executing a transaction (Transaction did not pass signature verification) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;program_&#8203;for_&#8203;execution</span>"} | counter | Result of loading and executing a transaction (This program may not be used for executing instructions) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">sanitize_&#8203;failure</span>"} | counter | Result of loading and executing a transaction (Transaction failed to sanitize accounts offsets correctly implies that account locks are not taken for this TX, and should not be unlocked) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">cluster_&#8203;maintenance</span>"} | counter | Result of loading and executing a transaction (Transactions are currently disabled due to cluster maintenance) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;borrow_&#8203;outstanding</span>"} | counter | Result of loading and executing a transaction (Transaction processing left an account with an outstanding borrowed reference) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;block_&#8203;cost_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (Transaction would exceed max Block Cost Limit) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">unsupported_&#8203;version</span>"} | counter | Result of loading and executing a transaction (Transaction version is unsupported) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;writable_&#8203;account</span>"} | counter | Result of loading and executing a transaction (Transaction loads a writable account that cannot be written) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;account_&#8203;cost_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (Transaction would exceed max account limit within the block) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;account_&#8203;data_&#8203;block_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (Transaction would exceed account data limit within the block) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">too_&#8203;many_&#8203;account_&#8203;locks</span>"} | counter | Result of loading and executing a transaction (Transaction locked too many accounts) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">address_&#8203;lookup_&#8203;table_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (Address lookup table not found) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;owner</span>"} | counter | Result of loading and executing a transaction (Attempted to lookup addresses from an account owned by the wrong program) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;data</span>"} | counter | Result of loading and executing a transaction (Attempted to lookup addresses from an invalid account) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;index</span>"} | counter | Result of loading and executing a transaction (Address table lookup uses an invalid index) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;rent_&#8203;paying_&#8203;account</span>"} | counter | Result of loading and executing a transaction (Transaction leaves an account with a lower balance than rent-exempt minimum) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;vote_&#8203;cost_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (Transaction would exceed max Vote Cost Limit) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;account_&#8203;data_&#8203;total_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (Transaction would exceed total account data limit) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">duplicate_&#8203;instruction</span>"} | counter | Result of loading and executing a transaction (Transaction contains a duplicate instruction that is not allowed) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;rent</span>"} | counter | Result of loading and executing a transaction (Transaction results in an account with insufficient funds for rent) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">max_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;exceeded</span>"} | counter | Result of loading and executing a transaction (Transaction exceeded max loaded accounts data size cap) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (LoadedAccountsDataSizeLimit set for transaction must be greater than 0) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">resanitization_&#8203;needed</span>"} | counter | Result of loading and executing a transaction (Sanitized transaction differed before/after feature activation. Needs to be resanitized) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">program_&#8203;execution_&#8203;temporarily_&#8203;restricted</span>"} | counter | Result of loading and executing a transaction (Program execution is temporarily restricted on an account) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">unbalanced_&#8203;transaction</span>"} | counter | Result of loading and executing a transaction (The total balance before the transaction does not equal the total balance after the transaction) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">program_&#8203;cache_&#8203;hit_&#8203;max_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (The total program cache size hit the maximum allowed limit) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">commit_&#8203;cancelled</span>"} | counter | Result of loading and executing a transaction (The process for committing the transaction was cancelled internally) |
-| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">bundle_&#8203;peer</span>"} | counter | Result of loading and executing a transaction (Transaction is part of a bundle and one of the peer transactions failed) |
-| <span class="metrics-name">bank_&#8203;processing_&#8203;failed</span> | counter | Count of transactions for which the processing stage failed and won't land on chain |
-| <span class="metrics-name">bank_&#8203;fee_&#8203;only_&#8203;transactions</span> | counter | Count of transactions that will land on chain but without executing |
-| <span class="metrics-name">bank_&#8203;executed_&#8203;failed_&#8203;transactions</span> | counter | Count of transactions that execute on chain but failed |
-| <span class="metrics-name">bank_&#8203;successful_&#8203;transactions</span> | counter | Count of transactions that execute on chain and succeed |
-| <span class="metrics-name">bank_&#8203;cost_&#8203;model_&#8203;undercount</span> | counter | Count of transactions that used more CUs than the cost model should have permitted them to |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of loading and executing a transaction (Transaction executed successfully) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">instructon_&#8203;error</span>"} | counter | Result of loading and executing a transaction (An error occurred while processing an instruction) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer address was not found) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">program_&#8203;account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (A program account referenced by the transaction was not found) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer did not have balance to pay the fee) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer account is not owned by the system program, or has data that is not a nonce) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">already_&#8203;processed</span>"} | counter | Result of loading and executing a transaction (The transaction has already been processed in a recent block) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">blockhash_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction references a blockhash that is not recent, or advances a nonce with the wrong value) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;program_&#8203;for_&#8203;execution</span>"} | counter | Result of loading and executing a transaction (A program account referenced by the transaction was no executable. TODO: No longer needed with SIMD-0162) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">address_&#8203;lookup_&#8203;table_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction references an ALUT account that does not exist or is inactive) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;owner</span>"} | counter | Result of loading and executing a transaction (The transaction references an ALUT account that is not owned by the ALUT program account) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;data</span>"} | counter | Result of loading and executing a transaction (The transaction references an ALUT account that contains data which is not a valid ALUT) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;index</span>"} | counter | Result of loading and executing a transaction (The transaction references an account offset from the ALUT which does not exist) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">max_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;exceeded</span>"} | counter | Result of loading and executing a transaction (The total account data size of the loaded accounts exceeds the consensus limit) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">duplicate_&#8203;instruction</span>"} | counter | Result of loading and executing a transaction (A compute budget program instruction was invoked more than once) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (The compute budget program was invoked and set the loaded accounts data size to zero) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;already_&#8203;advanced</span>"} | counter | Result of loading and executing a transaction (The transaction references a nonce account that is already advanced) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;advance_&#8203;failed</span>"} | counter | Result of loading and executing a transaction (The transaction is a nonce transaction but the advance instruction was not valid or failed) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;wrong_&#8203;blockhash</span>"} | counter | Result of loading and executing a transaction (The transaction is a nonce transaction but the blockhash is not the correct one) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;in_&#8203;use</span>"} | counter | Result of loading and executing a transaction (The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;loaded_&#8203;twice</span>"} | counter | Result of loading and executing a transaction (The transaction references the same account twice) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">signature_&#8203;failure</span>"} | counter | Result of loading and executing a transaction (The transaction had an invalid signature) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">too_&#8203;many_&#8203;account_&#8203;locks</span>"} | counter | Result of loading and executing a transaction (The transaction references too many accounts. TODO: No longer possible with smart dispatcher) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;rent</span>"} | counter | Result of loading and executing a transaction (The transaction would leave an account with a lower balance than the rent-exempt minimum) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">unbalanced_&#8203;transaction</span>"} | counter | Result of loading and executing a transaction (The total referenced account lamports before and after the transaction was unbalanced) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">bundle_&#8203;peer</span>"} | counter | Result of loading and executing a transaction (The transaction was part of a bundle and an earlier transaction in the bundle failed) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;success</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;fees_&#8203;only</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but was fees only and did not execute) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;failed</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but failed to execute) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">unlanded</span>"} | counter | Whether a transaction landed in the block or not (Transaction did not land) |
 
 </div>
 
@@ -426,10 +616,16 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">poh_&#8203;begin_&#8203;leader_&#8203;delay_&#8203;seconds</span> | histogram | Delay between when we become leader in a slot and when we receive the bank. |
-| <span class="metrics-name">poh_&#8203;first_&#8203;microblock_&#8203;delay_&#8203;seconds</span> | histogram | Delay between when we become leader in a slot and when we receive the first microblock. |
-| <span class="metrics-name">poh_&#8203;slot_&#8203;done_&#8203;delay_&#8203;seconds</span> | histogram | Delay between when we become leader in a slot and when we finish the slot. |
-| <span class="metrics-name">poh_&#8203;bundle_&#8203;initialize_&#8203;delay_&#8203;seconds</span> | histogram | Delay in starting the slot caused by loading the information needed to generate the bundle crank transactions |
+
+</div>
+
+## Sign Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">sign_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
 
 </div>
 
@@ -468,117 +664,76 @@
 
 </div>
 
-## Store Tile
+## Gossvf Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">store_&#8203;transactions_&#8203;inserted</span> | counter | Count of transactions produced while we were leader in the shreds that have been inserted so far |
-
-</div>
-
-## Sign Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">sign_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
-
-</div>
-
-## Metric Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">metric_&#8203;boot_&#8203;timestamp_&#8203;nanos</span> | gauge | Timestamp when validator was started (nanoseconds since epoch) |
-| <span class="metrics-name">metric_&#8203;connection_&#8203;count</span> | gauge | The number of active http connections to the Prometheus endpoint |
-| <span class="metrics-name">metric_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all responses on the Prometheus endpoint |
-| <span class="metrics-name">metric_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all requests to the Prometheus endpoint |
-
-</div>
-
-## Diag Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-
-</div>
-
-## Event Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">event_&#8203;connection_&#8203;state</span> | gauge | 0 = disconnected, 1 = connecting, 2 = connected |
-| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;count</span> | gauge | The current number of events in the event queue waiting to be sent to the event service |
-| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;drops</span> | counter | The total number of events dropped because the event queue was full |
-| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;bytes_&#8203;used</span> | gauge | The current number of bytes used in the event queue |
-| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;bytes_&#8203;capacity</span> | gauge | The total capacity in bytes of the event queue |
-| <span class="metrics-name">event_&#8203;events_&#8203;sent</span> | counter | The total number of events sent to the event service |
-| <span class="metrics-name">event_&#8203;events_&#8203;acked</span> | counter | The total number of events acknowledged by the event service |
-| <span class="metrics-name">event_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to the event service |
-| <span class="metrics-name">event_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from the event service |
-
-</div>
-
-## Gui Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">gui_&#8203;connection_&#8203;count</span> | gauge | The number of active http connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection |
-| <span class="metrics-name">gui_&#8203;websocket_&#8203;connection_&#8203;count</span> | gauge | The number of active websocket connections to the GUI service |
-| <span class="metrics-name">gui_&#8203;websocket_&#8203;frames_&#8203;sent</span> | counter | The total number of websocket frames sent to all connections to the GUI service |
-| <span class="metrics-name">gui_&#8203;websocket_&#8203;frames_&#8203;received</span> | counter | The total number of websocket frames received from all connections to the GUI service |
-| <span class="metrics-name">gui_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all connections to the GUI service |
-| <span class="metrics-name">gui_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all connections to the GUI service |
-
-</div>
-
-## Replay Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">replay_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |
-| <span class="metrics-name">replay_&#8203;store_&#8203;link_&#8203;work</span> | histogram | Time in seconds spent on linking a new FEC set |
-| <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to read a FEC set |
-| <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;work</span> | histogram | Time in seconds spent on reading a FEC set |
-| <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to publish a new FEC set |
-| <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;work</span> | histogram | Time in seconds spent on publishing a new FEC set |
-| <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | The slot at which our node has most recently rooted |
-| <span class="metrics-name">replay_&#8203;root_&#8203;distance</span> | gauge | The distance in slots between our current root and the current reset slot |
-| <span class="metrics-name">replay_&#8203;leader_&#8203;slot</span> | gauge | The slot at which we are currently leader, or 0 if none |
-| <span class="metrics-name">replay_&#8203;next_&#8203;leader_&#8203;slot</span> | gauge | The slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot |
-| <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | The slot at which we last reset the replay stage, or 0 if unknown |
-| <span class="metrics-name">replay_&#8203;max_&#8203;live_&#8203;banks</span> | gauge | The maximum number of banks we can have alive |
-| <span class="metrics-name">replay_&#8203;live_&#8203;banks</span> | gauge | The number of banks we currently have alive |
-| <span class="metrics-name">replay_&#8203;reasm_&#8203;free</span> | gauge | The number of free FEC sets in the reassembly queue |
-| <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;slot</span> | gauge | Slot of the latest FEC set in the reassembly queue that can be replayed |
-| <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;fec_&#8203;idx</span> | gauge | FEC set index of the latest FEC set in the reassembly queue that can be replayed |
-| <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully |
-| <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall on the current fork |
-| <span class="metrics-name">replay_&#8203;sched_&#8203;full</span> | counter | Times where sched is full and a FEC set can't be processed |
-| <span class="metrics-name">replay_&#8203;reasm_&#8203;empty</span> | counter | Times where reasm is empty and a FEC set can't be processed |
-| <span class="metrics-name">replay_&#8203;leader_&#8203;bid_&#8203;wait</span> | counter | Times where replay is blocked by the PoH tile not sending an end of leader message |
-| <span class="metrics-name">replay_&#8203;banks_&#8203;full</span> | counter | Times where banks are full and a FEC set can't be processed |
-| <span class="metrics-name">replay_&#8203;storage_&#8203;root_&#8203;behind</span> | counter | Times where the storage root is behind the consensus root and can't be advanced |
-| <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
-| <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;reverted</span> | counter | Number of account database records reverted |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;gc_&#8203;root</span> | counter | Number of account database entries garbage collected |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;reclaimed</span> | counter | Number of account database entries reclaimed (deletion rooted) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;request</span>"} | counter | Number of gossip messages processed (Pull Request (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter | Number of gossip messages processed (Pull Response (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter | Number of gossip messages processed (Push (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;prune</span>"} | counter | Number of gossip messages processed (Prune (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;ping</span>"} | counter | Number of gossip messages processed (Ping (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pong</span>"} | counter | Number of gossip messages processed (Pong (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;unparseable</span>"} | counter | Number of gossip messages processed (Unparseable) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;not_&#8203;contact_&#8203;info</span>"} | counter | Number of gossip messages processed (Pull Request (not contact info)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;loopback</span>"} | counter | Number of gossip messages processed (Pull Request (loopback)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;inactive</span>"} | counter | Number of gossip messages processed (Pull Request (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;wallclock</span>"} | counter | Number of gossip messages processed (Pull Request (wallclock)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;signature</span>"} | counter | Number of gossip messages processed (Pull Request (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;shred_&#8203;version</span>"} | counter | Number of gossip messages processed (Pull Request (shred version)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;destination</span>"} | counter | Number of gossip messages processed (Prune (destination)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;wallclock</span>"} | counter | Number of gossip messages processed (Prune (wallclock)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;signature</span>"} | counter | Number of gossip messages processed (Prune (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter | Number of gossip messages processed (Push (no valid crds)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter | Number of gossip messages processed (Pull Response (no valid crds)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;ping_&#8203;signature</span>"} | counter | Number of gossip messages processed (Ping (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pong_&#8203;signature</span>"} | counter | Number of gossip messages processed (Pong (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;request</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter | Total wire bytes of gossip messages processed (Pull Response (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter | Total wire bytes of gossip messages processed (Push (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;prune</span>"} | counter | Total wire bytes of gossip messages processed (Prune (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;ping</span>"} | counter | Total wire bytes of gossip messages processed (Ping (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pong</span>"} | counter | Total wire bytes of gossip messages processed (Pong (success)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;unparseable</span>"} | counter | Total wire bytes of gossip messages processed (Unparseable) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;not_&#8203;contact_&#8203;info</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (not contact info)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;loopback</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (loopback)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;inactive</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;wallclock</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (wallclock)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;signature</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;shred_&#8203;version</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (shred version)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;destination</span>"} | counter | Total wire bytes of gossip messages processed (Prune (destination)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;wallclock</span>"} | counter | Total wire bytes of gossip messages processed (Prune (wallclock)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;signature</span>"} | counter | Total wire bytes of gossip messages processed (Prune (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter | Total wire bytes of gossip messages processed (Push (no valid crds)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter | Total wire bytes of gossip messages processed (Pull Response (no valid crds)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;ping_&#8203;signature</span>"} | counter | Total wire bytes of gossip messages processed (Ping (signature)) |
+| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pong_&#8203;signature</span>"} | counter | Total wire bytes of gossip messages processed (Pong (signature)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter | Number of CRDS values processed (Pull Response (success)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter | Number of CRDS values processed (Push (success)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;duplicate</span>"} | counter | Number of CRDS values processed (Pull Response (duplicate)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;signature</span>"} | counter | Number of CRDS values processed (Pull Response (signature)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter | Number of CRDS values processed (Pull Response (origin no contact info)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter | Number of CRDS values processed (Pull Response (origin shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;inactive</span>"} | counter | Number of CRDS values processed (Pull Response (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;signature</span>"} | counter | Number of CRDS values processed (Push (signature)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter | Number of CRDS values processed (Push (origin no contact info)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter | Number of CRDS values processed (Push (origin shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;inactive</span>"} | counter | Number of CRDS values processed (Push (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;wallclock</span>"} | counter | Number of CRDS values processed (Push (wallclock)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (success)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter | Total wire bytes of CRDS values processed (Push (success)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;duplicate</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (duplicate)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;signature</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (signature)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (origin no contact info)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (origin shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;inactive</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;signature</span>"} | counter | Total wire bytes of CRDS values processed (Push (signature)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter | Total wire bytes of CRDS values processed (Push (origin no contact info)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter | Total wire bytes of CRDS values processed (Push (origin shred version)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;inactive</span>"} | counter | Total wire bytes of CRDS values processed (Push (inactive)) |
+| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;wallclock</span>"} | counter | Total wire bytes of CRDS values processed (Push (wallclock)) |
 
 </div>
 
@@ -709,49 +864,6 @@
 
 </div>
 
-## Netlnk Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">netlnk_&#8203;drop_&#8203;events</span> | counter | Number of netlink drop events caught |
-| <span class="metrics-name">netlnk_&#8203;link_&#8203;full_&#8203;syncs</span> | counter | Number of full link table syncs done |
-| <span class="metrics-name">netlnk_&#8203;route_&#8203;full_&#8203;syncs</span> | counter | Number of full route table syncs done |
-| <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">link</span>"} | counter | Number of netlink live updates processed (Link) |
-| <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">neigh</span>"} | counter | Number of netlink live updates processed (Neighbor Table Entry) |
-| <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">ipv4_&#8203;route</span>"} | counter | Number of netlink live updates processed (IPv4 Route Table Entry) |
-| <span class="metrics-name">netlnk_&#8203;interface_&#8203;count</span> | gauge | Number of network interfaces |
-| <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">local</span>"} | gauge | Number of IPv4 routes (Local) |
-| <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">main</span>"} | gauge | Number of IPv4 routes (Main) |
-| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;sent</span> | counter | Number of neighbor solicit requests sent to kernel |
-| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;fails</span> | counter | Number of neighbor solicit requests that failed to send (kernel too slow) |
-| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;host</span> | counter | Number of neighbor solicit that exceeded the per-host rate limit |
-| <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;global</span> | counter | Number of neighbor solicit that exceeded the global rate limit |
-
-</div>
-
-## Sock Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">no_&#8203;error</span>"} | counter | Number of sendmmsg syscalls dispatched (No error) |
-| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">slow</span>"} | counter | Number of sendmmsg syscalls dispatched (ENOBUFS, EAGAIN error) |
-| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">perm</span>"} | counter | Number of sendmmsg syscalls dispatched (EPERM error (blocked by netfilter)) |
-| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">unreach</span>"} | counter | Number of sendmmsg syscalls dispatched (ENETUNREACH, EHOSTUNREACH error) |
-| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">down</span>"} | counter | Number of sendmmsg syscalls dispatched (ENONET, ENETDOWN, EHOSTDOWN error) |
-| <span class="metrics-name">sock_&#8203;syscalls_&#8203;sendmmsg</span><br/>{sock_&#8203;err="<span class="metrics-enum">other</span>"} | counter | Number of sendmmsg syscalls dispatched (Unrecognized error code) |
-| <span class="metrics-name">sock_&#8203;syscalls_&#8203;recvmmsg</span> | counter | Number of recvmsg syscalls dispatched |
-| <span class="metrics-name">sock_&#8203;rx_&#8203;pkt_&#8203;cnt</span> | counter | Number of packets received |
-| <span class="metrics-name">sock_&#8203;tx_&#8203;pkt_&#8203;cnt</span> | counter | Number of packets sent |
-| <span class="metrics-name">sock_&#8203;tx_&#8203;drop_&#8203;cnt</span> | counter | Number of packets failed to send |
-| <span class="metrics-name">sock_&#8203;tx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes transmitted (including Ethernet header) |
-| <span class="metrics-name">sock_&#8203;rx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes received (including Ethernet header) |
-
-</div>
-
 ## Repair Tile
 
 <div class="metrics">
@@ -773,6 +885,126 @@
 | <span class="metrics-name">repair_&#8203;slot_&#8203;complete_&#8203;time</span> | histogram | Time in seconds it took to complete a slot |
 | <span class="metrics-name">repair_&#8203;response_&#8203;latency</span> | histogram | Time in nanoseconds it took to receive a repair request response |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
+
+</div>
+
+## Replay Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">replay_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;link_&#8203;work</span> | histogram | Time in seconds spent on linking a new FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to read a FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;work</span> | histogram | Time in seconds spent on reading a FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to publish a new FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;work</span> | histogram | Time in seconds spent on publishing a new FEC set |
+| <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | The slot at which our node has most recently rooted |
+| <span class="metrics-name">replay_&#8203;root_&#8203;distance</span> | gauge | The distance in slots between our current root and the current reset slot |
+| <span class="metrics-name">replay_&#8203;leader_&#8203;slot</span> | gauge | The slot at which we are currently leader, or 0 if none |
+| <span class="metrics-name">replay_&#8203;next_&#8203;leader_&#8203;slot</span> | gauge | The slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot |
+| <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | The slot at which we last reset the replay stage, or 0 if unknown |
+| <span class="metrics-name">replay_&#8203;max_&#8203;live_&#8203;banks</span> | gauge | The maximum number of banks we can have alive |
+| <span class="metrics-name">replay_&#8203;live_&#8203;banks</span> | gauge | The number of banks we currently have alive |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;free</span> | gauge | The number of free FEC sets in the reassembly queue |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;slot</span> | gauge | Slot of the latest FEC set in the reassembly queue that can be replayed |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;fec_&#8203;idx</span> | gauge | FEC set index of the latest FEC set in the reassembly queue that can be replayed |
+| <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully |
+| <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall on the current fork |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;full</span> | counter | Times where sched is full and a FEC set can't be processed |
+| <span class="metrics-name">replay_&#8203;reasm_&#8203;empty</span> | counter | Times where reasm is empty and a FEC set can't be processed |
+| <span class="metrics-name">replay_&#8203;leader_&#8203;bid_&#8203;wait</span> | counter | Times where replay is blocked by the PoH tile not sending an end of leader message |
+| <span class="metrics-name">replay_&#8203;banks_&#8203;full</span> | counter | Times where banks are full and a FEC set can't be processed |
+| <span class="metrics-name">replay_&#8203;storage_&#8203;root_&#8203;behind</span> | counter | Times where the storage root is behind the consensus root and can't be advanced |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;reverted</span> | counter | Number of account database records reverted |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;gc_&#8203;root</span> | counter | Number of account database entries garbage collected |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;reclaimed</span> | counter | Number of account database entries reclaimed (deletion rooted) |
+
+</div>
+
+## Execrp Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;misses</span> | counter | Number of program cache misses |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;hits</span> | counter | Number of program cache hits |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fills</span> | counter | Number of program cache insertions |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fill_&#8203;tot_&#8203;sz</span> | counter | Total number of bytes inserted into program cache |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fill_&#8203;fails</span> | counter | Number of program cache load fails (tombstones inserted) |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;dup_&#8203;inserts</span> | counter | Number of time two tiles raced to insert the same cache entry |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;invalidations</span> | counter | Number of program cache invalidations |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction setup) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction execution (includes VM setup/execution)) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction result commit) |
+| <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM setup) |
+| <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM commit) |
+| <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM setup (CPI)) |
+| <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM commit (CPI)) |
+| <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM interpreter execution) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged_&#8203;nonexist</span>"} | counter | Transaction account change event counters (Account did not exist before and still does not) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">created</span>"} | counter | Transaction account change event counters (Account created) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">delete</span>"} | counter | Transaction account change event counters (Account deleted) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">modify</span>"} | counter | Transaction account change event counters (Account modified) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged</span>"} | counter | Transaction account change event counters (Account unchanged) |
+
+</div>
+
+## Accdb Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">ancient</span>"} | gauge | Current bstream sequence number (Blocks between ancient and past have been written and forgotten (no read, no write)) |
+| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">past</span>"} | gauge | Current bstream sequence number (Blocks between past and present have been written (read only)) |
+| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (Blocks between present and future are being written (write only)) |
+| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">future</span>"} | gauge | Current bstream sequence number (Blocks between future and ancient have not been written (no read, no write)) |
+| <span class="metrics-name">accdb_&#8203;request_&#8203;batches</span> | counter | Number of request batches processed |
+| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">acquire</span>"} | counter | Number of requests processed (Acquire record) |
+| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">release</span>"} | counter | Number of requests processed (Release record) |
+| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">erase</span>"} | counter | Number of requests processed (Erase record) |
+| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">pair</span>"} | counter | Number of blocks written to bstream (Record) |
+| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">dead</span>"} | counter | Number of blocks written to bstream (Record deletion) |
+| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |
+| <span class="metrics-name">accdb_&#8203;garbage_&#8203;bytes</span> | gauge |  |
+| <span class="metrics-name">accdb_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
+| <span class="metrics-name">accdb_&#8203;cache_&#8203;hits</span> | counter | Total number of cache hits |
+
+</div>
+
+## Tower Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;invalid</span> | counter | Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.) |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;ignored</span> | counter | Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind) |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;mismatch</span> | counter | Number of times a vote txn mismatched our own block id |
+| <span class="metrics-name">tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
+| <span class="metrics-name">tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
+| <span class="metrics-name">tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |
+| <span class="metrics-name">tower_&#8203;switch_&#8203;pass</span> | counter | Prev vote was on a different fork, but we are allowed to switch (can vote) |
+| <span class="metrics-name">tower_&#8203;switch_&#8203;fail</span> | counter | Prev vote was on a different fork, and we are not allowed to switch (can't vote) |
+| <span class="metrics-name">tower_&#8203;lockout_&#8203;fail</span> | counter | Locked out (can't vote) |
+| <span class="metrics-name">tower_&#8203;threshold_&#8203;fail</span> | counter | Did not pass threshold check (can't vote) |
+| <span class="metrics-name">tower_&#8203;propagated_&#8203;fail</span> | counter | Prev leader block did not propagate (can't vote) |
+| <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | Current Tower root slot |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Current Tower vote slot |
+| <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Current Tower reset slot |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored</span> | counter | Number of times we ignored a slot likely due to minority fork publish |
+| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;seen</span> | counter | Number of hard forks we've seen (block ids with multiple candidate bank hashes) |
+| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;pruned</span> | counter | Number of hard forks (candidate bank hashes) we've pruned |
+| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;active</span> | gauge | Currently active hard forks |
+| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;max_&#8203;width</span> | gauge | Max number of candidate bank hashes for a given block id |
 
 </div>
 
@@ -917,216 +1149,175 @@
 
 </div>
 
-## Snapct Tile
+## Diag Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapct_&#8203;state</span> | gauge | State of the tile |
-| <span class="metrics-name">snapct_&#8203;full_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried full snapshot download because the peer was too slow |
-| <span class="metrics-name">snapct_&#8203;incremental_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried incremental snapshot download because the peer was too slow |
-| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;total</span> | gauge | Total size of the full snapshot file. Might change if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapct_&#8203;full_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the full snapshot download because the peer was too slow |
-| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;total</span> | gauge | Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapct_&#8203;incremental_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the incremental snapshot download because the peer was too slow |
-| <span class="metrics-name">snapct_&#8203;predicted_&#8203;slot</span> | gauge | The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapct_&#8203;gossip_&#8203;fresh_&#8203;count</span> | gauge | Number of fresh gossip peers seen when collecting gossip peers.  |
-| <span class="metrics-name">snapct_&#8203;gossip_&#8203;total_&#8203;count</span> | gauge | Number of total gossip peers seen when collecting gossip peers.  |
-| <span class="metrics-name">snapct_&#8203;ssl_&#8203;alloc_&#8203;errors</span> | counter | Number of SSL allocation errors encountered.  |
 
 </div>
 
-## Snapld Tile
+## Event Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapld_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snapld_&#8203;ssl_&#8203;alloc_&#8203;errors</span> | counter | Number of SSL allocation errors encountered.  |
+| <span class="metrics-name">event_&#8203;connection_&#8203;state</span> | gauge | 0 = disconnected, 1 = connecting, 2 = connected |
+| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;count</span> | gauge | The current number of events in the event queue waiting to be sent to the event service |
+| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;drops</span> | counter | The total number of events dropped because the event queue was full |
+| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;bytes_&#8203;used</span> | gauge | The current number of bytes used in the event queue |
+| <span class="metrics-name">event_&#8203;event_&#8203;queue_&#8203;bytes_&#8203;capacity</span> | gauge | The total capacity in bytes of the event queue |
+| <span class="metrics-name">event_&#8203;events_&#8203;sent</span> | counter | The total number of events sent to the event service |
+| <span class="metrics-name">event_&#8203;events_&#8203;acked</span> | counter | The total number of events acknowledged by the event service |
+| <span class="metrics-name">event_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to the event service |
+| <span class="metrics-name">event_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from the event service |
 
 </div>
 
-## Snapdc Tile
+## Gui Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapdc_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snapdc_&#8203;full_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes decompressed so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapdc_&#8203;incremental_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapdc_&#8203;incremental_&#8203;decompressed_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes decompressed so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">gui_&#8203;connection_&#8203;count</span> | gauge | The number of active http connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection |
+| <span class="metrics-name">gui_&#8203;websocket_&#8203;connection_&#8203;count</span> | gauge | The number of active websocket connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;websocket_&#8203;frames_&#8203;sent</span> | counter | The total number of websocket frames sent to all connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;websocket_&#8203;frames_&#8203;received</span> | counter | The total number of websocket frames received from all connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all connections to the GUI service |
 
 </div>
 
-## Snapin Tile
+## Metric Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapin_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snapin_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapin_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapin_&#8203;accounts_&#8203;loaded</span> | gauge | Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts |
-| <span class="metrics-name">snapin_&#8203;accounts_&#8203;replaced</span> | gauge | Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts |
-| <span class="metrics-name">snapin_&#8203;accounts_&#8203;ignored</span> | gauge | Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts |
+| <span class="metrics-name">metric_&#8203;boot_&#8203;timestamp_&#8203;nanos</span> | gauge | Timestamp when validator was started (nanoseconds since epoch) |
+| <span class="metrics-name">metric_&#8203;connection_&#8203;count</span> | gauge | The number of active http connections to the Prometheus endpoint |
+| <span class="metrics-name">metric_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all responses on the Prometheus endpoint |
+| <span class="metrics-name">metric_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all requests to the Prometheus endpoint |
 
 </div>
 
-## Ipecho Tile
+## Rpc Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">ipecho_&#8203;current_&#8203;shred_&#8203;version</span> | gauge | The current shred version used by the validator |
-| <span class="metrics-name">ipecho_&#8203;connection_&#8203;count</span> | gauge | The number of active connections to the ipecho service |
-| <span class="metrics-name">ipecho_&#8203;connections_&#8203;closed_&#8203;ok</span> | counter | The number of connections to the ipecho service that have been made and closed normally |
-| <span class="metrics-name">ipecho_&#8203;connections_&#8203;closed_&#8203;error</span> | counter | The number of connections to the ipecho service that have been made and closed abnormally |
-| <span class="metrics-name">ipecho_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from all connections to the ipecho service |
-| <span class="metrics-name">ipecho_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to all connections to the ipecho service |
 
 </div>
 
-## Gossvf Tile
+## Resolh Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;request</span>"} | counter | Number of gossip messages processed (Pull Request (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter | Number of gossip messages processed (Pull Response (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter | Number of gossip messages processed (Push (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;prune</span>"} | counter | Number of gossip messages processed (Prune (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;ping</span>"} | counter | Number of gossip messages processed (Ping (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pong</span>"} | counter | Number of gossip messages processed (Pong (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;unparseable</span>"} | counter | Number of gossip messages processed (Unparseable) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;not_&#8203;contact_&#8203;info</span>"} | counter | Number of gossip messages processed (Pull Request (not contact info)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;loopback</span>"} | counter | Number of gossip messages processed (Pull Request (loopback)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;inactive</span>"} | counter | Number of gossip messages processed (Pull Request (inactive)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;wallclock</span>"} | counter | Number of gossip messages processed (Pull Request (wallclock)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;signature</span>"} | counter | Number of gossip messages processed (Pull Request (signature)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;shred_&#8203;version</span>"} | counter | Number of gossip messages processed (Pull Request (shred version)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;destination</span>"} | counter | Number of gossip messages processed (Prune (destination)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;wallclock</span>"} | counter | Number of gossip messages processed (Prune (wallclock)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;signature</span>"} | counter | Number of gossip messages processed (Prune (signature)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter | Number of gossip messages processed (Push (no valid crds)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter | Number of gossip messages processed (Pull Response (no valid crds)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;ping_&#8203;signature</span>"} | counter | Number of gossip messages processed (Ping (signature)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pong_&#8203;signature</span>"} | counter | Number of gossip messages processed (Pong (signature)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;request</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter | Total wire bytes of gossip messages processed (Pull Response (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter | Total wire bytes of gossip messages processed (Push (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;prune</span>"} | counter | Total wire bytes of gossip messages processed (Prune (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;ping</span>"} | counter | Total wire bytes of gossip messages processed (Ping (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">success_&#8203;pong</span>"} | counter | Total wire bytes of gossip messages processed (Pong (success)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;unparseable</span>"} | counter | Total wire bytes of gossip messages processed (Unparseable) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;not_&#8203;contact_&#8203;info</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (not contact info)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;loopback</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (loopback)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;inactive</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (inactive)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;wallclock</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (wallclock)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;signature</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (signature)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;request_&#8203;shred_&#8203;version</span>"} | counter | Total wire bytes of gossip messages processed (Pull Request (shred version)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;destination</span>"} | counter | Total wire bytes of gossip messages processed (Prune (destination)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;wallclock</span>"} | counter | Total wire bytes of gossip messages processed (Prune (wallclock)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;prune_&#8203;signature</span>"} | counter | Total wire bytes of gossip messages processed (Prune (signature)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter | Total wire bytes of gossip messages processed (Push (no valid crds)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;no_&#8203;valid_&#8203;crds</span>"} | counter | Total wire bytes of gossip messages processed (Pull Response (no valid crds)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;ping_&#8203;signature</span>"} | counter | Total wire bytes of gossip messages processed (Ping (signature)) |
-| <span class="metrics-name">gossvf_&#8203;message_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;message_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pong_&#8203;signature</span>"} | counter | Total wire bytes of gossip messages processed (Pong (signature)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter | Number of CRDS values processed (Pull Response (success)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter | Number of CRDS values processed (Push (success)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;duplicate</span>"} | counter | Number of CRDS values processed (Pull Response (duplicate)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;signature</span>"} | counter | Number of CRDS values processed (Pull Response (signature)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter | Number of CRDS values processed (Pull Response (origin no contact info)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter | Number of CRDS values processed (Pull Response (origin shred version)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;inactive</span>"} | counter | Number of CRDS values processed (Pull Response (inactive)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;signature</span>"} | counter | Number of CRDS values processed (Push (signature)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter | Number of CRDS values processed (Push (origin no contact info)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter | Number of CRDS values processed (Push (origin shred version)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;inactive</span>"} | counter | Number of CRDS values processed (Push (inactive)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;wallclock</span>"} | counter | Number of CRDS values processed (Push (wallclock)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;pull_&#8203;response</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (success)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">success_&#8203;push</span>"} | counter | Total wire bytes of CRDS values processed (Push (success)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;duplicate</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (duplicate)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;signature</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (signature)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (origin no contact info)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (origin shred version)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;inactive</span>"} | counter | Total wire bytes of CRDS values processed (Pull Response (inactive)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;signature</span>"} | counter | Total wire bytes of CRDS values processed (Push (signature)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;no_&#8203;contact_&#8203;info</span>"} | counter | Total wire bytes of CRDS values processed (Push (origin no contact info)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter | Total wire bytes of CRDS values processed (Push (origin shred version)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;inactive</span>"} | counter | Total wire bytes of CRDS values processed (Push (inactive)) |
-| <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;wallclock</span>"} | counter | Total wire bytes of CRDS values processed (Push (wallclock)) |
+| <span class="metrics-name">resolh_&#8203;no_&#8203;bank_&#8203;drop</span> | counter | Count of transactions dropped because the bank was not available |
+| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">inserted</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was added to the stash) |
+| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">overrun</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was dropped because the stash was full) |
+| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">published</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was published as the blockhash became known) |
+| <span class="metrics-name">resolh_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">removed</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Count of address lookup tables resolved (The transaction referenced an index in a LUT that didn't exist) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT hasn't been initialized) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be parsed) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT wasn't owned by the ALUT program ID) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
+| <span class="metrics-name">resolh_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
+| <span class="metrics-name">resolh_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
+| <span class="metrics-name">resolh_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
 
 </div>
 
-## Execle Tile
+## Bank Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of loading and executing a transaction (Transaction executed successfully) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">instructon_&#8203;error</span>"} | counter | Result of loading and executing a transaction (An error occurred while processing an instruction) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer address was not found) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">program_&#8203;account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (A program account referenced by the transaction was not found) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer did not have balance to pay the fee) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer account is not owned by the system program, or has data that is not a nonce) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">already_&#8203;processed</span>"} | counter | Result of loading and executing a transaction (The transaction has already been processed in a recent block) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">blockhash_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction references a blockhash that is not recent, or advances a nonce with the wrong value) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;program_&#8203;for_&#8203;execution</span>"} | counter | Result of loading and executing a transaction (A program account referenced by the transaction was no executable. TODO: No longer needed with SIMD-0162) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">address_&#8203;lookup_&#8203;table_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction references an ALUT account that does not exist or is inactive) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;owner</span>"} | counter | Result of loading and executing a transaction (The transaction references an ALUT account that is not owned by the ALUT program account) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;data</span>"} | counter | Result of loading and executing a transaction (The transaction references an ALUT account that contains data which is not a valid ALUT) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;index</span>"} | counter | Result of loading and executing a transaction (The transaction references an account offset from the ALUT which does not exist) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">max_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;exceeded</span>"} | counter | Result of loading and executing a transaction (The total account data size of the loaded accounts exceeds the consensus limit) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">duplicate_&#8203;instruction</span>"} | counter | Result of loading and executing a transaction (A compute budget program instruction was invoked more than once) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (The compute budget program was invoked and set the loaded accounts data size to zero) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;already_&#8203;advanced</span>"} | counter | Result of loading and executing a transaction (The transaction references a nonce account that is already advanced) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;advance_&#8203;failed</span>"} | counter | Result of loading and executing a transaction (The transaction is a nonce transaction but the advance instruction was not valid or failed) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;wrong_&#8203;blockhash</span>"} | counter | Result of loading and executing a transaction (The transaction is a nonce transaction but the blockhash is not the correct one) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;in_&#8203;use</span>"} | counter | Result of loading and executing a transaction (The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;loaded_&#8203;twice</span>"} | counter | Result of loading and executing a transaction (The transaction references the same account twice) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">signature_&#8203;failure</span>"} | counter | Result of loading and executing a transaction (The transaction had an invalid signature) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">too_&#8203;many_&#8203;account_&#8203;locks</span>"} | counter | Result of loading and executing a transaction (The transaction references too many accounts. TODO: No longer possible with smart dispatcher) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;rent</span>"} | counter | Result of loading and executing a transaction (The transaction would leave an account with a lower balance than the rent-exempt minimum) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">unbalanced_&#8203;transaction</span>"} | counter | Result of loading and executing a transaction (The total referenced account lamports before and after the transaction was unbalanced) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">bundle_&#8203;peer</span>"} | counter | Result of loading and executing a transaction (The transaction was part of a bundle and an earlier transaction in the bundle failed) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;success</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;fees_&#8203;only</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but was fees only and did not execute) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;failed</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but failed to execute) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">unlanded</span>"} | counter | Whether a transaction landed in the block or not (Transaction did not land) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;sanitize_&#8203;failure</span> | counter | Number of transactions that failed to sanitize |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;not_&#8203;executed_&#8203;failure</span> | counter | Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (The transaction referenced an index in a LUT that didn't exist) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (The account referenced as a LUT hasn't been initialized) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (The account referenced as a LUT couldn't be parsed) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (The account referenced as a LUT wasn't owned by the ALUT program ID) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (The account referenced as a LUT couldn't be found) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported (Resolved successfully) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">success</span>"} | counter | Result of loading and executing a transaction (Success) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;in_&#8203;use</span>"} | counter | Result of loading and executing a transaction (An account is already being processed in another transaction in a way that does not support parallelism) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;loaded_&#8203;twice</span>"} | counter | Result of loading and executing a transaction (A `Pubkey` appears twice in the transaction's `account_keys`. Instructions can reference `Pubkey`s more than once but the message must contain a list with no duplicate keys) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (Attempt to debit an account but found no record of a prior credit) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">program_&#8203;account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (Attempt to load a program that does not exist) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (The fee payer `Pubkey` does not have sufficient balance to pay the fee to schedule the transaction) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;account_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (This account may not be used to pay transaction fees) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">already_&#8203;processed</span>"} | counter | Result of loading and executing a transaction (The bank has seen this transaction before. This can occur under normal operation when a UDP packet is duplicated, as a user error from a client not updating its `recent_blockhash`, or as a double-spend attack) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">blockhash_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The bank has not seen the given `recent_blockhash` or the transaction is too old and the `recent_blockhash` has been discarded) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">instruction_&#8203;error</span>"} | counter | Result of loading and executing a transaction (An error occurred while processing an instruction) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">call_&#8203;chain_&#8203;too_&#8203;deep</span>"} | counter | Result of loading and executing a transaction (Loader call chain is too deep) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">missing_&#8203;signature_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (Transaction requires a fee but has no signature present) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;account_&#8203;index</span>"} | counter | Result of loading and executing a transaction (Transaction contains an invalid account reference) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">signature_&#8203;failure</span>"} | counter | Result of loading and executing a transaction (Transaction did not pass signature verification) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;program_&#8203;for_&#8203;execution</span>"} | counter | Result of loading and executing a transaction (This program may not be used for executing instructions) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">sanitize_&#8203;failure</span>"} | counter | Result of loading and executing a transaction (Transaction failed to sanitize accounts offsets correctly implies that account locks are not taken for this TX, and should not be unlocked) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">cluster_&#8203;maintenance</span>"} | counter | Result of loading and executing a transaction (Transactions are currently disabled due to cluster maintenance) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;borrow_&#8203;outstanding</span>"} | counter | Result of loading and executing a transaction (Transaction processing left an account with an outstanding borrowed reference) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;block_&#8203;cost_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (Transaction would exceed max Block Cost Limit) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">unsupported_&#8203;version</span>"} | counter | Result of loading and executing a transaction (Transaction version is unsupported) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;writable_&#8203;account</span>"} | counter | Result of loading and executing a transaction (Transaction loads a writable account that cannot be written) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;account_&#8203;cost_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (Transaction would exceed max account limit within the block) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;account_&#8203;data_&#8203;block_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (Transaction would exceed account data limit within the block) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">too_&#8203;many_&#8203;account_&#8203;locks</span>"} | counter | Result of loading and executing a transaction (Transaction locked too many accounts) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">address_&#8203;lookup_&#8203;table_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (Address lookup table not found) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;owner</span>"} | counter | Result of loading and executing a transaction (Attempted to lookup addresses from an account owned by the wrong program) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;data</span>"} | counter | Result of loading and executing a transaction (Attempted to lookup addresses from an invalid account) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;index</span>"} | counter | Result of loading and executing a transaction (Address table lookup uses an invalid index) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;rent_&#8203;paying_&#8203;account</span>"} | counter | Result of loading and executing a transaction (Transaction leaves an account with a lower balance than rent-exempt minimum) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;vote_&#8203;cost_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (Transaction would exceed max Vote Cost Limit) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;account_&#8203;data_&#8203;total_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (Transaction would exceed total account data limit) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">duplicate_&#8203;instruction</span>"} | counter | Result of loading and executing a transaction (Transaction contains a duplicate instruction that is not allowed) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;rent</span>"} | counter | Result of loading and executing a transaction (Transaction results in an account with insufficient funds for rent) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">max_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;exceeded</span>"} | counter | Result of loading and executing a transaction (Transaction exceeded max loaded accounts data size cap) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (LoadedAccountsDataSizeLimit set for transaction must be greater than 0) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">resanitization_&#8203;needed</span>"} | counter | Result of loading and executing a transaction (Sanitized transaction differed before/after feature activation. Needs to be resanitized) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">program_&#8203;execution_&#8203;temporarily_&#8203;restricted</span>"} | counter | Result of loading and executing a transaction (Program execution is temporarily restricted on an account) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">unbalanced_&#8203;transaction</span>"} | counter | Result of loading and executing a transaction (The total balance before the transaction does not equal the total balance after the transaction) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">program_&#8203;cache_&#8203;hit_&#8203;max_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (The total program cache size hit the maximum allowed limit) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">commit_&#8203;cancelled</span>"} | counter | Result of loading and executing a transaction (The process for committing the transaction was cancelled internally) |
+| <span class="metrics-name">bank_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">bundle_&#8203;peer</span>"} | counter | Result of loading and executing a transaction (Transaction is part of a bundle and one of the peer transactions failed) |
+| <span class="metrics-name">bank_&#8203;processing_&#8203;failed</span> | counter | Count of transactions for which the processing stage failed and won't land on chain |
+| <span class="metrics-name">bank_&#8203;fee_&#8203;only_&#8203;transactions</span> | counter | Count of transactions that will land on chain but without executing |
+| <span class="metrics-name">bank_&#8203;executed_&#8203;failed_&#8203;transactions</span> | counter | Count of transactions that execute on chain but failed |
+| <span class="metrics-name">bank_&#8203;successful_&#8203;transactions</span> | counter | Count of transactions that execute on chain and succeed |
+| <span class="metrics-name">bank_&#8203;cost_&#8203;model_&#8203;undercount</span> | counter | Count of transactions that used more CUs than the cost model should have permitted them to |
 
 </div>
 
-## Resolv Tile
+## Pohh Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">resolv_&#8203;no_&#8203;bank_&#8203;drop</span> | counter | Count of transactions dropped because the bank was not available |
-| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">inserted</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was added to the stash) |
-| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">overrun</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was dropped because the stash was full) |
-| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">published</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was published as the blockhash became known) |
-| <span class="metrics-name">resolv_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">removed</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Count of address lookup tables resolved (The transaction referenced an index in a LUT that didn't exist) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT hasn't been initialized) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be parsed) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT wasn't owned by the ALUT program ID) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
-| <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
-| <span class="metrics-name">resolv_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
-| <span class="metrics-name">resolv_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
+| <span class="metrics-name">pohh_&#8203;begin_&#8203;leader_&#8203;delay_&#8203;seconds</span> | histogram | Delay between when we become leader in a slot and when we receive the bank. |
+| <span class="metrics-name">pohh_&#8203;first_&#8203;microblock_&#8203;delay_&#8203;seconds</span> | histogram | Delay between when we become leader in a slot and when we receive the first microblock. |
+| <span class="metrics-name">pohh_&#8203;slot_&#8203;done_&#8203;delay_&#8203;seconds</span> | histogram | Delay between when we become leader in a slot and when we finish the slot. |
+| <span class="metrics-name">pohh_&#8203;bundle_&#8203;initialize_&#8203;delay_&#8203;seconds</span> | histogram | Delay in starting the slot caused by loading the information needed to generate the bundle crank transactions |
+
+</div>
+
+## Store Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">store_&#8203;transactions_&#8203;inserted</span> | counter | Count of transactions produced while we were leader in the shreds that have been inserted so far |
 
 </div>
 
@@ -1141,47 +1332,6 @@
 
 </div>
 
-## Execrp Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;misses</span> | counter | Number of program cache misses |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;hits</span> | counter | Number of program cache hits |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fills</span> | counter | Number of program cache insertions |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fill_&#8203;tot_&#8203;sz</span> | counter | Total number of bytes inserted into program cache |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fill_&#8203;fails</span> | counter | Number of program cache load fails (tombstones inserted) |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;dup_&#8203;inserts</span> | counter | Number of time two tiles raced to insert the same cache entry |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;invalidations</span> | counter | Number of program cache invalidations |
-| <span class="metrics-name">execrp_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction setup) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction execution (includes VM setup/execution)) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction result commit) |
-| <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM setup) |
-| <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM commit) |
-| <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM setup (CPI)) |
-| <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM commit (CPI)) |
-| <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM interpreter execution) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged_&#8203;nonexist</span>"} | counter | Transaction account change event counters (Account did not exist before and still does not) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">created</span>"} | counter | Transaction account change event counters (Account created) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">delete</span>"} | counter | Transaction account change event counters (Account deleted) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">modify</span>"} | counter | Transaction account change event counters (Account modified) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged</span>"} | counter | Transaction account change event counters (Account unchanged) |
-
-</div>
-
-## Snapwr Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapwr_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
-| <span class="metrics-name">snapwr_&#8203;vinyl_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted |
-
-</div>
-
 ## Benchs Tile
 
 <div class="metrics">
@@ -1189,146 +1339,5 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">benchs_&#8203;transactions_&#8203;sent</span> | counter | Number of benchmark packets sent |
-
-</div>
-
-## Snapwh Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapwh_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
-
-</div>
-
-## Snapla Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapla_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snapla_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapla_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-
-</div>
-
-## Snapls Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapls_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snapls_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapls_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-
-</div>
-
-## Tower Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;invalid</span> | counter | Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.) |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;ignored</span> | counter | Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind) |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;mismatch</span> | counter | Number of times a vote txn mismatched our own block id |
-| <span class="metrics-name">tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
-| <span class="metrics-name">tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
-| <span class="metrics-name">tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |
-| <span class="metrics-name">tower_&#8203;switch_&#8203;pass</span> | counter | Prev vote was on a different fork, but we are allowed to switch (can vote) |
-| <span class="metrics-name">tower_&#8203;switch_&#8203;fail</span> | counter | Prev vote was on a different fork, and we are not allowed to switch (can't vote) |
-| <span class="metrics-name">tower_&#8203;lockout_&#8203;fail</span> | counter | Locked out (can't vote) |
-| <span class="metrics-name">tower_&#8203;threshold_&#8203;fail</span> | counter | Did not pass threshold check (can't vote) |
-| <span class="metrics-name">tower_&#8203;propagated_&#8203;fail</span> | counter | Prev leader block did not propagate (can't vote) |
-| <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | Current Tower root slot |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Current Tower vote slot |
-| <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Current Tower reset slot |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored</span> | counter | Number of times we ignored a slot likely due to minority fork publish |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;seen</span> | counter | Number of hard forks we've seen (block ids with multiple candidate bank hashes) |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;pruned</span> | counter | Number of hard forks (candidate bank hashes) we've pruned |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;active</span> | gauge | Currently active hard forks |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;max_&#8203;width</span> | gauge | Max number of candidate bank hashes for a given block id |
-
-</div>
-
-## Accdb Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">ancient</span>"} | gauge | Current bstream sequence number (Blocks between ancient and past have been written and forgotten (no read, no write)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">past</span>"} | gauge | Current bstream sequence number (Blocks between past and present have been written (read only)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (Blocks between present and future are being written (write only)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">future</span>"} | gauge | Current bstream sequence number (Blocks between future and ancient have not been written (no read, no write)) |
-| <span class="metrics-name">accdb_&#8203;request_&#8203;batches</span> | counter | Number of request batches processed |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">acquire</span>"} | counter | Number of requests processed (Acquire record) |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">release</span>"} | counter | Number of requests processed (Release record) |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">erase</span>"} | counter | Number of requests processed (Erase record) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">pair</span>"} | counter | Number of blocks written to bstream (Record) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">dead</span>"} | counter | Number of blocks written to bstream (Record deletion) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |
-| <span class="metrics-name">accdb_&#8203;garbage_&#8203;bytes</span> | gauge |  |
-| <span class="metrics-name">accdb_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
-| <span class="metrics-name">accdb_&#8203;cache_&#8203;hits</span> | counter | Total number of cache hits |
-
-</div>
-
-## Snapwm Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapwm_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;loaded</span> | gauge | Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;replaced</span> | gauge | Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;ignored</span> | gauge | Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;active</span> | gauge | Current number of accounts in index. Resets if snapshot load restarts |
-
-</div>
-
-## Snaplh Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snaplh_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snaplh_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaplh_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-
-</div>
-
-## Snaplv Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snaplv_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snaplv_&#8203;full_&#8203;duplicate_&#8203;accounts_&#8203;hashed</span> | gauge | Number of duplicate accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaplv_&#8203;incremental_&#8203;duplicate_&#8203;accounts_&#8203;hashed</span> | gauge | Number of duplicate accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-
-</div>
-
-## Genesi Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-
-</div>
-
-## Rpc Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
 
 </div>
