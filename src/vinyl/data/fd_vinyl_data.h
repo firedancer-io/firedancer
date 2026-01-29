@@ -189,20 +189,7 @@ struct __attribute__((aligned(FD_VINYL_BSTREAM_BLOCK_SZ))) fd_vinyl_data_obj {
      implies laddr0 must less than the local address of vol (such that
      data gaddr==0 never points to an object).  Note also that, if
      laddr0 is 0, next_off will be just a pointer in the local address
-     space.
-
-     Note that direct I/O requires memory alignment and device alignment
-     to match.  So we need to put all the object allocator data its its
-     own block.  This leaves a lot of extra space.  We put this space up
-     front in the block to that it can act as a guard region for
-     whatever preceeds it (applications could even use this guard region
-     to stash extra info but this is not recommended because of false
-     sharing conflicts in might induce between different threads using
-     adjacent in memory objects).  Likewise, because we have all this
-     space from block quantization, we don't try to be hyperefficient
-     with the packing (like we do for, say, fd_alloc). */
-
-  uchar guard[ FD_VINYL_DATA_OBJ_GUARD_SZ ];
+     space. */
 
   /* rd on its own cache line */
 
