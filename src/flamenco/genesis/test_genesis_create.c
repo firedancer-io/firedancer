@@ -39,7 +39,6 @@ int main(int argc,
 
   static uchar result_mem[BUFSZ];
   ulong result_sz = fd_genesis_create(result_mem, sizeof(result_mem), options);
-
   FD_TEST(result_sz);
 
   /* Now try adding a few accounts */
@@ -49,15 +48,13 @@ int main(int argc,
   FD_TEST(result_sz);
 
   /* Add a feature gate */
-
   fd_features_t features[1];
   fd_features_disable_all(features);
   features->full_inflation_vote = 0UL;
   options->features = features;
-  ulong expected_result_sz = fd_genesis_blob_size(options);
   result_sz = fd_genesis_create(result_mem, sizeof(result_mem), options);
   FD_TEST(result_sz);
-  FD_TEST(expected_result_sz == result_sz);
+  FD_TEST(fd_genesis_blob_size(options) == result_sz);
 
   /* TODO load this into a Firedancer runtime and verify the resulting slot context */
 

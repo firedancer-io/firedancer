@@ -31,42 +31,36 @@ genesis_create(void *buf,
   fd_genesis_solana_t genesis[1];
   fd_genesis_solana_new(genesis);
 
-  // 4 bytes
   genesis->cluster_type = 3; /* development */
-  // 8 bytes
+
   genesis->creation_time = options->creation_time;
-  // 8 btes
   genesis->ticks_per_slot = options->ticks_per_slot;
   REQUIRE(genesis->ticks_per_slot);
-  // 8
+
   genesis->unused = 1024UL; /* match Anza genesis byte-for-byte */
-  // 1(uchar)
+
   genesis->poh_config.has_hashes_per_tick = !!options->hashes_per_tick;
-  // 8
   genesis->poh_config.hashes_per_tick = options->hashes_per_tick;
 
   ulong target_tick_micros = options->target_tick_duration_micros;
   REQUIRE(target_tick_micros);
   genesis->poh_config.target_tick_duration = (fd_rust_duration_t){
-      // 8
       .seconds = target_tick_micros / 1000000UL,
-      // 4(uint)
       .nanoseconds = (uint)(target_tick_micros % 1000000UL * 1000UL),
   };
 
   /* Create fee rate governor */
-  //(4*8)+1
+
   genesis->fee_rate_governor = (fd_fee_rate_governor_t){
       .target_lamports_per_signature = 10000UL,
       .target_signatures_per_slot = 20000UL,
       .min_lamports_per_signature = 5000UL,
       .max_lamports_per_signature = 100000UL,
-      // uchar
       .burn_percent = 50,
   };
 
   /* Create rent configuration */
-  // 8+8+1
+
   genesis->rent = (fd_rent_t){
       .lamports_per_uint8_year = 3480,
       .exemption_threshold = 2.0,
@@ -74,7 +68,7 @@ genesis_create(void *buf,
   };
 
   /* Create inflation configuration */
-  // 5*8
+
   genesis->inflation = (fd_inflation_t){
       .initial = 0.08,
       .terminal = 0.015,
@@ -91,18 +85,17 @@ genesis_create(void *buf,
      first_normal_epoch = log2( slots_per_epoch ) - log2( MINIMUM_SLOTS_PER_EPOCH  )
      first_normal_slot  = MINIMUM_SLOTS_PER_EPOCH * ( 2^( first_normal_epoch ) - 1 )
   */
-  // 4*8+1
+
   genesis->epoch_schedule = (fd_epoch_schedule_t){
       .slots_per_epoch = 8192UL,
       .leader_schedule_slot_offset = 8192UL,
-      // uchar
       .warmup = fd_uchar_if(options->warmup_epochs, 1, 0),
       .first_normal_epoch = fd_ulong_if(options->warmup_epochs, 8UL, 0UL),
       .first_normal_slot = fd_ulong_if(options->warmup_epochs, 8160UL, 0UL),
   };
 
   /* Create faucet account */
-  // 89
+
   fd_pubkey_account_pair_t const faucet_account = {
       .key = options->faucet_pubkey,
       .account = {
@@ -111,17 +104,16 @@ genesis_create(void *buf,
   ulong const faucet_account_index = genesis->accounts_len++;
 
   /* Create identity account (vote authority, withdraw authority) */
-  // 89
+
   fd_pubkey_account_pair_t const identity_account = {
       .key = options->identity_pubkey,
       .account = {
           .lamports = 500000000000UL /* 500 SOL */,
           .owner = fd_solana_system_program_id}};
-  // 8
   ulong const identity_account_index = genesis->accounts_len++;
 
   /* Create vote account */
-  // 89+FD_VOTE_STATE_V3_SZ
+
   ulong const vote_account_index = genesis->accounts_len++;
 
   uchar vote_state_data[FD_VOTE_STATE_V3_SZ] = {0};
@@ -157,7 +149,7 @@ genesis_create(void *buf,
   FD_SCRATCH_SCOPE_END;
 
   /* Create stake account */
-  // 89+FD_STAKE_STATE_V2_SZ
+
   ulong const stake_account_index = genesis->accounts_len++;
 
   uchar stake_data[FD_STAKE_STATE_V2_SZ] = {0};
@@ -192,7 +184,7 @@ genesis_create(void *buf,
   } while (0);
 
   /* Create stake config account */
-  // 89+10
+
   ulong const stake_cfg_account_index = genesis->accounts_len++;
 
   uchar stake_cfg_data[10];
@@ -346,7 +338,10 @@ ulong fd_genesis_blob_size(fd_genesis_options_t const *options)
   }
 
   ulong const funded_cnt = options->fund_initial_accounts;
-
+  if (FD_UNLIKELY(!options))
+  {
+    return 0UL;
+  }
   ulong sz = 0UL;
   // following same order is fd_gnesis_config
   //  creation_time:
