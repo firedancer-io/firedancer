@@ -195,12 +195,10 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
                                                   ulong                   new_len,
                                                   int *                   err ) {
   fd_exec_instr_ctx_t const * instr_ctx  = borrowed_acct->instr_ctx;
-  ulong                       size_delta = fd_ulong_sat_sub( new_len, borrowed_acct->meta->dlen );
+  long                        size_delta = fd_long_sat_sub( (long)new_len, (long)borrowed_acct->meta->dlen );
 
-  /* TODO: The size delta should never exceed the value of ULONG_MAX so this
-     could be replaced with a normal addition. However to match execution with
-     the agave client, this is being left as a sat add */
-  instr_ctx->txn_out->details.accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_out->details.accounts_resize_delta, size_delta );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.8/transaction-context/src/transaction_accounts.rs#L303-L313 */
+  instr_ctx->txn_out->details.accounts_resize_delta = fd_long_sat_add( instr_ctx->txn_out->details.accounts_resize_delta, size_delta );
   *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }
@@ -227,8 +225,8 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
 
   /* The resize can not exceed the per-transaction maximum
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1104-L1108 */
-  ulong length_delta              = fd_ulong_sat_sub( new_length, borrowed_acct->meta->dlen );
-  ulong new_accounts_resize_delta = fd_ulong_sat_add( borrowed_acct->instr_ctx->txn_out->details.accounts_resize_delta, length_delta );
+  long length_delta              = fd_long_sat_sub( (long)new_length, (long)borrowed_acct->meta->dlen );
+  long new_accounts_resize_delta = fd_long_sat_add( borrowed_acct->instr_ctx->txn_out->details.accounts_resize_delta, length_delta );
   if( FD_UNLIKELY( new_accounts_resize_delta > MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;
