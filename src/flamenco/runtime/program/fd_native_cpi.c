@@ -19,7 +19,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
   ulong                    instruction_accounts_cnt;
 
   /* Set the stack size */
-  instr_info->stack_height = ctx->runtime->instr.stack_sz+1;
+  instr_info->stack_height = (uchar)( ctx->runtime->instr.stack_sz+1 );
 
   /* fd_vm_prepare_instruction will handle missing/invalid account case */
   instr_info->program_id = UCHAR_MAX;

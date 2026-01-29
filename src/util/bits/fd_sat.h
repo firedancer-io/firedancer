@@ -103,13 +103,13 @@ fd_uint_sat_sub( uint x, uint y ) {
 
 FD_FN_CONST static inline ushort
 fd_ushort_sat_add( ushort x, ushort y ) {
-  uint res = x+y;
+  uint res = (uint)x + (uint)y;
   return fd_ushort_if( res>USHORT_MAX, USHORT_MAX, (ushort)res );
 }
 
 FD_FN_CONST static inline ushort
 fd_ushort_sat_mul( ushort x, ushort y ) {
-  uint res = x*y;
+  uint res = (uint)x * (uint)y;
   return fd_ushort_if( res>USHORT_MAX, USHORT_MAX, (ushort)res );
 }
 
