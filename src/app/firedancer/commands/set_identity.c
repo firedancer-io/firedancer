@@ -80,7 +80,8 @@
        (b) Gossip.  The gossip tile sends out ContactInfo messages with
            our identity key, and also uses the identity key to sign
            outgoing gossip messages.
-           FIXME: Gossip handling here is buggy
+           FIXME: Gossip keyswitch transition is buggy and may need to
+           be coordinated with gossvf.
        (c) Tower.  The tower tiles uses the identity key to generate
            vote transactions which are sent to the send tile.  These
            vote transactions are then signed downstream by the Send tile
@@ -138,8 +139,6 @@
        (d) Gossvf.  The gossvf tile uses the identity key to detect
            duplicate running instances of the same validator node as
            well as other message handling.
-           FIXME: keyswitch for this might need to be coordinated with
-           gossip.
        (e) Shred.  The shred tile uses the identity key to determine the
            position of the validator in the Turbine tree and to sign
            outgoing shreds.
@@ -160,7 +159,7 @@
      same tiles from REPLAY_HALT_REQUESTED. */
 #define FD_SET_IDENTITY_STATE_REPLAY_UNHALT_REQUESTED (10UL)
 
-/* State 11: SIGNERS_UNHALTED
+/* State 11: REPLAY_UNHALTED
      All tiles that rely on the sign tile have been unhalted and now the
      validator can resume making progress on replay. */
 #define FD_SET_IDENTITY_STATE_REPLAY_UNHALTED          (11UL)
