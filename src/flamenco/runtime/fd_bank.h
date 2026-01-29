@@ -247,7 +247,6 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             epoch                      ) /* Epoch */                                              \
   X(ulong,                             identity_vote_idx          ) /* Identity vote index */
 
-
 /* Defining pools for any CoW fields. */
 
 struct fd_bank_epoch_rewards {
