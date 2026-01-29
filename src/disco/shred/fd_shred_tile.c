@@ -967,10 +967,11 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_fec_set_t const * out_fec_set[1];
     fd_shred_t const   * out_shred[1];
     fd_fec_resolver_spilled_t spilled_fec = { 0 };
-    int enforce_fixed_fec = (shred->slot >= ctx->features_activation->enforce_fixed_fec_set);
+    //int enforce_fixed_fec = (shred->slot >= ctx->features_activation->enforce_fixed_fec_set);
+    //TODO: uncomment this before merging. and merge after enforce_fixed_fec_set is activated.
 
     long add_shred_timing  = -fd_tickcount();
-    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec, enforce_fixed_fec );
+    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec, 1 );
     add_shred_timing      +=  fd_tickcount();
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
@@ -1464,7 +1465,8 @@ unprivileged_init( fd_topo_t *      topo,
   ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
   if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) { /* firedancer-only */
     ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
-    FD_TEST( ctx->store->magic == FD_STORE_MAGIC );
+    FD_TEST( ctx->store->magic==FD_STORE_MAGIC );
+    FD_TEST( ctx->store->part_cnt==ctx->round_robin_cnt ); /* single-writer (shred tile) per store part */
   }
 
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
