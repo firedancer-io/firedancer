@@ -964,7 +964,7 @@ mock_privileged_init( fd_topo_t      * topo,
   fd_topob_tile_out( topo, "pack", 0UL, "pack_sign", 0UL );
   FD_TEST( fd_topo_find_tile_out_link( topo, tile, "pack_sign", tile->kind_id )!=ULONG_MAX );
 
-  /* keyswitch*/
+  /* keyswitch */
   void      * keyswitch_mem     = fd_wksp_alloc_laddr( crank_wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
   FD_TEST( keyswitch_mem );
   fd_topo_obj_t * keyswitch_obj = fd_topob_obj( topo, "keyswitch", "crank_wksp" );

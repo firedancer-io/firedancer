@@ -10,6 +10,7 @@
 #include "../../choreo/tower/fd_tower_serde.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_txn_m.h"
@@ -88,6 +89,8 @@ typedef struct fd_auth_key fd_auth_key_t;
 #define MAP_KEY_HASH(k)        ((uint)fd_ulong_hash( fd_ulong_load_8( (k).uc ) ))
 #include "../../util/tmpl/fd_map.c"
 
+#define AUTH_VOTERS_MAX (16UL)
+
 static const fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
 
 typedef struct {
@@ -125,6 +128,9 @@ typedef struct {
 
   fd_banks_t      banks[1];
   fd_accdb_user_t accdb[1];
+
+  ulong            auth_key_set_cnt;
+  fd_keyswitch_t * av_keyswitch; /* authorized voters */
 
   /* frag-related structures (consume and publish) */
 
@@ -996,6 +1002,7 @@ privileged_init( fd_topo_t *      topo,
     fd_auth_key_t * auth_key = fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) ) );
     auth_key->idx = i;
   }
+  ctx->auth_key_set_cnt = tile->tower.authorized_voter_paths_cnt;
 
   /* The tower file is used to checkpt and restore the state of the
      local tower. */
@@ -1070,6 +1077,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->vote_sha[i] = sha;
   }
 
+  ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
+  FD_TEST( ctx->av_keyswitch );
+
   ctx->init_slot = ULONG_MAX;
   ctx->root_slot = ULONG_MAX;
   ctx->conf_slot = ULONG_MAX;
@@ -1141,15 +1151,29 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static void
+during_housekeeping( ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    if( FD_UNLIKELY( ctx->auth_key_set_cnt==AUTH_VOTERS_MAX ) ) {
+      FD_LOG_ERR(( "auth_key_set full, cannot add new key" ));
+      return;
+    }
+    fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( ctx->av_keyswitch->bytes ) );
+    ctx->auth_key_set_cnt++;
+    fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+}
+
 #define STEM_BURST (2UL) /* slot_conf AND (slot_done OR slot_ignored) */
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
 
-#define STEM_CALLBACK_CONTEXT_TYPE    ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN   alignof(ctx_t)
-#define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_CONTEXT_TYPE        ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN       alignof(ctx_t)
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../disco/stem/fd_stem.c"
 

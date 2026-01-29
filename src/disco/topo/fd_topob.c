@@ -187,6 +187,14 @@ fd_topob_tile( fd_topo_t *    topo,
     tile->id_keyswitch_obj_id = ULONG_MAX;
   }
 
+  if( FD_UNLIKELY( uses_av_keyswitch ) ) {
+    obj = fd_topob_obj( topo, "keyswitch", tile_wksp );
+    tile->av_keyswitch_obj_id = obj->id;
+    fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  } else {
+    tile->av_keyswitch_obj_id = ULONG_MAX;
+  }
+
   topo->tile_cnt++;
   return tile;
 }
