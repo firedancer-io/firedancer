@@ -349,7 +349,6 @@ poll_keyswitch( fd_topo_t * topo,
                        !strcmp( topo->tiles[ i ].name, "tower" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].keyswitch_obj_id );
-        FD_LOG_NOTICE(("TILE NAME %s", topo->tiles[ i ].name));
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
         FD_COMPILER_MFENCE();
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
