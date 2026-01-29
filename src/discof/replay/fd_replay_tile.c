@@ -2596,6 +2596,10 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
   }
 
+  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
+    ctx->capture_ctx->capture_solcap = 1;
+  }
+
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
     ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
     if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) ctx->capture_ctx->dump_block_to_pb = tile->replay.dump_block_to_pb;

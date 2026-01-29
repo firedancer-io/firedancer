@@ -374,37 +374,43 @@ unprivileged_init( fd_topo_t *      topo,
   /* Capture context                                                 */
   /********************************************************************/
 
-  ctx->capture_ctx               = NULL;
+  ctx->capture_ctx = NULL;
+
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) || strlen( tile->execrp.dump_proto_dir ) ) ) {
-
-    ulong tile_idx = tile->kind_id;
-    ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_execrp", tile_idx );
-    FD_TEST( idx!=ULONG_MAX );
-    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
-    fd_capture_link_buf_t * cap_execrp_out = ctx->cap_execrp_out;
-    cap_execrp_out->base.vt = &fd_capture_link_buf_vt;
-    cap_execrp_out->idx     = idx;
-    cap_execrp_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-    cap_execrp_out->chunk0  = fd_dcache_compact_chunk0( cap_execrp_out->mem, link->dcache );
-    cap_execrp_out->wmark   = fd_dcache_compact_wmark( cap_execrp_out->mem, link->dcache, link->mtu );
-    cap_execrp_out->chunk   = cap_execrp_out->chunk0;
-    cap_execrp_out->mcache  = link->mcache;
-    cap_execrp_out->depth   = fd_mcache_depth( link->mcache );
-    cap_execrp_out->seq     = 0UL;
-
-    ulong consumer_tile_idx = fd_topo_find_tile(topo, "solcap", 0UL);
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
-    cap_execrp_out->fseq = NULL;
-    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {
-        cap_execrp_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
-        FD_TEST( cap_execrp_out->fseq );
-        break;
-      }
-    }
-
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
     ctx->capture_ctx->solcap_start_slot = tile->execrp.capture_start_slot;
+
+    if( strlen( tile->execrp.solcap_capture ) ) {
+      ulong tile_idx = tile->kind_id;
+      ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_execrp", tile_idx );
+      FD_TEST( idx!=ULONG_MAX );
+      fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+      fd_capture_link_buf_t * cap_execrp_out = ctx->cap_execrp_out;
+      cap_execrp_out->base.vt = &fd_capture_link_buf_vt;
+      cap_execrp_out->idx     = idx;
+      cap_execrp_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      cap_execrp_out->chunk0  = fd_dcache_compact_chunk0( cap_execrp_out->mem, link->dcache );
+      cap_execrp_out->wmark   = fd_dcache_compact_wmark( cap_execrp_out->mem, link->dcache, link->mtu );
+      cap_execrp_out->chunk   = cap_execrp_out->chunk0;
+      cap_execrp_out->mcache  = link->mcache;
+      cap_execrp_out->depth   = fd_mcache_depth( link->mcache );
+      cap_execrp_out->seq     = 0UL;
+
+      ulong consumer_tile_idx = fd_topo_find_tile(topo, "solcap", 0UL);
+      fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+      cap_execrp_out->fseq = NULL;
+      for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+        if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {
+          cap_execrp_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+          FD_TEST( cap_execrp_out->fseq );
+          break;
+        }
+      }
+
+      ctx->capture_ctx->capture_solcap  = 1;
+      ctx->capture_ctx->capctx_type.buf = cap_execrp_out;
+      ctx->capture_ctx->capture_link    = &cap_execrp_out->base;
+    }
 
     if( strlen( tile->execrp.dump_proto_dir ) ) {
       ctx->capture_ctx->dump_proto_output_dir = tile->execrp.dump_proto_dir;
@@ -414,9 +420,6 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->capture_ctx->dump_syscall_to_pb    = tile->execrp.dump_syscall_to_pb;
       ctx->capture_ctx->dump_elf_to_pb        = tile->execrp.dump_elf_to_pb;
     }
-
-    ctx->capture_ctx->capctx_type.buf = cap_execrp_out;
-    ctx->capture_ctx->capture_link    = &cap_execrp_out->base;
   }
 
   /********************************************************************/
