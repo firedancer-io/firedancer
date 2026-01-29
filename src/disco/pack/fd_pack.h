@@ -678,7 +678,7 @@ fd_pack_schedule_next_microblock( fd_pack_t  * pack,
                                   float        vote_fraction,
                                   ulong        bank_tile,
                                   int          schedule_flags,
-                                  fd_txn_p_t * out );
+                                  fd_txn_e_t * out );
 
 
 /* fd_pack_rebate_cus adjusts the compute unit accounting for the

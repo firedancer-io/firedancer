@@ -79,34 +79,34 @@ main( int     argc,
   fake_transaction( microblock+1, alt[1], 1400000UL, SANITIZE,           "GH",   ""   );
   fake_transaction( microblock+2, alt[2], 1400000UL, 0,                  "JKL",  "MN" );
 
-  /* only 11 accounts (M,N excluded because sanitize failed), so not a
-     problem */
+  /* ALT accounts are now always rebated since they come pre-resolved
+     from resolv_tile via fd_txn_e_t (13 accounts total). */
   FD_TEST(       0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
-  FD_TEST( 40UL*12UL==fd_pack_rebate_sum_report ( sum, report.rebate ) );
+  FD_TEST( 40UL*14UL==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->total_cost_rebate    ==2810000UL );
   FD_TEST( report.rebate->vote_cost_rebate     ==0UL       );
   FD_TEST( report.rebate->data_bytes_rebate    ==222UL     );
   FD_TEST( report.rebate->microblock_cnt_rebate==0UL       );
   FD_TEST( report.rebate->ib_result            ==0         );
-  FD_TEST( report.rebate->writer_cnt           ==11U       );
+  FD_TEST( report.rebate->writer_cnt           ==13U       );
   check_writer( report.rebate, "ABCDEF",   10000UL );
   check_writer( report.rebate, "GH",     1400000UL );
-  check_writer( report.rebate, "JKL",    1400000UL );
+  check_writer( report.rebate, "JKLMN",  1400000UL );
 
   FD_TEST( 0UL==fd_pack_rebate_sum_report ( sum, report.rebate ) );
 
   FD_TEST(       0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
   FD_TEST(       0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
-  FD_TEST( 40UL*12UL==fd_pack_rebate_sum_report ( sum, report.rebate ) );
+  FD_TEST( 40UL*14UL==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->total_cost_rebate    ==5620000UL );
   FD_TEST( report.rebate->vote_cost_rebate     ==0UL       );
   FD_TEST( report.rebate->data_bytes_rebate    ==444UL     );
   FD_TEST( report.rebate->microblock_cnt_rebate==0UL       );
   FD_TEST( report.rebate->ib_result            ==0         );
-  FD_TEST( report.rebate->writer_cnt           ==11U       );
+  FD_TEST( report.rebate->writer_cnt           ==13U       );
   check_writer( report.rebate, "ABCDEF",   20000UL );
   check_writer( report.rebate, "GH",     2800000UL );
-  check_writer( report.rebate, "JKL",    2800000UL );
+  check_writer( report.rebate, "JKLMN",  2800000UL );
 
 
 
