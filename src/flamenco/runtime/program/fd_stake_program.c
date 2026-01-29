@@ -351,18 +351,19 @@ lockup_is_in_force( fd_stake_lockup_t const *     self,
 static inline int
 authorized_check( fd_stake_authorized_t const * self,
                   fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                  ulong                         signers_cnt,
                   fd_stake_authorize_t          stake_authorize ) {
   /* clang-format off */
   switch( stake_authorize.discriminant ) {
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L365
   case fd_stake_authorize_enum_staker:
-    if( FD_LIKELY( fd_signers_contains( signers, &self->staker ) ) ) {
+    if( FD_LIKELY( fd_signers_contains( signers, signers_cnt, &self->staker ) ) ) {
       return 0;
     }
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L366
   case fd_stake_authorize_enum_withdrawer:
-    if( FD_LIKELY( fd_signers_contains( signers, &self->withdrawer ) ) ) {
+    if( FD_LIKELY( fd_signers_contains( signers, signers_cnt, &self->withdrawer ) ) ) {
       return 0;
     }
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -376,6 +377,7 @@ authorized_check( fd_stake_authorized_t const * self,
 static int
 authorized_authorize( fd_stake_authorized_t *                  self,
                       fd_pubkey_t const *                      signers[static FD_TXN_SIG_MAX],
+                      ulong                                    signers_cnt,
                       fd_pubkey_t const *                      new_authorized,
                       fd_stake_authorize_t const *             stake_authorize,
                       fd_stake_lockup_custodian_args_t const * lockup_custodian_args,
@@ -384,8 +386,8 @@ authorized_authorize( fd_stake_authorized_t *                  self,
   switch( stake_authorize->discriminant ) {
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L379
   case fd_stake_authorize_enum_staker:
-    if( FD_UNLIKELY( !fd_signers_contains( signers, &self->staker ) &&
-                      !fd_signers_contains( signers, &self->withdrawer ) ) ) {
+    if( FD_UNLIKELY( !fd_signers_contains( signers, signers_cnt, &self->staker ) &&
+                      !fd_signers_contains( signers, signers_cnt, &self->withdrawer ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
     self->staker = *new_authorized;
@@ -404,7 +406,7 @@ authorized_authorize( fd_stake_authorized_t *                  self,
           *custom_err = FD_STAKE_ERR_CUSTODIAN_MISSING;
           return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
         } else {
-          if( FD_UNLIKELY( !fd_signers_contains( signers, custodian ) ) ) {
+          if( FD_UNLIKELY( !fd_signers_contains( signers, signers_cnt, custodian ) ) ) {
             *custom_err = FD_STAKE_ERR_CUSTODIAN_SIGNATURE_MISSING;
             return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
           }
@@ -416,7 +418,7 @@ authorized_authorize( fd_stake_authorized_t *                  self,
         }
       }
       // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L405
-      rc = authorized_check( self, signers, *stake_authorize );
+      rc = authorized_check( self, signers, signers_cnt, *stake_authorize );
       if( FD_UNLIKELY( rc ) ) return rc;
       self->withdrawer = *new_authorized;
     }
@@ -433,13 +435,14 @@ static inline int
 set_lockup_meta( fd_stake_meta_t *             self,
                  fd_lockup_args_t const *      lockup,
                  fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                 ulong                         signers_cnt,
                  fd_sol_sysvar_clock_t const * clock ) {
   // FIXME FD_LIKELY
   if( lockup_is_in_force( &self->lockup, clock, NULL ) ) {
-    if( !fd_signers_contains( signers, &self->lockup.custodian ) ) {
+    if( !fd_signers_contains( signers, signers_cnt, &self->lockup.custodian ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
-  } else if( !fd_signers_contains( signers, &self->authorized.withdrawer ) ) {
+  } else if( !fd_signers_contains( signers, signers_cnt, &self->authorized.withdrawer ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -1301,6 +1304,7 @@ initialize( fd_borrowed_account_t *       stake_account,
 static int
 authorize( fd_borrowed_account_t *       stake_account,
            fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+           ulong                         signers_cnt,
            fd_pubkey_t const *           new_authority,
            fd_stake_authorize_t const *  stake_authorize,
            fd_sol_sysvar_clock_t const * clock,
@@ -1323,6 +1327,7 @@ authorize( fd_borrowed_account_t *       stake_account,
     rc = authorized_authorize(
         &meta->authorized, /* &mut self */
         signers,
+        signers_cnt,
         new_authority,
         stake_authorize,
         &lockup_custodian_args,
@@ -1340,6 +1345,7 @@ authorize( fd_borrowed_account_t *       stake_account,
     rc = authorized_authorize(
         &meta->authorized,
         signers,
+        signers_cnt,
         new_authority,
         stake_authorize,
         &lockup_custodian_args,
@@ -1370,6 +1376,7 @@ authorize_with_seed( fd_exec_instr_ctx_t const *   ctx,
   int                 rc;
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = {0};
   fd_pubkey_t         out                     = {0};
+  ulong               signers_cnt              = 0UL;
   if( FD_LIKELY( fd_instr_acc_is_signer_idx( ctx->instr, authority_base_index, NULL ) ) ) {
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L289
@@ -1386,10 +1393,12 @@ authorize_with_seed( fd_exec_instr_ctx_t const *   ctx,
                                      /* out */ out.uc );
     if( FD_UNLIKELY( rc ) ) return rc;
     signers[0] = &out;
+    signers_cnt = 1UL;
   }
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L299
   return authorize( stake_account,
                     signers,
+                    signers_cnt,
                     new_authority,
                     stake_authorize,
                     clock,
@@ -1404,7 +1413,8 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
           uchar                         vote_account_index,
           fd_sol_sysvar_clock_t const * clock,
           fd_stake_history_t const *    stake_history,
-          fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX] ) {
+          fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+          ulong                         signers_cnt ) {
   int rc;
 
   fd_pubkey_t const * vote_pubkey;
@@ -1437,7 +1447,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
   case fd_stake_state_v2_enum_initialized: {
     fd_stake_meta_t meta = stake_state.inner.initialized.meta;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L334
-    rc = authorized_check( &meta.authorized, signers, STAKE_AUTHORIZE_STAKER );
+    rc = authorized_check( &meta.authorized, signers, signers_cnt, STAKE_AUTHORIZE_STAKER );
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L335-L336
@@ -1471,7 +1481,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
     fd_stake_t       stake       = stake_state.inner.stake.stake;
     fd_stake_flags_t stake_flags = stake_state.inner.stake.stake_flags;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L346
-    rc = authorized_check( &meta.authorized, signers, STAKE_AUTHORIZE_STAKER );
+    rc = authorized_check( &meta.authorized, signers, signers_cnt, STAKE_AUTHORIZE_STAKER );
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L347-L348
@@ -1520,6 +1530,7 @@ static int
 deactivate( fd_borrowed_account_t *       stake_account,
             fd_sol_sysvar_clock_t const * clock,
             fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+            ulong                         signers_cnt,
             uint *                        custom_err ) {
   int rc;
 
@@ -1533,7 +1544,7 @@ deactivate( fd_borrowed_account_t *       stake_account,
     fd_stake_t *      stake = &state.inner.stake.stake;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L371
-    rc = authorized_check( &meta->authorized, signers, STAKE_AUTHORIZE_STAKER );
+    rc = authorized_check( &meta->authorized, signers, signers_cnt, STAKE_AUTHORIZE_STAKER );
     if( FD_UNLIKELY( rc ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L372
     rc = stake_deactivate( stake, clock->epoch, custom_err );
@@ -1551,6 +1562,7 @@ static int
 set_lockup( fd_borrowed_account_t *       stake_account,
             fd_lockup_args_t const *      lockup,
             fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+            ulong                         signers_cnt,
             fd_sol_sysvar_clock_t const * clock ) {
   int rc;
 
@@ -1563,14 +1575,14 @@ set_lockup( fd_borrowed_account_t *       stake_account,
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L386
   case fd_stake_state_v2_enum_initialized: {
     fd_stake_meta_t * meta = &state.inner.initialized.meta;
-    rc                     = set_lockup_meta( meta, lockup, signers, clock );
+    rc                     = set_lockup_meta( meta, lockup, signers, signers_cnt, clock );
     if( FD_UNLIKELY( rc ) ) return rc;
     return set_state( stake_account, &state );
   }
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L390
   case fd_stake_state_v2_enum_stake: {
     fd_stake_meta_t * meta = &state.inner.stake.meta;
-    rc                     = set_lockup_meta( meta, lockup, signers, clock );
+    rc                     = set_lockup_meta( meta, lockup, signers, signers_cnt, clock );
     if( FD_UNLIKELY( rc ) ) return rc;
     return set_state( stake_account, &state );
   }
@@ -1586,7 +1598,8 @@ split( fd_exec_instr_ctx_t const * ctx,
        uchar                       stake_account_index,
        ulong                       lamports,
        uchar                       split_index,
-       fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX] ) {
+       fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX],
+       ulong                       signers_cnt ) {
   int rc;
 
   ulong split_lamport_balance = 0;
@@ -1638,7 +1651,7 @@ split( fd_exec_instr_ctx_t const * ctx,
     fd_stake_flags_t * stake_flags = &stake_state.inner.stake.stake_flags;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L430
-    rc = authorized_check( &meta->authorized, signers, STAKE_AUTHORIZE_STAKER );
+    rc = authorized_check( &meta->authorized, signers, signers_cnt, STAKE_AUTHORIZE_STAKER );
     if( FD_UNLIKELY( rc ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L431
     ulong minimum_delegation = get_minimum_delegation( ctx->bank );
@@ -1738,7 +1751,7 @@ split( fd_exec_instr_ctx_t const * ctx,
   case fd_stake_state_v2_enum_initialized: {
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L504
     fd_stake_meta_t * meta = &stake_state.inner.initialized.meta;
-    rc                     = authorized_check( &meta->authorized, signers, STAKE_AUTHORIZE_STAKER );
+    rc                     = authorized_check( &meta->authorized, signers, signers_cnt, STAKE_AUTHORIZE_STAKER );
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L505
@@ -1774,7 +1787,7 @@ split( fd_exec_instr_ctx_t const * ctx,
     rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, stake_account_index, &stake_pubkey );
     if( FD_UNLIKELY( rc ) ) return rc;
 
-    if( FD_UNLIKELY( !fd_signers_contains( signers, stake_pubkey ) ) ) {
+    if( FD_UNLIKELY( !fd_signers_contains( signers, signers_cnt, stake_pubkey ) ) ) {
       // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L527
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
@@ -1826,7 +1839,8 @@ merge( fd_exec_instr_ctx_t *         ctx, // not const to log
        uchar                         source_account_index,
        fd_sol_sysvar_clock_t const * clock,
        fd_stake_history_t const *    stake_history,
-       fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX] ) {
+       fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+       ulong                         signers_cnt ) {
   int rc;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_state.rs#L562 */
@@ -1873,7 +1887,7 @@ merge( fd_exec_instr_ctx_t *         ctx, // not const to log
     return rc;
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L588
-  rc = authorized_check( &meta( &stake_merge_kind )->authorized, signers, STAKE_AUTHORIZE_STAKER );
+  rc = authorized_check( &meta( &stake_merge_kind )->authorized, signers, signers_cnt, STAKE_AUTHORIZE_STAKER );
   if( FD_UNLIKELY( rc ) )
     return rc;
 
@@ -1992,7 +2006,7 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t *   invoke_context, //
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L191
-    rc = authorized_check( &meta( source_merge_kind )->authorized, signers, STAKE_AUTHORIZE_STAKER );
+    rc = authorized_check( &meta( source_merge_kind )->authorized, signers, 1UL, STAKE_AUTHORIZE_STAKER );
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L197
@@ -2283,7 +2297,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
     fd_stake_t *      stake = &stake_state.inner.stake.stake;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L823
-    rc = authorized_check( &meta->authorized, signers, STAKE_AUTHORIZE_WITHDRAWER );
+    rc = authorized_check( &meta->authorized, signers, 1UL, STAKE_AUTHORIZE_WITHDRAWER );
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L826
@@ -2309,7 +2323,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
     fd_stake_meta_t * meta = &stake_state.inner.initialized.meta;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L841
-    rc = authorized_check( &meta->authorized, signers, STAKE_AUTHORIZE_WITHDRAWER );
+    rc = authorized_check( &meta->authorized, signers, 1UL, STAKE_AUTHORIZE_WITHDRAWER );
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L844
@@ -2320,7 +2334,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   }
   case fd_stake_state_v2_enum_uninitialized: {
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L846
-    if( FD_UNLIKELY( !fd_signers_contains( signers, stake_account.pubkey ) ) ) {
+    if( FD_UNLIKELY( !fd_signers_contains( signers, 1UL, stake_account.pubkey ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L850
@@ -2541,7 +2555,8 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L77
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = {0};
-  fd_exec_instr_ctx_get_signers( ctx, signers );
+  ulong               signers_cnt              = 0UL;
+  fd_exec_instr_ctx_get_signers( ctx, signers, &signers_cnt );
 
   if( FD_UNLIKELY( ctx->instr->data_sz>FD_STAKE_INSTR_FOOTPRINT ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
@@ -2642,6 +2657,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L98
     rc = authorize( &me,
                     signers,
+                    signers_cnt,
                     authorized_pubkey,
                     stake_authorize,
                     clock,
@@ -2740,7 +2756,8 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
                    1,
                    clock,
                    stake_history,
-                   signers );
+                   signers,
+                   signers_cnt );
     fd_sysvar_cache_stake_history_leave_const( ctx->sysvar_cache, stake_history );
     break;
   }
@@ -2768,7 +2785,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_borrowed_account_drop( &me );
 
     //https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L156
-    rc = split( ctx, 0, lamports, 1, signers );
+    rc = split( ctx, 0, lamports, 1, signers, signers_cnt );
     break;
   }
 
@@ -2806,7 +2823,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L177
     fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( ctx->sysvar_cache );
-    rc = merge( ctx, 0, 1, clock, stake_history, signers );
+    rc = merge( ctx, 0, 1, clock, stake_history, signers, signers_cnt );
     fd_sysvar_cache_stake_history_leave_const( ctx->sysvar_cache, stake_history );
     break;
   }
@@ -2898,7 +2915,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L221
-    rc = deactivate( &me, clock, signers, &ctx->txn_out->err.custom_err );
+    rc = deactivate( &me, clock, signers, signers_cnt, &ctx->txn_out->err.custom_err );
 
     /* implicit drop */
     break;
@@ -2925,7 +2942,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !clock ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L226
-    rc = set_lockup( &me, lockup, signers, clock );
+    rc = set_lockup( &me, lockup, signers, signers_cnt, clock );
     break;
   }
 
@@ -3020,6 +3037,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L263
     rc = authorize( &me,
                     signers,
+                    signers_cnt,
                     authorized_pubkey,
                     stake_authorize,
                     clock,
@@ -3115,7 +3133,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L311
-    rc = set_lockup( &me, &lockup, signers, clock );
+    rc = set_lockup( &me, &lockup, signers, signers_cnt, clock );
     break;
   }
 

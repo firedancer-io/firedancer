@@ -735,6 +735,7 @@ authorize( fd_exec_instr_ctx_t *         ctx,
            fd_pubkey_t const *           authorized,
            fd_vote_authorize_t           vote_authorize,
            fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+           ulong                         signers_cnt,
            fd_sol_sysvar_clock_t const * clock ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L724-L727 */
   int rc = get_vote_state_handler_checked(
@@ -757,7 +758,8 @@ authorize( fd_exec_instr_ctx_t *         ctx,
       /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L731-L732 */
       int authorized_withdrawer_signer = !fd_vote_verify_authorized_signer(
           fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
-          signers
+          signers,
+          signers_cnt
       );
 
       /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L737-L740 */
@@ -775,7 +777,8 @@ authorize( fd_exec_instr_ctx_t *         ctx,
           clock->epoch,
           target_epoch,
           authorized_withdrawer_signer,
-          signers
+          signers,
+          signers_cnt
       );
       if( FD_UNLIKELY( rc ) ) return rc;
       break;
@@ -785,7 +788,8 @@ authorize( fd_exec_instr_ctx_t *         ctx,
     case fd_vote_authorize_enum_withdrawer: {
       rc = fd_vote_verify_authorized_signer(
           fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
-          signers
+          signers,
+          signers_cnt
       );
       if( FD_UNLIKELY( rc ) ) return rc;
       fd_vsv_set_authorized_withdrawer( vote_state_versioned, authorized );
@@ -810,7 +814,8 @@ update_validator_identity( fd_exec_instr_ctx_t *   ctx,
                            int                     target_version,
                            fd_borrowed_account_t * vote_account,
                            fd_pubkey_t const *     node_pubkey,
-                           fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX] ) {
+                           fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX],
+                           ulong                   signers_cnt ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L768-L771 */
   int rc = get_vote_state_handler_checked(
       vote_account,
@@ -827,12 +832,13 @@ update_validator_identity( fd_exec_instr_ctx_t *   ctx,
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L774 */
   rc = fd_vote_verify_authorized_signer(
       fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
-      signers
+      signers,
+      signers_cnt
   );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L777 */
-  rc = fd_vote_verify_authorized_signer( node_pubkey, signers );
+  rc = fd_vote_verify_authorized_signer( node_pubkey, signers, signers_cnt );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L779 */
@@ -870,6 +876,7 @@ update_commission( fd_exec_instr_ctx_t *         ctx,
                    fd_borrowed_account_t *       vote_account,
                    uchar                         commission,
                    fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                   ulong                         signers_cnt,
                    fd_epoch_schedule_t const *   epoch_schedule,
                    fd_sol_sysvar_clock_t const * clock ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L796-L799 */
@@ -903,7 +910,8 @@ update_commission( fd_exec_instr_ctx_t *         ctx,
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L813 */
   rc = fd_vote_verify_authorized_signer(
       fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
-      signers
+      signers,
+      signers_cnt
   );
   if( FD_UNLIKELY( rc ) ) return rc;
 
@@ -927,6 +935,7 @@ withdraw( fd_exec_instr_ctx_t *         ctx,
           ulong                         lamports,
           ushort                        to_account_index,
           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+          ulong                         signers_cnt,
           fd_rent_t const *             rent_sysvar,
           fd_sol_sysvar_clock_t const * clock ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L860-L863 */
@@ -945,7 +954,8 @@ withdraw( fd_exec_instr_ctx_t *         ctx,
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L865 */
   rc = fd_vote_verify_authorized_signer(
       fd_vsv_get_authorized_withdrawer( versioned ),
-      signers
+      signers,
+      signers_cnt
   );
   if( FD_UNLIKELY( rc ) ) return rc;
 
@@ -1104,6 +1114,7 @@ initialize_account( fd_exec_instr_ctx_t *         ctx,
                     int                           target_version,
                     fd_vote_init_t *              vote_init,
                     fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                    ulong                         signers_cnt,
                     fd_sol_sysvar_clock_t const * clock ) {
   int rc;
 
@@ -1122,7 +1133,7 @@ initialize_account( fd_exec_instr_ctx_t *         ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L923 */
-  rc = fd_vote_verify_authorized_signer( &vote_init->node_pubkey, signers );
+  rc = fd_vote_verify_authorized_signer( &vote_init->node_pubkey, signers, signers_cnt );
   if( FD_UNLIKELY( rc ) ) {
     return rc;
   }
@@ -1139,7 +1150,8 @@ process_vote_with_account( fd_exec_instr_ctx_t *         ctx,
                            fd_slot_hash_t const *        slot_hashes, /* deque */
                            fd_sol_sysvar_clock_t const * clock,
                            fd_vote_t *                   vote,
-                           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX] ) {
+                           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                           ulong                         signers_cnt ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L936-L939 */
   int rc = get_vote_state_handler_checked(
       vote_account,
@@ -1159,7 +1171,7 @@ process_vote_with_account( fd_exec_instr_ctx_t *         ctx,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L942 */
-  rc = fd_vote_verify_authorized_signer( authorized_voter, signers );
+  rc = fd_vote_verify_authorized_signer( authorized_voter, signers, signers_cnt );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L944 */
@@ -1253,7 +1265,8 @@ process_vote_state_update( fd_exec_instr_ctx_t *         ctx,
                            fd_slot_hash_t const *        slot_hashes,
                            fd_sol_sysvar_clock_t const * clock,
                            fd_vote_state_update_t *      vote_state_update,
-                           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX] ) {
+                           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                           ulong                         signers_cnt ) {
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L963-L966 */
   int rc = get_vote_state_handler_checked(
@@ -1274,7 +1287,7 @@ process_vote_state_update( fd_exec_instr_ctx_t *         ctx,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L969 */
-  rc = fd_vote_verify_authorized_signer( authorized_voter, signers );
+  rc = fd_vote_verify_authorized_signer( authorized_voter, signers, signers_cnt );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L971-L977 */
@@ -1342,7 +1355,8 @@ process_tower_sync( fd_exec_instr_ctx_t *         ctx,
                     fd_slot_hash_t const *        slot_hashes, /* deque */
                     fd_sol_sysvar_clock_t const * clock,
                     fd_tower_sync_t *             tower_sync,
-                    fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX] ) {
+                    fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                    ulong                         signers_cnt ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L1017-L1020 */
   int rc = get_vote_state_handler_checked(
      vote_account,
@@ -1362,7 +1376,7 @@ process_tower_sync( fd_exec_instr_ctx_t *         ctx,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L1023 */
-  rc = fd_vote_verify_authorized_signer( authorized_voter, signers );
+  rc = fd_vote_verify_authorized_signer( authorized_voter, signers, signers_cnt );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L1025-L1031 */
@@ -1456,7 +1470,8 @@ process_authorize_with_seed_instruction( /* invoke_context */
   if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
   fd_pubkey_t * expected_authority_keys[FD_TXN_SIG_MAX] = { 0 };
-  fd_pubkey_t   single_signer                        = { 0 };
+  fd_pubkey_t   single_signer                          = { 0 };
+  ulong         expected_authority_keys_cnt            = 0UL;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_processor.rs#L30-L42 */
   if( fd_instr_acc_is_signer_idx( ctx->instr, 2, &rc ) ) {
@@ -1475,6 +1490,7 @@ process_authorize_with_seed_instruction( /* invoke_context */
                                      current_authority_derived_key_owner->uc,
                                      /* insert */ expected_authority_keys[0]->uc );
     if( FD_UNLIKELY( rc ) ) return rc;
+    expected_authority_keys_cnt = 1UL;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_processor.rs#L43-L50 */
@@ -1485,6 +1501,7 @@ process_authorize_with_seed_instruction( /* invoke_context */
       new_authority,
       authorization_type,
       (fd_pubkey_t const **)expected_authority_keys,
+      expected_authority_keys_cnt,
       clock
   );
 }
@@ -1514,7 +1531,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L69
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };
-  fd_exec_instr_ctx_get_signers( ctx, signers );
+  ulong               signers_cnt              = 0UL;
+  fd_exec_instr_ctx_get_signers( ctx, signers, &signers_cnt );
 
   uchar __attribute__((aligned(alignof(fd_vote_instruction_t)))) vote_instruction_mem[ FD_VOTE_INSTRUCTION_FOOTPRINT ];
   fd_vote_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
@@ -1560,7 +1578,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L78
-    rc = initialize_account( ctx, &me, target_version, &instruction->inner.initialize_account, signers, clock );
+    rc = initialize_account( ctx, &me, target_version, &instruction->inner.initialize_account, signers, signers_cnt, clock );
 
     break;
   }
@@ -1588,7 +1606,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_pubkey_t const * voter_pubkey   = &instruction->inner.authorize.pubkey;
     fd_vote_authorize_t vote_authorize = instruction->inner.authorize.vote_authorize;
 
-    rc = authorize( ctx, &me, target_version, voter_pubkey, vote_authorize, signers, clock );
+    rc = authorize( ctx, &me, target_version, voter_pubkey, vote_authorize, signers, signers_cnt, clock );
 
     break;
   }
@@ -1692,7 +1710,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L135
-    rc = update_validator_identity( ctx, target_version, &me, node_pubkey, signers );
+    rc = update_validator_identity( ctx, target_version, &me, node_pubkey, signers, signers_cnt );
 
     break;
   }
@@ -1721,6 +1739,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
         &me,
         instruction->inner.update_commission,
         signers,
+        signers_cnt,
         epoch_schedule,
         clock
     );
@@ -1784,7 +1803,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
         slot_hashes,
         clock,
         vote,
-        signers
+        signers,
+        signers_cnt
     );
     fd_sysvar_cache_slot_hashes_leave_const( ctx->sysvar_cache, slot_hashes );
 
@@ -1846,7 +1866,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
         slot_hashes,
         clock,
         vote_state_update,
-        signers
+        signers,
+        signers_cnt
     );
     fd_sysvar_cache_slot_hashes_leave_const( ctx->sysvar_cache, slot_hashes );
 
@@ -1916,7 +1937,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
         slot_hashes,
         clock,
         &vote_update,
-        signers
+        signers,
+        signers_cnt
     );
     fd_sysvar_cache_slot_hashes_leave_const( ctx->sysvar_cache, slot_hashes );
 
@@ -1957,7 +1979,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
         slot_hashes,
         clock,
         tower_sync,
-        signers
+        signers,
+        signers_cnt
     );
     fd_sysvar_cache_slot_hashes_leave_const( ctx->sysvar_cache, slot_hashes );
 
@@ -1993,6 +2016,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
         instruction->inner.withdraw,
         1UL,
         signers,
+        signers_cnt,
         rent_sysvar,
         clock_sysvar
     );
@@ -2046,6 +2070,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
         voter_pubkey,
         instruction->inner.authorize_checked,
         signers,
+        signers_cnt,
         clock
     );
     break;

@@ -127,9 +127,8 @@ fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * c
 
 int
 fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
-                               fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX] ) {
-  fd_memset( signers, 0, sizeof(fd_pubkey_t const *) * FD_TXN_SIG_MAX );
-
+                               fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX],
+                               ulong *                     signers_cnt ) {
   ulong j = 0UL;
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
     if( fd_instr_acc_is_signer_idx( ctx->instr, i, NULL ) ) {
@@ -143,18 +142,20 @@ fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
       }
 
       /* Skip if duplicate signer */
-      if( fd_signers_contains( signers, pubkey ) ) {
+      if( fd_signers_contains( signers, j, pubkey ) ) {
         continue;
       }
 
       /* This should never be possible */
       if( FD_UNLIKELY( j>=FD_TXN_SIG_MAX ) ) {
-        FD_LOG_CRIT(( "invariant violation: too many signers" ));
+        FD_LOG_CRIT(( "invariant violation: too many signers (cnt=%lu, FD_TXN_SIG_MAX=%lu)", j, (ulong)FD_TXN_SIG_MAX ));
       }
 
       signers[j++] = pubkey;
     }
   }
+
+  *signers_cnt = j;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
