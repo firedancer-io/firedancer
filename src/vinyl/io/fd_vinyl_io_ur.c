@@ -46,7 +46,7 @@ struct fd_vinyl_io_ur_rd {
   void *                dst;  /* " */
   ulong                 sz;   /* " */
 
-  uint                  tsz;  /* Tail read size */
+  uint                  csz;  /* Chunk size */
   fd_vinyl_io_ur_rd_t * next; /* Next element in ur rd queue */
 };
 
@@ -66,9 +66,12 @@ struct fd_vinyl_io_ur {
 
   fd_io_uring_t * ring;
 
-  ulong sq_prep_cnt;  /* io_uring SQEs sent */
-  ulong sq_sent_cnt;  /* io_uring SQEs submitted */
-  ulong cq_cnt;       /* io_uring CQEs received */
+  ulong sq_prep_cnt;  /* SQEs sent */
+  ulong sq_sent_cnt;  /* SQEs submitted */
+  ulong cq_cnt;       /* CQEs received */
+
+  uint cqe_read_pending;  /* CQEs for reads  pending */
+  uint cqe_write_pending; /* CQEs for writes pending */
 
   /* spad_max bytes follow */
 };
@@ -178,6 +181,11 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
               fd_vinyl_io_ur_rd_t * rd,
               ulong                 seq0,
               ulong                 sz ) {
+
+  if( FD_UNLIKELY( ur->cqe_write_pending ) ) {
+    FD_LOG_CRIT(( "attempted to enqueue a read while there are still inflight writes" ));
+  }
+
   fd_io_uring_t * ring = ur->ring;
   if( FD_UNLIKELY( sz>INT_MAX ) ) {
     FD_LOG_CRIT(( "Invalid read size 0x%lx bytes (exceeds max)", sz ));
@@ -196,10 +204,10 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
 
   /* Prepare the head SQE */
   rd->next = NULL;
-  rd->tsz  = (uint)rsz;
+  rd->csz  = (uint)rsz;
   struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
   if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "fd_io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
-  *sqe = (struct io_uring_sqe){
+  *sqe = (struct io_uring_sqe) {
     .opcode    = IORING_OP_READ,
     .fd        = 0, /* fixed file index 0 */
     .off       = (unsigned long long)(dev_base + dev_off),
@@ -209,6 +217,7 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
     .user_data = (unsigned long long)rd,
   };
   ur->sq_prep_cnt++;
+  ur->cqe_read_pending++;
   if( FD_LIKELY( !sz ) ) return 1U; /* optimize for the unfragmented case */
 
   /* Tail wraparound occurred.  Amend the head SQE to be linked to the
@@ -222,10 +231,10 @@ ur_prep_read( fd_vinyl_io_ur_t *    ur,
   ur->cq_cnt++;  /* Treat as already-completed in metrics */
 
   /* Prepare the tail SQE */
-  rd->tsz  = (uint)sz;
+  rd->csz  = (uint)sz;
   sqe = fd_io_uring_get_sqe( ring->sq );
   if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "fd_io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
-  *sqe = (struct io_uring_sqe){
+  *sqe = (struct io_uring_sqe) {
     .opcode    = IORING_OP_READ,
     .fd        = 0, /* fixed file index 0 */
     .off       = (unsigned long long)dev_base,
@@ -303,6 +312,10 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
     }
   }
 
+  if( FD_UNLIKELY( fd_io_uring_sq_dropped( ring->sq ) ) ) {
+    FD_LOG_CRIT(( "io_uring submission queue overflowed" ));
+  }
+
   /* At this point, we have at least one CQE ready.
      It could come in one of these shapes:
      - Success (full read): implies that all fragments of a ur_rd read
@@ -312,6 +325,10 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
      - Error (cancelled): a short read of the head frag broke the SQE
        chain, the tail got cancelled.  Crash the app
      - Error (other): crash the app */
+
+  if( FD_UNLIKELY( !ur->cqe_read_pending ) ) {
+    FD_LOG_CRIT(( "cqe_read_pending==0 but received a CQE" ));
+  }
 
   struct io_uring_cqe * cqe = fd_io_uring_cq_head( ring->cq );
   ulong                 udata     = (ulong)cqe->user_data;
@@ -325,30 +342,64 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
   if( FD_UNLIKELY( !last_frag ) ) {
     FD_LOG_ERR(( "io_uring read failed (short read or EOF)" ));
   }
-  if( FD_UNLIKELY( rd->tsz!=(uint)cqe_res ) ) {
-    FD_LOG_ERR(( "io_uring read failed (expected %u bytes, got %i bytes)", rd->tsz, cqe_res ));
+  if( FD_UNLIKELY( rd->csz!=(uint)cqe_res ) ) {
+    FD_LOG_ERR(( "io_uring read failed (seq=%lu, expected_sz=%u, cqe_res=%d)", rd->seq, rd->csz, cqe_res ));
   }
-  fd_io_uring_cq_advance( ring->cq, 1U );
+  ur->cqe_read_pending--;
   ur->cq_cnt++;
+  fd_io_uring_cq_advance( ring->cq, 1U );
 
   *_rd = (fd_vinyl_io_rd_t *)rd;
   return FD_VINYL_SUCCESS;
 }
 
-/* fd_vinyl_io_ur_append is identical to fd_vinyl_io_bd_append. */
+/* ur_wq_clean drains write CQEs from the completion queue. */
+
+static void
+ur_wq_clean( fd_vinyl_io_ur_t * ur ) {
+  fd_io_uring_t * ring = ur->ring;
+
+  uint avail = fd_io_uring_cq_ready( ring->cq );
+  while( avail-- ) {
+    if( FD_UNLIKELY( ur->cqe_read_pending ) ) {
+      FD_LOG_CRIT(( "attempted to poll for write completions while there are still inflight reads" ));
+    }
+    if( FD_UNLIKELY( !ur->cqe_write_pending ) ) {
+      FD_LOG_CRIT(( "cqe_write_pending==0 but received a CQE" ));
+    }
+
+    struct io_uring_cqe * cqe = fd_io_uring_cq_head( ring->cq );
+
+    int cqe_res = cqe->res;
+    if( FD_UNLIKELY( cqe_res<0 ) ) {
+      FD_LOG_ERR(( "io_uring write failed (%i-%s)", -cqe_res, fd_io_strerror( -cqe_res ) ));
+    }
+
+    ur->cqe_write_pending--;
+    ur->cq_cnt++;
+
+    fd_io_uring_cq_advance( ring->cq, 1U );
+  }
+}
+
+/* fd_vinyl_io_ur_append adds write CQEs to the submission queue. */
 
 static ulong
 fd_vinyl_io_ur_append( fd_vinyl_io_t * io,
                        void const *    _src,
                        ulong           sz ) {
-  fd_vinyl_io_ur_t * ur  = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
-  uchar const *      src = (uchar const *)_src;
+  fd_vinyl_io_ur_t * ur   = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+  fd_io_uring_t *    ring = ur->ring;
+  uchar const *      src  = (uchar const *)_src;
+
+  if( FD_UNLIKELY( ur->cqe_read_pending ) ) {
+    FD_LOG_CRIT(( "attempted to enqueue a write while there are still inflight reads" ));
+  }
 
   /* Validate the input args. */
 
   ulong seq_future  = ur->base->seq_future;  if( FD_UNLIKELY( !sz ) ) return seq_future;
   ulong seq_ancient = ur->base->seq_ancient;
-  int   dev_fd      = ur->dev_fd;
   ulong dev_base    = ur->dev_base;
   ulong dev_sz      = ur->dev_sz;
 
@@ -363,6 +414,23 @@ fd_vinyl_io_ur_append( fd_vinyl_io_t * io,
                   bad_sz    ? "misaligned sz"  :
                               "device full" ));
 
+  /* When I/O queue is full, wait for a few completions.
+     Note that the CQ depth >= SQ depth.  Therefore, if we expect less
+     or equal to depth-2 CQEs, we can enqueue at least two SQEs. */
+
+  ur_wq_clean( ur );
+  if( ur->cqe_write_pending+2 > ring->sq->depth ) {
+    int res = fd_io_uring_submit( ring->sq, ring->ioring_fd, 2U, IORING_ENTER_GETEVENTS );
+    if( FD_UNLIKELY( res<0 ) ) FD_LOG_ERR(( "io_uring_submit(fd,min_complete=2,IORING_ENTER_GETEVENTS) failed (%i-%s)", -res, fd_io_strerror( -res ) ));
+    ur_wq_clean( ur );
+  }
+  if( FD_UNLIKELY( ur->cqe_write_pending+2 > ring->sq->depth ) ) {
+    FD_LOG_CRIT(( "failed to free up CQ" ));
+  }
+  if( FD_UNLIKELY( fd_io_uring_sq_space_left( ring->sq )<2 ) ) {
+    FD_LOG_CRIT(( "failed to free up SQ" ));
+  }
+
   /* At this point, we appear to have a valid append request.  Map it to
      the bstream (updating seq_future) and map it to the device.  Then
      write the lesser of sz bytes or until the store end.  If we hit the
@@ -375,9 +443,37 @@ fd_vinyl_io_ur_append( fd_vinyl_io_t * io,
   ulong dev_off = seq % dev_sz;
 
   ulong wsz = fd_ulong_min( sz, dev_sz - dev_off );
-  bd_write( dev_fd, dev_base + dev_off, src, wsz );
+  struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
+  if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "fd_io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
+  *sqe = (struct io_uring_sqe) {
+    .opcode = IORING_OP_WRITE,
+    .fd     = 0, /* fixed file index 0 */
+    .off    = dev_base + dev_off,
+    .addr   = (ulong)src,
+    .len    = (uint)wsz,
+    .flags  = IOSQE_FIXED_FILE
+  };
   sz -= wsz;
-  if( sz ) bd_write( dev_fd, dev_base, src + wsz, sz );
+  ur->sq_prep_cnt++;
+  ur->cqe_write_pending++;
+
+  if( sz ) { /* tail wraparound */
+    sqe->flags     |= IOSQE_IO_LINK;
+    sqe->user_data  = ULONG_MAX;
+
+    sqe = fd_io_uring_get_sqe( ring->sq );
+    if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "fd_io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
+    *sqe = (struct io_uring_sqe) {
+      .opcode = IORING_OP_WRITE,
+      .fd     = 0, /* fixed file index 0 */
+      .off    = dev_base,
+      .addr   = (ulong)src + wsz,
+      .len    = (uint)sz,
+      .flags  = IOSQE_FIXED_FILE
+    };
+    ur->sq_prep_cnt++;
+    ur->cqe_write_pending++;
+  }
 
   return seq;
 }
@@ -387,12 +483,30 @@ fd_vinyl_io_ur_append( fd_vinyl_io_t * io,
 static int
 fd_vinyl_io_ur_commit( fd_vinyl_io_t * io,
                        int             flags ) {
-  fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
-  (void)flags;
+  fd_vinyl_io_ur_t * ur       = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
+  fd_io_uring_t *    ring     = ur->ring;
+  int                blocking = !!( flags & FD_VINYL_IO_FLAG_BLOCKING );
 
+  ur_wq_clean( ur );
+  if( !ur->cqe_write_pending ) goto done;
+
+  if( blocking ) {
+    int res = fd_io_uring_submit( ring->sq, ring->ioring_fd, ur->cqe_write_pending, IORING_ENTER_GETEVENTS );
+    if( FD_UNLIKELY( res<0 ) ) FD_LOG_ERR(( "fd_io_uring)_submit(fd,min_complete=%u,IORING_ENTER_GETEVENTS) failed (%i-%s)", ur->cqe_write_pending, -res, fd_io_strerror( -res ) ));
+  } else {
+    int res = fd_io_uring_submit( ring->sq, ring->ioring_fd, 0U, IORING_ENTER_GETEVENTS );
+    if( FD_UNLIKELY( res<0 ) ) FD_LOG_ERR(( "fd_io_uring_submit(fd,min_complete=0,IORING_ENTER_GETEVENTS) failed (%i-%s)", -res, fd_io_strerror( -res ) ));
+  }
+  ur_wq_clean( ur );
+
+  if( ur->cqe_write_pending ) {
+    if( FD_UNLIKELY( blocking ) ) FD_LOG_CRIT(( "blocking io_uring_enter(IORING_ENTER_GETEVENTS) returned but not all writes were completed" ));
+    return FD_VINYL_ERR_AGAIN;
+  }
+
+done:
   ur->base->seq_present = ur->base->seq_future;
   ur->base->spad_used   = 0UL;
-
   return FD_VINYL_SUCCESS;
 }
 
