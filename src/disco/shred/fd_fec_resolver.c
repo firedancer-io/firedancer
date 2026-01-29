@@ -5,6 +5,7 @@
 #include "../metrics/fd_metrics.h"
 #include "fd_fec_resolver.h"
 
+#include "../../ballet/base58/fd_base58.h"
 
 typedef union {
   fd_ed25519_sig_t u;
@@ -490,6 +491,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, leader_pubkey, sha512 ) ) ) {
       freelist_push_head( free_list,        set_to_use );
       bmtrlist_push_head( bmtree_free_list, bmtree_mem );
+      FD_BASE58_ENCODE_32_BYTES( leader_pubkey, leader_pubkey_b58 );
+      FD_LOG_NOTICE(( "fd_ed25519_verify failed, slot %lu, leader pubkey %s", shred->slot, leader_pubkey_b58 ));
       FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }

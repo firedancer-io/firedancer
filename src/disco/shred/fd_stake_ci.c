@@ -85,6 +85,8 @@ fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
   info->scratch->staked_cnt        = msg->staked_cnt;
   info->scratch->excluded_stake    = msg->excluded_stake;
   info->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
+  info->scratch->vote_keyed_lsched = 1UL;
+  FD_LOG_NOTICE(( "VOTE KEYED LSCHED: %lu", msg->vote_keyed_lsched ));
 
   fd_memcpy( info->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
 }

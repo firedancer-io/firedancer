@@ -596,7 +596,7 @@ replay_slot_completed( ctx_t *                      ctx,
   ulong our_vote_acct_bal = ULONG_MAX;
   int found = 0;
   fd_accdb_ro_t ro[1];
-  if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, ro, &xid, ctx->vote_account ) ) ) {
+  if( FD_LIKELY( 0 && fd_accdb_open_ro( ctx->accdb, ro, &xid, ctx->vote_account ) ) ) {
     /* Copy account data */
     found = 1;
     ctx->out_vote_acct_sz = fd_ulong_min( fd_accdb_ref_data_sz( ro ), FD_VOTE_STATE_DATA_MAX );

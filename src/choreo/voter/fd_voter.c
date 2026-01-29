@@ -28,7 +28,7 @@ fd_voter_vote_slot( uchar const * vote_account_data ) {
   case FD_VOTER_V4: return cnt ? v4_off( voter )[cnt-1].slot : ULONG_MAX;
   case FD_VOTER_V3: return cnt ? voter->v3.votes[cnt-1].slot : ULONG_MAX;
   case FD_VOTER_V2: return cnt ? voter->v2.votes[cnt-1].slot : ULONG_MAX;
-  default:          FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
+  default:          FD_LOG_HEXDUMP_WARNING(( "bad voter", vote_account_data, 3762 )); return ULONG_MAX;
   }
 }
 
