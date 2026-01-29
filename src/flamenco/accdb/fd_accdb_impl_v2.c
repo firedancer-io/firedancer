@@ -311,7 +311,7 @@ fd_accdb_user_v2_open_ro_multi( fd_accdb_user_t *         accdb,
 
   ulong req_id = v2->vinyl_req_id++;
   memset( comp, 0, sizeof(fd_vinyl_comp_t) );
-  fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, 0UL, batch_idx, req_cnt, 0UL );
+  fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, 0UL, batch_idx, req_cnt );
 
   while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();
@@ -428,7 +428,7 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
   if( req_cnt ) {
     ulong req_id = v2->vinyl_req_id++;
     memset( fd_vinyl_req_batch_comp( req_pool, batch_idx ), 0, sizeof(fd_vinyl_comp_t) );
-    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, 0UL, batch_idx, req_cnt, 0UL );
+    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, 0UL, batch_idx, req_cnt );
 
     while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
     FD_COMPILER_MFENCE();
@@ -577,7 +577,7 @@ not_found:
   if( req_cnt ) {
     ulong req_id = v2->vinyl_req_id++;
     memset( fd_vinyl_req_batch_comp( req_pool, batch_idx ), 0, sizeof(fd_vinyl_comp_t) );
-    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, 0UL, batch_idx, req_cnt, 0UL );
+    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, 0UL, batch_idx, req_cnt );
 
     while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
     FD_COMPILER_MFENCE();
@@ -661,7 +661,7 @@ fd_accdb_user_v2_close_ref_multi( fd_accdb_user_t * accdb,
     }
     ulong req_id = v2->vinyl_req_id++;
     memset( fd_vinyl_req_batch_comp( req_pool, batch_idx ), 0, sizeof(fd_vinyl_comp_t) );
-    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, 0UL, batch_idx, req_cnt, 0UL );
+    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, 0UL, batch_idx, req_cnt );
   }
 
   /* While our vinyl request is inflight, release funk records

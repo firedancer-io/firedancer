@@ -1,6 +1,5 @@
   case FD_VINYL_REQ_TYPE_ACQUIRE: {
     ulong                  req_flags     = (ulong)req->flags;
-    ulong                  req_val_max   = (ulong)req->val_max;
     fd_vinyl_key_t const * req_key       = MAP_REQ_GADDR( req->key_gaddr,       fd_vinyl_key_t, batch_cnt );
     ulong *                req_val_gaddr = MAP_REQ_GADDR( req->val_gaddr_gaddr, ulong,          batch_cnt );
     schar *                req_err       = MAP_REQ_GADDR( req->err_gaddr,       schar,          batch_cnt );
@@ -11,12 +10,11 @@
     int req_flag_excl   = fd_vinyl_req_flag_excl  ( req_flags );
     int req_evict_prio  = fd_vinyl_req_evict_prio ( req_flags );
 
-    int bad_gaddr   = (!!batch_cnt) & ((!req_key) | (!req_val_gaddr) | (!req_err));
-    int bad_val_max = req_flag_modify & (req_val_max>FD_VINYL_VAL_MAX);
-    int bad_quota   = quota_rem<batch_cnt;
+    int bad_gaddr = (!!batch_cnt) & ((!req_key) | (!req_val_gaddr) | (!req_err));
+    int bad_quota = quota_rem<batch_cnt;
 
-    if( FD_UNLIKELY( bad_gaddr | bad_val_max | bad_quota ) ) {
-      comp_err = (bad_gaddr | bad_val_max) ? FD_VINYL_ERR_INVAL : FD_VINYL_ERR_FULL;
+    if( FD_UNLIKELY( bad_gaddr | bad_quota ) ) {
+      comp_err = bad_gaddr ? FD_VINYL_ERR_INVAL : FD_VINYL_ERR_FULL;
       break;
     }
 
@@ -31,6 +29,12 @@
         fail_cnt  += (ulong)!!_err;                          \
         goto next_acquire; /* sigh ... can't use continue */ \
       } while(0)
+
+      ulong req_val_max = 0UL;
+      if( req_flag_modify ) {
+        req_val_max = req_val_gaddr[ batch_idx ];
+        if( FD_UNLIKELY( req_val_max>FD_VINYL_VAL_MAX ) ) DONE( FD_VINYL_ERR_INVAL );
+      }
 
       /* Query vinyl meta for key */
 
@@ -320,7 +324,7 @@
          and is not in the process of being created.  If we aren't
          allowed to create pair key, fail.  Otherwise, evict the least
          recently used evictable line (this should always be possible if
-         quotas are confiured correctly) to make room to cache this
+         quotas are configured correctly) to make room to cache this
          pair, set the line's reference count appropriately, bump the
          version and move the line to the desired location in the
          eviction sequence.  We do this upfront to free data cache for
