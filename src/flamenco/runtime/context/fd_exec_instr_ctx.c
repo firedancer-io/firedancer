@@ -128,17 +128,33 @@ fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * c
 int
 fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
                                fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX] ) {
+  fd_memset( signers, 0, sizeof(fd_pubkey_t const *) * FD_TXN_SIG_MAX );
+
   ulong j = 0UL;
-  for( ushort i=0; i<ctx->instr->acct_cnt && j<FD_TXN_SIG_MAX; i++ )
+  for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
     if( fd_instr_acc_is_signer_idx( ctx->instr, i, NULL ) ) {
       ushort idx_in_txn = ctx->instr->accounts[i].index_in_transaction;
+      fd_pubkey_t const * pubkey = NULL;
       int err = fd_runtime_get_key_of_account_at_index( ctx->txn_out,
                                                         idx_in_txn,
-                                                        &signers[j++] );
+                                                        &pubkey );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
+
+      /* Skip if duplicate signer */
+      if( fd_signers_contains( signers, pubkey ) ) {
+        continue;
+      }
+
+      /* This should never be possible */
+      if( FD_UNLIKELY( j>=FD_TXN_SIG_MAX ) ) {
+        FD_LOG_CRIT(( "invariant violation: too many signers" ));
+      }
+
+      signers[j++] = pubkey;
     }
+  }
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
