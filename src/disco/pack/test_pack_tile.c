@@ -968,10 +968,10 @@ mock_privileged_init( fd_topo_t      * topo,
   void      * keyswitch_mem     = fd_wksp_alloc_laddr( crank_wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
   FD_TEST( keyswitch_mem );
   fd_topo_obj_t * keyswitch_obj = fd_topob_obj( topo, "keyswitch", "crank_wksp" );
-  tile->keyswitch_obj_id        = keyswitch_obj->id;
+  tile->id_keyswitch_obj_id        = keyswitch_obj->id;
   topo->objs[ keyswitch_obj->id ].offset = (ulong)keyswitch_mem - (ulong)crank_wksp;
   topo->workspaces[ keyswitch_obj->wksp_id ].wksp = crank_wksp;
-  FD_TEST( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id )==keyswitch_mem );
+  FD_TEST( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id )==keyswitch_mem );
   FD_TEST( fd_keyswitch_new( keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
 
   /* context */

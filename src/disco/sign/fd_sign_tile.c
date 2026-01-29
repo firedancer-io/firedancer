@@ -300,7 +300,7 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   fd_histf_join( fd_histf_new( ctx->sign_duration, FD_MHIST_SECONDS_MIN( SIGN, SIGN_DURATION_SECONDS ),
                                                        FD_MHIST_SECONDS_MAX( SIGN, SIGN_DURATION_SECONDS ) ) );
 
-  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   derive_fields( ctx );
 
   for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in[ i ].role = -1;
