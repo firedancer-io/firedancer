@@ -107,12 +107,14 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   ctx->last_wallclock = fd_log_wallclock();
   ctx->last_tickcount = fd_tickcount();
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: unhalting" ));
     FD_CRIT( ctx->is_halting_signing, "state machine corruption" );
     ctx->is_halting_signing = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: switching identity" ));
     fd_memcpy( ctx->my_contact_info->pubkey.uc, ctx->keyswitch->bytes, 32UL );
     fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, ctx->last_wallclock );
     ctx->is_halting_signing = 1;
