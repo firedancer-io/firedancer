@@ -626,7 +626,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_LOG_WARNING(("failing current snapshot!"));
       if( ctx->state!=FD_SNAPSHOT_STATE_IDLE ) {
         ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
