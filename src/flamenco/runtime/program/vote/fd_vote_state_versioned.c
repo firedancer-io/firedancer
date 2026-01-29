@@ -303,7 +303,7 @@ fd_vsv_set_commission( fd_vote_state_versioned_t * self,
       self->inner.v3.commission = commission;
       break;
     case fd_vote_state_versioned_enum_v4:
-      self->inner.v4.inflation_rewards_commission_bps = commission*100;
+      self->inner.v4.inflation_rewards_commission_bps = (ushort)( commission*100 );
       break;
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));

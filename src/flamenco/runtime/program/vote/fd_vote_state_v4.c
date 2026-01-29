@@ -17,7 +17,7 @@ fd_vote_state_v4_create_new( fd_pubkey_t const *           vote_pubkey,
   vote_state->node_pubkey                      = vote_init->node_pubkey;
   vote_state->authorized_voters                = *fd_authorized_voters_new(clock->epoch, &vote_init->authorized_voter, authorized_voters_mem);
   vote_state->authorized_withdrawer            = vote_init->authorized_withdrawer;
-  vote_state->inflation_rewards_commission_bps = ((ushort)vote_init->commission) * 100;
+  vote_state->inflation_rewards_commission_bps = (ushort)( vote_init->commission * 100 );
   vote_state->inflation_rewards_collector      = *vote_pubkey;
   vote_state->block_revenue_collector          = vote_init->node_pubkey;
   vote_state->block_revenue_commission_bps     = DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;

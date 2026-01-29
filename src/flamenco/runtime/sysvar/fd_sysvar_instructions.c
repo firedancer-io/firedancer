@@ -94,7 +94,7 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
       uchar idx_in_txn          = instr_accts[j];
       uchar is_writable         = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, idx_in_txn );
       uchar is_signer           = (uchar)fd_txn_is_signer( txn, idx_in_txn );
-      uchar flags               = ((!!is_signer)*FD_INSTR_ACCT_FLAGS_IS_SIGNER) | ((!!is_writable)*FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
+      uchar flags               = (uchar)( ((!!is_signer)*FD_INSTR_ACCT_FLAGS_IS_SIGNER) | ((!!is_writable)*FD_INSTR_ACCT_FLAGS_IS_WRITABLE) );
 
       // flags
       FD_STORE( uchar, serialized_instructions + offset, flags );

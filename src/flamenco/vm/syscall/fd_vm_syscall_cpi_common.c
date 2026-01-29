@@ -62,7 +62,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
                                           fd_pubkey_t                       out_instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ] ) {
 
   out_instr->program_id   = UCHAR_MAX;
-  out_instr->stack_height = vm->instr_ctx->runtime->instr.stack_sz+1;
+  out_instr->stack_height = (uchar)( vm->instr_ctx->runtime->instr.stack_sz+1 );
   out_instr->data_sz      = (ushort)VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instr );
   out_instr->acct_cnt     = (ushort)VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr );
   memcpy( out_instr->data, cpi_instr_data, out_instr->data_sz );
