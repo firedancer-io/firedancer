@@ -3,6 +3,7 @@
 #endif
 
 #include "fd_shmem_private.h"
+#include "../../disco/topo/fd_cpu_topo.h"
 
 /* Portable APIs */
 
@@ -80,24 +81,31 @@ ulong fd_shmem_private_base_len;                          /* 0UL at ",          
 
 /* NUMA TOPOLOGY APIS *************************************************/
 
-static ulong  fd_shmem_private_numa_cnt;                      /* 0UL at thread group start, initialized at boot */
-static ulong  fd_shmem_private_cpu_cnt;                       /* " */
-static ushort fd_shmem_private_numa_idx[ FD_SHMEM_CPU_MAX  ]; /* " */
-static ushort fd_shmem_private_cpu_idx [ FD_SHMEM_NUMA_MAX ]; /* " */
+static struct fd_topo_cpus fd_shmem_private_cpus;            /* Zeroed at thread group start, initialized at boot */
+static ulong  fd_shmem_private_cpu_online_cnt;               /* " */
+static ushort fd_shmem_private_cpu_idx[ FD_SHMEM_NUMA_MAX ]; /* " */
 
-ulong fd_shmem_numa_cnt( void ) { return fd_shmem_private_numa_cnt; }
-ulong fd_shmem_cpu_cnt ( void ) { return fd_shmem_private_cpu_cnt;  }
+ulong fd_shmem_numa_cnt      ( void )                { return fd_shmem_private_cpus.numa_node_cnt; }
+ulong fd_shmem_cpu_cnt       ( void )                { return fd_shmem_private_cpus.cpu_cnt;  }
+ulong fd_shmem_cpu_online_cnt( void )                { return fd_shmem_private_cpu_online_cnt;  }
+
+int
+fd_shmem_cpu_online( const ulong cpu_idx ) {
+  if( FD_UNLIKELY( cpu_idx>=fd_shmem_private_cpus.cpu_cnt ) )
+    FD_LOG_ERR(( "bad cpu_idx (%lu)", cpu_idx ));
+  return fd_shmem_private_cpus.cpu[cpu_idx].online;
+}
 
 ulong
 fd_shmem_numa_idx( ulong cpu_idx ) {
-  if( FD_UNLIKELY( cpu_idx>=fd_shmem_private_cpu_cnt ) ) return ULONG_MAX;
-  return (ulong)fd_shmem_private_numa_idx[ cpu_idx ];
+  if( FD_UNLIKELY( cpu_idx>=fd_shmem_private_cpus.cpu_cnt ) ) return ULONG_MAX;
+  return fd_shmem_private_cpus.cpu[ cpu_idx ].numa_node;
 }
 
 ulong
 fd_shmem_cpu_idx( ulong numa_idx ) {
-  if( FD_UNLIKELY( numa_idx>=fd_shmem_private_numa_cnt ) ) return ULONG_MAX;
-  return (ulong)fd_shmem_private_cpu_idx[ numa_idx ];
+  if( FD_UNLIKELY( numa_idx>=fd_shmem_private_cpus.numa_node_cnt ) ) return ULONG_MAX;
+  return fd_shmem_private_cpu_idx[ numa_idx ];
 }
 
 int
@@ -127,6 +135,11 @@ fd_shmem_numa_validate( void const * mem,
 
   if( FD_UNLIKELY( !(cpu_idx<fd_shmem_cpu_cnt()) ) ) {
     FD_LOG_WARNING(( "bad cpu_idx (%lu)", cpu_idx ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !fd_shmem_cpu_online(cpu_idx) ) ) {
+    FD_LOG_WARNING(( "cpu offline (%lu)", cpu_idx ));
     return EINVAL;
   }
 
@@ -201,6 +214,11 @@ fd_shmem_create_multi_flags( char const *  name,
     ulong sub_cpu_idx = _sub_cpu_idx[ sub_idx ];
     if( FD_UNLIKELY( sub_cpu_idx>=cpu_cnt ) ) {
       FD_LOG_WARNING(( "sub[%lu] bad cpu_idx (%lu)", sub_idx, sub_cpu_idx ));
+      return EINVAL;
+    }
+
+    if( FD_UNLIKELY( !fd_shmem_cpu_online(sub_cpu_idx) ) ) {
+      FD_LOG_WARNING(( "sub[%lu] cpu offline (%lu)", sub_idx, sub_cpu_idx ));
       return EINVAL;
     }
   }
@@ -516,6 +534,11 @@ fd_shmem_acquire_multi( ulong         page_sz,
       FD_LOG_WARNING(( "sub[%lu] bad cpu_idx (%lu)", sub_idx, sub_cpu_idx ));
       return NULL;
     }
+
+    if( FD_UNLIKELY( !fd_shmem_cpu_online(sub_cpu_idx) ) ) {
+      FD_LOG_WARNING(( "sub[%lu] cpu offline (%lu)", sub_idx, sub_cpu_idx ));
+      return NULL;
+    }
   }
 
   if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) { /* LONG_MAX from off_t */
@@ -703,22 +726,22 @@ fd_shmem_private_boot( int *    pargc,
   /* Cache the numa topology for this thread group's host for
      subsequent fast use by the application. */
 
-  ulong numa_cnt = fd_numa_node_cnt();
-  if( FD_UNLIKELY( !((1UL<=numa_cnt) & (numa_cnt<=FD_SHMEM_NUMA_MAX)) ) )
-    FD_LOG_ERR(( "fd_shmem: unexpected numa_cnt %lu (expected in [1,%lu])", numa_cnt, FD_SHMEM_NUMA_MAX ));
-  fd_shmem_private_numa_cnt = numa_cnt;
+  fd_topo_cpus_init(&fd_shmem_private_cpus);
 
-  ulong cpu_cnt = fd_numa_cpu_cnt();
+  if( FD_UNLIKELY( !((1UL<=fd_shmem_private_cpus.numa_node_cnt) & (fd_shmem_private_cpus.numa_node_cnt<=FD_SHMEM_NUMA_MAX)) ) )
+    FD_LOG_ERR(( "fd_shmem: unexpected numa_cnt %lu (expected in [1,%lu])", fd_shmem_private_cpus.numa_node_cnt, FD_SHMEM_NUMA_MAX ));
+
+
+  ulong cpu_cnt = fd_shmem_private_cpus.cpu_cnt;
   if( FD_UNLIKELY( !((1UL<=cpu_cnt) & (cpu_cnt<=FD_SHMEM_CPU_MAX)) ) )
     FD_LOG_ERR(( "fd_shmem: unexpected cpu_cnt %lu (expected in [1,%lu])", cpu_cnt, FD_SHMEM_CPU_MAX ));
-  fd_shmem_private_cpu_cnt = cpu_cnt;
 
   for( ulong cpu_rem=cpu_cnt; cpu_rem; cpu_rem-- ) {
-    ulong cpu_idx  = cpu_rem-1UL;
-    ulong numa_idx = fd_numa_node_idx( cpu_idx );
+    const ulong cpu_idx  = cpu_rem-1UL;
+    if( FD_LIKELY( fd_shmem_private_cpus.cpu[cpu_idx].online ) ) fd_shmem_private_cpu_online_cnt++;
+    const ulong numa_idx = fd_shmem_private_cpus.cpu[cpu_idx].numa_node;
     if( FD_UNLIKELY( numa_idx>=FD_SHMEM_NUMA_MAX) )
       FD_LOG_ERR(( "fd_shmem: unexpected numa idx (%lu) for cpu idx %lu", numa_idx, cpu_idx ));
-    fd_shmem_private_numa_idx[ cpu_idx  ] = (ushort)numa_idx;
     fd_shmem_private_cpu_idx [ numa_idx ] = (ushort)cpu_idx;
   }
 
@@ -746,9 +769,9 @@ fd_shmem_private_halt( void ) {
 
   /* At this point, shared memory is offline */
 
-  fd_shmem_private_numa_cnt = 0;
-  fd_shmem_private_cpu_cnt  = 0;
-  fd_memset( fd_shmem_private_numa_idx, 0, FD_SHMEM_CPU_MAX );
+  fd_shmem_private_cpu_online_cnt = 0;
+  fd_memset( fd_shmem_private_cpu_idx, 0, FD_SHMEM_NUMA_MAX );
+  fd_memset( &fd_shmem_private_cpus,   0, 1 );
 
   fd_shmem_private_base[0] = '\0';
   fd_shmem_private_base_len = 0UL;
