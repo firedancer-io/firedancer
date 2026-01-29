@@ -1298,7 +1298,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
 
   txn_out->details.loaded_accounts_data_size = 0UL;
-  txn_out->details.accounts_resize_delta     = 0UL;
+  txn_out->details.accounts_resize_delta     = 0L;
 
   txn_out->details.return_data.len = 0UL;
   memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );

@@ -8,7 +8,7 @@
 #include "program/fd_program_util.h"
 
 #define MAX_PERMITTED_DATA_LENGTH                 (FD_RUNTIME_ACC_SZ_MAX) /* 10MiB */
-#define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10UL<<21) /* 20MiB */
+#define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10L<<21)  /* 20MiB */
 
 /* TODO: Not all Agave Borrowed Account API functions are implemented here */
 
