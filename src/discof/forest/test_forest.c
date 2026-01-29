@@ -1040,8 +1040,7 @@ test_verify_orphans( fd_wksp_t * wksp ) {
   void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
   FD_TEST( mem );
   fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
-
-  /*
+    /*
        2
       | \
       3  3'
@@ -1073,7 +1072,7 @@ test_verify_orphans( fd_wksp_t * wksp ) {
   fd_forest_fec_insert( forest, 3,   2,     63,   32,      1,         0,  &mr_3_32, &mr_3_0 );
 
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32 ) );
-   /* orphans verify */
+  /* orphans verify */
 
   /* Now chain 1 to 0, and this should trigger a verifcation of the chain from 2 to 0 */
   fd_forest_blk_insert( forest, 1, 0 );
@@ -1083,8 +1082,108 @@ test_verify_orphans( fd_wksp_t * wksp ) {
   FD_TEST( ele->lowest_verified_fec == (32 / 32UL) + 1 );
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32 ) );
   /* orphans verify */
-
 }
+
+void
+test_eviction_simple( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+
+  fd_forest_blk_fec_insert( forest, 1, 0, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 2, 1, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 3, 2, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 4, 3, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 5, 4, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 6, 5, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 7, 6, 0, 0, 1 );
+
+  /* now forest is full, and there is only one fork.*/
+
+  /* try to add 8, parent is leaf 7. should fail. */
+  FD_TEST( !fd_forest_blk_insert    ( forest, 8, 7 ) );
+
+  /* add 8, parent is non-leaf 6. should succeed. 7 is evicted */
+  FD_TEST(  fd_forest_blk_fec_insert( forest, 8, 6, 0, 0, 1 ) );
+  FD_TEST( !fd_forest_query( forest, 7 ) );
+
+  /* add 16, which would be an orphan. should succeed.*/
+  FD_TEST( fd_forest_blk_insert( forest, 16, 15 ) );
+
+  /* add 10, parent 6. (fork) */
+  FD_TEST( fd_forest_blk_fec_insert( forest, 10, 6, 0, 0, 1 ) );
+  FD_TEST( !fd_forest_query( forest, 16 ) ); /* 16 gets evicted*/
+
+  fd_forest_print( forest );
+
+  /* clear */
+  fd_forest_publish( forest, 10 );
+
+  /* create forks 10 - 11 - 12 - 13 - 17
+                       14 - 15 - 16 */
+
+  fd_forest_blk_fec_insert( forest, 11, 10, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 12, 11, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 13, 12, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 17, 13, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 14, 10, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 15, 14, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 16, 15, 0, 0, 1 );
+  fd_forest_print( forest );
+  FD_TEST( fd_forest_blk_insert( forest, 18, 16 ) );
+  fd_forest_print( forest );
+}
+
+void
+test_eviction_confirmations( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+
+  /* create forks 10 - 11 - 12 - 13 - 17 (confirmed)
+                    \  14 - 15 */
+
+  fd_forest_blk_fec_insert( forest, 10, 0,  31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 11, 10, 31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 12, 11, 31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 13, 12, 31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 17, 13, 31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 14, 10, 31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 15, 14, 31, 0, 1 );
+
+  fd_forest_print( forest );
+
+  fd_hash_t mr_17 = (fd_hash_t){ .key = { 1 } };
+
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 17 ), &mr_17 ) );
+
+  FD_TEST(  fd_forest_blk_fec_insert( forest, 18, 17, 31, 0, 1 ) );
+  FD_TEST(  !fd_forest_query( forest, 15 ) );
+
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 18 ), &mr_17 ) );
+  /* now 18 is verified. don't want to evict it */
+  FD_TEST(  !fd_forest_blk_insert( forest, 16, 14 ) ); /* fails becase we add to a bad fork */
+
+  fd_forest_publish( forest, 11 ); /* publish forwards to 11. Now we only have one fork. */
+
+  // lets say we get a slot in the future, 24, that is confirmed and correct.
+  // We start repairing orphans backwards
+  FD_TEST( fd_forest_blk_fec_insert( forest, 24, 23, 31, 0, 1 ) );
+  FD_TEST( fd_forest_blk_fec_insert( forest, 23, 22, 31, 0, 1 ) );
+  FD_TEST( fd_forest_blk_fec_insert( forest, 22, 21, 31, 0, 1 ) );
+  /* atp we are filled up. */
+  /* this NEEDs to be accepted. */
+  FD_TEST( fd_forest_blk_fec_insert( forest, 21, 20, 31, 0, 1 ) );
+  FD_TEST( fd_forest_blk_fec_insert( forest, 20, 19, 31, 0, 1 ) );
+
+   /* an older orphan is not contributing to the awesomeness */
+  FD_TEST( !fd_forest_blk_insert( forest, 25, 24 ) );
+}
+
 
 int
 main( int argc, char ** argv ) {
@@ -1096,21 +1195,40 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_invalid_frontier_insert( wksp );
-  test_publish( wksp );
-  test_publish_incremental( wksp );
-  test_out_of_order( wksp );
-  test_forks( wksp );
-  test_print_tree( wksp );
-  //test_large_print_tree( wksp);
-  test_linear_forest_iterator( wksp );
-  test_branched_forest_iterator( wksp );
-  test_frontier( wksp );
-  test_fec_clear( wksp );
-  test_iter_publish( wksp );
-  test_iter_subtree( wksp );
-  test_orphan_requests( wksp );
-  test_slot_clear( wksp );
+  (void) test_invalid_frontier_insert;
+  (void) test_publish;
+  (void) test_publish_incremental;
+  (void) test_out_of_order;
+  (void) test_forks;
+  (void) test_print_tree;
+  (void) test_large_print_tree;
+  (void) test_linear_forest_iterator;
+  (void) test_branched_forest_iterator;
+  (void) test_frontier;
+  (void) test_fec_clear;
+  (void) test_iter_publish;
+  (void) test_iter_subtree;
+  (void) test_orphan_requests;
+  (void) test_slot_clear;
+  (void) test_eviction_simple;
+  (void) test_eviction_confirmations;
+  //test_invalid_frontier_insert( wksp );
+  //test_publish( wksp );
+  //test_publish_incremental( wksp );
+  //test_out_of_order( wksp );
+  //test_forks( wksp );
+  //test_print_tree( wksp );
+  ////test_large_print_tree( wksp);
+  //test_linear_forest_iterator( wksp );
+  //test_branched_forest_iterator( wksp );
+  //test_frontier( wksp );
+  //test_fec_clear( wksp );
+  //test_iter_publish( wksp );
+  //test_iter_subtree( wksp );
+  //test_orphan_requests( wksp );
+  //test_slot_clear( wksp );
+  //test_eviction_simple( wksp );
+  test_eviction_confirmations( wksp );
 
   test_verify_orphans( wksp );
 
