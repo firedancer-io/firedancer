@@ -574,8 +574,8 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL: {
-      /* FIXME: Handle the case where we have no download peers enabled,
-         boot off the local full snapshot but do not have a local incr. */
+      if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for peers." ));
+
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, ULONG_MAX );
       if( FD_LIKELY( best.addr.l ) ) {
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
@@ -654,6 +654,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
       if( FD_UNLIKELY( !best.addr.l ) ) {
+        ctx->deadline_nanos = now + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
         ctx->state = FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL;
         break;
       }
@@ -839,7 +840,16 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
       FD_TEST( ctx->metrics.full.bytes_total!=0UL );
       if( FD_UNLIKELY( ctx->metrics.full.bytes_read == ctx->metrics.full.bytes_total ) ) {
-        ulong sig = ctx->config.incremental_snapshots ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE;
+        ulong sig = ctx->config.incremental_snapshots &&
+                    (ctx->local_in.incremental_snapshot_slot!=ULONG_MAX || ctx->download_enabled) ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE;
+        if( sig==FD_SNAPSHOT_MSG_CTRL_DONE && ctx->config.incremental_snapshots ) {
+          /* set incremental snapshots to 0 if there is no local
+             incremental snapshot and download is not enabled. */
+          FD_LOG_WARNING(( "incremental snapshots were enabled via [snapshots.incremental_snapshots] "
+                           "but no incremental snapshot exists on disk and no snapshot peers are configured. "
+                           "Skipping incremental snapshot load." ));
+          ctx->config.incremental_snapshots = 0;
+        }
         fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE;
         ctx->flush_ack = 0;
