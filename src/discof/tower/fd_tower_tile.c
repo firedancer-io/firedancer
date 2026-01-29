@@ -123,7 +123,7 @@ typedef struct {
   fd_epoch_stakes_t * slot_stakes; /* tracks the stakes for each voter in the epoch per fork */
 
   fd_keyswitch_t * keyswitch;
-  int              is_halting_signing;
+  int              halting_signing;
 
   /* external joins owned by replay tile */
 
@@ -967,7 +967,7 @@ returnable_frag( ctx_t *             ctx,
     /* In the case that the tower tile is halting signing, we don't
        want to process any replay fragments that will cause us to
        produce a vote txn. */
-    if( FD_UNLIKELY( ctx->is_halting_signing ) ) return 1;
+    if( FD_UNLIKELY( ctx->halting_signing ) ) return 1;
     if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
       fd_memcpy( &ctx->replay_slot_completed, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_completed_t) );
       replay_slot_completed( ctx, &ctx->replay_slot_completed, tsorig, stem );
@@ -1078,7 +1078,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
-  ctx->is_halting_signing = 0;
+  ctx->halting_signing = 0;
 
   for( ulong i = 0; i<VOTE_TXN_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sha512_t), sizeof(fd_sha512_t) ) ) );
@@ -1163,8 +1163,8 @@ during_housekeeping( ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting signing" ));
-    FD_CRIT( ctx->is_halting_signing, "state machine corruption" );
-    ctx->is_halting_signing = 0;
+    FD_CRIT( ctx->halting_signing, "state machine corruption" );
+    ctx->halting_signing = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
@@ -1176,7 +1176,7 @@ during_housekeeping( ctx_t * ctx ) {
     FD_LOG_DEBUG(( "keyswitch: halting signing" ));
     memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    ctx->is_halting_signing = 1;
+    ctx->halting_signing = 1;
     ctx->keyswitch->result  = ctx->out_seq;
   }
 }
