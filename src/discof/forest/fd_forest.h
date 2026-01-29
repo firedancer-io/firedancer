@@ -8,6 +8,16 @@
    received in its entirety by requesting repairs for missing shreds for
    the block.
 
+   Note forest needs to track the strict subset of shreds that are known
+   by fec_resolver, store, and reasm.  If any of these structures have
+   evicted shreds, forest needs to clear out the corresponding FEC sets
+   from forest to be re-requested. It's okay if shreds are evicted from
+   reasm and we re-request for them and they pass through fec_resolver
+   again. Although we could be creating duplicate ctxs, thats fine!  We
+   might later on get an evict notice for the second incomplete ctx but
+   that's okay too!!! just have a bunch of useless messages that
+   eventually will get ignored when we publish past it!!!!
+
    Like other fork-aware structures, forest maintains a tree that
    records the ancestry of slots.  It also maintains a frontier, which
    models the leaves of the tree ie. the oldest (in ancestry) blocks
@@ -800,6 +810,99 @@ fd_forest_merkle_last_incorrect_idx( fd_forest_blk_t * ele ) {
 
 fd_forest_blk_t const *
 fd_forest_publish( fd_forest_t * forest, ulong slot );
+
+/* fd_forest_evict is called when the forest has no more free elements,
+   but we are trying to insert a new block.
+   When this happens, forest begins evicting in the following order:
+
+     1. Orphaned,  unconfirmed leaves
+     2. Connected, unconfirmed leaves
+     3. Orphaned,  confirmed   leaves
+
+  We follow a general heuristic of evicting by oldest slot in the
+  category first, with an exception.  If the oldest slot in the category
+  is the parent of the slot we are adding, we take the second oldest
+  slot in the category.  This is to avoid needlessly creating an orphan
+  that would immediately get evicted again by its parent getting
+  requested again.  If we have confirmations we can also avoid adding
+  new slots that we are certain won't get confirmed.
+
+  The likely most common case of eviction being called is when we have
+  disconnected from the cluster for a while, or if we are catching up
+  from far behind.  In these cases, the distance from the last root to
+  current turbine could be > slot max. But if we just blindly evict
+  orphans at will, this could make the problem worse. Imagine slot_max =
+  1000, and we are 2000 slots behind.
+
+  slot       [unconnected]      slot  -  slot  - ... - slot
+   1                            1001     1002          2000
+
+  At this point if we receive slot 1000 -- this is a good case. Ideally
+  we would evict slot 2000, and add slot 1000, and we make progress
+  towards completing catchup.  But if we receive slot 2002, and we evict
+  slot 2000, then the next orphan request would give us 2001, 2000 again
+  and again, and theoretically we never make progress towards completing catchup.
+
+  It's unclear if we should evict orphans ONLY if the slot being added
+  is closer to the root.  It's possible that the new, later orphan is
+  actually closer to the root than the older, earlier orphan, and those
+  were just dud slots sent to us by an ancestor.  In practice, the need
+  orphan process is much faster than the turbine process, so for now we
+  make the choice to optimistically keep orphans, and rely on the repair
+  orphan process to quickly connect ancestry, faster than the future
+  slots can come and evict it.
+
+  WHAT IF WE HAVE NO ORPHANS.
+
+  Now if we don't have orphans, we need to evict the newest unconfirmed
+  leaf. I.e. start by trimming from the tip of the tree, but ideally on
+  a fork that is a minority.
+
+  i.e best case:
+
+  1 ── 2 ── 4 ── 6 ── 7 ── 8 ...... ── 1000           <- 1001 would like to be added to the rree
+       └── 3 ── 5
+
+  If 1000 is confirmed, and 5 is not, we should evict 5 first, and then add 1001.
+
+  1 ── 2 ── 4 ── 6 ── 7 ── 8 ...... ── 1000 ── 1001   <- 1002 would like to be added to the rree
+       └── 3
+
+  Similarly, after 1002 arrives:
+  1 ── 2 ── 4 ── 6 ── 7 ── 8 ...... ── 1000 ── 1001 ── 1002   <- 1003 would like to be added to the rree
+
+  Now we have one fork, with 1003 chaining to 1002.  If 1002 is
+  confirmed, then it's truly unfortunate... We (and most likely the
+  cluster) hasn't rooted in max_live_slots!  As long as 2 is also
+  confirmed, then we are just going to optimistically publish forward to
+  slot 2 and make it our new root. Note 2 MUST have undergone
+  fec_chain_verify before it can be confirmed.  If 2 is still not
+  confirmed, we could still be in the process of evicting + repairing
+  duplicates, so we must wait for 2 to be confirmed before we can
+  publish forward.
+
+  If 1002 is NOT confirmed, we cannot evict it and add 1003. This puts
+  us under the case where we can't evict our parent.  At this point we
+  would rely on a confirmation to occur eventually that prunes state and
+  frees up pool elements.
+
+  This also works in the degenerate DoS case, where we have an extremely
+  wide tree. Imagine someone someone with leader slots 1001 thru 1995 is
+  doing the following attck:
+
+  1 ── 2 ── 3 ── 4 ── 5 ──       <-- when we try to add 6, we run into eviction policy
+                 ├── 1001'
+                 ├── 1003'
+                 ...
+                 └── 1995'
+  Even if the confirmation for 5 is lagging coming in (or it requires us
+  to replay 6 to see it), we can follow a general policy of evicting the
+  newest unconfirmed leaf. Newest implies furthest from the root. So we
+  would evict 1995' first, and then add 6.
+*/
+
+int
+fd_forest_evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot, ulong * evicted );
 
 /* fd_forest_highest_repaired_slot returns the highest child of a fully,
    contiguously repaired slot. */
