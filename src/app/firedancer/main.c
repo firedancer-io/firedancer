@@ -180,7 +180,7 @@ extern action_t fd_action_metrics;
 extern action_t fd_action_version;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_watch;
-extern action_t fd_action_set_identityf;
+extern action_t fd_action_set_identity;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -196,7 +196,7 @@ action_t * ACTIONS[] = {
   &fd_action_version,
   &fd_action_shred_version,
   &fd_action_watch,
-  &fd_action_set_identityf,
+  &fd_action_set_identity,
   NULL,
 };
 
