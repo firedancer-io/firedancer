@@ -747,7 +747,7 @@ after_credit( fd_pack_ctx_t *     ctx,
         break;
     }
 
-    fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->execle_out_mem, ctx->execle_out_chunk );
+    fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( ctx->execle_out_mem, ctx->execle_out_chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
@@ -759,14 +759,14 @@ after_credit( fd_pack_ctx_t *     ctx,
       ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed execle was idle */
       ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
       ulong chunk  = ctx->execle_out_chunk;
-      ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
+      ulong msg_sz = schedule_cnt*sizeof(fd_txn_e_t);
       fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
       trailer->bank_idx = ctx->leader_bank_idx;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
       trailer->pack_idx = ctx->pack_idx;
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
-      trailer->is_bundle = !!(microblock_dst->flags & FD_TXN_P_FLAGS_BUNDLE);
+      trailer->is_bundle = !!(microblock_dst->txnp->flags & FD_TXN_P_FLAGS_BUNDLE);
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
       fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), 0UL, tsorig, tspub );
