@@ -50,19 +50,18 @@ static FD_FOR_ALL_BEGIN( test_tile, 1L ) {
       int   type            = (int)(val++);
       ulong flags           =       val++;
       ulong batch_cnt       =       val++;
-      ulong val_max         =       val++;
       ulong key_gaddr       =       val++;
       ulong val_gaddr_gaddr =       val++;
       ulong err_gaddr       =       val++;
       ulong comp_gaddr      =       val++;
 
-      fd_vinyl_rq_send( rq, req_id, link_id, type, flags, batch_cnt, val_max, key_gaddr, val_gaddr_gaddr, err_gaddr, comp_gaddr );
+      fd_vinyl_rq_send( rq, req_id, link_id, type, flags, batch_cnt, key_gaddr, val_gaddr_gaddr, err_gaddr, comp_gaddr );
 
     }
 
     /* Send terminate */
 
-    fd_vinyl_rq_send( rq, 0UL, 0UL, 0, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+    fd_vinyl_rq_send( rq, 0UL, 0UL, 0, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
 
   } else {
 
@@ -92,7 +91,6 @@ static FD_FOR_ALL_BEGIN( test_tile, 1L ) {
       FD_TEST( req->type            == (schar) val ); val++;
       FD_TEST( req->flags           == (uchar) val ); val++;
       FD_TEST( req->batch_cnt       == (ushort)val ); val++;
-      FD_TEST( req->val_max         == (uint)  val ); val++;
       FD_TEST( req->key_gaddr       ==         val ); val++;
       FD_TEST( req->val_gaddr_gaddr ==         val ); val++;
       FD_TEST( req->err_gaddr       ==         val ); val++;

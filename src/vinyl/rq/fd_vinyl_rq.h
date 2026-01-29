@@ -82,7 +82,7 @@ struct __attribute__((aligned(FD_VINYL_REQ_ALIGN))) fd_vinyl_req {
   schar  type;      /* == FD_VINYL_REQ_TYPE_* */
   uchar  flags;     /* Bit-or of FD_VINYL_REQ_FLAG flags */
   ushort batch_cnt; /* Num key-val pairs in request */
-  uint   val_max;   /* (acquire with modify) Max byte size pair val, in [0,FD_VINYL_VAL_MAX] */
+  uint   reserved;
 
   /* key_gaddr is typically the shared client request global address of
      a:
@@ -136,7 +136,8 @@ struct __attribute__((aligned(FD_VINYL_REQ_ALIGN))) fd_vinyl_req {
      that failed will have unchanged entries.  On receipt of a failed
      completion, this array will be unchanged.  In particular:
 
-       ACQUIRE - pair val (and pair info) data cache global address
+       ACQUIRE - in (MODIFY): requested val_max for val
+                 out: pair val (and pair info) data cache global address
        RELEASE - (BY_KEY) ignored, (~BY_KEY) data cache global addresses
                  of pairs to release (i.e. echo back the array returned
                  by acquire), (release ~BY_KEY faster)
@@ -215,7 +216,8 @@ struct __attribute__((aligned(FD_VINYL_REQ_ALIGN))) fd_vinyl_req {
                    zeros, val will be empty and the val region will be
                    sized to the requested max val byte size.
 
-         INVAL   - pair key existed and exclusive was set
+         INVAL   - pair key existed and exclusive was set, or the
+                   requested val_max was larger than FD_VINYL_VAL_MAX
 
          KEY     - pair key did not exist and create was not set
 
@@ -368,8 +370,7 @@ struct __attribute__((aligned(FD_VINYL_REQ_ALIGN))) fd_vinyl_req {
 
        INVAL - one or more input arrays were unmappable (i.e. not a
                valid global address in the shared client request memory
-               region) or this was a modify request with a requested val
-               byte size larger than FD_VINYL_VAL_MAX.
+               region).
 
        FULL  - client acquire quota remaining is too low to process this
                request fully (ACQUIRE only)
@@ -481,7 +482,6 @@ fd_vinyl_rq_send( fd_vinyl_rq_t * rq,
                   int             type,            /* In [-2^7,2^7) */
                   ulong           flags,           /* In [0,2^8)  */
                   ulong           batch_cnt,       /* In [0,2^16) */
-                  ulong           val_max,
                   ulong           key_gaddr,
                   ulong           val_gaddr_gaddr,
                   ulong           err_gaddr,
@@ -496,7 +496,6 @@ fd_vinyl_rq_send( fd_vinyl_rq_t * rq,
   req->type            = (schar)type;
   req->flags           = (uchar)flags;
   req->batch_cnt       = (ushort)batch_cnt;
-  req->val_max         = (uint)val_max;
   req->key_gaddr       = key_gaddr;
   req->val_gaddr_gaddr = val_gaddr_gaddr;
   req->err_gaddr       = err_gaddr;

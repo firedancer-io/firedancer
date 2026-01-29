@@ -35,8 +35,9 @@ add_account_vinyl( fd_accdb_user_t * accdb_,
   schar *           req_err       = fd_vinyl_req_batch_err      ( accdb->vinyl_req_pool, batch_idx );
   fd_vinyl_comp_t * comp          = fd_vinyl_req_batch_comp     ( accdb->vinyl_req_pool, batch_idx );
   fd_vinyl_key_init( req_key, key, 32UL );
+  ulong val_max  = sizeof(fd_account_meta_t) + 32UL;
+  *req_val_gaddr = val_max;
   memset( comp, 0, sizeof(fd_vinyl_comp_t) );
-  ulong val_max = sizeof(fd_account_meta_t) + 32UL;
   fd_vinyl_req_send_batch(
       accdb->vinyl_rq,
       accdb->vinyl_req_pool,
@@ -46,8 +47,7 @@ add_account_vinyl( fd_accdb_user_t * accdb_,
       FD_VINYL_REQ_TYPE_ACQUIRE,
       FD_VINYL_REQ_FLAG_MODIFY | FD_VINYL_REQ_FLAG_CREATE | FD_VINYL_REQ_FLAG_EXCL,
       batch_idx,
-      1UL, /* batch_cnt */
-      val_max
+      1UL /* batch_cnt */
   );
   while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();
@@ -84,8 +84,7 @@ add_account_vinyl( fd_accdb_user_t * accdb_,
       FD_VINYL_REQ_TYPE_RELEASE,
       FD_VINYL_REQ_FLAG_MODIFY,
       batch_idx,
-      1UL, /* batch_cnt */
-      0UL  /* val_max */
+      1UL /* batch_cnt */
   );
   while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();
