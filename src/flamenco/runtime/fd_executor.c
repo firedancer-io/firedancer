@@ -1670,9 +1670,7 @@ fd_executor_txn_check( fd_runtime_t * runtime,
         }
       }
 
-      if( starting_lamports != ULONG_MAX ) {
-        fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, starting_lamports );
-      }
+      fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, starting_lamports );
     }
   }
 
