@@ -78,11 +78,11 @@ fd_io_uring_shmem_footprint( ulong   sq_depth,
   return fd_io_uring_shmem_layout( layout, sq_depth, cq_depth );
 }
 
-struct io_uring_params *
-fd_io_uring_shmem_setup( struct io_uring_params * params,
-                         void *                   shmem,
-                         ulong                    sq_depth,
-                         ulong                    cq_depth ) {
+fd_io_uring_params_t *
+fd_io_uring_shmem_setup( fd_io_uring_params_t * params,
+                         void *                 shmem,
+                         ulong                  sq_depth,
+                         ulong                  cq_depth ) {
 
   fd_io_uring_shmem_layout_t layout[1];
   ulong shmem_footprint = fd_io_uring_shmem_layout( layout, sq_depth, cq_depth );
@@ -99,13 +99,13 @@ fd_io_uring_shmem_setup( struct io_uring_params * params,
      struct, the completion queue (array of CQEs), and the submission
      queue array (array of uints). */
 
-  params->cq_off = (struct io_cqring_offsets) {
+  params->cq_off = (fd_io_cqring_offsets_t) {
     .user_addr = (unsigned long long)( (uchar *)shmem ),
   };
 
   /* sq_off points to the table of submission queue entries. */
 
-  params->sq_off = (struct io_sqring_offsets) {
+  params->sq_off = (fd_io_sqring_offsets_t) {
     .user_addr = (unsigned long long)( (uchar *)shmem + layout->sqe_off ),
   };
 
@@ -114,11 +114,11 @@ fd_io_uring_shmem_setup( struct io_uring_params * params,
 
 static void
 fd_io_uring_init_rings(
-    fd_io_uring_sq_t *       sq,
-    fd_io_uring_cq_t *       cq,
-    struct io_uring_params * params,
-    void *                   sqe_mem,
-    void *                   cq_mem
+    fd_io_uring_sq_t *     sq,
+    fd_io_uring_cq_t *     cq,
+    fd_io_uring_params_t * params,
+    void *                 sqe_mem,
+    void *                 cq_mem
 ) {
   ulong sqe_laddr = (ulong)sqe_mem;
   ulong cq_laddr  = (ulong)cq_mem;
@@ -162,11 +162,11 @@ fd_io_uring_init_rings(
 
 fd_io_uring_t *
 fd_io_uring_init_shmem(
-    fd_io_uring_t *          ring,
-    struct io_uring_params * params,
-    void *                   shmem,
-    ulong                    sq_depth,
-    ulong                    cq_depth
+    fd_io_uring_t *        ring,
+    fd_io_uring_params_t * params,
+    void *                 shmem,
+    ulong                  sq_depth,
+    ulong                  cq_depth
 ) {
   memset( ring, 0, sizeof(fd_io_uring_t) );
   ring->ioring_fd = -1;
@@ -198,8 +198,8 @@ fd_io_uring_init_shmem(
 
 fd_io_uring_t *
 fd_io_uring_init_mmap(
-    fd_io_uring_t *          ring,
-    struct io_uring_params * params
+    fd_io_uring_t *        ring,
+    fd_io_uring_params_t * params
 ) {
   memset( ring, 0, sizeof(fd_io_uring_t) );
   ring->ioring_fd = -1;
