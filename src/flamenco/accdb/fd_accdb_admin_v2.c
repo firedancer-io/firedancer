@@ -291,12 +291,13 @@ publish_recs( fd_accdb_admin_v2_t * admin,
        batches instead.  But it's simple and shippable for now. */
     if( meta->lamports ) {
       vinyl_push_rec( admin, rec->pair.key, meta );
+      admin->base.root_cnt++;
     } else {
       vinyl_remove_rec( admin, rec->pair.key );
+      admin->base.reclaim_cnt++;
     }
     funk_remove_rec( funk,  rec );
 
-    admin->base.root_cnt++;
     head = next; /* next record */
   }
 }
