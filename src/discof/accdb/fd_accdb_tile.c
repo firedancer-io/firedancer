@@ -226,7 +226,7 @@ static void
 vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
                      uint              uring_depth,
                      int               dev_fd ) {
-  struct io_uring_params params[1];
+  fd_io_uring_params_t params[1];
   fd_io_uring_params_init( params, uring_depth );
 
   /* We busy poll the kernel syscall interface and use GETEVENTS.
@@ -242,12 +242,12 @@ vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
     FD_LOG_ERR(( "io_uring_register_files failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  struct io_uring_restriction res[3] = {
-    { .opcode    = IORING_RESTRICTION_SQE_OP,
+  fd_io_uring_restriction_t res[3] = {
+    { .opcode    = FD_IORING_RESTRICTION_SQE_OP,
       .sqe_op    = IORING_OP_READ },
-    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
+    { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
       .sqe_flags = IOSQE_FIXED_FILE },
-    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
+    { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
       .sqe_flags = IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS }
   };
   if( FD_UNLIKELY( fd_io_uring_register_restrictions( ctx->ring->ioring_fd, res, 3U )<0 ) ) {

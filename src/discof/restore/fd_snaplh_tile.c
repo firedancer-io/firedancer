@@ -648,7 +648,7 @@ snaplh_io_uring_init( fd_snaplh_t * ctx,
                       void *        vinyl_io_ur_mem,
                       int           dev_fd ) {
   ulong const uring_depth = VINYL_LTHASH_IORING_DEPTH;
-  struct io_uring_params params[1];
+  fd_io_uring_params_t params[1];
   fd_io_uring_params_init( params, uring_depth );
 
   if( FD_UNLIKELY( !fd_io_uring_init_shmem( ctx->ioring, params, uring_shmem, uring_depth, uring_depth ) ) ) {
@@ -660,12 +660,12 @@ snaplh_io_uring_init( fd_snaplh_t * ctx,
     FD_LOG_ERR(( "io_uring_register_files failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  struct io_uring_restriction res[3] = {
-    { .opcode    = IORING_RESTRICTION_SQE_OP,
+  fd_io_uring_restriction_t res[3] = {
+    { .opcode    = FD_IORING_RESTRICTION_SQE_OP,
       .sqe_op    = IORING_OP_READ },
-    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
+    { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
       .sqe_flags = IOSQE_FIXED_FILE },
-    { .opcode    = IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
+    { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
       .sqe_flags = IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS }
   };
   if( FD_UNLIKELY( fd_io_uring_register_restrictions( ioring->ioring_fd, res, 3U )<0 ) ) {

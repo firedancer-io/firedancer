@@ -36,11 +36,11 @@ fd_io_uring_shmem_footprint( ulong sq_depth,
    failure include obviously invalid shmem pointer or invalid
    {sq,cq}_depth.  Logs reason for failure to WARNING. */
 
-struct io_uring_params *
-fd_io_uring_shmem_setup( struct io_uring_params * params,
-                         void *                   shmem,
-                         ulong                    sq_depth,
-                         ulong                    cq_depth );
+fd_io_uring_params_t *
+fd_io_uring_shmem_setup( fd_io_uring_params_t * params,
+                         void *                 shmem,
+                         ulong                  sq_depth,
+                         ulong                  cq_depth );
 
 /* Setup API **********************************************************/
 
@@ -51,10 +51,10 @@ fd_io_uring_shmem_setup( struct io_uring_params * params,
    - Single issuer thread
    - Rings disabled on startup */
 
-FD_FN_UNUSED static struct io_uring_params *
-fd_io_uring_params_init( struct io_uring_params * params,
-                         uint                     depth ) {
-  memset( params, 0, sizeof(struct io_uring_params) );
+FD_FN_UNUSED static fd_io_uring_params_t *
+fd_io_uring_params_init( fd_io_uring_params_t * params,
+                         uint                   depth ) {
+  memset( params, 0, sizeof(fd_io_uring_params_t) );
   params->flags      |= IORING_SETUP_CQSIZE;
   params->sq_entries  = depth;
   params->cq_entries  = depth;
@@ -69,11 +69,11 @@ fd_io_uring_params_init( struct io_uring_params * params,
 
 fd_io_uring_t *
 fd_io_uring_init_shmem(
-    fd_io_uring_t *          ring,
-    struct io_uring_params * params, /* modified */
-    void *                   shmem,
-    ulong                    sq_depth,
-    ulong                    cq_depth
+    fd_io_uring_t *        ring,
+    fd_io_uring_params_t * params, /* modified */
+    void *                 shmem,
+    ulong                  sq_depth,
+    ulong                  cq_depth
 );
 
 /* fd_io_uring_init_mmap creates a new io_uring instance (using
@@ -82,8 +82,8 @@ fd_io_uring_init_shmem(
 
 fd_io_uring_t *
 fd_io_uring_init_mmap(
-    fd_io_uring_t *          ring,
-    struct io_uring_params * params /* modified */
+    fd_io_uring_t *        ring,
+    fd_io_uring_params_t * params /* modified */
 );
 
 /* fd_io_uring_fini destroys an io_uring instance (using close(2)).  If

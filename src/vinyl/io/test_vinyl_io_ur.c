@@ -79,7 +79,7 @@ main( int     argc,
   fd_io_uring_t ring[1];
   fd_vinyl_io_t * io = NULL;
   {
-    struct io_uring_params params[1];
+    fd_io_uring_params_t params[1];
     fd_io_uring_params_init( params, depth );
     if( defer_io ) {
       params->flags    |= IORING_SETUP_COOP_TASKRUN;
@@ -96,7 +96,7 @@ main( int     argc,
         fd_rng_delete( fd_rng_leave( rng ) );
         return 0;
       } else {
-        FD_LOG_ERR(( "fd_io_uring_init_mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        FD_LOG_ERR(( "fd_io_uring_init failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       }
     }
 
