@@ -80,8 +80,7 @@
        (b) Gossip.  The gossip tile sends out ContactInfo messages with
            our identity key, and also uses the identity key to sign
            outgoing gossip messages.
-           FIXME: Gossip handling for the identity key switch may be
-           buggy.
+           FIXME: Gossip handling here is buggy
        (c) Tower.  The tower tiles uses the identity key to generate
            vote transactions which are sent to the send tile.  These
            vote transactions are then signed downstream by the Send tile
@@ -143,7 +142,9 @@
            gossip.
        (e) Shred.  The shred tile uses the identity key to determine the
            position of the validator in the Turbine tree and to sign
-           outgoing shreds. */
+           outgoing shreds.
+       (f) Event.  Outgoing events to the event server are signed with
+           the identity key to authenticate the sender. */
 
 #define FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED     (8UL)
 
@@ -153,11 +154,11 @@
      switched over. */
 #define FD_SET_IDENTITY_STATE_ALL_SWITCHED             (9UL)
 
-/* State 10: SIGNERS_UNHALT_REQUESTED
+/* State 10: REPLAY_UNHALT_REQUESTED
      Now that all of the tiles are using the switched identity key, the
      tiles that rely on the sign tile can be unhalted.  These are the
-     same tiles from SIGNING_HALT_REQUESTED. */
-#define FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED (10UL)
+     same tiles from REPLAY_HALT_REQUESTED. */
+#define FD_SET_IDENTITY_STATE_REPLAY_UNHALT_REQUESTED (10UL)
 
 /* State 11: SIGNERS_UNHALTED
      All tiles that rely on the sign tile have been unhalted and now the
@@ -344,10 +345,11 @@ poll_keyswitch( fd_topo_t * topo,
                        !strcmp( topo->tiles[ i ].name, "shred" ) ||
                        !strcmp( topo->tiles[ i ].name, "repair" ) ||
                        !strcmp( topo->tiles[ i ].name, "gossip" ) ||
-                       !strcmp( topo->tiles[ i ].name, "send" ) ||
+                       !strcmp( topo->tiles[ i ].name, "txsend" ) ||
                        !strcmp( topo->tiles[ i ].name, "tower" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].keyswitch_obj_id );
+        FD_LOG_NOTICE(("TILE NAME %s", topo->tiles[ i ].name));
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
         FD_COMPILER_MFENCE();
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
@@ -366,11 +368,12 @@ poll_keyswitch( fd_topo_t * topo,
                        !strcmp( topo->tiles[ i ].name, "shred" ) ||
                        !strcmp( topo->tiles[ i ].name, "repair" ) ||
                        !strcmp( topo->tiles[ i ].name, "gossip" ) ||
-                       !strcmp( topo->tiles[ i ].name, "send" ) ||
+                       !strcmp( topo->tiles[ i ].name, "txsend" ) ||
                        !strcmp( topo->tiles[ i ].name, "tower" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].keyswitch_obj_id );
         if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+          FD_LOG_NOTICE(("TILE PENDING %s", topo->tiles[ i ].name));
           all_switched = 0UL;
           break;
         } else if( FD_UNLIKELY( tile_ks->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
@@ -410,10 +413,10 @@ poll_keyswitch( fd_topo_t * topo,
       }
 
       FD_LOG_INFO(( "Requesting to unpause signers..." ));
-      *state = FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED;
+      *state = FD_SET_IDENTITY_STATE_REPLAY_UNHALT_REQUESTED;
       break;
     }
-    case FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED: {
+    case FD_SET_IDENTITY_STATE_REPLAY_UNHALT_REQUESTED: {
       int all_switched = 1;
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
@@ -485,7 +488,7 @@ set_identity_cmd_args( int *    pargc,
   return;
 
 err:
-  FD_LOG_ERR(( "Usage: fdctl set-identity <keypair> [--require-tower] [--force]" ));
+  FD_LOG_ERR(( "Usage: firedancer set-identity <keypair> [--require-tower] [--force]" ));
 }
 
 static void FD_FN_SENSITIVE

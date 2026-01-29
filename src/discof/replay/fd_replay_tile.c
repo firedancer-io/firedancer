@@ -373,7 +373,7 @@ struct fd_replay_tile {
   ulong            identity_idx;
 
   fd_keyswitch_t * keyswitch;
-  int              halting_leader;
+  int              halt_leader;
 
   ulong  resolv_tile_cnt;
 
@@ -1144,7 +1144,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   FD_TEST( ctx->is_booted );
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
 
-  if( FD_UNLIKELY( ctx->halting_leader ) ) return 0;
+  if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
@@ -2692,7 +2692,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
-  ctx->halting_leader = 0;
+  ctx->halt_leader = 0;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -2819,15 +2819,15 @@ populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
 static inline void
 during_housekeeping( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-    FD_CRIT( ctx->halting_leader, "state machine corruption" );
+    FD_CRIT( ctx->halt_leader, "state machine corruption" );
     FD_LOG_DEBUG(( "keyswitch: unhalting leader" ));
-    ctx->halting_leader = 0;
+    ctx->halt_leader = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: halting leader" ));
-    ctx->halting_leader = 1;
+    ctx->halt_leader = 1;
     if( !ctx->is_leader ) maybe_switch_identity( ctx );
   }
 }

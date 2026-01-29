@@ -198,6 +198,7 @@ during_housekeeping( fd_txsend_tile_ctx_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: switching identity" ));
     ulong seq_must_complete = ctx->keyswitch->param;
     if( FD_UNLIKELY( fd_seq_lt( ctx->tower_in_expect_seq, seq_must_complete ) ) ) {
       /* See fd_keyswitch.h, we need to flush any in-flight shreds from

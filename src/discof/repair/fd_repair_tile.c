@@ -219,7 +219,7 @@ struct ctx {
   ulong repair_seed;
 
   fd_keyswitch_t * keyswitch;
-  int              halting_signing;
+  int              halt_signing;
 
   fd_ip4_port_t repair_intake_addr;
   fd_ip4_port_t repair_serve_addr;
@@ -411,7 +411,7 @@ fd_repair_send_sign_request( ctx_t                 * ctx,
                              fd_repair_msg_t const * msg,
                              pong_data_t     const * opt_pong_data ) {
 
-  if( FD_UNLIKELY( ctx->halting_signing ) ) FD_LOG_CRIT(( "can't dispatch sign requests while halting signing" ));
+  if( FD_UNLIKELY( ctx->halt_signing ) ) FD_LOG_CRIT(( "can't dispatch sign requests while halting signing" ));
 
   /* New sign request */
   sign_req_t * pending = sign_map_insert( ctx, msg, opt_pong_data );
@@ -912,7 +912,7 @@ after_credit( ctx_t *             ctx,
               int *               charge_busy ) {
   long now = fd_log_wallclock();
 
-  if( FD_UNLIKELY( ctx->halting_signing ) ) {
+  if( FD_UNLIKELY( ctx->halt_signing ) ) {
     *charge_busy = 1;
     return;
   }
@@ -995,20 +995,20 @@ during_housekeeping( ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting" ));
-    FD_CRIT( ctx->halting_signing, "state machine corruption" );
-    ctx->halting_signing = 0;
+    FD_CRIT( ctx->halt_signing, "state machine corruption" );
+    ctx->halt_signing = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
 
-    if( !ctx->halting_signing ) {
+    if( !ctx->halt_signing ) {
       /* At this point, stop sending new sign requests to the sign tile
          and wait for all outstanding sign requests to be received back
          from the sign tile.  We also need to update any pending
          outgoing sign requests with the new identity key. */
       FD_LOG_DEBUG(( "keyswitch: halting signing" ));
-      ctx->halting_signing = 1;
+      ctx->halt_signing = 1;
       memcpy( ctx->identity_public_key.uc, ctx->keyswitch->bytes, 32UL );
       ctx->protocol->identity_key = ctx->identity_public_key;
       signs_queue_update_identity( ctx );
@@ -1070,7 +1070,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
-  ctx->halting_signing = 0;
+  ctx->halt_signing = 0;
 
   /* Process in links */
 
