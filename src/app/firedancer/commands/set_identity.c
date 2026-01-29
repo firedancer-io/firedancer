@@ -173,8 +173,8 @@
 
 void
 set_identity_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
-                        fd_cap_chk_t *   chk,
-                        config_t const * config FD_PARAM_UNUSED ) {
+                       fd_cap_chk_t *   chk,
+                       config_t const * config FD_PARAM_UNUSED ) {
   /* 5 huge pages for the key storage area */
   ulong mlock_limit = 5UL * FD_SHMEM_NORMAL_PAGE_SZ;
   fd_cap_chk_raise_rlimit( chk, "set-identity", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
