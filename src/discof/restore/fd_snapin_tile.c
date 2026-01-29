@@ -695,14 +695,16 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &target_xid );
       fd_accdb_advance_root( ctx->accdb_admin,           &target_xid );
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );
-
-      fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
+      /* Notify replay when snapshot is fully loaded and verified.  This
+         occurs when we receive the shutdown control message, indicating
+         snapshot load is successful. */
+      fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_ERROR:

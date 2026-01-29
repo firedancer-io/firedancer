@@ -76,7 +76,7 @@
 #define FD_SNAPSHOT_MSG_CTRL_FAIL              (4UL) /* Current snapshot failed, undo work and reset to idle state */
 #define FD_SNAPSHOT_MSG_CTRL_NEXT              (5UL) /* Current snapshot succeeded, commit work, go idle, and expect another snapshot */
 #define FD_SNAPSHOT_MSG_CTRL_DONE              (6UL) /* Current snapshot succeeded, commit work, go idle, and expect shutdown */
-#define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (7UL) /* No work left to do, perform final cleanup and shut down */
+#define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (7UL) /* Snapshot load successful, no work left to do, perform final cleanup and shut down*/
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
 
 /* snapla -> snapls */
