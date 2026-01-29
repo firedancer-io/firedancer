@@ -19,11 +19,15 @@
 #include <stddef.h>
 #include <sys/socket.h>
 
+#include <math.h> /* floor, isfinite */
+
 #if FD_HAS_ZSTD
 #include <zstd.h>
 #endif
 
 #include "generated/fd_rpc_tile_seccomp.h"
+
+#define FD_RPC_AGAVE_API_VERSION "3.1.6"
 
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN 8192UL
 
@@ -485,64 +489,223 @@ jsonp_open_envelope( fd_http_server_t * http ) {
 
 static void
 jsonp_close_envelope( fd_http_server_t * http,
-                      ulong              id ) {
+                      cJSON const *      id ) {
   jsonp_close_object( http );
-  jsonp_ulong( http, "id", id );
+  jsonp_string( http, "id", cJSON_PrintUnformatted( id ) );
   jsonp_close_object( http );
   jsonp_strip_trailing_comma( http );
+}
+
+static inline int
+_cJSON_is_integer( const cJSON * item ) {
+  return cJSON_IsNumber(item)
+      && isfinite(item->valuedouble)
+      && floor(item->valuedouble) == item->valuedouble;
+}
+
+static inline char const *
+_to_jsonrpc_type_cstr( cJSON const * elt ) {
+  FD_TEST( elt );
+  if( cJSON_IsString( elt ) ) return "string";
+  if( cJSON_IsObject( elt ) ) return "map";
+  if( cJSON_IsArray ( elt ) ) return "sequence";
+  if( cJSON_IsBool  ( elt ) ) return "boolean";
+  if( cJSON_IsNumber( elt ) && !_cJSON_is_integer( elt ) ) return "floating point";
+  if( cJSON_IsNumber( elt ) ) return "integer";
+  if( cJSON_IsNull  ( elt ) ) return "null";
+  FD_LOG_ERR(( "unreachable %s", cJSON_PrintUnformatted( elt ) ));
 }
 
 #define UNIMPLEMENTED(X)                               \
 static fd_http_server_response_t                       \
 X( fd_rpc_tile_t * ctx,                                \
-   ulong           request_id,                         \
+   cJSON const *   id,                                 \
    cJSON const *   params ) {                          \
-  (void)ctx; (void)request_id; (void)params;           \
+  (void)ctx; (void)id; (void)params;           \
   return (fd_http_server_response_t){ .status = 501 }; \
 }
+
+#define PRINTF_JSON(__ctx, ...) (__extension__({ \
+  fd_http_server_printf( __ctx->http, __VA_ARGS__ ); \
+  fd_http_server_response_t __res = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 }; \
+  FD_TEST( !fd_http_server_stage_body( __ctx->http, &__res ) ); \
+  __res; }))
+
+static inline int
+fd_rpc_validate_params( fd_rpc_tile_t *             ctx,
+                     cJSON const *               id,
+                     cJSON const *               params,
+                     ulong                       min_cnt,
+                     ulong                       max_cnt,
+                     fd_http_server_response_t * res ) {
+  FD_TEST( min_cnt <= max_cnt );
+  /* Agave also includes a "data" field in some responses with the
+     faulty params payload. Instead of printing raw JSON, they print the
+     escaped repr which we won't replicate.
+     
+     e.g. "data" might contain something like
+      Array([String(\"\"), Object {}])
+
+    instead, we just include the field with an empty string
+  */
+
+  ulong param_cnt;
+  if( FD_UNLIKELY( !params ) ) param_cnt = 0UL;
+  else if( FD_UNLIKELY( cJSON_IsNumber( params ) || cJSON_IsString( params ) || cJSON_IsBool( params ) ) ) {
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    return 0;
+  }
+  else if( FD_UNLIKELY( cJSON_IsObject( params ) && max_cnt==0UL ) ) {
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: No parameters were expected\",\"data\":\"\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    return 0;
+  }
+  else if( FD_UNLIKELY( cJSON_IsObject( params ) && max_cnt>0UL ) ) {
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"`params` should be an array\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    return 0;
+  }
+  else if( FD_UNLIKELY( cJSON_IsNull( params ) ) ) param_cnt = 0UL;
+  else if( FD_UNLIKELY( cJSON_IsArray( params ) ) ) param_cnt = (ulong)cJSON_GetArraySize( params );
+  else FD_LOG_ERR(("unreachable"));
+
+  if( FD_UNLIKELY( param_cnt>0UL && max_cnt==0UL ) ) {
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: No parameters were expected\",\"data\":\"\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    return 0;
+  }
+  if( FD_UNLIKELY( param_cnt<min_cnt ) ) {
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"`params` should have at least %lu argument(s)\"},\"id\":%s}\n", min_cnt, cJSON_PrintUnformatted( id ) );
+    return 0;
+  }
+  if( param_cnt>max_cnt ) {
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: Expected from %lu to %lu parameters.\",\"data\":\"\\\"Got: %lu\\\"\"},\"id\":%s}\n", min_cnt, max_cnt, param_cnt, cJSON_PrintUnformatted( id ) );
+    return 0;
+  }
+
+  return 1;
+}
+
+/* TODO: use optimized version of this from fd_base58_tmpl.c */
+static const char base58_chars[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+static inline int
+_contains_non_base58(const char *str) {
+    
+    for (; *str; str++) {
+        if (!strchr(base58_chars, *str)) return 1;
+    }
+    return 0;
+}
+
+/* adapted from https://salsa.debian.org/debian/libbase58/-/blob/debian/master/base58.c */
+
+static inline int
+b58enc_128( char * b58, ulong * b58sz, const void *data, ulong binsz ) {
+  FD_TEST( binsz <= 128UL );
+
+  const uchar * bin = data;
+  ulong carry;
+  ulong i, j, high, zcount = 0;
+  ulong size;
+
+  while( zcount<binsz && !bin[ zcount ] ) zcount++;
+
+  size = (binsz-zcount)*138/100+1;
+  uchar buf[ 175UL ] = { 0 };
+
+  for( i=zcount, high=size-1UL; i<binsz; i++, high=j ) {
+    for( carry=bin[ i ], j=size-1UL; (j>high) || carry; j-- ) {
+      carry += 256UL * buf[ j ];
+      buf[ j ] = (uchar)(carry%58UL);
+      carry /= 58UL;
+      if( FD_UNLIKELY( !j ) ) break;
+    }
+  }
+
+  for( j=0; j<size && !buf[ j ]; j++);
+
+  if( *b58sz<zcount+size-j ) {
+    *b58sz = zcount+size-j;
+    return 0;
+  }
+
+  if (zcount) memset(b58, '1', zcount);
+  for( i=zcount; j<size; i++, j++) b58[ i ] = base58_chars[ buf[ j ] ];
+  *b58sz = i;
+
+  return 1;
+}
+
+
 
 UNIMPLEMENTED(getBlock) // TODO: Used by solana-exporter
 UNIMPLEMENTED(getBlockCommitment)
 
 static fd_http_server_response_t
 getAccountInfo( fd_rpc_tile_t * ctx,
-                ulong           request_id,
+                cJSON const *   id,
                 cJSON const *   params ) {
-  int param_cnt = cJSON_GetArraySize( params );
-  if( param_cnt!=2 ) {
-    /* In theory, the second argument (options) is not required.  But if
-       it is omitted, it implies Base58-encoded account data, which we
-       deliberately don't support. */
-    return (fd_http_server_response_t){ .status = 400 };
+  fd_http_server_response_t _response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &_response ) ) ) return _response;
+
+  cJSON const * acct_pubkey = cJSON_GetArrayItem( params, 0 );
+  cJSON const * config      = cJSON_GetArrayItem( params, 1 );
+
+  FD_TEST( acct_pubkey );
+  if( FD_UNLIKELY( cJSON_IsNumber( acct_pubkey ) || cJSON_IsBool( acct_pubkey ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected a string.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( acct_pubkey ), cJSON_PrintUnformatted( acct_pubkey ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( !cJSON_IsString( acct_pubkey ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected a string.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( acct_pubkey ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( config && !cJSON_IsObject( config ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected a map.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( config ), cJSON_PrintUnformatted( id ) );
   }
 
-  cJSON const * address_node = cJSON_GetArrayItem( params, 0 );
-  cJSON const * config       = cJSON_GetArrayItem( params, 1 );
-  if( FD_UNLIKELY( !cJSON_IsString( address_node ) ) ) {
-    return (fd_http_server_response_t){ .status = 400 };
+  cJSON const * encoding = cJSON_GetObjectItemCaseSensitive( config, "encoding" );
+
+  if( FD_UNLIKELY( cJSON_IsNumber( encoding ) || cJSON_IsBool( encoding ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected string or map.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( encoding ), cJSON_PrintUnformatted( encoding ), cJSON_PrintUnformatted( id ) );
   }
-  if( FD_UNLIKELY( !cJSON_IsObject( config ) ) ) {
-    return (fd_http_server_response_t){ .status = 400 };
+  if( FD_UNLIKELY( cJSON_IsObject( encoding ) && !(encoding->child && encoding->child->next==NULL) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: map, expected map with a single key.\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( encoding && !cJSON_IsString( encoding ) && !cJSON_IsNull( encoding ) && !cJSON_IsObject( encoding ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected string or map.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( encoding ), cJSON_PrintUnformatted( id ) );
   }
 
-  char const * encoding = cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "encoding" ) );
-  if( !encoding ) encoding = "binary"; /* "binary" is base58 */
-  _Bool use_zstd = 0; (void)use_zstd;
-  if( 0==strcmp( encoding, "base64+zstd" ) && FD_HAS_ZSTD ) {
-    use_zstd = 1;
-  } else if( 0==strcmp( encoding, "base64" ) ||
-             0==strcmp( encoding, "jsonParsed" ) ) {
-    encoding = "base64";
+  char const * encoding_cstr;
+  if( FD_UNLIKELY( cJSON_IsObject( encoding ) ) ) {
+    if( cJSON_HasObjectItem( encoding, "binary" ) ) encoding_cstr = "binary";
+    else if( cJSON_HasObjectItem( encoding, "base58" ) ) encoding_cstr = "base58";
+    else if( cJSON_HasObjectItem( encoding, "base64" ) ) encoding_cstr = "base64";
+    else if( cJSON_HasObjectItem( encoding, "base64+zstd" ) ) encoding_cstr = "base64+zstd";
+    else if( cJSON_HasObjectItem( encoding, "jsonParsed" ) ) encoding_cstr = "jsonParsed";
+    else return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding->child->string, cJSON_PrintUnformatted( id ) );
   } else {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: this server only supports 'base64' account data encoding\"},\"id\":%lu}\n", request_id );
-    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
-    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
-    return response;
+    encoding_cstr = encoding && cJSON_IsString( encoding ) ? encoding->valuestring : "binary";
+  }
+
+  if( FD_UNLIKELY( cJSON_IsObject( encoding ) && (cJSON_IsNumber( encoding->child ) || cJSON_IsBool( encoding->child )) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected unit.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( encoding->child ), cJSON_PrintUnformatted( encoding->child ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( cJSON_IsObject( encoding ) && cJSON_IsString( encoding->child ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected unit.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( encoding->child ), encoding->child->valuestring, cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( cJSON_IsObject( encoding ) && !cJSON_IsNull( encoding->child ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected unit.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( encoding->child ), cJSON_PrintUnformatted( id ) );
+  }
+
+  int use_zstd = 0; (void)use_zstd;
+  if( 0==strcmp( encoding_cstr, "base64+zstd" ) && FD_HAS_ZSTD ) {
+    use_zstd = 1;
+  } else if( 0==strcmp( encoding_cstr, "jsonParsed" ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: jsonParsed is unsupported\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+  } else if( 0!=strcmp( encoding_cstr, "binary" ) && 0!=strcmp( encoding_cstr, "base58" ) && 0!=strcmp( encoding_cstr, "base64" ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding_cstr, cJSON_PrintUnformatted( id ) );
   }
 
   ulong bank_idx = ULONG_MAX;
-  char const * commitment = cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "commitment" ) );
-  if( !commitment ) commitment = "confirmed";
+  char const * commitment = config ? cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "finalized" ) ) : "confirmed"; /* TODO confirm defaults */
+  if( !commitment ) commitment = "finalized";
   if( 0==strcmp( commitment, "confirmed" ) ) {
     /* This check is here for correctness. It's technically possible for
        tower to race and provide confirmed_idx before we've received it
@@ -553,20 +716,14 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   } else if( 0==strcmp( commitment, "finalized" ) ) {
     bank_idx = fd_ulong_if( ctx->banks[ ctx->finalized_idx ].slot!=ULONG_MAX, ctx->finalized_idx, ULONG_MAX );
   } else {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%lu}\n", request_id );
-    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
-    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
-    return response;
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
   }
   if( FD_UNLIKELY( bank_idx==ULONG_MAX ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: cannot resolve slot for '%s' commitment level\"},\"id\":%lu}\n", commitment, request_id );
-    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
-    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
-    return response;
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: cannot resolve slot for '%s' commitment level\"},\"id\":%s}\n", commitment, cJSON_PrintUnformatted( id ) );
   }
 
   ulong minContextSlot = 0UL;
-  cJSON const * _minContextSlot = cJSON_GetObjectItemCaseSensitive( config, "minContextSlot" );
+  cJSON const * _minContextSlot = config ? cJSON_GetObjectItemCaseSensitive( config, "minContextSlot" ) : NULL;
   if( FD_UNLIKELY( _minContextSlot && !cJSON_IsNull( _minContextSlot ) ) ) {
     if( FD_UNLIKELY( !cJSON_IsNumber( _minContextSlot ) || _minContextSlot->valueulong==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 400 };
     minContextSlot = _minContextSlot->valueulong;
@@ -574,53 +731,110 @@ getAccountInfo( fd_rpc_tile_t * ctx,
 
   bank_info_t const * info = &ctx->banks[ bank_idx ];
   if( info->slot < minContextSlot ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, info->slot, request_id );
-    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
-    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
-    return response;
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, info->slot, cJSON_PrintUnformatted( id ) );
   }
 
-  ulong data_off = 0U;
-  ulong data_max = UINT_MAX;
   const cJSON * dataSlice = cJSON_GetObjectItemCaseSensitive( config, "dataSlice" );
+
+  if( FD_UNLIKELY( cJSON_IsNumber( dataSlice ) || cJSON_IsBool( dataSlice ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected struct UiDataSliceConfig.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( dataSlice ), cJSON_PrintUnformatted( dataSlice ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( cJSON_IsString( dataSlice ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected struct UiDataSliceConfig.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( dataSlice ), dataSlice->valuestring, cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( cJSON_IsArray( dataSlice ) && cJSON_GetArraySize( dataSlice )!=2 ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid length %lu, expected struct UiDataSliceConfig with 2 elements.\"},\"id\":%s}\n", (ulong)cJSON_GetArraySize( dataSlice ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( dataSlice && !cJSON_IsObject( dataSlice ) && !cJSON_IsNull( dataSlice ) && !cJSON_IsArray( dataSlice ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected struct UiDataSliceConfig.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( dataSlice ), cJSON_PrintUnformatted( id ) );
+  }
+
+  int has_offset = cJSON_IsObject( dataSlice ) && cJSON_HasObjectItem( dataSlice, "offset" );
+  int has_length = cJSON_IsObject( dataSlice ) && cJSON_HasObjectItem( dataSlice, "length" );
+
+  ulong data_off = 0U;
+  ulong data_max = ULONG_MAX;
+  cJSON const * _length = NULL;
+  cJSON const * _offset = NULL;
+  if( cJSON_IsObject( dataSlice ) ) {
+    _length = has_length ? cJSON_GetObjectItemCaseSensitive( dataSlice, "length" ) : NULL;
+    _offset = has_offset ? cJSON_GetObjectItemCaseSensitive( dataSlice, "offset" ) : NULL;
+  } else if( cJSON_IsArray( dataSlice ) ) {
+    _offset = cJSON_GetArrayItem( dataSlice, 0 );
+    _length = cJSON_GetArrayItem( dataSlice, 1 );
+  }
+
+  if( FD_UNLIKELY( cJSON_IsBool( _offset ) || (cJSON_IsNumber( _offset ) && !_cJSON_is_integer( _offset )) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected usize.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( _offset ), cJSON_PrintUnformatted( _offset ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( cJSON_IsNumber( _offset ) && _offset->valueint<0 ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected usize.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( _offset ), cJSON_PrintUnformatted( _offset ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( cJSON_IsString( _offset ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( _offset ), _offset->valuestring, cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( _offset && !_cJSON_is_integer( _offset ) && !cJSON_IsNull( dataSlice ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( _offset ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( cJSON_IsObject( dataSlice ) && !has_offset ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `offset`.\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+  }
+
+  if( FD_UNLIKELY( cJSON_IsBool( _length ) || (cJSON_IsNumber( _length ) && !_cJSON_is_integer( _length )) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected usize.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( _length ), cJSON_PrintUnformatted( _length ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( cJSON_IsNumber( _length ) && _length->valueint<0 ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected usize.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( _length ), cJSON_PrintUnformatted( _length ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( cJSON_IsString( _length ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( _length ), _length->valuestring, cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( _length && !_cJSON_is_integer( _length ) && !cJSON_IsNull( dataSlice ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", _to_jsonrpc_type_cstr( _length ), cJSON_PrintUnformatted( id ) );
+  }
+  if( FD_UNLIKELY( cJSON_IsObject( dataSlice ) && !has_length ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `length`.\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+  }
+
   if( dataSlice && !cJSON_IsNull( dataSlice ) ) {
-    cJSON const * _length = cJSON_GetObjectItemCaseSensitive( dataSlice, "length" );
-    cJSON const * _offset = cJSON_GetObjectItemCaseSensitive( dataSlice, "offset" );
-    if( FD_UNLIKELY( !_length || !cJSON_IsNumber( _length ) ||
-                     !_offset || !cJSON_IsNumber( _offset ) ) ) {
-      return (fd_http_server_response_t){ .status = 400 };
-    }
+    FD_TEST( _length && _offset );
     data_off = _offset->valueulong;
     data_max = _length->valueulong;
   }
 
-  uchar address[ 32 ];
-  if( FD_UNLIKELY( !fd_base58_decode_32( cJSON_GetStringValue( address_node ), address ) ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: address is not a valid Base58 encoding\"},\"id\":%lu}\n", request_id );
-    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
-    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
-    return response;
+  uchar address[ sizeof(fd_pubkey_t) ];
+  int invalid_char = _contains_non_base58( acct_pubkey->valuestring );
+  if( FD_UNLIKELY( invalid_char ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+  }
+
+  int valid = !!fd_base58_decode_32( acct_pubkey->valuestring, address );
+  if( FD_UNLIKELY( !valid ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: WrongSize\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
   }
 
   fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
   fd_accdb_ro_t ro[1];
   if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, address ) ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":null},\"id\":%lu}\n", info->slot, request_id );
-    fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
-    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
-    return response;
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":null},\"id\":%s}\n", info->slot, cJSON_PrintUnformatted( id ) );
   }
 
   ulong const data_sz = fd_accdb_ref_data_sz( ro );
-  if( data_off>data_sz ) data_off = data_sz;
-  ulong snip_sz = data_sz - data_off;
-  if( snip_sz>data_max ) snip_sz = data_max;
-
-  uchar const * compressed    = (uchar const *)fd_accdb_ref_data_const( ro )+data_off;
+  uchar const * compressed    = (uchar const *)fd_accdb_ref_data_const( ro )+fd_ulong_if(data_off<data_sz, data_off, 0UL );
+  ulong         snip_sz       = fd_ulong_min( fd_ulong_if( data_off<data_sz, data_sz-data_off, 0UL ), data_max );
   ulong         compressed_sz = snip_sz;
+
+  int is_binary = !strncmp( encoding_cstr, "binary", strlen("binary") );
+  int is_base58 = !strncmp( encoding_cstr, "base58", strlen("base58") );
+  if( FD_UNLIKELY( (is_binary || is_base58) && dataSlice && !cJSON_IsNull( dataSlice ) && snip_sz>128UL ) ) {
+    fd_accdb_close_ro( ctx->accdb, ro );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than {MAX_BASE58_BYTES} bytes, please use Base64 encoding.\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+  }
+
+  // FD_LOG_WARNING(("data_off=%lu data_max=%lu data_sz=%lu compressed=%lu snip_sz=%lu", data_off, data_max, data_sz, compressed_sz, snip_sz));
 # if FD_HAS_ZSTD
   if( use_zstd ) {
-    size_t zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), compressed, snip_sz, 3 );
+    ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), compressed, snip_sz, 0 );
     if( ZSTD_isError( zstd_res ) ) {
       fd_accdb_close_ro( ctx->accdb, ro );
       return (fd_http_server_response_t){ .status = 500 };
@@ -632,32 +846,47 @@ getAccountInfo( fd_rpc_tile_t * ctx,
 
   FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro ), owner_b58 );
   fd_http_server_printf( ctx->http,
-      "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\":{\"context\":{\"slot\":%lu},\"value\":{"
+      "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\": \"%s\",\"slot\":%lu},\"value\":{"
       "\"executable\":%s,"
       "\"lamports\":%lu,"
       "\"owner\":\"%s\","
       "\"rentEpoch\":18446744073709551615,"
       "\"space\":%lu,"
-      "\"data\":[\"",
-      request_id,
+      "\"data\":",
+      cJSON_PrintUnformatted( id ),
+      FD_RPC_AGAVE_API_VERSION,
       info->slot,
       fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
       fd_accdb_ref_lamports( ro ),
       owner_b58,
       data_sz );
 
-  ulong   encoded_sz = FD_BASE64_ENC_SZ( snip_sz );
-  uchar * encoded    = fd_http_server_append_start( ctx->http, encoded_sz );
+  ulong encoded_sz = fd_ulong_if( is_base58 || is_binary, 175UL, FD_BASE64_ENC_SZ( snip_sz ) );
+  if( FD_UNLIKELY( is_binary ) ) {
+    fd_http_server_printf( ctx->http, "\"" );
+  } else {
+    fd_http_server_printf( ctx->http, "[\"" );
+  }
+
+  uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );;
   if( FD_UNLIKELY( !encoded ) ) {
     fd_accdb_close_ro( ctx->accdb, ro );
     return (fd_http_server_response_t){ .status = 500 };
   }
-  encoded_sz = fd_base64_encode( (char *)encoded, compressed, compressed_sz );
+  
+  if( FD_UNLIKELY( is_base58 || is_binary ) ) {
+    b58enc_128( (char *)encoded, &encoded_sz, compressed, compressed_sz );
+  } else {
+    encoded_sz = fd_base64_encode( (char *)encoded, compressed, compressed_sz );
+  }
+
   fd_http_server_append_end( ctx->http, encoded_sz );
 
-  fd_http_server_printf( ctx->http, "\",\"%s\"]}}}\n", encoding );
-  fd_accdb_close_ro( ctx->accdb, ro );
+  if( FD_UNLIKELY( is_binary ) ) fd_http_server_printf( ctx->http, "\"}}}\n" );
+  else                           fd_http_server_printf( ctx->http, "\",\"%s\"]}}}\n", encoding_cstr );
 
+  fd_accdb_close_ro( ctx->accdb, ro );
+ 
   fd_http_server_response_t response = { .content_type = "application/json", .status = 200 };
   if( fd_http_server_stage_body( ctx->http, &response ) ) response.status = 500;
   return response;
@@ -665,7 +894,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
 
 static fd_http_server_response_t
 getBalance( fd_rpc_tile_t * ctx,
-            ulong           request_id,
+            cJSON const *   id,
             cJSON const *   params ) {
   int param_cnt = cJSON_GetArraySize( params );
   if( param_cnt<1 || param_cnt>2 ) {
@@ -691,13 +920,13 @@ getBalance( fd_rpc_tile_t * ctx,
   } else if( 0==strcmp( commitment, "finalized" ) ) {
     bank_idx = fd_ulong_if( ctx->banks[ ctx->finalized_idx ].slot!=ULONG_MAX, ctx->finalized_idx, ULONG_MAX );
   } else {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%lu}\n", request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
   }
   if( FD_UNLIKELY( bank_idx==ULONG_MAX ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: cannot resolve slot for '%s' commitment level\"},\"id\":%lu}\n", commitment, request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: cannot resolve slot for '%s' commitment level\"},\"id\":%s}\n", commitment, cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
@@ -712,7 +941,7 @@ getBalance( fd_rpc_tile_t * ctx,
 
   bank_info_t const * info = &ctx->banks[ bank_idx ];
   if( info->slot < minContextSlot ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, info->slot, request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, info->slot, cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
@@ -720,7 +949,7 @@ getBalance( fd_rpc_tile_t * ctx,
 
   uchar address[ 32 ];
   if( FD_UNLIKELY( !fd_base58_decode_32( cJSON_GetStringValue( address_node ), address ) ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: address is not a valid Base58 encoding\"},\"id\":%lu}\n", request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: address is not a valid Base58 encoding\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
@@ -734,7 +963,7 @@ getBalance( fd_rpc_tile_t * ctx,
     fd_accdb_close_ro( ctx->accdb, ro );
   }
 
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":%lu},\"id\":%lu}\n", info->slot, balance, request_id );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":%lu},\"id\":%s}\n", info->slot, balance, cJSON_PrintUnformatted( id ) );
   fd_http_server_response_t response = { .content_type = "application/json", .status = 200 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -742,7 +971,7 @@ getBalance( fd_rpc_tile_t * ctx,
 
 static fd_http_server_response_t
 getBlockHeight( fd_rpc_tile_t * ctx,
-                ulong           request_id,
+                cJSON const *   id,
                 cJSON const *   params ) {
   int commitment = FD_RPC_COMMITMENT_FINALIZED;
   ulong minContextSlot = ULONG_MAX;
@@ -772,13 +1001,13 @@ getBlockHeight( fd_rpc_tile_t * ctx,
   bank_info_t const * bank = &ctx->banks[ ctx->processed_idx ];
 
   if( FD_UNLIKELY( minContextSlot!=ULONG_MAX && minContextSlot>bank->slot ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, bank->slot, request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, bank->slot, cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
   }
 
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}\n", bank->block_height, request_id );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", bank->block_height, cJSON_PrintUnformatted( id ) );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -802,19 +1031,19 @@ UNIMPLEMENTED(getFirstAvailableBlock) // TODO: Used by solana-exporter
 
 static fd_http_server_response_t
 getGenesisHash( fd_rpc_tile_t * ctx,
-                ulong           request_id,
+                cJSON const *   id,
                 cJSON const *   params ) {
   (void)params;
 
   if( FD_UNLIKELY( !ctx->has_genesis_hash ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"No genesis hash\"},\"id\":%lu}\n", FD_RPC_ERROR_NO_SNAPSHOT, request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"No genesis hash\"},\"id\":%s}\n", FD_RPC_ERROR_NO_SNAPSHOT, cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
   }
 
   FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash, genesis_hash_b58 );
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%lu}\n", genesis_hash_b58, request_id );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%s}\n", genesis_hash_b58, cJSON_PrintUnformatted( id ) );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -867,9 +1096,10 @@ _getHealth( fd_rpc_tile_t * ctx ) {
 
 static fd_http_server_response_t
 getHealth( fd_rpc_tile_t * ctx,
-           ulong           request_id,
+           cJSON const *   id,
            cJSON const *   params ) {
-  (void)params;
+  fd_http_server_response_t _response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &_response ) ) ) return _response;
 
   // TODO: We should probably implement the same waiting_for_supermajority
   // logic to conform with Agave here.
@@ -877,9 +1107,9 @@ getHealth( fd_rpc_tile_t * ctx,
   int health_status = _getHealth( ctx );
 
   switch( health_status ) {
-    case FD_RPC_HEALTH_STATUS_UNKNOWN: fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":%lu}\n", FD_RPC_ERROR_NODE_UNHEALTHY, request_id ); break;
-    case FD_RPC_HEALTH_STATUS_BEHIND:  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_NODE_UNHEALTHY, fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot ), request_id ); break;
-    case FD_RPC_HEALTH_STATUS_OK:      fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%lu}\n", request_id ); break;
+    case FD_RPC_HEALTH_STATUS_UNKNOWN: fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, cJSON_PrintUnformatted( id ) ); break;
+    case FD_RPC_HEALTH_STATUS_BEHIND:  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot ), cJSON_PrintUnformatted( id ) ); break;
+    case FD_RPC_HEALTH_STATUS_OK:      fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%s}\n", cJSON_PrintUnformatted( id ) ); break;
     default: FD_LOG_ERR(( "unknown health status" ));
   }
 
@@ -890,10 +1120,10 @@ getHealth( fd_rpc_tile_t * ctx,
 
 static fd_http_server_response_t
 getHighestSnapshotSlot( fd_rpc_tile_t * ctx,
-                        ulong           request_id,
+                        cJSON const *   id,
                         cJSON const *   params ) {
   (void)params;
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"No snapshot\"},\"id\":%lu}\n", FD_RPC_ERROR_NO_SNAPSHOT, request_id );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"No snapshot\"},\"id\":%s}\n", FD_RPC_ERROR_NO_SNAPSHOT, cJSON_PrintUnformatted( id ) );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -901,12 +1131,12 @@ getHighestSnapshotSlot( fd_rpc_tile_t * ctx,
 
 static fd_http_server_response_t
 getIdentity( fd_rpc_tile_t * ctx,
-             ulong           request_id,
+             cJSON const *   id,
              cJSON const *   params ) {
   (void)params;
 
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, identity_pubkey_b58 );
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"%s\"},\"id\":%lu}\n", identity_pubkey_b58, request_id );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"%s\"},\"id\":%s}\n", identity_pubkey_b58, cJSON_PrintUnformatted( id ) );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -914,7 +1144,7 @@ getIdentity( fd_rpc_tile_t * ctx,
 
 static fd_http_server_response_t
 getInflationGovernor( fd_rpc_tile_t * ctx,
-                     ulong           request_id,
+                     cJSON const *   id,
                      cJSON const *   params ) {
   (void)params;
 
@@ -944,7 +1174,7 @@ getInflationGovernor( fd_rpc_tile_t * ctx,
     jsonp_double( ctx->http, "initial",         bank->inflation.initial );
     jsonp_double( ctx->http, "taper",           bank->inflation.taper );
     jsonp_double( ctx->http, "terminal",        bank->inflation.terminal );
-  jsonp_close_envelope( ctx->http, request_id );
+  jsonp_close_envelope( ctx->http, id );
 
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
@@ -957,7 +1187,7 @@ UNIMPLEMENTED(getLargestAccounts)
 
 static fd_http_server_response_t
 getLatestBlockhash( fd_rpc_tile_t * ctx,
-                    ulong           request_id,
+                    cJSON const *   id,
                     cJSON const *   params ) {
   int commitment = FD_RPC_COMMITMENT_FINALIZED;
   ulong minContextSlot = ULONG_MAX;
@@ -987,7 +1217,7 @@ getLatestBlockhash( fd_rpc_tile_t * ctx,
   bank_info_t const * bank = &ctx->banks[ ctx->processed_idx ];
 
   if( FD_UNLIKELY( minContextSlot!=ULONG_MAX && minContextSlot>bank->slot ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, bank->slot, request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, bank->slot, cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
@@ -1003,7 +1233,7 @@ getLatestBlockhash( fd_rpc_tile_t * ctx,
       jsonp_string( ctx->http, "blockhash", block_hash_b58 );
       jsonp_ulong( ctx->http, "lastValidBlockHeight", 0UL /* TODO: Implement */ );
     jsonp_close_object( ctx->http );
-  jsonp_close_envelope( ctx->http, request_id );
+  jsonp_close_envelope( ctx->http, id );
 
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
@@ -1016,7 +1246,7 @@ UNIMPLEMENTED(getMaxShredInsertSlot)
 
 static fd_http_server_response_t
 getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
-                                   ulong           request_id,
+                                   cJSON const *   id,
                                    cJSON const *   params ) {
   int commitment = FD_RPC_COMMITMENT_FINALIZED;
 
@@ -1050,7 +1280,7 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
   };
   ulong minimum = fd_rent_exempt_minimum_balance( &rent, data_len->valueulong );
 
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}\n", minimum, request_id );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", minimum, cJSON_PrintUnformatted( id ) );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -1058,7 +1288,7 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
 
 static fd_http_server_response_t
 getMultipleAccounts( fd_rpc_tile_t * ctx,
-                     ulong           request_id,
+                     cJSON const *   id,
                      cJSON const *   params ) {
   int param_cnt = cJSON_GetArraySize( params );
   if( param_cnt<1 || param_cnt>3 ) {
@@ -1080,7 +1310,7 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
              0==strcmp( encoding, "jsonParsed" ) ) {
     encoding = "base64";
   } else {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: this server only supports 'base64' account data encoding\"},\"id\":%lu}\n", request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: this server only supports 'base64' account data encoding\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
@@ -1096,13 +1326,13 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
   } else if( 0==strcmp( commitment, "finalized" ) ) {
     bank_idx = fd_ulong_if( ctx->banks[ ctx->finalized_idx ].slot!=ULONG_MAX, ctx->finalized_idx, ULONG_MAX );
   } else {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%lu}\n", request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
   }
   if( FD_UNLIKELY( bank_idx==ULONG_MAX ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: cannot resolve slot for '%s' commitment level\"},\"id\":%lu}\n", commitment, request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: cannot resolve slot for '%s' commitment level\"},\"id\":%s}\n", commitment, cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
@@ -1117,7 +1347,7 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
 
   bank_info_t const * info = &ctx->banks[ bank_idx ];
   if( info->slot < minContextSlot ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, info->slot, request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, info->slot, cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
@@ -1139,8 +1369,8 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
   }
 
   fd_http_server_printf( ctx->http,
-      "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\":{\"context\":{\"slot\":%lu},\"value\":[",
-      request_id, info->slot );
+      "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"slot\":%lu},\"value\":[",
+      cJSON_PrintUnformatted( id ), info->slot );
 
   for( cJSON const * _address = address_list->child; _address; _address = _address->next ) {
     if( _address != address_list->child ) {
@@ -1171,7 +1401,7 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
     ulong         compressed_sz = snip_sz;
 #   if FD_HAS_ZSTD
     if( use_zstd ) {
-      size_t zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), compressed, snip_sz, 3 );
+      ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), compressed, snip_sz, 3 );
       if( ZSTD_isError( zstd_res ) ) {
         fd_accdb_close_ro( ctx->accdb, ro );
         return (fd_http_server_response_t){ .status = 500 };
@@ -1222,7 +1452,7 @@ UNIMPLEMENTED(getSignatureStatuses)
 
 static fd_http_server_response_t
 getSlot( fd_rpc_tile_t * ctx,
-         ulong           request_id,
+         cJSON const *   id,
          cJSON const *   params ) {
   int commitment = FD_RPC_COMMITMENT_FINALIZED;
   ulong minContextSlot = ULONG_MAX;
@@ -1252,13 +1482,13 @@ getSlot( fd_rpc_tile_t * ctx,
   bank_info_t const * bank = &ctx->banks[ ctx->processed_idx ];
 
   if( FD_UNLIKELY( minContextSlot!=ULONG_MAX && minContextSlot>bank->slot ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, bank->slot, request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, bank->slot, cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
   }
 
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}\n", bank->slot, request_id );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", bank->slot, cJSON_PrintUnformatted( id ) );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -1277,7 +1507,7 @@ UNIMPLEMENTED(getTransaction)
 
 static fd_http_server_response_t
 getTransactionCount( fd_rpc_tile_t * ctx,
-                     ulong           request_id,
+                     cJSON const *   id,
                      cJSON const *   params ) {
   int commitment = FD_RPC_COMMITMENT_FINALIZED;
   ulong minContextSlot = ULONG_MAX;
@@ -1307,13 +1537,13 @@ getTransactionCount( fd_rpc_tile_t * ctx,
   bank_info_t const * bank = &ctx->banks[ ctx->processed_idx ];
 
   if( FD_UNLIKELY( minContextSlot!=ULONG_MAX && minContextSlot>bank->slot ) ) {
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%lu}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, bank->slot, request_id );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, bank->slot, cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
     FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
     return response;
   }
 
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}\n", bank->transaction_count, request_id );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", bank->transaction_count, cJSON_PrintUnformatted( id ) );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -1321,11 +1551,11 @@ getTransactionCount( fd_rpc_tile_t * ctx,
 
 static fd_http_server_response_t
 getVersion( fd_rpc_tile_t * ctx,
-            ulong           request_id,
+            cJSON const *   id,
             cJSON const *   params ) {
   (void)params;
 
-  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"solana-core\":\"%s\",\"feature-set\":%u},\"id\":%lu}\n", ctx->version_string, FD_FEATURE_SET_ID, request_id );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"solana-core\":\"%s\",\"feature-set\":%u},\"id\":%s}\n", ctx->version_string, FD_FEATURE_SET_ID, cJSON_PrintUnformatted( id ) );
   fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
   FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
   return response;
@@ -1346,98 +1576,111 @@ rpc_http_request( fd_http_server_request_t const * request ) {
     int health_status = _getHealth( ctx );
 
     switch( health_status ) {
-      case FD_RPC_HEALTH_STATUS_UNKNOWN: fd_http_server_printf( ctx->http, "unknown" ); break;
-      case FD_RPC_HEALTH_STATUS_BEHIND:  fd_http_server_printf( ctx->http, "behind" ); break;
-      case FD_RPC_HEALTH_STATUS_OK:      fd_http_server_printf( ctx->http, "ok" ); break;
+      case FD_RPC_HEALTH_STATUS_UNKNOWN: return PRINTF_JSON( ctx, "unknown" );
+      case FD_RPC_HEALTH_STATUS_BEHIND:  return PRINTF_JSON( ctx, "behind" );
+      case FD_RPC_HEALTH_STATUS_OK:      return PRINTF_JSON( ctx, "ok" );
       default: FD_LOG_ERR(( "unknown health status" ));
     }
-
-    fd_http_server_response_t response = (fd_http_server_response_t){ .status = 200, .upgrade_websocket = 0 };
-    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
-
-    return response;
   }
 
+  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET ) ) {
+    return (fd_http_server_response_t){ .status = 404 };
+  }
 
   if( FD_UNLIKELY( request->method!=FD_HTTP_SERVER_METHOD_POST ) ) {
-    return (fd_http_server_response_t){
-      .status = 400,
-    };
+    return (fd_http_server_response_t){ .status = 405 };
   }
 
   const char * parse_end;
   cJSON * json = cJSON_ParseWithLengthOpts( (char *)request->post.body, request->post.body_len, &parse_end, 0 );
   if( FD_UNLIKELY( !json ) ) {
-    return (fd_http_server_response_t){ .status = 400 };
+    cJSON_Delete( json );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
+  }
+
+  if( FD_UNLIKELY( !cJSON_HasObjectItem( json, "id" ) ) ) {
+    cJSON_Delete( json );
+
+    /* A bug in Agave ¯\_(ツ)_/¯ */
+    return (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+  }
+  const cJSON * id = cJSON_GetObjectItemCaseSensitive( json, "id" );
+
+  if( FD_UNLIKELY( !(_cJSON_is_integer( id ) && id->valueint > 0) && !cJSON_IsString( id ) && !cJSON_IsNull( id ) ) ) {
+    cJSON_Delete( json );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
 
   const cJSON * jsonrpc = cJSON_GetObjectItemCaseSensitive( json, "jsonrpc" );
-  if( FD_UNLIKELY( !cJSON_IsString( jsonrpc ) || strcmp( jsonrpc->valuestring, "2.0" ) ) ) goto bad_request;
+  if( FD_UNLIKELY( !cJSON_HasObjectItem( json, "jsonrpc" ) || cJSON_IsNull( jsonrpc ) ) ) {
+    fd_http_server_response_t response = PRINTF_JSON( ctx, "{\"error\":{\"code\":-32600,\"message\":\"Unsupported JSON-RPC protocol version\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    cJSON_Delete( json );
+    return response;
+  }
 
-  const cJSON * id = cJSON_GetObjectItemCaseSensitive( json, "id" );
-  ulong request_id = 0UL;
-  if( FD_UNLIKELY( !cJSON_IsNumber( id ) ) ) goto bad_request;
-  request_id = id->valueulong;
+  if( FD_UNLIKELY( !cJSON_IsString( jsonrpc ) || strcmp( jsonrpc->valuestring, "2.0" ) ) ) {
+    fd_http_server_response_t response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    cJSON_Delete( json );
+    return response;
+  }
 
   const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
-  if( FD_UNLIKELY( params && !cJSON_IsArray( params ) ) ) goto bad_request;
-
   fd_http_server_response_t response;
 
   const cJSON * _method = cJSON_GetObjectItemCaseSensitive( json, "method" );
   if( FD_LIKELY( !cJSON_IsString( _method ) || _method->valuestring==NULL ) ) goto bad_request;
-  if( FD_LIKELY(      !strcmp( _method->valuestring, "getAccountInfo"                    ) ) ) response = getAccountInfo( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBalance"                        ) ) ) response = getBalance( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlock"                          ) ) ) response = getBlock( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlockCommitment"                ) ) ) response = getBlockCommitment( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlockHeight"                    ) ) ) response = getBlockHeight( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlockProduction"                ) ) ) response = getBlockProduction( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlocks"                         ) ) ) response = getBlocks( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlocksWithLimit"                ) ) ) response = getBlocksWithLimit( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlockTime"                      ) ) ) response = getBlockTime( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getClusterNodes"                   ) ) ) response = getClusterNodes( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getEpochInfo"                      ) ) ) response = getEpochInfo( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getEpochSchedule"                  ) ) ) response = getEpochSchedule( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getFeeForMessage"                  ) ) ) response = getFeeForMessage( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getFirstAvailableBlock"            ) ) ) response = getFirstAvailableBlock( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getGenesisHash"                    ) ) ) response = getGenesisHash( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getHealth"                         ) ) ) response = getHealth( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getHighestSnapshotSlot"            ) ) ) response = getHighestSnapshotSlot( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getIdentity"                       ) ) ) response = getIdentity( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getInflationGovernor"              ) ) ) response = getInflationGovernor( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getInflationRate"                  ) ) ) response = getInflationRate( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getInflationReward"                ) ) ) response = getInflationReward( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getLargestAccounts"                ) ) ) response = getLargestAccounts( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getLatestBlockhash"                ) ) ) response = getLatestBlockhash( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getLeaderSchedule"                 ) ) ) response = getLeaderSchedule( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getMaxRetransmitSlot"              ) ) ) response = getMaxRetransmitSlot( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getMaxShredInsertSlot"             ) ) ) response = getMaxShredInsertSlot( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getMinimumBalanceForRentExemption" ) ) ) response = getMinimumBalanceForRentExemption( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getMultipleAccounts"               ) ) ) response = getMultipleAccounts( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getProgramAccounts"                ) ) ) response = getProgramAccounts( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getRecentPerformanceSamples"       ) ) ) response = getRecentPerformanceSamples( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getRecentPrioritizationFees"       ) ) ) response = getRecentPrioritizationFees( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSignaturesForAddress"           ) ) ) response = getSignaturesForAddress( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSignatureStatuses"              ) ) ) response = getSignatureStatuses( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSlot"                           ) ) ) response = getSlot( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSlotLeader"                     ) ) ) response = getSlotLeader( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSlotLeaders"                    ) ) ) response = getSlotLeaders( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getStakeMinimumDelegation"         ) ) ) response = getStakeMinimumDelegation( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSupply"                         ) ) ) response = getSupply( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTokenAccountBalance"            ) ) ) response = getTokenAccountBalance( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTokenAccountsByDelegate"        ) ) ) response = getTokenAccountsByDelegate( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTokenAccountsByOwner"           ) ) ) response = getTokenAccountsByOwner( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTokenLargestAccounts"           ) ) ) response = getTokenLargestAccounts( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTokenSupply"                    ) ) ) response = getTokenSupply( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTransaction"                    ) ) ) response = getTransaction( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTransactionCount"               ) ) ) response = getTransactionCount( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getVersion"                        ) ) ) response = getVersion( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "getVoteAccounts"                   ) ) ) response = getVoteAccounts( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "isBlockhashValid"                  ) ) ) response = isBlockhashValid( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "minimumLedgerSlot"                 ) ) ) response = minimumLedgerSlot( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "requestAirdrop"                    ) ) ) response = requestAirdrop( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "sendTransaction"                   ) ) ) response = sendTransaction( ctx, request_id, params );
-  else if( FD_LIKELY( !strcmp( _method->valuestring, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, request_id, params );
+  if( FD_LIKELY(      !strcmp( _method->valuestring, "getAccountInfo"                    ) ) ) response = getAccountInfo( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBalance"                        ) ) ) response = getBalance( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlock"                          ) ) ) response = getBlock( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlockCommitment"                ) ) ) response = getBlockCommitment( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlockHeight"                    ) ) ) response = getBlockHeight( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlockProduction"                ) ) ) response = getBlockProduction( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlocks"                         ) ) ) response = getBlocks( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlocksWithLimit"                ) ) ) response = getBlocksWithLimit( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getBlockTime"                      ) ) ) response = getBlockTime( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getClusterNodes"                   ) ) ) response = getClusterNodes( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getEpochInfo"                      ) ) ) response = getEpochInfo( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getEpochSchedule"                  ) ) ) response = getEpochSchedule( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getFeeForMessage"                  ) ) ) response = getFeeForMessage( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getFirstAvailableBlock"            ) ) ) response = getFirstAvailableBlock( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getGenesisHash"                    ) ) ) response = getGenesisHash( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getHealth"                         ) ) ) response = getHealth( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getHighestSnapshotSlot"            ) ) ) response = getHighestSnapshotSlot( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getIdentity"                       ) ) ) response = getIdentity( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getInflationGovernor"              ) ) ) response = getInflationGovernor( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getInflationRate"                  ) ) ) response = getInflationRate( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getInflationReward"                ) ) ) response = getInflationReward( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getLargestAccounts"                ) ) ) response = getLargestAccounts( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getLatestBlockhash"                ) ) ) response = getLatestBlockhash( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getLeaderSchedule"                 ) ) ) response = getLeaderSchedule( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getMaxRetransmitSlot"              ) ) ) response = getMaxRetransmitSlot( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getMaxShredInsertSlot"             ) ) ) response = getMaxShredInsertSlot( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getMinimumBalanceForRentExemption" ) ) ) response = getMinimumBalanceForRentExemption( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getMultipleAccounts"               ) ) ) response = getMultipleAccounts( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getProgramAccounts"                ) ) ) response = getProgramAccounts( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getRecentPerformanceSamples"       ) ) ) response = getRecentPerformanceSamples( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getRecentPrioritizationFees"       ) ) ) response = getRecentPrioritizationFees( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSignaturesForAddress"           ) ) ) response = getSignaturesForAddress( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSignatureStatuses"              ) ) ) response = getSignatureStatuses( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSlot"                           ) ) ) response = getSlot( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSlotLeader"                     ) ) ) response = getSlotLeader( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSlotLeaders"                    ) ) ) response = getSlotLeaders( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getStakeMinimumDelegation"         ) ) ) response = getStakeMinimumDelegation( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getSupply"                         ) ) ) response = getSupply( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTokenAccountBalance"            ) ) ) response = getTokenAccountBalance( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTokenAccountsByDelegate"        ) ) ) response = getTokenAccountsByDelegate( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTokenAccountsByOwner"           ) ) ) response = getTokenAccountsByOwner( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTokenLargestAccounts"           ) ) ) response = getTokenLargestAccounts( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTokenSupply"                    ) ) ) response = getTokenSupply( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTransaction"                    ) ) ) response = getTransaction( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getTransactionCount"               ) ) ) response = getTransactionCount( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getVersion"                        ) ) ) response = getVersion( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "getVoteAccounts"                   ) ) ) response = getVoteAccounts( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "isBlockhashValid"                  ) ) ) response = isBlockhashValid( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "minimumLedgerSlot"                 ) ) ) response = minimumLedgerSlot( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "requestAirdrop"                    ) ) ) response = requestAirdrop( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "sendTransaction"                   ) ) ) response = sendTransaction( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id, params );
   else goto bad_request;
 
   cJSON_Delete( json );
@@ -1451,6 +1694,8 @@ bad_request:
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
+  if( !(FD_HAS_ZSTD) ) FD_LOG_ERR(( "The rpc tile requires zstandard to conform with Agave" ));
+
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   fd_http_server_params_t http_params = derive_http_params( tile );
