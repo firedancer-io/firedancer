@@ -85,17 +85,6 @@ fd_instr_info_setup_instr_account( fd_instr_info_t * instr,
                                                                   is_signer );
 }
 
-/* fd_instr_info_accumulate_starting_lamports accumulates the starting lamports fields
-   when setting up an fd_instr_info_t object.
-   Note that the caller must zero out the starting lamports fields in fd_instr_info_t
-   beforehand. */
-
-void
-fd_instr_info_accumulate_starting_lamports( fd_instr_info_t * instr,
-                                            fd_txn_out_t *    txn_out,
-                                            ushort            idx_in_callee,
-                                            ushort            idx_in_txn );
-
 void
 fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
                                    fd_bank_t *            bank,
