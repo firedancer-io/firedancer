@@ -1940,7 +1940,7 @@ immediately prior epoch.  Recent non-rooted slots may be included, and
 included skipped slots will not become unskipped as a later slot has
 rooted.
 
-#### `slot.vote_latency_history`
+#### `slot.late_votes_history`
 | frequency | type       | example |
 |-----------|------------|---------|
 | *Once*    | `number[]` | below   |
@@ -1950,7 +1950,7 @@ late or not at all. Specifically, the following slots are included
 - rooted slots with a vote latency > 1
 - rooted slots that were never voted for that were not skipped
 
-The slot and latency arrays are run-length encoded. For example
+The slot array is run-length encoded. For example
 
 ```
 [ a, b, c, d, e, f ]
@@ -1959,13 +1959,19 @@ The slot and latency arrays are run-length encoded. For example
 means that slots `[a, b]`, slots `[c, d]`, and slots `[e, f]` all
 recieved late or non-existent votes.
 
+The latency array is not run-length encoded. That means if the decoded
+slots array has `n` slots, then the length of `latency` will be `n`.
+
 :::details Example
 
 ```json
 {
 	"topic": "slot",
-	"key": "vote_latency_history",
-	"value": [286576808, 286576808, 286576810, 286576811, 286625025, 286625026]
+	"key": "late_votes_history",
+	"value": {
+        "slot": [286576808, 286576808, 286576810, 286576811, 286625025, 286625026],
+        "latency": [2, 3, null, 2, 2]
+    }
 }
 ```
 
