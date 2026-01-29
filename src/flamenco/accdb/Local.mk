@@ -28,7 +28,9 @@ $(call add-objs,fd_accdb_admin_v1   fd_accdb_impl_v1,fd_flamenco)
 # Production database
 ifdef FD_HAS_ATOMIC
 $(call add-hdrs,fd_accdb_admin_v2.h fd_accdb_impl_v2.h)
-$(call add-objs,fd_accdb_admin_v2   fd_accdb_impl_v2,fd_flamenco)
+$(call add-objs,fd_accdb_admin_v2,fd_flamenco)
+$(call add-objs,fd_accdb_admin_v2_root,fd_flamenco)
+$(call add-objs,fd_accdb_impl_v2,fd_flamenco)
 $(call add-hdrs,fd_vinyl_req_pool.h)
 $(call add-objs,fd_vinyl_req_pool,fd_flamenco)
 endif
