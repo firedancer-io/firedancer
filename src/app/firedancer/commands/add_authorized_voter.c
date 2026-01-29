@@ -54,7 +54,12 @@ void
 add_authorized_voter_cmd_args( int *    pargc,
                                char *** pargv,
                                args_t * args) {
-  if( FD_UNLIKELY( *pargc<1 ) ) goto err;
+
+  args->set_identity.force = fd_env_strip_cmdline_contains( pargc, pargv, "--force" );
+
+  if( FD_UNLIKELY( *pargc<1 ) ) {
+    FD_LOG_ERR(( "Usage: fdctl add-authorized-voter <keypair> [--force]" ));
+  }
 
   char const * path = *pargv[0];
   (*pargc)--;
@@ -67,11 +72,6 @@ add_authorized_voter_cmd_args( int *    pargc,
   } else {
     args->add_authorized_voter.keypair = fd_keyload_load( path, 0 );
   }
-
-  return;
-
-err:
-  FD_LOG_ERR(( "Usage: fdctl set-identity <keypair> [--require-tower]" ));
 }
 
 static void FD_FN_SENSITIVE
@@ -85,7 +85,7 @@ poll_keyswitch( fd_topo_t * topo,
       fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       if( FD_LIKELY( FD_KEYSWITCH_STATE_UNLOCKED==FD_ATOMIC_CAS( &tower->state, FD_KEYSWITCH_STATE_UNLOCKED, FD_KEYSWITCH_STATE_LOCKED ) ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_LOCKED;
-        FD_LOG_INFO(( "Locking validator identity for key switch..." ));
+        FD_LOG_INFO(( "Locking validator identity for authorized voter update..." ));
       } else {
         if( FD_UNLIKELY( force_lock ) ) {
           *state = FD_ADD_AUTH_VOTER_STATE_LOCKED;
@@ -109,6 +109,7 @@ poll_keyswitch( fd_topo_t * topo,
       }
       explicit_bzero( keypair, 32UL );
       *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED;
+      FD_LOG_INFO(( "Requesting all sign tiles to update authorized voter keys..." ));
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED: {
@@ -119,12 +120,16 @@ poll_keyswitch( fd_topo_t * topo,
         if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
           all_updated = 0;
           break;
+        } else if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_FAILED ) ) {
+          *has_error = 1;
+          break;
         } else {
           explicit_bzero( tile_ks->bytes, 64UL );
         }
       }
       if( FD_LIKELY( all_updated ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_UPDATED;
+        FD_LOG_INFO(( "All sign tiles successfully updated..." ));
       } else {
         FD_SPIN_PAUSE();
       }
@@ -135,13 +140,19 @@ poll_keyswitch( fd_topo_t * topo,
       memcpy( tower->bytes, keypair+32UL, 32UL );
       tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED;
+      FD_LOG_INFO(( "Requesting tower tile to update authorized voter keys..." ));
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED: {
       fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING
+        tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
         *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED;
+        FD_LOG_INFO(( "Tower tile successfully updated. Requesting to unlock authorized voter keys..." ));
+      } else if(
+        FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_FAILED ) ) {
+        *has_error = 1;
+        break;
       } else {
         FD_SPIN_PAUSE();
       }
@@ -150,7 +161,11 @@ poll_keyswitch( fd_topo_t * topo,
     case FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED: {
       fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-      *state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
+        *state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
+        FD_LOG_INFO(( "Authorized voter successfully updated and keys unlocked..." ));
+      } else {
+        FD_SPIN_PAUSE();
+      }
       break;
     }
     default: {
@@ -181,7 +196,7 @@ add_authorized_voter( args_t *   args,
   int has_error = 0;
   ulong state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
   for(;;) {
-    poll_keyswitch( &config->topo, &state, args->add_authorized_voter.keypair, &has_error );
+    poll_keyswitch( &config->topo, &state, args->add_authorized_voter.keypair, &has_error, args->add_authorized_voter.force );
     if( FD_UNLIKELY( FD_ADD_AUTH_VOTER_STATE_UNLOCKED==state ) ) break;
   }
 

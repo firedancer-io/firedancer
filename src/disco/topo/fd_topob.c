@@ -188,6 +188,7 @@ fd_topob_tile( fd_topo_t *    topo,
   }
 
   if( FD_UNLIKELY( uses_av_keyswitch ) ) {
+    FD_LOG_WARNING(("Creating authorized voter keyswitch object %s", tile_name));
     obj = fd_topob_obj( topo, "keyswitch", tile_wksp );
     tile->av_keyswitch_obj_id = obj->id;
     fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

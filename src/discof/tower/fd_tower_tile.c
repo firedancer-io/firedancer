@@ -1079,6 +1079,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
   FD_TEST( ctx->av_keyswitch );
+  FD_LOG_WARNING(("ASDF ASDF"));
 
   ctx->init_slot = ULONG_MAX;
   ctx->root_slot = ULONG_MAX;
@@ -1155,7 +1156,7 @@ static void
 during_housekeeping( ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     if( FD_UNLIKELY( ctx->auth_key_set_cnt==AUTH_VOTERS_MAX ) ) {
-      FD_LOG_ERR(( "auth_key_set full, cannot add new key" ));
+      fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
       return;
     }
     fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( ctx->av_keyswitch->bytes ) );
