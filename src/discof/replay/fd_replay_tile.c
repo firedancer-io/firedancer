@@ -370,6 +370,8 @@ struct fd_replay_tile {
   fd_bank_t   leader_bank[1];
 
   fd_pubkey_t      identity_pubkey[1];
+  ulong            identity_idx;
+
   fd_keyswitch_t * keyswitch;
   int              is_halting_leader;
 
@@ -622,16 +624,14 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
   fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
 
-  /* Update any required runtime state and handle any potential epoch
-     boundary change. */
+  /* Update required runtime state and handle potential boundary. */
 
   fd_bank_shred_cnt_set( bank, 0UL );
   fd_bank_execution_fees_set( bank, 0UL );
   fd_bank_priority_fees_set( bank, 0UL );
   fd_bank_tips_set( bank, 0UL );
-  fd_bank_has_identity_vote_set( bank, 0 );
+  fd_bank_identity_vote_idx_set( bank, ULONG_MAX );
 
-  /* Update block height. */
   fd_bank_block_height_set( bank, fd_bank_block_height_get( bank ) + 1UL );
 
   int is_epoch_boundary = 0;
@@ -889,7 +889,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_bank_priority_fees_set( ctx->leader_bank, 0UL );
   fd_bank_shred_cnt_set( ctx->leader_bank, 0UL );
   fd_bank_tips_set( ctx->leader_bank, 0UL );
-  fd_bank_has_identity_vote_set( ctx->leader_bank, 0 );
+  fd_bank_identity_vote_idx_set( ctx->leader_bank, ULONG_MAX );
 
   /* Update block height. */
   fd_bank_block_height_set( ctx->leader_bank, fd_bank_block_height_get( ctx->leader_bank ) + 1UL );
@@ -915,7 +915,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
 static inline void
 maybe_switch_identity( fd_replay_tile_t * ctx ) {
 
-  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )!=FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) return;
+  if( FD_LIKELY( fd_keyswitch_state_query( ctx->keyswitch )!=FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) return;
 
   /* Switch identity */
 
@@ -934,6 +934,7 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   }
 
   ctx->has_identity_vote_rooted = 0;
+  ctx->identity_idx++;
   fd_vote_tracker_reset( ctx->vote_tracker );
 }
 
@@ -1905,12 +1906,12 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   fd_sched_root_notify( ctx->sched, target_bank_idx );
 
-  /* If the identity vote has been seen on a bank that should be rooted,
-     then we are now ready to produce blocks. */
+  /* If a vote corresponding to the current identity has been seen on a
+     rooted bank, then the client is ready to produce blocks. */
   if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
     fd_bank_t root_bank[1];
     if( FD_UNLIKELY( !fd_banks_bank_query( root_bank, ctx->banks, target_bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: root bank not found for bank index %lu", target_bank_idx ));
-    if( fd_bank_has_identity_vote_get( root_bank ) ) ctx->has_identity_vote_rooted = 1;
+    if( fd_bank_identity_vote_idx_get( root_bank )==ctx->identity_idx ) ctx->has_identity_vote_rooted = 1;
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
@@ -2079,7 +2080,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
 
         fd_pubkey_t * identity_pubkey_out = NULL;
         if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ), &identity_pubkey_out ) && fd_pubkey_eq( identity_pubkey_out, ctx->identity_pubkey ) ) {
-          fd_bank_has_identity_vote_set( bank, 1 );
+          fd_bank_identity_vote_idx_set( bank, ctx->identity_idx );
         }
       }
       if( FD_UNLIKELY( msg->txn_exec->err && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
@@ -2279,8 +2280,8 @@ static void
 process_vote_txn_sent( fd_replay_tile_t *  ctx,
                        fd_txn_m_t *        txnm ) {
   /* The send tile has signed and sent a vote.  Add this vote to the
-     vote tracker.  We go through this exercise until we've seen our
-     vote rooted. */
+     vote tracker.  We go through this exercise until the client has
+     seen a vote corresponding to the current identity rooted. */
   if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
     uchar *    payload = (uchar *)txnm + sizeof(fd_txn_m_t);
     uchar      txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
@@ -2288,7 +2289,10 @@ process_vote_txn_sent( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( !fd_txn_parse( payload, txnm->payload_sz, txn_mem, NULL ) ) ) {
       FD_LOG_CRIT(( "Could not parse txn from send tile" ));
     }
-    fd_vote_tracker_insert( ctx->vote_tracker, ctx->identity_pubkey, fd_type_pun_const( payload+txn->signature_off ) );
+    /* The identity of the validator that the signed the vote will
+       always be the first signer in the vote transaction. */
+    fd_pubkey_t * vote_identity = fd_type_pun( payload+txn->acct_addr_off );
+    fd_vote_tracker_insert( ctx->vote_tracker, vote_identity, fd_type_pun_const( payload+txn->signature_off ) );
   }
 }
 
@@ -2494,6 +2498,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->replay.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->identity_idx         = 0UL;
 
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
     tile->replay.bundle.enabled = 0;
@@ -2657,7 +2662,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, ctx->vote_tracker_seed ) );
   FD_TEST( ctx->vote_tracker );
 
-  ctx->has_identity_vote_rooted = 0;
+  ctx->has_identity_vote_rooted      = 0;
   ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
