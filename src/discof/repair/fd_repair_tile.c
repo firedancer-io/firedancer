@@ -645,9 +645,8 @@ after_shred( ctx_t      * ctx,
 
     int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
     int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
-    fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-    //if( FD_UNLIKELY( ctx->profiler.enabled && shred->slot == ctx->profiler.end_slot ) ) fd_forest_blk_parent_update( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-    fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr );
+    fd_forest_blk_t * blk = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
+    if( FD_LIKELY( blk ) )  fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr );
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
   }
@@ -699,8 +698,8 @@ after_fec( ctx_t      * ctx,
   int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
 
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
-  FD_TEST( ele ); /* must be non-empty */
+  if( FD_LIKELY( ele ) )  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
+  else                    return;
 
   /* metrics for completed slots */
   if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx ) ) {
