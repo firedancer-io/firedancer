@@ -242,15 +242,17 @@ vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
     FD_LOG_ERR(( "io_uring_register_files failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  fd_io_uring_restriction_t res[3] = {
+  fd_io_uring_restriction_t res[4] = {
     { .opcode    = FD_IORING_RESTRICTION_SQE_OP,
       .sqe_op    = IORING_OP_READ },
+    { .opcode    = FD_IORING_RESTRICTION_SQE_OP,
+      .sqe_op    = IORING_OP_WRITE },
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
       .sqe_flags = IOSQE_FIXED_FILE },
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
       .sqe_flags = IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS }
   };
-  if( FD_UNLIKELY( fd_io_uring_register_restrictions( ctx->ring->ioring_fd, res, 3U )<0 ) ) {
+  if( FD_UNLIKELY( fd_io_uring_register_restrictions( ctx->ring->ioring_fd, res, 4U )<0 ) ) {
     FD_LOG_ERR(( "io_uring_register_restrictions failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -962,7 +964,13 @@ fd_topo_run_tile_t fd_tile_vinyl = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .run                      = stem_run
+  .run                      = stem_run,
+
+  /* Depending on kernel version and file system, io_uring might spawn
+     kthreads to do write I/O.  Unless we set this, fd_sandbox sets
+     RLIMIT_NPROC to zero, which fails io_arm_poll_handler, which
+     bubbles up as an ECANCELED. */
+  .rlimit_nproc = 8UL
 };
 
 #undef NAME
