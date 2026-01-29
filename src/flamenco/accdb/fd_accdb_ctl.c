@@ -108,7 +108,8 @@ client_query( client_t * client,
 
   /* Send an acquire request */
 
-  req_info->comp->seq = 0UL;
+  req_info->comp->seq    = 0UL;
+  req_info->val_gaddr[0] = FD_VINYL_VAL_MAX;
   fd_vinyl_rq_send(
       client->rq,
       client->req_id++,
@@ -116,7 +117,6 @@ client_query( client_t * client,
       FD_VINYL_REQ_TYPE_ACQUIRE, /* type */
       0UL, /* flags */
       1UL,
-      FD_VINYL_VAL_MAX, /* val_max */
       /* key_gaddr       */ client->req_info_gaddr + offsetof( req_info_t, key       ),
       /* val_gaddr_gaddr */ client->req_info_gaddr + offsetof( req_info_t, val_gaddr ),
       /* err_gaddr       */ client->req_info_gaddr + offsetof( req_info_t, err       ),
@@ -152,7 +152,8 @@ client_query( client_t * client,
 
     /* Send a release request */
 
-    req_info->comp->seq = 0UL;
+    req_info->comp->seq    = 0UL;
+    req_info->val_gaddr[0] = FD_VINYL_VAL_MAX;
     fd_vinyl_rq_send(
         client->rq,
         client->req_id++,
@@ -160,7 +161,6 @@ client_query( client_t * client,
         FD_VINYL_REQ_TYPE_RELEASE, /* type */
         0UL, /* flags */
         1UL,
-        FD_VINYL_VAL_MAX, /* val_max */
         0UL,
         /* val_gaddr_gaddr */ client->req_info_gaddr + offsetof( req_info_t, val_gaddr ),
         /* err_gaddr       */ client->req_info_gaddr + offsetof( req_info_t, err       ),
@@ -331,7 +331,7 @@ bqr_req_release( client_t *           client,
   ulong batch_cnt       = (ulong)cnt;
   ulong val_gaddr_gaddr = fd_wksp_gaddr_fast( client->client_wksp, batch_req_val_gaddr( req ) );
   ulong err_gaddr       = fd_wksp_gaddr_fast( client->client_wksp, err );
-  fd_vinyl_rq_send( client->rq, req_id, link_id, type, flags, batch_cnt, 0UL, 0UL, val_gaddr_gaddr, err_gaddr, 0UL );
+  fd_vinyl_rq_send( client->rq, req_id, link_id, type, flags, batch_cnt, 0UL, val_gaddr_gaddr, err_gaddr, 0UL );
 
   req->req_id = req_id;
   bqr_wait_push( bqr, req );
@@ -443,7 +443,7 @@ bqr_req_acquire( client_t *           client,
   ulong key_gaddr       = fd_wksp_gaddr_fast( client->client_wksp, batch_req_key      ( req ) );
   ulong val_gaddr_gaddr = fd_wksp_gaddr_fast( client->client_wksp, batch_req_val_gaddr( req ) );
   ulong err_gaddr       = fd_wksp_gaddr_fast( client->client_wksp, batch_req_err      ( req ) );
-  fd_vinyl_rq_send( client->rq, req_id, link_id, type, flags, cnt, 0UL, key_gaddr, val_gaddr_gaddr, err_gaddr, 0UL );
+  fd_vinyl_rq_send( client->rq, req_id, link_id, type, flags, cnt, key_gaddr, val_gaddr_gaddr, err_gaddr, 0UL );
 
   /* Update quotas */
   bqr->iter_rem     -= cnt;

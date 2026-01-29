@@ -129,12 +129,12 @@ vinyl_push_rec( fd_accdb_admin_v2_t *     admin,
   memset( comp, 0, sizeof(fd_vinyl_comp_t) );
   fd_vinyl_key_init( req_key, addr, 32UL );
   *req_err       = 0;
-  *req_val_gaddr = 0UL;
 
   ulong val_sz = sizeof(fd_account_meta_t)+src_meta->dlen;
   ulong flags  = FD_VINYL_REQ_FLAG_MODIFY | FD_VINYL_REQ_FLAG_CREATE;
   ulong req_id = admin->vinyl_req_id++;
-  fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags, batch_idx, 1UL, val_sz );
+  *req_val_gaddr = val_sz;
+  fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags, batch_idx, 1UL );
 
   while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();
@@ -157,7 +157,7 @@ vinyl_push_rec( fd_accdb_admin_v2_t *     admin,
   *req_err = 0;
   flags  = FD_VINYL_REQ_FLAG_MODIFY;
   req_id = admin->vinyl_req_id++;
-  fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, FD_VINYL_REQ_FLAG_MODIFY, batch_idx, 1UL, val_sz );
+  fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, FD_VINYL_REQ_FLAG_MODIFY, batch_idx, 1UL );
 
   while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();
@@ -191,7 +191,7 @@ vinyl_remove_rec( fd_accdb_admin_v2_t * admin,
   *req_err = 0;
 
   ulong req_id = admin->vinyl_req_id++;
-  fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_ERASE, 0UL, batch_idx, 1UL, 0UL );
+  fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_ERASE, 0UL, batch_idx, 1UL );
 
   while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();

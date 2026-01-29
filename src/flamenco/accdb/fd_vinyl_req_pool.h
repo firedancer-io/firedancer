@@ -237,13 +237,12 @@ fd_vinyl_req_send_batch( fd_vinyl_rq_t *       rq,
                          int                   type,
                          ulong                 flags,
                          ulong                 batch_idx,
-                         ulong                 batch_cnt,
-                         ulong                 val_max ) {
+                         ulong                 batch_cnt ) {
   ulong key_gaddr        = fd_vinyl_req_batch_key_gaddr      ( req_pool, req_pool_wksp, batch_idx );
   ulong val_gaddr_gaddr  = fd_vinyl_req_batch_val_gaddr_gaddr( req_pool, req_pool_wksp, batch_idx );
   ulong err_gaddr        = fd_vinyl_req_batch_err_gaddr      ( req_pool, req_pool_wksp, batch_idx );
   ulong comp_gaddr       = fd_vinyl_req_batch_comp_gaddr     ( req_pool, req_pool_wksp, batch_idx );
-  fd_vinyl_rq_send( rq, req_id, link_id, type, flags, batch_cnt, val_max, key_gaddr, val_gaddr_gaddr, err_gaddr, comp_gaddr );
+  fd_vinyl_rq_send( rq, req_id, link_id, type, flags, batch_cnt, key_gaddr, val_gaddr_gaddr, err_gaddr, comp_gaddr );
 }
 
 FD_PROTOTYPES_END
