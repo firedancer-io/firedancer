@@ -156,8 +156,6 @@ fd_vinyl_bstream_move_test( ulong                      seed,
   if( FD_UNLIKELY( !block ) ) return "NULL block";
   if( FD_UNLIKELY( !dst   ) ) return "NULL dst";
 
-  ulong move_info_sz = block->move.info_sz;
-
   int bad_ctl        = (block->move.ctl != fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_MOVE,
                                                                  FD_VINYL_BSTREAM_CTL_STYLE_RAW,
                                                                  FD_VINYL_BSTREAM_BLOCK_SZ ) );
@@ -166,12 +164,11 @@ fd_vinyl_bstream_move_test( ulong                      seed,
   int bad_src_type   = (fd_vinyl_bstream_ctl_type( block->move.src.ctl ) != FD_VINYL_BSTREAM_CTL_TYPE_PAIR);
   int bad_src_val_sz = ((ulong)block->move.src.info.val_sz > FD_VINYL_VAL_MAX);
   int bad_move       = fd_vinyl_key_eq( &block->move.src.key, &block->move.dst );
-  int bad_info_sz    = (move_info_sz > FD_VINYL_BSTREAM_MOVE_INFO_MAX);
   int bad_dst_type   = (fd_vinyl_bstream_ctl_type( dst->phdr.ctl ) != FD_VINYL_BSTREAM_CTL_TYPE_PAIR);
   int bad_dst_key    = (!fd_vinyl_key_eq( &block->move.dst, &dst->phdr.key ));
   int bad_dst_info   = (!!memcmp( &block->move.src.info, &dst->phdr.info, FD_VINYL_INFO_SZ ));
 
-  if( FD_UNLIKELY( bad_ctl | bad_match | bad_seq | bad_src_type | bad_src_val_sz | bad_move | bad_info_sz |
+  if( FD_UNLIKELY( bad_ctl | bad_match | bad_seq | bad_src_type | bad_src_val_sz | bad_move |
                    bad_dst_type | bad_dst_key | bad_dst_info ) )
     return bad_ctl        ? "unexpected move ctl"          :
            bad_match      ? "mismatched move seq"          :
@@ -179,13 +176,9 @@ fd_vinyl_bstream_move_test( ulong                      seed,
            bad_src_type   ? "unexpected move src type"     :
            bad_src_val_sz ? "unexpected move src val size" :
            bad_move       ? "dst key matches src key"      :
-           bad_info_sz    ? "unexpected move info size"    :
            bad_dst_type   ? "mismatched move dst type"     :
            bad_dst_key    ? "mismatched move dst key"      :
                             "mismatched move dst info";
-
-  for( ulong zpad_idx=move_info_sz; zpad_idx<FD_VINYL_BSTREAM_MOVE_INFO_MAX; zpad_idx++ )
-    if( FD_UNLIKELY( block->move.info[ zpad_idx ] ) ) return "data in zero padding";
 
   if( FD_UNLIKELY( fd_vinyl_bstream_block_test( seed, block ) ) ) return "corrupt block";
 

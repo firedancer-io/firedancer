@@ -303,7 +303,7 @@
 
       line[ line_idx_src ].ele_idx = ele_idx_dst;
 
-      fd_vinyl_io_append_move( io, phdr_src, key_dst, NULL, 0UL );
+      fd_vinyl_io_append_move( io, phdr_src, key_dst );
       append_cnt++;
       accum_move_cnt++;
 

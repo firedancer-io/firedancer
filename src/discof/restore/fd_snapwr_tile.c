@@ -275,12 +275,14 @@ during_frag( fd_snapwr_t *       ctx,
              ulong               meta_sig,
              ulong               meta_chunk,
              ulong               meta_sz,
-             ulong               meta_ctl ) {
-  (void)in_idx;
+             ulong               meta_ctl,
+             ulong               meta_tsorig,
+             ulong               meta_tspub ) {
+  (void)in_idx; (void)meta_sz; (void)meta_tspub;
   ctx->idle_cnt = 0U;
 
   if( FD_UNLIKELY( meta_ctl==FD_SNAPSHOT_MSG_DATA ) ) {
-    handle_data_frag( ctx, meta_chunk, meta_sig, meta_sz );
+    handle_data_frag( ctx, meta_chunk, meta_sig, meta_tsorig );
   } else {
     handle_control_frag( ctx, meta_ctl, meta_sig );
   }
@@ -300,7 +302,7 @@ during_frag( fd_snapwr_t *       ctx,
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT   before_credit
-#define STEM_CALLBACK_DURING_FRAG     during_frag
+#define STEM_CALLBACK_DURING_FRAG1    during_frag
 
 #include "../../disco/stem/fd_stem.c"
 

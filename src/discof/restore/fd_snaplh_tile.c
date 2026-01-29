@@ -24,7 +24,7 @@
 #define IN_KIND_SNAPLV (0UL)
 #define IN_KIND_SNAPWH (1UL)
 
-#define VINYL_LTHASH_BLOCK_ALIGN  (512UL) /* O_DIRECT would require 4096UL */
+#define VINYL_LTHASH_BLOCK_ALIGN  FD_VINYL_BSTREAM_BLOCK_SZ
 #define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
 FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
 
@@ -219,9 +219,9 @@ handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
 
   /* dev_seq shows where the seq is physically located in device. */
   ulong dev_seq  = ( seq + ctx->vinyl.dev_base ) % ctx->vinyl.dev_sz;
-  ulong rd_off   = fd_ulong_align_dn( dev_seq, VINYL_LTHASH_BLOCK_ALIGN );
+  ulong rd_off   = fd_ulong_align_dn( dev_seq, FD_VINYL_BSTREAM_BLOCK_SZ );
   ulong pair_off = (dev_seq - rd_off);
-  ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, VINYL_LTHASH_BLOCK_ALIGN );
+  ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, FD_VINYL_BSTREAM_BLOCK_SZ );
   FD_TEST( rd_sz < VINYL_LTHASH_BLOCK_MAX_SZ );
 
   uchar * pair = ((uchar*)ctx->vinyl.pair_mem) + pair_off;
@@ -240,7 +240,7 @@ handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
          This means: increase the size multiple of the alignment,
          read into a temporary buffer, and memcpy into the dst at the
          correct offset. */
-      bd_read( ctx->vinyl.dev_fd, 0, tmp, sz + VINYL_LTHASH_BLOCK_ALIGN );
+      bd_read( ctx->vinyl.dev_fd, 0, tmp, sz + FD_VINYL_BSTREAM_BLOCK_SZ );
       fd_memcpy( dst + rsz, tmp + ctx->vinyl.dev_base, sz );
     }
 
@@ -723,7 +723,7 @@ privileged_init( fd_topo_t *      topo,
 
   char const * bstream_path = tile->snaplh.vinyl_path;
   /* Note: it would be possible to use O_DIRECT, but it would require
-     VINYL_LTHASH_BLOCK_ALIGN to be 4096UL, which substantially
+     FD_VINYL_BSTREAM_BLOCK_SZ to be 4096UL, which substantially
      increases the read overhead, making it slower (keep in mind that
      a rather large subset of mainnet accounts typically fits inside
      one FD_VINYL_BSTREAM_BLOCK_SZ. */
