@@ -157,7 +157,7 @@ struct fd_replay_tile {
      sent out get rooted at least one time.  The value is 0 otherwise.
      We can't become leader and pack blocks until this flag has been
      set.  This parallels the Agave 'has_new_vote_been_rooted'. */
-  int has_identity_vote_rooted;
+  int identity_vote_rooted;
   int wait_for_vote_to_start_leader;
 
   ulong        reasm_seed;
@@ -373,7 +373,7 @@ struct fd_replay_tile {
   ulong            identity_idx;
 
   fd_keyswitch_t * keyswitch;
-  int              is_halting_leader;
+  int              halting_leader;
 
   ulong  resolv_tile_cnt;
 
@@ -919,6 +919,8 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
 
   /* Switch identity */
 
+  FD_LOG_DEBUG(( "keyswitch: switching identity" ));
+
   memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
   fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
 
@@ -933,7 +935,7 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
     ctx->next_leader_tickcount = LONG_MAX;
   }
 
-  ctx->has_identity_vote_rooted = 0;
+  ctx->identity_vote_rooted = 0;
   ctx->identity_idx++;
   fd_vote_tracker_reset( ctx->vote_tracker );
 }
@@ -1140,9 +1142,9 @@ static inline int
 maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
-  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->has_identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
+  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
 
-  if( FD_UNLIKELY( ctx->is_halting_leader ) ) return 0;
+  if( FD_UNLIKELY( ctx->halting_leader ) ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
@@ -1339,7 +1341,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
               ulong               chunk ) {
   /* If we are bootstrapping, we can't wait to wait for our identity
      vote to be rooted as this creates a circular dependency. */
-  ctx->has_identity_vote_rooted = 1;
+  ctx->identity_vote_rooted = 1;
 
   uchar const * lthash       = (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   uchar const * genesis_hash = (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_lthash_value_t);
@@ -1908,10 +1910,10 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   /* If a vote corresponding to the current identity has been seen on a
      rooted bank, then the client is ready to produce blocks. */
-  if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
+  if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
     fd_bank_t root_bank[1];
     if( FD_UNLIKELY( !fd_banks_bank_query( root_bank, ctx->banks, target_bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: root bank not found for bank index %lu", target_bank_idx ));
-    if( fd_bank_identity_vote_idx_get( root_bank )==ctx->identity_idx ) ctx->has_identity_vote_rooted = 1;
+    if( fd_bank_identity_vote_idx_get( root_bank )==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
@@ -2070,7 +2072,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
 
   switch( sig>>32 ) {
     case FD_EXECRP_TT_TXN_EXEC: {
-      if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
+      if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
         /* Query the txn signature against our recently generated vote
            txn signatures.  If the query is successful, then we have
            seen our own vote transaction land and this should be marked
@@ -2282,7 +2284,7 @@ process_vote_txn_sent( fd_replay_tile_t *  ctx,
   /* The send tile has signed and sent a vote.  Add this vote to the
      vote tracker.  We go through this exercise until the client has
      seen a vote corresponding to the current identity rooted. */
-  if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
+  if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
     uchar *    payload = (uchar *)txnm + sizeof(fd_txn_m_t);
     uchar      txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
     fd_txn_t * txn = (fd_txn_t *)txn_mem;
@@ -2662,7 +2664,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, ctx->vote_tracker_seed ) );
   FD_TEST( ctx->vote_tracker );
 
-  ctx->has_identity_vote_rooted      = 0;
+  ctx->identity_vote_rooted = 0;
+
   ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
@@ -2689,7 +2692,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
-  ctx->is_halting_leader = 0;
+  ctx->halting_leader = 0;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -2816,13 +2819,15 @@ populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
 static inline void
 during_housekeeping( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-    FD_CRIT( ctx->is_halting_leader, "state machine corruption" );
-    ctx->is_halting_leader = 0;
+    FD_CRIT( ctx->halting_leader, "state machine corruption" );
+    FD_LOG_DEBUG(( "keyswitch: unhalting leader" ));
+    ctx->halting_leader = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    ctx->is_halting_leader = 1;
+    FD_LOG_DEBUG(( "keyswitch: halting leader" ));
+    ctx->halting_leader = 1;
     if( !ctx->is_leader ) maybe_switch_identity( ctx );
   }
 }

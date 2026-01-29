@@ -246,7 +246,7 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             slots_per_epoch,             sizeof(ulong),                             alignof(ulong)                             ) /* Slots per epoch */                                    \
   X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong)                             ) /* Shred count */                                        \
   X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong)                             ) /* Epoch */                                              \
-  X(ulong,                             identity_vote_idx,           sizeof(ulong),                             alignof(ulong)                             ) /* Has identity vote */
+  X(ulong,                             identity_vote_idx,           sizeof(ulong),                             alignof(ulong)                             ) /* What identity idx the bank has voted for */
 
 /* Defining pools for any CoW fields. */
 
