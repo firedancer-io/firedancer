@@ -419,6 +419,9 @@ struct fd_replay_tile {
     ulong leader_bid_wait;
     ulong banks_full;
     ulong storage_root_behind;
+
+    fd_histf_t root_slot_dur[1];
+    fd_histf_t root_account_dur[1];
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
@@ -507,6 +510,8 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, ACCDB_ROOTED,    ctx->accdb_admin->base.root_cnt    );
   FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,   ctx->accdb_admin->base.gc_root_cnt );
   FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED, ctx->accdb_admin->base.reclaim_cnt );
+  FD_MHIST_COPY( REPLAY, ROOT_SLOT_DURATION_SECONDS,    ctx->metrics.root_slot_dur    );
+  FD_MHIST_COPY( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS, ctx->metrics.root_account_dur );
 }
 
 static inline ulong
@@ -1854,17 +1859,30 @@ process_fec_set( fd_replay_tile_t *  ctx,
   }
 }
 
+/* accdb_advance_root moves account records from the unrooted to the
+   rooted database. */
+
+static inline ulong
+accdb_root_op_total( fd_replay_tile_t const * ctx ) {
+  return ctx->accdb_admin->base.root_cnt +
+         ctx->accdb_admin->base.reclaim_cnt;
+}
+
 static void
 accdb_advance_root( fd_replay_tile_t * ctx,
-                   ulong              slot,
-                   ulong              bank_idx ) {
+                    ulong              slot,
+                    ulong              bank_idx ) {
   fd_funk_txn_xid_t xid = { .ul[0] = slot, .ul[1] = bank_idx };
   FD_LOG_DEBUG(( "advancing root to slot=%lu", slot ));
 
-  /* This is the standard case.  Publish all transactions up to and
-     including the watermark.  This will publish any in-prep ancestors
-     of root_txn as well. */
+  long rooted_accounts   = -(long)accdb_root_op_total( ctx );
+  long root_accounts_dt  = -fd_tickcount();
   fd_accdb_advance_root( ctx->accdb_admin, &xid );
+  rooted_accounts       += (long)accdb_root_op_total( ctx );
+  root_accounts_dt      += fd_tickcount();
+  fd_histf_sample( ctx->metrics.root_slot_dur,    (ulong)root_accounts_dt );
+  fd_histf_sample( ctx->metrics.root_account_dur, (ulong)root_accounts_dt / (ulong)fd_long_max( rooted_accounts, 1L ) );
+
   fd_progcache_txn_advance_root( ctx->progcache_admin, &xid );
 }
 
@@ -2749,6 +2767,10 @@ unprivileged_init( fd_topo_t *      topo,
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WAIT ) ) );
   fd_histf_join( fd_histf_new( ctx->metrics.store_publish_work, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WORK ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.root_slot_dur,      FD_MHIST_SECONDS_MIN( REPLAY, ROOT_SLOT_DURATION_SECONDS ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, ROOT_SLOT_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.root_account_dur,   FD_MHIST_SECONDS_MIN( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
