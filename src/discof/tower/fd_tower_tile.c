@@ -10,6 +10,7 @@
 #include "../../choreo/tower/fd_tower_serde.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_txn_m.h"
@@ -123,6 +124,9 @@ typedef struct {
   fd_tower_accts_t  * tower_accts; /* deque of accts, stake, and pubkey for the currently replayed slot */
   fd_epoch_stakes_t * slot_stakes; /* tracks the stakes for each voter in the epoch per fork */
 
+  fd_keyswitch_t * keyswitch;
+  int              halt_signing;
+
   /* external joins owned by replay tile */
 
   fd_banks_t      banks[1];
@@ -152,6 +156,7 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+  ulong       out_seq;
 
   /* metrics */
 
@@ -247,6 +252,7 @@ publish_slot_confirmed( ctx_t *             ctx,
   msg->bank_idx                   = bank_idx;
   msg->kind                       = kind;
   fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_CONFIRMED, ctx->out_chunk, sizeof(fd_tower_slot_confirmed_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->out_seq   = stem->seqs[ 0UL ];
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_confirmed_t), ctx->out_chunk0, ctx->out_wmark );
 }
 
@@ -585,6 +591,7 @@ replay_slot_completed( ctx_t *                      ctx,
     msg->bank_idx = slot_completed->bank_idx;
 
     fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_IGNORED, ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->out_seq   = stem->seqs[ 0UL ];
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), ctx->out_chunk0, ctx->out_wmark );
     return;
   }
@@ -657,6 +664,7 @@ replay_slot_completed( ctx_t *                      ctx,
     msg->bank_idx = slot_completed->bank_idx;
 
     fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_IGNORED, ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->out_seq   = stem->seqs[ 0UL ];
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), ctx->out_chunk0, ctx->out_wmark );
     return;
   }
@@ -884,8 +892,8 @@ done_vote_iter:
 
   msg->tower_cnt = 0UL;
   if( FD_LIKELY( found ) ) msg->tower_cnt = fd_tower_with_lat_from_vote_acc( msg->tower, ctx->our_vote_acct );
-
   fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_DONE, ctx->out_chunk, sizeof(fd_tower_slot_done_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->out_seq   = stem->seqs[ 0UL ];
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_done_t), ctx->out_chunk0, ctx->out_wmark );
 
   if( FD_UNLIKELY( ctx->debug_fd!=-1 ) ) {
@@ -901,12 +909,12 @@ after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
+
   if( FD_LIKELY( !notif_empty( ctx->notif ) ) ) {
 
     /* Contiguous confirmations are pushed to tail in order from child
        to ancestor, so we pop from tail to publish confirmations in
        order from ancestor to child.  */
-
     notif_t ancestor = notif_pop_tail( ctx->notif );
     if( FD_UNLIKELY( ancestor.kind == FD_TOWER_SLOT_CONFIRMED_CLUSTER || ancestor.kind == FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
 
@@ -958,6 +966,10 @@ returnable_frag( ctx_t *             ctx,
     return 0;
   }
   case IN_KIND_REPLAY: {
+    /* In the case that the tower tile is halting signing, we don't
+       want to process any replay fragments that will cause us to
+       produce a vote txn. */
+    if( FD_UNLIKELY( ctx->halt_signing ) ) return 1;
     if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
       fd_memcpy( &ctx->replay_slot_completed, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_completed_t) );
       replay_slot_completed( ctx, &ctx->replay_slot_completed, tsorig, stem );
@@ -1066,6 +1078,10 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->slot_stakes );
   FD_TEST( ctx->notif );
 
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+  ctx->halt_signing = 0;
+
   for( ulong i = 0; i<VOTE_TXN_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sha512_t), sizeof(fd_sha512_t) ) ) );
     FD_TEST( sha );
@@ -1107,6 +1123,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
+  ctx->out_seq    = ULONG_MAX;
 }
 
 static ulong
@@ -1143,15 +1160,39 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static void
+during_housekeeping( ctx_t * ctx ) {
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: unhalting signing" ));
+    FD_CRIT( ctx->halt_signing, "state machine corruption" );
+    ctx->halt_signing = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    /* TODO: Currently, the tower tile doesn't support running off of a
+       tower file.  When support for a tower file is added, we need to
+       swap the file that is running and sync it to the local state of
+       the tower.  */
+    FD_LOG_DEBUG(( "keyswitch: halting signing" ));
+    memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+    ctx->halt_signing = 1;
+    ctx->keyswitch->result  = ctx->out_seq;
+  }
+}
+
 #define STEM_BURST (2UL) /* slot_conf AND (slot_done OR slot_ignored) */
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
 
-#define STEM_CALLBACK_CONTEXT_TYPE    ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN   alignof(ctx_t)
-#define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_CONTEXT_TYPE        ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN       alignof(ctx_t)
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../disco/stem/fd_stem.c"
 

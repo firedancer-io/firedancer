@@ -201,7 +201,6 @@ extern action_t fd_action_keys;
 extern action_t fd_action_ready;
 extern action_t fd_action_mem;
 extern action_t fd_action_netconf;
-extern action_t fd_action_set_identity;
 extern action_t fd_action_version;
 extern action_t fd_action_bench;
 extern action_t fd_action_bundle_client;
@@ -224,6 +223,7 @@ extern action_t fd_action_snapshot_load;
 extern action_t fd_action_repair;
 extern action_t fd_action_tower;
 extern action_t fd_action_shred_version;
+extern action_t fd_action_set_identity;
 extern action_t fd_action_ipecho_server;
 extern action_t fd_action_send_test;
 extern action_t fd_action_gossip_dump;
@@ -238,7 +238,6 @@ action_t * ACTIONS[] = {
   &fd_action_ready,
   &fd_action_mem,
   &fd_action_netconf,
-  &fd_action_set_identity,
   &fd_action_help,
   &fd_action_metrics,
   &fd_action_metrics_record,
@@ -261,6 +260,7 @@ action_t * ACTIONS[] = {
   &fd_action_repair,
   &fd_action_tower,
   &fd_action_shred_version,
+  &fd_action_set_identity,
   &fd_action_ipecho_server,
   &fd_action_send_test,
   &fd_action_gossip_dump,
