@@ -7,7 +7,7 @@
 #define MS_PER_TICK          (400.0 / TARGET_TICK_PER_SLOT)
 
 void *
-fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed ) {
+fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed, fd_rnonce_ss_t const * rnonce_ss ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -42,7 +42,7 @@ fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed ) {
   policy->peers.fast    = fd_peer_dlist_new       ( peers_fast                    );
   policy->peers.slow    = fd_peer_dlist_new       ( peers_slow                    );
   policy->turbine_slot0 = ULONG_MAX;
-  policy->nonce         = 1;
+  policy->rnonce_ss[0]  = *rnonce_ss;
 
   return shmem;
 }
@@ -196,8 +196,8 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
     fd_forest_blk_t * orphan = fd_forest_subtlist_iter_ele( iter, subtlist, pool );
     ulong key                = fd_policy_dedup_key( FD_REPAIR_KIND_ORPHAN, orphan->slot, UINT_MAX );
     if( FD_UNLIKELY( !dedup_next( policy, key, now ) ) ) {
-      out = fd_repair_orphan( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, orphan->slot );
-      policy->nonce++;
+      uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, orphan->slot, 0U, now );
+      out = fd_repair_orphan( repair, fd_policy_peer_select( policy ), now_ms, nonce, orphan->slot );
       return out;
     }
   }
@@ -250,12 +250,12 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
   if( FD_UNLIKELY( iter->shred_idx == UINT_MAX ) ) {
     if( FD_UNLIKELY( ele->slot < highest_known_slot ) ) {
       // We'll never know the the highest shred for the current turbine slot, so there's no point in requesting it.
-      out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, 0 );
-      policy->nonce++;
+      uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, ele->slot, 0U, now );
+      out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, 0 );
     }
   } else {
-    out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, iter->shred_idx );
-    policy->nonce++;
+    uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, iter->shred_idx, now );
+    out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, iter->shred_idx );
     if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
   }
   return out;
