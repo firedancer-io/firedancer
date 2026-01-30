@@ -209,6 +209,13 @@ setup_topo_accdb_cache( fd_topo_t *    topo,
   return line_obj;
 }
 
+fd_topo_obj_t *
+setup_topo_vinyl_admin( fd_topo_t *  topo,
+                        char const * wksp_name ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "vinyl_admin", wksp_name );
+  return obj;
+}
+
 /* Resolves a hostname to a single ip address.  If multiple ip address
    records are returned by getaddrinfo, only the first IPV4 address is
    returned via ip_addr. */
@@ -486,11 +493,11 @@ fd_topo_initialize( config_t * config ) {
       if( vinyl_enabled ) {
         fd_topob_wksp( topo, "snaplh"    );
         fd_topob_wksp( topo, "snaplv"    );
+        fd_topob_wksp( topo, "vinyl_admin" );
         fd_topob_wksp( topo, "snaplv_lh" );
         fd_topob_wksp( topo, "snaplh_lv" );
         fd_topob_wksp( topo, "snapwm_lv" );
         fd_topob_wksp( topo, "snaplv_ct" );
-        fd_topob_wksp( topo, "snaplv_wr" );
       } else {
         fd_topob_wksp( topo, "snapla"    );
         fd_topob_wksp( topo, "snapls"    );
@@ -560,7 +567,6 @@ fd_topo_initialize( config_t * config ) {
         /**/                 fd_topob_link( topo, "snapwm_lv",  "snapwm_lv",  32768UL,                                  FD_SNAPWM_DUP_META_BATCH_SZ,   1UL );
         /**/                 fd_topob_link( topo, "snaplv_lh",  "snaplv_lh",  262144UL,                                 FD_SNAPLV_DUP_META_SZ,         FD_SNAPLV_STEM_BURST ); /* FD_SNAPWM_DUP_META_BATCH_CNT_MAX times the depth of snapwm_lv */
         /**/                 fd_topob_link( topo, "snaplv_ct",  "snaplv_ct",  128UL,                                    0UL,                           1UL );
-        /**/                 fd_topob_link( topo, "snaplv_wr",  "snaplv_wr",  128UL,                                    0UL,                           1UL ); /* no dcache, only mcache fseq is used on this link. */
       } else {
         FOR(lta_tile_cnt) fd_topob_link( topo, "snapla_ls",    "snapla_ls",   128UL,                                    sizeof(fd_lthash_value_t),     1UL );
         /**/              fd_topob_link( topo, "snapin_ls",    "snapin_ls",   256UL,                                    sizeof(fd_snapshot_full_account_t), 1UL );
@@ -836,12 +842,16 @@ fd_topo_initialize( config_t * config ) {
         FOR(snaplh_tile_cnt) fd_topob_tile_out( topo, "snaplh", i,                      "snaplh_lv",        i                                                  );
         /**/                 fd_topob_tile_in ( topo, "snaplv", 0UL,       "metric_in", "snapwm_lv",        0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
         FOR(snaplh_tile_cnt) fd_topob_tile_in ( topo, "snaplv", 0UL,       "metric_in", "snaplh_lv",        i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-        /**/                 fd_topob_tile_out( topo, "snaplv", 0UL,                    "snaplv_wr",        0UL                                                );
-        FOR(snapwr_tile_cnt) fd_topob_tile_in ( topo, "snapwr", i,         "metric_in", "snaplv_wr",        0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
         /**/                 fd_topob_tile_out( topo, "snaplv", 0UL,                    "snaplv_ct",        0UL                                                );
         /**/                 fd_topob_tile_out( topo, "snapwm", 0UL,                    "snapwm_lv",        0UL                                                );
         /**/                 fd_topob_tile_in ( topo, "snapct", 0UL,       "metric_in", "snaplv_ct",        0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-        FOR(snapwr_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", i ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snaplv_wr", 0UL ) ].mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+        fd_topo_obj_t * vinyl_admin_obj = setup_topo_vinyl_admin( topo, "vinyl_admin" );
+        /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwm", 0UL ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+        FOR(snapwr_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", i   ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+        /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplv", 0UL ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+        FOR(snaplh_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplh", i   ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+        FD_TEST( fd_pod_insertf_ulong( topo->props, vinyl_admin_obj->id, "vinyl_admin" ) );
       } else {
                           fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_ls",    0UL                                            );
         FOR(lta_tile_cnt) fd_topob_tile_in(     topo, "snapla",  i,            "metric_in", "snapdc_in",    0UL,      FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -1449,7 +1459,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapwm" ) ) ) {
 
-    tile->snapwm.lthash_disabled = !!config->development.snapshots.disable_lthash_verification;
     strcpy( tile->snapwm.vinyl_path, config->paths.accounts );
     tile->snapwm.vinyl_meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "accdb.meta_map",  ULONG_MAX );
     tile->snapwm.vinyl_meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "accdb.meta_pool", ULONG_MAX );
@@ -1458,6 +1467,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     FD_TEST( wm_wr_link_id!=ULONG_MAX );
     fd_topo_link_t * wm_wr_link = &config->topo.links[ wm_wr_link_id ];
     tile->snapwm.snapwr_depth = wm_wr_link->depth;
+
+    tile->snapwm.lthash_disabled = !!config->development.snapshots.disable_lthash_verification;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapwh" ) ) ) {
 
@@ -1468,6 +1479,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     FD_TEST( wm_wr_link_id!=ULONG_MAX );
     fd_topo_link_t * wm_wr_link = &config->topo.links[ wm_wr_link_id ];
     tile->snapwr.dcache_obj_id = wm_wr_link->dcache_obj_id;
+
+    tile->snapwr.lthash_disabled = !!config->development.snapshots.disable_lthash_verification;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapla" ) ) ) {
 
