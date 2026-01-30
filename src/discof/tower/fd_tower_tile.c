@@ -1154,9 +1154,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 static void
 during_housekeeping( ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    if( FD_UNLIKELY( ctx->auth_key_set_cnt==AUTH_VOTERS_MAX ) ) {
-      FD_LOG_CRIT(( "too many authorized voters: count not synced up with sign tile" ));
-    }
+    if( FD_UNLIKELY( ctx->auth_key_set_cnt==AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "too many authorized voters: count not synced up with sign tile" ));
     fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( ctx->av_keyswitch->bytes ) );
     ctx->auth_key_set_cnt++;
     fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );

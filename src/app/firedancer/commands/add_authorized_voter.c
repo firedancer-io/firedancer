@@ -14,18 +14,17 @@
    with an authorized voter that the sign tile is not yet aware of.
    The authorized voter must be added to the sign tile before it is
    added to the tower tile.  All transitions must be linear and in
-   forward order.
-
-   The states follow, in order. */
+   forward order.  The states below describe the state transitions. */
 
 /* State 0: UNLOCKED.
      The validator is not currently in the process of switching keys. */
 #define FD_ADD_AUTH_VOTER_STATE_UNLOCKED             (0UL)
 
 /* State 1: LOCKED
-     Some client to the validator has requested a key switch.  To do so,
-     it acquired an exclusive lock on the validator to prevent the
-     switch potentially being interleaved with another client. */
+     Some client to the validator has requested to add an authorized v
+     voter.  To do so, it acquired an exclusive lock on the validator to
+     prevent the switch potentially being interleaved with another
+     client. */
 #define FD_ADD_AUTH_VOTER_STATE_LOCKED               (1UL)
 
 /* State 2: SIGN_TILE_REQUESTED
@@ -35,18 +34,23 @@
 
 /* State 3: SIGN_TILE_UPDATED
      The Sign tile has confirmed that it has updated its internal
-     mapping for the set of supported authorized voters, */
+     mapping for the set of supported authorized voters.  At this point
+     the sign tile is aware of the new authorized voter but the Tower
+     tile will not prepare vote transactions with the new authorized
+     voter yet. */
 #define FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_UPDATED    (3UL)
 
 /* State 4: TOWER_TILE_REQUESTED
      Once the Sign tile is updated, now the Tower tile must be notified
-     that an authorized voter is being added. */
+     that an authorized voter is being added so it can start preparing
+     vote transactions with the new authorized voter. */
 #define FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED (4UL)
 
 /* State 5: TOWER_TILE_UPDATED
      The Tower tile has confirmed that it has updated its internal
      mapping for the set of supported authorized voters. Now the
-     pipeline is complete and the next state is UNLOCKED. */
+     pipeline is complete and the next state is UNLOCKED.  The validator
+     can now produce votes with the new authorized voter. */
 #define FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED   (5UL)
 
 
@@ -55,7 +59,7 @@ add_authorized_voter_cmd_args( int *    pargc,
                                char *** pargv,
                                args_t * args) {
 
-  args->set_identity.force = fd_env_strip_cmdline_contains( pargc, pargv, "--force" );
+  args->add_authorized_voter.force = fd_env_strip_cmdline_contains( pargc, pargv, "--force" );
 
   if( FD_UNLIKELY( *pargc<1 ) ) {
     FD_LOG_ERR(( "Usage: fdctl add-authorized-voter <keypair> [--force]" ));
@@ -85,11 +89,11 @@ poll_keyswitch( fd_topo_t * topo,
       fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       if( FD_LIKELY( FD_KEYSWITCH_STATE_UNLOCKED==FD_ATOMIC_CAS( &tower->state, FD_KEYSWITCH_STATE_UNLOCKED, FD_KEYSWITCH_STATE_LOCKED ) ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_LOCKED;
-        FD_LOG_INFO(( "Locking validator identity for authorized voter update..." ));
+        FD_LOG_INFO(( "Locking authorized voter set for authorized voter update..." ));
       } else {
         if( FD_UNLIKELY( force_lock ) ) {
           *state = FD_ADD_AUTH_VOTER_STATE_LOCKED;
-          FD_LOG_WARNING(( "Another process was changing keys, but `--force` supplied. Forcing lock on validator identity for key switch..." ));
+          FD_LOG_WARNING(( "Another process was changing keys, but `--force` supplied. Forcing lock on authorized voter setfor key switch..." ));
         } else {
           FD_LOG_ERR(( "Cannot add-authorized-voter because Firedancer is already in the process of updating the authorized voter keys. If you"
                        "are not currently adding an authorized voter, it might be because an authorized voter update was abandoned. To"
@@ -180,7 +184,7 @@ add_authorized_voter( args_t *   args,
 
   fd_ed25519_public_from_private( check_public_key, args->add_authorized_voter.keypair, sha512 );
   if( FD_UNLIKELY( memcmp( check_public_key, args->add_authorized_voter.keypair+32UL, 32UL ) ) ) {
-    FD_LOG_ERR(( "The public key in the identity key file does not match the public key derived from the private key. "
+    FD_LOG_ERR(( "The public key in the key file does not match the public key derived from the private key. "
                   "Firedancer will not use the key pair to sign as it might leak the private key." ));
   }
 
@@ -198,12 +202,12 @@ add_authorized_voter( args_t *   args,
     if( FD_UNLIKELY( FD_ADD_AUTH_VOTER_STATE_UNLOCKED==state ) ) break;
   }
 
-  char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( args->add_authorized_voter.keypair+32UL, NULL, identity_key_base58 );
-  identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
+  char key_base58[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( args->add_authorized_voter.keypair+32UL, NULL, key_base58 );
+  key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
 
-  if( FD_UNLIKELY( has_error ) ) FD_LOG_ERR(( "Failed to switch identity key to `%s`, check validator logs for details", identity_key_base58 ));
-  else                           FD_LOG_NOTICE(( "Validator identity key switched to `%s`", identity_key_base58 ));
+  if( FD_UNLIKELY( has_error ) ) FD_LOG_ERR(( "Failed to add authorized voter key to `%s`, check validator logs for details", key_base58 ));
+  else                           FD_LOG_NOTICE(( "Authorized voter key added to `%s`", key_base58 ));
 
 }
 
