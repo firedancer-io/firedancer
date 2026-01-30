@@ -119,9 +119,9 @@ poll_keyswitch( fd_topo_t * topo,
     case FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED: {
       int all_updated = 1;
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-        if( FD_LIKELY( strcmp( topo->tiles[ i ].name, "tower" ) ) ) continue;
+        if( FD_LIKELY( strcmp( topo->tiles[ i ].name, "sign" ) ) ) continue;
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].av_keyswitch_obj_id );
-        if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+        if( FD_UNLIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
           all_updated = 0;
           break;
         } else {
@@ -161,7 +161,7 @@ poll_keyswitch( fd_topo_t * topo,
     }
     case FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED: {
       fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
-      if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+      if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_UNLOCKED ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
         FD_LOG_INFO(( "Authorized voter successfully updated and keys unlocked..." ));
       } else {
