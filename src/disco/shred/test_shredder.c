@@ -14,8 +14,6 @@ uchar perf_test_entry_batch[ PERF_TEST_SZ ];
 #define SKIP_TEST_SZ (1024UL*1024UL)
 uchar skip_test_data[ SKIP_TEST_SZ ];
 
-uchar fec_set_memory_1[ 2048UL * FD_REEDSOL_DATA_SHREDS_MAX   ];
-uchar fec_set_memory_2[ 2048UL * FD_REEDSOL_PARITY_SHREDS_MAX ];
 
 /* First 32B of what Solana calls the private key is what we call the
    private key, second 32B are what we call the public key. */
@@ -55,6 +53,7 @@ test_signer( void *        _ctx,
 FD_IMPORT_BINARY( test_pcap,        "src/disco/shred/fixtures/demo-shreds.pcap" );
 FD_IMPORT_BINARY( test_bin,         "src/disco/shred/fixtures/demo-shreds.bin"  );
 
+
 static void
 test_shredder_pcap( void ) {
   signer_ctx_t signer_ctx[ 1 ];
@@ -62,11 +61,12 @@ test_shredder_pcap( void ) {
 
   FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, (ushort)6051 );
 
   /* Manually counted values from the pcap */
-  FD_TEST( fd_shredder_count_fec_sets(      test_bin_sz, FD_SHRED_TYPE_MERKLE_DATA ) ==   7UL );
-  FD_TEST( fd_shredder_count_data_shreds(   test_bin_sz, FD_SHRED_TYPE_MERKLE_DATA ) == 240UL );
-  FD_TEST( fd_shredder_count_parity_shreds( test_bin_sz, FD_SHRED_TYPE_MERKLE_DATA ) == 240UL );
+  FD_TEST( fd_shredder_count_fec_sets(      test_bin_sz, 1 ) ==   8UL );
+  FD_TEST( fd_shredder_count_data_shreds(   test_bin_sz, 1 ) == 256UL );
+  FD_TEST( fd_shredder_count_parity_shreds( test_bin_sz, 1 ) == 256UL );
 
 
   FILE * file = fmemopen( (void *)test_pcap, test_pcap_sz, "rb" );    FD_TEST( file );
@@ -77,67 +77,40 @@ test_shredder_pcap( void ) {
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
   meta->block_complete = 1;
 
-  /* The pcap has all the data shreds before the parity shreds, so we'll
-     make two passes over the data, one to check the data shreds, and
-     the other to check the parity shreds. */
+  uchar chained_merkle_root[ 32 ];
+  fd_hex_decode( chained_merkle_root,                "0102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f00", 32 );
+
+  /* The pcap has all the shreds sorted by FEC set in order.  Within
+     each FEC set, data shreds come before parity shreds. */
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
-  for( ulong i=0UL; i<7UL; i++ ) {
+  for( ulong i=0UL; i<8UL; i++ ) {
     fd_fec_set_t _set[ 1 ];
 
-    for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
-    for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
-
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL, NULL );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
     FD_TEST( set );
-
-    FD_TEST( set->data_shred_cnt  ==(i<6UL ? 32UL : 48UL) );
 
     uchar packet[ 2048UL ];
     long ts[ 1 ];
-    for( ulong j=0UL; j<set->data_shred_cnt; j++ ) {
+    for( ulong j=0UL; j<FD_FEC_SHRED_CNT; j++ ) {
       ulong pkt_sz = fd_pcap_iter_next( pcap, packet, 2048UL, ts );   FD_TEST( pkt_sz );
 
-      if( !fd_memeq( packet+42UL, set->data_shreds[ j ], pkt_sz-42UL ) ) {
-        FD_LOG_HEXDUMP_NOTICE(( "pcap",      packet+42UL,         pkt_sz-42UL ));
-        FD_LOG_HEXDUMP_NOTICE(( "generated", set->data_shreds[j], pkt_sz-42UL ));
+      if( !fd_memeq( packet+42UL, set->data_shreds[ j ].b, pkt_sz-42UL ) ) {
+        FD_LOG_HEXDUMP_NOTICE(( "pcap",      packet+42UL,           pkt_sz-42UL ));
+        FD_LOG_HEXDUMP_NOTICE(( "generated", set->data_shreds[j].b, pkt_sz-42UL ));
+        FD_LOG_ERR(( "Batch %lu, data shred %lu did not match.", i, j ));
+      }
+    }
+    for( ulong j=0UL; j<FD_FEC_SHRED_CNT; j++ ) {
+      ulong pkt_sz = fd_pcap_iter_next( pcap, packet, 2048UL, ts );   FD_TEST( pkt_sz );
+
+      if( !fd_memeq( packet+42UL, set->parity_shreds[ j ].b, pkt_sz-42UL ) ) {
+        FD_LOG_HEXDUMP_NOTICE(( "pcap",      packet+42UL,             pkt_sz-42UL ));
+        FD_LOG_HEXDUMP_NOTICE(( "generated", set->parity_shreds[j].b, pkt_sz-42UL ));
         FD_LOG_ERR(( "Batch %lu, data shred %lu did not match.", i, j ));
       }
     }
   }
   FD_TEST( fd_shredder_fini_batch( shredder ) );
-
-  /* Start a dummy batch with a different slot number to reset all the
-     indices. */
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 1UL, meta ) );
-  FD_TEST( fd_shredder_fini_batch( shredder ) );
-
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
-  for( ulong i=0UL; i<7UL; i++ ) {
-    fd_fec_set_t _set[ 1 ];
-
-    for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
-    for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
-
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL, NULL );
-    FD_TEST( set );
-
-    FD_TEST( set->parity_shred_cnt==(i<6UL ? 32UL : 48UL) );
-
-    uchar packet[ 2048UL ];
-    long ts[ 1 ];
-    for( ulong j=0UL; j<set->parity_shred_cnt; j++ ) {
-      ulong pkt_sz = fd_pcap_iter_next( pcap, packet, 2048UL, ts );   FD_TEST( pkt_sz );
-
-      if( !fd_memeq( packet+42UL, set->parity_shreds[ j ], pkt_sz-42UL ) ) {
-        FD_LOG_HEXDUMP_NOTICE(( "pcap",      packet+42UL,           pkt_sz-42UL ));
-        FD_LOG_HEXDUMP_NOTICE(( "generated", set->parity_shreds[j], pkt_sz-42UL ));
-        FD_LOG_ERR(( "Batch %lu, parity shred %lu did not match.", i, j ));
-      }
-    }
-  }
-  FD_TEST( fd_shredder_fini_batch( shredder ) );
-
-
 
   FD_TEST( fd_pcap_iter_delete( pcap ) );
   FD_TEST( !fclose( file ) );
@@ -169,12 +142,7 @@ test_skip_batch( void ) {
   fd_entry_batch_meta_t meta[ 1 ];
   fd_memset( meta, 0, sizeof( fd_entry_batch_meta_t ) );
 
-  uchar data_shreds  [ 2048UL*FD_REEDSOL_DATA_SHREDS_MAX   ] = { 0 };
-  uchar parity_shreds[ 2048UL*FD_REEDSOL_PARITY_SHREDS_MAX ] = { 0 };
-
   fd_fec_set_t _set[ 1 ];
-  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = data_shreds + 2048UL*j;
-  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = parity_shreds + 2048UL*j;
 
   ulong data_shred_cnt   = 0;
   ulong parity_shred_cnt = 0;
@@ -182,6 +150,10 @@ test_skip_batch( void ) {
   ulong slot = 1UL;
 
   for( ulong i=0; i<SKIP_TEST_SZ; i++ ) skip_test_data[ i ] = fd_rng_uchar( r );
+
+  /* Having this shared state practically defeats the point of the skip
+     function, but we're stuck with it for now. */
+  uchar chained_merkle_root[ 32 ];
 
   /* Randomly choose a shredder to process a batch until the data buffer is exhausted. */
   while( idx<SKIP_TEST_SZ ) {
@@ -191,15 +163,15 @@ test_skip_batch( void ) {
     for( ulong i=0; i<SHREDDERS; i++ ) {
       if( FD_UNLIKELY( i==shredder ) ) {
         FD_TEST( fd_shredder_init_batch( shredders[ i ], skip_test_data+idx, batch_sz, slot, meta ) );
-        ulong fec_sets = fd_shredder_count_fec_sets( batch_sz, FD_SHRED_TYPE_MERKLE_DATA );
+        ulong fec_sets = fd_shredder_count_fec_sets( batch_sz, 0 );
         for( ulong j=0; j<fec_sets; j++ ) {
-          FD_TEST( fd_shredder_next_fec_set( shredders[ i ], _set, /* chained */ NULL, NULL ) );
-          data_shred_cnt   += _set->data_shred_cnt;
-          parity_shred_cnt += _set->parity_shred_cnt;
+          FD_TEST( fd_shredder_next_fec_set( shredders[ i ], _set, chained_merkle_root ) );
+          data_shred_cnt   += FD_FEC_SHRED_CNT;
+          parity_shred_cnt += FD_FEC_SHRED_CNT;
         }
         FD_TEST( fd_shredder_fini_batch( shredders[ i ] ) );
       } else {
-        FD_TEST( fd_shredder_skip_batch( shredders[ i ], batch_sz, slot, FD_SHRED_TYPE_MERKLE_DATA ));
+        FD_TEST( fd_shredder_skip_batch( shredders[ i ], batch_sz, slot, 0 ));
       }
     }
     for( ulong i=0; i<SHREDDERS; i++ ) {
@@ -207,7 +179,7 @@ test_skip_batch( void ) {
       FD_TEST( shredders[ i ]->parity_idx_offset==parity_shred_cnt );
     }
     idx  += batch_sz;
-    /* Increment the slot every 200_000 bytes. */
+    /* Increment the slot every 200,000 bytes. */
     if( FD_UNLIKELY( idx/200000UL>=slot ) ) {
       slot++;
       data_shred_cnt   = 0;
@@ -215,86 +187,69 @@ test_skip_batch( void ) {
     }
   }
 
+
   /* Process a set with the first shredder. */
-  memset( data_shreds,   0, FD_REEDSOL_DATA_SHREDS_MAX*2048UL );
-  memset( parity_shreds, 0, FD_REEDSOL_PARITY_SHREDS_MAX*2048UL );
+  memset( _set, '\0', sizeof(fd_fec_set_t) );
+  memset( chained_merkle_root, (char)0xCC, 32UL );
   FD_TEST( fd_shredder_init_batch( shredders[ 0 ], skip_test_data, idx, slot, meta ) );
-  FD_TEST( fd_shredder_next_fec_set( shredders[ 0 ], _set, /* chained */ NULL, NULL ) );
+  FD_TEST( fd_shredder_next_fec_set( shredders[ 0 ], _set, chained_merkle_root ) );
   FD_TEST( fd_shredder_fini_batch( shredders[ 0 ] ) );
 
   /* Make all the other shredders process the same data and compare the outputs. */
   fd_fec_set_t _temp_set[ 1 ];
-  uchar temp_data_shreds  [ 2048UL*FD_REEDSOL_DATA_SHREDS_MAX   ] = { 0 };
-  uchar temp_parity_shreds[ 2048UL*FD_REEDSOL_PARITY_SHREDS_MAX ] = { 0 };
-  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _temp_set->data_shreds[   j ] = temp_data_shreds + 2048UL*j;
-  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _temp_set->parity_shreds[ j ] = temp_parity_shreds + 2048UL*j;
   for( ulong i=1UL; i<SHREDDERS; i++ ) {
-    memset( temp_data_shreds,   0, FD_REEDSOL_DATA_SHREDS_MAX*2048UL );
-    memset( temp_parity_shreds, 0, FD_REEDSOL_PARITY_SHREDS_MAX*2048UL );
+    memset( _temp_set, '\0', sizeof(fd_fec_set_t) );
+    memset( chained_merkle_root, (char)0xCC, 32UL );
     FD_TEST( fd_shredder_init_batch( shredders[ i ], skip_test_data, idx, slot, meta ) );
-    FD_TEST( fd_shredder_next_fec_set( shredders[ i ], _temp_set, /* chained */ NULL, NULL ) );
+    FD_TEST( fd_shredder_next_fec_set( shredders[ i ], _temp_set, chained_merkle_root ) );
     FD_TEST( fd_shredder_fini_batch( shredders[ i ] ) );
 
-    FD_TEST( _set->data_shred_cnt==_temp_set->data_shred_cnt );
-    FD_TEST( _set->parity_shred_cnt==_temp_set->parity_shred_cnt );
-
-    for( ulong j=0UL; j<_temp_set->data_shred_cnt; j++ )
-      FD_TEST( !memcmp( _set->data_shreds[ j ], _temp_set->data_shreds[ j ], 2048UL ) );
-    for( ulong j=0UL; j<_temp_set->parity_shred_cnt; j++ )
-      FD_TEST( !memcmp( _set->parity_shreds[ j ], _temp_set->parity_shreds[ j ], 2048UL ) );
+    FD_TEST( fd_memeq( _set, _temp_set, sizeof(fd_fec_set_t) ) );
   }
 
   #undef SHREDDERS
 }
 
 static void
-_internal_test_shredder_count( ulong type ) {
-  FD_TEST( fd_shredder_count_data_shreds(   0UL, type ) ==  1UL );
-  FD_TEST( fd_shredder_count_parity_shreds( 0UL, type ) == 17UL );
-  FD_TEST( fd_shredder_count_fec_sets(      0UL, type ) ==  1UL );
-
-  int is_chained  = fd_shred_is_chained( type );
-  int is_resigned = fd_shred_is_resigned( type );
-
-  ulong overhead = ( (ulong)is_chained*32UL + (ulong)is_resigned*64UL );
+_internal_test_shredder_count( int block_complete ) {
+  FD_TEST( fd_shredder_count_fec_sets(      0UL, block_complete ) == (ulong)block_complete );
 
   for( ulong data_sz=1UL; data_sz<1000000UL; data_sz++ ) {
     ulong fec_sets = 0UL;
     ulong data_shreds = 0UL;
     ulong parity_shreds = 0UL;
-    ulong x = data_sz;
     /* Reference implementation taken from make_shreds_from_data in Rust
        code */
-    ulong data_buffer_size = 995UL - overhead;
-    ulong chunk_size = 31840UL - overhead*32UL;
-    while( x>=2UL*chunk_size || x==chunk_size ) {
-      fec_sets++;
-      data_shreds += (chunk_size + data_buffer_size - 1UL) / data_buffer_size;
-      parity_shreds += (chunk_size + data_buffer_size - 1UL) / data_buffer_size;
-      x -= chunk_size;
-    }
-    if( x>0UL || data_shreds==0UL ) {
-      ulong num_data_shreds, num_parity_shreds;
-      for( ulong proof_size=1UL; proof_size<32UL; proof_size++ ) {
-        data_buffer_size = 1115UL - 20UL * proof_size - overhead;
-        num_data_shreds   = fd_ulong_max( 1UL, (x + data_buffer_size-1UL)/data_buffer_size );
-        num_parity_shreds = (num_data_shreds>32UL ? num_data_shreds : fd_shredder_data_to_parity_cnt[ num_data_shreds ] );
-        if( fd_bmtree_depth( num_data_shreds+num_parity_shreds )-1UL == proof_size ) break;
-      }
-      data_shreds   += num_data_shreds;
-      parity_shreds += num_parity_shreds;
-      fec_sets++;
-    }
+    ulong unsigned_data = 0UL;
+    ulong signed_data   = 0UL;
 
-    FD_TEST( fd_shredder_count_data_shreds(   data_sz, type ) ==   data_shreds );
-    FD_TEST( fd_shredder_count_parity_shreds( data_sz, type ) == parity_shreds );
-    FD_TEST( fd_shredder_count_fec_sets(      data_sz, type ) ==      fec_sets );
+    if( block_complete ) {
+      if( data_sz > 28768UL ) {
+        unsigned_data = data_sz - 28768UL;
+        signed_data   = 28768UL;
+      } else {
+        signed_data = data_sz;
+      }
+    } else {
+      unsigned_data = data_sz;
+    }
+    ulong unsigned_sets = (unsigned_data + 30816UL - 1UL)/30816UL;
+    ulong signed_sets = fd_ulong_if( block_complete, 1UL, 0UL );
+    FD_TEST( signed_sets == (signed_data + 28768UL - 1UL)/28768UL );
+    fec_sets = unsigned_sets + signed_sets;
+
+    data_shreds   = FD_FEC_SHRED_CNT * fec_sets;
+    parity_shreds = FD_FEC_SHRED_CNT * fec_sets;
+
+    FD_TEST( fd_shredder_count_data_shreds(   data_sz, block_complete ) ==   data_shreds );
+    FD_TEST( fd_shredder_count_parity_shreds( data_sz, block_complete ) == parity_shreds );
+    FD_TEST( fd_shredder_count_fec_sets(      data_sz, block_complete ) ==      fec_sets );
   }
 
   ulong _data_sz=0UL;
-  while( fd_shredder_count_fec_sets( _data_sz, type )==1UL ) {
-    FD_TEST( fd_shredder_count_data_shreds( _data_sz, type ) <= FD_REEDSOL_DATA_SHREDS_MAX );
-    FD_TEST( fd_shredder_count_parity_shreds( _data_sz, type ) <= FD_REEDSOL_PARITY_SHREDS_MAX );
+  while( fd_shredder_count_fec_sets( _data_sz, block_complete )==1UL ) {
+    FD_TEST( fd_shredder_count_data_shreds  ( _data_sz, block_complete ) <= FD_REEDSOL_DATA_SHREDS_MAX );
+    FD_TEST( fd_shredder_count_parity_shreds( _data_sz, block_complete ) <= FD_REEDSOL_PARITY_SHREDS_MAX );
     _data_sz++;
   }
 
@@ -310,12 +265,9 @@ _internal_test_shredder_count( ulong type ) {
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
-  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
-  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
-
   uchar _chained_merkle_root[32] = { 0 };
-  uchar * chained_merkle_root = is_chained ? _chained_merkle_root : NULL;
-  meta->block_complete = is_resigned;
+  uchar * chained_merkle_root = _chained_merkle_root;
+  meta->block_complete = block_complete;
 
   ulong slot=0UL;
   for( ulong sz=1UL; sz<100000UL; sz++ ) {
@@ -323,35 +275,30 @@ _internal_test_shredder_count( ulong type ) {
 
     ulong data_shred_cnt   = 0UL;
     ulong parity_shred_cnt = 0UL;
-    ulong sets_cnt = fd_shredder_count_fec_sets( sz, type );
+    ulong sets_cnt = fd_shredder_count_fec_sets( sz, block_complete );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root, NULL );
+      fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
       FD_TEST( set );
 
-      data_shred_cnt   += set->data_shred_cnt;
-      parity_shred_cnt += set->parity_shred_cnt;
+      data_shred_cnt   += FD_FEC_SHRED_CNT;
+      parity_shred_cnt += FD_FEC_SHRED_CNT;
     }
-    FD_TEST( !fd_shredder_next_fec_set( shredder, _set, chained_merkle_root, NULL ) );
+    FD_TEST( !fd_shredder_next_fec_set( shredder, _set, chained_merkle_root ) );
     fd_shredder_fini_batch( shredder );
 
-    FD_TEST( data_shred_cnt  ==fd_shredder_count_data_shreds  ( sz, type ) );
-    FD_TEST( parity_shred_cnt==fd_shredder_count_parity_shreds( sz, type ) );
+    FD_TEST( data_shred_cnt  ==fd_shredder_count_data_shreds  ( sz, block_complete ) );
+    FD_TEST( parity_shred_cnt==fd_shredder_count_parity_shreds( sz, block_complete ) );
   }
 }
 
 static void
 test_shredder_count( void ) {
-  _internal_test_shredder_count( FD_SHRED_TYPE_MERKLE_DATA );
+  _internal_test_shredder_count( 0 );
 }
 
 static void
-test_shredder_count_chained( void ) {
-  _internal_test_shredder_count( FD_SHRED_TYPE_MERKLE_DATA_CHAINED );
-}
-
-static void
-test_shredder_count_resigned( void ) {
-  _internal_test_shredder_count( FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED );
+test_shredder_count_complete( void ) {
+  _internal_test_shredder_count( 1 );
 }
 
 static void
@@ -362,14 +309,17 @@ test_chained_merkle_shreds( void ) {
   const uchar canary = 0x42;
 
   /* Initial and expected final merkle root */
-  fd_hex_decode( chained_merkle_root, "0102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f00", 32 );
-  fd_hex_decode( expected_final_chained_merkle_root, "cb030876030cf4d3a1e5b667c08a8c35d3073ab3d1fb19679e29603d75fc2529", 32 );
+  fd_hex_decode( chained_merkle_root,                "0102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f00", 32UL );
+  fd_hex_decode( expected_final_chained_merkle_root, "257b665197d88dd93bfa15e9d47023bd042004593b838d2d165ff0d683cb354c", 32UL );
 
   /* Settings so that we get 32 data + 32 parity shreds */
-  ulong data_sz = 30000;
-  FD_TEST( fd_shredder_count_data_shreds(   data_sz, FD_SHRED_TYPE_MERKLE_DATA_CHAINED ) == 32 );
-  FD_TEST( fd_shredder_count_parity_shreds( data_sz, FD_SHRED_TYPE_MERKLE_DATA_CHAINED ) == 32 );
-  FD_TEST( fd_shredder_count_fec_sets(      data_sz, FD_SHRED_TYPE_MERKLE_DATA_CHAINED ) ==  1 );
+  ulong data_sz = 28000UL;
+  FD_TEST( fd_shredder_count_data_shreds(   data_sz, 0 ) == 32UL );
+  FD_TEST( fd_shredder_count_parity_shreds( data_sz, 0 ) == 32UL );
+  FD_TEST( fd_shredder_count_fec_sets(      data_sz, 0 ) ==  1UL );
+  FD_TEST( fd_shredder_count_data_shreds(   data_sz, 1 ) == 32UL );
+  FD_TEST( fd_shredder_count_parity_shreds( data_sz, 1 ) == 32UL );
+  FD_TEST( fd_shredder_count_fec_sets(      data_sz, 1 ) ==  1UL );
 
   /* Initialize all the things */
   for( ulong i=0UL; i<data_sz; i++ )  perf_test_entry_batch[ i ] = (uchar)i;
@@ -384,12 +334,8 @@ test_chained_merkle_shreds( void ) {
   fd_shredder_set_shred_version( shredder, (ushort)6051 );
 
   fd_fec_set_t _set[ 1 ];
-  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
-  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
-
   /* memset with canary */
-  memset( fec_set_memory_1, canary, sizeof( fec_set_memory_1 ) );
-  memset( fec_set_memory_2, canary, sizeof( fec_set_memory_2 ) );
+  memset( _set, canary, sizeof(_set) );
 
 #define MAX_SLOTS (4UL)
 #define MAX_SETS (10UL)
@@ -405,31 +351,27 @@ test_chained_merkle_shreds( void ) {
     for( ulong setid=0UL; setid<MAX_SETS; setid++ ) {
       meta->block_complete = (setid==(MAX_SETS-1));
 
-      fd_bmtree_node_t out_merkle_root = { 0 };
-
       /* Create set like shred tile does.
          This should take care of numbering shreds correctly, updating chained_merkle_root,
          etc. */
       fd_shredder_init_batch( shredder, perf_test_entry_batch, data_sz, slot, meta );
-      set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root, out_merkle_root.hash );
+      set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
       fd_shredder_fini_batch( shredder );
 
       uchar null[32] = { 0 };
-      FD_TEST( 0!=memcmp( out_merkle_root.hash, null, 32 ) );
+      FD_TEST( 0!=memcmp( chained_merkle_root, null, 32 ) );
 
       /* Per-slot checks */
       FD_TEST( set );
-      FD_TEST( set->data_shred_cnt>=32 );
-      FD_TEST( set->parity_shred_cnt>=32 );
 
-      for( ulong j=0; j<set->data_shred_cnt; j++ ) {
+      for( ulong j=0; j<FD_FEC_SHRED_CNT; j++ ) {
         fd_shred_t const * shred;
 
         /* Simple test that we didn't overflow */
-        FD_TEST( *(set->data_shreds[ j ]+FD_SHRED_MIN_SZ) == canary );
+        FD_TEST( *(set->data_shreds[ j ].b+FD_SHRED_MIN_SZ) == canary );
 
         /* Test that data indexes are correct */
-        shred = (fd_shred_t const *)set->data_shreds[ j ];
+        shred = set->data_shreds[ j ].s;
         FD_TEST( shred->idx==setid*32 + j );
         FD_TEST( shred->fec_set_idx==setid*32 );
         FD_TEST( fd_shred_is_resigned( fd_shred_type( shred->variant ) )==(setid==(MAX_SETS-1)) );
@@ -437,14 +379,10 @@ test_chained_merkle_shreds( void ) {
         FD_TEST( fd_shred_parse( (const uchar *)shred, FD_SHRED_MIN_SZ ) );
       }
 
-      for( ulong j=0; j<set->parity_shred_cnt; j++ ) {
-        fd_shred_t const * shred;
-
-        /* Simple test that we didn't overflow */
-        FD_TEST( *(set->parity_shreds[ j ]+FD_SHRED_MAX_SZ) == canary );
+      for( ulong j=0; j<FD_FEC_SHRED_CNT; j++ ) {
+        fd_shred_t const * shred = set->parity_shreds[ j ].s;
 
         /* Test that parity indexes are correct */
-        shred = (fd_shred_t const *)set->parity_shreds[ j ];
         FD_TEST( shred->idx==setid*32 + j );
         FD_TEST( shred->fec_set_idx==setid*32 );
         FD_TEST( fd_shred_is_resigned( fd_shred_type( shred->variant ) )==(setid==(MAX_SETS-1)) );
@@ -472,8 +410,7 @@ perf_test( void ) {
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
-  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
-  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
+  uchar chained_merkle_root[ 32 ] = { 0 };
 
   ulong iterations = 100UL;
   long dt = -fd_log_wallclock();
@@ -482,7 +419,7 @@ perf_test( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ, FD_SHRED_TYPE_MERKLE_DATA );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL, NULL );
+      fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
     }
     fd_shredder_fini_batch( shredder );
   }
@@ -495,9 +432,11 @@ perf_test( void ) {
 static void
 perf_test2( void ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 1UL, 0UL, "perf_test2", 0UL );
-  FD_TEST( wksp );
+
+  if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "wksp allocation failed. skipping." )); return; }
+
   uchar * entry_batch = fd_wksp_laddr_fast( wksp, fd_wksp_alloc( wksp, 128UL, PERF_TEST2_SZ, 2UL ) );
-  uchar * fec_memory  = fd_wksp_laddr_fast( wksp, fd_wksp_alloc( wksp, 128UL, (FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX)*1800UL, 3UL ) );
+  fd_fec_set_t * _set = fd_wksp_laddr_fast( wksp, fd_wksp_alloc( wksp, 128UL, sizeof(fd_fec_set_t), 3UL ) );
 
   for( ulong i=0UL; i<PERF_TEST2_SZ; i++ )  entry_batch[ i ] = (uchar)i;
 
@@ -510,9 +449,7 @@ perf_test2( void ) {
   FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
-  fd_fec_set_t _set[ 1 ];
-  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_memory + 1800UL*j;
-  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_memory + 1800UL*j + 1800*FD_REEDSOL_DATA_SHREDS_MAX;
+  uchar chained_merkle_root[ 32 ] = { 0 };
 
   ulong iterations = 30UL;
   ulong bytes_produced = 0UL;
@@ -522,8 +459,8 @@ perf_test2( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST2_SZ, FD_SHRED_TYPE_MERKLE_DATA );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL, NULL );
-      bytes_produced += _set->data_shred_cnt * FD_SHRED_MIN_SZ + _set->parity_shred_cnt * FD_SHRED_MAX_SZ;
+      fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
+      bytes_produced += FD_FEC_SHRED_CNT * FD_SHRED_MIN_SZ + FD_FEC_SHRED_CNT * FD_SHRED_MAX_SZ;
     }
     fd_shredder_fini_batch( shredder );
   }
@@ -541,7 +478,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  FD_TEST( FD_FEC_SET_MAX_BMTREE_DEPTH == fd_bmtree_depth( FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX ) );
+  FD_TEST( FD_FEC_SET_MAX_BMTREE_DEPTH == fd_bmtree_depth( FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT ) );
 
   if( sizeof(fd_shredder_t) != fd_shredder_footprint() )
     FD_LOG_WARNING(( "sizeof() %lu, footprint: %lu", sizeof(fd_shredder_t), fd_shredder_footprint() ));
@@ -549,8 +486,7 @@ main( int     argc,
 
   test_skip_batch();
   test_shredder_count();
-  test_shredder_count_chained();
-  test_shredder_count_resigned();
+  test_shredder_count_complete();
   test_chained_merkle_shreds();
   perf_test();
   perf_test2();

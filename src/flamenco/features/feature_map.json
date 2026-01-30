@@ -248,7 +248,7 @@
   {"name":"poseidon_enforce_padding","pubkey":"poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb"},
   {"name":"relax_intrabatch_account_locks","pubkey":"4WeHX6QoXCCwqbSFgi6dxnB6QsPo6YApaNTH7P4MLQ99","old":"ENTRYnPAoT5Swwx73YDGzMp3XnNH1kxacyvLosRHza1i","comment":"sched suppports this no need for feature gate"},
   {"name":"provide_instruction_data_offset_in_vm_r2","pubkey":"5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL"},
-  {"name":"enforce_fixed_fec_set","pubkey":"fixfecLZYMfkGzwq6NJA11Yw6KYztzXiK9QcL3K78in"},
+  {"name":"enforce_fixed_fec_set","pubkey":"fixfecLZYMfkGzwq6NJA11Yw6KYztzXiK9QcL3K78in","cleaned_up":1},
   {"name":"increase_cpi_account_info_limit","pubkey":"H6iVbVaDZgDphcPbcZwc5LoznMPWQfnJ1AM7L1xzqvt5"},
   {"name":"deprecate_rent_exemption_threshold","pubkey":"rent6iVy6PDoViPBeJ6k5EJQrkj62h7DPyLbWGHwjrC"},
   {"name":"static_instruction_limit","pubkey":"64ixypL1HPu8WtJhNSMb9mSgfFaJvsANuRkTbHyuLfnx"},

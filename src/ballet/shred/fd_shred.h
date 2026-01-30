@@ -130,7 +130,7 @@
 /* FD_SHRED_MERKLE_NODE_SZ: the size of a merkle inclusion proof node in bytes. */
 #define FD_SHRED_MERKLE_NODE_SZ (20UL)
 /* FD_SHRED_MERKLE_LAYER_CNT: the count of inclusion proof layers in the binary merkle tree. */
-#define FD_SHRED_MERKLE_LAYER_CNT (10UL)
+#define FD_SHRED_MERKLE_LAYER_CNT (7UL)
 /* FD_SHRED_SIGNATURE_SZ: the size of a signature in a shred. */
 #define FD_SHRED_SIGNATURE_SZ (64UL)
 /* A merkle inclusion proof node. */

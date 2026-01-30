@@ -1711,7 +1711,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x09\xeb\x83\xca\x11\x23\x2a\xab\x68\xe0\x9b\xa2\x2d\x5d\xb1\x6e\x00\x68\x98\xc6\xa0\x8f\x40\x5b\x8e\x8c\xa3\xb4\x30\x3c\xf6\x03"},
                                  /* fixfecLZYMfkGzwq6NJA11Yw6KYztzXiK9QcL3K78in */
     .name                      = "enforce_fixed_fec_set",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1 },
 
   { .index                     = offsetof(fd_features_t, increase_cpi_account_info_limit)>>3,
     .id                        = {"\xef\x31\xcf\xa8\x88\x28\x79\x55\xd9\xb1\x72\x19\xda\x33\x5d\x8e\x8b\x8f\x5e\x3f\x41\x49\xe5\x9a\x94\x65\xa6\x44\xef\x9c\xa2\xf6"},

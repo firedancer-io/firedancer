@@ -760,9 +760,7 @@ metric introduced.
     <counter name="ShredRejectedInitial" summary="The number of shreds that were rejected before any resources were allocated for the FEC set" />
     <counter name="ShredRejectedUnchained" summary="The number of shreds that were rejected because they're not chained merkle shreds" />
     <counter name="FecRejectedFatal" summary="The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" />
-    <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
-    <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
-    <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
+    <counter name="BadNonce" summary="The number of shreds we received that seemed to be repair responses but had an incorrect nonce" />
     <counter name="ShredRepairRcv" summary="The number of times we received a repair shred" />
     <counter name="ShredRepairRcvBytes" summary="The number bytes received from network packets with repair shreds. Bytes include network headers" />
     <counter name="ShredTurbineRcv" summary="The number of times we received a turbine shred" />

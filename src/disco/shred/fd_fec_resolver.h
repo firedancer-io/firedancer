@@ -1,6 +1,6 @@
 #ifndef HEADER_fd_src_disco_shred_fd_fec_resolver_h
 #define HEADER_fd_src_disco_shred_fd_fec_resolver_h
-#include "../../ballet/shred/fd_fec_set.h"
+#include "fd_fec_set.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 
@@ -20,12 +20,12 @@
    1. Once memory has been used for a specific FEC set, it will not be
       reused for a different FEC set until at least partial_depth other
       distinct FEC sets have been returned in the out_fec_set field of
-      fd_fec_resolver_add_shred or fd_fec_resolver_force_complete.
+      fd_fec_resolver_add_shred.
    2. Once a FEC set is complete (specified with COMPLETES), the
       associated memory will not be reused for a different FEC set until
       at least complete_depth other distinct FEC sets have been returned
-      from calls to fd_fec_resolver_add_shred or
-      fd_fec_resolver_force_complete that return SHRED_COMPLETES.
+      from calls to fd_fec_resolver_add_shred that return
+      SHRED_COMPLETES.
 
    This is implemented using a freelist with an insertion point in the
    middle (which can also be seen as two chained freelists):
@@ -83,7 +83,15 @@
    enough shreds to complete the FEC set, so we return A with COMPLETES.
    Thus, from the perspective of a consumer that only cares about
    completed FEC sets, we've returned the same piece of memory twice in
-   a row. */
+   a row.
+
+   While done_depth is independent of all these, it's worth including a
+   note about it here too.  Once we return with COMPLETES, we don't want
+   to process that FEC set again, which means we need some memory of FEC
+   sets that have been processed.  Obviously, this memory has to be
+   finite, so we retain the FEC sets with the highest (slot, FEC set
+   index).  In normal use, it would be rare to fill this data structure,
+   but in a DoS attack, this policy makes the attack more difficult. */
 
 /* Forward declare opaque handle.  It has a lot of types we don't
    necessarily want to bring into the includer */
@@ -91,7 +99,6 @@
 struct fd_fec_resolver;
 typedef struct fd_fec_resolver fd_fec_resolver_t;
 
-#define SHRED_CNT_NOT_SET      (UINT_MAX/2U)
 
 /* fd_fec_resolver_sign_fn: used to sign shreds that require a
    retransmitter signature. */
@@ -108,7 +115,7 @@ FD_PROTOTYPES_BEGIN
 
    fd_fec_resolver_alignment returns the required alignment of a region
    of memory for it to be used as a FEC resolver. */
-FD_FN_PURE ulong fd_fec_resolver_footprint( ulong depth, ulong partial_depth, ulong complete_depth, ulong done_depth );
+FD_FN_PURE  ulong fd_fec_resolver_footprint( ulong depth, ulong partial_depth, ulong complete_depth, ulong done_depth );
 FD_FN_CONST ulong fd_fec_resolver_align    ( void );
 
 /* fd_fec_resolver_new formats a region of memory as a FEC resolver.
@@ -118,20 +125,25 @@ FD_FN_CONST ulong fd_fec_resolver_align    ( void );
    argument to the function.  It is okay to pass NULL for signer, in
    which case, retransmission signatures will just be zeroed and
    sign_ctx will be ignored. depth, partial_depth, complete_depth, and
-   done_depth are as defined above and must be positive.  sets is a
-   pointer to the first of depth+partial_depth+complete_depth FEC sets
-   that this resolver will take ownership of.  The FEC resolver retains
-   a write interest in these FEC sets and the shreds they point to until
-   the resolver is deleted.  These FEC sets and the memory for the
-   shreds they point to are the only values that will be returned in the
-   output parameters of _{add_shred, force_completes}.  The FEC resolver
-   will reject any shreds with a shred version that does not match the
-   value provided for expected_shred_version.  Shred versions are always
-   non-zero, so expected_shred_version must be non-zero.  The FEC
-   resolver will also reject any shred that seems to be part of a block
-   containing more than max_shred_idx data or parity shreds.  Since
-   shred_idx is a uint, it doesn't really make sense to have
+   done_depth are as defined above and must be positive.  The sum of
+   depth, partial_depth, and complete_depth must be less than UINT_MAX.
+   sets is a pointer to the first of depth+partial_depth+complete_depth
+   FEC sets that this resolver will take ownership of.  The FEC resolver
+   retains a write interest in these FEC sets and the shreds they point
+   to until the resolver is deleted.  These FEC sets and the memory for
+   the shreds they point to are the only values that will be returned in
+   the out_shred and out_fec_set output parameters of add_shred.  The
+   FEC resolver will also reject any shred that seems to be part of a
+   block containing more than max_shred_idx data or parity shreds.
+   Since shred_idx is a uint, it doesn't really make sense to have
    max_shred_idx > UINT_MAX, and max_shred_idx==0 rejects all shreds.
+   seed is an arbitrary ulong used to seed various data structures.  It
+   should be set to a validator independent value.
+
+   On success, the FEC resolver will be initialized with an expected
+   shred version of 0, which causes it to reject all shreds, and a
+   slot_old of slot 0, which causes it to ignore no shreds.
+
    Returns shmem on success and NULL on failure (logs details). */
 void *
 fd_fec_resolver_new( void                    * shmem,
@@ -142,36 +154,61 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     complete_depth,
                      ulong                     done_depth,
                      fd_fec_set_t            * sets,
-                     ulong                     max_shred_idx );
+                     ulong                     max_shred_idx,
+                     ulong                     seed );
 
 fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
 
+/* fd_fec_resolver_set_shred_version updates the expected shred version
+   to the value provided in expected_shred_version.  resolver must be a
+   valid local join.  add_shred will reject any future shreds with a
+   shred version other than the new expected shred version.  Setting
+   expected_shred_version to 0 causes the FEC resolver to reject all
+   future shreds.  This function will not immediately trigger the FEC
+   resolver to discard any previously accepted shreds,  but changing the
+   expected shred version will make it impossible to complete any FEC
+   sets that are in progress prior to the call. */
 void
 fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
                                    ushort              expected_shred_version );
 
+/* fd_fec_resolver_advance_slot_old advances slot_old, discarding any
+   in progress FEC sets with a slot strictly less than slot_old.
+   Additionally, causes the FEC resolver to ignore any future shreds
+   with a slot older than the new value of slot_old.  slot_old increases
+   monotonically, which means that a call to advance_slot_old with a
+   lower value of slot_old is a no-op. */
+void
+fd_fec_resolver_advance_slot_old( fd_fec_resolver_t * resolver,
+                                  ulong               slot_old );
 
+
+#define FD_FEC_RESOLVER_SHRED_EQUIVOC   (-3)
 #define FD_FEC_RESOLVER_SHRED_REJECTED  (-2)
 #define FD_FEC_RESOLVER_SHRED_IGNORED   (-1)
 #define FD_FEC_RESOLVER_SHRED_OKAY      ( 0)
 #define FD_FEC_RESOLVER_SHRED_COMPLETES ( 1)
 
 /* Return values + RETVAL_OFF are in [0, RETVAL_CNT) */
-#define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT 4
-#define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF 2
+#define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT 5
+#define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF 3
 
 struct fd_fec_resolver_spilled {
-  ulong slot;
-  uint  fec_set_idx;
-  uint  max_dshred_idx; /* position in FEC set, in [0, FD_REEDSOL_DATA_SHREDS_MAX) */
+  ulong            slot;
+  uint             fec_set_idx;
+  fd_bmtree_node_t merkle_root[1];
 };
 typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
 
 /* fd_fec_resolver_add_shred notifies the FEC resolver of a newly
    received shred.  The FEC resolver validates the shred and copies it
    into its own storage.  resolver is a local join of an FEC resolver.
-   shred is a pointer to the new shred that should be added.  shred_sz
-   is the size of the shred in bytes.
+   shred is a pointer to the new shred that should be added.  The shred
+   must have passed the shred parsing validation.  shred_sz is the size
+   of the shred in bytes.  If is_repair is non-zero, some validity
+   checks will be omitted, as detailed below.  leader_pubkey must be a
+   pointer to the first byte of the public identity key of the validator
+   that was leader during slot shred->slot.
 
    On success ie. SHRED_{OKAY,COMPLETES}, a pointer to the fd_fec_set_t
    structure representing the FEC set of which the shred is a part will
@@ -185,124 +222,56 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    pointer is NULL, the argument will be ignored and merkle root will
    not be written.
 
-   If the shred fails validation for any reason, returns SHRED_REJECTED
-   and does not write to out_{fec_set,shred,merkle_root}.  If the shred
-   is a duplicate of a shred that has already been received (ie. a shred
-   with the same index but a different payload), returns SHRED_IGNORED
-   does not write to out_{fec_set,shred,merkle_root}.
+   If the shred's Merkle root differs from the Merkle root of a
+   previously received shred with the same values for slot and FEC
+   index, and is_repair is zero, the shred may be rejected with return
+   value SHRED_EQUIVOC.  The FEC resolver has a limited memory, which is
+   why equivocation detection cannot be guaranteed.  Note that these
+   checks are bypassed if is_repair is non-zero.
+
+   If the shred has the same slot, shred index, and signature as a shred
+   that has already been successfully processed by the FEC resolver, or
+   if the shred is for a slot older than slot_old, returns SHRED_IGNORED
+   and does not write to out_{fec_set,shred,merkle_root}.  Note that
+   "successfully processed by the FEC resolver" above includes shreds
+   that are reconstructed when returning SHRED_COMPLETES, so for
+   example, after returning SHRED_COMPLETES for a FEC set, adding any
+   shred for that FEC set will return SHRED_IGNORED, even if that
+   particular shred hadn't been received.
+
+   If the shred fails validation for any other reason, returns
+   SHRED_REJECTED and does not write to out_{fec_set,shred,merkle_root}.
 
    Note that only light validation is performed on a duplicate shred, so
    a shred that is actually invalid but looks like a duplicate of a
    previously received valid shred may be considered SHRED_IGNORED
    instead of SHRED_REJECTED.
 
-   This function returns SHRED_COMPLETES when the received shred is the
-   last one and completes the FEC set.  In this case, the function
-   populates any missing shreds in the FEC set stored in out_fec_set.
+   This function returns SHRED_COMPLETES when the received shred
+   completes the FEC set.  In this case, the function populates any
+   missing shreds in the FEC set stored in out_fec_set.
 
-   Regardless of success/failure, if an incomplete FEC set was evicted
-   from the current map during this add_shred call, the metadata of the
-   evicted FEC set will be written to out_spilled_fec_set.  The FEC set
-   metadata includes slot, fec_set_idx, and also highest data shred
-   index received thus far in this FEC set, in the range
-   [0, FD_REEDSOL_DATA_SHREDS_MAX).  If no data shreds have been
-   received yet (i.e., only parity shreds have been received),
-   max_dshred_idx will be FD_SHRED_BLK_MAX.  If no FEC set was evicted,
-   out_spilled_fec_set will remain unmodified.  Similar to
-   out_merkle_root, the caller owns and provides the memory for
-   out_spilled_fec_set.  If the out_spilled_fec_set pointer is NULL, the
-   argument will be ignored and the evicted FEC set metadata will not be
-   written. */
+   Regardless of success/failure, if an in progress FEC set was evicted
+   from the current map during this add_shred call, and the
+   out_spilled_fec_set pointer is not NULL, the metadata of the evicted
+   FEC set will be written to out_spilled_fec_set.  The FEC set metadata
+   consists of the slot, FEC set index, and the Merkle root of the
+   evicted FEC set.  Similar to out_merkle_root, the caller owns and
+   provides the memory for out_spilled_fec_set.  If
+   out_spilled_fec_set is NULL, the evicted FEC set metadata will not be
+   written even if an in progress FEC set was evicted. */
 
 int
 fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_shred_t const          * shred,
                            ulong                       shred_sz,
+                           int                         is_repair,
                            uchar const               * leader_pubkey,
                            fd_fec_set_t const      * * out_fec_set,
                            fd_shred_t const        * * out_shred,
                            fd_bmtree_node_t          * out_merkle_root,
-                           fd_fec_resolver_spilled_t * out_spilled_fec_set,
-                           int                         enforce_fixed_fec );
+                           fd_fec_resolver_spilled_t * out_spilled_fec_set );
 
-
-/* fd_fec_resolver_done_contains returns 1 if the FEC with signature
-   lives in the done_map, and thus means it has been completed. Returns
-   0 otherwise. */
-int
-fd_fec_resolver_done_contains( fd_fec_resolver_t      * resolver,
-                               fd_ed25519_sig_t const * signature );
-
-/* fd_fec_resolver_shred_query returns the data shred in the FEC set
-   with signature at shred_idx. The return shred is copied to the region
-   of memory pointed to by out_shred, and will copy only up to
-   FD_SHRED_MIN_SZ bytes.  Returns FD_FEC_RESOLVER_SHRED_REJECTED if the
-   FEC set does not live in the curr_map, and in this case, the user
-   should ignore the out_shred. If the FEC set with signature lives in
-   the curr_map (i.e., is an in-progress FEC set), then the data shred
-   at shred_idx is copied to out_shred and FD_FEC_RESOLVER_SHRED_OKAY is
-   returned. Note: no validation on shred idx bounds is performed, so it
-   is up to the user to ensure that provided shred_idx is between [0,
-   data_cnt).  No validation that the shred at shred_idx has been
-   received is performed either.  If either of these are not satisfied,
-   upon return the value of out_shred[i] for i in [0, FD_SHRED_MIN_SZ)
-   is undefined.
-
-   The use case for this function is solely for the force completion
-   API, which requires the last shred in a FEC set. This function should
-   be removed at the time when force completion is removed. */
-int
-fd_fec_resolver_shred_query( fd_fec_resolver_t      * resolver,
-                             fd_ed25519_sig_t const * signature,
-                             uint                     shred_idx,
-                             uchar                  * out_shred );
-
-/* fd_fec_resolver_force_complete forces completion of a partial FEC set
-   in the FEC resolver.
-
-   API is similar to add_shred.  last_shred is what the caller has
-   determined to be the last shred in the FEC set.  out_fec_set is set
-   to a pointer to the complete FEC set on SHRED_COMPLETES.  Similar to
-   add_shred, see the long explanation at the top of this file for
-   details on the lifetime of out_fec_set.  out_merkle_root if non-NULL
-   will contain a copy of the Merkle root of the FEC set on success.
-
-   Returns SHRED_COMPLETES when last_shred validates successfully with
-   the in-progress FEC set, SHRED_IGNORED if the FEC set containing
-   last_shred has already been completed (done) and SHRED_REJECTED when
-   the last_shred provided is obviously invalid or the in-progress FEC
-   does not validate.
-
-   This function is a temporary measure to address a current limitation
-   in the Repair protocol where it does not support requesting coding
-   shreds.  FEC resolver requires at least one coding shred to complete,
-   so this function is intended to be called when the caller knows FEC
-   set resolver has already received all the data shreds, but hasn't
-   gotten any coding shreds, but the caller has no way to recover the
-   coding shreds and make forward progress using the data shreds it does
-   already have available.
-
-   Note that forcing completion greatly reduces the amount of validation
-   performed on the FEC set.  It only checks that the data shreds are
-   consistent with one another.  If validation of the FEC set fails when
-   completing (other than issues with the last shred that are obviously
-   wrong eg. shred_idx > FD_REEDSOL_DATA_SHREDS_MAX), then the function,
-   similar to add_shred, will dump the in-progress FEC and add it to the
-   free list.  Caller should account for this ensure they only
-   force_complete when they are certain last shred is the in fact the
-   last shred, or the consequence is the entire FEC might be incorrectly
-   discarded too early.
-
-   The last_shred is used to derive the data_shred_cnt which is
-   otherwise only available after receiving a coding shred.  It is an
-   error to force completion of a FEC set that has already received at
-   least one parity shred. */
-
-int
-fd_fec_resolver_force_complete( fd_fec_resolver_t  *  resolver,
-                                fd_shred_t const   *  last_shred,
-                                fd_fec_set_t const ** out_fec_set,
-                                fd_bmtree_node_t   *  out_merkle_root );
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );
