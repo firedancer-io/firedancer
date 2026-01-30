@@ -59,8 +59,8 @@ static fd_http_static_file_t * STATIC_FILES;
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
-#define FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN       8192
-#define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 8192
+#define FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN       65536
+#define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 65536
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
 static fd_http_server_params_t
