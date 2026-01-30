@@ -2582,7 +2582,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_features_t * features = fd_bank_features_modify( bank );
-  fd_features_enable_cleaned_up( features, &FD_RUNTIME_CLUSTER_VERSION );
+  fd_features_enable_cleaned_up( features );
 
   char const * one_off_features[ 16UL ];
   FD_TEST( tile->replay.enable_features_cnt<=sizeof(one_off_features)/sizeof(one_off_features[0]) );

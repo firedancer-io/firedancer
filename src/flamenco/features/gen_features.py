@@ -86,10 +86,9 @@ fd_feature_id_t const ids[] = {{""",
             end="",
         )
         if x.get("cleaned_up"):
-            cleaned_up_values = ', '.join(map(str, x.get('cleaned_up')))
-            print(f",\n    .cleaned_up                = {{{cleaned_up_values}}}", file=body, end="")
+            print(f",\n    .cleaned_up                = 1", file=body, end="")
         else:
-            print(f",\n    .cleaned_up                = {{UINT_MAX, UINT_MAX, UINT_MAX}}", file=body, end="")
+            print(f",\n    .cleaned_up                = 0", file=body, end="")
         if x.get("reverted"):
             print(f",\n    .reverted                  = {x.get('reverted')}", file=body, end="")
         if x.get("hardcode_for_fuzzing"):

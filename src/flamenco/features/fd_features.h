@@ -68,7 +68,7 @@ struct fd_feature_id {
   ulong        index;                /* index of feature in fd_features_t */
   fd_pubkey_t  id;                   /* pubkey of feature */
   char const * name;                 /* feature name cstr */
-  uint         cleaned_up[3];        /* cleaned_up cluster version for feature */
+  uchar        cleaned_up;           /* 1 if feature is cleaned up in firedancer, 0 otherwise */
   uchar        reverted;             /* if the feature was reverted */
   uchar        hardcode_for_fuzzing; /* if the should be treated as hardcoded in the firedancer fuzzing harness */
 };
@@ -100,7 +100,7 @@ fd_features_enable_all( fd_features_t * );
    of the Firedancer software and can't be disabled. */
 
 void
-fd_features_enable_cleaned_up( fd_features_t *, fd_cluster_version_t const * );
+fd_features_enable_cleaned_up( fd_features_t * );
 
 /* fd_features_enable_one_offs enables all manually passed in features. */
 
