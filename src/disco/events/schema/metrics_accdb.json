@@ -1,0 +1,41 @@
+{
+    "name": "metrics_accdb",
+    "id": 1039,
+    "description": "Metrics snapshot for the accdb tile",
+    "fields": {
+        "meta":            { "type": "ref:MetricMeta" },
+        "tile":            { "type": "ref:MetricTile" },
+        "bstream_seq":     {
+            "type": "Flatten",
+            "description": "Current bstream sequence number",
+            "fields": {
+                "bstream_seq_ancient": { "type": "UInt64", "description": "Blocks between ancient and past have been written and forgotten (no read, no write)" },
+                "bstream_seq_past":    { "type": "UInt64", "description": "Blocks between past and present have been written (read only)" },
+                "bstream_seq_present": { "type": "UInt64", "description": "Blocks between present and future are being written (write only)" },
+                "bstream_seq_future":  { "type": "UInt64", "description": "Blocks between future and ancient have not been written (no read, no write)" }
+            }
+        },
+        "request_batches": { "type": "UInt64", "description": "Number of request batches processed" },
+        "requests":        {
+            "type": "Flatten",
+            "description": "Number of requests processed",
+            "fields": {
+                "requests_acquire": { "type": "UInt64", "description": "Acquire record" },
+                "requests_release": { "type": "UInt64", "description": "Release record" },
+                "requests_erase":   { "type": "UInt64", "description": "Erase record" }
+            }
+        },
+        "blocks":          {
+            "type": "Flatten",
+            "description": "Number of blocks written to bstream",
+            "fields": {
+                "blocks_pair": { "type": "UInt64", "description": "Record" },
+                "blocks_dead": { "type": "UInt64", "description": "Record deletion" },
+                "blocks_part": { "type": "UInt64", "description": "Partition/divider" }
+            }
+        },
+        "garbage_bytes":   { "type": "UInt64", "description": "" },
+        "cum_gc_bytes":    { "type": "UInt64", "description": "Total number of record bytes that were garbage collected" },
+        "cache_hits":      { "type": "UInt64", "description": "Total number of cache hits" }
+    }
+}
