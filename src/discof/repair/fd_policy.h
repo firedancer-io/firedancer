@@ -19,6 +19,7 @@
 #include "../forest/fd_forest.h"
 #include "../../util/net/fd_net_headers.h"
 #include "fd_repair.h"
+#include "../../disco/shred/fd_rnonce_ss.h"
 
 /* FD_POLICY_PEER_MAX specifies a hard bound for how many peers Policy
    needs to track.  4096 is derived from the BLS signature max, which
@@ -180,8 +181,9 @@ struct fd_policy {
   long              tsmax; /* maximum time for an iteration before resetting the DFS to root */
   long              tsref; /* reference timestamp for resetting DFS */
 
+  fd_rnonce_ss_t    rnonce_ss[1];
+
   ulong turbine_slot0;
-  uint nonce;
 };
 typedef struct fd_policy fd_policy_t;
 
@@ -222,10 +224,12 @@ fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
 
 /* fd_policy_new formats an unused memory region for use as a policy.
    mem is a non-NULL pointer to this region in the local address space
-   with the required footprint and alignment. */
+   with the required footprint and alignment.  rnonce_ss is copied
+   locally, so the read interest is not retained after this function
+   returns. */
 
 void *
-fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed );
+fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed, fd_rnonce_ss_t const * rnonce_ss );
 
 /* fd_policy_join joins the caller to the policy.  policy points to the
    first byte of the memory region backing the policy in the caller's
