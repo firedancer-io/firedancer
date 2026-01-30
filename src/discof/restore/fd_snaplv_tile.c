@@ -2,10 +2,12 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 #include "generated/fd_snaplv_tile_seccomp.h"
 
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_vinyl_admin.h"
 
 #define NAME "snaplv"
 
@@ -32,6 +34,7 @@ struct fd_snaplv_tile {
   int                 full;
 
   ulong               num_hash_tiles;
+  ulong               num_write_tiles;
 
   uchar               in_kind[MAX_IN_LINKS];
   ulong               adder_in_offset;
@@ -39,15 +42,14 @@ struct fd_snaplv_tile {
   out_link_t          out_link[OUT_LINK_CNT];
 
   struct {
-    ulong const *     bstream_seq;
     ulong             bstream_seq_last;
-    ulong             bstream_seq_cnt;
     struct {
       int                     active[FD_SNAPLV_DUP_PENDING_CNT_MAX];
       ulong                   seq   [FD_SNAPLV_DUP_PENDING_CNT_MAX];
       fd_vinyl_bstream_phdr_t phdr  [FD_SNAPLV_DUP_PENDING_CNT_MAX];
     } pending;
     ulong             pending_cnt;
+    fd_vinyl_admin_t *  admin;
   } vinyl;
 
   struct {
@@ -144,8 +146,17 @@ handle_vinyl_lthash_request( fd_snaplv_t *             ctx,
 static inline void
 handle_vinyl_lthash_seq_sync( fd_snaplv_t * ctx ) {
   ulong bstream_seq_min = ULONG_MAX;
-  for( ulong i=0; i<ctx->vinyl.bstream_seq_cnt; i++ ){
-    ulong bstream_seq = fd_mcache_seq_query( ctx->vinyl.bstream_seq + i );
+  for( ulong i=0; i<ctx->num_write_tiles; i++ ) {
+    /* There is a way to avoid a lock here: every wr_seq[i] is a ulong,
+       each assigned to a unique write tile, and it works the same way
+       as a stem's fseq or an mcache's seq.  Therefore, from the point
+       of view snaplv, it can directly read them at any time.
+       Only snapwm is allowed to overwrite the wr_seq array during the
+       initialization of a full/incr snapshot, but it does so after
+       synchronizing with the write tiles (making sure that they have
+       already completed all pending writes) and before instructing
+       snaplv to start processing the snapshot. */
+    ulong bstream_seq = fd_vinyl_admin_ulong_query( &ctx->vinyl.admin->wr_seq[ i ] );
     bstream_seq_min = fd_ulong_min( bstream_seq_min, bstream_seq );
   }
   ctx->vinyl.bstream_seq_last = bstream_seq_min;
@@ -473,7 +484,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong expected_in_cnt = 1UL + fd_topo_tile_name_cnt( topo, "snaplh" );
   if( FD_UNLIKELY( tile->in_cnt!=expected_in_cnt ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected %lu",  tile->in_cnt, expected_in_cnt ));
-  if( FD_UNLIKELY( tile->out_cnt!=3UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 3", tile->out_cnt ));
+  if( FD_UNLIKELY( tile->out_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2", tile->out_cnt ));
 
   ulong adder_idx = 0UL;
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
@@ -502,9 +513,7 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  ctx->vinyl.bstream_seq      = NULL; /* set to NULL by default, before checking output links. */
   ctx->vinyl.bstream_seq_last = 0UL;
-  ctx->vinyl.bstream_seq_cnt  = fd_topo_tile_name_cnt( topo, "snapwr" );
 
   for( uint i=0U; i<(tile->out_cnt); i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->out_link_id[ i ] ];
@@ -525,22 +534,27 @@ unprivileged_init( fd_topo_t *      topo,
       o_link->wmark  = fd_dcache_compact_wmark( o_link->mem, link->dcache, link->mtu );
       o_link->chunk  = o_link->chunk0;
 
-    } else if( 0==strcmp( link->name, "snaplv_wr" ) ) {
-      out_link_t * o_link = &ctx->out_link[ OUT_LINK_WR ];
-      o_link->idx    = i;
-      o_link->mem    = NULL;
-      o_link->chunk0 = 0UL;
-      o_link->wmark  = 0UL;
-      o_link->chunk  = 0UL;
-      ctx->vinyl.bstream_seq = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, link->mcache_obj_id ) ) );
     } else {
       FD_LOG_ERR(( "unexpected output link %s", link->name ));
     }
   }
 
-  FD_TEST( !!ctx->vinyl.bstream_seq );
   memset( ctx->vinyl.pending.active, 0, FD_SNAPLV_DUP_PENDING_CNT_MAX*sizeof(int) );
   ctx->vinyl.pending_cnt = 0;
+
+  ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
+  FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
+  fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
+  FD_TEST( vinyl_admin );
+  ctx->vinyl.admin = vinyl_admin;
+  for(;;) {
+    /* This query can be done without the need of an rwlock. */
+    ulong vinyl_admin_status = fd_vinyl_admin_ulong_query( &vinyl_admin->status );
+    if( FD_LIKELY( vinyl_admin_status!=FD_VINYL_ADMIN_STATUS_INIT_PENDING &&
+                   vinyl_admin_status!=FD_VINYL_ADMIN_STATUS_ERROR ) ) break;
+    fd_log_sleep( (long)1e6 /*1ms*/ );
+    FD_SPIN_PAUSE();
+  }
 
   ctx->metrics.full.duplicate_accounts_hashed        = 0UL;
   ctx->metrics.incremental.duplicate_accounts_hashed = 0UL;
@@ -549,6 +563,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->full                         = 1;
 
   ctx->num_hash_tiles               = fd_topo_tile_name_cnt( topo, "snaplh" );
+  ctx->num_write_tiles              = fd_topo_tile_name_cnt( topo, "snapwr" );
+  FD_TEST( ctx->num_write_tiles<=FD_VINYL_ADMIN_WR_SEQ_CNT_MAX );
 
   ctx->hash_accum.received_lthashes = 0UL;
   ctx->hash_accum.awaiting_results  = 0;

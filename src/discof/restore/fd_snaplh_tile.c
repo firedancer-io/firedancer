@@ -2,6 +2,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/lthash/fd_lthash_adder.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
@@ -10,6 +11,7 @@
 #include "generated/fd_snaplh_tile_seccomp.h"
 
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_vinyl_admin.h"
 
 #include <errno.h>
 #include <sys/stat.h> /* fstat */
@@ -94,6 +96,7 @@ struct fd_snaplh_tile {
     ulong             pending_rd_req_cnt;
 
     fd_vinyl_io_t *   io;
+    fd_vinyl_admin_t * admin;
   } vinyl;
 
   struct {
@@ -846,6 +849,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->lthash_req_seen         = 0UL;
   fd_lthash_zero( &ctx->running_lthash );
   fd_lthash_zero( &ctx->running_lthash_sub );
+
+  ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
+  FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
+  fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
+  FD_TEST( vinyl_admin );
+  ctx->vinyl.admin = vinyl_admin;
+  for(;;) {
+    /* This query can be done without the need of an rwlock. */
+    ulong vinyl_admin_status = fd_vinyl_admin_ulong_query( &vinyl_admin->status );
+    if( FD_LIKELY( vinyl_admin_status!=FD_VINYL_ADMIN_STATUS_INIT_PENDING &&
+                   vinyl_admin_status!=FD_VINYL_ADMIN_STATUS_ERROR ) ) break;
+    fd_log_sleep( (long)1e6 /*1ms*/ );
+    FD_SPIN_PAUSE();
+  }
 }
 
 #define STEM_BURST 1UL

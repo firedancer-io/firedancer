@@ -170,6 +170,14 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       }
       fd_snapwm_vinyl_wd_init( ctx );
 
+      /* There is a way to avoid a lock here: every other writer, in
+         particular the write tiles that update wr_seq, have already
+         finished processing all standing writes and are idle.  And
+         even though any read tile may see partial updates as they
+         occur, this all happens while they are idle waiting for the
+         init full/incr command. */
+      if( !!ctx->vinyl.admin ) fd_snapwm_vinyl_update_admin( ctx, 0/*do_rwlock*/ );
+
       /* Rewind metric counters (no-op unless recovering from a fail) */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded   = 0;

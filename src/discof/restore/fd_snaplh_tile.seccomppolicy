@@ -30,3 +30,9 @@ io_uring_enter: (eq (arg 0) ring_fd)
 
 # io: bd pread (when io_uring is unavailable or disabled).
 pread64: (eq (arg 0) bstream_fd)
+lseek: (eq (arg 0) bstream_fd)
+
+# fd_log_sleep: it requires a combination of these three syscalls.
+sched_yield:
+clock_nanosleep: (eq (arg 0) 0)
+nanosleep:

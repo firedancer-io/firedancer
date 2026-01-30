@@ -47,6 +47,8 @@ endif
 $(call add-objs,utils/fd_ssarchive,fd_discof)
 $(call add-objs,utils/fd_sspeer_selector,fd_discof)
 $(call add-objs,utils/fd_vinyl_io_wd,fd_discof)
+$(call add-objs,utils/fd_vinyl_admin,fd_discof)
+$(call make-unit-test,test_vinyl_admin,utils/test_vinyl_admin,fd_discof fd_flamenco fd_ballet fd_util)
 
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ZSTD

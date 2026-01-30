@@ -52,8 +52,10 @@
 
 #define _GNU_SOURCE /* O_DIRECT */
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_vinyl_admin.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 #include "generated/fd_snapwr_tile_seccomp.h"
 
@@ -72,7 +74,10 @@ struct fd_snapwr {
   void const * base;
   ulong *      seq_sync;  /* fseq->seq[0] */
   uint         idle_cnt;
+
+  fd_vinyl_admin_t * vinyl_admin;
   ulong *      bstream_seq;
+  int          lthash_disabled;
 
   ulong        req_seen;
   ulong        tile_cnt;
@@ -142,11 +147,22 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( FD_LIKELY( 0==strcmp( in_link->name, "snaplv_wr" ) ) ) {
       if( FD_UNLIKELY( !tile->in_link_reliable[ i ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link %lu must be reliable", i ));
       snapwr->bstream_seq = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, in_link->mcache_obj_id ) ) ) + tile->kind_id;
-      fd_mcache_seq_update( snapwr->bstream_seq, 0UL );
 
     } else {
       FD_LOG_ERR(( "tile `" NAME "` has unexpected in link name `%s`", in_link->name ));
     }
+  }
+
+  snapwr->vinyl_admin     = NULL;
+  snapwr->bstream_seq     = NULL;
+  snapwr->lthash_disabled = !!tile->snapwr.lthash_disabled;
+  if( !snapwr->lthash_disabled ) {
+    ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
+    FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
+    fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
+    FD_TEST( vinyl_admin );
+    snapwr->vinyl_admin = vinyl_admin;
+    snapwr->bstream_seq = &snapwr->vinyl_admin->wr_seq[ tile->kind_id ];
   }
 
   snapwr->state = FD_SNAPSHOT_STATE_IDLE;
@@ -262,7 +278,16 @@ handle_data_frag( fd_snapwr_t * ctx,
   ctx->req_seen++;
 
   if( !!ctx->bstream_seq ) {
-    fd_mcache_seq_update( ctx->bstream_seq, (dev_off+src_sz)-ctx->dev_base );
+    /* There is a way to avoid a lock here: every write tile has its
+       own unique location in vinyl_admin's wr_seq array, based on its
+       tile index (kind_id).  The value is a ulong, and works the same
+       way as a stem's fseq or an mcache's seq.  The only other tile
+       that can write to that location is snapwm during init full/incr
+       snapshot, but snapwm gurantees that all write tiles have already
+       finished processing all pending bstream writes (and updated the
+       bstream_seq) by the time the wr_seq array is overwritten. */
+    ulong new_seq = (dev_off+src_sz)-ctx->dev_base;
+    fd_vinyl_admin_ulong_update( ctx->bstream_seq, new_seq );
   }
 
   ctx->metrics.last_off = dev_off+src_sz;
