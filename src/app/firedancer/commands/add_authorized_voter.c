@@ -8,13 +8,18 @@
 
 #include <strings.h>
 #include <unistd.h>
-#include <sys/resource.h>
+
 /* The process of adding an authorized voter to the validator must be
    done carefully in order to prevent vote transactions being generated
    with an authorized voter that the sign tile is not yet aware of.
    The authorized voter must be added to the sign tile before it is
    added to the tower tile.  All transitions must be linear and in
-   forward order.  The states below describe the state transitions. */
+   forward order.  The states below describe the state transitions.
+
+   The caller should expect the command to fail if:
+   1. The authorized voter keypair being passed in is already part of
+      the authorized voter set.
+   2. There are too many authorized voters being passed in. */
 
 /* State 0: UNLOCKED.
      The validator is not currently in the process of switching keys. */
@@ -48,11 +53,14 @@
 
 /* State 5: TOWER_TILE_UPDATED
      The Tower tile has confirmed that it has updated its internal
-     mapping for the set of supported authorized voters. Now the
-     pipeline is complete and the next state is UNLOCKED.  The validator
-     can now produce votes with the new authorized voter. */
+     mapping for the set of supported authorized voters.  */
 #define FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED   (5UL)
 
+/* State 6: UNLOCK_REQUESTED
+     The client now requests that the Tower tile unpause the pipeline
+     so the validator can start producing votes with the new authorized
+     voter. */
+#define FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED     (6UL)
 
 void
 add_authorized_voter_cmd_args( int *    pargc,
@@ -124,6 +132,11 @@ poll_keyswitch( fd_topo_t * topo,
         if( FD_UNLIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
           all_updated = 0;
           break;
+        } else if( FD_UNLIKELY( tile_ks->state==FD_KEYSWITCH_STATE_FAILED ) ) {
+          all_updated = 0;
+          *state      = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED;
+          *has_error  = 1;
+          break;
         } else {
           explicit_bzero( tile_ks->bytes, 64UL );
         }
@@ -145,21 +158,30 @@ poll_keyswitch( fd_topo_t * topo,
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED: {
+      /* There is a guarantee that the tower tile will be in sync with
+         the set of authorized voters in the sign tile.  At this point
+         that means that the command should succeed because invariants
+         such as not having duplicate authorized voter keys and too many
+         authorized voters are upheld.  If this doesn't hold true, the
+         Tower tile will detect corruption and gracefully crash the
+         validator. */
       fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
         *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED;
         FD_LOG_INFO(( "Tower tile successfully updated. Requesting to unlock authorized voter keys..." ));
-      } else if(
-        FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_FAILED ) ) {
-        *has_error = 1;
-        break;
       } else {
         FD_SPIN_PAUSE();
       }
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED: {
+      fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
+      tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
+      *state = FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED;
+      FD_LOG_INFO(( "Requesting tower tile to unlock authorized voter keys..." ));
+      break;
+    }
+    case FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED: {
       fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_UNLOCKED ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;

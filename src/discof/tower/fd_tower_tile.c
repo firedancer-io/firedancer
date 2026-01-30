@@ -999,7 +999,13 @@ privileged_init( fd_topo_t *      topo,
 
   ctx->auth_key_set = fd_auth_key_set_join( fd_auth_key_set_new( av_map ) );
   for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
-    fd_auth_key_t * auth_key = fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) ) );
+    fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) );
+    if( FD_UNLIKELY( fd_auth_key_set_query( ctx->auth_key_set, pubkey, NULL ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( pubkey.uc, pubkey_b58 );
+      FD_LOG_CRIT(( "authorized voter key duplicate %s", pubkey_b58 ));
+    }
+
+    fd_auth_key_t * auth_key = fd_auth_key_set_insert( ctx->auth_key_set, pubkey );
     auth_key->idx = i;
   }
   ctx->auth_key_set_cnt = tile->tower.authorized_voter_paths_cnt;
@@ -1158,8 +1164,12 @@ during_housekeeping( ctx_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    if( FD_UNLIKELY( ctx->auth_key_set_cnt==AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "too many authorized voters: count not synced up with sign tile" ));
-    fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( ctx->av_keyswitch->bytes ) );
+    fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( ctx->av_keyswitch->bytes );
+    if( FD_UNLIKELY( fd_auth_key_set_query( ctx->auth_key_set, pubkey, NULL ) ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key" ));
+    if( FD_UNLIKELY( ctx->auth_key_set_cnt==AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, count not synced up with sign tile" ));
+
+    fd_auth_key_t * auth_key = fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( ctx->av_keyswitch->bytes ) );
+    auth_key->idx = ctx->auth_key_set_cnt;
     ctx->auth_key_set_cnt++;
     fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
