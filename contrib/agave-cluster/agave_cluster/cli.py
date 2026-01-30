@@ -97,6 +97,34 @@ def start_cluster(ctx, config, bootstrap_validator_name):
         click.echo(f"Configuration: {config}")
         click.echo(f"Cluster Path: {cluster_path}")
 
+    # Check if there are any existing validator processes running and stop them
+    info_path = os.path.join(cluster_path, 'cluster-info.txt')
+    if os.path.exists(info_path):
+        click.echo("Stopping any existing cluster processes...")
+        import signal
+        pids_to_stop = []
+        with open(info_path, 'r') as f:
+            for line in f:
+                if "_pid=" in line:
+                    pid_value = line.split('=')[1].strip()
+                    if pid_value != 'NA':
+                        try:
+                            pid = int(pid_value)
+                            pids_to_stop.append(pid)
+                        except ValueError:
+                            pass
+
+        for pid in pids_to_stop:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                if verbose:
+                    click.echo(f"Stopped process {pid}")
+            except (ProcessLookupError, PermissionError):
+                pass
+
+        if pids_to_stop:
+            time.sleep(1)  # Give processes time to shut down
+
     # Implementation will be added here
     click.echo("🚀 Starting Agave cluster...")
 
@@ -148,8 +176,9 @@ def start_cluster(ctx, config, bootstrap_validator_name):
         return genesis_hash, shred_version
 
     firedancer_repo_path = get_env_var('FIREDANCER_REPO_PATH')
+    stake_program_path = os.path.join(str(firedancer_repo_path), "contrib/ledger-gen/bpf_migrated_programs/stake_elf.so")
 
-    genesis_output = subprocess.run([solana_genesis, "--cluster-type", "development", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "18000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "128", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", f"{firedancer_repo_path}/contrib/ledger-gen/bpf_migrated_programs/stake_elf.so", "11111111111111111111111111111111", "--upgradeable-program", "AddressLookupTab1e1111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", f"{firedancer_repo_path}/contrib/ledger-gen/bpf_migrated_programs/alut_elf.so", "11111111111111111111111111111111", "--upgradeable-program", "Config1111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", f"{firedancer_repo_path}/contrib/ledger-gen/bpf_migrated_programs/config_elf.so", "11111111111111111111111111111111"], cwd=cluster_path, capture_output=True, text=True)
+    genesis_output = subprocess.run([solana_genesis, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "18000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "128", "--enable-warmup-epochs", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", stake_program_path, "11111111111111111111111111111111" ], cwd=cluster_path, capture_output=True, text=True)
     genesis_hash, shred_version = parse_genesis_output(genesis_output.stdout)
 
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
@@ -159,7 +188,7 @@ def start_cluster(ctx, config, bootstrap_validator_name):
 
     agave_validator = solana_binary('agave-validator')
 
-    validator_process = subprocess.Popen([agave_validator, "--rpc-bind-address", f"{ip()}", "--allow-private-addr", "--enable-rpc-transaction-history", "--identity", id_key, "--ledger", node_path, "--limit-ledger-size", "100000000", "--dynamic-port-range", "8000-8099", "--no-snapshot-fetch", "--no-poh-speed-test", "--no-os-network-limits-test", "--vote-account", vote_key, "--expected-shred-version", shred_version, "--expected-genesis-hash", genesis_hash, "--no-wait-for-vote-to-start-leader", "--no-incremental-snapshots", "--snapshot-interval-slots", "50", "--maximum-full-snapshots-to-retain", "10", "--rpc-port", "8899", "--gossip-port", "8010", "--full-rpc-api", "--bind-address", ip(), "--log", f"{node_path}/validator.log"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
+    validator_process = subprocess.Popen([agave_validator, "--rpc-bind-address", f"{ip()}", "--allow-private-addr", "--enable-rpc-transaction-history", "--identity", id_key, "--ledger", node_path, "--limit-ledger-size", "100000000", "--dynamic-port-range", "8000-8099", "--no-snapshot-fetch", "--no-poh-speed-test", "--no-os-network-limits-test", "--vote-account", vote_key, "--expected-shred-version", shred_version, "--expected-genesis-hash", genesis_hash, "--no-wait-for-vote-to-start-leader", "--full-snapshot-interval-slots", "100" , "--snapshot-interval-slots", "20", "--maximum-full-snapshots-to-retain", "10", "--rpc-port", "8899", "--gossip-port", "8010", "--full-rpc-api", "--bind-address", ip(), "--log", f"{node_path}/validator.log"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
 
     validator_pid = validator_process.pid
     click.echo(f"Validator {bootstrap_validator_name} has started with pid {validator_pid}")
@@ -168,7 +197,18 @@ def start_cluster(ctx, config, bootstrap_validator_name):
     with open(info_path, 'a') as f:
         f.write(f"{bootstrap_validator_name}_pid={validator_pid}\n")
 
-    time.sleep(1)
+    time.sleep(2)
+
+    # Fund the authority account so it can be used as a stake authority signer
+    click.echo("Funding authority account...")
+    solana = solana_binary('solana')
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "transfer", "-k", faucet_key, "--allow-unfunded-recipient", authority_key, "100"], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Warning: Failed to fund authority account: {result.stderr}", err=True)
+        click.echo("Authority account will need to be funded manually before creating staked validators", err=True)
+    else:
+        click.echo(f"Authority account funded: {get_pubkey(authority_key)}")
+
     click.echo(f"✅ Cluster started successfully at: {cluster_path}")
     click.echo(f"Node path: {node_path}")
     click.echo((f"Log file: {node_path}/validator.log"))
@@ -363,6 +403,11 @@ def create_unstaked_keys(ctx, validator_name):
 @click.option('--percentage', type=int, help='Percentage of the validator to stake')
 @click.pass_context
 def create_staked_keys(ctx, validator_name, sol, percentage):
+    # Validate parameters first
+    if (not sol and not percentage) or (sol and percentage):
+        click.echo("Error: Either --sol or --percentage must be provided (not both)", err=True)
+        sys.exit(1)
+
     cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
@@ -384,6 +429,7 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
     id_key = os.path.join(node_keys_path, 'id.json')
     vote_key = os.path.join(node_keys_path, 'vote.json')
 
+    click.echo(f"Creating keys for validator {validator_name}...")
     create_key(id_key)
     create_key(vote_key)
 
@@ -391,28 +437,49 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
     solana = solana_binary('solana')
 
     # Send some SOL to the identity account for transaction fees
-    subprocess.run([solana, "-u", f"http://{ip()}:8899", "transfer", "-k", faucet_key, "--allow-unfunded-recipient", id_key, "100"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    click.echo("Funding identity account...")
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "transfer", "-k", faucet_key, "--allow-unfunded-recipient", id_key, "100"], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error funding identity account: {result.stderr}", err=True)
+        sys.exit(1)
 
     # Create vote account for the new validator
-    subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-vote-account", "-k", id_key, "--allow-unsafe-authorized-withdrawer", vote_key, id_key, id_key], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    click.echo("Creating vote account...")
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-vote-account", "-k", id_key, "--allow-unsafe-authorized-withdrawer", vote_key, id_key, id_key, "--commitment", "confirmed"], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error creating vote account: {result.stderr}", err=True)
+        sys.exit(1)
+
+    # Wait a moment for the vote account to be fully processed
+    click.echo("Waiting for vote account confirmation...")
+    time.sleep(2)
+
+    # Verify vote account was created
+    vote_pubkey = get_pubkey(vote_key)
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "vote-account", vote_pubkey], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error: Vote account not found on-chain: {result.stderr}", err=True)
+        click.echo("The vote account may not have been created successfully.", err=True)
+        sys.exit(1)
 
     click.echo(f"Keys for validator {validator_name} created successfully!")
-    # cat the id_key
-    click.echo(f"Identity key content:")
-    click.echo(f"Identity key at: {id_key} with content: {open(id_key, 'r').read()}")
-    click.echo(f"Vote key at: {vote_key} with content: {open(vote_key, 'r').read()}")
+    click.echo(f"  Identity key: {id_key}")
+    click.echo(f"  Identity pubkey: {get_pubkey(id_key)}")
+    click.echo(f"  Vote key: {vote_key}")
+    click.echo(f"  Vote pubkey: {vote_pubkey}")
 
     with open(info_path, 'a') as f:
         f.write(f"{validator_name}_pid=NA\n")
 
-    if (not sol and not percentage) or (sol and percentage):
-        click.echo("Error: Either --sol or --percentage must be provided")
-        return
-
-    # Execute solana command to get stake history
-
+    # Calculate stake amount
     if percentage:
-        stake_history_output = subprocess.run([solana_binary('solana'), '-u', f'http://{ip()}:8899', 'stake-history'], capture_output=True, text=True).stdout
+        click.echo(f"Calculating stake amount for {percentage}% of network...")
+        result = subprocess.run([solana, '-u', f'http://{ip()}:8899', 'stake-history'], capture_output=True, text=True)
+        if result.returncode != 0:
+            click.echo(f"Error getting stake history: {result.stderr}", err=True)
+            sys.exit(1)
+
+        stake_history_output = result.stdout
         # Parse the first entry in the stake history table
         first_entry = stake_history_output.splitlines()[3]  # Assuming the first entry is on the fourth line
         epoch, effective_stake, activating_stake, deactivating_stake, _ = first_entry.split()
@@ -420,8 +487,10 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
         total_stake = float(effective_stake) + float(activating_stake) - float(deactivating_stake)
 
         staked_sol_amount = int(total_stake / (1 - float(percentage)/100.0) * float(percentage)/100.0)
+        click.echo(f"  Calculated stake amount: {staked_sol_amount} SOL ({percentage}% of network)")
     else:
         staked_sol_amount = int(sol)
+        click.echo(f"  Stake amount: {staked_sol_amount} SOL")
 
     stake_accounts_path = os.path.join(cluster_path, 'stake-accounts')
     stake_accounts_count = len(os.listdir(stake_accounts_path))
@@ -429,13 +498,36 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
     stake_key = os.path.join(stake_accounts_path, f"stake-account-{stake_accounts_count}.json")
     create_key(stake_key)
 
-    faucet_key = os.path.join(cluster_path, 'faucet.json')
     authority_key = os.path.join(cluster_path, 'authority.json')
 
-    solana = solana_binary('solana')
+    click.echo("Creating stake account...")
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-stake-account", "-k", faucet_key, "--stake-authority", authority_key, "--withdraw-authority", faucet_key, stake_key, f"{staked_sol_amount}", "--commitment", "confirmed"], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error creating stake account: {result.stderr}", err=True)
+        click.echo(f"\nFull output: {result.stdout}", err=True)
+        click.echo(f"\nDebugging info:", err=True)
+        click.echo(f"  Faucet key: {faucet_key}", err=True)
+        click.echo(f"  Authority key: {authority_key}", err=True)
+        click.echo(f"  Stake key: {stake_key}", err=True)
+        click.echo(f"  Amount: {staked_sol_amount} SOL", err=True)
+        click.echo(f"  Vote pubkey: {vote_pubkey}", err=True)
 
-    subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-stake-account", "-k", faucet_key, "--stake-authority", authority_key, "--withdraw-authority", faucet_key, stake_key, f"{staked_sol_amount}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, stake_key, vote_key])
+        # Try to get more details about what's failing
+        click.echo(f"\nChecking cluster health...", err=True)
+        health_check = subprocess.run([solana, "-u", f"http://{ip()}:8899", "cluster-version"], capture_output=True, text=True)
+        click.echo(f"Cluster version: {health_check.stdout}", err=True)
+
+        sys.exit(1)
+
+    click.echo("Delegating stake...")
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, stake_key, vote_pubkey, "--commitment", "confirmed"], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error delegating stake: {result.stderr}", err=True)
+        sys.exit(1)
+
+    click.echo(f"✅ Staked keys created and {staked_sol_amount} SOL delegated successfully!")
+    click.echo(f"  Stake account pubkey: {get_pubkey(stake_key)}")
+    click.echo(f"  Delegated to vote account: {vote_pubkey}")
 
 
 @main.command('delegate-stake')
@@ -905,7 +997,7 @@ def validators(ctx):
         if running == False:
             # Check if any row in validators_output does not contain the ⚠️ symbol
             validator_line = [line for line in validators_output.splitlines() if id_pubkey in line]
-            if '⚠' != validator_line[0][0]:
+            if validator_line and len(validator_line) > 0 and '⚠' not in validator_line[0]:
                 firedancer = True
 
         status_emoji = "✅" if running else "🔥" if firedancer else "❌"
