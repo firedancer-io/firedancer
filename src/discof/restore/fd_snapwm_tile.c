@@ -170,6 +170,11 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       }
       fd_snapwm_vinyl_wd_init( ctx );
 
+      /* no rwlock required, since at this point any other writer or
+         reader is idle.  The readers of wr_seq will see the updates
+         as they occur, and this is ok in this case. */
+      if( !!ctx->vinyl.admin ) fd_snapwm_vinyl_update_admin( ctx, 0/*do_rwlock*/ );
+
       /* Rewind metric counters (no-op unless recovering from a fail) */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded   = 0;

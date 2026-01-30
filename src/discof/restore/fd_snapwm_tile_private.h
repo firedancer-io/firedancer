@@ -6,6 +6,7 @@
 
 #include "utils/fd_slot_delta_parser.h"
 #include "utils/fd_ssparse.h"
+#include "utils/fd_vinyl_admin.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/lthash/fd_lthash_adder.h"
 #include "../../disco/stem/fd_stem.h"
@@ -93,6 +94,9 @@ struct fd_snapwm_tile {
 
     fd_lthash_adder_t adder;
     fd_lthash_value_t running_lthash;
+
+    ulong              wr_cnt;
+    fd_vinyl_admin_t * admin;
   } vinyl;
 };
 
@@ -258,6 +262,18 @@ fd_snapwm_vinyl_duplicate_accounts_lthash_append( fd_snapwm_tile_t * ctx,
 int
 fd_snapwm_vinyl_duplicate_accounts_lthash_fini( fd_snapwm_tile_t *  ctx,
                                                 fd_stem_context_t * stem );
+
+/* fd_snapwm_vinyl_{init,update}_admin provide init and update helper
+   functions on the vinyl admin object.  do_rwlock is a flag indicating
+   whether the lock is required or not.  They return 1 on success and
+   0 otherwise. */
+int
+fd_snapwm_vinyl_init_admin( fd_snapwm_tile_t * ctx,
+                            int                do_rwlock );
+
+int
+fd_snapwm_vinyl_update_admin( fd_snapwm_tile_t * ctx,
+                              int                do_rwlock );
 
 FD_PROTOTYPES_END
 
