@@ -26,7 +26,7 @@
 #define FD_ADD_AUTH_VOTER_STATE_UNLOCKED             (0UL)
 
 /* State 1: LOCKED
-     Some client to the validator has requested to add an authorized v
+     Some client to the validator has requested to add an authorized
      voter.  To do so, it acquired an exclusive lock on the validator to
      prevent the switch potentially being interleaved with another
      client. */
@@ -53,7 +53,7 @@
 
 /* State 5: TOWER_TILE_UPDATED
      The Tower tile has confirmed that it has updated its internal
-     mapping for the set of supported authorized voters.  */
+     mapping for the set of supported authorized voters. */
 #define FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED   (5UL)
 
 /* State 6: UNLOCK_REQUESTED
@@ -92,16 +92,17 @@ poll_keyswitch( fd_topo_t * topo,
                 uchar *     keypair,
                 int *       has_error,
                 int         force_lock ) {
+  fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
+
   switch( *state ) {
     case FD_ADD_AUTH_VOTER_STATE_UNLOCKED: {
-      fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       if( FD_LIKELY( FD_KEYSWITCH_STATE_UNLOCKED==FD_ATOMIC_CAS( &tower->state, FD_KEYSWITCH_STATE_UNLOCKED, FD_KEYSWITCH_STATE_LOCKED ) ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_LOCKED;
         FD_LOG_INFO(( "Locking authorized voter set for authorized voter update..." ));
       } else {
         if( FD_UNLIKELY( force_lock ) ) {
           *state = FD_ADD_AUTH_VOTER_STATE_LOCKED;
-          FD_LOG_WARNING(( "Another process was changing keys, but `--force` supplied. Forcing lock on authorized voter setfor key switch..." ));
+          FD_LOG_WARNING(( "Another process was changing keys, but `--force` supplied. Forcing lock on authorized voter set for key switch..." ));
         } else {
           FD_LOG_ERR(( "Cannot add-authorized-voter because Firedancer is already in the process of updating the authorized voter keys. If you"
                        "are not currently adding an authorized voter, it might be because an authorized voter update was abandoned. To"
@@ -150,7 +151,6 @@ poll_keyswitch( fd_topo_t * topo,
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_UPDATED: {
-      fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       memcpy( tower->bytes, keypair+32UL, 32UL );
       tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED;
@@ -163,9 +163,8 @@ poll_keyswitch( fd_topo_t * topo,
          that means that the command should succeed because invariants
          such as not having duplicate authorized voter keys and too many
          authorized voters are upheld.  If this doesn't hold true, the
-         Tower tile will detect corruption and gracefully crash the
+         Tower tile will detect any corruption and gracefully crash the
          validator. */
-      fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED;
         FD_LOG_INFO(( "Tower tile successfully updated. Requesting to unlock authorized voter keys..." ));
@@ -175,14 +174,12 @@ poll_keyswitch( fd_topo_t * topo,
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED: {
-      fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
       *state = FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED;
       FD_LOG_INFO(( "Requesting tower tile to unlock authorized voter keys..." ));
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED: {
-      fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_UNLOCKED ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
         FD_LOG_INFO(( "Authorized voter successfully updated and keys unlocked..." ));
