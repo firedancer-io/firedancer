@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../funk/fd_funk.h"
+#include "../../disco/shred/fd_rnonce_ss.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -226,6 +227,32 @@ fd_topo_obj_callbacks_t fd_obj_cb_acc_pool = {
   .footprint = acc_pool_footprint,
   .align     = acc_pool_align,
   .new       = acc_pool_new,
+};
+
+
+static ulong
+rnonce_ss_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return sizeof(fd_rnonce_ss_t) + sizeof(ulong);
+}
+
+static ulong
+rnonce_ss_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return alignof(fd_rnonce_ss_t);
+}
+
+static void
+rnonce_ss_new( fd_topo_t const *     topo,
+              fd_topo_obj_t const * obj ) {
+  memset( fd_topo_obj_laddr( topo, obj->id ), '\0', sizeof(fd_rnonce_ss_t)+sizeof(ulong) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss = {
+  .name      = "rnonce_ss",
+  .footprint = rnonce_ss_footprint,
+  .align     = rnonce_ss_align,
+  .new       = rnonce_ss_new,
 };
 
 #undef VAL
