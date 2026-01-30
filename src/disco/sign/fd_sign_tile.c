@@ -110,9 +110,6 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
     }
     memcpy( ctx->authorized_voter_private_keys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes, 32UL );
     memcpy( ctx->authorized_voter_pubkeys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes + 32UL, 32UL );
-
-    FD_BASE58_ENCODE_32_BYTES(  ctx->authorized_voter_pubkeys[ ctx->authorized_voters_cnt ], pkey );
-    FD_LOG_NOTICE(("authorized voters cnt %lu pkey %s", ctx->authorized_voters_cnt, pkey));
     ctx->authorized_voters_cnt++;
     fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
@@ -216,9 +213,6 @@ after_frag_sensitive( void *              _ctx,
     fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
     if( needs_second_sign ) {
       ulong authority_idx = (sig >> 33) & 0xFUL;
-      FD_LOG_NOTICE(("authority_idx %lu", authority_idx));
-      FD_BASE58_ENCODE_32_BYTES( ctx->authorized_voter_pubkeys[ authority_idx ], pkey );
-      FD_LOG_NOTICE(("pkey %s", pkey));
       fd_ed25519_sign( dst+64UL, ctx->_data, sz, ctx->authorized_voter_pubkeys[ authority_idx ], ctx->authorized_voter_private_keys[ authority_idx ], ctx->sha512 );
     }
     break;
@@ -322,8 +316,10 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   derive_fields( ctx );
 
-  ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
-  FD_TEST( ctx->av_keyswitch );
+  if( FD_LIKELY( tile->av_keyswitch_obj_id!=ULONG_MAX ) ) {
+    ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
+    FD_TEST( ctx->av_keyswitch );
+  }
 
   for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in[ i ].role = -1;
 

@@ -120,9 +120,6 @@ poll_keyswitch( fd_topo_t * topo,
         if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
           all_updated = 0;
           break;
-        } else if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_FAILED ) ) {
-          *has_error = 1;
-          break;
         } else {
           explicit_bzero( tile_ks->bytes, 64UL );
         }
