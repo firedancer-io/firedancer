@@ -866,6 +866,7 @@ done_vote_iter:
   int         found_authority = get_authority( ctx, slot_completed->epoch, found, authority, &authority_idx );
 
   if( FD_LIKELY( found_authority ) ) {
+    FD_LOG_NOTICE(("found authority"));
     msg->is_valid_vote = 1;
     fd_txn_p_t          txn[1];
     fd_tower_to_vote_txn( ctx->tower,
@@ -883,6 +884,7 @@ done_vote_iter:
     msg->vote_txn_sz   = txn->payload_sz;
     msg->authority_idx = authority_idx;
   } else {
+    FD_LOG_NOTICE(("no authority"));
     msg->is_valid_vote = 0;
   }
 
@@ -1051,6 +1053,9 @@ unprivileged_init( fd_topo_t *      topo,
   void  * notif  = FD_SCRATCH_ALLOC_APPEND( l, notif_align(),           notif_footprint( slot_max )                          );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
+  ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
+  FD_TEST( ctx->av_keyswitch );
+
   ctx->wksp         = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->ghost        = fd_ghost_join       ( fd_ghost_new       ( ghost, 2*slot_max, FD_VOTER_MAX, 42UL ) ); /* FIXME seed */
   ctx->hfork        = fd_hfork_join       ( fd_hfork_new       ( hfork, slot_max, FD_VOTER_MAX, ctx->seed, tile->tower.hard_fork_fatal ) );
@@ -1077,9 +1082,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->vote_sha[i] = sha;
   }
 
-  ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
-  FD_TEST( ctx->av_keyswitch );
-  FD_LOG_WARNING(("ASDF ASDF"));
 
   ctx->init_slot = ULONG_MAX;
   ctx->root_slot = ULONG_MAX;
@@ -1159,6 +1161,8 @@ during_housekeeping( ctx_t * ctx ) {
       fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
       return;
     }
+    FD_BASE58_ENCODE_32_BYTES( ctx->av_keyswitch->bytes, pkey );
+    FD_LOG_WARNING(("ASDF ASDF %s", pkey));
     fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( ctx->av_keyswitch->bytes ) );
     ctx->auth_key_set_cnt++;
     fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );

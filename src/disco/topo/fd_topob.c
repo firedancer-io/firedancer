@@ -150,7 +150,6 @@ fd_topob_tile( fd_topo_t *    topo,
                int            is_agave,
                int            uses_id_keyswitch,
                int            uses_av_keyswitch ) {
-  (void)uses_av_keyswitch;
 
   if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
   if( FD_UNLIKELY( strlen( tile_name )>=sizeof(topo->tiles[ topo->tile_cnt ].name ) ) ) FD_LOG_ERR(( "tile name too long: %s", tile_name ));
@@ -188,7 +187,6 @@ fd_topob_tile( fd_topo_t *    topo,
   }
 
   if( FD_UNLIKELY( uses_av_keyswitch ) ) {
-    FD_LOG_WARNING(("Creating authorized voter keyswitch object %s", tile_name));
     obj = fd_topob_obj( topo, "keyswitch", tile_wksp );
     tile->av_keyswitch_obj_id = obj->id;
     fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

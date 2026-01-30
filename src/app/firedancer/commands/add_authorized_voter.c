@@ -180,17 +180,18 @@ add_authorized_voter( args_t *   args,
   uchar check_public_key[ 32 ];
   fd_sha512_t sha512[1];
   FD_TEST( fd_sha512_join( fd_sha512_new( sha512 ) ) );
-  fd_ed25519_public_from_private( check_public_key, args->set_identity.keypair, sha512 );
-  if( FD_UNLIKELY( memcmp( check_public_key, args->set_identity.keypair+32UL, 32UL ) ) ) {
+
+  fd_ed25519_public_from_private( check_public_key, args->add_authorized_voter.keypair, sha512 );
+  if( FD_UNLIKELY( memcmp( check_public_key, args->add_authorized_voter.keypair+32UL, 32UL ) ) ) {
     FD_LOG_ERR(( "The public key in the identity key file does not match the public key derived from the private key. "
                   "Firedancer will not use the key pair to sign as it might leak the private key." ));
-
   }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
     if( FD_LIKELY( tile->av_keyswitch_obj_id==ULONG_MAX ) ) continue;
-    fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ tile->av_keyswitch_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+    fd_topo_obj_t * obj = &config->topo.objs[ tile->av_keyswitch_obj_id ];
+    fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ obj->wksp_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   }
 
   int has_error = 0;
@@ -201,7 +202,7 @@ add_authorized_voter( args_t *   args,
   }
 
   char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( args->set_identity.keypair+32UL, NULL, identity_key_base58 );
+  fd_base58_encode_32( args->add_authorized_voter.keypair+32UL, NULL, identity_key_base58 );
   identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
 
   if( FD_UNLIKELY( has_error ) ) FD_LOG_ERR(( "Failed to switch identity key to `%s`, check validator logs for details", identity_key_base58 ));

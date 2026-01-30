@@ -219,8 +219,7 @@ keyswitch_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 keyswitch_new( fd_topo_t const *     topo,
                fd_topo_obj_t const * obj ) {
-  void * x =  fd_keyswitch_new( fd_topo_obj_laddr( topo, obj->id ), FD_KEYSWITCH_STATE_UNLOCKED );
-  FD_LOG_WARNING(("pointer %p %lu", x, obj->id));
+  FD_TEST( fd_keyswitch_new( fd_topo_obj_laddr( topo, obj->id ), FD_KEYSWITCH_STATE_UNLOCKED ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_keyswitch = {

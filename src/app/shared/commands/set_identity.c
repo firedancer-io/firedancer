@@ -361,7 +361,8 @@ set_identity( args_t *   args,
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
     if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-    fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ tile->id_keyswitch_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+    fd_topo_obj_t * obj = &config->topo.objs[ tile->id_keyswitch_obj_id ];
+    fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ obj->wksp_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   }
 
   int has_error = 0;
