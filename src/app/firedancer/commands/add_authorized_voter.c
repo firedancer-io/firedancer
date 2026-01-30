@@ -122,7 +122,7 @@ poll_keyswitch( fd_topo_t * topo,
       }
       explicit_bzero( keypair, 32UL );
       *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED;
-      FD_LOG_INFO(( "Requesting all sign tiles to update authorized voter keys..." ));
+      FD_LOG_INFO(( "Requesting all sign tiles to update authorized voter key set..." ));
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED: {
@@ -144,7 +144,7 @@ poll_keyswitch( fd_topo_t * topo,
       }
       if( FD_LIKELY( all_updated ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_UPDATED;
-        FD_LOG_INFO(( "All sign tiles successfully updated..." ));
+        FD_LOG_INFO(( "All sign tiles successfully updated authorized voter key set..." ));
       } else {
         FD_SPIN_PAUSE();
       }
@@ -154,7 +154,7 @@ poll_keyswitch( fd_topo_t * topo,
       memcpy( tower->bytes, keypair+32UL, 32UL );
       tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED;
-      FD_LOG_INFO(( "Requesting tower tile to update authorized voter keys..." ));
+      FD_LOG_INFO(( "Requesting tower tile to update authorized voter key set..." ));
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED: {
@@ -167,7 +167,7 @@ poll_keyswitch( fd_topo_t * topo,
          validator. */
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED;
-        FD_LOG_INFO(( "Tower tile successfully updated. Requesting to unlock authorized voter keys..." ));
+        FD_LOG_INFO(( "Tower tile key set successfully updated..." ));
       } else {
         FD_SPIN_PAUSE();
       }
@@ -176,13 +176,13 @@ poll_keyswitch( fd_topo_t * topo,
     case FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED: {
       tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
       *state = FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED;
-      FD_LOG_INFO(( "Requesting tower tile to unlock authorized voter keys..." ));
+      FD_LOG_INFO(( "Requesting tower tile to unlock authorized voter key set..." ));
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED: {
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_UNLOCKED ) ) {
         *state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
-        FD_LOG_INFO(( "Authorized voter successfully updated and keys unlocked..." ));
+        FD_LOG_INFO(( "Authorized voter key set unlocked..." ));
       } else {
         FD_SPIN_PAUSE();
       }
