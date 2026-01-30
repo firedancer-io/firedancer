@@ -996,7 +996,7 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
        was a highest_window_idx request). Also requires moving to next
        slot and wrapping the shred_idx. */
 
-    if( FD_UNLIKELY( !ele || next_shred_idx >= ele->complete_idx || iter->shred_idx == UINT_MAX ) ) {
+    if( FD_UNLIKELY( !ele || next_shred_idx > ele->complete_idx || iter->shred_idx == UINT_MAX ) ) {
 
       /* done requesting this slot.  peek the next slot from requests
          deque. But first, add this slot's children to the requests
@@ -1050,10 +1050,11 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
 
     /* Common case - valid shred to request. Note you can't know the
        ele->complete_idx until you have actually received the slot
-       complete shred, thus the we can do lt instead of leq  */
+       complete shred, but the last shred may have been evicted, so we
+       need leq. */
 
     if( ele->complete_idx != UINT_MAX &&
-        next_shred_idx < ele->complete_idx &&
+        next_shred_idx <= ele->complete_idx &&
         !fd_forest_blk_idxs_test( ele->idxs, next_shred_idx ) ) {
       iter->shred_idx = next_shred_idx;
       break;

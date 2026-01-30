@@ -23,10 +23,12 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/shred/fd_rnonce_ss.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../tower/fd_tower_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../tango/fd_tango_base.h"
 
 #include "../forest/fd_forest.h"
@@ -142,16 +144,6 @@ struct out_ctx {
 };
 typedef struct out_ctx out_ctx_t;
 
-struct fd_fec_sig {
-  ulong            key; /* map key. 32 msb = slot, 32 lsb = fec_set_idx */
-  fd_ed25519_sig_t sig; /* Ed25519 sig identifier of the FEC. */
-};
-typedef struct fd_fec_sig fd_fec_sig_t;
-
-#define MAP_NAME    fd_fec_sig
-#define MAP_T       fd_fec_sig_t
-#define MAP_MEMOIZE 0
-#include "../../util/tmpl/fd_map_dynamic.c"
 
 /* Data needed to sign and send a pong that is not contained in the
    pong msg itself. */
@@ -222,7 +214,6 @@ struct ctx {
   fd_ip4_port_t repair_serve_addr;
 
   fd_forest_t    * forest;
-  fd_fec_sig_t   * fec_sigs;
   fd_policy_t    * policy;
   fd_inflights_t * inflights;
   fd_repair_t    * protocol;
@@ -266,6 +257,8 @@ struct ctx {
   uchar buffer[ MAX_BUFFER_SIZE ]; /* includes Ethernet, IP, UDP headers */
   fd_ip4_udp_hdrs_t intake_hdr[1];
   fd_ip4_udp_hdrs_t serve_hdr [1];
+
+  fd_rnonce_ss_t repair_nonce_ss[1];
 
   ulong manifest_slot;
   struct {
@@ -313,7 +306,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_forest_align(),         fd_forest_footprint     ( tile->repair.slot_max )                );
   l = FD_LAYOUT_APPEND( l, fd_policy_align(),         fd_policy_footprint     ( FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_inflights_align(),      fd_inflights_footprint  ()                                       );
-  l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),        fd_fec_sig_footprint    ( 20 )                                   );
   l = FD_LAYOUT_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint  ( lg_sign_depth )                        );
   l = FD_LAYOUT_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                       );
   l = FD_LAYOUT_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                    );
@@ -331,7 +323,7 @@ sign_map_insert( ctx_t *                 ctx,
   if( FD_UNLIKELY( fd_signs_map_key_cnt( ctx->signs_map )==fd_signs_map_key_max( ctx->signs_map ) ) ) return NULL;
 
   sign_req_t * pending = fd_signs_map_insert( ctx->signs_map, ctx->pending_key_next++ );
-  if( FD_UNLIKELY( !pending ) ) return NULL; // Not possible, unless the same nonce is used twice.
+  if( FD_UNLIKELY( !pending ) ) return NULL; /* Not possible, unless the same key is used twice. */
   pending->msg    = *msg;
   pending->buflen = fd_repair_sz( msg );
   if( FD_UNLIKELY( opt_pong_data ) ) pending->pong_data = *opt_pong_data;
@@ -645,7 +637,7 @@ after_shred( ctx_t      * ctx,
   if( FD_LIKELY( !is_code ) ) {
     long rtt = 0;
     fd_pubkey_t peer;
-    if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_remove( ctx->inflights, nonce, &peer ) ) > 0 ) ) {
+    if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_remove( ctx->inflights, nonce, shred->slot, shred->idx, &peer ) ) > 0 ) ) {
       fd_policy_peer_response_update( ctx->policy, &peer, rtt );
       fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
     }
@@ -674,8 +666,6 @@ after_fec( ctx_t      * ctx,
 
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
   fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick );
-  fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
-  if( FD_LIKELY( fec_sig ) ) fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
   FD_TEST( ele ); /* must be non-empty */
 
   /* metrics for completed slots */
@@ -833,48 +823,9 @@ after_frag( ctx_t *             ctx,
     if( FD_UNLIKELY( fec_completes ) ) {
       after_fec( ctx, shred );
     } else {
-      /* Don't want to reinsert the shred sig for an already complete FEC set */
-      fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
-      if( FD_UNLIKELY( !fec_sig ) ) {
-        fec_sig = fd_fec_sig_insert( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx );
-        memcpy( fec_sig->sig, shred->signature, sizeof(fd_ed25519_sig_t) );
-      }
       after_shred( ctx, sig, shred, nonce );
     }
 
-    /* Check if there are FECs to force complete. Algorithm: window
-       through the idxs in interval [i, j). If j = next fec_set_idx
-       then we know we can force complete the FEC set interval [i, j)
-       (assuming it wasn't already completed based on `cmpl`). */
-
-    fd_forest_blk_t * blk = fd_forest_query( ctx->forest, shred->slot );
-    if( blk ) {
-      uint i = blk->consumed_idx + 1;
-      for( uint j = i; j < blk->buffered_idx + 1; j++ ) {
-        if( FD_UNLIKELY( fd_forest_blk_idxs_test( blk->fecs, j ) ) ) {
-          if( FD_UNLIKELY( fd_forest_blk_idxs_test( blk->cmpl, j ) ) ) {
-            /* already been completed without force complete */
-          } else {
-            /* force completeable */
-            fd_fec_sig_t * fec_sig  = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
-            if( FD_LIKELY( fec_sig ) ) {
-              ulong          sig      = fd_ulong_load_8( fec_sig->sig );
-              ulong          tile_idx = sig % ctx->shred_tile_cnt;
-              uint           last_idx = j - i;
-
-              uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
-              memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
-              fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
-              fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
-              ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-            }
-          }
-          /* advance consumed */
-          blk->consumed_idx = j;
-          i = j + 1;
-        }
-      }
-    }
     /* update metrics */
     ctx->metrics->repaired_slots = fd_forest_highest_repaired_slot( ctx->forest );
     return;
@@ -924,13 +875,14 @@ after_credit( ctx_t *             ctx,
     if( FD_UNLIKELY( blk && !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
       ctx->metrics->rerequest++;
+      nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, (uint)shred_idx, now );
       if( FD_UNLIKELY( !peer ) ) {
         /* No peers. But we CANNOT lose this request. */
         /* Add this request to the inflights table, pretend we've sent it and let the inflight timeout request it down the line. */
         fd_hash_t hash = { .ul[0] = 0 };
-        fd_inflights_request_insert( ctx->inflights, ctx->policy->nonce++, &hash, slot, shred_idx );
+        fd_inflights_request_insert( ctx->inflights, nonce, &hash, slot, shred_idx );
       } else {
-        fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)((ulong)now / 1e6L), ctx->policy->nonce++, slot, shred_idx );
+        fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)((ulong)now / 1e6L), (uint)nonce, slot, shred_idx );
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
         return;
       }
@@ -968,6 +920,16 @@ privileged_init( fd_topo_t *      topo,
   fd_memcpy( ctx->identity_public_key.uc, identity_key + 32UL, sizeof(fd_pubkey_t) );
 
   FD_TEST( fd_rng_secure( &ctx->repair_seed, sizeof(ulong) ) );
+
+  FD_LOG_DEBUG(( "Generating rnonce_ss" ));
+  ulong rnonce_ss_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "rnonce_ss" );
+  FD_TEST( rnonce_ss_id!=ULONG_MAX );
+  void * shared_rnonce = fd_topo_obj_laddr( topo, rnonce_ss_id );
+  ulong * nonce_initialized = (ulong *)(sizeof(fd_rnonce_ss_t)+(uchar *)shared_rnonce);
+  FD_TEST( fd_rng_secure( shared_rnonce, sizeof(fd_rnonce_ss_t) ) );
+  memcpy( ctx->repair_nonce_ss, shared_rnonce, sizeof(fd_rnonce_ss_t) );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *nonce_initialized ) = 1UL;
 }
 
 static void
@@ -984,20 +946,18 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),         fd_forest_footprint     ( tile->repair.slot_max )                );
   ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),         fd_policy_footprint     ( FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX ) );
   ctx->inflights    = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),      fd_inflights_footprint  ()                                       );
-  ctx->fec_sigs     = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(),        fd_fec_sig_footprint    ( 20 )                                   );
   ctx->signs_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint  ( lg_sign_depth )                        );
   ctx->sign_queue   = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                       );
   ctx->slot_metrics = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                    );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() ) == (ulong)scratch + scratch_footprint( tile ) );
 
-  ctx->protocol     = fd_repair_join        ( fd_repair_new        ( ctx->protocol, &ctx->identity_public_key                              ) );
-  ctx->forest       = fd_forest_join        ( fd_forest_new        ( ctx->forest,   tile->repair.slot_max, ctx->repair_seed                ) );
-  ctx->policy       = fd_policy_join        ( fd_policy_new        ( ctx->policy,   FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX, ctx->repair_seed ) );
-  ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( ctx->inflights                                                        ) );
-  ctx->fec_sigs     = fd_fec_sig_join       ( fd_fec_sig_new       ( ctx->fec_sigs, 20, 0UL                                                ) );
-  ctx->signs_map    = fd_signs_map_join     ( fd_signs_map_new     ( ctx->signs_map, lg_sign_depth, 0UL                                    ) );
-  ctx->sign_queue   = fd_signs_queue_join   ( fd_signs_queue_new   ( ctx->sign_queue                                                       ) );
-  ctx->slot_metrics = fd_repair_metrics_join( fd_repair_metrics_new( ctx->slot_metrics                                                     ) );
+  ctx->protocol     = fd_repair_join        ( fd_repair_new        ( ctx->protocol, &ctx->identity_public_key                                                    ) );
+  ctx->forest       = fd_forest_join        ( fd_forest_new        ( ctx->forest,   tile->repair.slot_max, ctx->repair_seed                                      ) );
+  ctx->policy       = fd_policy_join        ( fd_policy_new        ( ctx->policy,   FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
+  ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( ctx->inflights, ctx->repair_seed+1234UL                                                     ) );
+  ctx->signs_map    = fd_signs_map_join     ( fd_signs_map_new     ( ctx->signs_map, lg_sign_depth, 0UL                                                          ) );
+  ctx->sign_queue   = fd_signs_queue_join   ( fd_signs_queue_new   ( ctx->sign_queue                                                                             ) );
+  ctx->slot_metrics = fd_repair_metrics_join( fd_repair_metrics_new( ctx->slot_metrics                                                                           ) );
 
   /* Process in links */
 

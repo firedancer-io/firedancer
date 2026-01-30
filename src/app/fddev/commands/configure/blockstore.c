@@ -75,14 +75,7 @@ init( config_t const * config ) {
   FD_TEST( fd_shredder_count_data_shreds  ( batch_sz, FD_SHRED_TYPE_MERKLE_DATA )<=34UL );
   FD_TEST( fd_shredder_count_parity_shreds( batch_sz, FD_SHRED_TYPE_MERKLE_CODE )<=34UL );
 
-  fd_shred34_t data, parity;
   fd_fec_set_t fec;
-  for( ulong i=0UL; i<34UL; i++ ) {
-    fec.data_shreds  [ i ] = data.pkts  [ i ].buffer;
-    fec.parity_shreds[ i ] = parity.pkts[ i ].buffer;
-  }
-  for( ulong i=34UL; i<FD_REEDSOL_DATA_SHREDS_MAX;   i++ ) fec.data_shreds  [ i ] = NULL;
-  for( ulong i=34UL; i<FD_REEDSOL_PARITY_SHREDS_MAX; i++ ) fec.parity_shreds[ i ] = NULL;
 
   fd_entry_batch_meta_t meta[ 1 ] = {{
     .parent_offset  = 0UL,
@@ -96,7 +89,7 @@ init( config_t const * config ) {
 
   uchar chained_merkle_root[ FD_SHRED_MERKLE_ROOT_SZ ] = { 0 };
   fd_shredder_init_batch( shredder, &batch, batch_sz, 0UL, meta );
-  fd_shredder_next_fec_set( shredder, &fec, /* chained */ chained_merkle_root, NULL );
+  fd_shredder_next_fec_set( shredder, &fec, /* chained */ chained_merkle_root );
 
   /* Fork off a new process for inserting the shreds to the blockstore.
      RocksDB creates a dozen background workers, and doesn't close them
@@ -119,7 +112,7 @@ init( config_t const * config ) {
 
     umask( S_IRWXO | S_IRWXG );
 
-    fd_ext_blockstore_create_block0( config->frankendancer.paths.ledger, fec.data_shred_cnt, (uchar const *)data.pkts, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
+    fd_ext_blockstore_create_block0( config->frankendancer.paths.ledger, FD_FEC_SHRED_CNT, (uchar const *)fec.data_shreds, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
 
     fd_sys_util_exit_group( 0 );
   } else {
