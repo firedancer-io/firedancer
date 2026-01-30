@@ -198,55 +198,54 @@ FD_PROTOTYPES_BEGIN
   If the fields are not templatized, their accessor and modifier
   patterns vary and are documented below.
 */
-
-#define FD_BANKS_ITER(X)                                                                                                                                                                                             \
-  /* type,                             name,                        footprint,                                 align  */                                                                                             \
-  X(fd_blockhashes_t,                  block_hash_queue,            sizeof(fd_blockhashes_t),                  alignof(fd_blockhashes_t)                  ) /* Block hash queue */                                   \
-  X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t)            ) /* Fee rate governor */                                  \
-  X(ulong,                             rbh_lamports_per_sig,        sizeof(ulong),                             alignof(ulong)                             ) /* Recent Block Hashes lamports per signature */         \
-  X(ulong,                             slot,                        sizeof(ulong),                             alignof(ulong)                             ) /* Slot */                                               \
-  X(ulong,                             parent_slot,                 sizeof(ulong),                             alignof(ulong)                             ) /* Parent slot */                                        \
-  X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong)                             ) /* Capitalization */                                     \
-  X(ulong,                             transaction_count,           sizeof(ulong),                             alignof(ulong)                             ) /* Transaction count */                                  \
-  X(ulong,                             parent_signature_cnt,        sizeof(ulong),                             alignof(ulong)                             ) /* Parent signature count */                             \
-  X(ulong,                             tick_height,                 sizeof(ulong),                             alignof(ulong)                             ) /* Tick height */                                        \
-  X(ulong,                             max_tick_height,             sizeof(ulong),                             alignof(ulong)                             ) /* Max tick height */                                    \
-  X(ulong,                             hashes_per_tick,             sizeof(ulong),                             alignof(ulong)                             ) /* Hashes per tick */                                    \
-  X(fd_w_u128_t,                       ns_per_slot,                 sizeof(fd_w_u128_t),                       alignof(fd_w_u128_t)                       ) /* NS per slot */                                        \
-  X(ulong,                             ticks_per_slot,              sizeof(ulong),                             alignof(ulong)                             ) /* Ticks per slot */                                     \
-  X(ulong,                             genesis_creation_time,       sizeof(ulong),                             alignof(ulong)                             ) /* Genesis creation time */                              \
-  X(double,                            slots_per_year,              sizeof(double),                            alignof(double)                            ) /* Slots per year */                                     \
-  X(fd_inflation_t,                    inflation,                   sizeof(fd_inflation_t),                    alignof(fd_inflation_t)                    ) /* Inflation */                                          \
-  X(ulong,                             cluster_type,                sizeof(ulong),                             alignof(ulong)                             ) /* Cluster type */                                       \
-  X(ulong,                             total_epoch_stake,           sizeof(ulong),                             alignof(ulong)                             ) /* Total epoch stake */                                  \
-                                                                                                                                                            /* This is only used for the get_epoch_stake syscall. */ \
-                                                                                                                                                            /* If we are executing in epoch E, this is the total */  \
-                                                                                                                                                            /* stake at the end of epoch E-1. */                     \
-  X(ulong,                             block_height,                sizeof(ulong),                             alignof(ulong)                             ) /* Block height */                                       \
-  X(ulong,                             execution_fees,              sizeof(ulong),                             alignof(ulong)                             ) /* Execution fees */                                     \
-  X(ulong,                             priority_fees,               sizeof(ulong),                             alignof(ulong)                             ) /* Priority fees */                                      \
-  X(ulong,                             tips,                        sizeof(ulong),                             alignof(ulong)                             ) /* Tips collected */                                     \
-  X(ulong,                             signature_count,             sizeof(ulong),                             alignof(ulong)                             ) /* Signature count */                                    \
-  X(fd_hash_t,                         poh,                         sizeof(fd_hash_t),                         alignof(fd_hash_t)                         ) /* PoH */                                                \
-  X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot,           sizeof(fd_sol_sysvar_last_restart_slot_t), alignof(fd_sol_sysvar_last_restart_slot_t) ) /* Last restart slot */                                  \
-  X(fd_hash_t,                         bank_hash,                   sizeof(fd_hash_t),                         alignof(fd_hash_t)                         ) /* Bank hash */                                          \
-  X(fd_hash_t,                         prev_bank_hash,              sizeof(fd_hash_t),                         alignof(fd_hash_t)                         ) /* Previous bank hash */                                 \
-  X(fd_hash_t,                         genesis_hash,                sizeof(fd_hash_t),                         alignof(fd_hash_t)                         ) /* Genesis hash */                                       \
-  X(fd_epoch_schedule_t,               epoch_schedule,              sizeof(fd_epoch_schedule_t),               alignof(fd_epoch_schedule_t)               ) /* Epoch schedule */                                     \
-  X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t)                         ) /* Rent */                                               \
-  X(fd_sysvar_cache_t,                 sysvar_cache,                sizeof(fd_sysvar_cache_t),                 alignof(fd_sysvar_cache_t)                 ) /* Sysvar cache */                                       \
-                                                                                                                                                            /* then there can be 100k unique leaders in the worst */ \
-                                                                                                                                                            /* case. We also can assume 432k slots per epoch. */     \
-  X(fd_features_t,                     features,                    sizeof(fd_features_t),                     alignof(fd_features_t)                     ) /* Features */                                           \
-  X(ulong,                             txn_count,                   sizeof(ulong),                             alignof(ulong)                             ) /* Transaction count */                                  \
-  X(ulong,                             nonvote_txn_count,           sizeof(ulong),                             alignof(ulong)                             ) /* Nonvote transaction count */                          \
-  X(ulong,                             failed_txn_count,            sizeof(ulong),                             alignof(ulong)                             ) /* Failed transaction count */                           \
-  X(ulong,                             nonvote_failed_txn_count,    sizeof(ulong),                             alignof(ulong)                             ) /* Nonvote failed transaction count */                   \
-  X(ulong,                             total_compute_units_used,    sizeof(ulong),                             alignof(ulong)                             ) /* Total compute units used */                           \
-  X(ulong,                             slots_per_epoch,             sizeof(ulong),                             alignof(ulong)                             ) /* Slots per epoch */                                    \
-  X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong)                             ) /* Shred count */                                        \
-  X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong)                             ) /* Epoch */                                              \
-  X(int,                               has_identity_vote,           sizeof(int),                               alignof(int)                               ) /* Has identity vote */
+#define FD_BANKS_ITER(X)                                                                                                     \
+  /* type,                             name */                                                                               \
+  X(fd_blockhashes_t,                  block_hash_queue           ) /* Block hash queue */                                   \
+  X(fd_fee_rate_governor_t,            fee_rate_governor          ) /* Fee rate governor */                                  \
+  X(ulong,                             rbh_lamports_per_sig       ) /* Recent Block Hashes lamports per signature */         \
+  X(ulong,                             slot                       ) /* Slot */                                               \
+  X(ulong,                             parent_slot                ) /* Parent slot */                                        \
+  X(ulong,                             capitalization             ) /* Capitalization */                                     \
+  X(ulong,                             transaction_count          ) /* Transaction count */                                  \
+  X(ulong,                             parent_signature_cnt       ) /* Parent signature count */                             \
+  X(ulong,                             tick_height                ) /* Tick height */                                        \
+  X(ulong,                             max_tick_height            ) /* Max tick height */                                    \
+  X(ulong,                             hashes_per_tick            ) /* Hashes per tick */                                    \
+  X(fd_w_u128_t,                       ns_per_slot                ) /* NS per slot */                                        \
+  X(ulong,                             ticks_per_slot             ) /* Ticks per slot */                                     \
+  X(ulong,                             genesis_creation_time      ) /* Genesis creation time */                              \
+  X(double,                            slots_per_year             ) /* Slots per year */                                     \
+  X(fd_inflation_t,                    inflation                  ) /* Inflation */                                          \
+  X(ulong,                             cluster_type               ) /* Cluster type */                                       \
+  X(ulong,                             total_epoch_stake          ) /* Total epoch stake */                                  \
+                                                                    /* This is only used for the get_epoch_stake syscall. */ \
+                                                                    /* If we are executing in epoch E, this is the total */  \
+                                                                    /* stake at the end of epoch E-1. */                     \
+  X(ulong,                             block_height               ) /* Block height */                                       \
+  X(ulong,                             execution_fees             ) /* Execution fees */                                     \
+  X(ulong,                             priority_fees              ) /* Priority fees */                                      \
+  X(ulong,                             tips                       ) /* Tips collected */                                     \
+  X(ulong,                             signature_count            ) /* Signature count */                                    \
+  X(fd_hash_t,                         poh                        ) /* PoH */                                                \
+  X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot          ) /* Last restart slot */                                  \
+  X(fd_hash_t,                         bank_hash                  ) /* Bank hash */                                          \
+  X(fd_hash_t,                         prev_bank_hash             ) /* Previous bank hash */                                 \
+  X(fd_hash_t,                         genesis_hash               ) /* Genesis hash */                                       \
+  X(fd_epoch_schedule_t,               epoch_schedule             ) /* Epoch schedule */                                     \
+  X(fd_rent_t,                         rent                       ) /* Rent */                                               \
+  X(fd_sysvar_cache_t,                 sysvar_cache               ) /* Sysvar cache */                                       \
+                                                                    /* then there can be 100k unique leaders in the worst */ \
+                                                                    /* case. We also can assume 432k slots per epoch. */     \
+  X(fd_features_t,                     features                   ) /* Features */                                           \
+  X(ulong,                             txn_count                  ) /* Transaction count */                                  \
+  X(ulong,                             nonvote_txn_count          ) /* Nonvote transaction count */                          \
+  X(ulong,                             failed_txn_count           ) /* Failed transaction count */                           \
+  X(ulong,                             nonvote_failed_txn_count   ) /* Nonvote failed transaction count */                   \
+  X(ulong,                             total_compute_units_used   ) /* Total compute units used */                           \
+  X(ulong,                             slots_per_epoch            ) /* Slots per epoch */                                    \
+  X(ulong,                             shred_cnt                  ) /* Shred count */                                        \
+  X(ulong,                             epoch                      ) /* Epoch */                                              \
+  X(int,                               has_identity_vote          ) /* Has identity vote */
 
 /* Defining pools for any CoW fields. */
 
@@ -369,7 +368,7 @@ struct fd_bank_data {
   struct {
     fd_lthash_value_t lthash;
 
-    #define X(type, name, footprint, align) uchar name[footprint] __attribute__((aligned(align)));
+    #define X(type, name) uchar name[sizeof(type)] __attribute__((aligned(alignof(type))));
     FD_BANKS_ITER(X)
     #undef X
   } non_cow;
@@ -666,7 +665,7 @@ fd_bank_lthash_locking_modify( fd_bank_t * bank );
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 
-#define X(type, name, footprint, align)                          \
+#define X(type, name)                                            \
   void fd_bank_##name##_set( fd_bank_t * bank, type value );     \
   type fd_bank_##name##_get( fd_bank_t const * bank );           \
   type const * fd_bank_##name##_query( fd_bank_t const * bank ); \
