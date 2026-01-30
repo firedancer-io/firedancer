@@ -1748,7 +1748,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
 
-  if( FD_UNLIKELY( reasm_fec->leader ) ) {
+  if( FD_UNLIKELY( reasm_fec->is_leader ) ) {
     /* If we are the leader we just need to copy in the bank index that
        the leader slot is using. */
     FD_TEST( ctx->leader_bank->data!=NULL );
@@ -1783,7 +1783,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
-  if( FD_UNLIKELY( reasm_fec->leader ) ) {
+  if( FD_UNLIKELY( reasm_fec->is_leader ) ) {
     /* If we are the leader, we don't need to process the FEC set any
        further. */
     return;
@@ -1986,7 +1986,7 @@ after_credit( fd_replay_tile_t *  ctx,
       /* Now that we have validated that sched can ingest all of the
          required FECs, it is finally safe to remove the equivocating
          fec from the reasm deque. */
-      fd_reasm_out( ctx->reasm );
+      fd_reasm_pop( ctx->reasm );
 
       /* Now we can process all of the FECs. */
       for( ulong i=fec_cnt; i>0UL; i-- ) {
@@ -1994,7 +1994,7 @@ after_credit( fd_replay_tile_t *  ctx,
       }
     } else {
       /* Standard case. */
-      fec = fd_reasm_out( ctx->reasm );
+      fec = fd_reasm_pop( ctx->reasm );
       process_fec_set( ctx, stem, fec );
     }
 
