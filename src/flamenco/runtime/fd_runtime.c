@@ -815,8 +815,8 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
   /* Update the bank hash */
   fd_bank_bank_hash_set( bank, *new_bank_hash );
 
-  if( capture_ctx != NULL && capture_ctx->capture != NULL &&
-    fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
+  if( capture_ctx && capture_ctx->capture_solcap &&
+      fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
 
     uchar lthash_hash[FD_HASH_FOOTPRINT];
     fd_blake3_hash(lthash->bytes, FD_LTHASH_LEN_BYTES, lthash_hash );
