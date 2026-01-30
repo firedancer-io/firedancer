@@ -1225,7 +1225,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   int res = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
     FD_LOG_DEBUG(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
-    txn_out->err.is_committable = fd_cost_tracker_err_to_runtime_err( res );
+    txn_out->err.is_committable = 0;
+    txn_out->err.txn_err        = fd_cost_tracker_err_to_runtime_err( res );
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
@@ -1298,7 +1299,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
 
   txn_out->details.loaded_accounts_data_size = 0UL;
-  txn_out->details.accounts_resize_delta     = 0UL;
+  txn_out->details.accounts_resize_delta     = 0L;
 
   txn_out->details.return_data.len = 0UL;
   memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );

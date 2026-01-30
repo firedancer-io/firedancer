@@ -269,7 +269,7 @@ struct fd_txn_out {
     fd_compute_budget_details_t compute_budget;            /* Compute budget details */
     fd_transaction_cost_t       txn_cost;                  /* Transaction cost */
     ulong                       loaded_accounts_data_size; /* The actual transaction loaded data size */
-    ulong                       accounts_resize_delta;     /* Transaction level tracking for account resizing */
+    long                        accounts_resize_delta;     /* Transaction level tracking for account resizing */
 
     fd_txn_return_data_t        return_data;               /* Data returned from `return_data` syscalls */
 

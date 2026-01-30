@@ -1621,16 +1621,6 @@ fd_gui_ws_message( fd_gui_t *    gui,
     int result = fd_gui_request_slot_rankings( gui, ws_conn_id, id, params );
     cJSON_Delete( json );
     return result;
-  } else if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query_shreds" ) ) ) {
-    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
-    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
-      cJSON_Delete( json );
-      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    }
-
-    int result = fd_gui_request_slot_shreds( gui, ws_conn_id, id, params );
-    cJSON_Delete( json );
-    return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "summary" ) && !strcmp( key->valuestring, "ping" ) ) ) {
     fd_gui_printf_summary_ping( gui, id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
