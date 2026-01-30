@@ -138,10 +138,12 @@ fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
   return !!(instr->accounts[idx].is_signer);
 }
 
-/* fd_instr_info_sum_account_lamports returns the sum of lamport account
-   balances of all instruction accounts in the context.
+/* fd_instr_info_sum_account_lamports calculates the sum of lamports
+   account balances of all instruction accounts in the context,
+   outputting the result in total_lamports_h and total_lamports_l.
 
-   Aborts on integer overflow. */
+   Returns FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW on arithmetic
+   overflow, otherwise FD_EXECUTOR_INSTR_SUCCESS */
 
 int
 fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
