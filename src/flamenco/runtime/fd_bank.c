@@ -303,7 +303,7 @@ fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
 
 /* Bank accesssors */
 
-#define X(type, name, footprint, align)                                 \
+#define X(type, name)                                                   \
   type const *                                                          \
   fd_bank_##name##_query( fd_bank_t const * bank ) {                    \
     return (type const *)fd_type_pun_const( bank->data->non_cow.name ); \
