@@ -60,7 +60,7 @@ test_hfork_simple( fd_wksp_t * wksp ) {
     FD_TEST( 0==memcmp( hfork->vtr_map[i].vote_acc.key, pubkey_null.key, 32UL ) );
   }
 
-  fd_hfork_count_vote( hfork, &voters[0], &block_id, &bank_hash, slot, 1, 100, &metrics );
+  fd_hfork_count_vote( hfork, &metrics, &voters[0], &block_id, &bank_hash, slot, 1, 100 );
   candidate_key_t key       = { .block_id = block_id, .bank_hash = bank_hash };
   candidate_t *   candidate = candidate_map_query( hfork->candidate_map, key, NULL );
   FD_TEST( candidate->slot   ==slot );
@@ -68,7 +68,7 @@ test_hfork_simple( fd_wksp_t * wksp ) {
   FD_TEST( candidate->cnt    ==1    );
   FD_TEST( candidate->checked==0    );
 
-  fd_hfork_count_vote( hfork, &voters[1], &block_id, &bank_hash, slot, 51, 100, &metrics );
+  fd_hfork_count_vote( hfork, &metrics, &voters[1], &block_id, &bank_hash, slot, 51, 100 );
   FD_TEST( candidate->stake  ==52   );
   FD_TEST( candidate->cnt    ==2    );
   FD_TEST( candidate->checked==0    );
@@ -76,8 +76,8 @@ test_hfork_simple( fd_wksp_t * wksp ) {
   fd_hfork_record_our_bank_hash( hfork, &block_id, &bank_hash, 100 );
   FD_TEST( candidate->checked==1    );
 
-  fd_hfork_count_vote( hfork, &voters[0], &block_id1, &bank_hash1, slot1, 1, 100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[0], &block_id2, &bank_hash2, slot2, 1, 100, &metrics );
+  fd_hfork_count_vote( hfork, &metrics, &voters[0], &block_id1, &bank_hash1, slot1, 1, 100 );
+  fd_hfork_count_vote( hfork, &metrics, &voters[0], &block_id2, &bank_hash2, slot2, 1, 100 );
 
   /* evicted */
 
@@ -86,10 +86,10 @@ test_hfork_simple( fd_wksp_t * wksp ) {
 
   /* max bank hashes for a given block_id */
 
-  fd_hfork_count_vote( hfork, &voters[0], &block_id3, &bank_hash,  slot3, 1,  100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[1], &block_id3, &bank_hash1, slot3, 51, 100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[2], &block_id3, &bank_hash2, slot3, 2,  100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[3], &block_id3, &bank_hash3, slot3, 3,  100, &metrics );
+  fd_hfork_count_vote( hfork, &metrics, &voters[0], &block_id3, &bank_hash,  slot3, 1,  100 );
+  fd_hfork_count_vote( hfork, &metrics, &voters[1], &block_id3, &bank_hash1, slot3, 51, 100 );
+  fd_hfork_count_vote( hfork, &metrics, &voters[2], &block_id3, &bank_hash2, slot3, 2,  100 );
+  fd_hfork_count_vote( hfork, &metrics, &voters[3], &block_id3, &bank_hash3, slot3, 3,  100 );
 
   FD_TEST( cnt( hfork, &block_id3 )==4 );
   blk_t *       blk3 = blk_map_query( hfork->blk_map, block_id3, NULL );
@@ -104,8 +104,8 @@ test_hfork_simple( fd_wksp_t * wksp ) {
 
   /* evict front (bank_hash) from block_id */
 
-  fd_hfork_count_vote( hfork, &voters[0], &block_id4, &bank_hash4,  slot4, 1,  100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[0], &block_id5, &bank_hash5,  slot5, 1,  100, &metrics );
+  fd_hfork_count_vote( hfork, &metrics, &voters[0], &block_id4, &bank_hash4,  slot4, 1,  100 );
+  fd_hfork_count_vote( hfork, &metrics, &voters[0], &block_id5, &bank_hash5,  slot5, 1,  100 );
 
   FD_TEST( !candidate_map_query( hfork->candidate_map, (candidate_key_t){ .block_id = block_id3, .bank_hash = bank_hash }, NULL ) );
   FD_TEST( cnt( hfork, &block_id3 )==3 );
@@ -122,8 +122,8 @@ test_hfork_simple( fd_wksp_t * wksp ) {
 
   /* evict middle (bank_hash2) from block_id */
 
-  fd_hfork_count_vote( hfork, &voters[2], &block_id4, &bank_hash4,  slot4, 1,  100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[2], &block_id5, &bank_hash5,  slot5, 1,  100, &metrics );
+  fd_hfork_count_vote( hfork, &metrics, &voters[2], &block_id4, &bank_hash4,  slot4, 1,  100 );
+  fd_hfork_count_vote( hfork, &metrics, &voters[2], &block_id5, &bank_hash5,  slot5, 1,  100 );
 
   FD_TEST( !candidate_map_query( hfork->candidate_map, (candidate_key_t){ .block_id = block_id3, .bank_hash = bank_hash2 }, NULL ) );
   FD_TEST( cnt( hfork, &block_id3 )==2 );
@@ -138,8 +138,8 @@ test_hfork_simple( fd_wksp_t * wksp ) {
 
   /* evict back (bank_hash3) from block_id */
 
-  fd_hfork_count_vote( hfork, &voters[3], &block_id4, &bank_hash4,  slot4, 1,  100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[3], &block_id5, &bank_hash5,  slot5, 1,  100, &metrics );
+  fd_hfork_count_vote( hfork, &metrics, &voters[3], &block_id4, &bank_hash4,  slot4, 1,  100 );
+  fd_hfork_count_vote( hfork, &metrics, &voters[3], &block_id5, &bank_hash5,  slot5, 1,  100 );
 
   FD_TEST( !candidate_map_query( hfork->candidate_map, (candidate_key_t){ .block_id = block_id3, .bank_hash = bank_hash3 }, NULL ) );
   FD_TEST( cnt( hfork, &block_id3 )==1 );
@@ -152,8 +152,8 @@ test_hfork_simple( fd_wksp_t * wksp ) {
 
   /* evict singleton (bank_hash1) from block_id */
 
-  fd_hfork_count_vote( hfork, &voters[1], &block_id4, &bank_hash4,  slot4, 1,  100, &metrics );
-  fd_hfork_count_vote( hfork, &voters[1], &block_id5, &bank_hash5,  slot5, 1,  100, &metrics );
+  fd_hfork_count_vote( hfork, &metrics, &voters[1], &block_id4, &bank_hash4,  slot4, 1,  100 );
+  fd_hfork_count_vote( hfork, &metrics, &voters[1], &block_id5, &bank_hash5,  slot5, 1,  100 );
 
   FD_TEST( !candidate_map_query( hfork->candidate_map, (candidate_key_t){ .block_id = block_id3, .bank_hash = bank_hash1 }, NULL ) );
   FD_TEST( !blk_map_query( hfork->blk_map, block_id3, NULL ) );

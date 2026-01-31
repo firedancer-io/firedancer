@@ -499,7 +499,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
       continue;
     }
 
-    uchar const * origin_pubkey = payload+value->pubkey_off;
+    uchar const * origin_pubkey = payload+value->from_off;
     ulong origin_stake          = get_stake( gossip, origin_pubkey );
 
     /* TODO: Is this jittered in Agave? */
@@ -568,7 +568,7 @@ process_push_crds( fd_gossip_t *                       gossip,
 
   gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PUSH_IDX ]++;
 
-  uchar const * origin_pubkey = payload+value->pubkey_off;
+  uchar const * origin_pubkey = payload+value->from_off;
   uchar is_me                 = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
   ulong origin_stake          = get_stake( gossip, origin_pubkey );
 
@@ -752,6 +752,28 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
                           stem,
                           now,
                           1 /* flush_immediately */ );
+  return 0;
+}
+
+int
+fd_gossip_push_duplicate_shred( fd_gossip_t *                       gossip,
+                                fd_gossip_duplicate_shred_t const * duplicate_shred,
+                                fd_stem_context_t *                 stem,
+                                long                                now ) {
+
+  uchar                       buf[ FD_GOSSIP_CRDS_MAX_SZ ];
+  fd_gossip_view_crds_value_t view[1];
+
+  fd_gossip_crds_duplicate_shred_encode( duplicate_shred, gossip->identity_pubkey, buf, FD_GOSSIP_CRDS_MAX_SZ, view );
+  gossip->sign_fn( gossip->sign_ctx, buf+64UL, view->length-64UL, FD_KEYGUARD_SIGN_TYPE_ED25519, buf );
+
+  int res = fd_crds_checks_fast( gossip->crds, view, buf, 0 );
+  if( FD_UNLIKELY( res ) ) return -1;
+
+  fd_crds_entry_t const * entry = fd_crds_insert( gossip->crds, view, buf, gossip->identity_stake, 1, /* is_me */ now, stem );
+  if( FD_UNLIKELY( !entry ) ) return -1;
+
+  active_push_set_insert( gossip, buf, view->length, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 /* flush_immediately */ );
   return 0;
 }
 

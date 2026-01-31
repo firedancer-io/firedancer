@@ -109,10 +109,11 @@ fd_hfork_new( void * shmem,
   hfork->vtr_map        = vtr_map_new( vtr_map, lg_vtr_max, 0UL );             /* FIXME seed */
   hfork->candidate_map  = candidate_map_new( candidate_map, lg_blk_max, 0UL ); /* FIXME seed */
   hfork->bank_hash_pool = bank_hash_pool_new( bank_hash_pool, fork_max );
+
+  vtr_t * vtr_map_ = vtr_map_join( hfork->vtr_map );
   for( ulong i = 0UL; i < fd_ulong_pow2( lg_vtr_max ); i++ ) {
-    void *  votes = FD_SCRATCH_ALLOC_APPEND( l, votes_align(), votes_footprint( max_live_slots ) );
-    vtr_t * join  = vtr_map_join( hfork->vtr_map );
-    join[i].votes = votes_new( votes, max_live_slots );
+    void * votes      = FD_SCRATCH_ALLOC_APPEND( l, votes_align(), votes_footprint( max_live_slots ) );
+    vtr_map_[i].votes = votes_new( votes, max_live_slots );
   }
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_hfork_align() ) == (ulong)shmem + footprint );
   hfork->fatal = fatal;
@@ -192,13 +193,13 @@ remove( blk_t * blk, fd_hash_t * bank_hash, bank_hash_t * pool ) {
 
 void
 fd_hfork_count_vote( fd_hfork_t *         hfork,
+                     fd_hfork_metrics_t * metrics,
                      fd_hash_t const *    vote_acc,
                      fd_hash_t const *    block_id,
                      fd_hash_t const *    bank_hash,
                      ulong                slot,
                      ulong                stake,
-                     ulong                total_stake,
-                     fd_hfork_metrics_t * metrics ) {
+                     ulong                total_stake ) {
 
   /* Get the vtr. */
 
@@ -208,12 +209,9 @@ fd_hfork_count_vote( fd_hfork_t *         hfork,
     vtr = vtr_map_insert( hfork->vtr_map, *vote_acc );
   }
 
-  /* Ignore out of order or duplicate votes. */
+  /* Only process newer votes (by vote slot) from a given voter. */
 
-  if( FD_UNLIKELY( !votes_empty( vtr->votes ) ) ) {
-    vote_t const * tail = votes_peek_tail_const( vtr->votes );
-    if( FD_UNLIKELY( tail && tail->slot >= slot ) ) return;
-  }
+  if( FD_UNLIKELY( !votes_empty( vtr->votes ) && votes_peek_tail_const( vtr->votes )->slot >= slot ) ) return;
 
   /* Evict the candidate's oldest vote (by vote slot). */
 
