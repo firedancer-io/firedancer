@@ -46,6 +46,7 @@ $(call add-objs,utils/fd_sshttp,fd_discof)
 endif
 $(call add-objs,utils/fd_ssarchive,fd_discof)
 $(call add-objs,utils/fd_sspeer_selector,fd_discof)
+$(call add-objs,utils/fd_vinyl_admin,fd_discof)
 $(call add-objs,utils/fd_vinyl_io_wd,fd_discof)
 
 ifdef FD_HAS_HOSTED
