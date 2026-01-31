@@ -37,7 +37,8 @@ fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
                                            ulong                 current_epoch,
                                            ulong                 target_epoch,
                                            int                   authorized_withdrawer_signer,
-                                           fd_pubkey_t const *   signers[static FD_TXN_SIG_MAX] );
+                                           fd_pubkey_t const *   signers[static FD_TXN_SIG_MAX],
+                                           ulong                 signers_cnt );
 
 FD_PROTOTYPES_END
 

@@ -141,7 +141,8 @@ fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
                                            ulong                 current_epoch,
                                            ulong                 target_epoch,
                                            int                   authorized_withdrawer_signer,
-                                           fd_pubkey_t const *   signers[static FD_TXN_SIG_MAX] ) {
+                                           fd_pubkey_t const *   signers[static FD_TXN_SIG_MAX],
+                                           ulong                 signers_cnt ) {
   int           rc;
   fd_pubkey_t * epoch_authorized_voter = NULL;
 
@@ -150,7 +151,7 @@ fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L779
-  rc = fd_vote_signature_verify( epoch_authorized_voter, authorized_withdrawer_signer, signers );
+  rc = fd_vote_signature_verify( epoch_authorized_voter, authorized_withdrawer_signer, signers, signers_cnt );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L786
