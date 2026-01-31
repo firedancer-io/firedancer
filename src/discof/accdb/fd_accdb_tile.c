@@ -293,6 +293,7 @@ privileged_init( fd_topo_t *      topo,
   vinyl->line_footprint = line_footprint;
 
   /* FIXME use O_DIRECT? */
+  FD_LOG_INFO(( "opening vinyl database file %s", tile->accdb.bstream_path ));
   int dev_fd = open( tile->accdb.bstream_path, O_RDWR|O_CLOEXEC );
   if( FD_UNLIKELY( dev_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_CLOEXEC) failed (%i-%s)", tile->accdb.bstream_path, errno, fd_io_strerror( errno ) ));
 
@@ -826,7 +827,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
       fd_vinyl_io_rd_t * rd = _rd;
 
       fd_vinyl_data_obj_t *     obj      = (fd_vinyl_data_obj_t *)    rd->ctx;
-      ulong                     seq      =                            rd->seq; (void)seq;
+      ulong                     seq      =                            rd->seq;
       fd_vinyl_bstream_phdr_t * cphdr    = (fd_vinyl_bstream_phdr_t *)rd->dst;
       ulong                     cpair_sz =                            rd->sz;  (void)cpair_sz;
 
@@ -877,7 +878,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
         FD_CRIT( obj==cobj,             "corruption detected" );
         FD_CRIT( cpair_val_esz==val_sz, "corruption detected" );
 
-      } else {
+      } else if( cpair_style==FD_VINYL_BSTREAM_CTL_STYLE_LZ4 ) {
 
         char const * cval    = (char const *)fd_vinyl_data_obj_val( cobj );
         ulong        cval_sz = fd_vinyl_bstream_ctl_sz( cpair_ctl );
@@ -893,6 +894,8 @@ before_credit( fd_vinyl_tile_t *   ctx,
         phdr->key  = cphdr->key;
         phdr->info = cphdr->info;
 
+      } else {
+        FD_LOG_CRIT(( "corrupt bstream record (seq=%lu cpair_style=%d)", seq, cpair_style ));
       }
 
       obj->rd_active = (short)0;
